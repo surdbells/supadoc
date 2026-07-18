@@ -1,0 +1,85 @@
+.auth {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-top: 16px;
+}
+
+.auth__title {
+  font-family: 'Lexend Variable', sans-serif;
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 38px;
+  color: #0a1628;
+  margin: 0;
+}
+
+.auth__sub {
+  color: #546e7a;
+  margin: 6px 0 0;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+ion-input {
+  --border-radius: 16px;
+}
+
+.auth__forgot {
+  align-self: flex-end;
+}
+
+.auth__link {
+  color: #1565c0;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth__foot {
+  text-align: center;
+  color: #546e7a;
+}
+
+.auth__terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #546e7a;
+  font-size: 14px;
+}
+
+.auth__error {
+  background: rgba(229, 57, 53, 0.1);
+  color: #e53935;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.auth__success {
+  background: rgba(0, 163, 40, 0.1);
+  color: #00a328;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 14px;
+  margin: 0;
+}
+
+.auth__back {
+  color: #546e7a;
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+ion-button {
+  --border-radius: 16px;
+  margin-top: 4px;
+  text-transform: none;
+  font-weight: 600;
+}

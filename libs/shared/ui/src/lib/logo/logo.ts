@@ -10,7 +10,10 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 @Component({
   selector: 'sd-logo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'inline-flex items-center gap-2 align-middle' },
+  host: {
+    style:
+      'display:inline-flex;align-items:center;gap:8px;vertical-align:middle',
+  },
   template: `
     <svg
       [attr.width]="size()"
