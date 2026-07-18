@@ -15,7 +15,7 @@ describe('ButtonComponent', () => {
     const button: HTMLButtonElement =
       fixture.nativeElement.querySelector('button');
     expect(button).toBeTruthy();
-    expect(button.className).toContain('bg-brand-500');
-    expect(button.className).toContain('h-12');
+    expect(button.className).toContain('bg-cerulean');
+    expect(button.className).toContain('px-5');
   });
 });

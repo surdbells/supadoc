@@ -22,7 +22,11 @@
             "input": "apps/doctor/public"
           }
         ],
-        "styles": ["apps/doctor/src/styles.css"]
+        "styles": [
+          "node_modules/@fontsource-variable/lexend/wght.css",
+          "node_modules/@fontsource/poppins/index.css",
+          "apps/doctor/src/styles.css"
+        ]
       },
       "configurations": {
         "production": {

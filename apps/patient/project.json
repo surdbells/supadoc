@@ -22,7 +22,11 @@
             "input": "apps/patient/public"
           }
         ],
-        "styles": ["apps/patient/src/styles.css"]
+        "styles": [
+          "node_modules/@fontsource-variable/lexend/wght.css",
+          "node_modules/@fontsource/poppins/index.css",
+          "apps/patient/src/styles.css"
+        ]
       },
       "configurations": {
         "production": {

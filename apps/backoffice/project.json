@@ -22,7 +22,11 @@
             "input": "apps/backoffice/public"
           }
         ],
-        "styles": ["apps/backoffice/src/styles.css"]
+        "styles": [
+          "node_modules/@fontsource-variable/lexend/wght.css",
+          "node_modules/@fontsource/poppins/index.css",
+          "apps/backoffice/src/styles.css"
+        ]
       },
       "configurations": {
         "production": {

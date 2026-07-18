@@ -1,26 +1,65 @@
 /*
- * Ionic theming variables for the Supadoc patient app.
- * Maps Ionic's color system onto the shared Supadoc brand palette so the
- * mobile app stays visually consistent with the web portals.
+ * Ionic theming for the Supadoc patient app — mapped onto the VideoMed design
+ * system so the mobile app matches the web portals.
  * See https://ionicframework.com/docs/theming/color-generator
  */
 :root {
-  /* Brand teal -> Ionic primary */
-  --ion-color-primary: #17a2a8;
-  --ion-color-primary-rgb: 23, 162, 168;
+  /* Cerulean -> primary */
+  --ion-color-primary: #1565c0;
+  --ion-color-primary-rgb: 21, 101, 192;
   --ion-color-primary-contrast: #ffffff;
   --ion-color-primary-contrast-rgb: 255, 255, 255;
-  --ion-color-primary-shade: #148f94;
-  --ion-color-primary-tint: #2eabb1;
+  --ion-color-primary-shade: #1259a9;
+  --ion-color-primary-tint: #2c74c6;
 
-  /* Accent indigo -> Ionic secondary */
-  --ion-color-secondary: #4f46e5;
-  --ion-color-secondary-rgb: 79, 70, 229;
+  /* Teal -> secondary ("Med") */
+  --ion-color-secondary: #00897b;
+  --ion-color-secondary-rgb: 0, 137, 123;
   --ion-color-secondary-contrast: #ffffff;
   --ion-color-secondary-contrast-rgb: 255, 255, 255;
-  --ion-color-secondary-shade: #453eca;
-  --ion-color-secondary-tint: #6059e8;
+  --ion-color-secondary-shade: #00796c;
+  --ion-color-secondary-tint: #1a9588;
 
+  /* Sky -> tertiary */
+  --ion-color-tertiary: #2196f3;
+  --ion-color-tertiary-rgb: 33, 150, 243;
+  --ion-color-tertiary-contrast: #ffffff;
+  --ion-color-tertiary-contrast-rgb: 255, 255, 255;
+  --ion-color-tertiary-shade: #1d84d6;
+  --ion-color-tertiary-tint: #37a1f4;
+
+  /* Success */
+  --ion-color-success: #00a328;
+  --ion-color-success-rgb: 0, 163, 40;
+  --ion-color-success-contrast: #ffffff;
+  --ion-color-success-contrast-rgb: 255, 255, 255;
+  --ion-color-success-shade: #009023;
+  --ion-color-success-tint: #1aac3e;
+
+  /* Warning */
+  --ion-color-warning: #f2a900;
+  --ion-color-warning-rgb: 242, 169, 0;
+  --ion-color-warning-contrast: #1c2b3a;
+  --ion-color-warning-contrast-rgb: 28, 43, 58;
+  --ion-color-warning-shade: #d59500;
+  --ion-color-warning-tint: #f3b21a;
+
+  /* Danger (Alert) */
+  --ion-color-danger: #e53935;
+  --ion-color-danger-rgb: 229, 57, 53;
+  --ion-color-danger-contrast: #ffffff;
+  --ion-color-danger-contrast-rgb: 255, 255, 255;
+  --ion-color-danger-shade: #ca322f;
+  --ion-color-danger-tint: #e84d49;
+
+  /* Surfaces + text */
+  --ion-background-color: #f1f9ff; /* Glacier */
+  --ion-background-color-rgb: 241, 249, 255;
+  --ion-text-color: #1c2b3a; /* Ink */
+  --ion-text-color-rgb: 28, 43, 58;
+
+  /* Type — SF Pro on Apple, graceful fallbacks elsewhere. Headings use Lexend. */
   --ion-font-family:
-    'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif;
 }

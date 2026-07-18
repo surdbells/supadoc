@@ -68,6 +68,8 @@
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/status-bar": "^8.0.3",
+    "@fontsource-variable/lexend": "^5.2.11",
+    "@fontsource/poppins": "^5.2.7",
     "@ionic/angular": "^8.8.14",
     "@lucide/angular": "^1.23.0",
     "ionicons": "^8.0.13",
