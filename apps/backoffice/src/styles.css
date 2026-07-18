@@ -1,0 +1,18 @@
+/* Backoffice — global styles entry (Tailwind v4). */
+@import 'tailwindcss';
+
+/* Shared Supadoc design tokens (colors, type, radii). */
+@import '../../../tailwind/theme.css';
+
+/* Also scan the shared UI library so its utility classes are generated. */
+@source '../../../libs/shared/ui/src';
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  @apply bg-surface-100 text-surface-900 antialiased;
+}

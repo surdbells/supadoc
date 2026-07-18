@@ -1,0 +1,26 @@
+/*
+ * Ionic theming variables for the Supadoc patient app.
+ * Maps Ionic's color system onto the shared Supadoc brand palette so the
+ * mobile app stays visually consistent with the web portals.
+ * See https://ionicframework.com/docs/theming/color-generator
+ */
+:root {
+  /* Brand teal -> Ionic primary */
+  --ion-color-primary: #17a2a8;
+  --ion-color-primary-rgb: 23, 162, 168;
+  --ion-color-primary-contrast: #ffffff;
+  --ion-color-primary-contrast-rgb: 255, 255, 255;
+  --ion-color-primary-shade: #148f94;
+  --ion-color-primary-tint: #2eabb1;
+
+  /* Accent indigo -> Ionic secondary */
+  --ion-color-secondary: #4f46e5;
+  --ion-color-secondary-rgb: 79, 70, 229;
+  --ion-color-secondary-contrast: #ffffff;
+  --ion-color-secondary-contrast-rgb: 255, 255, 255;
+  --ion-color-secondary-shade: #453eca;
+  --ion-color-secondary-tint: #6059e8;
+
+  --ion-font-family:
+    'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}

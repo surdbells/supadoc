@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      # Derives NX_BASE / NX_HEAD so `nx affected` only runs projects touched
+      # by the current push / pull request.
+      - uses: nrwl/nx-set-shas@v4
+
+      - run: pnpm exec nx format:check
+      - run: pnpm exec nx affected -t lint test build
