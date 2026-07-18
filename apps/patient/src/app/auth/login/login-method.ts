@@ -18,7 +18,7 @@ import { IconComponent } from '@supadoc/ui';
         </div>
 
         <div class="flex flex-col gap-6">
-          <button type="button" [class]="methodClass">
+          <a routerLink="/auth/login/google" [class]="methodClass">
             <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
               <path
                 fill="#4285F4"
@@ -38,17 +38,17 @@ import { IconComponent } from '@supadoc/ui';
               />
             </svg>
             Continue with Google
-          </button>
+          </a>
 
           <a routerLink="/auth/login/email" [class]="methodClass">
             <sd-icon name="mail" [size]="24" class="text-ink" />
             Continue with Email
           </a>
 
-          <button type="button" [class]="methodClass">
+          <a routerLink="/auth/login/phone" [class]="methodClass">
             <sd-icon name="phone" [size]="24" class="text-ink" />
             Continue with Phone
-          </button>
+          </a>
         </div>
       </div>
 

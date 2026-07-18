@@ -23,6 +23,7 @@ import {
   LucidePlus,
   LucideSearch,
   LucideSettings,
+  LucideShield,
   LucideStethoscope,
   LucideUser,
   LucideUsers,
@@ -65,6 +66,7 @@ export const SUPADOC_ICONS = [
   LucidePhone,
   LucideEye,
   LucideEyeOff,
+  LucideShield,
 ];
 
 /**

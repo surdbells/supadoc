@@ -17,7 +17,16 @@ export const authRoutes: Route[] = [
         loadComponent: () =>
           import('./login/sign-in-email').then((m) => m.SignInEmail),
       },
-      // TODO login/phone (Figma 361:4760), login/google (365:5218)
+      {
+        path: 'login/phone',
+        loadComponent: () =>
+          import('./login/sign-in-phone').then((m) => m.SignInPhone),
+      },
+      {
+        path: 'login/google',
+        loadComponent: () =>
+          import('./login/sign-in-google').then((m) => m.SignInGoogle),
+      },
 
       // ----- Register (TODO: real multi-step flow 254:3640 …) -----
       {
@@ -28,6 +37,13 @@ export const authRoutes: Route[] = [
       // ----- Password recovery (TODO: full flow 376:5405 …) -----
       {
         path: 'recover/email',
+        loadComponent: () =>
+          import('./forgot-password/forgot-password').then(
+            (m) => m.ForgotPassword,
+          ),
+      },
+      {
+        path: 'recover/phone',
         loadComponent: () =>
           import('./forgot-password/forgot-password').then(
             (m) => m.ForgotPassword,
