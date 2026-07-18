@@ -27,6 +27,18 @@ export const authRoutes: Route[] = [
       actionLink: '/auth/register',
     },
   },
+  {
+    path: 'recover/success',
+    loadComponent: () =>
+      import('./status/auth-status').then((m) => m.AuthStatus),
+    data: {
+      variant: 'success',
+      title: 'Password changed successfully',
+      subtitle: 'You can now log in with your new password.',
+      actionLabel: 'Back to log in',
+      actionLink: '/auth/login',
+    },
+  },
 
   {
     path: '',
@@ -93,20 +105,33 @@ export const authRoutes: Route[] = [
           import('./register/setup').then((m) => m.RegisterSetup),
       },
 
-      // ----- Password recovery (TODO: full flow 376:5405 …) -----
+      // ----- Password recovery -----
       {
         path: 'recover/email',
         loadComponent: () =>
-          import('./forgot-password/forgot-password').then(
-            (m) => m.ForgotPassword,
-          ),
+          import('./recover/recover-email').then((m) => m.RecoverEmail),
       },
       {
         path: 'recover/phone',
         loadComponent: () =>
-          import('./forgot-password/forgot-password').then(
-            (m) => m.ForgotPassword,
-          ),
+          import('./recover/recover-phone').then((m) => m.RecoverPhone),
+      },
+      {
+        path: 'recover/verify-email',
+        loadComponent: () =>
+          import('./register/verify-otp').then((m) => m.VerifyOtp),
+        data: { channel: 'email', next: '/auth/recover/new-password' },
+      },
+      {
+        path: 'recover/verify-phone',
+        loadComponent: () =>
+          import('./register/verify-otp').then((m) => m.VerifyOtp),
+        data: { channel: 'phone', next: '/auth/recover/new-password' },
+      },
+      {
+        path: 'recover/new-password',
+        loadComponent: () =>
+          import('./recover/new-password').then((m) => m.NewPassword),
       },
 
       { path: '', redirectTo: 'login', pathMatch: 'full' },

@@ -64,6 +64,8 @@ export class VerifyOtp {
     (this.route.snapshot.data['channel'] as 'email' | 'phone') ?? 'email';
   protected readonly channelLabel =
     this.channel === 'phone' ? 'Phone' : 'Email';
+  private readonly next =
+    (this.route.snapshot.data['next'] as string) ?? '/auth/register/setup';
   protected readonly target = signal(
     this.route.snapshot.queryParamMap.get('target') ?? 'your account',
   );
@@ -93,7 +95,7 @@ export class VerifyOtp {
   protected async verify(): Promise<void> {
     if (this.code.invalid) return;
     this.submitting.set(true);
-    await this.router.navigateByUrl('/auth/register/setup');
+    await this.router.navigateByUrl(this.next);
     this.submitting.set(false);
   }
 
