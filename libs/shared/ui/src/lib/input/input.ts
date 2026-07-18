@@ -32,9 +32,12 @@ export type InputType = 'text' | 'email' | 'password' | 'tel' | 'number';
   template: `
     <label class="flex w-full flex-col gap-2">
       @if (label()) {
-        <span class="font-sans text-body-sm font-semibold text-ink">{{
-          label()
-        }}</span>
+        <span class="font-sans text-body font-semibold text-ink"
+          >{{ label() }}
+          @if (required()) {
+            <span class="text-alert"> *</span>
+          }
+        </span>
       }
       <span [class]="fieldClasses()">
         @if (leadingIcon()) {
@@ -75,6 +78,7 @@ export class InputComponent implements ControlValueAccessor {
   readonly leadingIcon = input<string>();
   readonly autocomplete = input<string>();
   readonly error = input<string>();
+  readonly required = input(false);
 
   protected readonly value = signal('');
   protected readonly disabled = signal(false);
@@ -91,7 +95,7 @@ export class InputComponent implements ControlValueAccessor {
   protected readonly fieldClasses = computed(() => {
     const border = this.error()
       ? 'border-alert focus-within:border-alert focus-within:ring-alert/15'
-      : 'border-[#d7e0e8] focus-within:border-cerulean focus-within:ring-cerulean/15';
+      : 'border-[#d7e0e8] focus-within:border-teal focus-within:ring-teal/15';
     return `flex items-center gap-2 rounded-field border bg-white px-4 transition-colors focus-within:ring-2 ${border}`;
   });
 
