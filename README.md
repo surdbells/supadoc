@@ -84,6 +84,27 @@ Build shared, reusable components in `@supadoc/ui` (prefix `sd-`) so every app
 stays consistent. The mobile app themes Ionic to the same palette in
 [`apps/mobile/src/theme/variables.scss`](apps/mobile/src/theme/variables.scss).
 
+**Icons** use [Lucide](https://lucide.dev/icons) via `@supadoc/ui`: register the
+set with `provideSupadocIcons()` (already wired into every app) and render with
+`<sd-icon name="stethoscope" [size]="18" />`. Add new icons to the curated list
+in [`libs/shared/ui/src/lib/icons/icons.ts`](libs/shared/ui/src/lib/icons/icons.ts).
+
+## Charts & data visualization
+
+Charts and graphs must render as **SVG**, and that SVG must be **secure**:
+
+- Prefer building charts as Angular SVG templates (`<svg>` with `<rect>`,
+  `<path>`, `<text>`, …). Angular escapes interpolated bindings, so data-driven
+  charts are safe by construction.
+- **Never** inject chart/SVG markup via `[innerHTML]` from untrusted data, and
+  **never** call `DomSanitizer.bypassSecurityTrust*` on values derived from API
+  or user input.
+- If a charting library is added, choose an SVG-native, Angular-friendly one
+  that renders through the DOM rather than raw HTML injection (e.g. ngx-charts),
+  and avoid `eval`/`Function`-based renderers.
+- `<sd-icon>` already follows this: Lucide builds SVG nodes via `Renderer2`, not
+  `innerHTML`.
+
 ## API integration
 
 The API is developed separately; the integration seam is ready:

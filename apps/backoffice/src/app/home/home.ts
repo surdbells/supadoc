@@ -1,10 +1,10 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { ButtonComponent, CardComponent } from '@supadoc/ui';
+import { ButtonComponent, CardComponent, IconComponent } from '@supadoc/ui';
 
 @Component({
   selector: 'bo-home',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, CardComponent],
+  imports: [ButtonComponent, CardComponent, IconComponent],
   template: `
     <main
       class="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 p-6"
@@ -12,18 +12,22 @@ import { ButtonComponent, CardComponent } from '@supadoc/ui';
       <sd-card>
         <div class="flex flex-col items-start gap-4">
           <span
-            class="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand-700"
+            class="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand-700"
           >
+            <sd-icon name="layout-dashboard" [size]="14" />
             Supadoc
           </span>
           <h1 class="text-3xl font-bold text-surface-900">Backoffice</h1>
           <p class="max-w-prose text-surface-500">
             Monorepo scaffold is ready. Build the control center from the Figma
-            designs using the shared <code>&#64;supadoc/ui</code> components and
-            Tailwind design tokens.
+            designs using the shared <code>&#64;supadoc/ui</code> components,
+            Lucide icons and Tailwind design tokens.
           </p>
           <div class="flex gap-3">
-            <sd-button variant="primary">Get started</sd-button>
+            <sd-button variant="primary">
+              Get started
+              <sd-icon name="arrow-right" [size]="16" />
+            </sd-button>
             <sd-button variant="ghost">View components</sd-button>
           </div>
         </div>

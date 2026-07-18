@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "doctor",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nx", "serve", "doctor", "--port", "4200"],
+      "port": 4200
+    },
+    {
+      "name": "patient",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nx", "serve", "patient", "--port", "4201"],
+      "port": 4201
+    },
+    {
+      "name": "backoffice",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nx", "serve", "backoffice", "--port", "4202"],
+      "port": 4202
+    },
+    {
+      "name": "mobile",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nx", "serve", "mobile", "--port", "4203"],
+      "port": 4203
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import {
   provideSupadocDataAccess,
 } from '@supadoc/data-access';
 import { authInterceptor, provideSupadocAuth } from '@supadoc/auth';
+import { provideSupadocIcons } from '@supadoc/ui';
 import { appRoutes } from './app.routes';
 import { environment } from '../environments/environment';
 
@@ -23,5 +24,6 @@ export const appConfig: ApplicationConfig = {
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     provideSupadocAuth(),
+    provideSupadocIcons(),
   ],
 };
