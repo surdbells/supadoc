@@ -2,6 +2,32 @@ import { Route } from '@angular/router';
 import { AuthLayout } from './auth-layout';
 
 export const authRoutes: Route[] = [
+  // ----- Full-screen result pages (no split layout) -----
+  {
+    path: 'register/success',
+    loadComponent: () =>
+      import('./status/auth-status').then((m) => m.AuthStatus),
+    data: {
+      variant: 'success',
+      title: 'Account created successfully',
+      subtitle: 'Welcome to VideoMed',
+      actionLabel: 'Go to dashboard',
+      actionLink: '/',
+    },
+  },
+  {
+    path: 'register/failure',
+    loadComponent: () =>
+      import('./status/auth-status').then((m) => m.AuthStatus),
+    data: {
+      variant: 'error',
+      title: 'Something went wrong',
+      subtitle: "We couldn't create your account. Please try again.",
+      actionLabel: 'Try again',
+      actionLink: '/auth/register',
+    },
+  },
+
   {
     path: '',
     component: AuthLayout,
@@ -28,10 +54,43 @@ export const authRoutes: Route[] = [
           import('./login/sign-in-google').then((m) => m.SignInGoogle),
       },
 
-      // ----- Register (TODO: real multi-step flow 254:3640 …) -----
+      // ----- Register -----
       {
         path: 'register',
-        loadComponent: () => import('./signup/signup').then((m) => m.Signup),
+        loadComponent: () =>
+          import('./register/register-method').then((m) => m.RegisterMethod),
+      },
+      {
+        path: 'register/email',
+        loadComponent: () =>
+          import('./register/register-email').then((m) => m.RegisterEmail),
+      },
+      {
+        path: 'register/phone',
+        loadComponent: () =>
+          import('./register/register-phone').then((m) => m.RegisterPhone),
+      },
+      {
+        path: 'register/google',
+        loadComponent: () =>
+          import('./login/sign-in-google').then((m) => m.SignInGoogle),
+      },
+      {
+        path: 'register/verify-email',
+        loadComponent: () =>
+          import('./register/verify-otp').then((m) => m.VerifyOtp),
+        data: { channel: 'email' },
+      },
+      {
+        path: 'register/verify-phone',
+        loadComponent: () =>
+          import('./register/verify-otp').then((m) => m.VerifyOtp),
+        data: { channel: 'phone' },
+      },
+      {
+        path: 'register/setup',
+        loadComponent: () =>
+          import('./register/setup').then((m) => m.RegisterSetup),
       },
 
       // ----- Password recovery (TODO: full flow 376:5405 …) -----

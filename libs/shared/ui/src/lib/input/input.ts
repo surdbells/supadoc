@@ -9,7 +9,8 @@ import {
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { IconComponent } from '../icon/icon';
 
-export type InputType = 'text' | 'email' | 'password' | 'tel' | 'number';
+export type InputType =
+  'text' | 'email' | 'password' | 'tel' | 'number' | 'date';
 
 /**
  * VideoMed form input: bold label, white 16px-radius field with a light border,
@@ -67,6 +68,8 @@ export type InputType = 'text' | 'email' | 'password' | 'tel' | 'number';
       </span>
       @if (error()) {
         <span class="font-label text-caption text-alert">{{ error() }}</span>
+      } @else if (success()) {
+        <span class="font-label text-caption text-teal">{{ success() }}</span>
       }
     </label>
   `,
@@ -78,6 +81,7 @@ export class InputComponent implements ControlValueAccessor {
   readonly leadingIcon = input<string>();
   readonly autocomplete = input<string>();
   readonly error = input<string>();
+  readonly success = input<string>();
   readonly required = input(false);
 
   protected readonly value = signal('');
