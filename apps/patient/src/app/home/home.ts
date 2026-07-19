@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   ButtonComponent,
   CardComponent,
@@ -26,15 +27,25 @@ import {
             </p>
           </div>
           <div class="flex flex-wrap gap-3">
-            <sd-button variant="primary">
+            <sd-button
+              variant="primary"
+              (click)="router.navigateByUrl('/auth/register')"
+            >
               Get started
               <sd-icon name="arrow-right" [size]="18" />
             </sd-button>
-            <sd-button variant="secondary">View components</sd-button>
+            <sd-button
+              variant="secondary"
+              (click)="router.navigateByUrl('/auth/login')"
+            >
+              Log in
+            </sd-button>
           </div>
         </div>
       </sd-card>
     </main>
   `,
 })
-export class Home {}
+export class Home {
+  protected readonly router = inject(Router);
+}

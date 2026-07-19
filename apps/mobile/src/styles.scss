@@ -1,1 +1,14 @@
 /* You can add global styles to this file, and also import other style files */
+
+/*
+ * We route with a plain Angular <router-outlet> (not ion-router-outlet, whose
+ * animated page stack misbehaves on Angular 22 + Ionic 8). The routed page
+ * component is rendered as the sibling right after the outlet; make it fill
+ * <ion-app> as an .ion-page would so <ion-content> sizes correctly.
+ */
+ion-app router-outlet + * {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}

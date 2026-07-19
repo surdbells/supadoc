@@ -1,15 +1,25 @@
 import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
-  IonHeader,
-  IonToolbar,
-  IonTitle,
+  IonButton,
   IonContent,
+  IonHeader,
+  IonTitle,
+  IonToolbar,
 } from '@ionic/angular/standalone';
 import { LogoComponent } from '@supadoc/ui';
 
 @Component({
   selector: 'mob-home',
-  imports: [IonHeader, IonToolbar, IonTitle, IonContent, LogoComponent],
+  imports: [
+    RouterLink,
+    IonHeader,
+    IonToolbar,
+    IonTitle,
+    IonContent,
+    IonButton,
+    LogoComponent,
+  ],
   template: `
     <ion-header>
       <ion-toolbar color="primary">
@@ -28,6 +38,13 @@ import { LogoComponent } from '@supadoc/ui';
           Patient mobile app — Ionic + Capacitor on the shared VideoMed design
           system.
         </p>
+        <ion-button
+          expand="block"
+          routerLink="/auth/login"
+          style="--border-radius: 16px; text-transform: none; font-weight: 600; margin-top: 8px;"
+        >
+          Get started
+        </ion-button>
       </div>
     </ion-content>
   `,
