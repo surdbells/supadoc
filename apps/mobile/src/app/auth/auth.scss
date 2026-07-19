@@ -83,3 +83,33 @@ ion-button {
   text-transform: none;
   font-weight: 600;
 }
+
+.auth__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+}
+
+.methods {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.method {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border: 1px solid #b0bec5;
+  border-radius: 8px;
+  background: #fcfcfc;
+  padding: 13px 20px;
+  color: #0a1628;
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+  width: 100%;
+  cursor: pointer;
+}

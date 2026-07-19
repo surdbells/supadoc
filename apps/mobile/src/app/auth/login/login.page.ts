@@ -1,108 +1,61 @@
-import { Component, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
-import {
-  IonButton,
-  IonContent,
-  IonInput,
-  IonInputPasswordToggle,
-} from '@ionic/angular/standalone';
-import { AuthService } from '@supadoc/auth';
-import { LogoComponent } from '@supadoc/ui';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { IonContent } from '@ionic/angular/standalone';
+import { IconComponent, LogoComponent } from '@supadoc/ui';
 
+/** Mobile login entry — choose Google / Email / Phone. */
 @Component({
   selector: 'mob-login',
-  imports: [
-    ReactiveFormsModule,
-    RouterLink,
-    IonContent,
-    IonInput,
-    IonInputPasswordToggle,
-    IonButton,
-    LogoComponent,
-  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterLink, IonContent, IconComponent, LogoComponent],
   template: `
     <ion-content class="ion-padding">
       <div class="auth">
         <sd-logo [size]="40" />
-        <div>
-          <h1 class="auth__title">Welcome back 👋</h1>
-          <p class="auth__sub">Log in to continue to your VideoMed account.</p>
+        <div class="auth__head">
+          <h1 class="auth__title">👋 Welcome back</h1>
+          <p class="auth__sub">Sign in to your account</p>
         </div>
 
-        <form [formGroup]="form" (ngSubmit)="submit()">
-          <ion-input
-            label="Email"
-            labelPlacement="stacked"
-            fill="outline"
-            type="email"
-            inputmode="email"
-            autocomplete="email"
-            placeholder="you@example.com"
-            formControlName="email"
-          ></ion-input>
-          <ion-input
-            label="Password"
-            labelPlacement="stacked"
-            fill="outline"
-            type="password"
-            autocomplete="current-password"
-            placeholder="Enter your password"
-            formControlName="password"
-          >
-            <ion-input-password-toggle slot="end"></ion-input-password-toggle>
-          </ion-input>
-
-          <a routerLink="/auth/forgot-password" class="auth__link auth__forgot">
-            Forgot password?
+        <div class="methods">
+          <button type="button" class="method">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+              />
+            </svg>
+            Continue with Google
+          </button>
+          <a routerLink="/auth/login/email" class="method">
+            <sd-icon name="mail" [size]="22" />
+            Continue with Email
           </a>
-
-          @if (errorMessage()) {
-            <p class="auth__error">{{ errorMessage() }}</p>
-          }
-
-          <ion-button type="submit" expand="block" [disabled]="submitting()">
-            {{ submitting() ? 'Logging in…' : 'Log in' }}
-          </ion-button>
-        </form>
+          <a routerLink="/auth/login/phone" class="method">
+            <sd-icon name="phone" [size]="22" />
+            Continue with Phone
+          </a>
+        </div>
 
         <p class="auth__foot">
-          Don't have an account?
-          <a routerLink="/auth/signup" class="auth__link">Sign up</a>
+          Are you a new user?
+          <a routerLink="/auth/register" class="auth__link">Register</a>
         </p>
       </div>
     </ion-content>
   `,
   styleUrl: '../auth.scss',
 })
-export class LoginPage {
-  private readonly fb = inject(FormBuilder);
-  private readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
-
-  protected readonly submitting = signal(false);
-  protected readonly errorMessage = signal('');
-
-  protected readonly form = this.fb.nonNullable.group({
-    email: ['', [Validators.required, Validators.email]],
-    password: ['', [Validators.required]],
-  });
-
-  protected async submit(): Promise<void> {
-    if (this.form.invalid) {
-      this.form.markAllAsTouched();
-      return;
-    }
-    this.submitting.set(true);
-    this.errorMessage.set('');
-    try {
-      await this.auth.login(this.form.getRawValue());
-      await this.router.navigateByUrl('/');
-    } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Unable to log in. Please try again.');
-    } finally {
-      this.submitting.set(false);
-    }
-  }
-}
+export class LoginPage {}
