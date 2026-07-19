@@ -29,7 +29,7 @@ import { IconComponent, LogoComponent } from '@supadoc/ui';
             class="absolute inset-0 bg-gradient-to-b from-abyss/10 via-abyss/25 to-abyss/95"
           ></div>
           <div
-            class="absolute inset-x-8 bottom-9 flex flex-col gap-3 text-white"
+            class="absolute inset-x-8 bottom-14 flex flex-col gap-3 text-white"
           >
             <h2 class="font-heading text-h3 max-w-md">
               Healthcare shouldn't take your entire day.
@@ -39,12 +39,12 @@ import { IconComponent, LogoComponent } from '@supadoc/ui';
               receive medical guidance without spending hours in crowded waiting
               rooms.
             </p>
-            <div class="mt-2 flex gap-2" aria-hidden="true">
-              <span class="h-1.5 w-8 rounded-pill bg-white/90"></span>
-              <span class="h-1.5 w-8 rounded-pill bg-white/30"></span>
-              <span class="h-1.5 w-8 rounded-pill bg-white/30"></span>
-              <span class="h-1.5 w-8 rounded-pill bg-white/30"></span>
-            </div>
+          </div>
+          <div class="absolute bottom-6 right-8 flex gap-2" aria-hidden="true">
+            <span class="h-1.5 w-8 rounded-pill bg-white/90"></span>
+            <span class="h-1.5 w-8 rounded-pill bg-white/30"></span>
+            <span class="h-1.5 w-8 rounded-pill bg-white/30"></span>
+            <span class="h-1.5 w-8 rounded-pill bg-white/30"></span>
           </div>
         </div>
       </aside>

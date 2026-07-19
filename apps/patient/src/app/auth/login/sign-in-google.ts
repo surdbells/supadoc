@@ -22,11 +22,34 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         </div>
 
         <div
-          class="relative mx-auto h-44 w-full max-w-[320px]"
+          class="relative mx-auto h-52 w-full max-w-[300px]"
           aria-hidden="true"
         >
+          <!-- User (top, centered) -->
           <div
-            class="absolute left-1/2 top-1/2 flex size-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-cloud bg-white shadow-[0_4px_16px_rgba(10,22,40,0.08)]"
+            class="absolute left-1/2 top-0 flex size-12 -translate-x-1/2 items-center justify-center rounded-full bg-frost/60 text-cerulean"
+          >
+            <sd-icon name="user" [size]="20" />
+          </div>
+          <!-- Accent ring between the user and the logo -->
+          <div
+            class="absolute left-1/2 top-[70px] size-3 -translate-x-1/2 rounded-full border-2 border-[#EC4899]"
+          ></div>
+          <!-- Shield (mid-left) -->
+          <div
+            class="absolute left-0 top-[104px] flex size-12 items-center justify-center rounded-full bg-frost/50 text-cerulean"
+          >
+            <sd-icon name="shield" [size]="18" />
+          </div>
+          <!-- Lock (mid-right) -->
+          <div
+            class="absolute right-0 top-[104px] flex size-12 items-center justify-center rounded-full bg-frost/50 text-cerulean"
+          >
+            <sd-icon name="lock" [size]="18" />
+          </div>
+          <!-- Google logo (centered, bottom) -->
+          <div
+            class="absolute bottom-0 left-1/2 flex size-24 -translate-x-1/2 items-center justify-center rounded-full border border-frost bg-white shadow-[0_4px_16px_rgba(10,22,40,0.08)]"
           >
             <svg width="44" height="44" viewBox="0 0 24 24">
               <path
@@ -46,21 +69,6 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-          </div>
-          <div
-            class="absolute left-[14%] top-[6%] flex size-11 items-center justify-center rounded-full bg-frost/60 text-cerulean"
-          >
-            <sd-icon name="user" [size]="18" />
-          </div>
-          <div
-            class="absolute left-[4%] top-[54%] flex size-9 items-center justify-center rounded-full bg-frost/50 text-cerulean"
-          >
-            <sd-icon name="shield" [size]="16" />
-          </div>
-          <div
-            class="absolute right-[6%] top-[48%] flex size-9 items-center justify-center rounded-full bg-frost/50 text-cerulean"
-          >
-            <sd-icon name="lock" [size]="16" />
           </div>
         </div>
 
