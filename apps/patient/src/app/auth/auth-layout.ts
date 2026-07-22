@@ -12,8 +12,14 @@ interface AuthSlide {
 const SLIDE_INTERVAL_MS = 6000;
 
 /**
- * Boxed split shell for the web auth flow (VideoMed): a sliding onboarding
- * carousel on the left (lg+) and the routed auth screen on the right.
+ * Boxed split shell for the web auth flow (VideoMed): the onboarding carousel on
+ * the left (lg+) and the routed auth screen on the right.
+ *
+ * The slide artwork is exported from Figma with the headline, copy and progress
+ * indicator already composited in, so each image is shown whole (the panel keeps
+ * the artwork's aspect ratio so nothing is cropped). Transparent buttons sit over
+ * the painted indicator so it stays clickable, and each image carries its copy as
+ * alt text for screen readers.
  */
 @Component({
   selector: 'pat-auth-layout',
@@ -23,102 +29,58 @@ const SLIDE_INTERVAL_MS = 6000;
       class="flex min-h-screen items-center justify-center bg-cloud p-4 sm:p-6"
     >
       <div
-        class="grid w-full max-w-[1400px] overflow-hidden rounded-[32px] bg-glacier shadow-[0_12px_40px_rgba(10,22,40,0.1)] ring-1 ring-white/60 lg:min-h-[760px] lg:grid-cols-[minmax(0,1fr)_minmax(0,700px)]"
+        class="grid w-full max-w-[1240px] overflow-hidden rounded-[32px] bg-glacier shadow-[0_12px_40px_rgba(10,22,40,0.1)] ring-1 ring-white/60 lg:min-h-[766px] lg:grid-cols-[minmax(0,540px)_minmax(0,700px)]"
       >
         <aside class="hidden p-5 lg:block">
           <div
-            class="relative h-full min-h-[640px] overflow-hidden rounded-[24px] bg-abyss"
+            class="relative aspect-[1400/2033] w-full overflow-hidden rounded-[24px]"
           >
-            <!-- Sliding track: one viewport-width panel per slide. -->
+            <!-- Sliding track: one panel-width slide each. -->
             <div
-              class="flex h-full w-full transition-transform duration-700 ease-out motion-reduce:transition-none"
+              class="flex size-full transition-transform duration-700 ease-out motion-reduce:transition-none"
               [style.transform]="'translateX(-' + current() * 100 + '%)'"
             >
               @for (slide of slides; track $index) {
-                <div class="relative h-full w-full shrink-0">
-                  <img
-                    [src]="slide.image"
-                    alt=""
-                    class="absolute inset-0 size-full object-cover"
-                  />
-                  <div
-                    class="absolute inset-0 bg-gradient-to-b from-abyss/10 via-abyss/25 to-abyss/95"
-                  ></div>
-                  <div
-                    class="absolute inset-x-8 bottom-14 flex flex-col gap-3 text-white"
-                  >
-                    <h2 class="font-heading text-h3 max-w-md">
-                      {{ slide.title }}
-                    </h2>
-                    <p class="max-w-md text-body text-white/85">
-                      {{ slide.description }}
-                    </p>
-                  </div>
-                </div>
+                <img
+                  [src]="slide.image"
+                  [alt]="slide.title + ' ' + slide.description"
+                  class="size-full shrink-0 object-cover"
+                />
               }
             </div>
 
-            <div class="absolute bottom-4 right-8 z-10 flex items-center gap-2">
+            <!-- Hit areas over the indicator painted into the artwork. -->
+            <div
+              class="absolute bottom-[2.6%] left-[65%] right-[4.2%] flex h-[2.4%] items-center gap-[2.5%]"
+            >
               <button
                 type="button"
-                class="cursor-pointer px-0.5 py-2"
+                class="h-full flex-1 cursor-pointer"
                 aria-label="Show slide 1"
                 [attr.aria-current]="current() === 0 ? 'true' : null"
                 (click)="select(0)"
-              >
-                <span
-                  [class]="dot"
-                  [style.width.px]="current() === 0 ? 32 : 24"
-                  [style.backgroundColor]="
-                    current() === 0 ? '#fcfcfc' : 'rgba(252,252,252,0.4)'
-                  "
-                ></span>
-              </button>
+              ></button>
               <button
                 type="button"
-                class="cursor-pointer px-0.5 py-2"
+                class="h-full flex-1 cursor-pointer"
                 aria-label="Show slide 2"
                 [attr.aria-current]="current() === 1 ? 'true' : null"
                 (click)="select(1)"
-              >
-                <span
-                  [class]="dot"
-                  [style.width.px]="current() === 1 ? 32 : 24"
-                  [style.backgroundColor]="
-                    current() === 1 ? '#fcfcfc' : 'rgba(252,252,252,0.4)'
-                  "
-                ></span>
-              </button>
+              ></button>
               <button
                 type="button"
-                class="cursor-pointer px-0.5 py-2"
+                class="h-full flex-1 cursor-pointer"
                 aria-label="Show slide 3"
                 [attr.aria-current]="current() === 2 ? 'true' : null"
                 (click)="select(2)"
-              >
-                <span
-                  [class]="dot"
-                  [style.width.px]="current() === 2 ? 32 : 24"
-                  [style.backgroundColor]="
-                    current() === 2 ? '#fcfcfc' : 'rgba(252,252,252,0.4)'
-                  "
-                ></span>
-              </button>
+              ></button>
               <button
                 type="button"
-                class="cursor-pointer px-0.5 py-2"
+                class="h-full flex-1 cursor-pointer"
                 aria-label="Show slide 4"
                 [attr.aria-current]="current() === 3 ? 'true' : null"
                 (click)="select(3)"
-              >
-                <span
-                  [class]="dot"
-                  [style.width.px]="current() === 3 ? 32 : 24"
-                  [style.backgroundColor]="
-                    current() === 3 ? '#fcfcfc' : 'rgba(252,252,252,0.4)'
-                  "
-                ></span>
-              </button>
+              ></button>
             </div>
           </div>
         </aside>
@@ -149,37 +111,31 @@ export class AuthLayout {
   private readonly location = inject(Location);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly dot =
-    'block h-1.5 rounded-pill transition-all duration-300 motion-reduce:transition-none';
-
-  /**
-   * Onboarding carousel. All slides currently share the exported hero image —
-   * drop the remaining artwork into `public/` and point each slide at it.
-   */
+  /** Artwork exported from the VideoMed Figma (headline + copy composited in). */
   protected readonly slides: AuthSlide[] = [
     {
-      image: '/auth-hero.png',
+      image: '/auth-slide-1.webp',
       title: "Healthcare shouldn't take your entire day.",
       description:
         'Book an appointment, speak with a licensed doctor online, and receive medical guidance without spending hours in crowded waiting rooms.',
     },
     {
-      image: '/auth-hero.png',
-      title: 'See a licensed doctor in minutes.',
+      image: '/auth-slide-2.webp',
+      title: 'Get expert care, wherever you are.',
       description:
-        'Connect by secure video with verified specialists, whenever and wherever you need care.',
+        "Distance, traffic, or a busy schedule shouldn't stop you from seeing a doctor. Connect securely from home, work, or while traveling.",
     },
     {
-      image: '/auth-hero.png',
-      title: 'Your records, always with you.',
+      image: '/auth-slide-3.webp',
+      title: 'Your healthcare, all in one place.',
       description:
-        'Prescriptions, test results and visit notes stay organised in one private place you control.',
+        'Keep track of appointments, prescriptions, consultation history, and follow up care without juggling paperwork or multiple clinics.',
     },
     {
-      image: '/auth-hero.png',
-      title: 'Care that follows up with you.',
+      image: '/auth-slide-4.webp',
+      title: 'Trusted care when it matters most.',
       description:
-        'Appointment reminders and follow-ups keep your treatment on track long after the consultation ends.',
+        'Connect with qualified healthcare professionals who are ready to listen, guide, and support you through every stage of your healthcare journey.',
     },
   ];
 
