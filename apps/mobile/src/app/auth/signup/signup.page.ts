@@ -125,8 +125,9 @@ export class SignupPage {
     this.errorMessage.set('');
     try {
       await this.auth.login({
-        email: this.form.controls.email.value,
+        userName: this.form.controls.email.value,
         password: this.form.controls.password.value,
+        loginType: 'email',
       });
       await this.router.navigateByUrl('/');
     } catch (err) {

@@ -1,4 +1,5 @@
 export const environment = {
   production: true,
-  apiBaseUrl: 'https://api.supadoc.com/api',
+  apiBaseUrl: 'https://vmapi.betacrest.com',
+  appId: 'ViewHot',
 };

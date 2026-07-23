@@ -1,6 +1,9 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
+import { AuthFlowService, AuthService } from '@supadoc/auth';
+import { ProfileApi } from '@supadoc/data-access';
+import { firstValueFrom } from 'rxjs';
 import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 
 /** Registration step 2 — set up account (Figma 336:4568). */
@@ -62,6 +65,13 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
           </ul>
         </div>
 
+        @if (errorMessage()) {
+          <p
+            class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
+          >
+            {{ errorMessage() }}
+          </p>
+        }
         <sd-button
           type="submit"
           [full]="true"
@@ -77,8 +87,12 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 export class RegisterSetup {
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly flow = inject(AuthFlowService);
+  private readonly profileApi = inject(ProfileApi);
 
   protected readonly submitting = signal(false);
+  protected readonly errorMessage = signal('');
 
   protected readonly rules = [
     { label: 'Minimum of 8 characters', test: (v: string) => v.length >= 8 },
@@ -109,7 +123,34 @@ export class RegisterSetup {
       return;
     }
     this.submitting.set(true);
-    await this.router.navigateByUrl('/auth/register/success');
-    this.submitting.set(false);
+    this.errorMessage.set('');
+    const email = this.flow.email();
+    const { fullName, password } = this.form.getRawValue();
+    const [firstName, ...rest] = fullName.trim().split(/\s+/);
+    const lastName = rest.join(' ') || firstName;
+    try {
+      await this.auth.register({
+        email,
+        password,
+        accountType: 'public',
+        otpCode: this.flow.otpCode(),
+      });
+      // Best-effort: create the profile; don't block success if it fails.
+      try {
+        await firstValueFrom(
+          this.profileApi.createProfile({ firstName, lastName, email }),
+        );
+      } catch {
+        /* profile can be completed later */
+      }
+      this.flow.reset();
+      await this.router.navigateByUrl('/auth/register/success');
+    } catch (err) {
+      const message = (err as { message?: string })?.message;
+      this.errorMessage.set(message ?? 'Could not create your account.');
+      await this.router.navigateByUrl('/auth/register/failure');
+    } finally {
+      this.submitting.set(false);
+    }
   }
 }

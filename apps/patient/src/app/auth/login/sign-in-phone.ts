@@ -164,8 +164,9 @@ export class SignInPhone {
     this.errorMessage.set('');
     try {
       await this.auth.login({
-        email: `+234${this.form.controls.phone.value}`,
+        userName: `+234${this.form.controls.phone.value}`,
         password: this.form.controls.password.value,
+        loginType: 'phone',
       });
       await this.router.navigateByUrl('/');
     } catch (err) {

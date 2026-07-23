@@ -1,55 +1,77 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { ApiService } from '@supadoc/data-access';
-import type { ApiResponse, User } from '@supadoc/models';
+import { AuthApi } from '@supadoc/data-access';
+import type {
+  LoginParams,
+  RegisterParams,
+  ResetPasswordParams,
+} from '@supadoc/models';
 
-const TOKEN_KEY = 'supadoc.token';
-
-export interface LoginCredentials {
-  email: string;
-  password: string;
-}
-
-interface AuthResult {
-  token: string;
-  user: User;
-}
+const TOKEN_KEY = 'videomed.token';
 
 /**
- * Central auth state for every app. Token + current user are exposed as
- * signals so components and guards react to sign-in/out without extra plumbing.
- *
- * Endpoints (`auth/login`, ...) are placeholders — align them with the real
- * API once published.
+ * Central auth state for every app, backed by the VideoMed API (via `AuthApi`).
+ * The bearer token is exposed as a signal so guards/interceptors react to
+ * sign-in/out without extra plumbing.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly api = inject(ApiService);
+  private readonly authApi = inject(AuthApi);
 
   private readonly _token = signal<string | null>(this.readToken());
-  private readonly _user = signal<User | null>(null);
-
   readonly token = this._token.asReadonly();
-  readonly user = this._user.asReadonly();
   readonly isAuthenticated = computed(() => this._token() !== null);
 
-  async login(credentials: LoginCredentials): Promise<User> {
-    const res = await firstValueFrom(
-      this.api.post<ApiResponse<AuthResult>>('auth/login', credentials),
-    );
-    this.setSession(res.data.token, res.data.user);
-    return res.data.user;
+  /** `POST /login`. Stores the returned bearer token when the API provides one. */
+  async login(params: LoginParams): Promise<void> {
+    const res = await firstValueFrom(this.authApi.login(params));
+    const token =
+      (res?.token as string | undefined) ??
+      (res?.accessToken as string | undefined) ??
+      (res?.jwt as string | undefined) ??
+      null;
+    if (token) this.setToken(token);
   }
 
-  logout(): void {
+  // ----- Registration -----
+  sendRegisterOtp(email: string): Promise<unknown> {
+    return firstValueFrom(this.authApi.sendRegisterOtp(email));
+  }
+  verifyRegisterOtp(email: string, otpCode: string): Promise<unknown> {
+    return firstValueFrom(this.authApi.verifyRegisterOtp({ email, otpCode }));
+  }
+  register(params: RegisterParams): Promise<unknown> {
+    return firstValueFrom(this.authApi.register(params));
+  }
+
+  // ----- Password recovery -----
+  sendResetOtp(email: string): Promise<unknown> {
+    return firstValueFrom(this.authApi.sendResetOtp(email));
+  }
+  verifyOtp(email: string, otpCode: string): Promise<unknown> {
+    return firstValueFrom(this.authApi.verifyOtp({ email, otpCode }));
+  }
+  resetPassword(params: ResetPasswordParams): Promise<unknown> {
+    return firstValueFrom(this.authApi.resetPassword(params));
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await firstValueFrom(this.authApi.logout());
+    } catch {
+      /* clear the local session regardless of the network result */
+    } finally {
+      this.clear();
+    }
+  }
+
+  private clear(): void {
     this._token.set(null);
-    this._user.set(null);
     this.clearToken();
   }
 
-  private setSession(token: string, user: User): void {
+  private setToken(token: string): void {
     this._token.set(token);
-    this._user.set(user);
     try {
       localStorage.setItem(TOKEN_KEY, token);
     } catch {

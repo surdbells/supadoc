@@ -99,7 +99,11 @@ export class SignInEmailPage {
     this.submitting.set(true);
     this.errorMessage.set('');
     try {
-      await this.auth.login(this.form.getRawValue());
+      await this.auth.login({
+        userName: this.form.controls.email.value,
+        password: this.form.controls.password.value,
+        loginType: 'email',
+      });
       await this.router.navigateByUrl('/');
     } catch (err) {
       const message = (err as { message?: string })?.message;

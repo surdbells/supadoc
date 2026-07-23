@@ -22,7 +22,10 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(
       withInterceptors([authInterceptor, httpErrorInterceptor]),
     ),
-    provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
+    provideSupadocDataAccess({
+      baseUrl: environment.apiBaseUrl,
+      appId: environment.appId,
+    }),
     provideSupadocAuth(),
     provideSupadocIcons(),
   ],

@@ -7,6 +7,7 @@ import {
   Validators,
 } from '@angular/forms';
 import { Router } from '@angular/router';
+import { AuthFlowService, AuthService } from '@supadoc/auth';
 import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 
 function passwordsMatch(group: AbstractControl): ValidationErrors | null {
@@ -79,6 +80,13 @@ function passwordsMatch(group: AbstractControl): ValidationErrors | null {
           [error]="confirmError()"
         />
 
+        @if (errorMessage()) {
+          <p
+            class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
+          >
+            {{ errorMessage() }}
+          </p>
+        }
         <sd-button
           type="submit"
           [full]="true"
@@ -94,8 +102,11 @@ function passwordsMatch(group: AbstractControl): ValidationErrors | null {
 export class NewPassword {
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly flow = inject(AuthFlowService);
 
   protected readonly submitting = signal(false);
+  protected readonly errorMessage = signal('');
 
   protected readonly rules = [
     { label: 'Minimum of 8 characters', test: (v: string) => v.length >= 8 },
@@ -136,7 +147,20 @@ export class NewPassword {
       return;
     }
     this.submitting.set(true);
-    await this.router.navigateByUrl('/auth/recover/success');
-    this.submitting.set(false);
+    this.errorMessage.set('');
+    try {
+      await this.auth.resetPassword({
+        email: this.flow.email(),
+        otpCode: this.flow.otpCode(),
+        newPassword: this.form.controls.password.value,
+      });
+      this.flow.reset();
+      await this.router.navigateByUrl('/auth/recover/success');
+    } catch (err) {
+      const message = (err as { message?: string })?.message;
+      this.errorMessage.set(message ?? 'Could not reset your password.');
+    } finally {
+      this.submitting.set(false);
+    }
   }
 }

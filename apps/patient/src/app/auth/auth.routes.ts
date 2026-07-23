@@ -91,13 +91,13 @@ export const authRoutes: Route[] = [
         path: 'register/verify-email',
         loadComponent: () =>
           import('./register/verify-otp').then((m) => m.VerifyOtp),
-        data: { channel: 'email' },
+        data: { channel: 'email', mode: 'register' },
       },
       {
         path: 'register/verify-phone',
         loadComponent: () =>
           import('./register/verify-otp').then((m) => m.VerifyOtp),
-        data: { channel: 'phone' },
+        data: { channel: 'phone', mode: 'register' },
       },
       {
         path: 'register/setup',
@@ -120,13 +120,21 @@ export const authRoutes: Route[] = [
         path: 'recover/verify-email',
         loadComponent: () =>
           import('./register/verify-otp').then((m) => m.VerifyOtp),
-        data: { channel: 'email', next: '/auth/recover/new-password' },
+        data: {
+          channel: 'email',
+          mode: 'recover',
+          next: '/auth/recover/new-password',
+        },
       },
       {
         path: 'recover/verify-phone',
         loadComponent: () =>
           import('./register/verify-otp').then((m) => m.VerifyOtp),
-        data: { channel: 'phone', next: '/auth/recover/new-password' },
+        data: {
+          channel: 'phone',
+          mode: 'recover',
+          next: '/auth/recover/new-password',
+        },
       },
       {
         path: 'recover/new-password',
