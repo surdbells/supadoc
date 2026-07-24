@@ -1,5 +1,5 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
 import { ButtonComponent, IconComponent, OtpComponent } from '@supadoc/ui';
@@ -27,9 +27,10 @@ import { ButtonComponent, IconComponent, OtpComponent } from '@supadoc/ui';
 
       <form
         class="flex w-full flex-col items-center gap-8"
+        [formGroup]="form"
         (ngSubmit)="verify()"
       >
-        <sd-otp [formControl]="code" />
+        <sd-otp formControlName="code" />
         <p class="font-sans text-body-sm text-slate">
           Code expires in
           <span class="font-semibold text-cerulean">{{ mmss() }}</span>
@@ -37,7 +38,7 @@ import { ButtonComponent, IconComponent, OtpComponent } from '@supadoc/ui';
         <sd-button
           type="submit"
           [full]="true"
-          [disabled]="code.invalid || submitting()"
+          [disabled]="form.invalid || submitting()"
         >
           {{ submitting() ? 'Verifying…' : 'Verify' }}
         </sd-button>
@@ -64,6 +65,7 @@ import { ButtonComponent, IconComponent, OtpComponent } from '@supadoc/ui';
   `,
 })
 export class VerifyOtp {
+  private readonly fb = inject(FormBuilder);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -82,9 +84,8 @@ export class VerifyOtp {
     this.route.snapshot.queryParamMap.get('target') ?? 'your account',
   );
 
-  protected readonly code = new FormControl('', {
-    nonNullable: true,
-    validators: [Validators.required, Validators.minLength(6)],
+  protected readonly form = this.fb.nonNullable.group({
+    code: ['', [Validators.required, Validators.minLength(6)]],
   });
   protected readonly submitting = signal(false);
   protected readonly errorMessage = signal('');
@@ -105,12 +106,29 @@ export class VerifyOtp {
     this.destroyRef.onDestroy(() => clearInterval(id));
   }
 
+  /**
+   * Address the code was sent to. `AuthFlowService` is in-memory, so fall back
+   * to the `target` query param set when the code was requested — that keeps a
+   * page refresh from stranding the flow. The OTP itself stays out of the URL.
+   */
+  private resolveEmail(): string {
+    const fromFlow = this.flow.email();
+    if (fromFlow) return fromFlow;
+    const fromQuery = this.route.snapshot.queryParamMap.get('target') ?? '';
+    if (fromQuery) this.flow.start(fromQuery);
+    return fromQuery;
+  }
+
   protected async verify(): Promise<void> {
-    if (this.code.invalid) return;
+    if (this.form.invalid) return;
+    const email = this.resolveEmail();
+    if (!email) {
+      this.errorMessage.set('Your session expired — please start again.');
+      return;
+    }
     this.submitting.set(true);
     this.errorMessage.set('');
-    const email = this.flow.email();
-    const code = this.code.value;
+    const code = this.form.getRawValue().code;
     try {
       if (this.mode === 'recover') {
         await this.auth.verifyOtp(email, code);
@@ -129,7 +147,11 @@ export class VerifyOtp {
 
   protected async resend(): Promise<void> {
     this.errorMessage.set('');
-    const email = this.flow.email();
+    const email = this.resolveEmail();
+    if (!email) {
+      this.errorMessage.set('Your session expired — please start again.');
+      return;
+    }
     try {
       if (this.mode === 'recover') {
         await this.auth.sendResetOtp(email);
