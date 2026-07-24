@@ -38,11 +38,11 @@ interface Notification {
         </div>
         <div class="hidden shrink-0 sm:block" aria-hidden="true">
           <img
-            src="/dashboard/hero-main.svg"
+            src="/dashboard/hero.png"
             alt=""
-            width="209"
-            height="149"
-            class="h-[149px] w-[209px] object-contain"
+            width="315"
+            height="224"
+            class="h-[149px] w-auto object-contain"
           />
         </div>
         <div
