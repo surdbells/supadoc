@@ -5,7 +5,8 @@ import {
   input,
 } from '@angular/core';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+export type ButtonVariant =
+  'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 // VideoMed button: 16px radius, SF Pro Semibold, Cerulean primary, Ash when disabled.
@@ -19,6 +20,9 @@ const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-cerulean text-white hover:bg-cerulean-dark',
   secondary:
     'bg-white text-cerulean ring-1 ring-inset ring-frost hover:bg-glacier',
+  // Transparent with a Cerulean hairline — the design's "View All" / "Complete Profile".
+  outline:
+    'bg-transparent text-cerulean ring-1 ring-inset ring-cerulean hover:bg-frost/30',
   ghost: 'bg-transparent text-cerulean hover:bg-frost/40',
   danger: 'bg-alert text-white hover:brightness-95',
 };

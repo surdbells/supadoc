@@ -168,7 +168,7 @@ export class SignInPhone {
         password: this.form.controls.password.value,
         loginType: 'phone',
       });
-      await this.router.navigateByUrl('/');
+      await this.router.navigateByUrl('/dashboard');
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'Unable to log in. Please try again.');
