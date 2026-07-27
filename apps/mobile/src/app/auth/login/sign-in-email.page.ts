@@ -102,7 +102,7 @@ export class SignInEmailPage {
       await this.auth.login({
         userName: this.form.controls.email.value,
         password: this.form.controls.password.value,
-        loginType: 'email',
+        loginType: 'username',
       });
       await this.router.navigateByUrl('/');
     } catch (err) {

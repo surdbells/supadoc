@@ -166,7 +166,7 @@ export class SignInPhone {
       await this.auth.login({
         userName: `+234${this.form.controls.phone.value}`,
         password: this.form.controls.password.value,
-        loginType: 'phone',
+        loginType: 'phonenumber',
       });
       await this.router.navigateByUrl('/dashboard');
     } catch (err) {

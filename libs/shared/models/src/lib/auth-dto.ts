@@ -10,10 +10,17 @@
  */
 export type AccountType = 'public' | 'patient' | 'doctor';
 
+/**
+ * How the VideoMed API interprets `userName` on login. The identifier field is
+ * really a username, so email/phone sign-in both pass the typed value through
+ * as the username; `phonenumber` is for a dedicated phone-number lookup.
+ */
+export type LoginType = 'username' | 'email' | 'phonenumber';
+
 export interface LoginParams {
   userName: string;
   password: string;
-  loginType?: string;
+  loginType?: LoginType;
 }
 
 export interface RegisterParams {
