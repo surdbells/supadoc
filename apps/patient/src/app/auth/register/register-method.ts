@@ -43,10 +43,11 @@ import { IconComponent } from '@supadoc/ui';
             <sd-icon name="mail" [size]="24" class="text-ink" />
             Continue with Email
           </a>
-          <a routerLink="/auth/register/phone" [class]="methodClass">
+          <!-- Phone sign-up hidden for now (phone is collected during setup). -->
+          <!-- <a routerLink="/auth/register/phone" [class]="methodClass">
             <sd-icon name="phone" [size]="24" class="text-ink" />
             Continue with Phone
-          </a>
+          </a> -->
         </div>
       </div>
 

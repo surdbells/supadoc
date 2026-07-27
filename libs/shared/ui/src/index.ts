@@ -1,6 +1,7 @@
 export * from './lib/button/button';
 export * from './lib/card/card';
 export * from './lib/input/input';
+export * from './lib/phone-input/phone-input';
 export * from './lib/logo/logo';
 export * from './lib/otp/otp';
 export * from './lib/icon/icon';

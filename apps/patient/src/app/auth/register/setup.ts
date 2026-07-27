@@ -4,7 +4,12 @@ import { Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
 import { ProfileApi } from '@supadoc/data-access';
 import { firstValueFrom } from 'rxjs';
-import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  IconComponent,
+  InputComponent,
+  PhoneInputComponent,
+} from '@supadoc/ui';
 
 /** Registration step 2 — set up account (Figma 336:4568). */
 @Component({
@@ -14,6 +19,7 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
     ButtonComponent,
     IconComponent,
     InputComponent,
+    PhoneInputComponent,
   ],
   template: `
     <div class="flex flex-col items-center gap-8">
@@ -42,6 +48,12 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
           formControlName="fullName"
         />
         <sd-input label="Date of Birth" type="date" formControlName="dob" />
+        <sd-phone-input
+          label="Phone"
+          [required]="true"
+          formControlName="phone"
+          [error]="phoneError()"
+        />
 
         <div class="flex flex-col gap-3">
           <sd-input
@@ -103,6 +115,8 @@ export class RegisterSetup {
   protected readonly form = this.fb.nonNullable.group({
     fullName: ['', [Validators.required, Validators.minLength(2)]],
     dob: ['', [Validators.required]],
+    // Full E.164 number (dial code + local digits), emitted by sd-phone-input.
+    phone: ['', [Validators.required, Validators.pattern(/^\+\d{7,15}$/)]],
     password: [
       '',
       [
@@ -117,6 +131,13 @@ export class RegisterSetup {
     return rule.test(this.form.controls.password.value);
   }
 
+  protected phoneError(): string {
+    const control = this.form.controls.phone;
+    if (!control.touched || control.valid) return '';
+    if (control.errors?.['required']) return 'Phone number is required';
+    return 'Enter a valid phone number';
+  }
+
   protected async submit(): Promise<void> {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -125,7 +146,7 @@ export class RegisterSetup {
     this.submitting.set(true);
     this.errorMessage.set('');
     const email = this.flow.email();
-    const { fullName, password } = this.form.getRawValue();
+    const { fullName, phone, password } = this.form.getRawValue();
     const [firstName, ...rest] = fullName.trim().split(/\s+/);
     const lastName = rest.join(' ') || firstName;
     try {
@@ -138,7 +159,12 @@ export class RegisterSetup {
       // Best-effort: create the profile; don't block success if it fails.
       try {
         await firstValueFrom(
-          this.profileApi.createProfile({ firstName, lastName, email }),
+          this.profileApi.createProfile({
+            firstName,
+            lastName,
+            email,
+            phoneNumber: phone,
+          }),
         );
       } catch {
         /* profile can be completed later */
