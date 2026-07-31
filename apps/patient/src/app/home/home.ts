@@ -24,17 +24,20 @@ interface Stat {
   readonly label: string;
 }
 interface Doctor {
-  readonly initials: string;
+  readonly photo: string;
   readonly name: string;
   readonly specialty: string;
+  readonly location: string;
+  readonly rating: string;
+  readonly reviews: string;
 }
 
 /**
  * VideoMed marketing landing page (Figma 35:285) — the public entry point.
  * Fully responsive: sections stack to a single column on mobile and expand to
- * the designed multi-column layouts from `md`/`lg` up. Photographic content and
- * partner logos in the design are stock/third-party placeholders, so they are
- * represented here with on-brand placeholder tiles.
+ * the designed multi-column layouts from `md`/`lg` up. Photos and partner logos
+ * are the licensed assets exported from the VideoMed design, served from
+ * `public/home/` (the hero and doctor headshots are exported renders/crops).
  */
 @Component({
   selector: 'pat-home',
@@ -150,70 +153,15 @@ interface Doctor {
             </ul>
           </div>
 
-          <!-- Visual collage -->
-          <div class="relative mx-auto w-full max-w-md lg:max-w-none">
-            <div
-              class="flex aspect-[4/3] items-center justify-center rounded-[24px] bg-gradient-to-br from-cerulean/15 to-teal/15 ring-1 ring-white/60"
-            >
-              <sd-icon
-                name="stethoscope"
-                [size]="88"
-                class="text-cerulean/40"
-              />
-            </div>
-            <div
-              class="absolute -left-2 top-6 flex items-center gap-3 rounded-2xl bg-white p-3 shadow-lg ring-1 ring-cloud/60 sm:-left-6"
-            >
-              <span
-                class="flex size-8 items-center justify-center rounded-full bg-ocean font-sans text-caption font-semibold text-white"
-                >SC</span
-              >
-              <div class="flex flex-col">
-                <span class="font-sans text-body-sm font-semibold text-ink"
-                  >Dr. Sarah Charles, MD</span
-                >
-                <span class="font-sans text-caption text-slate"
-                  >Family Medicine</span
-                >
-              </div>
-            </div>
-            <div
-              class="absolute -right-2 bottom-16 flex items-center gap-2 rounded-2xl bg-white p-3 shadow-lg ring-1 ring-cloud/60 sm:-right-4"
-            >
-              <span class="font-sans text-body font-semibold text-ink"
-                >4.9</span
-              >
-              <span class="flex" aria-hidden="true">
-                @for (s of [1, 2, 3, 4, 5]; track s) {
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="#f2a900"
-                  >
-                    <path
-                      d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                    />
-                  </svg>
-                }
-              </span>
-              <span class="font-sans text-caption text-slate"
-                >Patient Rating</span
-              >
-            </div>
-            <div
-              class="absolute -bottom-4 left-8 flex items-center gap-3 rounded-2xl bg-white p-3 shadow-lg ring-1 ring-cloud/60"
-            >
-              <sd-icon name="shield-check" [size]="24" class="text-teal" />
-              <div class="flex flex-col">
-                <span class="font-sans text-body-sm font-semibold text-ink"
-                  >HIPAA Compliant</span
-                >
-                <span class="font-sans text-caption text-slate"
-                  >Your privacy is our Priority</span
-                >
-              </div>
-            </div>
+          <!-- Visual (exported from the VideoMed design) -->
+          <div class="mx-auto w-full max-w-md lg:max-w-none">
+            <img
+              src="/home/hero-export.png"
+              alt="Doctor on a secure VideoMed video consultation, with patient rating and HIPAA-compliant badges"
+              width="543"
+              height="535"
+              class="w-full"
+            />
           </div>
         </div>
       </section>
@@ -224,16 +172,14 @@ interface Doctor {
           <p class="text-center font-sans text-body text-slate">
             Trusted by patients, Partnered with leading organizations.
           </p>
-          <div
-            class="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4"
-          >
-            @for (p of partners; track p) {
-              <div
-                class="flex h-9 w-32 items-center justify-center rounded-md bg-glacier font-sans text-body-sm font-semibold text-ash"
-              >
-                {{ p }}
-              </div>
-            }
+          <div class="mt-6 overflow-x-auto">
+            <img
+              src="/home/partners-strip.png"
+              alt="Trusted partners: Aetna, UnitedHealthcare, BlueCross BlueShield, Cigna, Humana"
+              width="1280"
+              height="51"
+              class="mx-auto h-8 w-auto max-w-none opacity-80 md:h-10"
+            />
           </div>
         </div>
       </section>
@@ -306,11 +252,13 @@ interface Doctor {
         <div
           class="mx-auto grid max-w-[1280px] items-center gap-10 px-5 py-16 md:px-8 lg:grid-cols-2"
         >
-          <div
-            class="flex aspect-[4/3] items-center justify-center rounded-[24px] bg-gradient-to-br from-cerulean/30 to-teal/20"
-          >
-            <sd-icon name="user-round" [size]="88" class="text-white/40" />
-          </div>
+          <img
+            src="/home/counter-photo.png"
+            alt="Patient using VideoMed on a mobile phone"
+            width="612"
+            height="408"
+            class="aspect-[4/3] w-full rounded-[24px] object-cover"
+          />
           <div class="flex flex-col gap-6 text-white">
             <h2 class="font-heading text-h3">
               Trusted healthcare, measurable impact
@@ -396,26 +344,61 @@ interface Doctor {
           <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             @for (d of doctors; track d.name) {
               <article
-                class="flex flex-col items-center gap-3 rounded-card border-[0.5px] border-ash p-6 text-center"
+                class="flex flex-col overflow-hidden rounded-card border-[0.5px] border-ash"
               >
-                <span
-                  class="flex size-16 items-center justify-center rounded-full bg-ocean font-sans text-h5 font-semibold text-white"
-                  >{{ d.initials }}</span
-                >
-                <div class="flex flex-col">
-                  <h3 class="font-sans text-body font-semibold text-ink">
+                <img
+                  [src]="d.photo"
+                  [alt]="d.name + ', ' + d.specialty"
+                  width="230"
+                  height="176"
+                  class="aspect-[230/176] w-full object-cover"
+                />
+                <div class="flex flex-col gap-1.5 p-4">
+                  <h3
+                    class="flex items-center gap-1 font-sans text-body font-semibold text-ink"
+                  >
                     {{ d.name }}
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="#1565c0"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M12 2l2.4 1.8 3 .1 1 2.8 2.4 1.8-1 2.8 1 2.8-2.4 1.8-1 2.8-3 .1L12 22l-2.4-1.8-3-.1-1-2.8L3.2 15.4l1-2.8-1-2.8 2.4-1.8 1-2.8 3-.1L12 2z"
+                      />
+                      <path
+                        d="M10.6 14.6l-2.1-2.1 1.1-1.1 1 1 2.9-2.9 1.1 1.1-4 4z"
+                        fill="#fff"
+                      />
+                    </svg>
                   </h3>
-                  <p class="font-sans text-caption text-slate">
+                  <p class="font-sans text-caption font-medium text-cerulean">
                     {{ d.specialty }}
                   </p>
+                  <p
+                    class="flex items-center gap-1 font-sans text-caption text-slate"
+                  >
+                    <sd-icon name="map-pin" [size]="14" />
+                    {{ d.location }}
+                  </p>
+                  <p
+                    class="flex items-center gap-1 font-sans text-caption text-slate"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="#f2a900"
+                    >
+                      <path
+                        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+                      />
+                    </svg>
+                    {{ d.rating }} ({{ d.reviews }})
+                  </p>
                 </div>
-                <span
-                  class="flex items-center gap-1.5 font-sans text-caption text-sage"
-                >
-                  <span class="size-1.5 rounded-full bg-sage"></span>
-                  Available
-                </span>
               </article>
             }
           </div>
@@ -547,15 +530,6 @@ export class Home {
     { icon: 'map-pin', label: 'No Travel Needed' },
   ];
 
-  protected readonly partners = [
-    'Aetna',
-    'UnitedHealth',
-    'BlueCross',
-    'Cigna',
-    'Humana',
-    'Kaiser',
-  ];
-
   protected readonly features: Feature[] = [
     {
       icon: 'user-round',
@@ -630,10 +604,38 @@ export class Home {
   ];
 
   protected readonly doctors: Doctor[] = [
-    { initials: 'MK', name: 'Dr. Adriana Michael', specialty: 'Cardiology' },
-    { initials: 'DT', name: 'Dr. David Thompson', specialty: 'Dermatology' },
-    { initials: 'JL', name: 'Dr. James Lee', specialty: 'Pediatrics' },
-    { initials: 'SB', name: 'Dr. Sarah Brown', specialty: 'Family Medicine' },
+    {
+      photo: '/home/doc1.png',
+      name: 'Dr Johnson Micheal',
+      specialty: 'Internal Medicine',
+      location: 'California, USA',
+      rating: '4.9',
+      reviews: '100 reviews',
+    },
+    {
+      photo: '/home/doc2.png',
+      name: 'Dr David Thompson',
+      specialty: 'Cardiology',
+      location: 'New York, USA',
+      rating: '3.0',
+      reviews: '90 reviews',
+    },
+    {
+      photo: '/home/doc3.png',
+      name: 'Dr James Lee',
+      specialty: 'Psychiatry',
+      location: 'Illinois, USA',
+      rating: '4.9',
+      reviews: '100 reviews',
+    },
+    {
+      photo: '/home/doc4.png',
+      name: 'Dr Aisha Brown',
+      specialty: 'Dermatology',
+      location: 'Florida, USA',
+      rating: '4.0',
+      reviews: '120 reviews',
+    },
   ];
 
   protected readonly footerCols = [
