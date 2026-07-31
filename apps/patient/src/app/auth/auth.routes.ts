@@ -12,7 +12,7 @@ export const authRoutes: Route[] = [
       title: 'Account created successfully',
       subtitle: 'Welcome to VideoMed',
       actionLabel: 'Go to dashboard',
-      actionLink: '/',
+      actionLink: '/dashboard',
     },
   },
   {
