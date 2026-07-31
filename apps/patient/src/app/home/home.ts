@@ -113,7 +113,9 @@ interface Doctor {
       </header>
 
       <!-- ===== Hero ===== -->
-      <section class="bg-gradient-to-b from-glacier to-white">
+      <!-- The gradient sits on the whole section (fading in at the bottom); the
+           hero visual is a transparent PNG placed over it. -->
+      <section class="bg-gradient-to-b from-white via-white to-glacier">
         <div
           class="mx-auto grid max-w-[1280px] items-center gap-12 px-5 py-14 md:px-8 lg:grid-cols-2 lg:py-20"
         >
@@ -125,7 +127,9 @@ interface Doctor {
               Trusted by thousands of clients
             </span>
             <h1 class="font-heading text-h1 leading-tight text-abyss">
-              Healthcare made Simple, Personal, &amp; Accessible
+              Healthcare made <span class="text-cerulean">Simple,</span>
+              <span class="text-cerulean">Personal,</span>
+              <span class="text-teal">&amp; Accessible</span>
             </h1>
             <p class="max-w-xl font-sans text-body-lg text-slate">
               Experience modern healthcare with secure virtual consultations,
@@ -134,12 +138,13 @@ interface Doctor {
             </p>
             <div class="flex flex-wrap gap-4">
               <sd-button (click)="go('/auth/register')">
+                <sd-icon name="calendar-days" [size]="18" />
                 Book a Consultation
-                <sd-icon name="arrow-right" [size]="18" />
               </sd-button>
-              <sd-button variant="outline" (click)="scrollTo('about')"
-                >Learn More</sd-button
-              >
+              <sd-button variant="outline" (click)="scrollTo('how')">
+                <sd-icon name="circle-play" [size]="18" />
+                How it Works
+              </sd-button>
             </div>
             <ul class="flex flex-wrap gap-x-8 gap-y-3 pt-2">
               @for (t of heroTrust; track t.label) {
@@ -153,13 +158,13 @@ interface Doctor {
             </ul>
           </div>
 
-          <!-- Visual (exported from the VideoMed design) -->
+          <!-- Visual: transparent PNG exported from the VideoMed design. -->
           <div class="mx-auto w-full max-w-md lg:max-w-none">
             <img
-              src="/home/hero-export.png"
+              src="/home/hero.png"
               alt="Doctor on a secure VideoMed video consultation, with patient rating and HIPAA-compliant badges"
-              width="543"
-              height="535"
+              width="1086"
+              height="1070"
               class="w-full"
             />
           </div>
