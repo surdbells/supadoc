@@ -185,34 +185,105 @@ interface Doctor {
       </section>
 
       <!-- ===== About ===== -->
-      <section id="about" class="bg-glacier">
+      <section id="about" class="overflow-hidden bg-frost/40">
         <div
-          class="mx-auto flex max-w-[860px] flex-col items-center gap-6 px-5 py-16 text-center md:px-8"
+          class="relative mx-auto max-w-[1280px] px-5 py-16 md:px-8 lg:py-24"
         >
-          <span
-            class="flex size-14 items-center justify-center rounded-full bg-frost/60 text-cerulean"
+          <!-- Decorative globe, connectors and photos (lg+) -->
+          <div
+            class="pointer-events-none absolute inset-0 hidden lg:block"
+            aria-hidden="true"
           >
-            <sd-icon name="heart-pulse" [size]="28" />
-          </span>
-          <div class="flex flex-col gap-2">
-            <span
-              class="font-sans text-body font-semibold uppercase tracking-wide text-cerulean"
-              >About VideoMed</span
+            <svg
+              class="absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 text-cerulean/20"
+              viewBox="0 0 100 100"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="0.4"
             >
-            <h2 class="font-heading text-h3 text-abyss">
-              Healthcare designed around your life
-            </h2>
+              <circle cx="50" cy="50" r="46" />
+              <ellipse cx="50" cy="50" rx="46" ry="18" />
+              <ellipse cx="50" cy="50" rx="18" ry="46" />
+              <line x1="4" y1="50" x2="96" y2="50" />
+            </svg>
+            <svg
+              class="absolute inset-0 h-full w-full text-slate/40"
+              viewBox="0 0 1000 500"
+              preserveAspectRatio="none"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-dasharray="3 9"
+              stroke-linecap="round"
+            >
+              <path d="M 230 150 C 350 70, 520 70, 660 130" />
+              <path d="M 250 380 C 430 460, 640 460, 830 360" />
+            </svg>
+            <img
+              src="/home/about-thumb1.png"
+              alt=""
+              class="absolute left-[21%] top-[7%] w-28 rounded-xl shadow-md"
+            />
+            <img
+              src="/home/about-thumb2.png"
+              alt=""
+              class="absolute right-[21%] top-[9%] w-28 rounded-xl shadow-md"
+            />
+            <img
+              src="/home/about-left.png"
+              alt=""
+              class="absolute left-[2%] top-[30%] w-44 rounded-2xl shadow-lg"
+            />
+            <img
+              src="/home/about-right.png"
+              alt=""
+              class="absolute bottom-[8%] right-[2%] w-44 rounded-2xl shadow-lg"
+            />
           </div>
-          <p class="font-sans text-body-lg text-slate">
-            VideoMed makes it easier to connect with experienced healthcare
-            professionals through secure virtual consultation. Whether you need
-            a routine check-up, a specialist opinion or on-going care, our
-            platform provides convenient access to quality healthcare without
-            unnecessary travel.
-          </p>
-          <sd-button variant="outline" (click)="scrollTo('how')"
-            >Learn More</sd-button
+
+          <!-- Centered text -->
+          <div
+            class="relative mx-auto flex max-w-[600px] flex-col items-center gap-4 text-center"
           >
+            <h2 class="font-heading text-h3">
+              <span class="text-ink">About </span
+              ><span class="text-cerulean">Video</span
+              ><span class="text-teal">Med</span>
+            </h2>
+            <p class="font-heading text-h4 text-abyss">
+              Healthcare designed around your life
+            </p>
+            <p class="font-sans text-body text-slate">
+              VideoMed makes it easier to connect with experienced healthcare
+              professionals through secure virtual consultation. Whether you
+              need a routine check-up, a specialist opinion or on-going care,
+              our platform provides convenient access to quality healthcare
+              without unnecessary travel.
+            </p>
+            <sd-button class="mt-2" (click)="scrollTo('how')">
+              Learn More About Us
+              <sd-icon name="arrow-right" [size]="18" />
+            </sd-button>
+          </div>
+        </div>
+
+        <!-- Photos on mobile (the decorative layer is hidden below lg) -->
+        <div class="flex justify-center gap-3 px-5 pb-12 lg:hidden">
+          <img
+            src="/home/about-left.png"
+            alt="Patient consulting a VideoMed doctor from home"
+            class="h-28 w-24 rounded-xl object-cover shadow"
+          />
+          <img
+            src="/home/about-thumb1.png"
+            alt=""
+            class="h-28 w-24 rounded-xl object-cover shadow"
+          />
+          <img
+            src="/home/about-right.png"
+            alt="Doctor providing a VideoMed video consultation"
+            class="h-28 w-24 rounded-xl object-cover shadow"
+          />
         </div>
       </section>
 
@@ -411,36 +482,73 @@ interface Doctor {
       </section>
 
       <!-- ===== Ready / Stay connected ===== -->
-      <section class="bg-glacier">
+      <section class="overflow-hidden bg-frost/40">
         <div
-          class="mx-auto grid max-w-[1280px] gap-10 px-5 py-16 md:px-8 lg:grid-cols-2"
+          class="mx-auto grid max-w-[1280px] items-center gap-10 px-5 py-16 md:px-8 lg:grid-cols-[1fr_360px_1fr]"
         >
+          <!-- Left CTA -->
           <div class="flex flex-col gap-5">
             <h2 class="font-heading text-h3 text-abyss">
               Ready to take charge of your health?
             </h2>
-            <p class="max-w-md font-sans text-body-lg text-slate">
+            <p class="max-w-xs font-sans text-body-lg text-slate">
               Join thousands of patients who trust VideoMed for quality
               healthcare.
             </p>
-            <sd-button class="w-fit" (click)="go('/auth/register')">
-              Get Started
-              <sd-icon name="arrow-right" [size]="18" />
-            </sd-button>
+            <sd-button class="w-fit" (click)="go('/auth/register')"
+              >Book a Consultation</sd-button
+            >
           </div>
-          <div
-            class="flex flex-col gap-4 rounded-card bg-white p-6 ring-1 ring-cloud/60"
-          >
+
+          <!-- Center image with floating credential cards -->
+          <div class="relative mx-auto w-full max-w-[360px]">
+            <img
+              src="/home/ready-person.png"
+              alt="Patient greeting a VideoMed doctor on a video consultation"
+              width="612"
+              height="408"
+              class="w-full"
+            />
+            <div
+              class="absolute left-0 top-4 flex items-center gap-2 rounded-2xl bg-white p-2.5 shadow-lg ring-1 ring-cloud/60"
+            >
+              <span
+                class="flex size-7 items-center justify-center rounded-full bg-ocean font-sans text-[10px] font-semibold text-white"
+                >SC</span
+              >
+              <div class="flex flex-col">
+                <span class="font-sans text-caption font-semibold text-ink"
+                  >Dr. Sarah Charles, MD</span
+                >
+                <span class="font-sans text-[10px] text-slate"
+                  >Family Medicine</span
+                >
+              </div>
+            </div>
+            <div
+              class="absolute bottom-6 right-0 flex items-center gap-2 rounded-2xl bg-white/90 p-2.5 shadow-lg ring-1 ring-cloud/60 backdrop-blur"
+            >
+              <sd-icon name="shield-check" [size]="20" class="text-cerulean" />
+              <div class="flex flex-col">
+                <span class="font-sans text-caption font-semibold text-ink"
+                  >HIPAA Compliant</span
+                >
+                <span class="font-sans text-[10px] text-slate"
+                  >Your privacy is our Priority</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- Right newsletter -->
+          <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-1">
-              <h3 class="font-heading text-h4 text-abyss">Stay Connected</h3>
-              <p class="font-sans text-body-sm text-slate">
+              <h2 class="font-heading text-h3 text-abyss">Stay Connected</h2>
+              <p class="font-sans text-body text-slate">
                 Get health tips and updates
               </p>
             </div>
-            <form
-              class="flex flex-col gap-3 sm:flex-row"
-              (ngSubmit)="subscribe()"
-            >
+            <form class="flex max-w-sm flex-col gap-3" (ngSubmit)="subscribe()">
               <input
                 type="email"
                 [value]="email()"
@@ -449,7 +557,7 @@ interface Doctor {
                 autocomplete="email"
                 class="w-full rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
               />
-              <sd-button type="submit">Subscribe</sd-button>
+              <sd-button type="submit" class="w-fit">Subscribe</sd-button>
             </form>
             @if (subscribed()) {
               <p class="font-sans text-caption text-sage">
