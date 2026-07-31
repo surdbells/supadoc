@@ -14,6 +14,7 @@ interface Notification {
   readonly title: string;
   readonly body: string;
   readonly time: string;
+  readonly unread?: boolean;
 }
 
 /** Patient dashboard home (Figma 666:9342). */
@@ -67,11 +68,13 @@ interface Notification {
               </h3>
             </header>
             <div class="flex items-center gap-2">
-              <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-ocean font-sans text-body-sm font-semibold text-white"
-                aria-hidden="true"
-                >{{ initials }}</span
-              >
+              <img
+                src="/dashboard/avatar-sarah.png"
+                alt=""
+                width="40"
+                height="40"
+                class="size-10 shrink-0 rounded-full object-cover"
+              />
               <div class="flex min-w-0 flex-col">
                 <p class="truncate font-sans text-body font-semibold text-ink">
                   {{ fullName }}
@@ -111,8 +114,15 @@ interface Notification {
 
           <!-- Upcoming Appointment -->
           <article
-            class="flex flex-col gap-6 rounded-card border-[0.5px] border-ash px-6 py-4"
+            class="relative flex flex-col gap-6 rounded-card border-[0.5px] border-ash px-6 py-4"
           >
+            <button
+              type="button"
+              class="absolute right-4 top-4 text-slate transition-colors hover:text-ink"
+              aria-label="Dismiss upcoming appointment"
+            >
+              <sd-icon name="x" [size]="16" />
+            </button>
             <header class="flex items-center gap-2">
               <sd-icon name="calendar-days" [size]="20" class="text-ink" />
               <h3 class="font-sans text-body font-semibold text-ink">
@@ -121,11 +131,13 @@ interface Notification {
             </header>
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span
-                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-ocean font-sans text-body-sm font-semibold text-white"
-                  aria-hidden="true"
-                  >JS</span
-                >
+                <img
+                  src="/dashboard/avatar-james.png"
+                  alt=""
+                  width="40"
+                  height="40"
+                  class="size-10 shrink-0 rounded-full object-cover"
+                />
                 <div class="flex flex-col">
                   <p class="font-sans text-body font-semibold text-ink">
                     Dr James Smith
@@ -145,7 +157,7 @@ interface Notification {
                   <span class="font-sans text-caption">Mon, Jul 20, 2026</span>
                 </span>
                 <span class="flex items-center gap-2 text-slate">
-                  <sd-icon name="map-pin" [size]="16" />
+                  <sd-icon name="video" [size]="16" />
                   <span class="font-sans text-caption">Video Consultation</span>
                 </span>
               </div>
@@ -167,8 +179,15 @@ interface Notification {
 
           <!-- Wallet -->
           <article
-            class="flex flex-col gap-4 rounded-card border-[0.5px] border-ash px-6 py-4"
+            class="relative flex flex-col gap-4 rounded-card border-[0.5px] border-ash px-6 py-4"
           >
+            <button
+              type="button"
+              class="absolute right-4 top-4 text-slate transition-colors hover:text-ink"
+              aria-label="Dismiss wallet"
+            >
+              <sd-icon name="x" [size]="16" />
+            </button>
             <header class="flex items-center gap-2">
               <sd-icon name="wallet" [size]="20" class="text-ink" />
               <h3 class="font-sans text-body font-semibold text-ink">Wallet</h3>
@@ -216,7 +235,7 @@ interface Notification {
       <section class="flex flex-col gap-6 xl:flex-row">
         <!-- Notifications -->
         <article
-          class="flex shrink-0 flex-col gap-6 rounded-card border-[0.5px] border-ash px-6 py-4 xl:w-[360px]"
+          class="relative flex shrink-0 flex-col gap-6 rounded-card border-[0.5px] border-ash px-6 py-4 xl:w-[360px]"
         >
           <header class="flex items-center gap-2">
             <sd-icon name="bell" [size]="20" class="text-ink" />
@@ -228,6 +247,13 @@ interface Notification {
               class="font-sans text-caption text-cerulean hover:underline"
               >View all</a
             >
+            <button
+              type="button"
+              class="text-slate transition-colors hover:text-ink"
+              aria-label="Dismiss notifications"
+            >
+              <sd-icon name="x" [size]="16" />
+            </button>
           </header>
           <ul class="flex flex-col gap-6">
             @for (n of notifications; track n.title) {
@@ -249,6 +275,12 @@ interface Notification {
                   </div>
                   <p class="font-sans text-caption text-slate">{{ n.body }}</p>
                 </div>
+                @if (n.unread) {
+                  <span
+                    class="mt-1.5 size-2 shrink-0 rounded-full bg-cerulean"
+                    aria-label="Unread"
+                  ></span>
+                }
               </li>
             }
           </ul>
@@ -320,6 +352,7 @@ export class DashboardHome {
       title: 'Appointment confirmed',
       body: 'Your appointment with Dr. James is confirm',
       time: '2mins ago',
+      unread: true,
     },
     {
       icon: 'pill',
@@ -327,6 +360,7 @@ export class DashboardHome {
       title: 'Prescription ready',
       body: 'Your prescription is ready for pickup',
       time: '1hr ago',
+      unread: true,
     },
     {
       icon: 'banknote',

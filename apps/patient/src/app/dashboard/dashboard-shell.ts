@@ -91,12 +91,13 @@ interface NavItem {
             ></span>
           </button>
           <div class="flex items-center gap-2">
-            <span
-              class="flex size-10 items-center justify-center rounded-full bg-ocean font-sans text-body-sm font-semibold text-white"
-              aria-hidden="true"
-            >
-              {{ initials }}
-            </span>
+            <img
+              src="/dashboard/avatar-sarah.png"
+              alt=""
+              width="40"
+              height="40"
+              class="size-10 rounded-full object-cover"
+            />
             <span class="font-sans text-body font-semibold text-ink">
               {{ userName }}
             </span>
@@ -136,7 +137,6 @@ export class DashboardShell {
 
   // TODO: source from GetProfile once login returns a usable token.
   protected readonly userName = 'Sarah Johnson';
-  protected readonly initials = 'SJ';
 
   protected async logOut(): Promise<void> {
     await this.auth.logout();
