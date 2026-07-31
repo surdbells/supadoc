@@ -41,6 +41,7 @@ const LENGTH = 6;
           [disabled]="disabled()"
           (input)="handleInput(slot, $event)"
           (keydown)="handleKeydown(slot, $event)"
+          (paste)="handlePaste(slot, $event)"
           (focus)="select($event)"
         />
       }
@@ -75,6 +76,21 @@ export class OtpComponent implements ControlValueAccessor {
     if (event.key === 'Backspace' && !this.digits()[index] && index > 0) {
       this.focusBox(index - 1);
     }
+  }
+
+  /** Paste a whole code: fill boxes from where the paste started. */
+  protected handlePaste(index: number, event: ClipboardEvent): void {
+    event.preventDefault();
+    const pasted = (event.clipboardData?.getData('text') ?? '')
+      .replace(/\D/g, '')
+      .slice(0, LENGTH - index);
+    if (!pasted) return;
+    const next = [...this.digits()];
+    for (let i = 0; i < pasted.length; i++) next[index + i] = pasted[i];
+    this.digits.set(next);
+    this.emit();
+    // Focus the box after the last one filled (or the final box).
+    this.focusBox(Math.min(index + pasted.length, LENGTH - 1));
   }
 
   protected select(event: Event): void {

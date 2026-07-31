@@ -99,10 +99,13 @@ export class VerifyOtp {
   }
 
   constructor() {
-    const id = setInterval(
-      () => this.seconds.update((s) => (s > 0 ? s - 1 : 0)),
-      1000,
-    );
+    const id = setInterval(() => {
+      this.seconds.update((s) => (s > 0 ? s - 1 : 0));
+      // When the code expires, clear whatever the user has typed.
+      if (this.seconds() === 0 && this.form.controls.code.value) {
+        this.form.controls.code.reset('');
+      }
+    }, 1000);
     this.destroyRef.onDestroy(() => clearInterval(id));
   }
 

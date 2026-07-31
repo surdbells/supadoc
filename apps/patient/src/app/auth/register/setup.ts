@@ -47,7 +47,6 @@ import {
           autocomplete="name"
           formControlName="fullName"
         />
-        <sd-input label="Date of Birth" type="date" formControlName="dob" />
         <sd-phone-input
           label="Phone"
           [required]="true"
@@ -76,6 +75,24 @@ import {
             }
           </ul>
         </div>
+
+        <label class="flex items-start gap-2 font-sans text-body-sm text-slate">
+          <input
+            type="checkbox"
+            formControlName="acceptPrivacy"
+            class="mt-0.5 size-5 shrink-0 rounded accent-cerulean"
+          />
+          <span>
+            I have read and accept VideoMed's
+            <a
+              href="/legal/privacy"
+              target="_blank"
+              rel="noopener"
+              class="font-semibold text-cerulean hover:text-cerulean-dark"
+              >Privacy Policy</a
+            >.
+          </span>
+        </label>
 
         @if (errorMessage()) {
           <p
@@ -114,7 +131,6 @@ export class RegisterSetup {
 
   protected readonly form = this.fb.nonNullable.group({
     fullName: ['', [Validators.required, Validators.minLength(2)]],
-    dob: ['', [Validators.required]],
     // Full E.164 number (dial code + local digits), emitted by sd-phone-input.
     phone: ['', [Validators.required, Validators.pattern(/^\+\d{7,15}$/)]],
     password: [
@@ -125,6 +141,7 @@ export class RegisterSetup {
         Validators.pattern(/^(?=.*\d)(?=.*[A-Z]).+$/),
       ],
     ],
+    acceptPrivacy: [false, [Validators.requiredTrue]],
   });
 
   protected ruleOk(rule: { test: (v: string) => boolean }): boolean {
