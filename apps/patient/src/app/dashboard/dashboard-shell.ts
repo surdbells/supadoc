@@ -105,7 +105,7 @@ interface NavItem {
         </header>
 
         <main class="px-6 pb-10">
-          <div class="mx-auto w-full max-w-[1128px]">
+          <div class="mx-auto w-full">
             <router-outlet />
           </div>
         </main>

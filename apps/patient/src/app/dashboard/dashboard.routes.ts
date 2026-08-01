@@ -21,22 +21,18 @@ export const dashboardRoutes: Route[] = [
       },
       {
         path: 'specialists',
-        loadComponent: placeholder,
-        data: {
-          title: 'Find a Specialist',
-          icon: 'stethoscope',
-          description:
-            'Search and connect with trusted, board-certified specialists.',
-        },
+        loadComponent: () =>
+          import('./find-specialist').then((m) => m.FindSpecialist),
       },
       {
         path: 'appointments',
-        loadComponent: placeholder,
-        data: {
-          title: 'Appointments',
-          icon: 'calendar-days',
-          description: 'View, book and manage your consultations.',
-        },
+        loadComponent: () =>
+          import('./appointments').then((m) => m.Appointments),
+      },
+      {
+        path: 'appointments/:id',
+        loadComponent: () =>
+          import('./appointment-details').then((m) => m.AppointmentDetails),
       },
       {
         path: 'history',
