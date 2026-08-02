@@ -58,39 +58,25 @@ export const dashboardRoutes: Route[] = [
       },
       {
         path: 'settings/password',
-        loadComponent: placeholder,
-        data: {
-          title: 'Change Password',
-          icon: 'lock',
-          description: 'Update your account password.',
-        },
+        loadComponent: () =>
+          import('./settings-password').then((m) => m.SettingsPassword),
       },
       {
         path: 'settings/notifications',
-        loadComponent: placeholder,
-        data: {
-          title: 'Notification Preferences',
-          icon: 'bell',
-          description: 'Manage reminders and alerts.',
-        },
+        loadComponent: () =>
+          import('./settings-notifications').then(
+            (m) => m.SettingsNotifications,
+          ),
       },
       {
         path: 'settings/privacy',
-        loadComponent: placeholder,
-        data: {
-          title: 'Privacy & Security',
-          icon: 'shield-check',
-          description: 'Control your privacy and security settings.',
-        },
+        loadComponent: () =>
+          import('./settings-privacy').then((m) => m.SettingsPrivacy),
       },
       {
         path: 'settings/help',
-        loadComponent: placeholder,
-        data: {
-          title: 'Help & Support',
-          icon: 'circle-help',
-          description: 'Contact support & browse FAQs.',
-        },
+        loadComponent: () =>
+          import('./settings-help').then((m) => m.SettingsHelp),
       },
       {
         path: 'wallet',
