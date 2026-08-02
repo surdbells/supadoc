@@ -12,7 +12,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 type Status =
   'confirmed' | 'pending' | 'completed' | 'cancelled' | 'rescheduled';
-type Tab = 'all' | 'upcoming' | 'completed' | 'cancelled';
+type Tab = 'all' | 'upcoming' | 'completed' | 'cancelled' | 'rescheduled';
 
 interface Appointment {
   readonly id: string;
@@ -37,7 +37,7 @@ const STATUS: Record<Status, { label: string; class: string }> = {
 const TAB_OF: Record<Status, Tab> = {
   confirmed: 'upcoming',
   pending: 'upcoming',
-  rescheduled: 'upcoming',
+  rescheduled: 'rescheduled',
   completed: 'completed',
   cancelled: 'cancelled',
 };
@@ -218,6 +218,7 @@ export class Appointments {
     { key: 'upcoming', label: 'Upcoming' },
     { key: 'completed', label: 'Completed' },
     { key: 'cancelled', label: 'Cancelled' },
+    { key: 'rescheduled', label: 'Rescheduled' },
   ];
 
   private readonly view = toSignal(
