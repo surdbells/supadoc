@@ -1,10 +1,18 @@
 import { Provider } from '@angular/core';
 import {
   provideLucideIcons,
+  LucideActivity,
   LucideArrowRight,
   LucideBanknote,
   LucideBell,
+  LucideBellOff,
   LucideBriefcase,
+  LucideCamera,
+  LucideCircleHelp,
+  LucideIdCard,
+  LucideLightbulb,
+  LucidePencil,
+  LucideTriangleAlert,
   LucideCalendarCheck,
   LucideCalendarClock,
   LucideCalendarDays,
@@ -64,6 +72,7 @@ import {
  * small. Browse the full set at https://lucide.dev/icons.
  */
 export const SUPADOC_ICONS = [
+  LucideActivity,
   LucideHouse,
   LucideLayoutDashboard,
   LucideUser,
@@ -73,6 +82,13 @@ export const SUPADOC_ICONS = [
   LucideStethoscope,
   LucideHeartPulse,
   LucidePill,
+  LucideBellOff,
+  LucideCamera,
+  LucideCircleHelp,
+  LucideIdCard,
+  LucideLightbulb,
+  LucidePencil,
+  LucideTriangleAlert,
   LucideBriefcase,
   LucideCalendarDays,
   LucideCalendarCheck,

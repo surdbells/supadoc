@@ -36,20 +36,60 @@ export const dashboardRoutes: Route[] = [
       },
       {
         path: 'history',
-        loadComponent: placeholder,
-        data: {
-          title: 'History',
-          icon: 'history',
-          description: 'Review your past consultations and treatment plans.',
-        },
+        loadComponent: () => import('./history').then((m) => m.History),
+      },
+      {
+        path: 'history/:id',
+        loadComponent: () =>
+          import('./history-details').then((m) => m.HistoryDetails),
       },
       {
         path: 'notifications',
+        loadComponent: () =>
+          import('./notification').then((m) => m.Notification),
+      },
+      {
+        path: 'profile',
+        loadComponent: () => import('./my-profile').then((m) => m.MyProfile),
+      },
+      {
+        path: 'settings',
+        loadComponent: () => import('./settings').then((m) => m.Settings),
+      },
+      {
+        path: 'settings/password',
         loadComponent: placeholder,
         data: {
-          title: 'Notification',
+          title: 'Change Password',
+          icon: 'lock',
+          description: 'Update your account password.',
+        },
+      },
+      {
+        path: 'settings/notifications',
+        loadComponent: placeholder,
+        data: {
+          title: 'Notification Preferences',
           icon: 'bell',
-          description: 'Your appointment, prescription and payment updates.',
+          description: 'Manage reminders and alerts.',
+        },
+      },
+      {
+        path: 'settings/privacy',
+        loadComponent: placeholder,
+        data: {
+          title: 'Privacy & Security',
+          icon: 'shield-check',
+          description: 'Control your privacy and security settings.',
+        },
+      },
+      {
+        path: 'settings/help',
+        loadComponent: placeholder,
+        data: {
+          title: 'Help & Support',
+          icon: 'circle-help',
+          description: 'Contact support & browse FAQs.',
         },
       },
       {
@@ -59,24 +99,6 @@ export const dashboardRoutes: Route[] = [
           title: 'Wallet',
           icon: 'wallet',
           description: 'Manage your balance, funds and transactions.',
-        },
-      },
-      {
-        path: 'profile',
-        loadComponent: placeholder,
-        data: {
-          title: 'My Profile',
-          icon: 'user',
-          description: 'Manage your personal and medical information.',
-        },
-      },
-      {
-        path: 'settings',
-        loadComponent: placeholder,
-        data: {
-          title: 'Settings',
-          icon: 'settings',
-          description: 'Update your preferences and account settings.',
         },
       },
       { path: '**', redirectTo: '' },
