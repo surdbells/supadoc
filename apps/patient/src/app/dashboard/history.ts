@@ -117,6 +117,21 @@ const STATUS: Record<Status, { label: string; class: string }> = {
                 <p class="truncate font-sans text-caption text-slate">
                   {{ c.specialty }}
                 </p>
+                <!-- Compact meta for mobile (date + status) -->
+                <div
+                  class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 sm:hidden"
+                >
+                  <span
+                    class="flex items-center gap-1 font-sans text-caption text-slate"
+                  >
+                    <sd-icon name="calendar-days" [size]="14" />{{ c.date }}
+                  </span>
+                  <span
+                    class="rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
+                    [class]="status(c).class"
+                    >{{ status(c).label }}</span
+                  >
+                </div>
               </div>
               <div
                 class="hidden flex-col gap-1 font-sans text-caption text-slate sm:flex"

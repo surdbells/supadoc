@@ -26,7 +26,7 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
         <div class="flex flex-col gap-1">
           <h1 class="font-heading text-h3 text-ink">Change Password</h1>
           <p class="font-sans text-body text-slate">
-            Update your account password.
+            Your new password must be different from the current one.
           </p>
         </div>
         <a
@@ -39,7 +39,7 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
       </div>
 
       <form
-        class="flex max-w-xl flex-col gap-6 rounded-card border border-cloud bg-white p-6"
+        class="mx-auto flex w-full max-w-[480px] flex-col gap-6 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
         [formGroup]="form"
         (ngSubmit)="save()"
       >
@@ -51,30 +51,16 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
           autocomplete="current-password"
           formControlName="current"
         />
-        <div class="flex flex-col gap-3">
-          <sd-input
-            label="New Password"
-            type="password"
-            [required]="true"
-            placeholder="Create a new password"
-            autocomplete="new-password"
-            formControlName="next"
-          />
-          <ul class="flex flex-col gap-1.5">
-            @for (rule of rules; track rule.label) {
-              <li
-                class="flex items-center gap-2 font-sans text-body-sm"
-                [class.text-sage]="rule.test(form.controls.next.value)"
-                [class.text-slate]="!rule.test(form.controls.next.value)"
-              >
-                <sd-icon name="check" [size]="16" />
-                {{ rule.label }}
-              </li>
-            }
-          </ul>
-        </div>
         <sd-input
-          label="Confirm New Password"
+          label="Password"
+          type="password"
+          [required]="true"
+          placeholder="Create a new password"
+          autocomplete="new-password"
+          formControlName="next"
+        />
+        <sd-input
+          label="Confirm Password"
           type="password"
           [required]="true"
           placeholder="Re-enter new password"
@@ -92,16 +78,12 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
           </p>
         }
 
-        <div class="flex gap-3">
-          <a
-            routerLink="/dashboard/settings"
-            class="inline-flex items-center justify-center rounded-field bg-white px-4 py-3 font-sans font-semibold text-cerulean ring-1 ring-inset ring-frost transition-colors hover:bg-glacier"
-            >Cancel</a
-          >
-          <sd-button type="submit" [disabled]="form.invalid || mismatch()"
-            >Save changes</sd-button
-          >
-        </div>
+        <sd-button
+          type="submit"
+          [full]="true"
+          [disabled]="form.invalid || mismatch()"
+          >Save Changes</sd-button
+        >
       </form>
     </div>
   `,
@@ -109,12 +91,6 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 export class SettingsPassword {
   private readonly fb = inject(FormBuilder);
   protected readonly saved = signal(false);
-
-  protected readonly rules = [
-    { label: 'Minimum of 8 characters', test: (v: string) => v.length >= 8 },
-    { label: 'Include a number', test: (v: string) => /\d/.test(v) },
-    { label: 'Include an uppercase', test: (v: string) => /[A-Z]/.test(v) },
-  ];
 
   protected readonly form = this.fb.nonNullable.group({
     current: ['', [Validators.required]],

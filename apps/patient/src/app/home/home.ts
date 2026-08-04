@@ -119,14 +119,16 @@ interface Doctor {
         <div
           class="mx-auto grid max-w-[1280px] items-center gap-12 px-5 py-14 md:px-8 lg:grid-cols-2 lg:py-20"
         >
-          <div class="flex flex-col gap-6">
+          <div class="flex min-w-0 flex-col gap-6">
             <span
               class="inline-flex w-fit items-center gap-2 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-medium text-cerulean"
             >
               <sd-icon name="shield-check" [size]="14" />
               Trusted by thousands of clients
             </span>
-            <h1 class="font-heading text-h1 leading-tight text-abyss">
+            <h1
+              class="font-heading text-h1 leading-tight text-abyss break-words"
+            >
               Healthcare made <span class="text-cerulean">Simple,</span>
               <span class="text-cerulean">Personal,</span>
               <span class="text-teal">&amp; Accessible</span>
@@ -159,7 +161,7 @@ interface Doctor {
           </div>
 
           <!-- Visual: transparent PNG exported from the VideoMed design. -->
-          <div class="mx-auto w-full max-w-md lg:max-w-none">
+          <div class="mx-auto w-full min-w-0 max-w-md lg:max-w-none">
             <img
               src="/home/hero.png"
               alt="Doctor on a secure VideoMed video consultation, with patient rating and HIPAA-compliant badges"

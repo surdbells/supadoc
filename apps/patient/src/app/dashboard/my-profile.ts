@@ -300,7 +300,7 @@ interface SectionCard {
                   <sd-icon name="x" [size]="18" class="text-slate" />
                 </div>
               </div>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <ng-container
                   [ngTemplateOutlet]="field"
                   [ngTemplateOutletContext]="{
@@ -336,7 +336,7 @@ interface SectionCard {
                   <sd-icon name="x" [size]="18" class="text-slate" />
                 </div>
               </div>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <ng-container
                   [ngTemplateOutlet]="field"
                   [ngTemplateOutletContext]="{
@@ -375,7 +375,7 @@ interface SectionCard {
                   <sd-icon name="x" [size]="18" class="text-slate" />
                 </div>
               </div>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <ng-container
                   [ngTemplateOutlet]="field"
                   [ngTemplateOutletContext]="{
@@ -417,7 +417,7 @@ interface SectionCard {
                   <sd-icon name="x" [size]="18" class="text-slate" />
                 </div>
               </div>
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <ng-container
                   [ngTemplateOutlet]="field"
                   [ngTemplateOutletContext]="{
