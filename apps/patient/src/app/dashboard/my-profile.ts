@@ -14,7 +14,14 @@ import {
   PhoneInputComponent,
 } from '@supadoc/ui';
 
-type View = 'home' | 'personal' | 'personal-edit' | 'medical' | 'medical-add';
+type View =
+  | 'home'
+  | 'personal'
+  | 'personal-edit'
+  | 'medical'
+  | 'medical-add'
+  | 'insurance'
+  | 'emergency';
 
 interface SectionCard {
   readonly key: View | 'insurance' | 'emergency';
@@ -443,6 +450,167 @@ interface SectionCard {
             <sd-button (click)="saveMedical()">Save</sd-button>
           </div>
         }
+
+        @case ('insurance') {
+          <ng-container
+            [ngTemplateOutlet]="subHeader"
+            [ngTemplateOutletContext]="{
+              title: 'Insurance Information',
+              subtitle: 'View and manage your insurance details',
+            }"
+          />
+          <ng-container
+            [ngTemplateOutlet]="tipsBanner"
+            [ngTemplateOutletContext]="{ tips: insuranceTips }"
+          />
+          <div class="rounded-card border border-cloud bg-white p-6">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Insurance Provider <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <sd-icon name="building-2" [size]="18" class="text-slate" />
+                  <select [class]="fieldControl">
+                    <option>BlueShield Health Partners</option>
+                    <option>Aetna</option>
+                    <option>Cigna</option>
+                  </select>
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Insurance Plan <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <sd-icon name="list" [size]="18" class="text-slate" />
+                  <select [class]="fieldControl">
+                    <option>PPO Silver 250</option>
+                    <option>HMO Gold 500</option>
+                  </select>
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Policy Number/ Membership ID
+                  <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <sd-icon name="hash" [size]="18" class="text-slate" />
+                  <input
+                    type="text"
+                    value="BH-2291-8834"
+                    [class]="fieldControl"
+                  />
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Coverage Status <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <span class="size-2 shrink-0 rounded-full bg-sage"></span>
+                  <select [class]="fieldControl">
+                    <option>Active</option>
+                    <option>Inactive</option>
+                    <option>Expired</option>
+                  </select>
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Expiry Date <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <sd-icon
+                    name="calendar-days"
+                    [size]="18"
+                    class="text-slate"
+                  />
+                  <input
+                    type="date"
+                    value="2027-04-11"
+                    [class]="fieldControl"
+                  />
+                </span>
+              </label>
+            </div>
+            <div class="mt-6 flex gap-3">
+              <sd-button variant="outline" (click)="view.set('home')"
+                >Cancel</sd-button
+              >
+              <sd-button (click)="saveInsurance()">Save</sd-button>
+            </div>
+          </div>
+        }
+
+        @case ('emergency') {
+          <ng-container
+            [ngTemplateOutlet]="subHeader"
+            [ngTemplateOutletContext]="{
+              title: 'Emergency Contact',
+              subtitle: 'Your information is private and securely encrypted',
+            }"
+          />
+          <ng-container
+            [ngTemplateOutlet]="tipsBanner"
+            [ngTemplateOutletContext]="{ tips: emergencyTips }"
+          />
+          <div class="rounded-card border border-cloud bg-white p-6">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Full Name <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <input
+                    type="text"
+                    value="David Johnson"
+                    [class]="fieldControl"
+                  />
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Relationship <span class="text-alert">*</span></span
+                >
+                <span [class]="fieldWrap">
+                  <select [class]="fieldControl">
+                    <option>Select</option>
+                    <option>Spouse</option>
+                    <option>Parent</option>
+                    <option>Sibling</option>
+                    <option>Friend</option>
+                  </select>
+                </span>
+              </label>
+              <div class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Phone <span class="text-alert">*</span></span
+                >
+                <sd-phone-input />
+              </div>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Email (optional)</span
+                >
+                <span [class]="fieldWrap">
+                  <input
+                    type="email"
+                    placeholder="example@email.com"
+                    [class]="fieldControl"
+                  />
+                </span>
+              </label>
+            </div>
+            <div class="mt-6 flex gap-3">
+              <sd-button variant="outline" (click)="view.set('home')"
+                >Cancel</sd-button
+              >
+              <sd-button (click)="saveEmergency()">Save changes</sd-button>
+            </div>
+          </div>
+        }
       }
     </div>
 
@@ -535,21 +703,19 @@ interface SectionCard {
       </div>
     </ng-template>
 
-    <ng-template #tipsBanner>
+    <ng-template #tipsBanner let-tips="tips">
       <div
         class="flex items-start justify-between gap-4 rounded-card bg-gradient-to-r from-frost to-mist p-5"
       >
         <div class="flex flex-col gap-2">
           <p class="font-sans text-body font-semibold text-abyss">Tips</p>
           <ul class="flex flex-col gap-1.5 font-sans text-body-sm text-ink/80">
-            <li class="flex items-center gap-2">
-              <sd-icon name="check" [size]="16" class="text-teal" />
-              Help your doctor to make better diagnoses and treatment decision
-            </li>
-            <li class="flex items-center gap-2">
-              <sd-icon name="check" [size]="16" class="text-teal" />
-              Skip repeating your medical history during every consultation
-            </li>
+            @for (tip of tips ?? medicalTips; track tip) {
+              <li class="flex items-center gap-2">
+                <sd-icon name="check" [size]="16" class="text-teal" />
+                {{ tip }}
+              </li>
+            }
           </ul>
         </div>
         <sd-icon name="lightbulb" [size]="36" class="shrink-0 text-warning" />
@@ -649,10 +815,30 @@ export class MyProfile {
     return map[c.key] ?? 'text-ink';
   }
 
+  // Field styling shared by the Insurance / Emergency forms.
+  protected readonly fieldWrap =
+    'flex items-center gap-2 rounded-field border border-[#d7e0e8] bg-white px-4 transition-colors focus-within:border-teal focus-within:ring-2 focus-within:ring-teal/15';
+  protected readonly fieldControl =
+    'w-full bg-transparent py-3.5 font-sans text-body text-ink placeholder:text-slate/60 focus:outline-none';
+
+  protected readonly medicalTips = [
+    'Help your doctor to make better diagnoses and treatment decision',
+    'Skip repeating your medical history during every consultation',
+  ];
+  protected readonly insuranceTips = [
+    'Ensure your policy number is entered correctly.',
+    'Keep your insurance information up to date to avoid claim issue',
+  ];
+  protected readonly emergencyTips = [
+    'Ensure your emergency number is entered correctly.',
+    'Your emergency contact will only be contacted in urgent medical situation.',
+  ];
+
   protected openSection(key: SectionCard['key']): void {
     if (key === 'personal') this.view.set('personal');
     else if (key === 'medical') this.view.set('medical');
-    // Insurance / Emergency detail views are not designed yet.
+    else if (key === 'insurance') this.view.set('insurance');
+    else if (key === 'emergency') this.view.set('emergency');
   }
 
   protected back(): void {
@@ -677,6 +863,16 @@ export class MyProfile {
   protected saveMedical(): void {
     this.view.set('medical');
     this.showToast('Medical information saved successfully');
+  }
+
+  protected saveInsurance(): void {
+    this.view.set('home');
+    this.showToast('Insurance information saved successfully');
+  }
+
+  protected saveEmergency(): void {
+    this.view.set('home');
+    this.showToast('Emergency contact saved successfully');
   }
 
   private showToast(message: string): void {

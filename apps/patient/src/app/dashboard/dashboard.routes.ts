@@ -74,6 +74,18 @@ export const dashboardRoutes: Route[] = [
           import('./settings-privacy').then((m) => m.SettingsPrivacy),
       },
       {
+        path: 'settings/privacy/login-activity',
+        loadComponent: () =>
+          import('./settings-login-activity').then(
+            (m) => m.SettingsLoginActivity,
+          ),
+      },
+      {
+        path: 'settings/privacy/devices',
+        loadComponent: () =>
+          import('./settings-devices').then((m) => m.SettingsDevices),
+      },
+      {
         path: 'settings/help',
         loadComponent: () =>
           import('./settings-help').then((m) => m.SettingsHelp),
