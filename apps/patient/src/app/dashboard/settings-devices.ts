@@ -9,11 +9,7 @@ interface Device {
   readonly current?: boolean;
 }
 
-/**
- * Settings › Privacy & Security › Connected Devices (Figma 1034:45955).
- * Adapted from the Login Activity pattern — the exact frame wasn't provided, so
- * this mirrors the device-list style and should get a pixel pass when available.
- */
+/** Settings › Privacy & Security › Connected Device (Figma 1034:45955). */
 @Component({
   selector: 'pat-settings-devices',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -23,10 +19,8 @@ interface Device {
     <div class="flex flex-col gap-6 py-2">
       <div class="flex items-start justify-between gap-4">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Connected Devices</h1>
-          <p class="font-sans text-body text-slate">
-            Devices currently signed in to your account.
-          </p>
+          <h1 class="font-heading text-h3 text-ink">Connected Device</h1>
+          <p class="font-sans text-body text-slate">3 Device signed in.</p>
         </div>
         <a
           routerLink="/dashboard/settings/privacy"
@@ -68,7 +62,7 @@ interface Device {
                 type="button"
                 class="shrink-0 font-sans text-body-sm font-medium text-alert transition-colors hover:brightness-95"
               >
-                Remove
+                Delete
               </button>
             }
           </div>
@@ -83,18 +77,18 @@ export class SettingsDevices {
     {
       icon: 'laptop',
       name: 'MacBook Pro',
-      meta: 'Chrome  •  Lagos, Nigeria  •  Active now',
+      meta: 'Currently active',
       current: true,
     },
     {
       icon: 'smartphone',
       name: 'iPhone 15',
-      meta: 'Safari  •  Lagos, Nigeria  •  Yesterday, 06:45pm',
+      meta: 'Last active: Yesterday, 06:40 PM',
     },
     {
       icon: 'laptop',
-      name: 'Windows PC',
-      meta: 'Chrome  •  Abuja, Nigeria  •  July 20, 2026',
+      name: 'Window PC',
+      meta: 'Last active: July 20, 2026',
     },
   ];
 }
