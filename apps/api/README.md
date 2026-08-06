@@ -20,6 +20,8 @@ apps/api/
 │   ├── Domain/{Entity,Repository,Enum,Exception}
 │   └── Infrastructure/{Middleware,Persistence,Service}
 ├── bin/doctrine.php         # Doctrine ORM CLI
+├── bin/seed.php             # idempotent dev seed
+├── docker-compose.yml       # local Postgres + Redis
 ├── migrations/              # real migrations (day one)
 └── tests/Unit/              # offline DQL + mapping + container checks
 ```
@@ -29,14 +31,22 @@ apps/api/
 ```bash
 cd apps/api
 composer install
-cp .env.example .env            # fill DB_*, JWT_SECRET, REDIS_*, CORS_*
+cp .env.example .env            # fill DB_*, JWT_SECRET (>=32 bytes), REDIS_*, CORS_*
+```
+
+Bring up dependencies (Postgres + Redis on offset host ports 5544 / 6399 —
+`.env` already points there):
+
+```bash
+docker compose up -d
 ```
 
 Create the schema (dev) or generate a migration (preferred):
 
 ```bash
+php bin/doctrine.php orm:schema-tool:create          # fresh dev DB
 composer schema:preview                              # dump SQL, no changes
-composer schema:apply                                # apply directly (dev only)
+composer schema:apply                                # apply diff directly (dev only)
 # — or —
 vendor/bin/doctrine-migrations diff                  # generate a migration
 vendor/bin/doctrine-migrations migrate               # apply it
@@ -48,6 +58,28 @@ Run:
 composer start                  # php -S localhost:8080 -t public
 curl localhost:8080/health
 ```
+
+## Seed & try it
+
+```bash
+php bin/seed.php                # admin@ / viewer@ / patient@videomed.test, pw: password123
+```
+
+```bash
+# staff sign-in -> access_token
+curl -s localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@videomed.test","password":"password123"}'
+
+# customer (patient) sign-in -> customer-scoped token
+curl -s localhost:8080/api/portal/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"patient@videomed.test","password":"password123"}'
+```
+
+`viewer@` has `appointments.view` only, so it 403s on `POST /api/appointments` —
+handy for checking RBAC. A staff token is rejected by `/api/portal/*` and vice
+versa (audience `scope`).
 
 ## Tests
 

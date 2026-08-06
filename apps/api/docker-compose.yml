@@ -1,0 +1,35 @@
+# Local dev dependencies for the VideoMed API: PostgreSQL + Redis.
+# Host ports are offset (5544 / 6399) so they don't clash with other stacks
+# running on this machine. The app connects from the host, so point .env at
+# these host ports (DB_PORT=5544, REDIS_PORT=6399).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: videomed-postgres
+    environment:
+      POSTGRES_USER: videomed
+      POSTGRES_PASSWORD: videomed
+      POSTGRES_DB: videomed
+    ports:
+      - "5544:5432"
+    volumes:
+      - videomed-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U videomed -d videomed"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: videomed-redis
+    ports:
+      - "6399:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  videomed-pgdata:

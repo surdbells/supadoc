@@ -33,7 +33,8 @@ return static function (App $app): void {
 
     $app->group('/api', function (RouteCollectorProxy $group) use ($jwt): void {
         // ----- Public -----
-        $group->post('/auth/login', Action\Auth\LoginAction::class);
+        $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
+        $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
         $group->post('/auth/refresh', Action\Auth\RefreshAction::class);
 
         // ----- Staff (default audience) -----
