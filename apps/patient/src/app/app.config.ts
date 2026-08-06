@@ -25,6 +25,7 @@ export const appConfig: ApplicationConfig = {
     provideSupadocDataAccess({
       baseUrl: environment.apiBaseUrl,
       appId: environment.appId,
+      loginPath: environment.loginPath,
     }),
     provideSupadocAuth(),
     provideSupadocIcons(),

@@ -24,7 +24,7 @@ export class AuthApi {
   }
 
   login(params: LoginParams): Observable<LoginResponse> {
-    return this.api.post<LoginResponse>('login', {
+    return this.api.post<LoginResponse>(this.config.loginPath ?? 'login', {
       ...params,
       appId: this.appId,
     });

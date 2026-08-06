@@ -25,10 +25,17 @@ export class AuthService {
   /** `POST /login`. Stores the returned bearer token when the API provides one. */
   async login(params: LoginParams): Promise<void> {
     const res = await firstValueFrom(this.authApi.login(params));
+    // Accept both the betacrest top-level token shapes and the local API's
+    // envelope ({ data: { access_token } }).
+    const data = (res?.['data'] ?? null) as
+      | { access_token?: string; token?: string }
+      | null;
     const token =
       (res?.token as string | undefined) ??
       (res?.accessToken as string | undefined) ??
       (res?.jwt as string | undefined) ??
+      data?.access_token ??
+      data?.token ??
       null;
     if (token) this.setToken(token);
   }

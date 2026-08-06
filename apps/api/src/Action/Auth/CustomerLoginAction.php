@@ -26,8 +26,10 @@ final class CustomerLoginAction
         ServerRequestInterface $request,
         ResponseInterface $response,
     ): ResponseInterface {
-        $body     = (array) $request->getParsedBody();
-        $email    = trim((string) ($body['email'] ?? ''));
+        $body = (array) $request->getParsedBody();
+        // The shared frontend client posts the identifier as `userName`; accept
+        // either that or `email`.
+        $email    = trim((string) ($body['email'] ?? $body['userName'] ?? ''));
         $password = (string) ($body['password'] ?? '');
 
         $errors = [];
