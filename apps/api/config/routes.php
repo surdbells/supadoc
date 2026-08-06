@@ -50,6 +50,9 @@ return static function (App $app): void {
             $group->post('/appointments', Action\Appointment\CreateAppointmentAction::class)
                 // Array + default requireAll:false means ANY of these permissions.
                 ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
+
+            $group->patch('/appointments/{id}/status', Action\Appointment\UpdateAppointmentStatusAction::class)
+                ->add(new RbacMiddleware('appointments.update'));
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----

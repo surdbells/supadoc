@@ -33,7 +33,7 @@ if ($em->getRepository(User::class)->findOneBy(['email' => $adminEmail]) === nul
     $admin = new User($adminEmail, 'Ada', 'Admin');
     $admin->setPassword($password);
     $admin->setRoles(['admin']);
-    $admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book']);
+    $admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update']);
     $em->persist($admin);
 }
 
