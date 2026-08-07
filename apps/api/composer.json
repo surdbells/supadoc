@@ -35,7 +35,7 @@
         }
     },
     "scripts": {
-        "start": "php -S localhost:8080 -t public",
+        "start": "php -S localhost:8080 -t public public/index.php",
         "test": "phpunit",
         "schema:preview": "php bin/doctrine.php orm:schema-tool:update --dump-sql",
         "schema:apply": "php bin/doctrine.php orm:schema-tool:update --force"

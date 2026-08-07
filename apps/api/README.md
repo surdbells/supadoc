@@ -55,9 +55,13 @@ vendor/bin/doctrine-migrations migrate               # apply it
 Run:
 
 ```bash
-composer start                  # php -S localhost:8080 -t public
+composer start                  # php -S localhost:8080 -t public public/index.php
 curl localhost:8080/health
 ```
+
+**API docs:** Swagger UI at `http://localhost:8080/api/docs` (raw spec at
+`/api/docs/openapi.json`). The spec is hand-maintained in `config/openapi.php` —
+update it when you add or change a route.
 
 ## Seed & try it
 

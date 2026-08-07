@@ -31,6 +31,10 @@ return static function (App $app): void {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
+    // API docs (public): Swagger UI + the raw OpenAPI document.
+    $app->get('/api/docs', Action\Docs\SwaggerUiAction::class);
+    $app->get('/api/docs/openapi.json', Action\Docs\OpenApiAction::class);
+
     $app->group('/api', function (RouteCollectorProxy $group) use ($jwt): void {
         // ----- Public -----
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
