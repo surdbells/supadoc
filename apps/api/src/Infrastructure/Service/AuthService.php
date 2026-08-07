@@ -134,6 +134,24 @@ final class AuthService
         return $this->issueCustomerTokens($patient);
     }
 
+    /**
+     * Set a new password after email verification, and sign in.
+     *
+     * @return array{access_token:string, refresh_token:string, user:array}
+     */
+    public function resetPassword(string $email, string $newPassword): array
+    {
+        $patient = $this->patients->findByEmail(strtolower(trim($email)));
+        if ($patient === null) {
+            throw new AuthenticationException('No account is registered with this email');
+        }
+
+        $patient->setPassword($newPassword);
+        $this->patients->save($patient);
+
+        return $this->issueCustomerTokens($patient);
+    }
+
     /** @return array{access_token:string, token_type:string, expires_in:int} */
     public function refresh(string $refreshToken): array
     {

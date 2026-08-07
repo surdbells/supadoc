@@ -8,6 +8,7 @@ use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Agora\AgoraTokenService;
+use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AuthService;
@@ -78,6 +79,12 @@ return [
     AgoraTokenService::class => static fn (): AgoraTokenService => new AgoraTokenService(
         appId:          $_ENV['AGORA_APP_ID'] ?? '',
         appCertificate: $_ENV['AGORA_APP_CERTIFICATE'] ?? '',
+    ),
+
+    EmailOtpService::class => static fn (ContainerInterface $c): EmailOtpService => new EmailOtpService(
+        $c->get(RedisClient::class),
+        $c->get(MailService::class),
+        ($_ENV['APP_ENV'] ?? 'production') !== 'production',
     ),
 
     MailService::class => static fn (ContainerInterface $c): MailService => new MailService(

@@ -251,6 +251,69 @@ return [
                 ],
             ],
         ],
+        '/api/portal/auth/email/request-otp' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Email a verification code (register or reset)',
+                'description' => 'purpose=register (email must be free) or reset (account must exist). In non-production the response includes dev_code.',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email'], 'properties' => ['email' => ['type' => 'string', 'format' => 'email'], 'purpose' => ['type' => 'string', 'enum' => ['register', 'reset']]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Code sent', ...$json($envelope(['type' => 'object', 'properties' => ['sent' => ['type' => 'boolean'], 'dev_code' => ['type' => 'string', 'description' => 'non-production only']]]))],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/auth/email/verify-otp' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Verify an emailed code',
+                'description' => 'Returns a verification_token consumed by register / reset-password.',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email', 'otp'], 'properties' => ['email' => ['type' => 'string', 'format' => 'email'], 'otp' => ['type' => 'string'], 'purpose' => ['type' => 'string', 'enum' => ['register', 'reset']]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Verified', ...$json($envelope(['type' => 'object', 'properties' => ['verified' => ['type' => 'boolean'], 'verification_token' => ['type' => 'string']]]))],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/auth/register' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Register a patient after email verification',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['verification_token', 'email', 'first_name', 'password'],
+                    'properties' => [
+                        'verification_token' => ['type' => 'string'],
+                        'email'              => ['type' => 'string', 'format' => 'email'],
+                        'first_name'         => ['type' => 'string'],
+                        'last_name'          => ['type' => 'string'],
+                        'password'           => ['type' => 'string', 'format' => 'password', 'minLength' => 8],
+                    ],
+                ])],
+                'responses'   => [
+                    '201' => ['description' => 'Account created', ...$json($envelope($authData('#/components/schemas/PatientProfile')))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/auth/reset-password' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Set a new password after email verification',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['verification_token', 'email', 'new_password'], 'properties' => ['verification_token' => ['type' => 'string'], 'email' => ['type' => 'string', 'format' => 'email'], 'new_password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Password updated', ...$json($envelope($authData('#/components/schemas/PatientProfile')))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/auth/phone/request-otp' => [
             'post' => [
                 'tags'        => ['Auth'],

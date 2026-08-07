@@ -118,4 +118,33 @@ final class JwtService
 
         return (string) $payload->phone;
     }
+
+    /** Short-lived proof that an email was just verified over an emailed OTP. */
+    public function issueEmailProof(string $email, int $ttl = 900): string
+    {
+        $now = time();
+
+        return JWT::encode([
+            'email' => $email,
+            'type'  => 'email_proof',
+            'iat'   => $now,
+            'exp'   => $now + $ttl,
+        ], $this->secret, self::ALGO);
+    }
+
+    /** The verified email from a valid, unexpired proof token, or null. */
+    public function verifyEmailProof(string $token): ?string
+    {
+        try {
+            $payload = JWT::decode($token, new Key($this->secret, self::ALGO));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (($payload->type ?? null) !== 'email_proof' || empty($payload->email)) {
+            return null;
+        }
+
+        return (string) $payload->email;
+    }
 }

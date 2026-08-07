@@ -74,6 +74,25 @@ final class EmailTemplates
         ];
     }
 
+    /** @return array{subject: string, html: string} */
+    public static function verificationCode(string $code, string $purpose): array
+    {
+        $intro = $purpose === 'reset'
+            ? 'Use this code to reset your VideoMed password.'
+            : 'Use this code to verify your email and finish creating your VideoMed account.';
+
+        $body = self::heading('Your verification code')
+            . self::lead($intro)
+            . '<div style="margin:8px 0;text-align:center;font-size:34px;font-weight:700;'
+            . 'letter-spacing:10px;color:' . self::OCEAN . ';">' . self::e($code) . '</div>'
+            . self::note("This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.");
+
+        return [
+            'subject' => 'Your VideoMed verification code',
+            'html'    => self::layout('Verification code', 'Your VideoMed verification code', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body): string

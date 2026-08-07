@@ -40,6 +40,10 @@ return static function (App $app): void {
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
         $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
         $group->post('/portal/auth/google', Action\Auth\GoogleLoginAction::class);  // customer (Google)
+        $group->post('/portal/auth/email/request-otp', Action\Auth\RequestEmailOtpAction::class);
+        $group->post('/portal/auth/email/verify-otp', Action\Auth\VerifyEmailOtpAction::class);
+        $group->post('/portal/auth/register', Action\Auth\RegisterAction::class);
+        $group->post('/portal/auth/reset-password', Action\Auth\ResetPasswordAction::class);
         $group->post('/portal/auth/phone/request-otp', Action\Auth\RequestPhoneOtpAction::class);
         $group->post('/portal/auth/phone/verify-otp', Action\Auth\VerifyPhoneOtpAction::class);
         $group->post('/portal/auth/phone/register', Action\Auth\RegisterByPhoneAction::class);
