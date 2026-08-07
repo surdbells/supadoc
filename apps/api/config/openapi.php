@@ -179,6 +179,7 @@ return [
                     'date_of_birth'  => ['type' => 'string', 'format' => 'date', 'nullable' => true],
                     'gender'         => ['type' => 'string', 'nullable' => true],
                     'address'        => ['type' => 'string', 'nullable' => true],
+                    'avatar_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'Relative URL of the uploaded avatar'],
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
@@ -591,6 +592,38 @@ return [
                     '200' => ['description' => 'Updated', ...$json($envelope(['type' => 'object', 'properties' => ['changed' => ['type' => 'boolean']]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/me/avatar' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Upload a profile photo',
+                'description' => 'multipart/form-data with an `avatar` image field (JPG/PNG/WEBP/GIF, <= 2MB).',
+                'requestBody' => [
+                    'required' => true,
+                    'content'  => [
+                        'multipart/form-data' => [
+                            'schema' => [
+                                'type'       => 'object',
+                                'required'   => ['avatar'],
+                                'properties' => ['avatar' => ['type' => 'string', 'format' => 'binary']],
+                            ],
+                        ],
+                    ],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+            'delete' => [
+                'tags'      => ['Portal'],
+                'summary'   => 'Remove the profile photo',
+                'responses' => [
+                    '200' => ['description' => 'Removed', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
                 ],
             ],
         ],

@@ -48,6 +48,10 @@ class Patient
     #[ORM\Column(type: 'string', length: 500, nullable: true)]
     private ?string $address = null;
 
+    /** Relative URL of the uploaded avatar (e.g. /uploads/avatars/x.jpg), or null. */
+    #[ORM\Column(name: 'avatar_url', type: 'string', length: 300, nullable: true)]
+    private ?string $avatarUrl = null;
+
     #[ORM\Column(name: 'phone_verified_at', type: 'datetime_immutable', nullable: true)]
     private ?DateTimeImmutable $phoneVerifiedAt = null;
 
@@ -142,6 +146,16 @@ class Patient
         $this->address = $address !== null && $address !== '' ? $address : null;
     }
 
+    public function getAvatarUrl(): ?string
+    {
+        return $this->avatarUrl;
+    }
+
+    public function setAvatarUrl(?string $avatarUrl): void
+    {
+        $this->avatarUrl = $avatarUrl !== null && $avatarUrl !== '' ? $avatarUrl : null;
+    }
+
     public function markPhoneVerified(): void
     {
         $this->phoneVerifiedAt = new DateTimeImmutable();
@@ -218,6 +232,7 @@ class Patient
             'date_of_birth'  => $this->dateOfBirth?->format('Y-m-d'),
             'gender'         => $this->gender,
             'address'        => $this->address,
+            'avatar_url'     => $this->avatarUrl,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }

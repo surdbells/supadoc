@@ -73,6 +73,8 @@ return static function (App $app): void {
             $group->get('/me', Action\Patient\MyProfileAction::class);
             $group->patch('/me', Action\Patient\UpdateMyProfileAction::class);
             $group->post('/me/password', Action\Patient\ChangeMyPasswordAction::class);
+            $group->post('/me/avatar', Action\Patient\UploadMyAvatarAction::class);
+            $group->delete('/me/avatar', Action\Patient\DeleteMyAvatarAction::class);
             $group->get('/me/settings', Action\Patient\MySettingsAction::class);
             $group->patch('/me/settings', Action\Patient\UpdateMySettingsAction::class);
             $group->get('/me/health-profile', Action\Patient\MyHealthProfileAction::class);

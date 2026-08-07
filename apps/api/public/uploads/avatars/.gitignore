@@ -1,0 +1,3 @@
+# Uploaded avatars are runtime data — ignore them but keep this directory.
+*
+!.gitignore

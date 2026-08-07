@@ -7,6 +7,19 @@ use App\Infrastructure\Service\SettingsCacheService;
 use DI\ContainerBuilder;
 use Slim\Factory\AppFactory;
 
+// Under `php -S ... public/index.php` the built-in server routes every request
+// through this script. Let it serve existing static files in public/ (e.g.
+// uploaded avatars) as-is — but never PHP and never outside the web root.
+if (PHP_SAPI === 'cli-server') {
+    $path = urldecode(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/');
+    if ($path !== '/' && !str_contains($path, '..') && !str_ends_with(strtolower($path), '.php')) {
+        $file = realpath(__DIR__ . $path);
+        if ($file !== false && is_file($file) && str_starts_with($file, __DIR__ . DIRECTORY_SEPARATOR)) {
+            return false;
+        }
+    }
+}
+
 require __DIR__ . '/../vendor/autoload.php';
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
