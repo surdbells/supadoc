@@ -85,4 +85,37 @@ final class JwtService
     {
         return $this->accessTtl;
     }
+
+    /**
+     * Short-lived proof that a phone number was just verified over SMS. The
+     * register/login-by-phone endpoints consume it instead of re-checking the
+     * (single-use) OTP.
+     */
+    public function issuePhoneProof(string $phone, int $ttl = 600): string
+    {
+        $now = time();
+
+        return JWT::encode([
+            'phone' => $phone,
+            'type'  => 'phone_proof',
+            'iat'   => $now,
+            'exp'   => $now + $ttl,
+        ], $this->secret, self::ALGO);
+    }
+
+    /** The verified phone from a valid, unexpired proof token, or null. */
+    public function verifyPhoneProof(string $token): ?string
+    {
+        try {
+            $payload = JWT::decode($token, new Key($this->secret, self::ALGO));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (($payload->type ?? null) !== 'phone_proof' || empty($payload->phone)) {
+            return null;
+        }
+
+        return (string) $payload->phone;
+    }
 }

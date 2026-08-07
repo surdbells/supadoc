@@ -6,6 +6,7 @@ namespace App\Infrastructure\Service;
 
 use App\Domain\Entity\Patient;
 use App\Domain\Exception\AuthenticationException;
+use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\UserRepository;
 
@@ -75,6 +76,56 @@ final class AuthService
             [$firstName, $lastName] = $this->splitName((string) ($identity['name'] ?? ''), $email);
             $patient = new Patient($email, $firstName, $lastName);
             $this->patients->save($patient);
+        }
+
+        return $this->issueCustomerTokens($patient);
+    }
+
+    /**
+     * Register a patient after phone verification. Email is collected too (the
+     * account is keyed by a unique email); the phone is the just-verified number.
+     *
+     * @return array{access_token:string, refresh_token:string, user:array}
+     */
+    public function registerCustomer(
+        string $email,
+        string $firstName,
+        string $lastName,
+        string $phone,
+        string $password,
+    ): array {
+        $email = strtolower(trim($email));
+        $phone = trim($phone);
+
+        $errors = [];
+        if ($email === '') {
+            $errors['email'] = 'Email is required';
+        } elseif ($this->patients->findByEmail($email) !== null) {
+            $errors['email'] = 'An account with this email already exists';
+        }
+        if ($phone !== '' && $this->patients->findByPhone($phone) !== null) {
+            $errors['phone'] = 'An account with this number already exists';
+        }
+        if ($errors !== []) {
+            throw new ValidationException($errors);
+        }
+
+        $patient = new Patient($email, $firstName, $lastName);
+        $patient->setPhone($phone !== '' ? $phone : null);
+        if ($password !== '') {
+            $patient->setPassword($password);
+        }
+        $this->patients->save($patient);
+
+        return $this->issueCustomerTokens($patient);
+    }
+
+    /** @return array{access_token:string, refresh_token:string, user:array} */
+    public function loginCustomerByPhone(string $phone): array
+    {
+        $patient = $this->patients->findByPhone(trim($phone));
+        if ($patient === null) {
+            throw new AuthenticationException('No account is registered with this number');
         }
 
         return $this->issueCustomerTokens($patient);

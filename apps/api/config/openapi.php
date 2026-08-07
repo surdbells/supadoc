@@ -256,12 +256,49 @@ return [
             'post' => [
                 'tags'        => ['Auth'],
                 'summary'     => 'Verify an SMS code (Termii)',
+                'description' => 'On success returns a short-lived verification_token consumed by register/login.',
                 'security'    => [],
-                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['pin_id', 'otp'], 'properties' => ['pin_id' => ['type' => 'string'], 'otp' => ['type' => 'string']]])],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['pin_id', 'otp'], 'properties' => ['pin_id' => ['type' => 'string'], 'otp' => ['type' => 'string'], 'phone' => ['type' => 'string']]])],
                 'responses'   => [
-                    '200' => ['description' => 'Verified', ...$json($envelope(['type' => 'object', 'properties' => ['verified' => ['type' => 'boolean']]]))],
+                    '200' => ['description' => 'Verified', ...$json($envelope(['type' => 'object', 'properties' => ['verified' => ['type' => 'boolean'], 'verification_token' => ['type' => 'string']]]))],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                     '503' => ['description' => 'Phone verification not configured'],
+                ],
+            ],
+        ],
+        '/api/portal/auth/phone/register' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Register a patient after phone verification',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['verification_token', 'email', 'first_name', 'password'],
+                    'properties' => [
+                        'verification_token' => ['type' => 'string'],
+                        'email'              => ['type' => 'string', 'format' => 'email'],
+                        'first_name'         => ['type' => 'string'],
+                        'last_name'          => ['type' => 'string'],
+                        'password'           => ['type' => 'string', 'format' => 'password', 'minLength' => 8],
+                    ],
+                ])],
+                'responses'   => [
+                    '201' => ['description' => 'Account created', ...$json($envelope($authData('#/components/schemas/PatientProfile')))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/auth/phone/login' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Sign in with a verified phone number',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['verification_token'], 'properties' => ['verification_token' => ['type' => 'string']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Signed in', ...$json($envelope($authData('#/components/schemas/PatientProfile')))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],

@@ -22,4 +22,14 @@ final class PatientRepository extends BaseRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+
+    public function findByPhone(string $phone): ?Patient
+    {
+        return $this->qb()
+            ->andWhere('e.phone = :phone')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('phone', trim($phone))
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
 }

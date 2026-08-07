@@ -49,8 +49,8 @@ final class TermiiService
         return $pinId;
     }
 
-    /** Verifies a submitted code against a pin id. */
-    public function verifyOtp(string $pinId, string $otp): bool
+    /** Verifies a code; returns the verified phone (msisdn) on success, else null. */
+    public function verifyOtp(string $pinId, string $otp): ?string
     {
         $res      = $this->post('/api/sms/otp/verify', [
             'api_key' => $this->apiKey,
@@ -58,8 +58,11 @@ final class TermiiService
             'pin'     => $otp,
         ]);
         $verified = $res['verified'] ?? false;
+        if ($verified !== true && $verified !== 'true') {
+            return null;
+        }
 
-        return $verified === true || $verified === 'true';
+        return isset($res['msisdn']) ? (string) $res['msisdn'] : '';
     }
 
     /**

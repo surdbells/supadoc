@@ -42,6 +42,8 @@ return static function (App $app): void {
         $group->post('/portal/auth/google', Action\Auth\GoogleLoginAction::class);  // customer (Google)
         $group->post('/portal/auth/phone/request-otp', Action\Auth\RequestPhoneOtpAction::class);
         $group->post('/portal/auth/phone/verify-otp', Action\Auth\VerifyPhoneOtpAction::class);
+        $group->post('/portal/auth/phone/register', Action\Auth\RegisterByPhoneAction::class);
+        $group->post('/portal/auth/phone/login', Action\Auth\LoginByPhoneAction::class);
         $group->post('/auth/refresh', Action\Auth\RefreshAction::class);
 
         // ----- Staff (default audience) -----
