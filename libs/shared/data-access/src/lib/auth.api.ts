@@ -30,6 +30,16 @@ export class AuthApi {
     });
   }
 
+  /**
+   * Exchange a Google (Firebase) ID token for a session — VideoMed backend only
+   * (POST /api/portal/auth/google).
+   */
+  googleLogin(idToken: string): Observable<LoginResponse> {
+    return this.api.post<LoginResponse>('api/portal/auth/google', {
+      id_token: idToken,
+    });
+  }
+
   /** Step 1 of registration — email OTP to a not-yet-registered user. */
   sendRegisterOtp(email: string): Observable<unknown> {
     return this.api.post('Create_NonRegisteredUser_OtpCodeAsync', {

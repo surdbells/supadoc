@@ -3,4 +3,10 @@ export const environment = {
   apiBaseUrl: 'https://vmapi.betacrest.com',
   loginPath: 'login',
   appId: 'ViewHot',
+  firebase: {
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    appId: '',
+  },
 };

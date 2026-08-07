@@ -1,6 +1,12 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  signal,
+} from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { GoogleAuthService } from '../google-auth.service';
 
 /** Continue with Google (Figma 365:5218). */
 @Component({
@@ -72,8 +78,21 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           </div>
         </div>
 
-        <sd-button type="button" [full]="true">
-          Continue
+        @if (errorMessage()) {
+          <p
+            class="rounded-field bg-alert/10 px-4 py-3 text-center font-label text-caption text-alert"
+          >
+            {{ errorMessage() }}
+          </p>
+        }
+
+        <sd-button
+          type="button"
+          [full]="true"
+          [disabled]="submitting()"
+          (click)="continueWithGoogle()"
+        >
+          {{ submitting() ? 'Signing in…' : 'Continue' }}
           <sd-icon name="arrow-right" [size]="18" />
         </sd-button>
       </div>
@@ -89,4 +108,28 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
     </div>
   `,
 })
-export class SignInGoogle {}
+export class SignInGoogle {
+  private readonly google = inject(GoogleAuthService);
+  private readonly router = inject(Router);
+
+  protected readonly submitting = signal(false);
+  protected readonly errorMessage = signal('');
+
+  protected async continueWithGoogle(): Promise<void> {
+    this.submitting.set(true);
+    this.errorMessage.set('');
+    try {
+      await this.google.signIn();
+      await this.router.navigateByUrl('/dashboard');
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      // A user closing the popup isn't an error worth shouting about.
+      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+        const message = (err as { message?: string })?.message;
+        this.errorMessage.set(message ?? 'Google sign-in failed. Please try again.');
+      }
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+}

@@ -69,6 +69,8 @@
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/status-bar": "^8.0.3",
+    "@firebase/app": "^0.16.0",
+    "@firebase/auth": "^1.13.4",
     "@fontsource-variable/lexend": "^5.2.11",
     "@fontsource/poppins": "^5.2.7",
     "@ionic/angular": "^8.8.14",

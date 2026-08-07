@@ -3,6 +3,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthApi } from '@supadoc/data-access';
 import type {
   LoginParams,
+  LoginResponse,
   RegisterParams,
   ResetPasswordParams,
 } from '@supadoc/models';
@@ -25,19 +26,36 @@ export class AuthService {
   /** `POST /login`. Stores the returned bearer token when the API provides one. */
   async login(params: LoginParams): Promise<void> {
     const res = await firstValueFrom(this.authApi.login(params));
-    // Accept both the betacrest top-level token shapes and the local API's
-    // envelope ({ data: { access_token } }).
+    const token = this.extractToken(res);
+    if (token) this.setToken(token);
+  }
+
+  /**
+   * Sign in with a Google (Firebase) ID token — POST /api/portal/auth/google.
+   * The backend verifies the token and returns the same session envelope.
+   */
+  async loginWithGoogle(idToken: string): Promise<void> {
+    const res = await firstValueFrom(this.authApi.googleLogin(idToken));
+    const token = this.extractToken(res);
+    if (token) this.setToken(token);
+  }
+
+  /**
+   * Pull the bearer token out of a login response — accepts both the betacrest
+   * top-level shapes and the local API's envelope ({ data: { access_token } }).
+   */
+  private extractToken(res: LoginResponse): string | null {
     const data = (res?.['data'] ?? null) as
       | { access_token?: string; token?: string }
       | null;
-    const token =
+    return (
       (res?.token as string | undefined) ??
       (res?.accessToken as string | undefined) ??
       (res?.jwt as string | undefined) ??
       data?.access_token ??
       data?.token ??
-      null;
-    if (token) this.setToken(token);
+      null
+    );
   }
 
   // ----- Registration -----
