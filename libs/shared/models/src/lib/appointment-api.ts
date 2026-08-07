@@ -66,6 +66,15 @@ export interface SpecialistDto {
   available: boolean;
 }
 
+/** Agora RTC join credentials for a consultation call. */
+export interface CallTokenDto {
+  app_id: string;
+  channel: string;
+  uid: number;
+  token: string;
+  expires_in: number;
+}
+
 /** The signed-in patient's profile, from `Patient::toArray()`. */
 export interface PatientProfileDto {
   id: string;

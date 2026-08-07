@@ -28,6 +28,7 @@ interface Notification {
 }
 
 interface UpcomingVm {
+  readonly id: string;
   readonly name: string;
   readonly specialty: string;
   readonly date: string;
@@ -217,7 +218,7 @@ const UPCOMING_BADGE: Record<string, string> = {
                   (click)="viewAppointments()"
                   >View All</sd-button
                 >
-                <sd-button size="sm" [full]="true">
+                <sd-button size="sm" [full]="true" (click)="joinCall(u.id)">
                   <sd-icon name="video" [size]="18" />
                   Join Call
                 </sd-button>
@@ -452,6 +453,10 @@ export class DashboardHome {
     void this.router.navigate(['/dashboard/appointments']);
   }
 
+  protected joinCall(id: string): void {
+    void this.router.navigate(['/dashboard/call', id]);
+  }
+
   /** The soonest appointment still in an upcoming (non-terminal) state. */
   private pickUpcoming(list: AppointmentDto[]): UpcomingVm | null {
     const next = list.find(
@@ -463,6 +468,7 @@ export class DashboardHome {
     if (!next) return null;
     const when = new Date(next.scheduled_at);
     return {
+      id: next.id,
       name: next.specialist.name,
       specialty: next.specialist.specialty ?? '',
       date: new Intl.DateTimeFormat('en-US', {

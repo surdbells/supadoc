@@ -2,6 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
   AppointmentDto,
+  CallTokenDto,
   ListAppointmentsQuery,
   PaginatedResponse,
   SuccessResponse,
@@ -31,6 +32,13 @@ export class AppointmentsApi {
   getMine(id: string): Observable<SuccessResponse<AppointmentDto>> {
     return this.api.get<SuccessResponse<AppointmentDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials. */
+  callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
+    return this.api.get<SuccessResponse<CallTokenDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/call-token`,
     );
   }
 }

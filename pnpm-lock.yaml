@@ -59,6 +59,9 @@ importers:
       '@lucide/angular':
         specifier: ^1.23.0
         version: 1.23.0(@angular/common@22.0.7(@angular/core@22.0.7(@angular/compiler@22.0.7)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2))(@angular/core@22.0.7(@angular/compiler@22.0.7)(rxjs@7.8.2)(zone.js@0.16.2))
+      agora-rtc-sdk-ng:
+        specifier: ^4.24.7
+        version: 4.24.7
       ionicons:
         specifier: ^8.0.13
         version: 8.0.13
@@ -197,6 +200,18 @@ packages:
 
   '@acemir/cssom@0.9.31':
     resolution: {integrity: sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA==}
+
+  '@agora-js/media@4.24.7':
+    resolution: {integrity: sha512-0OfE/anJ0Ky8yEF7HqcI8n8u0qE4t43XK6wOskvFzt7vGOdyIEg7UCA8KWVMZ0+pG2fgwtttl12noCu7XRYKIQ==}
+
+  '@agora-js/protocol@4.24.7':
+    resolution: {integrity: sha512-DHpaz0n9eJedUDCKOkqwtX0vKnQNHerqKluZbVsgaddpXEuYHiURdBrexTcTCp5cDUgF53j6MwpHWpezbJWDfA==}
+
+  '@agora-js/report@4.24.7':
+    resolution: {integrity: sha512-z/mMezL+cpZ1p1netRsFksm8WXBaydDmTbvo1SMpj5SiyCN9ntT6iCWNx9TGj5uKzz52w6ARjPpK762+7Cz8GA==}
+
+  '@agora-js/shared@4.24.7':
+    resolution: {integrity: sha512-0Gef8QaFAuY2te1yaYXC7cFH1XeaAaQiQ6QVZItj94n44KIFD0F/Z9ipIF28kznQrHxOzrHy0/igJPm4+h3Z0w==}
 
   '@algolia/abtesting@1.18.0':
     resolution: {integrity: sha512-8siuLG+FIns1AjZ/g2SDVwHz9S+ObacDQISEJvS8XsNei1zl3FXqfqQrBpmrG7ACWCyesXHbicMJtvRbg00FEw==}
@@ -1031,6 +1046,9 @@ packages:
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
+
+  '@bufbuild/protobuf@2.10.1':
+    resolution: {integrity: sha512-ckS3+vyJb5qGpEYv/s1OebUHDi/xSNtfgw1wqKZo7MR9F2z+qXr0q5XagafAG/9O0QPVIUfST0smluYSTpYFkg==}
 
   '@bufbuild/protobuf@2.12.1':
     resolution: {integrity: sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg==}
@@ -3506,6 +3524,9 @@ packages:
   '@types/node@24.13.3':
     resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
 
+  '@types/pako@2.0.4':
+    resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
+
   '@types/parse-json@4.0.2':
     resolution: {integrity: sha512-dISoDXWWQwUquiKsyZ4Ng+HX2KsPL7LyHKHQwgGFEA3IaKac4Obd+h2a/a6waisAoepJlBcx9paWqjA8/HVjCw==}
 
@@ -3734,6 +3755,15 @@ packages:
   agent-base@9.0.0:
     resolution: {integrity: sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==}
     engines: {node: '>= 20'}
+
+  agora-rtc-sdk-ng@4.24.7:
+    resolution: {integrity: sha512-OboKRrbtWIT2xbbROq+2B0lcXzEChnCX3NYju0ZkkKD7uXwn1DXp2l9wq1rIsrv9/UGBqOZrhrIpOZwncZQj5A==}
+
+  agora-rte-extension-ng@1.0.3:
+    resolution: {integrity: sha512-Gkh60IomlIrhq7ljDIy4zHgKEhfNx3c0Kto27wKCQp2wCabmHz9ucHT/7u9telUCA6YcNjnFMhenjdJx1JZeEA==}
+
+  agora-rte-extension@1.2.4:
+    resolution: {integrity: sha512-0ovZz1lbe30QraG1cU+ji7EnQ8aUu+Hf3F+a8xPml3wPOyUQEK6CTdxV9kMecr9t+fIDrGeW7wgJTsM1DQE7Nw==}
 
   ajv-formats@2.1.1:
     resolution: {integrity: sha512-Wx0Kx52hxE7C18hkMEggYlEifqWZtYaRgouJor+WMdPnQyEK13vgEWyVNup7SoeeoLMsr4kf5h6dOW11I15MUA==}
@@ -4653,6 +4683,10 @@ packages:
       picomatch:
         optional: true
 
+  fetch-blob@3.2.0:
+    resolution: {integrity: sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==}
+    engines: {node: ^12.20 || >= 14.13}
+
   fflate@0.8.3:
     resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
@@ -4718,6 +4752,10 @@ packages:
   form-data@4.0.6:
     resolution: {integrity: sha512-vKatAh4SlVfgbv+YtmhiRjhEMJsYpsG1Y2rMQtR+SVSbytsSD1YGzDIcrAJmdFec88u/+VoGmxnl+80gL1tRCQ==}
     engines: {node: '>= 6'}
+
+  formdata-polyfill@4.0.10:
+    resolution: {integrity: sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g==}
+    engines: {node: '>=12.20.0'}
 
   forwarded@0.2.0:
     resolution: {integrity: sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==}
@@ -5561,6 +5599,11 @@ packages:
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
+  node-domexception@1.0.0:
+    resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
+    engines: {node: '>=10.5.0'}
+    deprecated: Use your platform's native DOMException instead
+
   node-gyp-build-optional-packages@5.2.2:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
     hasBin: true
@@ -5714,6 +5757,9 @@ packages:
     resolution: {integrity: sha512-KvcJ9iy3crysCsgqc4+PknH/w6jkrp8JN36mpZBPwNaDRwTfMZD37YzRazNstiZUOhuF5pno9f78n9mEJBavwg==}
     engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
+
+  pako@2.2.0:
+    resolution: {integrity: sha512-zJq6RP/5q+TO2OpFV3FHzlPnFjmkb7Nc99a5SNjJE+uu/PkpChs+NIZSSzbBoD+6kjiISXjfYdwj1ZRQ81dz/w==}
 
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
@@ -6389,6 +6435,9 @@ packages:
     resolution: {integrity: sha512-eflK8wEtyOE6+hsaRVPxvUKYCpRgzLqDTb8krvAsRIwOGlHoSgYLgBXoubGgLd2fT41/OUYdb48v4k4WWHQurA==}
     engines: {node: '>= 10.13.0'}
 
+  sdp@3.2.2:
+    resolution: {integrity: sha512-xZocWwfyp4hkbN4hLWxMjmv2Q8aNa9MhmOZ7L9aCZPT+dZsgRr6wZRrSYE3HTdyk/2pZKPSgqI7ns7Een1xMSA==}
+
   secure-compare@3.0.1:
     resolution: {integrity: sha512-AckIIV90rPDcBcglUwXPF3kg0P0qmPsPXAj6BBEENQE1p5yA1xfmDJzfi1Tappj37Pv2mVbKpL3Z1T+Nn7k1Qw==}
 
@@ -6856,6 +6905,10 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  ua-parser-js@0.7.41:
+    resolution: {integrity: sha512-O3oYyCMPYgNNHuO7Jjk3uacJWZF8loBgwrfd/5LE/HyZ3lUIOdniQ7DNXJcIgZbwioZxk0fLfI4EVnetdiX5jg==}
+    hasBin: true
+
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
@@ -7067,6 +7120,10 @@ packages:
   weak-lru-cache@1.2.2:
     resolution: {integrity: sha512-DEAoo25RfSYMuTGc9vPJzZcZullwIqRDSI9LOy+fkCJPi6hykCnfKaXTuPBDuXAUcqHXyOgFtHNp/kB2FjYHbw==}
 
+  web-streams-polyfill@3.3.3:
+    resolution: {integrity: sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==}
+    engines: {node: '>= 8'}
+
   webidl-conversions@8.0.1:
     resolution: {integrity: sha512-BMhLD/Sw+GbJC21C/UgyaZX41nPt8bUTg+jWyDeg7e7YN4xOM05YPSIXceACnXVtqyEw/LMClUQMtMZ+PGGpqQ==}
     engines: {node: '>=20'}
@@ -7102,6 +7159,10 @@ packages:
     peerDependenciesMeta:
       webpack-cli:
         optional: true
+
+  webrtc-adapter@8.2.0:
+    resolution: {integrity: sha512-umxCMgedPAVq4Pe/jl3xmelLXLn4XZWFEMR5Iipb5wJ+k1xMX0yC4ZY9CueZUU1MjapFxai1tFGE7R/kotH6Ww==}
+    engines: {node: '>=6.0.0', npm: '>=3.10.0'}
 
   whatwg-encoding@2.0.0:
     resolution: {integrity: sha512-p41ogyeMUrw3jWclHWTQg1k05DSVXPLcVxRTYsXUk+ZooOCZLcoYgPZ/HL/D/N+uQPOtcp1me1WhBEaX02mhWg==}
@@ -7264,6 +7325,46 @@ packages:
 snapshots:
 
   '@acemir/cssom@0.9.31': {}
+
+  '@agora-js/media@4.24.7':
+    dependencies:
+      '@agora-js/report': 4.24.7
+      '@agora-js/shared': 4.24.7
+      agora-rte-extension: 1.2.4
+      agora-rte-extension-ng: 1.0.3
+      axios: 1.16.1
+      webrtc-adapter: 8.2.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@agora-js/protocol@4.24.7':
+    dependencies:
+      '@agora-js/media': 4.24.7
+      '@agora-js/report': 4.24.7
+      '@agora-js/shared': 4.24.7
+      '@bufbuild/protobuf': 2.10.1
+      '@types/pako': 2.0.4
+      pako: 2.2.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@agora-js/report@4.24.7':
+    dependencies:
+      '@agora-js/shared': 4.24.7
+      axios: 1.16.1
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@agora-js/shared@4.24.7':
+    dependencies:
+      axios: 1.16.1
+      ua-parser-js: 0.7.41
+    transitivePeerDependencies:
+      - debug
+      - supports-color
 
   '@algolia/abtesting@1.18.0':
     dependencies:
@@ -8354,6 +8455,8 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@bcoe/v8-coverage@1.0.2': {}
+
+  '@bufbuild/protobuf@2.10.1': {}
 
   '@bufbuild/protobuf@2.12.1': {}
 
@@ -10604,6 +10707,8 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  '@types/pako@2.0.4': {}
+
   '@types/parse-json@4.0.2': {}
 
   '@types/slice-ansi@4.0.0': {}
@@ -10899,6 +11004,27 @@ snapshots:
 
   agent-base@9.0.0: {}
 
+  agora-rtc-sdk-ng@4.24.7:
+    dependencies:
+      '@agora-js/media': 4.24.7
+      '@agora-js/protocol': 4.24.7
+      '@agora-js/report': 4.24.7
+      '@agora-js/shared': 4.24.7
+      agora-rte-extension: 1.2.4
+      agora-rte-extension-ng: 1.0.3
+      axios: 1.16.1
+      formdata-polyfill: 4.0.10
+      pako: 2.2.0
+      ua-parser-js: 0.7.41
+      webrtc-adapter: 8.2.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  agora-rte-extension-ng@1.0.3: {}
+
+  agora-rte-extension@1.2.4: {}
+
   ajv-formats@2.1.1(ajv@8.20.0):
     optionalDependencies:
       ajv: 8.20.0
@@ -11017,6 +11143,16 @@ snapshots:
       picocolors: 1.1.1
       postcss: 8.5.19
       postcss-value-parser: 4.2.0
+
+  axios@1.16.1:
+    dependencies:
+      follow-redirects: 1.16.0(debug@4.4.3)
+      form-data: 4.0.6
+      https-proxy-agent: 5.0.1(supports-color@7.2.0)
+      proxy-from-env: 2.1.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
 
   axios@1.16.1(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0):
     dependencies:
@@ -11973,6 +12109,11 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.4
 
+  fetch-blob@3.2.0:
+    dependencies:
+      node-domexception: 1.0.0
+      web-streams-polyfill: 3.3.3
+
   fflate@0.8.3: {}
 
   figures@3.2.0:
@@ -12066,6 +12207,10 @@ snapshots:
       es-set-tostringtag: 2.1.0
       hasown: 2.0.4
       mime-types: 2.1.35
+
+  formdata-polyfill@4.0.10:
+    dependencies:
+      fetch-blob: 3.2.0
 
   forwarded@0.2.0: {}
 
@@ -12892,6 +13037,8 @@ snapshots:
   node-addon-api@7.1.1:
     optional: true
 
+  node-domexception@1.0.0: {}
+
   node-gyp-build-optional-packages@5.2.2:
     dependencies:
       detect-libc: 2.1.2
@@ -13255,6 +13402,8 @@ snapshots:
       tar: 7.5.20
     transitivePeerDependencies:
       - supports-color
+
+  pako@2.2.0: {}
 
   parent-module@1.0.1:
     dependencies:
@@ -13899,6 +14048,8 @@ snapshots:
       ajv-formats: 2.1.1(ajv@8.20.0)
       ajv-keywords: 5.1.0(ajv@8.20.0)
 
+  sdp@3.2.2: {}
+
   secure-compare@3.0.1: {}
 
   semver@5.7.2:
@@ -14389,6 +14540,8 @@ snapshots:
 
   typescript@6.0.3: {}
 
+  ua-parser-js@0.7.41: {}
+
   undici-types@7.18.2: {}
 
   undici@6.27.0: {}
@@ -14523,6 +14676,8 @@ snapshots:
   weak-lru-cache@1.2.2:
     optional: true
 
+  web-streams-polyfill@3.3.3: {}
+
   webidl-conversions@8.0.1: {}
 
   webpack-merge@5.10.0:
@@ -14580,6 +14735,10 @@ snapshots:
       - lightningcss
       - postcss
       - uglify-js
+
+  webrtc-adapter@8.2.0:
+    dependencies:
+      sdp: 3.2.2
 
   whatwg-encoding@2.0.0:
     dependencies:

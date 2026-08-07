@@ -71,6 +71,10 @@ import {
   LucideWifiOff,
   LucideX,
   LucideZap,
+  LucideMic,
+  LucideMicOff,
+  LucidePhoneOff,
+  LucideVideoOff,
 } from '@lucide/angular';
 
 /**
@@ -151,6 +155,10 @@ export const SUPADOC_ICONS = [
   LucideEyeOff,
   LucideShield,
   LucideShieldCheck,
+  LucideMic,
+  LucideMicOff,
+  LucideVideoOff,
+  LucidePhoneOff,
 ];
 
 /**

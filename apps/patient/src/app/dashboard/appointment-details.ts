@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, map, of, startWith, switchMap } from 'rxjs';
 import { AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
@@ -12,6 +12,7 @@ interface SharedDoc {
 }
 
 interface DetailsVm {
+  readonly id: string;
   readonly name: string;
   readonly specialty: string;
   readonly date: string;
@@ -41,6 +42,7 @@ const TYPE_ICON: Record<string, string> = {
 function toDetails(a: AppointmentDto): DetailsVm {
   const when = new Date(a.scheduled_at);
   return {
+    id: a.id,
     name: a.specialist.name,
     specialty: a.specialist.specialty ?? '',
     date: new Intl.DateTimeFormat('en-GB', {
@@ -188,7 +190,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 </div>
               </div>
               <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
-                <sd-button [full]="true">
+                <sd-button [full]="true" (click)="joinCall(v.id)">
                   <sd-icon name="video" [size]="18" />
                   Join Consultation
                 </sd-button>
@@ -281,7 +283,12 @@ function toDetails(a: AppointmentDto): DetailsVm {
 })
 export class AppointmentDetails {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly appointments = inject(AppointmentsApi);
+
+  protected joinCall(id: string): void {
+    void this.router.navigate(['/dashboard/call', id]);
+  }
 
   // Shared documents aren't modelled by the backend yet — placeholder content.
   protected readonly documents: SharedDoc[] = [

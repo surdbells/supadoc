@@ -13,6 +13,7 @@
       "options": {
         "outputPath": "dist/apps/patient",
         "browser": "apps/patient/src/main.ts",
+        "allowedCommonJsDependencies": ["agora-rtc-sdk-ng"],
         "polyfills": ["zone.js"],
         "tsConfig": "apps/patient/tsconfig.app.json",
         "inlineStyleLanguage": "scss",

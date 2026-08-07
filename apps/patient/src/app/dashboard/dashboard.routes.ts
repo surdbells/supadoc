@@ -35,6 +35,11 @@ export const dashboardRoutes: Route[] = [
           import('./appointment-details').then((m) => m.AppointmentDetails),
       },
       {
+        path: 'call/:id',
+        loadComponent: () =>
+          import('./consultation-call').then((m) => m.ConsultationCall),
+      },
+      {
         path: 'history',
         loadComponent: () => import('./history').then((m) => m.History),
       },
