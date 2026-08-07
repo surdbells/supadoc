@@ -100,6 +100,57 @@ export class AuthService {
     if (token) this.setToken(token);
   }
 
+  // ----- Email OTP flow (register + recovery) -----
+
+  /** Send an email verification code; resolves with the dev code in non-prod. */
+  async requestEmailOtp(
+    email: string,
+    purpose: 'register' | 'reset',
+  ): Promise<string | undefined> {
+    const res = await firstValueFrom(
+      this.authApi.requestEmailOtp(email, purpose),
+    );
+    return res.data.dev_code;
+  }
+
+  /** Verify an email code; returns a short-lived email verification token. */
+  async verifyEmailOtp(
+    email: string,
+    otp: string,
+    purpose: 'register' | 'reset',
+  ): Promise<string> {
+    const res = await firstValueFrom(
+      this.authApi.verifyEmailOtp(email, otp, purpose),
+    );
+    return res.data.verification_token;
+  }
+
+  /** Register after email verification, then sign in. */
+  async registerWithEmail(params: {
+    verificationToken: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+  }): Promise<void> {
+    const res = await firstValueFrom(this.authApi.registerWithEmail(params));
+    const token = this.extractToken(res);
+    if (token) this.setToken(token);
+  }
+
+  /** Set a new password after email verification, then sign in. */
+  async resetPasswordWithEmail(params: {
+    verificationToken: string;
+    email: string;
+    newPassword: string;
+  }): Promise<void> {
+    const res = await firstValueFrom(
+      this.authApi.resetPasswordWithEmail(params),
+    );
+    const token = this.extractToken(res);
+    if (token) this.setToken(token);
+  }
+
   // ----- Registration -----
   sendRegisterOtp(email: string): Promise<unknown> {
     return firstValueFrom(this.authApi.sendRegisterOtp(email));

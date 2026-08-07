@@ -1,8 +1,8 @@
 export const environment = {
   production: true,
-  apiBaseUrl: 'https://vmapi.betacrest.com',
-  loginPath: 'login',
-  appId: 'ViewHot',
+  // Point at the deployed VideoMed backend (apps/api) origin at release time.
+  apiBaseUrl: 'https://api.videomed.app',
+  loginPath: 'api/portal/auth/login',
   firebase: {
     apiKey: '',
     authDomain: '',

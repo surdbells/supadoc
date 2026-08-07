@@ -162,12 +162,9 @@ export class VerifyOtp {
     this.submitting.set(true);
     this.errorMessage.set('');
     try {
-      if (this.mode === 'recover') {
-        await this.auth.verifyOtp(email, code);
-      } else {
-        await this.auth.verifyRegisterOtp(email, code);
-      }
-      this.flow.setOtp(code);
+      const purpose = this.mode === 'recover' ? 'reset' : 'register';
+      const token = await this.auth.verifyEmailOtp(email, code, purpose);
+      this.flow.verificationToken.set(token);
       await this.router.navigateByUrl(this.next);
     } catch (err) {
       const message = (err as { message?: string })?.message;
@@ -202,11 +199,10 @@ export class VerifyOtp {
       return;
     }
     try {
-      if (this.mode === 'recover') {
-        await this.auth.sendResetOtp(email);
-      } else {
-        await this.auth.sendRegisterOtp(email);
-      }
+      await this.auth.requestEmailOtp(
+        email,
+        this.mode === 'recover' ? 'reset' : 'register',
+      );
       this.seconds.set(299);
     } catch (err) {
       const message = (err as { message?: string })?.message;

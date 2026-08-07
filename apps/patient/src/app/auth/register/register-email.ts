@@ -100,7 +100,7 @@ export class RegisterEmail {
     this.errorMessage.set('');
     const email = this.emailControl.value;
     try {
-      await this.auth.sendRegisterOtp(email);
+      await this.auth.requestEmailOtp(email, 'register');
       this.flow.start(email);
       await this.router.navigate(['/auth/register/verify-email'], {
         queryParams: { target: email },

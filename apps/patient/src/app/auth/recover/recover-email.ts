@@ -94,7 +94,7 @@ export class RecoverEmail {
     this.errorMessage.set('');
     const email = this.form.controls.email.value;
     try {
-      await this.auth.sendResetOtp(email);
+      await this.auth.requestEmailOtp(email, 'reset');
       this.flow.start(email);
       await this.router.navigate(['/auth/recover/verify-email'], {
         queryParams: { target: email },

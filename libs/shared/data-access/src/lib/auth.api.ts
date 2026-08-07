@@ -86,6 +86,61 @@ export class AuthApi {
     });
   }
 
+  // ----- Email OTP flow (VideoMed backend) -----
+
+  /** Send an email verification code (purpose: register | reset). */
+  requestEmailOtp(
+    email: string,
+    purpose: 'register' | 'reset',
+  ): Observable<{ data: { sent: boolean; dev_code?: string } }> {
+    return this.api.post<{ data: { sent: boolean; dev_code?: string } }>(
+      'api/portal/auth/email/request-otp',
+      { email, purpose },
+    );
+  }
+
+  /** Verify an email code; resolves with an email verification token. */
+  verifyEmailOtp(
+    email: string,
+    otp: string,
+    purpose: 'register' | 'reset',
+  ): Observable<{ data: { verification_token: string } }> {
+    return this.api.post<{ data: { verification_token: string } }>(
+      'api/portal/auth/email/verify-otp',
+      { email, otp, purpose },
+    );
+  }
+
+  /** Register after email verification. */
+  registerWithEmail(params: {
+    verificationToken: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+  }): Observable<LoginResponse> {
+    return this.api.post<LoginResponse>('api/portal/auth/register', {
+      verification_token: params.verificationToken,
+      email: params.email,
+      first_name: params.firstName,
+      last_name: params.lastName,
+      password: params.password,
+    });
+  }
+
+  /** Set a new password after email verification. */
+  resetPasswordWithEmail(params: {
+    verificationToken: string;
+    email: string;
+    newPassword: string;
+  }): Observable<LoginResponse> {
+    return this.api.post<LoginResponse>('api/portal/auth/reset-password', {
+      verification_token: params.verificationToken,
+      email: params.email,
+      new_password: params.newPassword,
+    });
+  }
+
   /** Step 1 of registration — email OTP to a not-yet-registered user. */
   sendRegisterOtp(email: string): Observable<unknown> {
     return this.api.post('Create_NonRegisteredUser_OtpCodeAsync', {

@@ -12,7 +12,7 @@ import {
   NotificationsApi,
   PatientApi,
 } from '@supadoc/data-access';
-import type { AppointmentDto, NotificationDto } from '@supadoc/models';
+import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 interface QuickAction {

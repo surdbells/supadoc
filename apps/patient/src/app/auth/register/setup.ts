@@ -2,8 +2,6 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
-import { ProfileApi } from '@supadoc/data-access';
-import { firstValueFrom } from 'rxjs';
 import {
   ButtonComponent,
   IconComponent,
@@ -58,12 +56,14 @@ import {
             [error]="emailError()"
           />
         }
-        <sd-phone-input
-          label="Phone"
-          [required]="true"
-          formControlName="phone"
-          [error]="phoneError()"
-        />
+        @if (isPhoneFlow()) {
+          <sd-phone-input
+            label="Phone"
+            [required]="true"
+            formControlName="phone"
+            [error]="phoneError()"
+          />
+        }
 
         <div class="flex flex-col gap-3">
           <sd-input
@@ -129,7 +129,6 @@ export class RegisterSetup {
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
   private readonly flow = inject(AuthFlowService);
-  private readonly profileApi = inject(ProfileApi);
 
   protected readonly submitting = signal(false);
   protected readonly errorMessage = signal('');
@@ -146,7 +145,9 @@ export class RegisterSetup {
     // the email flow already has it in AuthFlowService.
     email: [''],
     // Full E.164 number (dial code + local digits), emitted by sd-phone-input.
-    phone: ['', [Validators.required, Validators.pattern(/^\+\d{7,15}$/)]],
+    // Only shown/required in the phone flow (see constructor); the email flow
+    // hides it and captures the number later in My Profile.
+    phone: ['', [Validators.pattern(/^\+\d{7,15}$/)]],
     password: [
       '',
       [
@@ -166,13 +167,18 @@ export class RegisterSetup {
       ]);
       this.form.controls.email.updateValueAndValidity();
       // Phone was verified over SMS — prefill it (the backend uses the proof).
+      this.form.controls.phone.addValidators(Validators.required);
       this.form.controls.phone.setValue(`+${this.flow.phone()}`);
+      this.form.controls.phone.updateValueAndValidity();
     }
   }
 
-  /** True when we arrived here from the phone-OTP registration flow. */
+  /**
+   * True when we arrived here from the phone-OTP registration flow (a verified
+   * phone is present). The email flow leaves `flow.phone` empty.
+   */
   protected isPhoneFlow(): boolean {
-    return this.flow.verificationToken() !== '';
+    return this.flow.phone() !== '';
   }
 
   protected ruleOk(rule: { test: (v: string) => boolean }): boolean {
@@ -200,7 +206,7 @@ export class RegisterSetup {
     }
     this.submitting.set(true);
     this.errorMessage.set('');
-    const { fullName, email, phone, password } = this.form.getRawValue();
+    const { fullName, email, password } = this.form.getRawValue();
     const [firstName, ...rest] = fullName.trim().split(/\s+/);
     const lastName = rest.join(' ') || firstName;
 
@@ -225,33 +231,21 @@ export class RegisterSetup {
       return;
     }
 
-    const flowEmail = this.flow.email();
+    // Email-OTP registration: create the account against the local backend
+    // (the email proof token was issued at the verify step) and sign in.
     try {
-      await this.auth.register({
-        email: flowEmail,
+      await this.auth.registerWithEmail({
+        verificationToken: this.flow.verificationToken(),
+        email: this.flow.email(),
+        firstName,
+        lastName,
         password,
-        accountType: 'public',
-        otpCode: this.flow.otpCode(),
       });
-      // Best-effort: create the profile; don't block success if it fails.
-      try {
-        await firstValueFrom(
-          this.profileApi.createProfile({
-            firstName,
-            lastName,
-            email: flowEmail,
-            phoneNumber: phone,
-          }),
-        );
-      } catch {
-        /* profile can be completed later */
-      }
       this.flow.reset();
-      await this.router.navigateByUrl('/auth/register/success');
+      await this.router.navigateByUrl('/dashboard');
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'Could not create your account.');
-      await this.router.navigateByUrl('/auth/register/failure');
     } finally {
       this.submitting.set(false);
     }

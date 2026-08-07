@@ -149,9 +149,9 @@ export class NewPassword {
     this.submitting.set(true);
     this.errorMessage.set('');
     try {
-      await this.auth.resetPassword({
+      await this.auth.resetPasswordWithEmail({
+        verificationToken: this.flow.verificationToken(),
         email: this.flow.email(),
-        otpCode: this.flow.otpCode(),
         newPassword: this.form.controls.password.value,
       });
       this.flow.reset();
