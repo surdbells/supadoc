@@ -177,6 +177,8 @@ return [
                     'phone'          => ['type' => 'string', 'nullable' => true],
                     'phone_verified' => ['type' => 'boolean'],
                     'date_of_birth'  => ['type' => 'string', 'format' => 'date', 'nullable' => true],
+                    'gender'         => ['type' => 'string', 'nullable' => true],
+                    'address'        => ['type' => 'string', 'nullable' => true],
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
@@ -547,6 +549,8 @@ return [
                         'last_name'     => ['type' => 'string'],
                         'phone'         => ['type' => 'string', 'nullable' => true],
                         'date_of_birth' => ['type' => 'string', 'format' => 'date', 'nullable' => true],
+                        'gender'        => ['type' => 'string'],
+                        'address'       => ['type' => 'string'],
                     ],
                 ])],
                 'responses'   => [
@@ -572,6 +576,19 @@ return [
                 'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/PatientSettings'])],
                 'responses'   => [
                     '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientSettings']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/me/password' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Change the password',
+                'description' => 'Requires the current password; the new one must be at least 8 characters.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['current_password', 'new_password'], 'properties' => ['current_password' => ['type' => 'string', 'format' => 'password'], 'new_password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['type' => 'object', 'properties' => ['changed' => ['type' => 'boolean']]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],

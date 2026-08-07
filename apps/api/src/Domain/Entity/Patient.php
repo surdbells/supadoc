@@ -42,6 +42,12 @@ class Patient
     #[ORM\Column(type: 'date_immutable', nullable: true)]
     private ?DateTimeImmutable $dateOfBirth = null;
 
+    #[ORM\Column(type: 'string', length: 20, nullable: true)]
+    private ?string $gender = null;
+
+    #[ORM\Column(type: 'string', length: 500, nullable: true)]
+    private ?string $address = null;
+
     #[ORM\Column(name: 'phone_verified_at', type: 'datetime_immutable', nullable: true)]
     private ?DateTimeImmutable $phoneVerifiedAt = null;
 
@@ -114,6 +120,26 @@ class Patient
     public function setDateOfBirth(?DateTimeImmutable $dob): void
     {
         $this->dateOfBirth = $dob;
+    }
+
+    public function getGender(): ?string
+    {
+        return $this->gender;
+    }
+
+    public function setGender(?string $gender): void
+    {
+        $this->gender = $gender !== null && $gender !== '' ? $gender : null;
+    }
+
+    public function getAddress(): ?string
+    {
+        return $this->address;
+    }
+
+    public function setAddress(?string $address): void
+    {
+        $this->address = $address !== null && $address !== '' ? $address : null;
     }
 
     public function markPhoneVerified(): void
@@ -190,6 +216,8 @@ class Patient
             'phone'          => $this->phone,
             'phone_verified' => $this->phoneVerifiedAt !== null,
             'date_of_birth'  => $this->dateOfBirth?->format('Y-m-d'),
+            'gender'         => $this->gender,
+            'address'        => $this->address,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }

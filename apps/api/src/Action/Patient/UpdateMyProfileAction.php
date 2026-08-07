@@ -48,6 +48,12 @@ final class UpdateMyProfileAction
             $phone = trim((string) $body['phone']);
             $patient->setPhone($phone !== '' ? $phone : null);
         }
+        if (array_key_exists('gender', $body)) {
+            $patient->setGender(trim((string) $body['gender']));
+        }
+        if (array_key_exists('address', $body)) {
+            $patient->setAddress(trim((string) $body['address']));
+        }
         if (array_key_exists('date_of_birth', $body)) {
             $dob = trim((string) $body['date_of_birth']);
             if ($dob === '') {
