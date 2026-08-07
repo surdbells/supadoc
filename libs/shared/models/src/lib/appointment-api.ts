@@ -87,6 +87,31 @@ export interface PatientProfileDto {
   created_at: string;
 }
 
+/** Patient app preferences, from `PatientSettings` (boolean toggles by area). */
+export interface PatientSettingsDto {
+  notifications: {
+    appointment_reminder: boolean;
+    consultation_updates: boolean;
+    payment_notifications: boolean;
+    account_security_alerts: boolean;
+    marketing_announcements: boolean;
+  };
+  delivery: {
+    sms: boolean;
+    push: boolean;
+    email: boolean;
+  };
+  privacy: {
+    two_factor: boolean;
+    biometrics: boolean;
+  };
+}
+
+/** A partial settings patch — any subset of the groups/keys. */
+export type PatientSettingsPatch = {
+  [G in keyof PatientSettingsDto]?: Partial<PatientSettingsDto[G]>;
+};
+
 /** One notification, from `Notification::toArray()`. */
 export interface NotificationDto {
   id: string;

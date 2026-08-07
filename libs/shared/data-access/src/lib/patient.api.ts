@@ -1,6 +1,11 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { PatientProfileDto, SuccessResponse } from '@supadoc/models';
+import type {
+  PatientProfileDto,
+  PatientSettingsDto,
+  PatientSettingsPatch,
+  SuccessResponse,
+} from '@supadoc/models';
 import { ApiService } from './api.service';
 
 /**
@@ -36,6 +41,23 @@ export class PatientApi {
     return this.api.post<SuccessResponse<PatientProfileDto>>(
       'api/portal/me/verify-phone',
       { verification_token: verificationToken },
+    );
+  }
+
+  /** GET /api/portal/me/settings — the signed-in patient's preferences. */
+  settings(): Observable<SuccessResponse<PatientSettingsDto>> {
+    return this.api.get<SuccessResponse<PatientSettingsDto>>(
+      'api/portal/me/settings',
+    );
+  }
+
+  /** PATCH /api/portal/me/settings — merge a partial preferences patch. */
+  updateSettings(
+    patch: PatientSettingsPatch,
+  ): Observable<SuccessResponse<PatientSettingsDto>> {
+    return this.api.patch<SuccessResponse<PatientSettingsDto>>(
+      'api/portal/me/settings',
+      patch,
     );
   }
 }
