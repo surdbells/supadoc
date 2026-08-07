@@ -408,6 +408,25 @@ return [
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                 ],
             ],
+            'patch' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Update the profile',
+                'description' => 'Only the fields present are changed. Changing the phone clears phone_verified.',
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'properties' => [
+                        'first_name'    => ['type' => 'string'],
+                        'last_name'     => ['type' => 'string'],
+                        'phone'         => ['type' => 'string', 'nullable' => true],
+                        'date_of_birth' => ['type' => 'string', 'format' => 'date', 'nullable' => true],
+                    ],
+                ])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
         ],
         '/api/portal/me/verify-phone' => [
             'post' => [

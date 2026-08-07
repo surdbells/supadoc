@@ -16,6 +16,19 @@ export class PatientApi {
     return this.api.get<SuccessResponse<PatientProfileDto>>('api/portal/me');
   }
 
+  /** PATCH /api/portal/me — update the profile (only the given fields change). */
+  updateProfile(params: {
+    first_name?: string;
+    last_name?: string;
+    phone?: string | null;
+    date_of_birth?: string | null;
+  }): Observable<SuccessResponse<PatientProfileDto>> {
+    return this.api.patch<SuccessResponse<PatientProfileDto>>(
+      'api/portal/me',
+      params,
+    );
+  }
+
   /** POST /api/portal/me/verify-phone — confirm the number with a proof token. */
   verifyPhone(
     verificationToken: string,

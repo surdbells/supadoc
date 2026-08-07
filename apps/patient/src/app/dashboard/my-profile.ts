@@ -999,13 +999,29 @@ export class MyProfile {
     this.showToast('Profile photo updated successfully');
   }
 
-  protected saveProfile(): void {
+  protected async saveProfile(): Promise<void> {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
     }
-    this.view.set('personal');
-    this.showToast('Profile information updated successfully');
+    const { fullName, phone, dob } = this.form.getRawValue();
+    const [firstName, ...rest] = fullName.trim().split(/\s+/);
+    try {
+      const res = await firstValueFrom(
+        this.patient.updateProfile({
+          first_name: firstName,
+          last_name: rest.join(' '),
+          phone: phone || null,
+          date_of_birth: dob || null,
+        }),
+      );
+      this.applyProfile(res.data);
+      this.view.set('personal');
+      this.showToast('Profile information updated successfully');
+    } catch (err) {
+      const message = (err as { message?: string })?.message;
+      this.showToast(message ?? 'Could not update your profile.');
+    }
   }
 
   protected saveMedical(): void {

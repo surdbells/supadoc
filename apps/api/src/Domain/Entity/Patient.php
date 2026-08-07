@@ -71,8 +71,27 @@ class Patient
         return $this->passwordHash !== '' && password_verify($plain, $this->passwordHash);
     }
 
+    public function getPhone(): ?string
+    {
+        return $this->phone;
+    }
+
+    public function setFirstName(string $firstName): void
+    {
+        $this->firstName = $firstName;
+    }
+
+    public function setLastName(string $lastName): void
+    {
+        $this->lastName = $lastName;
+    }
+
     public function setPhone(?string $phone): void
     {
+        // Changing the number invalidates a previous verification.
+        if ($phone !== $this->phone) {
+            $this->phoneVerifiedAt = null;
+        }
         $this->phone = $phone;
     }
 
