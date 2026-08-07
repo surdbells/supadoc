@@ -40,6 +40,9 @@ class Patient
     #[ORM\Column(type: 'date_immutable', nullable: true)]
     private ?DateTimeImmutable $dateOfBirth = null;
 
+    #[ORM\Column(name: 'phone_verified_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $phoneVerifiedAt = null;
+
     public function __construct(string $email, string $firstName, string $lastName)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -78,16 +81,27 @@ class Patient
         $this->dateOfBirth = $dob;
     }
 
+    public function markPhoneVerified(): void
+    {
+        $this->phoneVerifiedAt = new DateTimeImmutable();
+    }
+
+    public function isPhoneVerified(): bool
+    {
+        return $this->phoneVerifiedAt !== null;
+    }
+
     public function toArray(): array
     {
         return [
-            'id'            => $this->id,
-            'email'         => $this->email,
-            'first_name'    => $this->firstName,
-            'last_name'     => $this->lastName,
-            'phone'         => $this->phone,
-            'date_of_birth' => $this->dateOfBirth?->format('Y-m-d'),
-            'created_at'    => $this->createdAt->format(DATE_ATOM),
+            'id'             => $this->id,
+            'email'          => $this->email,
+            'first_name'     => $this->firstName,
+            'last_name'      => $this->lastName,
+            'phone'          => $this->phone,
+            'phone_verified' => $this->phoneVerifiedAt !== null,
+            'date_of_birth'  => $this->dateOfBirth?->format('Y-m-d'),
+            'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }
 }

@@ -174,9 +174,10 @@ return [
                     'email'         => ['type' => 'string', 'format' => 'email'],
                     'first_name'    => ['type' => 'string'],
                     'last_name'     => ['type' => 'string'],
-                    'phone'         => ['type' => 'string', 'nullable' => true],
-                    'date_of_birth' => ['type' => 'string', 'format' => 'date', 'nullable' => true],
-                    'created_at'    => ['type' => 'string', 'format' => 'date-time'],
+                    'phone'          => ['type' => 'string', 'nullable' => true],
+                    'phone_verified' => ['type' => 'boolean'],
+                    'date_of_birth'  => ['type' => 'string', 'format' => 'date', 'nullable' => true],
+                    'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
         ],
@@ -393,6 +394,19 @@ return [
                 'responses' => [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/portal/me/verify-phone' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => "Confirm the signed-in patient's phone number",
+                'description' => 'Consumes a verification_token from verify-otp and marks the number verified.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['verification_token'], 'properties' => ['verification_token' => ['type' => 'string']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Verified', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],

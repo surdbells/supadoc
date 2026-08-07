@@ -111,7 +111,10 @@ final class AuthService
         }
 
         $patient = new Patient($email, $firstName, $lastName);
-        $patient->setPhone($phone !== '' ? $phone : null);
+        if ($phone !== '') {
+            $patient->setPhone($phone);
+            $patient->markPhoneVerified(); // the number was just proven over SMS
+        }
         if ($password !== '') {
             $patient->setPassword($password);
         }
