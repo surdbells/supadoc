@@ -15,4 +15,15 @@ export class PatientApi {
   me(): Observable<SuccessResponse<PatientProfileDto>> {
     return this.api.get<SuccessResponse<PatientProfileDto>>('api/portal/me');
   }
+
+  /** POST /api/portal/me/verify-phone — confirm the number with a proof token. */
+  verifyPhone(
+    verificationToken: string,
+  ): Observable<SuccessResponse<PatientProfileDto>> {
+    return this.api.post<SuccessResponse<PatientProfileDto>>(
+      'api/portal/me/verify-phone',
+      { verification_token: verificationToken },
+    );
+  }
 }
+

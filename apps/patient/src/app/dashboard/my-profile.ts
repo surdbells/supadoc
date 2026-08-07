@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
+import { AuthService } from '@supadoc/auth';
 import { PatientApi } from '@supadoc/data-access';
 import {
   ButtonComponent,
@@ -169,6 +171,80 @@ interface SectionCard {
                 }"
               />
             </div>
+          </div>
+
+          <!-- Phone number verification -->
+          <div
+            class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <sd-icon name="phone" [size]="18" class="text-slate" />
+                <span class="font-sans text-body text-ink">{{ phone() }}</span>
+                @if (phoneVerified()) {
+                  <span
+                    class="flex items-center gap-1 rounded-lg bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage"
+                  >
+                    <sd-icon name="circle-check" [size]="14" />
+                    Verified
+                  </span>
+                } @else {
+                  <span
+                    class="rounded-lg bg-warning/15 px-2.5 py-1 font-sans text-caption font-medium text-warning"
+                    >Not verified</span
+                  >
+                }
+              </div>
+              @if (!phoneVerified() && phoneVerifyState() === 'idle') {
+                <sd-button
+                  size="sm"
+                  [disabled]="phoneBusy()"
+                  (click)="sendPhoneOtp()"
+                >
+                  {{ phoneBusy() ? 'Sending…' : 'Verify' }}
+                </sd-button>
+              }
+            </div>
+
+            @if (phoneVerifyState() === 'sent') {
+              <div class="flex flex-col gap-3 border-t border-cloud pt-4">
+                <p class="font-sans text-body-sm text-slate">
+                  Enter the 6-digit code we sent to {{ phone() }}.
+                </p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="6"
+                    placeholder="123456"
+                    class="w-36 rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body tracking-[0.3em] text-ink focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
+                    [value]="otpCode()"
+                    (input)="otpCode.set($any($event.target).value)"
+                  />
+                  <sd-button
+                    size="sm"
+                    [disabled]="phoneBusy() || otpCode().length < 6"
+                    (click)="confirmPhoneOtp()"
+                  >
+                    {{ phoneBusy() ? 'Verifying…' : 'Confirm' }}
+                  </sd-button>
+                  <sd-button
+                    variant="outline"
+                    size="sm"
+                    (click)="cancelPhoneVerify()"
+                    >Cancel</sd-button
+                  >
+                </div>
+              </div>
+            }
+
+            @if (phoneVerifyError()) {
+              <p
+                class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert"
+              >
+                {{ phoneVerifyError() }}
+              </p>
+            }
           </div>
         }
 
@@ -761,7 +837,16 @@ export class MyProfile {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly patient = inject(PatientApi);
+  private readonly auth = inject(AuthService);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Phone verification (inline in Personal Information).
+  protected readonly phoneVerified = signal(false);
+  protected readonly phoneVerifyState = signal<'idle' | 'sent'>('idle');
+  protected readonly phoneBusy = signal(false);
+  protected readonly phoneVerifyError = signal('');
+  protected readonly otpCode = signal('');
+  private pinId = '';
 
   protected readonly view = signal<View>('home');
   protected readonly toast = signal('');
@@ -831,12 +916,14 @@ export class MyProfile {
     last_name: string;
     email: string;
     phone: string | null;
+    phone_verified?: boolean;
     date_of_birth: string | null;
   }): void {
     const full = `${p.first_name} ${p.last_name}`.trim();
     if (full) this.fullName.set(full);
     if (p.email) this.email.set(p.email);
     if (p.phone) this.phone.set(p.phone);
+    this.phoneVerified.set(!!p.phone_verified);
 
     const patch: Record<string, string> = {};
     if (full) patch['fullName'] = full;
@@ -934,6 +1021,50 @@ export class MyProfile {
   protected saveEmergency(): void {
     this.view.set('home');
     this.showToast('Emergency contact saved successfully');
+  }
+
+  protected async sendPhoneOtp(): Promise<void> {
+    const phone = this.phone().replace(/\D/g, '');
+    if (!phone) {
+      this.phoneVerifyError.set('Add a phone number first.');
+      return;
+    }
+    this.phoneBusy.set(true);
+    this.phoneVerifyError.set('');
+    try {
+      this.pinId = await this.auth.requestPhoneOtp(phone);
+      this.phoneVerifyState.set('sent');
+    } catch (err) {
+      const message = (err as { message?: string })?.message;
+      this.phoneVerifyError.set(message ?? 'Could not send the code.');
+    } finally {
+      this.phoneBusy.set(false);
+    }
+  }
+
+  protected async confirmPhoneOtp(): Promise<void> {
+    const phone = this.phone().replace(/\D/g, '');
+    this.phoneBusy.set(true);
+    this.phoneVerifyError.set('');
+    try {
+      const token = await this.auth.verifyPhoneOtp(this.pinId, this.otpCode(), phone);
+      const res = await firstValueFrom(this.patient.verifyPhone(token));
+      this.applyProfile(res.data);
+      this.phoneVerifyState.set('idle');
+      this.otpCode.set('');
+      this.showToast('Phone number verified');
+    } catch (err) {
+      const message = (err as { message?: string })?.message;
+      this.phoneVerifyError.set(message ?? 'That code is invalid or expired.');
+    } finally {
+      this.phoneBusy.set(false);
+    }
+  }
+
+  protected cancelPhoneVerify(): void {
+    this.phoneVerifyState.set('idle');
+    this.otpCode.set('');
+    this.phoneVerifyError.set('');
   }
 
   private showToast(message: string): void {

@@ -82,6 +82,7 @@ export interface PatientProfileDto {
   first_name: string;
   last_name: string;
   phone: string | null;
+  phone_verified: boolean;
   date_of_birth: string | null;
   created_at: string;
 }
