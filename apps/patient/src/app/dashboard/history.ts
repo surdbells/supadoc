@@ -160,7 +160,7 @@ function toConsultation(a: AppointmentDto): Consultation | null {
                 show up here.
               </p>
             </div>
-            <sd-button>
+            <sd-button (click)="book()">
               <sd-icon name="calendar-days" [size]="18" />
               Book a Consultation
             </sd-button>
@@ -272,6 +272,11 @@ export class History {
 
   protected open(c: Consultation): void {
     void this.router.navigate(['/dashboard/history', c.id]);
+  }
+
+  /** Booking starts at the specialist directory (same as the dashboard CTA). */
+  protected book(): void {
+    void this.router.navigate(['/dashboard/specialists']);
   }
 
   protected reload(): void {

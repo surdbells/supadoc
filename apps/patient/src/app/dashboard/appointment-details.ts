@@ -87,7 +87,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
             View and manage your scheduled consultations
           </p>
         </div>
-        <sd-button size="sm">
+        <sd-button size="sm" (click)="book()">
           <sd-icon name="plus" [size]="18" />
           Book Consultation
         </sd-button>
@@ -231,20 +231,10 @@ function toDetails(a: AppointmentDto): DetailsVm {
                       >
                         {{ doc.name }} ({{ doc.size }})
                       </span>
-                      <button
-                        type="button"
-                        class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier"
-                        aria-label="Preview document"
-                      >
-                        <sd-icon name="eye" [size]="16" />
-                      </button>
-                      <button
-                        type="button"
-                        class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier"
-                        aria-label="Download document"
-                      >
-                        <sd-icon name="download" [size]="16" />
-                      </button>
+                    </li>
+                  } @empty {
+                    <li class="font-sans text-body-sm text-slate">
+                      No documents were shared for this consultation.
                     </li>
                   }
                 </ul>
@@ -257,21 +247,13 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
                 >
                   <sd-icon name="credit-card" [size]="20" />
-                  Payment Status
+                  Consultation Fee
                 </h2>
-                <div class="flex items-start justify-between gap-4">
-                  <span
-                    class="flex items-center gap-2 font-sans text-body-sm text-ink"
-                  >
-                    <sd-icon name="credit-card" [size]="20" class="text-slate" />
-                    Amount: {{ v.amount }}
-                  </span>
-                </div>
                 <span
-                  class="flex w-fit items-center gap-1.5 self-end rounded-lg bg-sage/15 px-3 py-1 font-sans text-caption font-medium text-sage"
+                  class="flex items-center gap-2 font-sans text-body-sm text-ink"
                 >
-                  <sd-icon name="circle-check" [size]="14" />
-                  Paid
+                  <sd-icon name="credit-card" [size]="20" class="text-slate" />
+                  Amount: {{ v.amount }}
                 </span>
               </section>
             </div>
@@ -290,11 +272,14 @@ export class AppointmentDetails {
     void this.router.navigate(['/dashboard/call', id]);
   }
 
-  // Shared documents aren't modelled by the backend yet — placeholder content.
-  protected readonly documents: SharedDoc[] = [
-    { name: "Doctor's_Notes.pdf", size: '212KB' },
-    { name: 'CT_scan__Thorax.dcm', size: '212KB' },
-  ];
+  /** Booking starts at the specialist directory (same as the dashboard CTA). */
+  protected book(): void {
+    void this.router.navigate(['/dashboard/specialists']);
+  }
+
+  // Document sharing isn't modelled by the backend yet — show an empty state
+  // rather than fabricated files.
+  protected readonly documents: SharedDoc[] = [];
 
   private readonly result = toSignal(
     this.route.paramMap.pipe(

@@ -98,7 +98,7 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
             View and manage your scheduled consultations
           </p>
         </div>
-        <sd-button size="sm">
+        <sd-button size="sm" (click)="book()">
           <sd-icon name="plus" [size]="18" />
           Book Consultation
         </sd-button>
@@ -189,7 +189,7 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
                 started
               </p>
             </div>
-            <sd-button>
+            <sd-button (click)="book()">
               <sd-icon name="calendar-days" [size]="18" />
               Book a Consultation
             </sd-button>
@@ -304,6 +304,11 @@ export class Appointments {
 
   protected open(a: Appointment): void {
     void this.router.navigate(['/dashboard/appointments', a.id]);
+  }
+
+  /** Booking starts at the specialist directory (same as the dashboard CTA). */
+  protected book(): void {
+    void this.router.navigate(['/dashboard/specialists']);
   }
 
   protected reload(): void {
