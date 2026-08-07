@@ -2,12 +2,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
+import { AppointmentsApi } from '@supadoc/data-access';
+import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 type Status =
@@ -42,10 +45,43 @@ const TAB_OF: Record<Status, Tab> = {
   cancelled: 'cancelled',
 };
 
+const TYPE_ICON: Record<string, string> = {
+  video: 'video',
+  follow_up: 'refresh-cw',
+  urgent: 'zap',
+  routine: 'calendar-check',
+};
+
+/** Maps a backend appointment onto the row shape this screen renders. */
+export function toAppointmentRow(a: AppointmentDto): Appointment {
+  const when = new Date(a.scheduled_at);
+  return {
+    id: a.id,
+    // The API has no avatar yet — use the placeholder portrait.
+    photo: '/dashboard/avatar-james.png',
+    name: a.specialist.name,
+    specialty: a.specialist.specialty ?? '',
+    date: new Intl.DateTimeFormat('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(when),
+    time: new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(when),
+    typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
+    typeLabel: a.type_label,
+    status: a.status,
+  };
+}
+
 /**
- * My Appointments (Figma 497:7793) with inline empty (826:12182) and error
- * (826:12960) states — states are the same page, toggled by `?view=empty|error`
- * (until the API is wired). Row → appointment details route.
+ * My Appointments (Figma 497:7793) with inline loading, empty (826:12182) and
+ * error (826:12960) states. Data comes from `GET /api/portal/appointments`;
+ * `?view=empty|error` still forces a state for design QA. Row → details route.
  */
 @Component({
   selector: 'pat-appointments',
@@ -95,6 +131,23 @@ const TAB_OF: Record<Status, Tab> = {
       </div>
 
       @switch (viewState()) {
+        @case ('loading') {
+          <div class="flex flex-col gap-4">
+            @for (n of [1, 2, 3]; track n) {
+              <div
+                class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4"
+              >
+                <div
+                  class="size-14 shrink-0 animate-pulse rounded-full bg-cloud"
+                ></div>
+                <div class="flex flex-1 flex-col gap-2">
+                  <div class="h-3 w-40 animate-pulse rounded bg-cloud"></div>
+                  <div class="h-3 w-24 animate-pulse rounded bg-cloud"></div>
+                </div>
+              </div>
+            }
+          </div>
+        }
         @case ('error') {
           <div class="flex flex-col items-center gap-5 py-24 text-center">
             <span
@@ -114,6 +167,7 @@ const TAB_OF: Record<Status, Tab> = {
             <button
               type="button"
               class="inline-flex items-center justify-center rounded-field border border-alert px-5 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5"
+              (click)="reload()"
             >
               Try Again
             </button>
@@ -210,13 +264,6 @@ const TAB_OF: Record<Status, Tab> = {
                 />
               </button>
             }
-            <button
-              type="button"
-              class="mt-2 flex items-center justify-center gap-2 font-sans text-body font-semibold text-cerulean hover:underline"
-            >
-              Load More
-              <sd-icon name="chevron-down" [size]="18" />
-            </button>
           </div>
         }
       }
@@ -226,6 +273,8 @@ const TAB_OF: Record<Status, Tab> = {
 export class Appointments {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly appointments = inject(AppointmentsApi);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly activeTab = signal<Tab>('all');
   protected readonly tabs: { key: Tab; label: string }[] = [
@@ -236,10 +285,18 @@ export class Appointments {
     { key: 'rescheduled', label: 'Rescheduled' },
   ];
 
+  private readonly all = signal<Appointment[]>([]);
+  private readonly loading = signal(true);
+  private readonly loadError = signal(false);
+
   private readonly view = toSignal(
     this.route.queryParamMap.pipe(map((p) => p.get('view'))),
     { initialValue: null },
   );
+
+  constructor() {
+    this.load();
+  }
 
   protected status(a: Appointment) {
     return STATUS[a.status];
@@ -249,90 +306,45 @@ export class Appointments {
     void this.router.navigate(['/dashboard/appointments', a.id]);
   }
 
-  // TODO: source from the appointments API once available.
-  private readonly all: Appointment[] = [
-    this.make(
-      'a1',
-      '/dashboard/avatar-james.png',
-      'Dr. Ibrahim Musa',
-      'Cardiologist',
-      'video',
-      'Video Consultation',
-      'confirmed',
-    ),
-    this.make(
-      'a2',
-      '/home/doc4.png',
-      'Dr. Adaeze Uche',
-      'Clinical Therapist',
-      'refresh-cw',
-      'Patient Follow-up',
-      'pending',
-    ),
-    this.make(
-      'a3',
-      '/home/doc3.png',
-      'Dr. Chinedu Okafor',
-      'Cardiologist',
-      'zap',
-      'Urgent Care',
-      'completed',
-    ),
-    this.make(
-      'a4',
-      '/home/doc4.png',
-      'Dr. Adaeze Uche',
-      'Clinical Therapist',
-      'calendar-check',
-      'Routine Checkup',
-      'cancelled',
-    ),
-    this.make(
-      'a5',
-      '/home/doc4.png',
-      'Dr. Adaeze Uche',
-      'Clinical Therapist',
-      'calendar-check',
-      'Routine Checkup',
-      'rescheduled',
-    ),
-  ];
+  protected reload(): void {
+    this.load();
+  }
 
   protected readonly upcomingCount = computed(
-    () => this.all.filter((a) => TAB_OF[a.status] === 'upcoming').length,
+    () => this.all().filter((a) => TAB_OF[a.status] === 'upcoming').length,
   );
 
   protected readonly filtered = computed(() => {
     const tab = this.activeTab();
-    if (tab === 'all') return this.all;
-    return this.all.filter((a) => TAB_OF[a.status] === tab);
+    const all = this.all();
+    if (tab === 'all') return all;
+    return all.filter((a) => TAB_OF[a.status] === tab);
   });
 
-  protected readonly viewState = computed<'list' | 'empty' | 'error'>(() => {
-    if (this.view() === 'error') return 'error';
+  protected readonly viewState = computed<
+    'loading' | 'list' | 'empty' | 'error'
+  >(() => {
+    if (this.view() === 'error' || this.loadError()) return 'error';
+    if (this.loading()) return 'loading';
     if (this.view() === 'empty' || this.filtered().length === 0) return 'empty';
     return 'list';
   });
 
-  private make(
-    id: string,
-    photo: string,
-    name: string,
-    specialty: string,
-    typeIcon: string,
-    typeLabel: string,
-    status: Status,
-  ): Appointment {
-    return {
-      id,
-      photo,
-      name,
-      specialty,
-      date: 'Tue, 21 July 2026',
-      time: '10:00 AM',
-      typeIcon,
-      typeLabel,
-      status,
-    };
+  private load(): void {
+    this.loading.set(true);
+    this.loadError.set(false);
+    this.appointments
+      .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'asc' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.all.set(res.data.map(toAppointmentRow));
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loadError.set(true);
+          this.loading.set(false);
+        },
+      });
   }
 }

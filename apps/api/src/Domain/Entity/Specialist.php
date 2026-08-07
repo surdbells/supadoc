@@ -61,6 +61,11 @@ class Specialist
         return $this->name;
     }
 
+    public function getSpecialty(): string
+    {
+        return $this->specialty;
+    }
+
     public function getConsultationFee(): string
     {
         return $this->consultationFee;

@@ -96,8 +96,9 @@ class Appointment
             'id'           => $this->id,
             'patient_id'   => $this->patient->getId(),
             'specialist'   => [
-                'id'   => $this->specialist->getId(),
-                'name' => $this->specialist->getName(),
+                'id'        => $this->specialist->getId(),
+                'name'      => $this->specialist->getName(),
+                'specialty' => $this->specialist->getSpecialty(),
             ],
             'scheduled_at' => $this->scheduledAt->format(DATE_ATOM),
             'type'         => $this->type->value,

@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
+import { AppointmentsApi } from '@supadoc/data-access';
+import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 interface QuickAction {
@@ -16,6 +26,30 @@ interface Notification {
   readonly time: string;
   readonly unread?: boolean;
 }
+
+interface UpcomingVm {
+  readonly name: string;
+  readonly specialty: string;
+  readonly date: string;
+  readonly time: string;
+  readonly typeLabel: string;
+  readonly typeIcon: string;
+  readonly statusLabel: string;
+  readonly badgeClass: string;
+}
+
+const TYPE_ICON: Record<string, string> = {
+  video: 'video',
+  follow_up: 'refresh-cw',
+  urgent: 'zap',
+  routine: 'calendar-check',
+};
+
+const UPCOMING_BADGE: Record<string, string> = {
+  confirmed: 'bg-sage',
+  pending: 'bg-warning',
+  rescheduled: 'bg-slate',
+};
 
 /** Patient dashboard home (Figma 666:9342). */
 @Component({
@@ -129,52 +163,81 @@ interface Notification {
                 Upcoming Appointment
               </h3>
             </header>
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
-                <img
-                  src="/dashboard/avatar-james.png"
-                  alt=""
-                  width="40"
-                  height="40"
-                  class="size-10 shrink-0 rounded-full object-cover"
-                />
-                <div class="flex flex-col">
-                  <p class="font-sans text-body font-semibold text-ink">
-                    Dr James Smith
-                  </p>
-                  <p class="font-sans text-caption text-slate">Cardiologist</p>
+            @if (loadingUpcoming()) {
+              <div class="flex flex-col gap-3">
+                <div class="h-10 animate-pulse rounded bg-cloud"></div>
+                <div class="h-3 w-2/3 animate-pulse rounded bg-cloud"></div>
+              </div>
+            } @else if (upcoming(); as u) {
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <img
+                    src="/dashboard/avatar-james.png"
+                    alt=""
+                    width="40"
+                    height="40"
+                    class="size-10 shrink-0 rounded-full object-cover"
+                  />
+                  <div class="flex flex-col">
+                    <p class="font-sans text-body font-semibold text-ink">
+                      {{ u.name }}
+                    </p>
+                    <p class="font-sans text-caption text-slate">
+                      {{ u.specialty }}
+                    </p>
+                  </div>
                 </div>
+                <span
+                  class="rounded-lg px-4 py-1 font-sans text-[10px] font-medium leading-4 text-white"
+                  [class]="u.badgeClass"
+                  >{{ u.statusLabel }}</span
+                >
               </div>
-              <span
-                class="rounded-lg bg-sage px-4 py-1 font-sans text-[10px] font-medium leading-4 text-white"
-                >Confirmed</span
-              >
-            </div>
-            <div class="flex flex-col gap-2">
-              <div class="flex items-center justify-between">
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <span class="flex items-center gap-2 text-slate">
+                    <sd-icon name="calendar-days" [size]="16" />
+                    <span class="font-sans text-caption">{{ u.date }}</span>
+                  </span>
+                  <span class="flex items-center gap-2 text-slate">
+                    <sd-icon [name]="u.typeIcon" [size]="16" />
+                    <span class="font-sans text-caption">{{ u.typeLabel }}</span>
+                  </span>
+                </div>
                 <span class="flex items-center gap-2 text-slate">
-                  <sd-icon name="calendar-days" [size]="16" />
-                  <span class="font-sans text-caption">Mon, Jul 20, 2026</span>
-                </span>
-                <span class="flex items-center gap-2 text-slate">
-                  <sd-icon name="video" [size]="16" />
-                  <span class="font-sans text-caption">Video Consultation</span>
+                  <sd-icon name="clock" [size]="16" />
+                  <span class="font-sans text-caption">{{ u.time }}</span>
                 </span>
               </div>
-              <span class="flex items-center gap-2 text-slate">
-                <sd-icon name="clock" [size]="16" />
-                <span class="font-sans text-caption">10:00 AM</span>
-              </span>
-            </div>
-            <div class="flex gap-6">
-              <sd-button variant="outline" size="sm" [full]="true"
-                >View All</sd-button
+              <div class="flex gap-6">
+                <sd-button
+                  variant="outline"
+                  size="sm"
+                  [full]="true"
+                  (click)="viewAppointments()"
+                  >View All</sd-button
+                >
+                <sd-button size="sm" [full]="true">
+                  <sd-icon name="video" [size]="18" />
+                  Join Call
+                </sd-button>
+              </div>
+            } @else {
+              <div
+                class="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center"
               >
-              <sd-button size="sm" [full]="true">
-                <sd-icon name="video" [size]="18" />
-                Join Call
-              </sd-button>
-            </div>
+                <sd-icon name="calendar-off" [size]="28" class="text-slate" />
+                <p class="font-sans text-caption text-slate">
+                  No upcoming appointments
+                </p>
+                <sd-button
+                  variant="outline"
+                  size="sm"
+                  (click)="viewAppointments()"
+                  >View All</sd-button
+                >
+              </div>
+            }
           </article>
 
           <!-- Wallet -->
@@ -337,13 +400,69 @@ interface Notification {
   `,
 })
 export class DashboardHome {
-  // TODO: source from GetProfile / wallet / appointments APIs once available.
+  private readonly appointments = inject(AppointmentsApi);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+
+  // TODO: source from GetProfile / wallet APIs once available.
   protected readonly firstName = 'Sarah';
   protected readonly fullName = 'Sarah Johnson';
   protected readonly initials = 'SJ';
   protected readonly email = 'sarahjohnson@gmail.com';
   protected readonly profileComplete = 75;
   protected readonly balance = '$120.50';
+
+  // Upcoming Appointment widget — wired to GET /api/portal/appointments.
+  protected readonly upcoming = signal<UpcomingVm | null>(null);
+  protected readonly loadingUpcoming = signal(true);
+
+  constructor() {
+    this.appointments
+      .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'asc' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.upcoming.set(this.pickUpcoming(res.data));
+          this.loadingUpcoming.set(false);
+        },
+        error: () => this.loadingUpcoming.set(false),
+      });
+  }
+
+  protected viewAppointments(): void {
+    void this.router.navigate(['/dashboard/appointments']);
+  }
+
+  /** The soonest appointment still in an upcoming (non-terminal) state. */
+  private pickUpcoming(list: AppointmentDto[]): UpcomingVm | null {
+    const next = list.find(
+      (a) =>
+        a.status === 'pending' ||
+        a.status === 'confirmed' ||
+        a.status === 'rescheduled',
+    );
+    if (!next) return null;
+    const when = new Date(next.scheduled_at);
+    return {
+      name: next.specialist.name,
+      specialty: next.specialist.specialty ?? '',
+      date: new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(when),
+      time: new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(when),
+      typeLabel: next.type_label,
+      typeIcon: TYPE_ICON[next.type] ?? 'video',
+      statusLabel: next.status_label,
+      badgeClass: UPCOMING_BADGE[next.status] ?? 'bg-slate',
+    };
+  }
 
   protected readonly notifications: Notification[] = [
     {
