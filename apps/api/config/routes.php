@@ -39,6 +39,7 @@ return static function (App $app): void {
         // ----- Public -----
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
         $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
+        $group->post('/portal/auth/google', Action\Auth\GoogleLoginAction::class);  // customer (Google)
         $group->post('/auth/refresh', Action\Auth\RefreshAction::class);
 
         // ----- Staff (default audience) -----

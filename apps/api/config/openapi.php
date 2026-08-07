@@ -192,6 +192,20 @@ return [
                 ],
             ],
         ],
+        '/api/portal/auth/google' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Customer sign-in with a Google (Firebase) ID token',
+                'description' => 'Verifies the Firebase ID token, then signs in or provisions the patient by email.',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['id_token'], 'properties' => ['id_token' => ['type' => 'string', 'description' => 'Firebase ID token from the Google provider']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Signed in', ...$json($envelope(['$ref' => '#/components/schemas/AuthTokens']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/auth/refresh' => [
             'post' => [
                 'tags'        => ['Auth'],

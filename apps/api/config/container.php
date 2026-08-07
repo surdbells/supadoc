@@ -8,6 +8,7 @@ use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AuthService;
+use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\SettingsCacheService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -60,6 +61,9 @@ return [
 
     SettingsCacheService::class => static fn (ContainerInterface $c): SettingsCacheService =>
         new SettingsCacheService($c->get(RedisClient::class)),
+
+    FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
+        new FirebaseIdTokenVerifier($_ENV['FIREBASE_PROJECT_ID'] ?? ''),
 
     AuthService::class => static fn (ContainerInterface $c): AuthService => new AuthService(
         $c->get(UserRepository::class),
