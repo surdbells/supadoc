@@ -112,6 +112,54 @@ export type PatientSettingsPatch = {
   [G in keyof PatientSettingsDto]?: Partial<PatientSettingsDto[G]>;
 };
 
+/** Patient health profile, from `HealthProfile` (all fields free text). */
+export interface EmergencyContactDto {
+  full_name: string;
+  relationship: string;
+  phone: string;
+  email: string;
+}
+export interface InsuranceDto {
+  provider: string;
+  plan: string;
+  policy_number: string;
+  coverage_status: string;
+  expiry_date: string;
+}
+export interface MedicalHistoryRow {
+  condition: string;
+  year: string;
+  note: string;
+}
+export interface AllergyRow {
+  allergen: string;
+  severity: string;
+  reaction: string;
+}
+export interface MedicationRow {
+  name: string;
+  dosage: string;
+  frequency: string;
+}
+export interface ConditionRow {
+  condition: string;
+  status: string;
+  since: string;
+}
+export interface MedicalDto {
+  history: MedicalHistoryRow[];
+  allergies: AllergyRow[];
+  medications: MedicationRow[];
+  conditions: ConditionRow[];
+}
+export interface HealthProfileDto {
+  emergency_contact: EmergencyContactDto;
+  insurance: InsuranceDto;
+  medical: MedicalDto;
+}
+/** A partial save — any subset of the three sections. */
+export type HealthProfilePatch = Partial<HealthProfileDto>;
+
 /** One notification, from `Notification::toArray()`. */
 export interface NotificationDto {
   id: string;

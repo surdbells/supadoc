@@ -60,6 +60,25 @@ if ($patient === null) {
     $patient->setPassword($password);
     $patient->setPhone('+15551230000');
     $patient->setDateOfBirth(new DateTimeImmutable('1990-05-12'));
+    $patient->setEmergencyContact([
+        'full_name'    => 'Michael Patient',
+        'relationship' => 'Spouse',
+        'phone'        => '+15551230011',
+        'email'        => 'michael@videomed.test',
+    ]);
+    $patient->setInsurance([
+        'provider'        => 'BlueShield Health Partners',
+        'plan'            => 'PPO Silver 250',
+        'policy_number'   => 'BH-2291-8834',
+        'coverage_status' => 'Active',
+        'expiry_date'     => '2027-04-11',
+    ]);
+    $patient->setMedical([
+        'history'     => [['condition' => 'Appendectomy', 'year' => '2016', 'note' => 'Keyhole surgery']],
+        'allergies'   => [['allergen' => 'Penicillin', 'severity' => 'High', 'reaction' => 'Hives']],
+        'medications' => [['name' => 'Metformin', 'dosage' => '500mg', 'frequency' => 'Twice daily']],
+        'conditions'  => [['condition' => 'Type 2 Diabetes', 'status' => 'Managed', 'since' => '2018']],
+    ]);
     $em->persist($patient);
 }
 

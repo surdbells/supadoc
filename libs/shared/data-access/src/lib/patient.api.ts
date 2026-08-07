@@ -1,6 +1,8 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  HealthProfileDto,
+  HealthProfilePatch,
   PatientProfileDto,
   PatientSettingsDto,
   PatientSettingsPatch,
@@ -57,6 +59,23 @@ export class PatientApi {
   ): Observable<SuccessResponse<PatientSettingsDto>> {
     return this.api.patch<SuccessResponse<PatientSettingsDto>>(
       'api/portal/me/settings',
+      patch,
+    );
+  }
+
+  /** GET /api/portal/me/health-profile — emergency contact, insurance, medical. */
+  healthProfile(): Observable<SuccessResponse<HealthProfileDto>> {
+    return this.api.get<SuccessResponse<HealthProfileDto>>(
+      'api/portal/me/health-profile',
+    );
+  }
+
+  /** PATCH /api/portal/me/health-profile — save one or more sections. */
+  updateHealthProfile(
+    patch: HealthProfilePatch,
+  ): Observable<SuccessResponse<HealthProfileDto>> {
+    return this.api.patch<SuccessResponse<HealthProfileDto>>(
+      'api/portal/me/health-profile',
       patch,
     );
   }

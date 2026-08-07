@@ -2,15 +2,23 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  FormArray,
+  FormBuilder,
+  FormGroup,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
 import { PatientApi } from '@supadoc/data-access';
+import type { HealthProfileDto, MedicalDto } from '@supadoc/models';
 import {
   ButtonComponent,
   IconComponent,
@@ -335,26 +343,143 @@ interface SectionCard {
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
-          <div class="flex flex-col items-center gap-5 py-20 text-center">
-            <span
-              class="flex size-24 items-center justify-center rounded-full bg-cloud text-slate"
-            >
-              <sd-icon name="clipboard-list" [size]="40" />
-            </span>
-            <div class="flex max-w-md flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">
-                No Medical Information yet
-              </h2>
-              <p class="font-sans text-body-sm text-slate">
-                Add your medical details to help your doctor understand your
-                health better and provide personalised care.
-              </p>
+          @if (hasMedical()) {
+            <div class="flex flex-col gap-6">
+              <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                @if (medical().history.length) {
+                  <section
+                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
+                  >
+                    <h3
+                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                    >
+                      <sd-icon name="clipboard-list" [size]="20" />Medical History
+                    </h3>
+                    @for (row of medical().history; track $index) {
+                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
+                        <span class="font-sans text-body-sm font-medium text-ink"
+                          >{{ row.condition }}
+                          @if (row.year) {
+                            <span class="text-slate">· {{ row.year }}</span>
+                          }</span
+                        >
+                        @if (row.note) {
+                          <span class="font-sans text-caption text-slate">{{
+                            row.note
+                          }}</span>
+                        }
+                      </div>
+                    }
+                  </section>
+                }
+                @if (medical().allergies.length) {
+                  <section
+                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
+                  >
+                    <h3
+                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                    >
+                      <sd-icon name="triangle-alert" [size]="20" />Allergies
+                    </h3>
+                    @for (row of medical().allergies; track $index) {
+                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
+                        <span class="font-sans text-body-sm font-medium text-ink"
+                          >{{ row.allergen }}
+                          @if (row.severity) {
+                            <span class="text-slate">· {{ row.severity }}</span>
+                          }</span
+                        >
+                        @if (row.reaction) {
+                          <span class="font-sans text-caption text-slate">{{
+                            row.reaction
+                          }}</span>
+                        }
+                      </div>
+                    }
+                  </section>
+                }
+                @if (medical().medications.length) {
+                  <section
+                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
+                  >
+                    <h3
+                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                    >
+                      <sd-icon name="pill" [size]="20" />Current Medications
+                    </h3>
+                    @for (row of medical().medications; track $index) {
+                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
+                        <span class="font-sans text-body-sm font-medium text-ink"
+                          >{{ row.name }}
+                          @if (row.dosage) {
+                            <span class="text-slate">· {{ row.dosage }}</span>
+                          }</span
+                        >
+                        @if (row.frequency) {
+                          <span class="font-sans text-caption text-slate">{{
+                            row.frequency
+                          }}</span>
+                        }
+                      </div>
+                    }
+                  </section>
+                }
+                @if (medical().conditions.length) {
+                  <section
+                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
+                  >
+                    <h3
+                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                    >
+                      <sd-icon name="activity" [size]="20" />Existing Conditions
+                    </h3>
+                    @for (row of medical().conditions; track $index) {
+                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
+                        <span class="font-sans text-body-sm font-medium text-ink"
+                          >{{ row.condition }}
+                          @if (row.status) {
+                            <span class="text-slate">· {{ row.status }}</span>
+                          }</span
+                        >
+                        @if (row.since) {
+                          <span class="font-sans text-caption text-slate"
+                            >Since {{ row.since }}</span
+                          >
+                        }
+                      </div>
+                    }
+                  </section>
+                }
+              </div>
+              <div class="flex justify-end">
+                <sd-button (click)="openMedicalAdd()">
+                  <sd-icon name="pencil" [size]="18" />
+                  Edit medical details
+                </sd-button>
+              </div>
             </div>
-            <sd-button (click)="view.set('medical-add')">
-              <sd-icon name="plus" [size]="18" />
-              Add Medical details
-            </sd-button>
-          </div>
+          } @else {
+            <div class="flex flex-col items-center gap-5 py-20 text-center">
+              <span
+                class="flex size-24 items-center justify-center rounded-full bg-cloud text-slate"
+              >
+                <sd-icon name="clipboard-list" [size]="40" />
+              </span>
+              <div class="flex max-w-md flex-col gap-2">
+                <h2 class="font-heading text-h5 text-ink">
+                  No Medical Information yet
+                </h2>
+                <p class="font-sans text-body-sm text-slate">
+                  Add your medical details to help your doctor understand your
+                  health better and provide personalised care.
+                </p>
+              </div>
+              <sd-button (click)="openMedicalAdd()">
+                <sd-icon name="plus" [size]="18" />
+                Add Medical details
+              </sd-button>
+            </div>
+          }
         }
 
         @case ('medical-add') {
@@ -367,9 +492,13 @@ interface SectionCard {
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
-          <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div
+            [formGroup]="medicalForm"
+            class="grid grid-cols-1 gap-6 lg:grid-cols-2"
+          >
             <!-- Medical History -->
             <section
+              formArrayName="history"
               class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
             >
               <div class="flex items-center justify-between gap-2">
@@ -378,34 +507,57 @@ interface SectionCard {
                 >
                   <sd-icon name="clipboard-list" [size]="20" />Medical History
                 </h3>
-                <div class="flex items-center gap-3">
-                  <sd-button variant="outline" size="sm">
-                    <sd-icon name="plus" [size]="16" />Add Another
-                  </sd-button>
-                  <sd-icon name="x" [size]="18" class="text-slate" />
+                <sd-button variant="outline" size="sm" (click)="addHistory()">
+                  <sd-icon name="plus" [size]="16" />Add Another
+                </sd-button>
+              </div>
+              @for (row of historyRows.controls; track $index) {
+                <div
+                  [formGroupName]="$index"
+                  class="flex flex-col gap-4 border-t border-cloud pt-4 first:border-0 first:pt-0"
+                >
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >Condition/Procedure</span
+                      >
+                      <input
+                        formControlName="condition"
+                        placeholder="e.g Appendectomy"
+                        [class]="rowInput"
+                      />
+                    </label>
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate">Year</span>
+                      <input
+                        formControlName="year"
+                        placeholder="e.g 2016"
+                        [class]="rowInput"
+                      />
+                    </label>
+                  </div>
+                  <label class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-caption text-slate"
+                      >Note (Optional)</span
+                    >
+                    <input formControlName="note" [class]="rowInput" />
+                  </label>
+                  @if (historyRows.length > 1) {
+                    <button
+                      type="button"
+                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      (click)="removeRow(historyRows, $index)"
+                    >
+                      Remove
+                    </button>
+                  }
                 </div>
-              </div>
-              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{
-                    label: 'Condition/Proceedure',
-                    ph: 'e.g Appendectomy',
-                  }"
-                />
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{ label: 'Year', ph: 'e.g 2016' }"
-                />
-              </div>
-              <ng-container
-                [ngTemplateOutlet]="field"
-                [ngTemplateOutletContext]="{ label: 'Note (Optional)', ph: '' }"
-              />
+              }
             </section>
 
             <!-- Allergies -->
             <section
+              formArrayName="allergies"
               class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
             >
               <div class="flex items-center justify-between gap-2">
@@ -414,37 +566,62 @@ interface SectionCard {
                 >
                   <sd-icon name="triangle-alert" [size]="20" />Allergies
                 </h3>
-                <div class="flex items-center gap-3">
-                  <sd-button variant="outline" size="sm">
-                    <sd-icon name="plus" [size]="16" />Add Another
-                  </sd-button>
-                  <sd-icon name="x" [size]="18" class="text-slate" />
+                <sd-button variant="outline" size="sm" (click)="addAllergy()">
+                  <sd-icon name="plus" [size]="16" />Add Another
+                </sd-button>
+              </div>
+              @for (row of allergyRows.controls; track $index) {
+                <div
+                  [formGroupName]="$index"
+                  class="flex flex-col gap-4 border-t border-cloud pt-4 first:border-0 first:pt-0"
+                >
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >Allergen</span
+                      >
+                      <input
+                        formControlName="allergen"
+                        placeholder="e.g Penicillin"
+                        [class]="rowInput"
+                      />
+                    </label>
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >Severity</span
+                      >
+                      <select formControlName="severity" [class]="rowInput">
+                        <option value="">Select</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-caption text-slate">Reaction</span>
+                    <input
+                      formControlName="reaction"
+                      placeholder="e.g Hives, Anaphylaxis"
+                      [class]="rowInput"
+                    />
+                  </label>
+                  @if (allergyRows.length > 1) {
+                    <button
+                      type="button"
+                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      (click)="removeRow(allergyRows, $index)"
+                    >
+                      Remove
+                    </button>
+                  }
                 </div>
-              </div>
-              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{
-                    label: 'Condition/Proceedure',
-                    ph: 'e.g Penicillin',
-                  }"
-                />
-                <ng-container
-                  [ngTemplateOutlet]="selectField"
-                  [ngTemplateOutletContext]="{ label: 'Severity' }"
-                />
-              </div>
-              <ng-container
-                [ngTemplateOutlet]="field"
-                [ngTemplateOutletContext]="{
-                  label: 'Reaction',
-                  ph: 'e.g Hives, Anaphylaxis',
-                }"
-              />
+              }
             </section>
 
             <!-- Current Medications -->
             <section
+              formArrayName="medications"
               class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
             >
               <div class="flex items-center justify-between gap-2">
@@ -453,40 +630,61 @@ interface SectionCard {
                 >
                   <sd-icon name="pill" [size]="20" />Current Medications
                 </h3>
-                <div class="flex items-center gap-3">
-                  <sd-button variant="outline" size="sm">
-                    <sd-icon name="plus" [size]="16" />Add Another
-                  </sd-button>
-                  <sd-icon name="x" [size]="18" class="text-slate" />
+                <sd-button variant="outline" size="sm" (click)="addMedication()">
+                  <sd-icon name="plus" [size]="16" />Add Another
+                </sd-button>
+              </div>
+              @for (row of medicationRows.controls; track $index) {
+                <div
+                  [formGroupName]="$index"
+                  class="flex flex-col gap-4 border-t border-cloud pt-4 first:border-0 first:pt-0"
+                >
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >Medication name</span
+                      >
+                      <input
+                        formControlName="name"
+                        placeholder="e.g Metformin"
+                        [class]="rowInput"
+                      />
+                    </label>
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate">Dosage</span>
+                      <input
+                        formControlName="dosage"
+                        placeholder="e.g 500mg"
+                        [class]="rowInput"
+                      />
+                    </label>
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >Frequency</span
+                      >
+                      <input
+                        formControlName="frequency"
+                        placeholder="e.g Twice daily"
+                        [class]="rowInput"
+                      />
+                    </label>
+                  </div>
+                  @if (medicationRows.length > 1) {
+                    <button
+                      type="button"
+                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      (click)="removeRow(medicationRows, $index)"
+                    >
+                      Remove
+                    </button>
+                  }
                 </div>
-              </div>
-              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{
-                    label: 'Medication name',
-                    ph: 'e.g Penicillin',
-                  }"
-                />
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{
-                    label: 'Dosage',
-                    ph: 'e.g 500mg',
-                  }"
-                />
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{
-                    label: 'Frequency',
-                    ph: 'e.g Twice daily',
-                  }"
-                />
-              </div>
+              }
             </section>
 
             <!-- Existing Conditions -->
             <section
+              formArrayName="conditions"
               class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
             >
               <div class="flex items-center justify-between gap-2">
@@ -495,37 +693,67 @@ interface SectionCard {
                 >
                   <sd-icon name="activity" [size]="20" />Existing Conditions
                 </h3>
-                <div class="flex items-center gap-3">
-                  <sd-button variant="outline" size="sm">
-                    <sd-icon name="plus" [size]="16" />Add Another
-                  </sd-button>
-                  <sd-icon name="x" [size]="18" class="text-slate" />
+                <sd-button variant="outline" size="sm" (click)="addCondition()">
+                  <sd-icon name="plus" [size]="16" />Add Another
+                </sd-button>
+              </div>
+              @for (row of conditionRows.controls; track $index) {
+                <div
+                  [formGroupName]="$index"
+                  class="flex flex-col gap-4 border-t border-cloud pt-4 first:border-0 first:pt-0"
+                >
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >Condition</span
+                      >
+                      <input
+                        formControlName="condition"
+                        placeholder="e.g Diabetes"
+                        [class]="rowInput"
+                      />
+                    </label>
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate">Status</span>
+                      <select formControlName="status" [class]="rowInput">
+                        <option value="">Select</option>
+                        <option value="Active">Active</option>
+                        <option value="Managed">Managed</option>
+                        <option value="Resolved">Resolved</option>
+                      </select>
+                    </label>
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate">Since</span>
+                      <input
+                        formControlName="since"
+                        placeholder="e.g 2018"
+                        [class]="rowInput"
+                      />
+                    </label>
+                  </div>
+                  @if (conditionRows.length > 1) {
+                    <button
+                      type="button"
+                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      (click)="removeRow(conditionRows, $index)"
+                    >
+                      Remove
+                    </button>
+                  }
                 </div>
-              </div>
-              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{
-                    label: 'Condition',
-                    ph: 'e.g Diabetess',
-                  }"
-                />
-                <ng-container
-                  [ngTemplateOutlet]="selectField"
-                  [ngTemplateOutletContext]="{ label: 'Status' }"
-                />
-                <ng-container
-                  [ngTemplateOutlet]="field"
-                  [ngTemplateOutletContext]="{ label: 'Since', ph: 'e.g 2018' }"
-                />
-              </div>
+              }
             </section>
           </div>
           <div class="flex gap-3">
             <sd-button variant="outline" (click)="view.set('medical')"
               >Cancel</sd-button
             >
-            <sd-button (click)="saveMedical()">Save</sd-button>
+            <sd-button
+              (click)="saveMedical()"
+              [disabled]="savingSection() === 'medical'"
+            >
+              {{ savingSection() === 'medical' ? 'Saving…' : 'Save' }}
+            </sd-button>
           </div>
         }
 
@@ -541,63 +769,71 @@ interface SectionCard {
             [ngTemplateOutlet]="tipsBanner"
             [ngTemplateOutletContext]="{ tips: insuranceTips }"
           />
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <form
+            [formGroup]="insuranceForm"
+            (ngSubmit)="saveInsurance()"
+            class="rounded-card border border-cloud bg-white p-6"
+          >
             <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
-                  >Insurance Provider <span class="text-alert">*</span></span
+                  >Insurance Provider</span
                 >
                 <span [class]="fieldWrap">
                   <sd-icon name="building-2" [size]="18" class="text-slate" />
-                  <select [class]="fieldControl">
-                    <option>BlueShield Health Partners</option>
-                    <option>Aetna</option>
-                    <option>Cigna</option>
-                  </select>
-                </span>
-              </label>
-              <label class="flex w-full flex-col gap-2">
-                <span class="font-sans text-caption text-slate"
-                  >Insurance Plan <span class="text-alert">*</span></span
-                >
-                <span [class]="fieldWrap">
-                  <sd-icon name="list" [size]="18" class="text-slate" />
-                  <select [class]="fieldControl">
-                    <option>PPO Silver 250</option>
-                    <option>HMO Gold 500</option>
-                  </select>
-                </span>
-              </label>
-              <label class="flex w-full flex-col gap-2">
-                <span class="font-sans text-caption text-slate"
-                  >Policy Number/ Membership ID
-                  <span class="text-alert">*</span></span
-                >
-                <span [class]="fieldWrap">
-                  <sd-icon name="hash" [size]="18" class="text-slate" />
                   <input
                     type="text"
-                    value="BH-2291-8834"
+                    formControlName="provider"
+                    placeholder="e.g BlueShield Health Partners"
                     [class]="fieldControl"
                   />
                 </span>
               </label>
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
-                  >Coverage Status <span class="text-alert">*</span></span
+                  >Insurance Plan</span
+                >
+                <span [class]="fieldWrap">
+                  <sd-icon name="list" [size]="18" class="text-slate" />
+                  <input
+                    type="text"
+                    formControlName="plan"
+                    placeholder="e.g PPO Silver 250"
+                    [class]="fieldControl"
+                  />
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Policy Number/ Membership ID</span
+                >
+                <span [class]="fieldWrap">
+                  <sd-icon name="hash" [size]="18" class="text-slate" />
+                  <input
+                    type="text"
+                    formControlName="policy_number"
+                    placeholder="e.g BH-2291-8834"
+                    [class]="fieldControl"
+                  />
+                </span>
+              </label>
+              <label class="flex w-full flex-col gap-2">
+                <span class="font-sans text-caption text-slate"
+                  >Coverage Status</span
                 >
                 <span [class]="fieldWrap">
                   <span class="size-2 shrink-0 rounded-full bg-sage"></span>
-                  <select [class]="fieldControl">
-                    <option>Active</option>
-                    <option>Inactive</option>
-                    <option>Expired</option>
+                  <select formControlName="coverage_status" [class]="fieldControl">
+                    <option value="">Select</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Expired">Expired</option>
                   </select>
                 </span>
               </label>
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
-                  >Expiry Date <span class="text-alert">*</span></span
+                  >Expiry Date</span
                 >
                 <span [class]="fieldWrap">
                   <sd-icon
@@ -607,19 +843,24 @@ interface SectionCard {
                   />
                   <input
                     type="date"
-                    value="2027-04-11"
+                    formControlName="expiry_date"
                     [class]="fieldControl"
                   />
                 </span>
               </label>
             </div>
             <div class="mt-6 flex gap-3">
-              <sd-button variant="outline" (click)="view.set('home')"
+              <sd-button
+                variant="outline"
+                type="button"
+                (click)="view.set('home')"
                 >Cancel</sd-button
               >
-              <sd-button (click)="saveInsurance()">Save</sd-button>
+              <sd-button type="submit" [disabled]="savingSection() === 'insurance'">
+                {{ savingSection() === 'insurance' ? 'Saving…' : 'Save' }}
+              </sd-button>
             </div>
-          </div>
+          </form>
         }
 
         @case ('emergency') {
@@ -634,7 +875,11 @@ interface SectionCard {
             [ngTemplateOutlet]="tipsBanner"
             [ngTemplateOutletContext]="{ tips: emergencyTips }"
           />
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <form
+            [formGroup]="emergencyForm"
+            (ngSubmit)="saveEmergency()"
+            class="rounded-card border border-cloud bg-white p-6"
+          >
             <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
@@ -643,30 +888,30 @@ interface SectionCard {
                 <span [class]="fieldWrap">
                   <input
                     type="text"
-                    value="David Johnson"
+                    formControlName="full_name"
+                    placeholder="e.g David Johnson"
                     [class]="fieldControl"
                   />
                 </span>
               </label>
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
-                  >Relationship <span class="text-alert">*</span></span
+                  >Relationship</span
                 >
                 <span [class]="fieldWrap">
-                  <select [class]="fieldControl">
-                    <option>Select</option>
-                    <option>Spouse</option>
-                    <option>Parent</option>
-                    <option>Sibling</option>
-                    <option>Friend</option>
+                  <select formControlName="relationship" [class]="fieldControl">
+                    <option value="">Select</option>
+                    <option value="Spouse">Spouse</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Sibling">Sibling</option>
+                    <option value="Child">Child</option>
+                    <option value="Friend">Friend</option>
                   </select>
                 </span>
               </label>
               <div class="flex w-full flex-col gap-2">
-                <span class="font-sans text-caption text-slate"
-                  >Phone <span class="text-alert">*</span></span
-                >
-                <sd-phone-input />
+                <span class="font-sans text-caption text-slate">Phone</span>
+                <sd-phone-input formControlName="phone" />
               </div>
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
@@ -675,6 +920,7 @@ interface SectionCard {
                 <span [class]="fieldWrap">
                   <input
                     type="email"
+                    formControlName="email"
                     placeholder="example@email.com"
                     [class]="fieldControl"
                   />
@@ -682,12 +928,17 @@ interface SectionCard {
               </label>
             </div>
             <div class="mt-6 flex gap-3">
-              <sd-button variant="outline" (click)="view.set('home')"
+              <sd-button
+                variant="outline"
+                type="button"
+                (click)="view.set('home')"
                 >Cancel</sd-button
               >
-              <sd-button (click)="saveEmergency()">Save changes</sd-button>
+              <sd-button type="submit" [disabled]="savingSection() === 'emergency'">
+                {{ savingSection() === 'emergency' ? 'Saving…' : 'Save changes' }}
+              </sd-button>
             </div>
-          </div>
+          </form>
         }
       }
     </div>
@@ -810,27 +1061,6 @@ interface SectionCard {
       </div>
     </ng-template>
 
-    <ng-template #field let-label="label" let-ph="ph">
-      <label class="flex w-full flex-col gap-2">
-        <span class="font-sans text-caption text-slate">{{ label }}</span>
-        <input
-          type="text"
-          [placeholder]="ph"
-          class="rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
-        />
-      </label>
-    </ng-template>
-
-    <ng-template #selectField let-label="label">
-      <label class="flex w-full flex-col gap-2">
-        <span class="font-sans text-caption text-slate">{{ label }}</span>
-        <select
-          class="rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-slate focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
-        >
-          <option>Select</option>
-        </select>
-      </label>
-    </ng-template>
   `,
 })
 export class MyProfile {
@@ -851,13 +1081,12 @@ export class MyProfile {
   protected readonly view = signal<View>('home');
   protected readonly toast = signal('');
 
-  // Profile display — from GET /api/portal/me (placeholders until it resolves).
-  // Gender / address aren't modelled by the backend, so they stay static.
-  protected readonly fullName = signal('Sarah Johnson');
-  protected readonly email = signal('sarahjohnson@gmail.com');
-  protected readonly phone = signal('+234 906 008 0034');
-  protected readonly dobLong = signal('May 12, 1988');
-  protected readonly dobDisplay = signal('12 / 05 / 1988');
+  // Profile display — filled from GET /api/portal/me (blank until it resolves).
+  protected readonly fullName = signal('');
+  protected readonly email = signal('');
+  protected readonly phone = signal('');
+  protected readonly dobLong = signal('—');
+  protected readonly dobDisplay = signal('—');
 
   protected readonly sections: SectionCard[] = [
     {
@@ -887,15 +1116,44 @@ export class MyProfile {
   ];
 
   protected readonly form = this.fb.nonNullable.group({
-    fullName: ['Sarah Jonshon', [Validators.required]],
-    phone: ['+2349060080034', [Validators.required]],
-    dob: ['1988-05-12', [Validators.required]],
-    gender: ['Female', [Validators.required]],
-    address: [
-      '14, Freedom Way, Lekki Phase 1, Lagos, Nigeria.',
-      [Validators.required],
-    ],
+    fullName: ['', [Validators.required]],
+    phone: ['', [Validators.required]],
+    dob: [''],
+    gender: [''],
+    address: [''],
   });
+
+  // ----- Health profile (emergency / insurance / medical) -----
+  protected readonly emergencyForm = this.fb.nonNullable.group({
+    full_name: ['', [Validators.required]],
+    relationship: [''],
+    phone: [''],
+    email: ['', [Validators.email]],
+  });
+
+  protected readonly insuranceForm = this.fb.nonNullable.group({
+    provider: [''],
+    plan: [''],
+    policy_number: [''],
+    coverage_status: [''],
+    expiry_date: [''],
+  });
+
+  protected readonly medicalForm = this.fb.group({
+    history: this.fb.array<FormGroup>([]),
+    allergies: this.fb.array<FormGroup>([]),
+    medications: this.fb.array<FormGroup>([]),
+    conditions: this.fb.array<FormGroup>([]),
+  });
+
+  // Read view of the saved medical record (drives the summary / empty state).
+  protected readonly medical = signal<MedicalDto>({
+    history: [],
+    allergies: [],
+    medications: [],
+    conditions: [],
+  });
+  protected readonly savingSection = signal<'' | 'medical' | 'insurance' | 'emergency'>('');
 
   constructor() {
     this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
@@ -906,9 +1164,26 @@ export class MyProfile {
       .subscribe({
         next: (res) => this.applyProfile(res.data),
         error: () => {
-          /* keep placeholders on failure */
+          /* keep the form empty on failure */
         },
       });
+
+    this.patient
+      .healthProfile()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.applyHealthProfile(res.data),
+        error: () => {
+          /* leave the sections empty on failure */
+        },
+      });
+  }
+
+  private applyHealthProfile(h: HealthProfileDto): void {
+    this.emergencyForm.patchValue(h.emergency_contact);
+    this.insuranceForm.patchValue(h.insurance);
+    this.medical.set(h.medical);
+    this.loadMedicalForm(h.medical);
   }
 
   private applyProfile(p: {
@@ -968,6 +1243,9 @@ export class MyProfile {
     'flex items-center gap-2 rounded-field border border-[#d7e0e8] bg-white px-4 transition-colors focus-within:border-teal focus-within:ring-2 focus-within:ring-teal/15';
   protected readonly fieldControl =
     'w-full bg-transparent py-3.5 font-sans text-body text-ink placeholder:text-slate/60 focus:outline-none';
+  // Standalone input styling for the medical FormArray rows.
+  protected readonly rowInput =
+    'rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15';
 
   protected readonly medicalTips = [
     'Help your doctor to make better diagnoses and treatment decision',
@@ -1024,19 +1302,157 @@ export class MyProfile {
     }
   }
 
-  protected saveMedical(): void {
-    this.view.set('medical');
-    this.showToast('Medical information saved successfully');
+  // ----- Medical FormArray plumbing -----
+  protected get historyRows(): FormArray<FormGroup> {
+    return this.medicalForm.controls.history;
+  }
+  protected get allergyRows(): FormArray<FormGroup> {
+    return this.medicalForm.controls.allergies;
+  }
+  protected get medicationRows(): FormArray<FormGroup> {
+    return this.medicalForm.controls.medications;
+  }
+  protected get conditionRows(): FormArray<FormGroup> {
+    return this.medicalForm.controls.conditions;
   }
 
-  protected saveInsurance(): void {
-    this.view.set('home');
-    this.showToast('Insurance information saved successfully');
+  private rowGroup(keys: string[], values: Record<string, string> = {}): FormGroup {
+    const cfg: Record<string, string[]> = {};
+    for (const k of keys) cfg[k] = [values[k] ?? ''];
+    return this.fb.group(cfg);
   }
 
-  protected saveEmergency(): void {
-    this.view.set('home');
-    this.showToast('Emergency contact saved successfully');
+  private setRows(
+    arr: FormArray<FormGroup>,
+    keys: string[],
+    rows: readonly unknown[],
+  ): void {
+    arr.clear();
+    for (const r of rows) {
+      arr.push(this.rowGroup(keys, r as Record<string, string>));
+    }
+  }
+
+  private loadMedicalForm(m: MedicalDto): void {
+    this.setRows(this.historyRows, ['condition', 'year', 'note'], m.history);
+    this.setRows(
+      this.allergyRows,
+      ['allergen', 'severity', 'reaction'],
+      m.allergies,
+    );
+    this.setRows(
+      this.medicationRows,
+      ['name', 'dosage', 'frequency'],
+      m.medications,
+    );
+    this.setRows(
+      this.conditionRows,
+      ['condition', 'status', 'since'],
+      m.conditions,
+    );
+  }
+
+  protected addHistory(): void {
+    this.historyRows.push(this.rowGroup(['condition', 'year', 'note']));
+  }
+  protected addAllergy(): void {
+    this.allergyRows.push(this.rowGroup(['allergen', 'severity', 'reaction']));
+  }
+  protected addMedication(): void {
+    this.medicationRows.push(this.rowGroup(['name', 'dosage', 'frequency']));
+  }
+  protected addCondition(): void {
+    this.conditionRows.push(this.rowGroup(['condition', 'status', 'since']));
+  }
+  protected removeRow(arr: FormArray<FormGroup>, i: number): void {
+    arr.removeAt(i);
+  }
+
+  protected readonly hasMedical = computed(() => {
+    const m = this.medical();
+    return (
+      m.history.length +
+        m.allergies.length +
+        m.medications.length +
+        m.conditions.length >
+      0
+    );
+  });
+
+  /** Open the medical editor, seeding a blank row for any empty section. */
+  protected openMedicalAdd(): void {
+    if (this.historyRows.length === 0) this.addHistory();
+    if (this.allergyRows.length === 0) this.addAllergy();
+    if (this.medicationRows.length === 0) this.addMedication();
+    if (this.conditionRows.length === 0) this.addCondition();
+    this.view.set('medical-add');
+  }
+
+  protected async saveMedical(): Promise<void> {
+    this.savingSection.set('medical');
+    try {
+      const res = await firstValueFrom(
+        this.patient.updateHealthProfile({
+          medical: this.medicalForm.getRawValue() as MedicalDto,
+        }),
+      );
+      this.applyHealthProfile(res.data);
+      this.view.set('medical');
+      this.showToast('Medical information saved successfully');
+    } catch (err) {
+      this.showToast(
+        (err as { message?: string })?.message ??
+          'Could not save your medical information.',
+      );
+    } finally {
+      this.savingSection.set('');
+    }
+  }
+
+  protected async saveInsurance(): Promise<void> {
+    this.savingSection.set('insurance');
+    try {
+      const res = await firstValueFrom(
+        this.patient.updateHealthProfile({
+          insurance: this.insuranceForm.getRawValue(),
+        }),
+      );
+      this.applyHealthProfile(res.data);
+      this.view.set('home');
+      this.showToast('Insurance information saved successfully');
+    } catch (err) {
+      this.showToast(
+        (err as { message?: string })?.message ??
+          'Could not save your insurance information.',
+      );
+    } finally {
+      this.savingSection.set('');
+    }
+  }
+
+  protected async saveEmergency(): Promise<void> {
+    if (this.emergencyForm.invalid) {
+      this.emergencyForm.markAllAsTouched();
+      return;
+    }
+    this.savingSection.set('emergency');
+    try {
+      const res = await firstValueFrom(
+        this.patient.updateHealthProfile({
+          emergency_contact: this.emergencyForm.getRawValue(),
+        }),
+      );
+      this.applyHealthProfile(res.data);
+      this.view.set('home');
+      this.showToast('Emergency contact saved successfully');
+    } catch (err) {
+      this.showToast(
+        (err as { message?: string })?.message ??
+          'Could not save your emergency contact.',
+      );
+    } finally {
+      this.savingSection.set('');
+    }
   }
 
   protected async sendPhoneOtp(): Promise<void> {
