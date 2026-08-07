@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
+use App\Infrastructure\Email\EmailTemplates;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -24,8 +27,10 @@ final class UpdateAppointmentStatusAction
 {
     use ApiResponse;
 
-    public function __construct(private readonly AppointmentRepository $repo)
-    {
+    public function __construct(
+        private readonly AppointmentRepository $repo,
+        private readonly MailService $mail,
+    ) {
     }
 
     public function __invoke(
@@ -76,6 +81,29 @@ final class UpdateAppointmentStatusAction
         $appointment->transitionTo($target);
         $this->repo->save($appointment);
 
+        $this->notifyPatient($appointment);
+
         return $this->success($response, $appointment->toArray(), 'Status updated');
+    }
+
+    /** Fire-and-forget status-update email to the patient. */
+    private function notifyPatient(Appointment $appointment): void
+    {
+        try {
+            $p    = $appointment->getPatient()->toArray();
+            $mail = EmailTemplates::appointmentStatusUpdate(
+                $appointment->toArray(),
+                (string) $p['first_name'],
+                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+            );
+            $this->mail->send(
+                (string) $p['email'],
+                trim((string) $p['first_name'] . ' ' . (string) $p['last_name']),
+                $mail['subject'],
+                $mail['html'],
+            );
+        } catch (\Throwable) {
+            // logged inside MailService; the transition already succeeded.
+        }
     }
 }

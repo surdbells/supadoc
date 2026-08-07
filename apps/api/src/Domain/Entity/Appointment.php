@@ -74,6 +74,11 @@ class Appointment
         return $this->status;
     }
 
+    public function getPatient(): Patient
+    {
+        return $this->patient;
+    }
+
     /** Enforces the state machine; illegal transitions can't be expressed. */
     public function transitionTo(AppointmentStatus $target): void
     {

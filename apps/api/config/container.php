@@ -6,6 +6,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
@@ -70,6 +71,14 @@ return [
         apiKey:   $_ENV['TERMII_API_KEY'] ?? '',
         senderId: $_ENV['TERMII_SENDER_ID'] ?? '',
         baseUrl:  $_ENV['TERMII_BASE_URL'] ?? 'https://api.ng.termii.com',
+    ),
+
+    MailService::class => static fn (ContainerInterface $c): MailService => new MailService(
+        token:       $_ENV['ZEPTOMAIL_TOKEN'] ?? '',
+        fromAddress: $_ENV['ZEPTOMAIL_FROM_ADDRESS'] ?? '',
+        fromName:    $_ENV['ZEPTOMAIL_FROM_NAME'] ?? 'VideoMed',
+        baseUrl:     $_ENV['ZEPTOMAIL_BASE_URL'] ?? 'https://api.zeptomail.com',
+        logger:      $c->get(LoggerInterface::class),
     ),
 
     AuthService::class => static fn (ContainerInterface $c): AuthService => new AuthService(

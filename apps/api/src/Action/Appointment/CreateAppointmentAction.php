@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Entity\Patient;
 use App\Domain\Enum\ConsultationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
+use App\Infrastructure\Email\EmailTemplates;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
@@ -23,6 +26,7 @@ final class CreateAppointmentAction
         private readonly PatientRepository $patients,
         private readonly SpecialistRepository $specialists,
         private readonly AppointmentRepository $appointments,
+        private readonly MailService $mail,
     ) {
     }
 
@@ -66,6 +70,29 @@ final class CreateAppointmentAction
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
         $this->appointments->save($appointment);
 
+        $this->sendConfirmation($appointment, $patient);
+
         return $this->created($response, $appointment->toArray(), 'Appointment booked');
+    }
+
+    /** Fire-and-forget confirmation email — never let it break the booking. */
+    private function sendConfirmation(Appointment $appointment, Patient $patient): void
+    {
+        try {
+            $p    = $patient->toArray();
+            $mail = EmailTemplates::appointmentConfirmation(
+                $appointment->toArray(),
+                (string) $p['first_name'],
+                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+            );
+            $this->mail->send(
+                (string) $p['email'],
+                trim((string) $p['first_name'] . ' ' . (string) $p['last_name']),
+                $mail['subject'],
+                $mail['html'],
+            );
+        } catch (\Throwable) {
+            // logged inside MailService; booking already succeeded.
+        }
     }
 }
