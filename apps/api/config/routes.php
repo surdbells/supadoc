@@ -72,6 +72,8 @@ return static function (App $app): void {
         $group->group('/portal', function (RouteCollectorProxy $group): void {
             $group->get('/me', Action\Patient\MyProfileAction::class);
             $group->patch('/me', Action\Patient\UpdateMyProfileAction::class);
+            $group->get('/me/settings', Action\Patient\MySettingsAction::class);
+            $group->patch('/me/settings', Action\Patient\UpdateMySettingsAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);

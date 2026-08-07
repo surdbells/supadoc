@@ -180,6 +180,37 @@ return [
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
+            'PatientSettings' => [
+                'type'        => 'object',
+                'description' => 'Boolean preference toggles, grouped by area. Every key defaults in.',
+                'properties'  => [
+                    'notifications' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'appointment_reminder'    => ['type' => 'boolean'],
+                            'consultation_updates'    => ['type' => 'boolean'],
+                            'payment_notifications'   => ['type' => 'boolean'],
+                            'account_security_alerts' => ['type' => 'boolean'],
+                            'marketing_announcements' => ['type' => 'boolean'],
+                        ],
+                    ],
+                    'delivery' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'sms'   => ['type' => 'boolean'],
+                            'push'  => ['type' => 'boolean'],
+                            'email' => ['type' => 'boolean'],
+                        ],
+                    ],
+                    'privacy' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'two_factor' => ['type' => 'boolean'],
+                            'biometrics' => ['type' => 'boolean'],
+                        ],
+                    ],
+                ],
+            ],
             'Notification' => [
                 'type'       => 'object',
                 'properties' => [
@@ -486,6 +517,27 @@ return [
                 ])],
                 'responses'   => [
                     '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/me/settings' => [
+            'get' => [
+                'tags'      => ['Portal'],
+                'summary'   => "The signed-in patient's preferences",
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/PatientSettings']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+            'patch' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Update preferences',
+                'description' => 'Accepts a partial map; only known keys are applied. Returns the full settings.',
+                'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/PatientSettings'])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientSettings']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],

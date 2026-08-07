@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
+use App\Domain\Settings\PatientSettings;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Ramsey\Uuid\Uuid;
@@ -42,6 +43,10 @@ class Patient
 
     #[ORM\Column(name: 'phone_verified_at', type: 'datetime_immutable', nullable: true)]
     private ?DateTimeImmutable $phoneVerifiedAt = null;
+
+    /** Sparse override map of app preferences; see {@see PatientSettings}. */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $settings = null;
 
     public function __construct(string $email, string $firstName, string $lastName)
     {
@@ -108,6 +113,20 @@ class Patient
     public function isPhoneVerified(): bool
     {
         return $this->phoneVerifiedAt !== null;
+    }
+
+    /** Full preferences map (stored overrides overlaid on the defaults). */
+    public function getSettings(): array
+    {
+        return PatientSettings::withDefaults($this->settings ?? []);
+    }
+
+    /** Apply a partial preferences patch; returns the resulting full map. */
+    public function updateSettings(array $patch): array
+    {
+        $this->settings = PatientSettings::merge($this->settings ?? [], $patch);
+
+        return $this->getSettings();
     }
 
     public function toArray(): array
