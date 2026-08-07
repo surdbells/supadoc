@@ -1,5 +1,9 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { catchError, map, of, startWith, switchMap } from 'rxjs';
+import { AppointmentsApi } from '@supadoc/data-access';
+import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 interface SharedDoc {
@@ -7,7 +11,58 @@ interface SharedDoc {
   readonly size: string;
 }
 
-/** Appointment details (Figma 648:9480) — its own route under appointments. */
+interface DetailsVm {
+  readonly name: string;
+  readonly specialty: string;
+  readonly date: string;
+  readonly time: string;
+  readonly typeLabel: string;
+  readonly typeIcon: string;
+  readonly statusLabel: string;
+  readonly statusClass: string;
+  readonly amount: string;
+}
+
+const STATUS_CLASS: Record<string, string> = {
+  pending: 'bg-warning/15 text-warning',
+  confirmed: 'bg-sage/15 text-sage',
+  rescheduled: 'bg-cloud text-slate',
+  completed: 'bg-frost text-cerulean',
+  cancelled: 'bg-alert/10 text-alert',
+};
+
+const TYPE_ICON: Record<string, string> = {
+  video: 'video',
+  follow_up: 'refresh-cw',
+  urgent: 'zap',
+  routine: 'calendar-check',
+};
+
+function toDetails(a: AppointmentDto): DetailsVm {
+  const when = new Date(a.scheduled_at);
+  return {
+    name: a.specialist.name,
+    specialty: a.specialist.specialty ?? '',
+    date: new Intl.DateTimeFormat('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(when),
+    time: new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(when),
+    typeLabel: a.type_label,
+    typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
+    statusLabel: a.status_label,
+    statusClass: STATUS_CLASS[a.status] ?? 'bg-cloud text-slate',
+    amount: `$${a.amount}`,
+  };
+}
+
+/** Appointment details (Figma 648:9480) — wired to GET /api/portal/appointments/{id}. */
 @Component({
   selector: 'pat-appointment-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -36,167 +91,222 @@ interface SharedDoc {
         </sd-button>
       </div>
 
-      <!-- Summary -->
-      <section
-        class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 md:flex-row md:items-center md:justify-between"
-      >
-        <div class="flex items-center gap-4">
-          <img
-            src="/dashboard/avatar-james.png"
-            alt=""
-            width="64"
-            height="64"
-            class="size-16 shrink-0 rounded-full object-cover"
-          />
-          <div class="flex flex-col gap-1">
-            <p class="font-sans text-body-lg font-semibold text-ink">
-              Dr. Ibrahim Musa
-            </p>
-            <p class="font-sans text-caption text-slate">Cardiologist</p>
-            <p
-              class="flex items-center gap-1.5 font-sans text-caption text-slate"
-            >
-              <sd-icon name="map-pin" [size]="16" />
-              Greenwich Medical Center, New York, USA.
-            </p>
+      @switch (viewState()) {
+        @case ('loading') {
+          <div class="flex flex-col gap-6">
+            <div class="h-28 animate-pulse rounded-card bg-cloud"></div>
+            <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
           </div>
-        </div>
-        <div class="flex items-start justify-between gap-8 md:items-center">
-          <div class="flex flex-col gap-2 font-sans text-caption text-slate">
-            <span class="flex items-center gap-2">
-              <sd-icon name="calendar-days" [size]="16" />Tue, 21 July 2026
-            </span>
-            <span class="flex items-center gap-2">
-              <sd-icon name="clock" [size]="16" />10:00 AM
-            </span>
-            <span class="flex items-center gap-2">
-              <sd-icon name="video" [size]="16" />Video Consultation
-            </span>
-          </div>
-          <span
-            class="shrink-0 rounded-lg bg-warning/15 px-4 py-1.5 font-sans text-body-sm font-medium text-warning"
-            >Pending</span
-          >
-        </div>
-      </section>
-
-      <!-- Instructions + actions -->
-      <section
-        class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 lg:flex-row lg:justify-between"
-      >
-        <div class="flex flex-col gap-3">
-          <h2
-            class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-          >
-            <sd-icon name="clipboard-list" [size]="20" />
-            Consultation Instructions
-          </h2>
-          <div class="flex flex-col gap-3 font-sans text-body-sm text-slate">
-            <p>
-              Please ensure you have a stable internet connection.<br />
-              Join the consultation 5-10minutes early.
-            </p>
-            <p>
-              Upload any relevant medical reports or tests below, so the doctor
-              can review them.
-            </p>
-          </div>
-        </div>
-        <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
-          <sd-button [full]="true">
-            <sd-icon name="video" [size]="18" />
-            Join Consultation
-          </sd-button>
-          <sd-button variant="outline" [full]="true"
-            >Reschedule Appointment</sd-button
-          >
-          <button
-            type="button"
-            class="inline-flex w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5"
-          >
-            <sd-icon name="trash-2" [size]="18" />
-            Cancel Appointment
-          </button>
-        </div>
-      </section>
-
-      <!-- Documents + payment -->
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section
-          class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
-        >
-          <h2
-            class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-          >
-            <sd-icon name="file-text" [size]="20" />
-            Shared Documents
-          </h2>
-          <ul class="flex flex-col gap-3">
-            @for (doc of documents; track doc.name) {
-              <li class="flex items-center gap-3">
-                <sd-icon
-                  name="file-text"
-                  [size]="20"
-                  class="shrink-0 text-slate"
-                />
-                <span
-                  class="min-w-0 flex-1 truncate font-sans text-body-sm text-ink"
-                >
-                  {{ doc.name }} ({{ doc.size }})
-                </span>
-                <button
-                  type="button"
-                  class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier"
-                  aria-label="Preview document"
-                >
-                  <sd-icon name="eye" [size]="16" />
-                </button>
-                <button
-                  type="button"
-                  class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier"
-                  aria-label="Download document"
-                >
-                  <sd-icon name="download" [size]="16" />
-                </button>
-              </li>
-            }
-          </ul>
-        </section>
-
-        <section
-          class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
-        >
-          <h2
-            class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-          >
-            <sd-icon name="credit-card" [size]="20" />
-            Payment Status
-          </h2>
-          <div class="flex items-start justify-between gap-4">
+        }
+        @case ('error') {
+          <div class="flex flex-col items-center gap-5 py-24 text-center">
             <span
-              class="flex items-center gap-2 font-sans text-body-sm text-ink"
+              class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert"
             >
-              <sd-icon name="credit-card" [size]="20" class="text-slate" />
-              Amount: $75.00
+              <sd-icon name="calendar-off" [size]="36" />
             </span>
-            <span class="font-sans text-caption text-slate"
-              >Paid on: June 12, 2026</span
-            >
+            <div class="flex max-w-sm flex-col gap-2">
+              <h2 class="font-heading text-h5 text-ink">
+                Appointment not found
+              </h2>
+              <p class="font-sans text-body-sm text-slate">
+                This appointment doesn't exist or is no longer available.
+              </p>
+            </div>
+            <sd-button routerLink="/dashboard/appointments">
+              Back to appointments
+            </sd-button>
           </div>
-          <span
-            class="flex w-fit items-center gap-1.5 self-end rounded-lg bg-sage/15 px-3 py-1 font-sans text-caption font-medium text-sage"
-          >
-            <sd-icon name="circle-check" [size]="14" />
-            Paid
-          </span>
-        </section>
-      </div>
+        }
+        @default {
+          @if (vm(); as v) {
+            <!-- Summary -->
+            <section
+              class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 md:flex-row md:items-center md:justify-between"
+            >
+              <div class="flex items-center gap-4">
+                <img
+                  src="/dashboard/avatar-james.png"
+                  alt=""
+                  width="64"
+                  height="64"
+                  class="size-16 shrink-0 rounded-full object-cover"
+                />
+                <div class="flex flex-col gap-1">
+                  <p class="font-sans text-body-lg font-semibold text-ink">
+                    {{ v.name }}
+                  </p>
+                  <p class="font-sans text-caption text-slate">
+                    {{ v.specialty }}
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-start justify-between gap-8 md:items-center">
+                <div
+                  class="flex flex-col gap-2 font-sans text-caption text-slate"
+                >
+                  <span class="flex items-center gap-2">
+                    <sd-icon name="calendar-days" [size]="16" />{{ v.date }}
+                  </span>
+                  <span class="flex items-center gap-2">
+                    <sd-icon name="clock" [size]="16" />{{ v.time }}
+                  </span>
+                  <span class="flex items-center gap-2">
+                    <sd-icon [name]="v.typeIcon" [size]="16" />{{ v.typeLabel }}
+                  </span>
+                </div>
+                <span
+                  class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium"
+                  [class]="v.statusClass"
+                  >{{ v.statusLabel }}</span
+                >
+              </div>
+            </section>
+
+            <!-- Instructions + actions -->
+            <section
+              class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 lg:flex-row lg:justify-between"
+            >
+              <div class="flex flex-col gap-3">
+                <h2
+                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                >
+                  <sd-icon name="clipboard-list" [size]="20" />
+                  Consultation Instructions
+                </h2>
+                <div
+                  class="flex flex-col gap-3 font-sans text-body-sm text-slate"
+                >
+                  <p>
+                    Please ensure you have a stable internet connection.<br />
+                    Join the consultation 5-10minutes early.
+                  </p>
+                  <p>
+                    Upload any relevant medical reports or tests below, so the
+                    doctor can review them.
+                  </p>
+                </div>
+              </div>
+              <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
+                <sd-button [full]="true">
+                  <sd-icon name="video" [size]="18" />
+                  Join Consultation
+                </sd-button>
+                <sd-button variant="outline" [full]="true"
+                  >Reschedule Appointment</sd-button
+                >
+                <button
+                  type="button"
+                  class="inline-flex w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5"
+                >
+                  <sd-icon name="trash-2" [size]="18" />
+                  Cancel Appointment
+                </button>
+              </div>
+            </section>
+
+            <!-- Documents + payment -->
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <section
+                class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+              >
+                <h2
+                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                >
+                  <sd-icon name="file-text" [size]="20" />
+                  Shared Documents
+                </h2>
+                <ul class="flex flex-col gap-3">
+                  @for (doc of documents; track doc.name) {
+                    <li class="flex items-center gap-3">
+                      <sd-icon
+                        name="file-text"
+                        [size]="20"
+                        class="shrink-0 text-slate"
+                      />
+                      <span
+                        class="min-w-0 flex-1 truncate font-sans text-body-sm text-ink"
+                      >
+                        {{ doc.name }} ({{ doc.size }})
+                      </span>
+                      <button
+                        type="button"
+                        class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier"
+                        aria-label="Preview document"
+                      >
+                        <sd-icon name="eye" [size]="16" />
+                      </button>
+                      <button
+                        type="button"
+                        class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier"
+                        aria-label="Download document"
+                      >
+                        <sd-icon name="download" [size]="16" />
+                      </button>
+                    </li>
+                  }
+                </ul>
+              </section>
+
+              <section
+                class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+              >
+                <h2
+                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+                >
+                  <sd-icon name="credit-card" [size]="20" />
+                  Payment Status
+                </h2>
+                <div class="flex items-start justify-between gap-4">
+                  <span
+                    class="flex items-center gap-2 font-sans text-body-sm text-ink"
+                  >
+                    <sd-icon name="credit-card" [size]="20" class="text-slate" />
+                    Amount: {{ v.amount }}
+                  </span>
+                </div>
+                <span
+                  class="flex w-fit items-center gap-1.5 self-end rounded-lg bg-sage/15 px-3 py-1 font-sans text-caption font-medium text-sage"
+                >
+                  <sd-icon name="circle-check" [size]="14" />
+                  Paid
+                </span>
+              </section>
+            </div>
+          }
+        }
+      }
     </div>
   `,
 })
 export class AppointmentDetails {
+  private readonly route = inject(ActivatedRoute);
+  private readonly appointments = inject(AppointmentsApi);
+
+  // Shared documents aren't modelled by the backend yet — placeholder content.
   protected readonly documents: SharedDoc[] = [
     { name: "Doctor's_Notes.pdf", size: '212KB' },
     { name: 'CT_scan__Thorax.dcm', size: '212KB' },
   ];
+
+  private readonly result = toSignal(
+    this.route.paramMap.pipe(
+      map((p) => p.get('id') ?? ''),
+      switchMap((id) =>
+        this.appointments.getMine(id).pipe(
+          map((res) => ({ state: 'loaded' as const, appt: res.data })),
+          catchError(() => of({ state: 'error' as const, appt: null })),
+          startWith({ state: 'loading' as const, appt: null }),
+        ),
+      ),
+    ),
+    { initialValue: { state: 'loading' as const, appt: null } },
+  );
+
+  protected readonly viewState = computed(() => this.result().state);
+
+  protected readonly vm = computed<DetailsVm | null>(() => {
+    const appt = this.result().appt;
+    return appt ? toDetails(appt) : null;
+  });
 }

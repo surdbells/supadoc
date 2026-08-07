@@ -4,6 +4,7 @@ import type {
   AppointmentDto,
   ListAppointmentsQuery,
   PaginatedResponse,
+  SuccessResponse,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
 
@@ -23,6 +24,13 @@ export class AppointmentsApi {
     return this.api.get<PaginatedResponse<AppointmentDto>>(
       'api/portal/appointments',
       query as QueryParams | undefined,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id} — one of the patient's own appointments. */
+  getMine(id: string): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.get<SuccessResponse<AppointmentDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}`,
     );
   }
 }

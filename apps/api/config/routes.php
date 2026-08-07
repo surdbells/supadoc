@@ -57,7 +57,10 @@ return static function (App $app): void {
 
         // ----- Customer portal (customer audience) -----
         $group->group('/portal', function (RouteCollectorProxy $group): void {
+            $group->get('/me', Action\Patient\MyProfileAction::class);
+            $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
+            $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
         })->add(new CustomerAuthMiddleware($jwt));
     });
 };

@@ -6,7 +6,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { PatientApi } from '@supadoc/data-access';
 import {
   ButtonComponent,
   IconComponent,
@@ -134,21 +136,21 @@ interface SectionCard {
               [ngTemplateOutlet]="readField"
               [ngTemplateOutletContext]="{
                 label: 'Full name',
-                value: 'Sarah Jonshon',
+                value: fullName(),
               }"
             />
             <ng-container
               [ngTemplateOutlet]="readField"
               [ngTemplateOutletContext]="{
                 label: 'Phone',
-                value: '+234  9060080034',
+                value: phone(),
               }"
             />
             <ng-container
               [ngTemplateOutlet]="readField"
               [ngTemplateOutletContext]="{
                 label: 'Date of Birth',
-                value: '12 / 05 / 1988',
+                value: dobDisplay(),
               }"
             />
             <ng-container
@@ -652,9 +654,9 @@ interface SectionCard {
           </button>
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1">
-          <p class="font-heading text-h5 text-ink">Sarah Johnson</p>
+          <p class="font-heading text-h5 text-ink">{{ fullName() }}</p>
           <p class="truncate font-sans text-caption text-slate">
-            sarahjohnson&#64;gmail.com
+            {{ email() }}
           </p>
           <div
             class="flex flex-wrap gap-x-4 gap-y-1 font-sans text-caption text-slate"
@@ -663,7 +665,7 @@ interface SectionCard {
               <sd-icon name="map-pin" [size]="14" />Abuja, Nigeria.
             </span>
             <span class="flex items-center gap-1">
-              <sd-icon name="calendar-days" [size]="14" />May 12, 1988
+              <sd-icon name="calendar-days" [size]="14" />{{ dobLong() }}
             </span>
           </div>
           <div class="mt-1 flex flex-col gap-1">
@@ -758,10 +760,19 @@ interface SectionCard {
 export class MyProfile {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly patient = inject(PatientApi);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly view = signal<View>('home');
   protected readonly toast = signal('');
+
+  // Profile display — from GET /api/portal/me (placeholders until it resolves).
+  // Gender / address aren't modelled by the backend, so they stay static.
+  protected readonly fullName = signal('Sarah Johnson');
+  protected readonly email = signal('sarahjohnson@gmail.com');
+  protected readonly phone = signal('+234 906 008 0034');
+  protected readonly dobLong = signal('May 12, 1988');
+  protected readonly dobDisplay = signal('12 / 05 / 1988');
 
   protected readonly sections: SectionCard[] = [
     {
@@ -803,6 +814,56 @@ export class MyProfile {
 
   constructor() {
     this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
+
+    this.patient
+      .me()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.applyProfile(res.data),
+        error: () => {
+          /* keep placeholders on failure */
+        },
+      });
+  }
+
+  private applyProfile(p: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone: string | null;
+    date_of_birth: string | null;
+  }): void {
+    const full = `${p.first_name} ${p.last_name}`.trim();
+    if (full) this.fullName.set(full);
+    if (p.email) this.email.set(p.email);
+    if (p.phone) this.phone.set(p.phone);
+
+    const patch: Record<string, string> = {};
+    if (full) patch['fullName'] = full;
+    if (p.phone) patch['phone'] = p.phone;
+
+    if (p.date_of_birth) {
+      const d = new Date(`${p.date_of_birth}T00:00:00`);
+      this.dobLong.set(
+        new Intl.DateTimeFormat('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(d),
+      );
+      this.dobDisplay.set(
+        new Intl.DateTimeFormat('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        })
+          .format(d)
+          .replace(/\//g, ' / '),
+      );
+      patch['dob'] = p.date_of_birth;
+    }
+
+    this.form.patchValue(patch);
   }
 
   protected titleColor(c: SectionCard): string {

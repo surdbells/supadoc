@@ -42,4 +42,20 @@ final class AppointmentRepository extends BaseRepository
 
         return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, $sortBy, $sortDir);
     }
+
+    /**
+     * One appointment, but only if it belongs to the given patient — the portal
+     * scopes reads so a customer can never fetch someone else's record.
+     */
+    public function findForPatient(string $id, string $patientId): ?Appointment
+    {
+        return $this->qb()
+            ->andWhere('e.id = :id')
+            ->andWhere('e.patient = :patient')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('id', $id)
+            ->setParameter('patient', $patientId)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
 }

@@ -81,6 +81,22 @@ class Specialist
         $this->location = $location;
     }
 
+    /** @param numeric-string $rating */
+    public function setRating(string $rating): void
+    {
+        $this->rating = $rating;
+    }
+
+    public function setReviewsCount(int $count): void
+    {
+        $this->reviewsCount = $count;
+    }
+
+    public function setAvailable(bool $available): void
+    {
+        $this->available = $available;
+    }
+
     public function isAvailable(): bool
     {
         return $this->available;

@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { AppointmentsApi } from '@supadoc/data-access';
+import { AppointmentsApi, PatientApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
@@ -65,7 +65,7 @@ const UPCOMING_BADGE: Record<string, string> = {
       >
         <div class="flex flex-col gap-2.5">
           <h1 class="font-heading text-h2 text-ocean">
-            Good morning, {{ firstName }} 👋
+            Good morning, {{ firstName() }} 👋
           </h1>
           <p class="font-sans text-h5 text-ink">
             Here's your health summary for today.
@@ -111,10 +111,10 @@ const UPCOMING_BADGE: Record<string, string> = {
               />
               <div class="flex min-w-0 flex-col">
                 <p class="truncate font-sans text-body font-semibold text-ink">
-                  {{ fullName }}
+                  {{ fullName() }}
                 </p>
                 <p class="truncate font-sans text-caption text-slate">
-                  {{ email }}
+                  {{ email() }}
                 </p>
               </div>
             </div>
@@ -401,14 +401,17 @@ const UPCOMING_BADGE: Record<string, string> = {
 })
 export class DashboardHome {
   private readonly appointments = inject(AppointmentsApi);
+  private readonly patient = inject(PatientApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
-  // TODO: source from GetProfile / wallet APIs once available.
-  protected readonly firstName = 'Sarah';
-  protected readonly fullName = 'Sarah Johnson';
+  // Name/email come from GET /api/portal/me; placeholders show until it resolves.
+  protected readonly firstName = signal('Sarah');
+  protected readonly fullName = signal('Sarah Johnson');
+  protected readonly email = signal('sarahjohnson@gmail.com');
+
+  // TODO: source from wallet API once available.
   protected readonly initials = 'SJ';
-  protected readonly email = 'sarahjohnson@gmail.com';
   protected readonly profileComplete = 75;
   protected readonly balance = '$120.50';
 
@@ -426,6 +429,22 @@ export class DashboardHome {
           this.loadingUpcoming.set(false);
         },
         error: () => this.loadingUpcoming.set(false),
+      });
+
+    this.patient
+      .me()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          const p = res.data;
+          if (p.first_name) this.firstName.set(p.first_name);
+          const full = `${p.first_name} ${p.last_name}`.trim();
+          if (full) this.fullName.set(full);
+          if (p.email) this.email.set(p.email);
+        },
+        error: () => {
+          /* keep placeholders on failure */
+        },
       });
   }
 

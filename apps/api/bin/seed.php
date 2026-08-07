@@ -57,17 +57,32 @@ if ($patient === null) {
     $patient = new Patient($patientEmail, 'Pat', 'Patient');
     $patient->setPassword($password);
     $patient->setPhone('+15551230000');
+    $patient->setDateOfBirth(new DateTimeImmutable('1990-05-12'));
     $em->persist($patient);
 }
 
-// Bookable specialist. Fee is money-as-string; it flows into appointment.amount.
-$specialistName = 'Dr. Grace Bell';
-$specialist     = $em->getRepository(Specialist::class)->findOneBy(['name' => $specialistName]);
-if ($specialist === null) {
-    $specialist = new Specialist($specialistName, 'Cardiology');
-    $specialist->setConsultationFee('150.00');
-    $specialist->setLocation('Lagos, NG');
-    $em->persist($specialist);
+// Bookable specialists. Fees are money-as-string. The first (Grace Bell) is the
+// one the seeded appointments reference.
+$specialistSeeds = [
+    ['Dr. Grace Bell', 'Cardiology', '150.00', 'Lagos, NG', '4.80', 128, true],
+    ['Dr. Ada Obi', 'Dermatology', '90.00', 'Abuja, NG', '4.60', 84, true],
+    ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true],
+    ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false],
+    ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true],
+];
+$specialist = null; // first one, referenced by the appointments below
+foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available]) {
+    $s = $em->getRepository(Specialist::class)->findOneBy(['name' => $name]);
+    if ($s === null) {
+        $s = new Specialist($name, $specialty);
+        $s->setConsultationFee($fee);
+        $s->setLocation($location);
+        $s->setRating($rating);
+        $s->setReviewsCount($reviews);
+        $s->setAvailable($available);
+        $em->persist($s);
+    }
+    $specialist ??= $s;
 }
 
 // A spread of appointments for the patient so the wired portal UI has real

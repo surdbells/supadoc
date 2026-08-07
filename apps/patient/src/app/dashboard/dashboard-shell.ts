@@ -2,9 +2,11 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   Router,
   RouterLink,
@@ -12,6 +14,7 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
+import { PatientApi } from '@supadoc/data-access';
 import { IconComponent, LogoComponent } from '@supadoc/ui';
 
 interface NavItem {
@@ -103,7 +106,7 @@ interface NavItem {
               <span
                 class="hidden font-sans text-body font-semibold text-ink sm:inline"
               >
-                {{ userName }}
+                {{ userName() }}
               </span>
             </div>
           </div>
@@ -170,8 +173,25 @@ interface NavItem {
 export class DashboardShell {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly patient = inject(PatientApi);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly menuOpen = signal(false);
+
+  constructor() {
+    this.patient
+      .me()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          const full = `${res.data.first_name} ${res.data.last_name}`.trim();
+          if (full) this.userName.set(full);
+        },
+        error: () => {
+          /* keep the placeholder on failure */
+        },
+      });
+  }
 
   protected readonly navItems: NavItem[] = [
     { label: 'Dashboard', icon: 'layout-dashboard', link: '/dashboard' },
@@ -191,8 +211,8 @@ export class DashboardShell {
     { label: 'My Profile', icon: 'user', link: '/dashboard/profile' },
   ];
 
-  // TODO: source from GetProfile once login returns a usable token.
-  protected readonly userName = 'Sarah Johnson';
+  // From GET /api/portal/me; placeholder shows until it resolves.
+  protected readonly userName = signal('Sarah Johnson');
 
   protected async logOut(): Promise<void> {
     this.menuOpen.set(false);
