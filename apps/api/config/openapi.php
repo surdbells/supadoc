@@ -387,13 +387,38 @@ return [
         ],
         '/api/portal/appointments/{id}' => [
             'get' => [
-                'tags'       => ['Portal'],
-                'summary'    => "One of the patient's own appointments",
-                'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
-                'responses'  => [
+                'tags'        => ['Portal'],
+                'summary'     => "One of the patient's own appointments",
+                'operationId' => 'portalGetAppointment',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/call-token' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Agora RTC token for the consultation call',
+                'description' => 'Channel is the appointment id; the token is a publisher token valid for 1 hour.',
+                'operationId' => 'portalCallToken',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'Token issued', ...$json($envelope([
+                        'type'       => 'object',
+                        'properties' => [
+                            'app_id'     => ['type' => 'string'],
+                            'channel'    => ['type' => 'string'],
+                            'uid'        => ['type' => 'integer', 'example' => 0],
+                            'token'      => ['type' => 'string'],
+                            'expires_in' => ['type' => 'integer', 'example' => 3600],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '503' => ['description' => 'Video calling not configured'],
                 ],
             ],
         ],

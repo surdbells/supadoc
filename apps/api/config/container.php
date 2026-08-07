@@ -6,6 +6,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AuthService;
@@ -71,6 +72,11 @@ return [
         apiKey:   $_ENV['TERMII_API_KEY'] ?? '',
         senderId: $_ENV['TERMII_SENDER_ID'] ?? '',
         baseUrl:  $_ENV['TERMII_BASE_URL'] ?? 'https://api.ng.termii.com',
+    ),
+
+    AgoraTokenService::class => static fn (): AgoraTokenService => new AgoraTokenService(
+        appId:          $_ENV['AGORA_APP_ID'] ?? '',
+        appCertificate: $_ENV['AGORA_APP_CERTIFICATE'] ?? '',
     ),
 
     MailService::class => static fn (ContainerInterface $c): MailService => new MailService(

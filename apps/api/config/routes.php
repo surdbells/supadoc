@@ -68,6 +68,7 @@ return static function (App $app): void {
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
+            $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
         })->add(new CustomerAuthMiddleware($jwt));
     });
 };
