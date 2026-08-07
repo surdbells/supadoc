@@ -664,6 +664,26 @@ return [
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                 ],
             ],
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Book a consultation',
+                'description' => 'The patient is taken from the token; the appointment is created with status pending.',
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['specialist_id', 'scheduled_at'],
+                    'properties' => [
+                        'specialist_id' => ['type' => 'string', 'format' => 'uuid'],
+                        'scheduled_at'  => ['type' => 'string', 'format' => 'date-time'],
+                        'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video'],
+                    ],
+                ])],
+                'responses'   => [
+                    '201' => ['description' => 'Booked', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
         ],
         '/api/portal/appointments/{id}' => [
             'get' => [
