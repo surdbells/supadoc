@@ -211,6 +211,40 @@ return [
                     ],
                 ],
             ],
+            'HealthProfile' => [
+                'type'        => 'object',
+                'description' => 'Emergency contact, insurance and medical records. Each section is replaced wholesale on save.',
+                'properties'  => [
+                    'emergency_contact' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'full_name'    => ['type' => 'string'],
+                            'relationship' => ['type' => 'string'],
+                            'phone'        => ['type' => 'string'],
+                            'email'        => ['type' => 'string'],
+                        ],
+                    ],
+                    'insurance' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'provider'        => ['type' => 'string'],
+                            'plan'            => ['type' => 'string'],
+                            'policy_number'   => ['type' => 'string'],
+                            'coverage_status' => ['type' => 'string'],
+                            'expiry_date'     => ['type' => 'string'],
+                        ],
+                    ],
+                    'medical' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'history'     => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['condition' => ['type' => 'string'], 'year' => ['type' => 'string'], 'note' => ['type' => 'string']]]],
+                            'allergies'   => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['allergen' => ['type' => 'string'], 'severity' => ['type' => 'string'], 'reaction' => ['type' => 'string']]]],
+                            'medications' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'dosage' => ['type' => 'string'], 'frequency' => ['type' => 'string']]]],
+                            'conditions'  => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['condition' => ['type' => 'string'], 'status' => ['type' => 'string'], 'since' => ['type' => 'string']]]],
+                        ],
+                    ],
+                ],
+            ],
             'Notification' => [
                 'type'       => 'object',
                 'properties' => [
@@ -538,6 +572,27 @@ return [
                 'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/PatientSettings'])],
                 'responses'   => [
                     '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientSettings']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/me/health-profile' => [
+            'get' => [
+                'tags'      => ['Portal'],
+                'summary'   => "The signed-in patient's health profile",
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/HealthProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+            'patch' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Save health-profile sections',
+                'description' => 'Send any of emergency_contact / insurance / medical; each present section replaces the stored one.',
+                'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/HealthProfile'])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/HealthProfile']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],

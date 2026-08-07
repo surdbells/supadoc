@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
+use App\Domain\Settings\HealthProfile;
 use App\Domain\Settings\PatientSettings;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
@@ -47,6 +48,16 @@ class Patient
     /** Sparse override map of app preferences; see {@see PatientSettings}. */
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $settings = null;
+
+    /** Health-profile sections; see {@see HealthProfile}. Each replaced wholesale on save. */
+    #[ORM\Column(name: 'emergency_contact', type: 'json', nullable: true)]
+    private ?array $emergencyContact = null;
+
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $insurance = null;
+
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $medical = null;
 
     public function __construct(string $email, string $firstName, string $lastName)
     {
@@ -127,6 +138,46 @@ class Patient
         $this->settings = PatientSettings::merge($this->settings ?? [], $patch);
 
         return $this->getSettings();
+    }
+
+    public function getEmergencyContact(): array
+    {
+        return $this->emergencyContact ?? HealthProfile::emptyEmergencyContact();
+    }
+
+    public function setEmergencyContact(array $data): void
+    {
+        $this->emergencyContact = HealthProfile::normalizeEmergencyContact($data);
+    }
+
+    public function getInsurance(): array
+    {
+        return $this->insurance ?? HealthProfile::emptyInsurance();
+    }
+
+    public function setInsurance(array $data): void
+    {
+        $this->insurance = HealthProfile::normalizeInsurance($data);
+    }
+
+    public function getMedical(): array
+    {
+        return $this->medical ?? HealthProfile::emptyMedical();
+    }
+
+    public function setMedical(array $data): void
+    {
+        $this->medical = HealthProfile::normalizeMedical($data);
+    }
+
+    /** All three health-profile sections, as returned by the API. */
+    public function getHealthProfile(): array
+    {
+        return [
+            'emergency_contact' => $this->getEmergencyContact(),
+            'insurance'         => $this->getInsurance(),
+            'medical'           => $this->getMedical(),
+        ];
     }
 
     public function toArray(): array

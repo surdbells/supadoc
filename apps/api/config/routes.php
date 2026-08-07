@@ -74,6 +74,8 @@ return static function (App $app): void {
             $group->patch('/me', Action\Patient\UpdateMyProfileAction::class);
             $group->get('/me/settings', Action\Patient\MySettingsAction::class);
             $group->patch('/me/settings', Action\Patient\UpdateMySettingsAction::class);
+            $group->get('/me/health-profile', Action\Patient\MyHealthProfileAction::class);
+            $group->patch('/me/health-profile', Action\Patient\UpdateMyHealthProfileAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
             $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
