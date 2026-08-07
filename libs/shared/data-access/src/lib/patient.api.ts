@@ -8,6 +8,7 @@ import type {
   PatientSettingsPatch,
   SuccessResponse,
 } from '@supadoc/models';
+import { API_CONFIG } from './api-config';
 import { ApiService } from './api.service';
 
 /**
@@ -17,6 +18,32 @@ import { ApiService } from './api.service';
 @Injectable({ providedIn: 'root' })
 export class PatientApi {
   private readonly api = inject(ApiService);
+  private readonly config = inject(API_CONFIG);
+
+  /** Resolve a relative asset path (e.g. an avatar_url) to an absolute URL. */
+  assetUrl(relative: string | null | undefined): string | null {
+    if (!relative) return null;
+    if (/^https?:\/\//.test(relative)) return relative;
+    const base = this.config.baseUrl.replace(/\/+$/, '');
+    return `${base}/${relative.replace(/^\/+/, '')}`;
+  }
+
+  /** POST /api/portal/me/avatar — upload a profile photo (multipart). */
+  uploadAvatar(file: File): Observable<SuccessResponse<PatientProfileDto>> {
+    const form = new FormData();
+    form.append('avatar', file);
+    return this.api.post<SuccessResponse<PatientProfileDto>>(
+      'api/portal/me/avatar',
+      form,
+    );
+  }
+
+  /** DELETE /api/portal/me/avatar — remove the profile photo. */
+  removeAvatar(): Observable<SuccessResponse<PatientProfileDto>> {
+    return this.api.delete<SuccessResponse<PatientProfileDto>>(
+      'api/portal/me/avatar',
+    );
+  }
 
   /** GET /api/portal/me — the signed-in patient's profile. */
   me(): Observable<SuccessResponse<PatientProfileDto>> {

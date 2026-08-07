@@ -962,20 +962,64 @@ interface SectionCard {
 
     <ng-template #profileCard>
       <div class="flex items-center gap-4 rounded-card bg-frost/50 p-5">
-        <span
-          class="flex size-22 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean"
-        >
-          @if (initials()) {
-            {{ initials() }}
+        <div class="relative shrink-0">
+          @if (avatarSrc()) {
+            <img
+              [src]="avatarSrc()"
+              alt="Profile photo"
+              width="88"
+              height="88"
+              class="size-22 rounded-full object-cover"
+            />
           } @else {
-            <sd-icon name="user" [size]="32" />
+            <span
+              class="flex size-22 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean"
+            >
+              @if (initials()) {
+                {{ initials() }}
+              } @else {
+                <sd-icon name="user" [size]="32" />
+              }
+            </span>
           }
-        </span>
+          <button
+            type="button"
+            class="absolute bottom-0 right-0 flex size-8 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-frost/50 transition-opacity disabled:opacity-60"
+            [attr.aria-label]="uploadingAvatar() ? 'Uploading' : 'Change photo'"
+            [disabled]="uploadingAvatar()"
+            (click)="avatarInput.click()"
+          >
+            @if (uploadingAvatar()) {
+              <span
+                class="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              ></span>
+            } @else {
+              <sd-icon name="camera" [size]="16" />
+            }
+          </button>
+          <input
+            #avatarInput
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            class="hidden"
+            (change)="onAvatarSelected($event)"
+          />
+        </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <p class="font-heading text-h5 text-ink">{{ fullName() }}</p>
           <p class="truncate font-sans text-caption text-slate">
             {{ email() }}
           </p>
+          @if (avatarSrc()) {
+            <button
+              type="button"
+              class="w-fit font-sans text-caption font-semibold text-alert transition-colors hover:underline disabled:opacity-60"
+              [disabled]="uploadingAvatar()"
+              (click)="removeAvatar()"
+            >
+              Remove photo
+            </button>
+          }
           <div
             class="flex flex-wrap gap-x-4 gap-y-1 font-sans text-caption text-slate"
           >
@@ -1081,6 +1125,11 @@ export class MyProfile {
   protected readonly dobDisplay = signal('—');
   protected readonly genderText = signal('—');
   protected readonly addressText = signal('—');
+  protected readonly avatarPath = signal<string | null>(null);
+  protected readonly avatarSrc = computed(() =>
+    this.patient.assetUrl(this.avatarPath()),
+  );
+  protected readonly uploadingAvatar = signal(false);
 
   protected readonly initials = computed(() =>
     this.fullName()
@@ -1215,6 +1264,7 @@ export class MyProfile {
     date_of_birth: string | null;
     gender?: string | null;
     address?: string | null;
+    avatar_url?: string | null;
   }): void {
     const full = `${p.first_name} ${p.last_name}`.trim();
     if (full) this.fullName.set(full);
@@ -1223,6 +1273,7 @@ export class MyProfile {
     this.phoneVerified.set(!!p.phone_verified);
     this.genderText.set(p.gender || '—');
     this.addressText.set(p.address || '—');
+    this.avatarPath.set(p.avatar_url ?? null);
 
     const patch: Record<string, string> = {
       gender: p.gender ?? '',
@@ -1298,6 +1349,46 @@ export class MyProfile {
     if (this.view() === 'personal-edit') this.view.set('personal');
     else if (this.view() === 'medical-add') this.view.set('medical');
     else this.view.set('home');
+  }
+
+  protected async onAvatarSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // let the user re-pick the same file later
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      this.showToast('Image must be 2MB or smaller.');
+      return;
+    }
+    this.uploadingAvatar.set(true);
+    try {
+      const res = await firstValueFrom(this.patient.uploadAvatar(file));
+      this.applyProfile(res.data);
+      this.showToast('Profile photo updated successfully');
+    } catch (err) {
+      this.showToast(
+        (err as { message?: string })?.message ??
+          'Could not upload your photo.',
+      );
+    } finally {
+      this.uploadingAvatar.set(false);
+    }
+  }
+
+  protected async removeAvatar(): Promise<void> {
+    this.uploadingAvatar.set(true);
+    try {
+      const res = await firstValueFrom(this.patient.removeAvatar());
+      this.applyProfile(res.data);
+      this.showToast('Profile photo removed');
+    } catch (err) {
+      this.showToast(
+        (err as { message?: string })?.message ??
+          'Could not remove your photo.',
+      );
+    } finally {
+      this.uploadingAvatar.set(false);
+    }
   }
 
   protected async saveProfile(): Promise<void> {

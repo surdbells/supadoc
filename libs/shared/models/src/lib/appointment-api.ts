@@ -86,6 +86,7 @@ export interface PatientProfileDto {
   date_of_birth: string | null;
   gender: string | null;
   address: string | null;
+  avatar_url: string | null;
   created_at: string;
 }
 

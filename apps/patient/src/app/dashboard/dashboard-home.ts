@@ -117,15 +117,25 @@ const UPCOMING_BADGE: Record<string, string> = {
               </h3>
             </header>
             <div class="flex items-center gap-2">
-              <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
-              >
-                @if (initials()) {
-                  {{ initials() }}
-                } @else {
-                  <sd-icon name="user" [size]="18" />
-                }
-              </span>
+              @if (avatarSrc()) {
+                <img
+                  [src]="avatarSrc()"
+                  alt="Profile photo"
+                  width="40"
+                  height="40"
+                  class="size-10 shrink-0 rounded-full object-cover"
+                />
+              } @else {
+                <span
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                >
+                  @if (initials()) {
+                    {{ initials() }}
+                  } @else {
+                    <sd-icon name="user" [size]="18" />
+                  }
+                </span>
+              }
               <div class="flex min-w-0 flex-col">
                 <p class="truncate font-sans text-body font-semibold text-ink">
                   {{ fullName() }}
@@ -416,6 +426,10 @@ export class DashboardHome {
       .join('')
       .toUpperCase(),
   );
+  protected readonly avatarPath = signal<string | null>(null);
+  protected readonly avatarSrc = computed(() =>
+    this.patient.assetUrl(this.avatarPath()),
+  );
   // Profile completeness from the fields the backend actually stores.
   protected readonly profileComplete = signal(0);
 
@@ -469,6 +483,7 @@ export class DashboardHome {
           const full = `${p.first_name} ${p.last_name}`.trim();
           if (full) this.fullName.set(full);
           if (p.email) this.email.set(p.email);
+          this.avatarPath.set(p.avatar_url ?? null);
 
           const filled =
             (p.first_name && p.last_name ? 1 : 0) +

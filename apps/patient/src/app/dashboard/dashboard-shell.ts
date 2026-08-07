@@ -100,15 +100,25 @@ interface NavItem {
               }
             </button>
             <div class="flex items-center gap-2">
-              <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
-              >
-                @if (initials()) {
-                  {{ initials() }}
-                } @else {
-                  <sd-icon name="user" [size]="18" />
-                }
-              </span>
+              @if (avatarSrc()) {
+                <img
+                  [src]="avatarSrc()"
+                  alt="Profile photo"
+                  width="40"
+                  height="40"
+                  class="size-10 shrink-0 rounded-full object-cover"
+                />
+              } @else {
+                <span
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                >
+                  @if (initials()) {
+                    {{ initials() }}
+                  } @else {
+                    <sd-icon name="user" [size]="18" />
+                  }
+                </span>
+              }
               <span
                 class="hidden font-sans text-body font-semibold text-ink sm:inline"
               >
@@ -194,6 +204,7 @@ export class DashboardShell {
         next: (res) => {
           const full = `${res.data.first_name} ${res.data.last_name}`.trim();
           if (full) this.userName.set(full);
+          this.avatarPath.set(res.data.avatar_url ?? null);
         },
         error: () => {
           /* keep the placeholder on failure */
@@ -236,6 +247,10 @@ export class DashboardShell {
 
   // From GET /api/portal/me; blank until it resolves.
   protected readonly userName = signal('');
+  protected readonly avatarPath = signal<string | null>(null);
+  protected readonly avatarSrc = computed(() =>
+    this.patient.assetUrl(this.avatarPath()),
+  );
   protected readonly initials = computed(() =>
     this.userName()
       .split(/\s+/)
