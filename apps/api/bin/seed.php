@@ -71,6 +71,11 @@ $specialistSeeds = [
     ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true],
     ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false],
     ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true],
+    ['Dr. Amaka Nwosu', 'Psychiatry', '130.00', 'Abuja, NG', '4.70', 96, true],
+    ['Dr. Emeka Okonkwo', 'Orthopedics', '160.00', 'Lagos, NG', '4.80', 154, true],
+    ['Dr. Fatima Bello', 'Gynecology', '120.00', 'Kano, NG', '4.90', 178, true],
+    ['Dr. Ibrahim Sani', 'Dentistry', '80.00', 'Kaduna, NG', '4.40', 51, false],
+    ['Dr. Zainab Yusuf', 'Ophthalmology', '100.00', 'Lagos, NG', '4.60', 73, true],
 ];
 $specialist = null; // first one, referenced by the appointments below
 foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available]) {
@@ -102,9 +107,11 @@ if (count($em->getRepository(Appointment::class)->findBy(['patient' => $patient]
     // Upcoming
     $book('2026-09-01 10:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED]);
     $book('2026-09-05 14:30', ConsultationType::FOLLOW_UP, []); // pending
+    $book('2026-09-10 13:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::RESCHEDULED]);
     // Past (history)
     $book('2026-07-15 09:00', ConsultationType::ROUTINE, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
     $book('2026-07-20 16:00', ConsultationType::URGENT, [AppointmentStatus::CANCELLED]);
+    $book('2026-06-28 11:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
 }
 
 // Notifications for the patient (a mix of unread/read across types).
