@@ -38,6 +38,14 @@ $paginationParams = [
 
 $json = static fn (array $schema): array => ['content' => ['application/json' => ['schema' => $schema]]];
 
+// Session payload = the shared token fields plus the endpoint-specific user.
+$authData = static fn (string $userRef): array => [
+    'allOf' => [
+        ['$ref' => '#/components/schemas/AuthTokens'],
+        ['type' => 'object', 'properties' => ['user' => ['$ref' => $userRef]]],
+    ],
+];
+
 return [
     'openapi' => '3.0.3',
     'info'    => [
@@ -94,12 +102,34 @@ return [
             ],
             'AuthTokens' => [
                 'type'       => 'object',
+                'description' => 'Bearer tokens returned on sign-in.',
                 'properties' => [
-                    'access_token'  => ['type' => 'string'],
-                    'refresh_token' => ['type' => 'string'],
+                    'access_token'  => ['type' => 'string', 'description' => 'Short-lived JWT for the Authorization header'],
+                    'refresh_token' => ['type' => 'string', 'description' => 'Long-lived token for /api/auth/refresh'],
                     'token_type'    => ['type' => 'string', 'example' => 'Bearer'],
-                    'expires_in'    => ['type' => 'integer', 'example' => 900],
-                    'user'          => ['type' => 'object'],
+                    'expires_in'    => ['type' => 'integer', 'example' => 900, 'description' => 'Access token lifetime in seconds'],
+                ],
+            ],
+            'AccessToken' => [
+                'type'       => 'object',
+                'description' => 'A refreshed access token (no new refresh token).',
+                'properties' => [
+                    'access_token' => ['type' => 'string'],
+                    'token_type'   => ['type' => 'string', 'example' => 'Bearer'],
+                    'expires_in'   => ['type' => 'integer', 'example' => 900],
+                ],
+            ],
+            'StaffUser' => [
+                'type'       => 'object',
+                'properties' => [
+                    'id'          => ['type' => 'string', 'format' => 'uuid'],
+                    'email'       => ['type' => 'string', 'format' => 'email'],
+                    'first_name'  => ['type' => 'string'],
+                    'last_name'   => ['type' => 'string'],
+                    'roles'       => ['type' => 'array', 'items' => ['type' => 'string'], 'example' => ['admin']],
+                    'permissions' => ['type' => 'array', 'items' => ['type' => 'string'], 'example' => ['appointments.view', 'appointments.create']],
+                    'active'      => ['type' => 'boolean'],
+                    'created_at'  => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
             'Specialist' => [
@@ -169,10 +199,11 @@ return [
             'post' => [
                 'tags'        => ['Auth'],
                 'summary'     => 'Staff sign-in',
+                'operationId' => 'staffLogin',
                 'security'    => [],
                 'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/Credentials'])],
                 'responses'   => [
-                    '200' => ['description' => 'Signed in', ...$json($envelope(['$ref' => '#/components/schemas/AuthTokens']))],
+                    '200' => ['description' => 'Signed in', ...$json($envelope($authData('#/components/schemas/StaffUser')))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
@@ -183,10 +214,11 @@ return [
                 'tags'        => ['Auth'],
                 'summary'     => 'Customer (patient) sign-in',
                 'description' => 'Also accepts `userName` in place of `email` for the shared frontend client.',
+                'operationId' => 'customerLogin',
                 'security'    => [],
                 'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/Credentials'])],
                 'responses'   => [
-                    '200' => ['description' => 'Signed in', ...$json($envelope(['$ref' => '#/components/schemas/AuthTokens']))],
+                    '200' => ['description' => 'Signed in', ...$json($envelope($authData('#/components/schemas/PatientProfile')))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
@@ -200,7 +232,7 @@ return [
                 'security'    => [],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['id_token'], 'properties' => ['id_token' => ['type' => 'string', 'description' => 'Firebase ID token from the Google provider']]])],
                 'responses'   => [
-                    '200' => ['description' => 'Signed in', ...$json($envelope(['$ref' => '#/components/schemas/AuthTokens']))],
+                    '200' => ['description' => 'Signed in', ...$json($envelope($authData('#/components/schemas/PatientProfile')))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
@@ -237,20 +269,22 @@ return [
             'post' => [
                 'tags'        => ['Auth'],
                 'summary'     => 'Exchange a refresh token for a new access token',
+                'operationId' => 'refreshToken',
                 'security'    => [],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['refresh_token'], 'properties' => ['refresh_token' => ['type' => 'string']]])],
                 'responses'   => [
-                    '200' => ['description' => 'New access token', ...$json($envelope(['type' => 'object']))],
+                    '200' => ['description' => 'New access token', ...$json($envelope(['$ref' => '#/components/schemas/AccessToken']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                 ],
             ],
         ],
         '/api/me' => [
             'get' => [
-                'tags'      => ['Staff'],
-                'summary'   => 'The signed-in staff user',
-                'responses' => [
-                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object']))],
+                'tags'        => ['Staff'],
+                'summary'     => 'The signed-in staff user',
+                'operationId' => 'staffMe',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/StaffUser']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                 ],
             ],
