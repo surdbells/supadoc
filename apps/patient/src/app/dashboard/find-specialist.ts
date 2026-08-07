@@ -10,17 +10,20 @@ import {
   catchError,
   debounceTime,
   distinctUntilChanged,
+  firstValueFrom,
   of,
   switchMap,
   tap,
 } from 'rxjs';
-import { SpecialistsApi } from '@supadoc/data-access';
+import { Router } from '@angular/router';
+import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 type Availability = 'today' | 'week' | 'next';
 
 interface Specialist {
+  readonly id: string;
   readonly photo: string;
   readonly name: string;
   readonly specialty: string;
@@ -50,6 +53,7 @@ const PHOTOS = [
 
 function toSpecialistCard(s: SpecialistDto, i: number): Specialist {
   return {
+    id: s.id,
     photo: PHOTOS[i % PHOTOS.length],
     name: s.name,
     specialty: s.specialty,
@@ -342,10 +346,14 @@ interface Criteria {
                 </div>
 
                 <div class="flex gap-3">
-                  <sd-button variant="outline" size="sm" [full]="true"
+                  <sd-button
+                    variant="outline"
+                    size="sm"
+                    [full]="true"
+                    (click)="openBooking(s)"
                     >View Profile</sd-button
                   >
-                  <sd-button size="sm" [full]="true">
+                  <sd-button size="sm" [full]="true" (click)="openBooking(s)">
                     <sd-icon name="video" [size]="18" />
                     Book Consultation
                   </sd-button>
@@ -355,11 +363,150 @@ interface Criteria {
           </div>
         }
       }
+
+      <!-- Booking modal -->
+      @if (bookingFor(); as s) {
+        <div
+          class="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
+        >
+          <div
+            class="flex w-full max-w-md flex-col gap-5 rounded-card bg-white p-6 shadow-xl"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex min-w-0 flex-col">
+                <h2 class="font-heading text-h5 text-ink">Book Consultation</h2>
+                <p class="truncate font-sans text-body-sm text-slate">
+                  {{ s.name }} · {{ s.specialty }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 text-slate transition-colors hover:text-ink"
+                aria-label="Close"
+                (click)="closeBooking()"
+              >
+                <sd-icon name="x" [size]="20" />
+              </button>
+            </div>
+
+            <label class="flex flex-col gap-2">
+              <span class="font-sans text-caption text-slate">Date &amp; time</span>
+              <input
+                type="datetime-local"
+                [min]="minDateTime"
+                [value]="when()"
+                (input)="when.set($any($event.target).value)"
+                class="rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/15"
+              />
+            </label>
+
+            <label class="flex flex-col gap-2">
+              <span class="font-sans text-caption text-slate"
+                >Consultation type</span
+              >
+              <select
+                [value]="type()"
+                (change)="type.set($any($event.target).value)"
+                class="rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/15"
+              >
+                <option value="video">Video Consultation</option>
+                <option value="follow_up">Patient Follow-up</option>
+                <option value="urgent">Urgent Care</option>
+                <option value="routine">Routine Checkup</option>
+              </select>
+            </label>
+
+            <div
+              class="flex items-center justify-between rounded-field bg-glacier px-4 py-3"
+            >
+              <span class="font-sans text-body-sm text-slate">Consultation fee</span>
+              <span class="font-heading text-h5 text-ink">{{ s.price }}</span>
+            </div>
+
+            @if (bookingError()) {
+              <p
+                class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
+              >
+                {{ bookingError() }}
+              </p>
+            }
+
+            <div class="flex gap-3">
+              <sd-button
+                variant="outline"
+                [full]="true"
+                (click)="closeBooking()"
+                >Cancel</sd-button
+              >
+              <sd-button
+                [full]="true"
+                [disabled]="booking() || !when()"
+                (click)="confirmBooking()"
+              >
+                {{ booking() ? 'Booking…' : 'Confirm Booking' }}
+              </sd-button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
 export class FindSpecialist {
   private readonly specialists = inject(SpecialistsApi);
+  private readonly appointmentsApi = inject(AppointmentsApi);
+  private readonly router = inject(Router);
+
+  // ----- Booking modal -----
+  protected readonly bookingFor = signal<Specialist | null>(null);
+  protected readonly when = signal('');
+  protected readonly type = signal('video');
+  protected readonly booking = signal(false);
+  protected readonly bookingError = signal('');
+  // Earliest bookable slot: one hour from now, as a datetime-local value.
+  protected readonly minDateTime = ((): string => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+      d.getDate(),
+    )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
+
+  protected openBooking(s: Specialist): void {
+    this.bookingFor.set(s);
+    this.when.set('');
+    this.type.set('video');
+    this.bookingError.set('');
+  }
+
+  protected closeBooking(): void {
+    if (!this.booking()) this.bookingFor.set(null);
+  }
+
+  protected async confirmBooking(): Promise<void> {
+    const s = this.bookingFor();
+    if (!s || !this.when()) return;
+    this.booking.set(true);
+    this.bookingError.set('');
+    try {
+      await firstValueFrom(
+        this.appointmentsApi.book({
+          specialist_id: s.id,
+          scheduled_at: new Date(this.when()).toISOString(),
+          type: this.type(),
+        }),
+      );
+      this.bookingFor.set(null);
+      await this.router.navigate(['/dashboard/appointments']);
+    } catch (err) {
+      this.bookingError.set(
+        (err as { message?: string })?.message ??
+          'Could not book this consultation. Try again.',
+      );
+    } finally {
+      this.booking.set(false);
+    }
+  }
 
   protected readonly query = signal('');
   protected readonly specialty = signal('');

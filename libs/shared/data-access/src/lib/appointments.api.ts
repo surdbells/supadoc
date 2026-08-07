@@ -35,6 +35,18 @@ export class AppointmentsApi {
     );
   }
 
+  /** POST /api/portal/appointments — book a consultation for the signed-in patient. */
+  book(params: {
+    specialist_id: string;
+    scheduled_at: string;
+    type: string;
+  }): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      'api/portal/appointments',
+      params,
+    );
+  }
+
   /** GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials. */
   callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
     return this.api.get<SuccessResponse<CallTokenDto>>(
