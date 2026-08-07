@@ -6,6 +6,8 @@ import {
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
+import { PatientApi } from '@supadoc/data-access';
 import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 
 /** Settings › Change Password (standard pattern; Figma 894:25038). */
@@ -77,12 +79,20 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
             Your password has been updated.
           </p>
         }
+        @if (errorMessage()) {
+          <p
+            class="flex items-center gap-2 rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-alert"
+          >
+            <sd-icon name="triangle-alert" [size]="18" />
+            {{ errorMessage() }}
+          </p>
+        }
 
         <sd-button
           type="submit"
           [full]="true"
-          [disabled]="form.invalid || mismatch()"
-          >Save Changes</sd-button
+          [disabled]="form.invalid || mismatch() || saving()"
+          >{{ saving() ? 'Saving…' : 'Save Changes' }}</sd-button
         >
       </form>
     </div>
@@ -90,7 +100,10 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 })
 export class SettingsPassword {
   private readonly fb = inject(FormBuilder);
+  private readonly patient = inject(PatientApi);
   protected readonly saved = signal(false);
+  protected readonly saving = signal(false);
+  protected readonly errorMessage = signal('');
 
   protected readonly form = this.fb.nonNullable.group({
     current: ['', [Validators.required]],
@@ -110,13 +123,26 @@ export class SettingsPassword {
     return !!confirm.value && next.value !== confirm.value;
   }
 
-  protected save(): void {
+  protected async save(): Promise<void> {
     if (this.form.invalid || this.mismatch()) {
       this.form.markAllAsTouched();
       return;
     }
-    // TODO: call the change-password API once available.
-    this.form.reset();
-    this.saved.set(true);
+    this.saving.set(true);
+    this.saved.set(false);
+    this.errorMessage.set('');
+    const { current, next } = this.form.getRawValue();
+    try {
+      await firstValueFrom(this.patient.changePassword(current, next));
+      this.form.reset();
+      this.saved.set(true);
+    } catch (err) {
+      this.errorMessage.set(
+        (err as { message?: string })?.message ??
+          'Could not update your password.',
+      );
+    } finally {
+      this.saving.set(false);
+    }
   }
 }

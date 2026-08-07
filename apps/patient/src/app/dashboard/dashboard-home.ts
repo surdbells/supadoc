@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   signal,
@@ -116,13 +117,15 @@ const UPCOMING_BADGE: Record<string, string> = {
               </h3>
             </header>
             <div class="flex items-center gap-2">
-              <img
-                src="/dashboard/avatar-sarah.png"
-                alt=""
-                width="40"
-                height="40"
-                class="size-10 shrink-0 rounded-full object-cover"
-              />
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+              >
+                @if (initials()) {
+                  {{ initials() }}
+                } @else {
+                  <sd-icon name="user" [size]="18" />
+                }
+              </span>
               <div class="flex min-w-0 flex-col">
                 <p class="truncate font-sans text-body font-semibold text-ink">
                   {{ fullName() }}
@@ -399,12 +402,20 @@ export class DashboardHome {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
-  // Name/email come from GET /api/portal/me; placeholders show until it resolves.
-  protected readonly firstName = signal('Sarah');
-  protected readonly fullName = signal('Sarah Johnson');
-  protected readonly email = signal('sarahjohnson@gmail.com');
+  // Name/email come from GET /api/portal/me; neutral until it resolves.
+  protected readonly firstName = signal('there');
+  protected readonly fullName = signal('');
+  protected readonly email = signal('');
 
-  protected readonly initials = 'SJ';
+  protected readonly initials = computed(() =>
+    this.fullName()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase(),
+  );
   // Profile completeness from the fields the backend actually stores.
   protected readonly profileComplete = signal(0);
 

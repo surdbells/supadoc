@@ -2,6 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   signal,
@@ -99,13 +100,15 @@ interface NavItem {
               }
             </button>
             <div class="flex items-center gap-2">
-              <img
-                src="/dashboard/avatar-sarah.png"
-                alt=""
-                width="40"
-                height="40"
-                class="size-10 rounded-full object-cover"
-              />
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+              >
+                @if (initials()) {
+                  {{ initials() }}
+                } @else {
+                  <sd-icon name="user" [size]="18" />
+                }
+              </span>
               <span
                 class="hidden font-sans text-body font-semibold text-ink sm:inline"
               >
@@ -231,8 +234,17 @@ export class DashboardShell {
     { label: 'My Profile', icon: 'user', link: '/dashboard/profile' },
   ];
 
-  // From GET /api/portal/me; placeholder shows until it resolves.
-  protected readonly userName = signal('Sarah Johnson');
+  // From GET /api/portal/me; blank until it resolves.
+  protected readonly userName = signal('');
+  protected readonly initials = computed(() =>
+    this.userName()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase(),
+  );
 
   protected async logOut(): Promise<void> {
     this.menuOpen.set(false);

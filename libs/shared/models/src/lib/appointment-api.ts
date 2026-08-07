@@ -84,6 +84,8 @@ export interface PatientProfileDto {
   phone: string | null;
   phone_verified: boolean;
   date_of_birth: string | null;
+  gender: string | null;
+  address: string | null;
   created_at: string;
 }
 

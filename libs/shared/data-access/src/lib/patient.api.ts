@@ -29,10 +29,23 @@ export class PatientApi {
     last_name?: string;
     phone?: string | null;
     date_of_birth?: string | null;
+    gender?: string;
+    address?: string;
   }): Observable<SuccessResponse<PatientProfileDto>> {
     return this.api.patch<SuccessResponse<PatientProfileDto>>(
       'api/portal/me',
       params,
+    );
+  }
+
+  /** POST /api/portal/me/password — change the password. */
+  changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Observable<SuccessResponse<{ changed: boolean }>> {
+    return this.api.post<SuccessResponse<{ changed: boolean }>>(
+      'api/portal/me/password',
+      { current_password: currentPassword, new_password: newPassword },
     );
   }
 

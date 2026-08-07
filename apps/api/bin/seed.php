@@ -60,6 +60,8 @@ if ($patient === null) {
     $patient->setPassword($password);
     $patient->setPhone('+15551230000');
     $patient->setDateOfBirth(new DateTimeImmutable('1990-05-12'));
+    $patient->setGender('Female');
+    $patient->setAddress('14 Freedom Way, Lekki Phase 1, Lagos, Nigeria');
     $patient->setEmergencyContact([
         'full_name'    => 'Michael Patient',
         'relationship' => 'Spouse',

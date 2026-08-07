@@ -1,6 +1,15 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
+import { PatientApi } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
 
 interface SettingRow {
@@ -29,17 +38,19 @@ interface SettingRow {
 
       <!-- Profile card -->
       <div class="flex items-center gap-4 rounded-card bg-frost/50 p-5">
-        <img
-          src="/dashboard/avatar-sarah.png"
-          alt=""
-          width="56"
-          height="56"
-          class="size-14 shrink-0 rounded-full object-cover"
-        />
+        <span
+          class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 text-cerulean"
+        >
+          @if (initials()) {
+            {{ initials() }}
+          } @else {
+            <sd-icon name="user" [size]="24" />
+          }
+        </span>
         <div class="flex min-w-0 flex-col">
-          <p class="font-heading text-h5 text-ink">Sarah Johnson</p>
+          <p class="font-heading text-h5 text-ink">{{ name() || '—' }}</p>
           <p class="truncate font-sans text-body-sm text-slate">
-            sarahjohnson&#64;gmail.com
+            {{ email() }}
           </p>
         </div>
       </div>
@@ -85,6 +96,37 @@ interface SettingRow {
 export class Settings {
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
+  private readonly patient = inject(PatientApi);
+  private readonly destroyRef = inject(DestroyRef);
+
+  protected readonly name = signal('');
+  protected readonly email = signal('');
+  protected readonly initials = computed(() =>
+    this.name()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase(),
+  );
+
+  constructor() {
+    this.patient
+      .me()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.name.set(
+            `${res.data.first_name} ${res.data.last_name}`.trim(),
+          );
+          this.email.set(res.data.email);
+        },
+        error: () => {
+          /* leave the header blank on failure */
+        },
+      });
+  }
 
   protected readonly rows: SettingRow[] = [
     {

@@ -40,6 +40,7 @@ interface SectionCard {
   readonly icon: string;
   readonly tint: string;
   readonly title: string;
+  readonly subtitle: string;
 }
 
 /**
@@ -111,10 +112,7 @@ interface SectionCard {
                   {{ c.title }}
                 </p>
                 <p class="font-sans text-body-sm text-slate">
-                  Manage your personal details and contact information
-                </p>
-                <p class="font-sans text-caption text-slate">
-                  Last updated: 20th of June, 2026
+                  {{ c.subtitle }}
                 </p>
               </button>
             }
@@ -167,7 +165,7 @@ interface SectionCard {
               [ngTemplateOutlet]="readField"
               [ngTemplateOutletContext]="{
                 label: 'Gender',
-                value: 'Female',
+                value: genderText(),
               }"
             />
             <div class="md:col-span-2">
@@ -175,7 +173,7 @@ interface SectionCard {
                 [ngTemplateOutlet]="readField"
                 [ngTemplateOutletContext]="{
                   label: 'Residential Address',
-                  value: '14, Freedom Way, Lekki Phase 1, Lagos, Nigeria.',
+                  value: addressText(),
                 }"
               />
             </div>
@@ -298,6 +296,7 @@ interface SectionCard {
                   formControlName="gender"
                   class="rounded-field border border-[#d7e0e8] bg-white px-4 py-4 font-sans text-body text-ink focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
                 >
+                  <option value="">Select</option>
                   <option value="Female">Female</option>
                   <option value="Male">Male</option>
                   <option value="Other">Other</option>
@@ -963,23 +962,15 @@ interface SectionCard {
 
     <ng-template #profileCard>
       <div class="flex items-center gap-4 rounded-card bg-frost/50 p-5">
-        <div class="relative shrink-0">
-          <img
-            src="/dashboard/avatar-sarah.png"
-            alt=""
-            width="88"
-            height="88"
-            class="size-22 rounded-full object-cover"
-          />
-          <button
-            type="button"
-            class="absolute bottom-0 right-0 flex size-8 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-frost/50"
-            aria-label="Change photo"
-            (click)="uploadPhoto()"
-          >
-            <sd-icon name="camera" [size]="16" />
-          </button>
-        </div>
+        <span
+          class="flex size-22 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean"
+        >
+          @if (initials()) {
+            {{ initials() }}
+          } @else {
+            <sd-icon name="user" [size]="32" />
+          }
+        </span>
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <p class="font-heading text-h5 text-ink">{{ fullName() }}</p>
           <p class="truncate font-sans text-caption text-slate">
@@ -988,8 +979,9 @@ interface SectionCard {
           <div
             class="flex flex-wrap gap-x-4 gap-y-1 font-sans text-caption text-slate"
           >
-            <span class="flex items-center gap-1">
-              <sd-icon name="map-pin" [size]="14" />Abuja, Nigeria.
+            <span class="flex min-w-0 items-center gap-1">
+              <sd-icon name="map-pin" [size]="14" class="shrink-0" />
+              <span class="truncate">{{ addressText() }}</span>
             </span>
             <span class="flex items-center gap-1">
               <sd-icon name="calendar-days" [size]="14" />{{ dobLong() }}
@@ -998,8 +990,8 @@ interface SectionCard {
           <div class="mt-1 flex flex-col gap-1">
             <div class="h-1.5 w-full overflow-hidden rounded-full bg-white/70">
               <div
-                class="h-full rounded-full bg-cerulean"
-                style="width:75%"
+                class="h-full rounded-full bg-cerulean transition-all"
+                [style.width.%]="profileComplete()"
               ></div>
             </div>
             <div class="flex items-center justify-between">
@@ -1007,7 +999,7 @@ interface SectionCard {
                 >Profile complete</span
               >
               <span class="font-sans text-body-sm font-semibold text-sage"
-                >75%</span
+                >{{ profileComplete() }}%</span
               >
             </div>
           </div>
@@ -1087,6 +1079,30 @@ export class MyProfile {
   protected readonly phone = signal('');
   protected readonly dobLong = signal('—');
   protected readonly dobDisplay = signal('—');
+  protected readonly genderText = signal('—');
+  protected readonly addressText = signal('—');
+
+  protected readonly initials = computed(() =>
+    this.fullName()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase(),
+  );
+
+  /** Rough completeness across the core profile fields (name/phone/dob/gender/address). */
+  protected readonly profileComplete = computed(() => {
+    const filled = [
+      this.fullName() !== '',
+      this.phone() !== '',
+      this.dobDisplay() !== '—',
+      this.genderText() !== '—',
+      this.addressText() !== '—',
+    ].filter(Boolean).length;
+    return Math.round((filled / 5) * 100);
+  });
 
   protected readonly sections: SectionCard[] = [
     {
@@ -1094,24 +1110,28 @@ export class MyProfile {
       icon: 'user',
       tint: 'bg-cerulean/10 text-cerulean',
       title: 'Personal Information',
+      subtitle: 'Your name, contact details and address',
     },
     {
       key: 'medical',
       icon: 'heart-pulse',
       tint: 'bg-teal/10 text-teal',
       title: 'Medical Information',
+      subtitle: 'History, allergies, medications and conditions',
     },
     {
       key: 'insurance',
       icon: 'shield-check',
       tint: 'bg-sage/15 text-sage',
       title: 'Insurance Information',
+      subtitle: 'Provider, plan and coverage details',
     },
     {
       key: 'emergency',
       icon: 'id-card',
       tint: 'bg-sky/10 text-sky',
       title: 'Emergency Contact',
+      subtitle: 'Who we should contact in an emergency',
     },
   ];
 
@@ -1193,14 +1213,21 @@ export class MyProfile {
     phone: string | null;
     phone_verified?: boolean;
     date_of_birth: string | null;
+    gender?: string | null;
+    address?: string | null;
   }): void {
     const full = `${p.first_name} ${p.last_name}`.trim();
     if (full) this.fullName.set(full);
     if (p.email) this.email.set(p.email);
     if (p.phone) this.phone.set(p.phone);
     this.phoneVerified.set(!!p.phone_verified);
+    this.genderText.set(p.gender || '—');
+    this.addressText.set(p.address || '—');
 
-    const patch: Record<string, string> = {};
+    const patch: Record<string, string> = {
+      gender: p.gender ?? '',
+      address: p.address ?? '',
+    };
     if (full) patch['fullName'] = full;
     if (p.phone) patch['phone'] = p.phone;
 
@@ -1273,16 +1300,12 @@ export class MyProfile {
     else this.view.set('home');
   }
 
-  protected uploadPhoto(): void {
-    this.showToast('Profile photo updated successfully');
-  }
-
   protected async saveProfile(): Promise<void> {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
     }
-    const { fullName, phone, dob } = this.form.getRawValue();
+    const { fullName, phone, dob, gender, address } = this.form.getRawValue();
     const [firstName, ...rest] = fullName.trim().split(/\s+/);
     try {
       const res = await firstValueFrom(
@@ -1291,6 +1314,8 @@ export class MyProfile {
           last_name: rest.join(' '),
           phone: phone || null,
           date_of_birth: dob || null,
+          gender,
+          address,
         }),
       );
       this.applyProfile(res.data);
