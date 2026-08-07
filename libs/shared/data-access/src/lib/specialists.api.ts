@@ -4,6 +4,7 @@ import type {
   ListAppointmentsQuery,
   PaginatedResponse,
   SpecialistDto,
+  SuccessResponse,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
 
@@ -14,6 +15,7 @@ export interface ListSpecialistsQuery
     'page' | 'per_page' | 'sort_by' | 'sort_dir'
   > {
   search?: string;
+  specialty?: string;
   available?: boolean;
 }
 
@@ -29,6 +31,13 @@ export class SpecialistsApi {
     return this.api.get<PaginatedResponse<SpecialistDto>>(
       'api/portal/specialists',
       query as QueryParams | undefined,
+    );
+  }
+
+  /** GET /api/portal/specialists/specialties — distinct specialties for filtering. */
+  specialties(): Observable<SuccessResponse<string[]>> {
+    return this.api.get<SuccessResponse<string[]>>(
+      'api/portal/specialists/specialties',
     );
   }
 }

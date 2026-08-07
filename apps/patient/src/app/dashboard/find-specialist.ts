@@ -2,11 +2,18 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  of,
+  switchMap,
+  tap,
+} from 'rxjs';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
@@ -56,7 +63,17 @@ function toSpecialistCard(s: SpecialistDto, i: number): Specialist {
   };
 }
 
-/** Find a Specialist (Figma 311:4126) — wired to GET /api/portal/specialists. */
+interface Criteria {
+  search: string;
+  specialty: string;
+  available: boolean;
+}
+
+/**
+ * Find a Specialist (Figma 311:4126) — wired to GET /api/portal/specialists.
+ * Search and the specialty/availability filters run server-side (debounced),
+ * with loading, empty and error states.
+ */
 @Component({
   selector: 'pat-find-specialist',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -89,13 +106,111 @@ function toSpecialistCard(s: SpecialistDto, i: number): Specialist {
           </span>
           <button
             type="button"
-            class="flex size-12 shrink-0 items-center justify-center rounded-field border border-cloud bg-white text-ink transition-colors hover:bg-glacier"
+            class="relative flex size-12 shrink-0 items-center justify-center rounded-field border bg-white text-ink transition-colors hover:bg-glacier"
+            [class]="
+              filtersOpen() || activeFilterCount() > 0
+                ? 'border-cerulean text-cerulean'
+                : 'border-cloud'
+            "
+            (click)="filtersOpen.set(!filtersOpen())"
             aria-label="Filter"
           >
             <sd-icon name="filter" [size]="20" />
+            @if (activeFilterCount() > 0) {
+              <span
+                class="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-cerulean text-[10px] font-semibold text-white"
+                >{{ activeFilterCount() }}</span
+              >
+            }
           </button>
         </div>
       </div>
+
+      <!-- Filter panel -->
+      @if (filtersOpen()) {
+        <div
+          class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-5"
+        >
+          <div class="flex flex-col gap-2">
+            <span class="font-sans text-body-sm font-semibold text-ink"
+              >Specialty</span
+            >
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
+                [class]="
+                  specialty() === ''
+                    ? 'border-cerulean bg-frost text-cerulean'
+                    : 'border-cloud text-slate hover:text-ink'
+                "
+                (click)="specialty.set('')"
+              >
+                All
+              </button>
+              @for (s of specialties(); track s) {
+                <button
+                  type="button"
+                  class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
+                  [class]="
+                    specialty() === s
+                      ? 'border-cerulean bg-frost text-cerulean'
+                      : 'border-cloud text-slate hover:text-ink'
+                  "
+                  (click)="specialty.set(s)"
+                >
+                  {{ s }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <span class="font-sans text-body-sm font-semibold text-ink"
+              >Availability</span
+            >
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
+                [class]="
+                  !availableOnly()
+                    ? 'border-cerulean bg-frost text-cerulean'
+                    : 'border-cloud text-slate hover:text-ink'
+                "
+                (click)="availableOnly.set(false)"
+              >
+                Any time
+              </button>
+              <button
+                type="button"
+                class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
+                [class]="
+                  availableOnly()
+                    ? 'border-cerulean bg-frost text-cerulean'
+                    : 'border-cloud text-slate hover:text-ink'
+                "
+                (click)="availableOnly.set(true)"
+              >
+                Available today
+              </button>
+            </div>
+          </div>
+
+          @if (activeFilterCount() > 0) {
+            <div class="flex justify-end">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
+                (click)="clearFilters()"
+              >
+                <sd-icon name="x" [size]="16" />
+                Clear filters
+              </button>
+            </div>
+          }
+        </div>
+      }
 
       @switch (viewState()) {
         @case ('loading') {
@@ -148,13 +263,13 @@ function toSpecialistCard(s: SpecialistDto, i: number): Specialist {
           <!-- Count -->
           <div class="flex items-center justify-between">
             <p class="font-sans text-body font-semibold text-ink">
-              {{ filtered().length }} Specialist found
+              {{ all().length }} Specialist found
             </p>
           </div>
 
           <!-- Results -->
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            @for (s of filtered(); track $index) {
+            @for (s of all(); track $index) {
               <article
                 class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
               >
@@ -245,63 +360,98 @@ function toSpecialistCard(s: SpecialistDto, i: number): Specialist {
 })
 export class FindSpecialist {
   private readonly specialists = inject(SpecialistsApi);
-  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly query = signal('');
-  private readonly all = signal<Specialist[]>([]);
+  protected readonly specialty = signal('');
+  protected readonly availableOnly = signal(false);
+  protected readonly filtersOpen = signal(false);
+  protected readonly specialties = signal<string[]>([]);
+
+  protected readonly all = signal<Specialist[]>([]);
   private readonly loading = signal(true);
   private readonly loadError = signal(false);
+  private readonly reloadTick = signal(0);
+
+  private readonly criteria = computed<Criteria>(() => ({
+    search: this.query().trim(),
+    specialty: this.specialty(),
+    available: this.availableOnly(),
+  }));
 
   constructor() {
-    this.load();
+    // Populate the specialty filter's options once.
+    this.specialists
+      .specialties()
+      .pipe(takeUntilDestroyed())
+      .subscribe({ next: (res) => this.specialties.set(res.data) });
+
+    // Debounced, server-side search + filters. `reloadTick` lets the error
+    // "Try Again" button re-run the current criteria.
+    toObservable(
+      computed(() => ({ ...this.criteria(), tick: this.reloadTick() })),
+    )
+      .pipe(
+        debounceTime(250),
+        distinctUntilChanged(
+          (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        ),
+        tap(() => {
+          this.loading.set(true);
+          this.loadError.set(false);
+        }),
+        switchMap((c) =>
+          this.specialists
+            .list({
+              per_page: 100,
+              sort_by: 'name',
+              sort_dir: 'asc',
+              search: c.search || undefined,
+              specialty: c.specialty || undefined,
+              available: c.available || undefined,
+            })
+            .pipe(
+              catchError(() => {
+                this.loadError.set(true);
+                return of(null);
+              }),
+            ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe((res) => {
+        if (res) this.all.set(res.data.map(toSpecialistCard));
+        this.loading.set(false);
+      });
   }
 
   protected availability(s: Specialist) {
     return AVAILABILITY[s.availability];
   }
 
+  protected readonly activeFilterCount = computed(
+    () => (this.specialty() !== '' ? 1 : 0) + (this.availableOnly() ? 1 : 0),
+  );
+
+  protected clearFilters(): void {
+    this.specialty.set('');
+    this.availableOnly.set(false);
+  }
+
+  /** Full reset from the empty state — clears the search box too. */
   protected reset(): void {
     this.query.set('');
+    this.clearFilters();
   }
 
   protected reload(): void {
-    this.load();
+    this.reloadTick.update((n) => n + 1);
   }
-
-  protected readonly filtered = computed(() => {
-    const q = this.query().trim().toLowerCase();
-    const all = this.all();
-    if (!q) return all;
-    return all.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.specialty.toLowerCase().includes(q),
-    );
-  });
 
   protected readonly viewState = computed<
     'loading' | 'list' | 'empty' | 'error'
   >(() => {
     if (this.loadError()) return 'error';
     if (this.loading()) return 'loading';
-    return this.filtered().length === 0 ? 'empty' : 'list';
+    return this.all().length === 0 ? 'empty' : 'list';
   });
-
-  private load(): void {
-    this.loading.set(true);
-    this.loadError.set(false);
-    this.specialists
-      .list({ per_page: 100, sort_by: 'name', sort_dir: 'asc' })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          this.all.set(res.data.map(toSpecialistCard));
-          this.loading.set(false);
-        },
-        error: () => {
-          this.loadError.set(true);
-          this.loading.set(false);
-        },
-      });
-  }
 }
