@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
@@ -105,4 +106,7 @@ return [
 
     AppointmentRepository::class => static fn (ContainerInterface $c): AppointmentRepository =>
         new AppointmentRepository($c->get(EntityManagerInterface::class)),
+
+    NotificationRepository::class => static fn (ContainerInterface $c): NotificationRepository =>
+        new NotificationRepository($c->get(EntityManagerInterface::class)),
 ];

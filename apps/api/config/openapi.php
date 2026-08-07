@@ -180,6 +180,18 @@ return [
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
+            'Notification' => [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => ['type' => 'string', 'format' => 'uuid'],
+                    'type'       => ['type' => 'string', 'enum' => ['appointment', 'prescription', 'payment', 'system']],
+                    'type_label' => ['type' => 'string'],
+                    'title'      => ['type' => 'string'],
+                    'body'       => ['type' => 'string'],
+                    'read'       => ['type' => 'boolean'],
+                    'created_at' => ['type' => 'string', 'format' => 'date-time'],
+                ],
+            ],
         ],
         'responses' => [
             'Unauthorized' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Missing/invalid token'],
@@ -444,6 +456,46 @@ return [
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
+        '/api/portal/notifications' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => "The patient's notifications",
+                'description' => 'Newest first; `meta.unread` is the unread count. `?unread=true` filters to unread.',
+                'operationId' => 'portalNotifications',
+                'parameters'  => [
+                    ...$paginationParams,
+                    ['name' => 'unread', 'in' => 'query', 'schema' => ['type' => 'boolean']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Notification'))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/portal/notifications/read-all' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Mark all notifications read',
+                'operationId' => 'portalNotificationsReadAll',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => ['unread' => ['type' => 'integer', 'example' => 0]]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/portal/notifications/{id}/read' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Mark one notification read',
+                'operationId' => 'portalNotificationRead',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Notification']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],

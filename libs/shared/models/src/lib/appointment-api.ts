@@ -87,6 +87,25 @@ export interface PatientProfileDto {
   created_at: string;
 }
 
+/** One notification, from `Notification::toArray()`. */
+export interface NotificationDto {
+  id: string;
+  type: 'appointment' | 'prescription' | 'payment' | 'system';
+  type_label: string;
+  title: string;
+  body: string;
+  read: boolean;
+  created_at: string;
+}
+
+/** Notifications list — the page meta also carries the total unread count. */
+export interface NotificationsResponse {
+  status: string;
+  message: string;
+  data: NotificationDto[];
+  meta: PageMeta & { unread: number };
+}
+
 /** Query params accepted by the portal appointments list endpoint. */
 export interface ListAppointmentsQuery {
   page?: number;

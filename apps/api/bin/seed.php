@@ -10,11 +10,13 @@ declare(strict_types=1);
  */
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
 use App\Domain\Entity\Specialist;
 use App\Domain\Entity\User;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Enum\ConsultationType;
+use App\Domain\Enum\NotificationType;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -103,6 +105,23 @@ if (count($em->getRepository(Appointment::class)->findBy(['patient' => $patient]
     // Past (history)
     $book('2026-07-15 09:00', ConsultationType::ROUTINE, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
     $book('2026-07-20 16:00', ConsultationType::URGENT, [AppointmentStatus::CANCELLED]);
+}
+
+// Notifications for the patient (a mix of unread/read across types).
+if (count($em->getRepository(Notification::class)->findBy(['patient' => $patient])) === 0) {
+    $notify = static function (NotificationType $type, string $title, string $body, bool $read)
+    use ($patient, $em): void {
+        $n = new Notification($patient, $type, $title, $body);
+        if ($read) {
+            $n->markRead();
+        }
+        $em->persist($n);
+    };
+
+    $notify(NotificationType::APPOINTMENT, 'Appointment confirmed', 'Your consultation with Dr. Grace Bell is confirmed for 1 Sep, 11:00 AM.', false);
+    $notify(NotificationType::PRESCRIPTION, 'Prescription ready', 'Your prescription from Dr. Grace Bell is ready for pickup.', false);
+    $notify(NotificationType::PAYMENT, 'Payment received', 'We received your $150.00 payment for a video consultation.', true);
+    $notify(NotificationType::SYSTEM, 'Welcome to VideoMed', 'Complete your profile to get the most out of VideoMed.', true);
 }
 
 $em->flush();

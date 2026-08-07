@@ -14,7 +14,7 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
-import { PatientApi } from '@supadoc/data-access';
+import { NotificationsApi, PatientApi } from '@supadoc/data-access';
 import { IconComponent, LogoComponent } from '@supadoc/ui';
 
 interface NavItem {
@@ -89,11 +89,14 @@ interface NavItem {
               type="button"
               class="relative text-ink transition-colors hover:text-cerulean"
               aria-label="Notifications"
+              (click)="goNotifications()"
             >
               <sd-icon name="bell" [size]="24" />
-              <span
-                class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-alert"
-              ></span>
+              @if (unread() > 0) {
+                <span
+                  class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-alert"
+                ></span>
+              }
             </button>
             <div class="flex items-center gap-2">
               <img
@@ -174,9 +177,11 @@ export class DashboardShell {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly patient = inject(PatientApi);
+  private readonly notificationsApi = inject(NotificationsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly menuOpen = signal(false);
+  protected readonly unread = signal(0);
 
   constructor() {
     this.patient
@@ -191,6 +196,21 @@ export class DashboardShell {
           /* keep the placeholder on failure */
         },
       });
+
+    this.notificationsApi
+      .list({ per_page: 1 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.unread.set(res.meta.unread),
+        error: () => {
+          /* no badge on failure */
+        },
+      });
+  }
+
+  protected goNotifications(): void {
+    this.menuOpen.set(false);
+    void this.router.navigate(['/dashboard/notifications']);
   }
 
   protected readonly navItems: NavItem[] = [

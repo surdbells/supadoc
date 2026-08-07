@@ -72,6 +72,9 @@ return static function (App $app): void {
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
+            $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
+            $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
+            $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);
         })->add(new CustomerAuthMiddleware($jwt));
     });
 };

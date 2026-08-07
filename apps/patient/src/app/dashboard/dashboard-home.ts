@@ -7,8 +7,12 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { AppointmentsApi, PatientApi } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
+import {
+  AppointmentsApi,
+  NotificationsApi,
+  PatientApi,
+} from '@supadoc/data-access';
+import type { AppointmentDto, NotificationDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 interface QuickAction {
@@ -18,14 +22,22 @@ interface QuickAction {
   readonly tint: string;
 }
 
-interface Notification {
+interface Notice {
+  readonly id: string;
   readonly icon: string;
   readonly tint: string;
   readonly title: string;
   readonly body: string;
   readonly time: string;
-  readonly unread?: boolean;
+  readonly unread: boolean;
 }
+
+const NOTIF_STYLE: Record<string, { icon: string; tint: string }> = {
+  appointment: { icon: 'calendar-days', tint: 'bg-frost text-cerulean' },
+  prescription: { icon: 'pill', tint: 'bg-teal/10 text-teal' },
+  payment: { icon: 'banknote', tint: 'bg-sage/10 text-sage' },
+  system: { icon: 'bell', tint: 'bg-sky/10 text-sky' },
+};
 
 interface UpcomingVm {
   readonly id: string;
@@ -306,21 +318,21 @@ const UPCOMING_BADGE: Record<string, string> = {
             <h3 class="flex-1 font-sans text-body font-semibold text-ink">
               Notifications
             </h3>
-            <a
-              href="#"
-              class="font-sans text-caption text-cerulean hover:underline"
-              >View all</a
-            >
             <button
               type="button"
-              class="text-slate transition-colors hover:text-ink"
-              aria-label="Dismiss notifications"
+              class="font-sans text-caption text-cerulean hover:underline"
+              (click)="viewNotifications()"
             >
-              <sd-icon name="x" [size]="16" />
+              View all
             </button>
           </header>
+          @if (notifications().length === 0) {
+            <p class="py-6 text-center font-sans text-body-sm text-slate">
+              You're all caught up.
+            </p>
+          } @else {
           <ul class="flex flex-col gap-6">
-            @for (n of notifications; track n.title) {
+            @for (n of notifications(); track n.id) {
               <li class="flex items-start gap-2">
                 <span
                   class="flex size-8 shrink-0 items-center justify-center rounded-full"
@@ -348,6 +360,7 @@ const UPCOMING_BADGE: Record<string, string> = {
               </li>
             }
           </ul>
+          }
         </article>
 
         <!-- Quick Actions -->
@@ -403,6 +416,7 @@ const UPCOMING_BADGE: Record<string, string> = {
 export class DashboardHome {
   private readonly appointments = inject(AppointmentsApi);
   private readonly patient = inject(PatientApi);
+  private readonly notificationsApi = inject(NotificationsApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
@@ -420,7 +434,31 @@ export class DashboardHome {
   protected readonly upcoming = signal<UpcomingVm | null>(null);
   protected readonly loadingUpcoming = signal(true);
 
+  // Notifications widget — the most recent few from GET /api/portal/notifications.
+  protected readonly notifications = signal<Notice[]>([]);
+
   constructor() {
+    this.notificationsApi
+      .list({ per_page: 4 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) =>
+          this.notifications.set(
+            res.data.map((n) => ({
+              id: n.id,
+              icon: NOTIF_STYLE[n.type]?.icon ?? 'bell',
+              tint: NOTIF_STYLE[n.type]?.tint ?? 'bg-cloud text-slate',
+              title: n.title,
+              body: n.body,
+              time: this.relative(n.created_at),
+              unread: !n.read,
+            })),
+          ),
+        error: () => {
+          /* leave the widget empty on failure */
+        },
+      });
+
     this.appointments
       .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'asc' })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -489,31 +527,18 @@ export class DashboardHome {
     };
   }
 
-  protected readonly notifications: Notification[] = [
-    {
-      icon: 'user-round',
-      tint: 'bg-frost text-cerulean',
-      title: 'Appointment confirmed',
-      body: 'Your appointment with Dr. James is confirm',
-      time: '2mins ago',
-      unread: true,
-    },
-    {
-      icon: 'pill',
-      tint: 'bg-teal/10 text-teal',
-      title: 'Prescription ready',
-      body: 'Your prescription is ready for pickup',
-      time: '1hr ago',
-      unread: true,
-    },
-    {
-      icon: 'banknote',
-      tint: 'bg-sage/10 text-sage',
-      title: 'Payment successful',
-      body: 'Your payment of $60.00 was successful',
-      time: '2hrs ago',
-    },
-  ];
+  protected viewNotifications(): void {
+    void this.router.navigate(['/dashboard/notifications']);
+  }
+
+  private relative(iso: string): string {
+    const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    if (min < 1) return 'Just now';
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.round(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    return `${Math.round(hr / 24)}d ago`;
+  }
 
   protected readonly quickActions: QuickAction[] = [
     {
