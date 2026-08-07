@@ -75,6 +75,7 @@ return static function (App $app): void {
             $group->get('/me/settings', Action\Patient\MySettingsAction::class);
             $group->patch('/me/settings', Action\Patient\UpdateMySettingsAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
+            $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);

@@ -562,11 +562,22 @@ return [
                 'summary'    => 'Specialist directory',
                 'parameters' => [
                     ...$paginationParams,
-                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'search', 'in' => 'query', 'description' => 'Matches name or specialty', 'schema' => ['type' => 'string']],
+                    ['name' => 'specialty', 'in' => 'query', 'description' => 'Exact specialty filter', 'schema' => ['type' => 'string']],
                     ['name' => 'available', 'in' => 'query', 'schema' => ['type' => 'boolean']],
                 ],
                 'responses'  => [
                     '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Specialist'))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/portal/specialists/specialties' => [
+            'get' => [
+                'tags'      => ['Portal'],
+                'summary'   => 'Distinct specialty list (for the directory filter)',
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['type' => 'string']]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                 ],
             ],

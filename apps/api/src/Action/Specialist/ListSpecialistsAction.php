@@ -11,7 +11,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/portal/specialists — the bookable specialist directory, paginated,
- * with optional `?search=` and `?available=true`.
+ * with optional `?search=`, `?specialty=` and `?available=true`.
  */
 final class ListSpecialistsAction
 {
@@ -29,6 +29,7 @@ final class ListSpecialistsAction
         $p     = $this->getPaginationParams($query);
 
         $search        = trim((string) ($query['search'] ?? ''));
+        $specialty     = trim((string) ($query['specialty'] ?? ''));
         $availableOnly = array_key_exists('available', $query)
             ? filter_var($query['available'], FILTER_VALIDATE_BOOLEAN)
             : null;
@@ -40,6 +41,7 @@ final class ListSpecialistsAction
             $p['sort_dir'],
             $search === '' ? null : $search,
             $availableOnly,
+            $specialty === '' ? null : $specialty,
         );
 
         return $this->paginated(
