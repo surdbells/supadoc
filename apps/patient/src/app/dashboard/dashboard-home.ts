@@ -20,6 +20,7 @@ interface QuickAction {
   readonly title: string;
   readonly subtitle: string;
   readonly tint: string;
+  readonly link: string;
 }
 
 interface Notice {
@@ -136,13 +137,13 @@ const UPCOMING_BADGE: Record<string, string> = {
                 class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
                 role="progressbar"
                 aria-label="Profile completion"
-                [attr.aria-valuenow]="profileComplete"
+                [attr.aria-valuenow]="profileComplete()"
                 aria-valuemin="0"
                 aria-valuemax="100"
               >
                 <div
                   class="h-full rounded-full bg-cerulean"
-                  [style.width.%]="profileComplete"
+                  [style.width.%]="profileComplete()"
                 ></div>
               </div>
               <div class="flex items-center justify-between">
@@ -150,11 +151,15 @@ const UPCOMING_BADGE: Record<string, string> = {
                   >Profile complete</span
                 >
                 <span class="font-sans text-body font-semibold text-sage"
-                  >{{ profileComplete }}%</span
+                  >{{ profileComplete() }}%</span
                 >
               </div>
             </div>
-            <sd-button variant="outline" size="sm" [full]="true"
+            <sd-button
+              variant="outline"
+              size="sm"
+              [full]="true"
+              (click)="viewProfile()"
               >Complete Profile</sd-button
             >
           </article>
@@ -257,52 +262,25 @@ const UPCOMING_BADGE: Record<string, string> = {
           <article
             class="relative flex flex-col gap-4 rounded-card border-[0.5px] border-ash px-6 py-4"
           >
-            <button
-              type="button"
-              class="absolute right-4 top-4 text-slate transition-colors hover:text-ink"
-              aria-label="Dismiss wallet"
-            >
-              <sd-icon name="x" [size]="16" />
-            </button>
             <header class="flex items-center gap-2">
               <sd-icon name="wallet" [size]="20" class="text-ink" />
               <h3 class="font-sans text-body font-semibold text-ink">Wallet</h3>
             </header>
-            <div class="flex items-center justify-between gap-4">
-              <div class="flex flex-col gap-1">
-                <span class="font-sans text-caption text-slate"
-                  >Current Balance</span
-                >
-                <span class="font-sans text-body font-semibold text-ink">{{
-                  balance
-                }}</span>
-              </div>
-              <sd-button size="sm">
-                <sd-icon name="plus" [size]="18" />
-                Add Funds
-              </sd-button>
-            </div>
-            <div class="flex flex-col gap-2">
-              <span class="font-sans text-caption text-slate"
-                >Recent Transaction</span
-              >
-              <div class="flex flex-col gap-1">
-                <div class="flex items-center justify-between">
-                  <span class="font-sans text-caption text-slate"
-                    >20 Jul, 2026</span
-                  >
-                  <span class="font-sans text-caption font-medium text-alert"
-                    >-$60.00</span
-                  >
-                </div>
-                <p class="font-sans text-body-sm text-ink">
-                  Consultation with Dr James Smith
-                </p>
-              </div>
-            </div>
-            <sd-button variant="outline" size="sm" [full]="true"
-              >View All Transactions</sd-button
+            <div
+              class="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center"
             >
+              <span
+                class="flex size-12 items-center justify-center rounded-full bg-cloud text-slate"
+              >
+                <sd-icon name="wallet" [size]="24" />
+              </span>
+              <p class="font-sans text-body-sm font-medium text-ink">
+                Coming soon
+              </p>
+              <p class="font-sans text-caption text-slate">
+                Manage payments and transactions here.
+              </p>
+            </div>
           </article>
         </div>
       </section>
@@ -371,6 +349,7 @@ const UPCOMING_BADGE: Record<string, string> = {
               <button
                 type="button"
                 class="flex flex-col items-center gap-4 rounded-card border-[0.5px] border-ash bg-glacier px-2 py-4 text-center transition-colors hover:border-cerulean"
+                (click)="go(a.link)"
               >
                 <span
                   class="flex items-center justify-center rounded-full p-2"
@@ -425,10 +404,9 @@ export class DashboardHome {
   protected readonly fullName = signal('Sarah Johnson');
   protected readonly email = signal('sarahjohnson@gmail.com');
 
-  // TODO: source from wallet API once available.
   protected readonly initials = 'SJ';
-  protected readonly profileComplete = 75;
-  protected readonly balance = '$120.50';
+  // Profile completeness from the fields the backend actually stores.
+  protected readonly profileComplete = signal(0);
 
   // Upcoming Appointment widget — wired to GET /api/portal/appointments.
   protected readonly upcoming = signal<UpcomingVm | null>(null);
@@ -480,6 +458,13 @@ export class DashboardHome {
           const full = `${p.first_name} ${p.last_name}`.trim();
           if (full) this.fullName.set(full);
           if (p.email) this.email.set(p.email);
+
+          const filled =
+            (p.first_name && p.last_name ? 1 : 0) +
+            (p.email ? 1 : 0) +
+            (p.phone ? 1 : 0) +
+            (p.date_of_birth ? 1 : 0);
+          this.profileComplete.set(Math.round((filled / 4) * 100));
         },
         error: () => {
           /* keep placeholders on failure */
@@ -540,30 +525,42 @@ export class DashboardHome {
     return `${Math.round(hr / 24)}d ago`;
   }
 
+  protected go(link: string): void {
+    void this.router.navigate([link]);
+  }
+
+  protected viewProfile(): void {
+    void this.router.navigate(['/dashboard/profile']);
+  }
+
   protected readonly quickActions: QuickAction[] = [
     {
       icon: 'stethoscope',
       title: 'Find a Specialist',
       subtitle: 'Search and connect with trusted specialist',
       tint: 'bg-cerulean/10 text-cerulean',
+      link: '/dashboard/specialists',
     },
     {
       icon: 'calendar-clock',
       title: 'Book Consultation',
       subtitle: 'Book an appointment with a doctor',
       tint: 'bg-teal/10 text-teal',
+      link: '/dashboard/specialists',
     },
     {
       icon: 'calendar-days',
       title: 'My Appointments',
       subtitle: 'View and manage your appointments',
       tint: 'bg-sky/10 text-sky',
+      link: '/dashboard/appointments',
     },
     {
       icon: 'history',
       title: 'History',
       subtitle: 'View your past consultation',
       tint: 'bg-sage/10 text-sage',
+      link: '/dashboard/history',
     },
   ];
 }
