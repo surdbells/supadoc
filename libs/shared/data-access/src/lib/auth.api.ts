@@ -40,6 +40,52 @@ export class AuthApi {
     });
   }
 
+  // ----- Termii phone flow (VideoMed backend) -----
+
+  /** Send an SMS OTP; resolves with the pin id used to verify it. */
+  requestPhoneOtp(phone: string): Observable<{ data: { pin_id: string } }> {
+    return this.api.post<{ data: { pin_id: string } }>(
+      'api/portal/auth/phone/request-otp',
+      { phone },
+    );
+  }
+
+  /** Verify an OTP; resolves with a short-lived phone verification token. */
+  verifyPhoneOtp(
+    pinId: string,
+    otp: string,
+    phone: string,
+  ): Observable<{ data: { verification_token: string } }> {
+    return this.api.post<{ data: { verification_token: string } }>(
+      'api/portal/auth/phone/verify-otp',
+      { pin_id: pinId, otp, phone },
+    );
+  }
+
+  /** Register a patient after phone verification. */
+  registerByPhone(params: {
+    verificationToken: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+  }): Observable<LoginResponse> {
+    return this.api.post<LoginResponse>('api/portal/auth/phone/register', {
+      verification_token: params.verificationToken,
+      email: params.email,
+      first_name: params.firstName,
+      last_name: params.lastName,
+      password: params.password,
+    });
+  }
+
+  /** Sign in with a verified phone number. */
+  loginByPhone(verificationToken: string): Observable<LoginResponse> {
+    return this.api.post<LoginResponse>('api/portal/auth/phone/login', {
+      verification_token: verificationToken,
+    });
+  }
+
   /** Step 1 of registration — email OTP to a not-yet-registered user. */
   sendRegisterOtp(email: string): Observable<unknown> {
     return this.api.post('Create_NonRegisteredUser_OtpCodeAsync', {

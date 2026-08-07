@@ -47,6 +47,17 @@ import {
           autocomplete="name"
           formControlName="fullName"
         />
+        @if (isPhoneFlow()) {
+          <sd-input
+            label="Email"
+            [required]="true"
+            type="email"
+            placeholder="you@example.com"
+            autocomplete="email"
+            formControlName="email"
+            [error]="emailError()"
+          />
+        }
         <sd-phone-input
           label="Phone"
           [required]="true"
@@ -131,6 +142,9 @@ export class RegisterSetup {
 
   protected readonly form = this.fb.nonNullable.group({
     fullName: ['', [Validators.required, Validators.minLength(2)]],
+    // Email is only collected (and required) in the phone-registration flow;
+    // the email flow already has it in AuthFlowService.
+    email: [''],
     // Full E.164 number (dial code + local digits), emitted by sd-phone-input.
     phone: ['', [Validators.required, Validators.pattern(/^\+\d{7,15}$/)]],
     password: [
@@ -144,8 +158,32 @@ export class RegisterSetup {
     acceptPrivacy: [false, [Validators.requiredTrue]],
   });
 
+  constructor() {
+    if (this.isPhoneFlow()) {
+      this.form.controls.email.addValidators([
+        Validators.required,
+        Validators.email,
+      ]);
+      this.form.controls.email.updateValueAndValidity();
+      // Phone was verified over SMS — prefill it (the backend uses the proof).
+      this.form.controls.phone.setValue(`+${this.flow.phone()}`);
+    }
+  }
+
+  /** True when we arrived here from the phone-OTP registration flow. */
+  protected isPhoneFlow(): boolean {
+    return this.flow.verificationToken() !== '';
+  }
+
   protected ruleOk(rule: { test: (v: string) => boolean }): boolean {
     return rule.test(this.form.controls.password.value);
+  }
+
+  protected emailError(): string {
+    const control = this.form.controls.email;
+    if (!control.touched || control.valid) return '';
+    if (control.errors?.['required']) return 'Email is required';
+    return 'Enter a valid email address';
   }
 
   protected phoneError(): string {
@@ -162,13 +200,35 @@ export class RegisterSetup {
     }
     this.submitting.set(true);
     this.errorMessage.set('');
-    const email = this.flow.email();
-    const { fullName, phone, password } = this.form.getRawValue();
+    const { fullName, email, phone, password } = this.form.getRawValue();
     const [firstName, ...rest] = fullName.trim().split(/\s+/);
     const lastName = rest.join(' ') || firstName;
+
+    // Phone-OTP registration: create the account against the local backend.
+    if (this.isPhoneFlow()) {
+      try {
+        await this.auth.registerByPhone({
+          verificationToken: this.flow.verificationToken(),
+          email,
+          firstName,
+          lastName,
+          password,
+        });
+        this.flow.reset();
+        await this.router.navigateByUrl('/dashboard');
+      } catch (err) {
+        const message = (err as { message?: string })?.message;
+        this.errorMessage.set(message ?? 'Could not create your account.');
+      } finally {
+        this.submitting.set(false);
+      }
+      return;
+    }
+
+    const flowEmail = this.flow.email();
     try {
       await this.auth.register({
-        email,
+        email: flowEmail,
         password,
         accountType: 'public',
         otpCode: this.flow.otpCode(),
@@ -179,7 +239,7 @@ export class RegisterSetup {
           this.profileApi.createProfile({
             firstName,
             lastName,
-            email,
+            email: flowEmail,
             phoneNumber: phone,
           }),
         );

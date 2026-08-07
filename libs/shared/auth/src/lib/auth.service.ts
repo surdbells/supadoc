@@ -58,6 +58,48 @@ export class AuthService {
     );
   }
 
+  // ----- Termii phone flow -----
+
+  /** Send an SMS OTP to `phone`; returns the pin id used to verify it. */
+  async requestPhoneOtp(phone: string): Promise<string> {
+    const res = await firstValueFrom(this.authApi.requestPhoneOtp(phone));
+    return res.data.pin_id;
+  }
+
+  /** Verify the OTP; returns a short-lived phone verification (proof) token. */
+  async verifyPhoneOtp(
+    pinId: string,
+    otp: string,
+    phone: string,
+  ): Promise<string> {
+    const res = await firstValueFrom(
+      this.authApi.verifyPhoneOtp(pinId, otp, phone),
+    );
+    return res.data.verification_token;
+  }
+
+  /** Register (email collected too) after phone verification, then sign in. */
+  async registerByPhone(params: {
+    verificationToken: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+  }): Promise<void> {
+    const res = await firstValueFrom(this.authApi.registerByPhone(params));
+    const token = this.extractToken(res);
+    if (token) this.setToken(token);
+  }
+
+  /** Sign in with a verified phone number. */
+  async loginByPhone(verificationToken: string): Promise<void> {
+    const res = await firstValueFrom(
+      this.authApi.loginByPhone(verificationToken),
+    );
+    const token = this.extractToken(res);
+    if (token) this.setToken(token);
+  }
+
   // ----- Registration -----
   sendRegisterOtp(email: string): Promise<unknown> {
     return firstValueFrom(this.authApi.sendRegisterOtp(email));

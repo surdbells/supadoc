@@ -61,6 +61,12 @@ export const authRoutes: Route[] = [
           import('./login/sign-in-phone').then((m) => m.SignInPhone),
       },
       {
+        path: 'login/verify-phone',
+        loadComponent: () =>
+          import('./register/verify-otp').then((m) => m.VerifyOtp),
+        data: { channel: 'phone', mode: 'login' },
+      },
+      {
         path: 'login/google',
         loadComponent: () =>
           import('./login/sign-in-google').then((m) => m.SignInGoogle),

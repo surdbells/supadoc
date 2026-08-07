@@ -124,6 +124,36 @@ export class VerifyOtp {
 
   protected async verify(): Promise<void> {
     if (this.form.invalid) return;
+    const code = this.form.getRawValue().code;
+
+    // Phone channel goes through Termii (pin id -> proof token).
+    if (this.channel === 'phone') {
+      const phone = this.flow.phone();
+      const pinId = this.flow.pinId();
+      if (!phone || !pinId) {
+        this.errorMessage.set('Your session expired — please start again.');
+        return;
+      }
+      this.submitting.set(true);
+      this.errorMessage.set('');
+      try {
+        const token = await this.auth.verifyPhoneOtp(pinId, code, phone);
+        this.flow.verificationToken.set(token);
+        if (this.flow.purpose() === 'login') {
+          await this.auth.loginByPhone(token);
+          await this.router.navigateByUrl('/dashboard');
+        } else {
+          await this.router.navigateByUrl('/auth/register/setup');
+        }
+      } catch (err) {
+        const message = (err as { message?: string })?.message;
+        this.errorMessage.set(message ?? 'That code is invalid or expired.');
+      } finally {
+        this.submitting.set(false);
+      }
+      return;
+    }
+
     const email = this.resolveEmail();
     if (!email) {
       this.errorMessage.set('Your session expired — please start again.');
@@ -131,7 +161,6 @@ export class VerifyOtp {
     }
     this.submitting.set(true);
     this.errorMessage.set('');
-    const code = this.form.getRawValue().code;
     try {
       if (this.mode === 'recover') {
         await this.auth.verifyOtp(email, code);
@@ -150,6 +179,23 @@ export class VerifyOtp {
 
   protected async resend(): Promise<void> {
     this.errorMessage.set('');
+
+    if (this.channel === 'phone') {
+      const phone = this.flow.phone();
+      if (!phone) {
+        this.errorMessage.set('Your session expired — please start again.');
+        return;
+      }
+      try {
+        this.flow.pinId.set(await this.auth.requestPhoneOtp(phone));
+        this.seconds.set(299);
+      } catch (err) {
+        const message = (err as { message?: string })?.message;
+        this.errorMessage.set(message ?? 'Could not resend the code.');
+      }
+      return;
+    }
+
     const email = this.resolveEmail();
     if (!email) {
       this.errorMessage.set('Your session expired — please start again.');
