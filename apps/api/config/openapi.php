@@ -206,6 +206,33 @@ return [
                 ],
             ],
         ],
+        '/api/portal/auth/phone/request-otp' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Send an SMS verification code (Termii)',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['phone'], 'properties' => ['phone' => ['type' => 'string', 'example' => '2348060080034']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Code sent', ...$json($envelope(['type' => 'object', 'properties' => ['pin_id' => ['type' => 'string'], 'to' => ['type' => 'string']]]))],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '502' => ['description' => 'SMS provider error'],
+                    '503' => ['description' => 'Phone verification not configured'],
+                ],
+            ],
+        ],
+        '/api/portal/auth/phone/verify-otp' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Verify an SMS code (Termii)',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['pin_id', 'otp'], 'properties' => ['pin_id' => ['type' => 'string'], 'otp' => ['type' => 'string']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Verified', ...$json($envelope(['type' => 'object', 'properties' => ['verified' => ['type' => 'boolean']]]))],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '503' => ['description' => 'Phone verification not configured'],
+                ],
+            ],
+        ],
         '/api/auth/refresh' => [
             'post' => [
                 'tags'        => ['Auth'],

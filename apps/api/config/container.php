@@ -11,6 +11,7 @@ use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\SettingsCacheService;
+use App\Infrastructure\Service\TermiiService;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -64,6 +65,12 @@ return [
 
     FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
         new FirebaseIdTokenVerifier($_ENV['FIREBASE_PROJECT_ID'] ?? ''),
+
+    TermiiService::class => static fn (): TermiiService => new TermiiService(
+        apiKey:   $_ENV['TERMII_API_KEY'] ?? '',
+        senderId: $_ENV['TERMII_SENDER_ID'] ?? '',
+        baseUrl:  $_ENV['TERMII_BASE_URL'] ?? 'https://api.ng.termii.com',
+    ),
 
     AuthService::class => static fn (ContainerInterface $c): AuthService => new AuthService(
         $c->get(UserRepository::class),
