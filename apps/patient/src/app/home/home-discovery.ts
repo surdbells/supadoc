@@ -251,6 +251,97 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
           }
         </div>
 
+        <!-- Filter chips -->
+        <div
+          class="mx-auto mt-4 flex max-w-4xl flex-wrap items-center justify-center gap-3"
+        >
+          <div class="flex rounded-field border border-cloud bg-white p-1">
+            @for (t of consultTypes; track t.value) {
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
+                [class]="
+                  consultationType() === t.value
+                    ? 'bg-frost font-medium text-cerulean'
+                    : 'text-slate hover:text-ink'
+                "
+                (click)="consultationType.set(t.value)"
+              >
+                <sd-icon [name]="t.icon" [size]="16" />{{ t.label }}
+              </button>
+            }
+          </div>
+
+          <label [class]="chipClass">
+            <sd-icon name="stethoscope" [size]="16" class="text-slate" />
+            <select
+              [value]="specialty()"
+              (change)="specialty.set($any($event.target).value)"
+              [class]="chipSelect"
+              aria-label="Speciality"
+            >
+              <option value="">Speciality</option>
+              @for (d of departments(); track d.name) {
+                <option [value]="d.name">{{ d.name }}</option>
+              }
+            </select>
+          </label>
+
+          <label [class]="chipClass">
+            <sd-icon name="map-pin" [size]="16" class="text-slate" />
+            <select
+              [value]="location()"
+              (change)="location.set($any($event.target).value)"
+              [class]="chipSelect"
+              aria-label="Location"
+            >
+              <option value="">Location</option>
+              @for (l of locations(); track l) {
+                <option [value]="l">{{ l }}</option>
+              }
+            </select>
+          </label>
+
+          <label [class]="chipClass">
+            <sd-icon name="languages" [size]="16" class="text-slate" />
+            <select
+              [value]="language()"
+              (change)="language.set($any($event.target).value)"
+              [class]="chipSelect"
+              aria-label="Language"
+            >
+              <option value="">Language</option>
+              @for (l of languages(); track l) {
+                <option [value]="l">{{ l }}</option>
+              }
+            </select>
+          </label>
+
+          <label [class]="chipClass">
+            <sd-icon name="user-round" [size]="16" class="text-slate" />
+            <select
+              [value]="gender()"
+              (change)="gender.set($any($event.target).value)"
+              [class]="chipSelect"
+              aria-label="Gender"
+            >
+              <option value="">Gender</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+            </select>
+          </label>
+
+          @if (hasFilters()) {
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
+              (click)="clearFilters()"
+            >
+              <sd-icon name="x" [size]="14" />Clear
+            </button>
+          }
+        </div>
+
         <!-- Symptom hint -->
         @if (recommendation(); as rec) {
           <div class="mx-auto mt-4 max-w-3xl">
@@ -361,7 +452,28 @@ export class HomeDiscovery implements OnInit {
   protected readonly searching = signal(false);
   protected readonly doctors = signal<SpecialistDto[]>([]);
   protected readonly departments = signal<SpecialtyCount[]>([]);
+  protected readonly locations = signal<string[]>([]);
+  protected readonly languages = signal<string[]>([]);
   protected readonly loadingDepts = signal(true);
+
+  // Staged filter chips — applied on the next search/browse action.
+  protected readonly consultationType = signal<'any' | 'online' | 'in_person'>(
+    'any',
+  );
+  protected readonly specialty = signal('');
+  protected readonly location = signal('');
+  protected readonly language = signal('');
+  protected readonly gender = signal('');
+
+  protected readonly consultTypes = [
+    { value: 'any' as const, label: 'Any', icon: 'sparkles' },
+    { value: 'online' as const, label: 'Online', icon: 'video' },
+    { value: 'in_person' as const, label: 'In-person', icon: 'building-2' },
+  ];
+  protected readonly chipClass =
+    'flex items-center gap-2 rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink transition-colors focus-within:border-cerulean';
+  protected readonly chipSelect =
+    'bg-transparent font-sans text-body-sm text-ink focus:outline-none';
 
   private readonly placeholders = [
     "Search by doctor's name — e.g Dr Grace Bell",
@@ -402,11 +514,13 @@ export class HomeDiscovery implements OnInit {
 
   ngOnInit(): void {
     this.specialistsApi
-      .publicSpecialties()
+      .publicFacets()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.departments.set(res.data);
+          this.departments.set(res.data.specialties);
+          this.locations.set(res.data.locations);
+          this.languages.set(res.data.languages);
           this.loadingDepts.set(false);
         },
         error: () => this.loadingDepts.set(false),
@@ -448,6 +562,23 @@ export class HomeDiscovery implements OnInit {
     return hit ? hit.specialty : null;
   });
 
+  protected readonly hasFilters = computed(
+    () =>
+      this.consultationType() !== 'any' ||
+      this.specialty() !== '' ||
+      this.location() !== '' ||
+      this.language() !== '' ||
+      this.gender() !== '',
+  );
+
+  protected clearFilters(): void {
+    this.consultationType.set('any');
+    this.specialty.set('');
+    this.location.set('');
+    this.language.set('');
+    this.gender.set('');
+  }
+
   protected clear(): void {
     this.query.set('');
   }
@@ -474,16 +605,24 @@ export class HomeDiscovery implements OnInit {
     this.enter({});
   }
 
-  /** Signed-in patients go to the filtered directory; visitors to register. */
-  private enter(params: { specialty?: string; q?: string }): void {
+  /**
+   * Signed-in patients go to the filtered directory (search + all staged
+   * chips); visitors go to register.
+   */
+  private enter(params: { specialty?: string; q?: string } = {}): void {
     if (!this.auth.isAuthenticated()) {
       void this.router.navigateByUrl('/auth/register');
       return;
     }
+    const mode = this.consultationType();
     void this.router.navigate(['/dashboard/specialists'], {
       queryParams: {
-        specialty: params.specialty || null,
-        q: params.q || null,
+        specialty: (params.specialty ?? this.specialty()) || null,
+        q: (params.q ?? '') || null,
+        location: this.location() || null,
+        language: this.language() || null,
+        gender: this.gender() || null,
+        mode: mode === 'any' ? null : mode,
       },
     });
   }

@@ -67,6 +67,15 @@ export interface SpecialistDto {
   years_experience: number | null;
   languages: string | null;
   verified: boolean;
+  gender: string | null;
+  offers_in_person: boolean;
+}
+
+/** Filter options for the directory (GET /public/facets). */
+export interface SpecialistFacets {
+  specialties: SpecialtyCount[];
+  locations: string[];
+  languages: string[];
 }
 
 /** A specialty with its specialist count (GET /public/specialties). */

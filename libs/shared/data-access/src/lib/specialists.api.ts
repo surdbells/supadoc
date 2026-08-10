@@ -5,6 +5,7 @@ import type {
   ListAppointmentsQuery,
   PaginatedResponse,
   SpecialistDto,
+  SpecialistFacets,
   SpecialtyCount,
   SuccessResponse,
 } from '@supadoc/models';
@@ -19,6 +20,10 @@ export interface ListSpecialistsQuery
   search?: string;
   specialty?: string;
   available?: boolean;
+  location?: string;
+  language?: string;
+  gender?: string;
+  mode?: 'online' | 'in_person';
 }
 
 /** Specialist directory client for the VideoMed backend (customer portal). */
@@ -58,6 +63,13 @@ export class SpecialistsApi {
   publicSpecialties(): Observable<SuccessResponse<SpecialtyCount[]>> {
     return this.api.get<SuccessResponse<SpecialtyCount[]>>(
       'api/public/specialties',
+    );
+  }
+
+  /** GET /api/public/facets — filter options (specialties/locations/languages). */
+  publicFacets(): Observable<SuccessResponse<SpecialistFacets>> {
+    return this.api.get<SuccessResponse<SpecialistFacets>>(
+      'api/public/facets',
     );
   }
 

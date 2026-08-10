@@ -24,6 +24,10 @@ interface Criteria {
   search: string;
   specialty: string;
   available: boolean;
+  location: string;
+  language: string;
+  gender: string;
+  mode: 'any' | 'online' | 'in_person';
 }
 
 /**
@@ -155,6 +159,75 @@ interface Criteria {
             </div>
           </div>
 
+          <div class="flex flex-col gap-2">
+            <span class="font-sans text-body-sm font-semibold text-ink"
+              >Consultation type</span
+            >
+            <div class="flex w-fit rounded-field border border-cloud bg-white p-1">
+              @for (t of consultTypes; track t.value) {
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
+                  [class]="
+                    mode() === t.value
+                      ? 'bg-frost font-medium text-cerulean'
+                      : 'text-slate hover:text-ink'
+                  "
+                  (click)="mode.set(t.value)"
+                >
+                  <sd-icon [name]="t.icon" [size]="16" />{{ t.label }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <label class="flex flex-col gap-2">
+              <span class="font-sans text-body-sm font-semibold text-ink"
+                >Location</span
+              >
+              <select
+                [value]="location()"
+                (change)="location.set($any($event.target).value)"
+                class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+              >
+                <option value="">Any location</option>
+                @for (l of locations(); track l) {
+                  <option [value]="l">{{ l }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex flex-col gap-2">
+              <span class="font-sans text-body-sm font-semibold text-ink"
+                >Language</span
+              >
+              <select
+                [value]="language()"
+                (change)="language.set($any($event.target).value)"
+                class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+              >
+                <option value="">Any language</option>
+                @for (l of languages(); track l) {
+                  <option [value]="l">{{ l }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex flex-col gap-2">
+              <span class="font-sans text-body-sm font-semibold text-ink"
+                >Gender</span
+              >
+              <select
+                [value]="gender()"
+                (change)="gender.set($any($event.target).value)"
+                class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+              >
+                <option value="">Any gender</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </label>
+          </div>
+
           @if (activeFilterCount() > 0) {
             <div class="flex justify-end">
               <button
@@ -241,8 +314,19 @@ export class FindSpecialist {
   protected readonly query = signal('');
   protected readonly specialty = signal('');
   protected readonly availableOnly = signal(false);
+  protected readonly location = signal('');
+  protected readonly language = signal('');
+  protected readonly gender = signal('');
+  protected readonly mode = signal<'any' | 'online' | 'in_person'>('any');
   protected readonly filtersOpen = signal(false);
   protected readonly specialties = signal<string[]>([]);
+  protected readonly locations = signal<string[]>([]);
+  protected readonly languages = signal<string[]>([]);
+  protected readonly consultTypes = [
+    { value: 'any' as const, label: 'Any', icon: 'sparkles' },
+    { value: 'online' as const, label: 'Online', icon: 'video' },
+    { value: 'in_person' as const, label: 'In-person', icon: 'building-2' },
+  ];
 
   protected readonly all = signal<SpecialistDto[]>([]);
   private readonly loading = signal(true);
@@ -253,22 +337,40 @@ export class FindSpecialist {
     search: this.query().trim(),
     specialty: this.specialty(),
     available: this.availableOnly(),
+    location: this.location(),
+    language: this.language(),
+    gender: this.gender(),
+    mode: this.mode(),
   }));
 
   constructor() {
-    // Deep links from the homepage discovery section pre-fill the search /
-    // specialty filter (e.g. /dashboard/specialists?specialty=Cardiology).
+    // Deep links from the homepage discovery section pre-fill the filters
+    // (e.g. /dashboard/specialists?specialty=Cardiology&gender=female).
     const qp = this.route.snapshot.queryParamMap;
     const sp = qp.get('specialty');
     if (sp) this.specialty.set(sp);
     const q = qp.get('q');
     if (q) this.query.set(q);
+    const loc = qp.get('location');
+    if (loc) this.location.set(loc);
+    const lang = qp.get('language');
+    if (lang) this.language.set(lang);
+    const gen = qp.get('gender');
+    if (gen) this.gender.set(gen);
+    const md = qp.get('mode');
+    if (md === 'online' || md === 'in_person') this.mode.set(md);
 
-    // Populate the specialty filter's options once.
+    // Populate the filter dropdown options once (public facets endpoint).
     this.specialists
-      .specialties()
+      .publicFacets()
       .pipe(takeUntilDestroyed())
-      .subscribe({ next: (res) => this.specialties.set(res.data) });
+      .subscribe({
+        next: (res) => {
+          this.specialties.set(res.data.specialties.map((s) => s.name));
+          this.locations.set(res.data.locations);
+          this.languages.set(res.data.languages);
+        },
+      });
 
     // Debounced, server-side search + filters. `reloadTick` lets the error
     // "Try Again" button re-run the current criteria.
@@ -291,6 +393,10 @@ export class FindSpecialist {
               search: c.search || undefined,
               specialty: c.specialty || undefined,
               available: c.available || undefined,
+              location: c.location || undefined,
+              language: c.language || undefined,
+              gender: c.gender || undefined,
+              mode: c.mode === 'any' ? undefined : c.mode,
             })
             .pipe(
               catchError(() => {
@@ -308,12 +414,22 @@ export class FindSpecialist {
   }
 
   protected readonly activeFilterCount = computed(
-    () => (this.specialty() !== '' ? 1 : 0) + (this.availableOnly() ? 1 : 0),
+    () =>
+      (this.specialty() !== '' ? 1 : 0) +
+      (this.availableOnly() ? 1 : 0) +
+      (this.location() !== '' ? 1 : 0) +
+      (this.language() !== '' ? 1 : 0) +
+      (this.gender() !== '' ? 1 : 0) +
+      (this.mode() !== 'any' ? 1 : 0),
   );
 
   protected clearFilters(): void {
     this.specialty.set('');
     this.availableOnly.set(false);
+    this.location.set('');
+    this.language.set('');
+    this.gender.set('');
+    this.mode.set('any');
   }
 
   /** Full reset from the empty state — clears the search box too. */
