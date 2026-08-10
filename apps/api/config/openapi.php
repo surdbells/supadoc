@@ -690,6 +690,36 @@ return [
                 ],
             ],
         ],
+        '/api/portal/specialists/{id}/slots' => [
+            'get' => [
+                'tags'       => ['Portal'],
+                'summary'    => "A specialist's open consultation slots",
+                'parameters' => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'days', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 7, 'maximum' => 14]],
+                ],
+                'responses'  => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'date'    => ['type' => 'string', 'format' => 'date'],
+                                'weekday' => ['type' => 'string', 'example' => 'Tue'],
+                                'day'     => ['type' => 'string', 'example' => '11'],
+                                'slots'   => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                                    'iso'   => ['type' => 'string', 'format' => 'date-time'],
+                                    'label' => ['type' => 'string', 'example' => '9:00 AM'],
+                                    'time'  => ['type' => 'string', 'example' => '09:00'],
+                                ]]],
+                            ],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
         '/api/portal/appointments' => [
             'get' => [
                 'tags'       => ['Portal'],

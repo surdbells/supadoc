@@ -6,6 +6,7 @@ namespace App\Domain\Repository;
 
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
+use DateTimeImmutable;
 
 final class AppointmentRepository extends BaseRepository
 {
@@ -57,5 +58,30 @@ final class AppointmentRepository extends BaseRepository
             ->setParameter('patient', $patientId)
             ->getQuery()
             ->getOneOrNullResult();
+    }
+
+    /**
+     * Live (non-cancelled) appointments for a specialist within [from, to) —
+     * used to subtract already-taken slots from generated availability.
+     *
+     * @return list<Appointment>
+     */
+    public function forSpecialistBetween(
+        string $specialistId,
+        DateTimeImmutable $from,
+        DateTimeImmutable $to,
+    ): array {
+        return $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.scheduledAt >= :from')
+            ->andWhere('e.scheduledAt < :to')
+            ->andWhere('e.status != :cancelled')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->setParameter('cancelled', AppointmentStatus::CANCELLED->value)
+            ->getQuery()
+            ->getResult();
     }
 }

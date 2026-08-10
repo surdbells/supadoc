@@ -16,6 +16,7 @@ use App\Domain\Repository\SpecialistRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AvailabilityService;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -35,6 +36,7 @@ final class CreateMyAppointmentAction
         private readonly AppointmentRepository $appointments,
         private readonly NotificationRepository $notifications,
         private readonly MailService $mail,
+        private readonly AvailabilityService $availability,
     ) {
     }
 
@@ -84,6 +86,13 @@ final class CreateMyAppointmentAction
         if (!$specialist->isAvailable()) {
             return $this->error($response, 'Validation failed', 422, [
                 'specialist_id' => 'This specialist is not currently available',
+            ]);
+        }
+
+        // The slot must fall on the specialist's schedule and still be open.
+        if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
+            return $this->error($response, 'Validation failed', 422, [
+                'scheduled_at' => 'That time is no longer available — please pick another slot',
             ]);
         }
 

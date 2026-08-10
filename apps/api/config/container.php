@@ -12,6 +12,7 @@ use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AuthService;
+use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\SettingsCacheService;
@@ -66,6 +67,9 @@ return [
 
     SettingsCacheService::class => static fn (ContainerInterface $c): SettingsCacheService =>
         new SettingsCacheService($c->get(RedisClient::class)),
+
+    AvailabilityService::class => static fn (ContainerInterface $c): AvailabilityService =>
+        new AvailabilityService($c->get(AppointmentRepository::class)),
 
     FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
         new FirebaseIdTokenVerifier($_ENV['FIREBASE_PROJECT_ID'] ?? ''),

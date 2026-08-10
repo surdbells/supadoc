@@ -86,22 +86,28 @@ if ($patient === null) {
 
 // Bookable specialists. Fees are money-as-string. The first (Grace Bell) is the
 // one the seeded appointments reference.
-// [name, specialty, fee, location, rating, reviews, available, years, languages, verified]
+// Recurring weekly availability templates (weekday "1"=Mon … "6"=Sat → windows).
+$schedWeekday = ['1' => [['09:00', '17:00']], '2' => [['09:00', '17:00']], '3' => [['09:00', '17:00']], '4' => [['09:00', '17:00']], '5' => [['09:00', '17:00']]];
+$schedSplit   = ['1' => [['08:00', '12:00'], ['13:00', '18:00']], '2' => [['08:00', '12:00'], ['13:00', '18:00']], '3' => [['08:00', '12:00'], ['13:00', '18:00']], '4' => [['08:00', '12:00'], ['13:00', '18:00']], '5' => [['08:00', '12:00'], ['13:00', '18:00']]];
+$schedMorning = ['1' => [['08:00', '12:00']], '2' => [['08:00', '12:00']], '3' => [['08:00', '12:00']], '4' => [['08:00', '12:00']], '5' => [['08:00', '12:00']], '6' => [['09:00', '13:00']]];
+$schedEvening = ['1' => [['14:00', '20:00']], '3' => [['14:00', '20:00']], '5' => [['14:00', '20:00']]];
+
+// [name, specialty, fee, location, rating, reviews, available, years, languages, verified, weeklyHours]
 $specialistSeeds = [
-    ['Dr. Grace Bell', 'Cardiology', '150.00', 'Lagos, NG', '4.80', 128, true, 14, 'English, French', true],
-    ['Dr. Ada Obi', 'Dermatology', '90.00', 'Abuja, NG', '4.60', 84, true, 9, 'English', true],
-    ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true, 18, 'English, Igbo', true],
-    ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false, 11, 'English, French', false],
-    ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true, 7, 'English, Yoruba', true],
-    ['Dr. Amaka Nwosu', 'Psychiatry', '130.00', 'Abuja, NG', '4.70', 96, true, 12, 'English', true],
-    ['Dr. Emeka Okonkwo', 'Orthopedics', '160.00', 'Lagos, NG', '4.80', 154, true, 20, 'English, Igbo', true],
-    ['Dr. Fatima Bello', 'Gynecology', '120.00', 'Kano, NG', '4.90', 178, true, 15, 'English, Hausa', true],
-    ['Dr. Ibrahim Sani', 'Dentistry', '80.00', 'Kaduna, NG', '4.40', 51, false, 6, 'English, Hausa', false],
-    ['Dr. Zainab Yusuf', 'Ophthalmology', '100.00', 'Lagos, NG', '4.60', 73, true, 10, 'English', true],
+    ['Dr. Grace Bell', 'Cardiology', '150.00', 'Lagos, NG', '4.80', 128, true, 14, 'English, French', true, $schedSplit],
+    ['Dr. Ada Obi', 'Dermatology', '90.00', 'Abuja, NG', '4.60', 84, true, 9, 'English', true, $schedWeekday],
+    ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true, 18, 'English, Igbo', true, $schedMorning],
+    ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false, 11, 'English, French', false, $schedWeekday],
+    ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true, 7, 'English, Yoruba', true, $schedSplit],
+    ['Dr. Amaka Nwosu', 'Psychiatry', '130.00', 'Abuja, NG', '4.70', 96, true, 12, 'English', true, $schedEvening],
+    ['Dr. Emeka Okonkwo', 'Orthopedics', '160.00', 'Lagos, NG', '4.80', 154, true, 20, 'English, Igbo', true, $schedWeekday],
+    ['Dr. Fatima Bello', 'Gynecology', '120.00', 'Kano, NG', '4.90', 178, true, 15, 'English, Hausa', true, $schedMorning],
+    ['Dr. Ibrahim Sani', 'Dentistry', '80.00', 'Kaduna, NG', '4.40', 51, false, 6, 'English, Hausa', false, $schedWeekday],
+    ['Dr. Zainab Yusuf', 'Ophthalmology', '100.00', 'Lagos, NG', '4.60', 73, true, 10, 'English', true, $schedSplit],
 ];
 $specialist = null; // first one, referenced by the appointments below
 // Upsert so re-running the seed also backfills the newer columns.
-foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available, $years, $langs, $verified]) {
+foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available, $years, $langs, $verified, $hours]) {
     $s = $em->getRepository(Specialist::class)->findOneBy(['name' => $name])
         ?? new Specialist($name, $specialty);
     $s->setConsultationFee($fee);
@@ -112,6 +118,7 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
     $s->setYearsExperience($years);
     $s->setLanguages($langs);
     $s->setVerified($verified);
+    $s->setWeeklyHours($hours);
     $em->persist($s);
     $specialist ??= $s;
 }

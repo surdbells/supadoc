@@ -79,6 +79,16 @@ class Appointment
         return $this->patient;
     }
 
+    public function getSpecialist(): Specialist
+    {
+        return $this->specialist;
+    }
+
+    public function getScheduledAt(): DateTimeImmutable
+    {
+        return $this->scheduledAt;
+    }
+
     /** Enforces the state machine; illegal transitions can't be expressed. */
     public function transitionTo(AppointmentStatus $target): void
     {

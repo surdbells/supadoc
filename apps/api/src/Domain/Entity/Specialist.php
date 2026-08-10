@@ -54,6 +54,14 @@ class Specialist
     #[ORM\Column(type: 'boolean', options: ['default' => true])]
     private bool $verified = true;
 
+    /**
+     * Recurring weekly availability: map of weekday ("0"=Sun … "6"=Sat) to a
+     * list of [start, end] "HH:MM" windows. Null falls back to a default in
+     * {@see \App\Infrastructure\Service\AvailabilityService}.
+     */
+    #[ORM\Column(name: 'weekly_hours', type: 'json', nullable: true)]
+    private ?array $weeklyHours = null;
+
     public function __construct(string $name, string $specialty)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -125,6 +133,18 @@ class Specialist
     public function setVerified(bool $verified): void
     {
         $this->verified = $verified;
+    }
+
+    /** @return array<string, list<array{0:string,1:string}>>|null */
+    public function getWeeklyHours(): ?array
+    {
+        return $this->weeklyHours;
+    }
+
+    /** @param array<string, list<array{0:string,1:string}>>|null $hours */
+    public function setWeeklyHours(?array $hours): void
+    {
+        $this->weeklyHours = $hours;
     }
 
     public function toArray(): array
