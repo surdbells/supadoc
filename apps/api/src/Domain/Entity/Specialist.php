@@ -62,6 +62,14 @@ class Specialist
     #[ORM\Column(name: 'weekly_hours', type: 'json', nullable: true)]
     private ?array $weeklyHours = null;
 
+    /** The specialist's gender ('male' / 'female'), for the directory filter. */
+    #[ORM\Column(type: 'string', length: 20, nullable: true)]
+    private ?string $gender = null;
+
+    /** Whether they also offer in-person visits (all offer online/telehealth). */
+    #[ORM\Column(name: 'offers_in_person', type: 'boolean', options: ['default' => false])]
+    private bool $offersInPerson = false;
+
     public function __construct(string $name, string $specialty)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -147,6 +155,16 @@ class Specialist
         $this->weeklyHours = $hours;
     }
 
+    public function setGender(?string $gender): void
+    {
+        $this->gender = $gender !== null && $gender !== '' ? strtolower($gender) : null;
+    }
+
+    public function setOffersInPerson(bool $offers): void
+    {
+        $this->offersInPerson = $offers;
+    }
+
     public function toArray(): array
     {
         return [
@@ -161,6 +179,8 @@ class Specialist
             'years_experience' => $this->yearsExperience,
             'languages'        => $this->languages,
             'verified'         => $this->verified,
+            'gender'           => $this->gender,
+            'offers_in_person' => $this->offersInPerson,
         ];
     }
 }

@@ -146,6 +146,8 @@ return [
                     'years_experience' => ['type' => 'integer', 'nullable' => true, 'example' => 14],
                     'languages'        => ['type' => 'string', 'nullable' => true, 'example' => 'English, French'],
                     'verified'         => ['type' => 'boolean'],
+                    'gender'           => ['type' => 'string', 'nullable' => true, 'enum' => ['male', 'female']],
+                    'offers_in_person' => ['type' => 'boolean'],
                 ],
             ],
             'Appointment' => [
@@ -706,6 +708,10 @@ return [
                     ['name' => 'search', 'in' => 'query', 'description' => 'Matches name or specialty', 'schema' => ['type' => 'string']],
                     ['name' => 'specialty', 'in' => 'query', 'description' => 'Exact specialty filter', 'schema' => ['type' => 'string']],
                     ['name' => 'available', 'in' => 'query', 'schema' => ['type' => 'boolean']],
+                    ['name' => 'location', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'language', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'gender', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['male', 'female']]],
+                    ['name' => 'mode', 'in' => 'query', 'description' => 'in_person to require in-person visits', 'schema' => ['type' => 'string', 'enum' => ['online', 'in_person']]],
                 ],
                 'responses'  => [
                     '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Specialist'))],
@@ -722,6 +728,22 @@ return [
                 ],
             ],
         ],
+        '/api/public/facets' => [
+            'get' => [
+                'tags'      => ['Public'],
+                'summary'   => 'Filter options: specialties (with counts), locations, languages',
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'type'       => 'object',
+                        'properties' => [
+                            'specialties' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'count' => ['type' => 'integer']]]],
+                            'locations'   => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'languages'   => ['type' => 'array', 'items' => ['type' => 'string']],
+                        ],
+                    ]))],
+                ],
+            ],
+        ],
         '/api/public/specialists' => [
             'get' => [
                 'tags'       => ['Public'],
@@ -729,6 +751,10 @@ return [
                 'parameters' => [
                     ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'specialty', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'location', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'language', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'gender', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['male', 'female']]],
+                    ['name' => 'mode', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['online', 'in_person']]],
                     ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 12, 'maximum' => 24]],
                 ],
                 'responses'  => [

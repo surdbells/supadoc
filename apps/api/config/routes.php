@@ -54,6 +54,7 @@ return static function (App $app): void {
 
         // ----- Public marketing data (no auth) -----
         $group->get('/public/specialties', Action\Public\PublicSpecialtiesAction::class);
+        $group->get('/public/facets', Action\Public\PublicFacetsAction::class);
         $group->get('/public/specialists', Action\Public\PublicSpecialistsAction::class);
 
         // ----- Staff (default audience) -----

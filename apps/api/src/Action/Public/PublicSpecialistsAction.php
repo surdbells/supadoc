@@ -28,6 +28,10 @@ final class PublicSpecialistsAction
         $query     = $request->getQueryParams();
         $search    = trim((string) ($query['search'] ?? ''));
         $specialty = trim((string) ($query['specialty'] ?? ''));
+        $location  = trim((string) ($query['location'] ?? ''));
+        $language  = trim((string) ($query['language'] ?? ''));
+        $gender    = trim((string) ($query['gender'] ?? ''));
+        $inPerson  = strtolower(trim((string) ($query['mode'] ?? ''))) === 'in_person' ? true : null;
         $limit     = max(1, min(24, (int) ($query['limit'] ?? 12)));
 
         $result = $this->repo->paginated(
@@ -38,6 +42,10 @@ final class PublicSpecialistsAction
             $search === '' ? null : $search,
             null,
             $specialty === '' ? null : $specialty,
+            $location === '' ? null : $location,
+            $language === '' ? null : $language,
+            $gender === '' ? null : $gender,
+            $inPerson,
         );
 
         return $this->success(
