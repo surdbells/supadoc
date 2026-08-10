@@ -2,42 +2,24 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   input,
+  OnInit,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { AppointmentsApi } from '@supadoc/data-access';
-import type { SpecialistDto } from '@supadoc/models';
+import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
+import type { DayAvailability, SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
-
-interface DateOption {
-  readonly value: string; // YYYY-MM-DD
-  readonly weekday: string; // Tue
-  readonly day: string; // 11
-}
-
-interface TimeOption {
-  readonly value: string; // HH:MM (24h)
-  readonly label: string; // 10:00 AM
-}
-
-// A fixed daily set of bookable slots (no per-doctor calendar in the backend
-// yet — these are the times a patient can request).
-const SLOTS: TimeOption[] = [
-  { value: '09:00', label: '9:00 AM' },
-  { value: '10:00', label: '10:00 AM' },
-  { value: '11:00', label: '11:00 AM' },
-  { value: '14:00', label: '2:00 PM' },
-  { value: '15:00', label: '3:00 PM' },
-  { value: '16:00', label: '4:00 PM' },
-];
 
 /**
  * One specialist in the directory (Figma 311:4126) with an inline date/time
- * picker. Choosing a day + slot and hitting Book Consultation creates the
- * appointment via POST /portal/appointments and jumps to My Appointments.
+ * picker driven by the specialist's real availability
+ * (GET /portal/specialists/{id}/slots). Choosing a day + slot and hitting Book
+ * Consultation creates the appointment and jumps to My Appointments.
  */
 @Component({
   selector: 'pat-specialist-card',
@@ -106,13 +88,33 @@ const SLOTS: TimeOption[] = [
       </div>
 
       <!-- Scheduling widget -->
-      @if (specialist().available) {
-        <div class="flex flex-col gap-3 rounded-card border border-cloud bg-glacier/60 p-4">
+      @if (!specialist().available) {
+        <div
+          class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
+        >
+          <sd-icon name="calendar-off" [size]="16" />
+          Not accepting bookings right now.
+        </div>
+      } @else if (loadingSlots()) {
+        <div
+          class="h-28 animate-pulse rounded-card border border-cloud bg-cloud/40"
+        ></div>
+      } @else if (days().length === 0) {
+        <div
+          class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
+        >
+          <sd-icon name="calendar-off" [size]="16" />
+          No open slots in the next two weeks.
+        </div>
+      } @else {
+        <div
+          class="flex flex-col gap-3 rounded-card border border-cloud bg-glacier/60 p-4"
+        >
           <div class="flex items-center justify-between gap-2">
             <span
               class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean"
             >
-              <sd-icon name="calendar-clock" [size]="16" />Choose a time
+              <sd-icon name="calendar-clock" [size]="16" />Next available
             </span>
             <span class="font-sans text-caption font-medium text-ink">{{
               selectedSummary()
@@ -121,16 +123,16 @@ const SLOTS: TimeOption[] = [
 
           <!-- Dates -->
           <div class="flex gap-2 overflow-x-auto pb-1">
-            @for (d of dates; track d.value) {
+            @for (d of days(); track d.date) {
               <button
                 type="button"
                 class="flex shrink-0 flex-col items-center rounded-field border px-3 py-1.5 transition-colors"
                 [class]="
-                  selectedDate() === d.value
+                  selectedDate() === d.date
                     ? 'border-cerulean bg-cerulean text-white'
                     : 'border-cloud bg-white text-slate hover:border-cerulean/50'
                 "
-                (click)="selectedDate.set(d.value)"
+                (click)="pickDate(d)"
               >
                 <span class="font-sans text-[10px] uppercase">{{
                   d.weekday
@@ -144,28 +146,21 @@ const SLOTS: TimeOption[] = [
 
           <!-- Times -->
           <div class="flex flex-wrap gap-2">
-            @for (t of slots; track t.value) {
+            @for (t of selectedDaySlots(); track t.iso) {
               <button
                 type="button"
                 class="rounded-field border px-3 py-1 font-sans text-caption transition-colors"
                 [class]="
-                  selectedTime() === t.value
+                  selectedTime() === t.iso
                     ? 'border-cerulean bg-cerulean text-white'
                     : 'border-cloud bg-white text-slate hover:border-cerulean/50'
                 "
-                (click)="selectedTime.set(t.value)"
+                (click)="selectedTime.set(t.iso)"
               >
                 {{ t.label }}
               </button>
             }
           </div>
-        </div>
-      } @else {
-        <div
-          class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
-        >
-          <sd-icon name="calendar-off" [size]="16" />
-          Not accepting bookings right now.
         </div>
       }
 
@@ -187,7 +182,9 @@ const SLOTS: TimeOption[] = [
             >\${{ specialist().consultation_fee }} / Consultation</span
           >
         </span>
-        <span class="flex items-center gap-1.5 font-sans text-caption text-slate">
+        <span
+          class="flex items-center gap-1.5 font-sans text-caption text-slate"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="#f2a900">
             <path
               d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
@@ -217,7 +214,7 @@ const SLOTS: TimeOption[] = [
         <sd-button
           size="sm"
           [full]="true"
-          [disabled]="!specialist().available || booking()"
+          [disabled]="!canBook() || booking()"
           (click)="book()"
         >
           <sd-icon name="video" [size]="18" />
@@ -227,9 +224,11 @@ const SLOTS: TimeOption[] = [
     </article>
   `,
 })
-export class SpecialistCard {
+export class SpecialistCard implements OnInit {
   private readonly appointments = inject(AppointmentsApi);
+  private readonly specialistsApi = inject(SpecialistsApi);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly specialist = input.required<SpecialistDto>();
 
@@ -237,27 +236,45 @@ export class SpecialistCard {
   protected readonly booking = signal(false);
   protected readonly bookError = signal('');
 
-  protected readonly slots = SLOTS;
-  // Next 6 bookable days, starting tomorrow.
-  protected readonly dates: DateOption[] = ((): DateOption[] => {
-    const out: DateOption[] = [];
-    const base = new Date();
-    base.setHours(0, 0, 0, 0);
-    for (let i = 1; i <= 6; i++) {
-      const d = new Date(base);
-      d.setDate(base.getDate() + i);
-      const pad = (n: number): string => String(n).padStart(2, '0');
-      out.push({
-        value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-        weekday: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        day: String(d.getDate()),
-      });
-    }
-    return out;
-  })();
+  protected readonly days = signal<DayAvailability[]>([]);
+  protected readonly loadingSlots = signal(true);
+  protected readonly selectedDate = signal('');
+  protected readonly selectedTime = signal('');
 
-  protected readonly selectedDate = signal(this.dates[0].value);
-  protected readonly selectedTime = signal(SLOTS[0].value);
+  ngOnInit(): void {
+    if (!this.specialist().available) {
+      this.loadingSlots.set(false);
+      return;
+    }
+    this.specialistsApi
+      .slots(this.specialist().id, 7)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.days.set(res.data);
+          const first = res.data[0];
+          if (first) {
+            this.selectedDate.set(first.date);
+            this.selectedTime.set(first.slots[0]?.iso ?? '');
+          }
+          this.loadingSlots.set(false);
+        },
+        error: () => this.loadingSlots.set(false),
+      });
+  }
+
+  protected readonly selectedDaySlots = computed(
+    () => this.days().find((d) => d.date === this.selectedDate())?.slots ?? [],
+  );
+
+  protected pickDate(d: DayAvailability): void {
+    this.selectedDate.set(d.date);
+    this.selectedTime.set(d.slots[0]?.iso ?? '');
+  }
+
+  protected readonly canBook = computed(
+    () => this.specialist().available && this.selectedTime() !== '',
+  );
 
   protected readonly initials = computed(() =>
     this.specialist()
@@ -281,9 +298,9 @@ export class SpecialistCard {
   );
 
   protected readonly selectedSummary = computed(() => {
-    const d = this.dates.find((o) => o.value === this.selectedDate());
-    const t = this.slots.find((o) => o.value === this.selectedTime());
-    return d && t ? `${d.weekday} ${d.day}, ${t.label}` : '';
+    const day = this.days().find((d) => d.date === this.selectedDate());
+    const slot = day?.slots.find((s) => s.iso === this.selectedTime());
+    return day && slot ? `${day.weekday} ${day.day}, ${slot.label}` : '';
   });
 
   protected readonly about = computed(() => {
@@ -291,7 +308,9 @@ export class SpecialistCard {
     const parts = [
       `${s.name} is a ${s.specialty} specialist`,
       s.location ? ` based in ${s.location}` : '',
-      s.years_experience ? ` with ${s.years_experience} years of experience` : '',
+      s.years_experience
+        ? ` with ${s.years_experience} years of experience`
+        : '',
       '.',
     ];
     const langs = s.languages ? ` Speaks ${s.languages}.` : '';
@@ -300,18 +319,14 @@ export class SpecialistCard {
   });
 
   protected async book(): Promise<void> {
-    const s = this.specialist();
-    if (!s.available) return;
+    if (!this.canBook()) return;
     this.booking.set(true);
     this.bookError.set('');
     try {
-      const iso = new Date(
-        `${this.selectedDate()}T${this.selectedTime()}:00`,
-      ).toISOString();
       await firstValueFrom(
         this.appointments.book({
-          specialist_id: s.id,
-          scheduled_at: iso,
+          specialist_id: this.specialist().id,
+          scheduled_at: this.selectedTime(),
           type: 'video',
         }),
       );

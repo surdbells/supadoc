@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  DayAvailability,
   ListAppointmentsQuery,
   PaginatedResponse,
   SpecialistDto,
@@ -38,6 +39,17 @@ export class SpecialistsApi {
   specialties(): Observable<SuccessResponse<string[]>> {
     return this.api.get<SuccessResponse<string[]>>(
       'api/portal/specialists/specialties',
+    );
+  }
+
+  /** GET /api/portal/specialists/{id}/slots — the specialist's open slots. */
+  slots(
+    id: string,
+    days = 7,
+  ): Observable<SuccessResponse<DayAvailability[]>> {
+    return this.api.get<SuccessResponse<DayAvailability[]>>(
+      `api/portal/specialists/${encodeURIComponent(id)}/slots`,
+      { days },
     );
   }
 }

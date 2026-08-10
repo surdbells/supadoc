@@ -76,6 +76,20 @@ export interface BookAppointmentParams {
   type?: 'video' | 'follow_up' | 'urgent' | 'routine';
 }
 
+/** One open consultation slot (from GET /portal/specialists/{id}/slots). */
+export interface SlotOption {
+  iso: string;
+  label: string;
+  time: string;
+}
+/** A day with at least one open slot. */
+export interface DayAvailability {
+  date: string;
+  weekday: string;
+  day: string;
+  slots: SlotOption[];
+}
+
 /** Agora RTC join credentials for a consultation call. */
 export interface CallTokenDto {
   app_id: string;
