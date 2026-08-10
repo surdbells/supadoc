@@ -109,7 +109,7 @@ DB_PORT=5432
 DB_NAME=videomed
 DB_USER=videomed
 DB_PASSWORD=STRONG_DB_PASSWORD
-DB_SERVER_VERSION=16
+DB_SERVER_VERSION=16          # set to your installed major (e.g. 17)
 
 JWT_SECRET=<openssl output>
 JWT_ACCESS_TTL=900
@@ -117,6 +117,7 @@ JWT_REFRESH_TTL=1209600
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+REDIS_PASSWORD=            # set if your Redis has requirepass (aaPanel usually does)
 REDIS_PREFIX=videomed:
 
 # Exact browser origin(s) of the frontend that may call the API (comma-separated):

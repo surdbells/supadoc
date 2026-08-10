@@ -53,9 +53,11 @@ return [
     },
 
     RedisClient::class => static fn (): RedisClient => new RedisClient([
-        'scheme' => 'tcp',
-        'host'   => $_ENV['REDIS_HOST'] ?? '127.0.0.1',
-        'port'   => (int) ($_ENV['REDIS_PORT'] ?? 6379),
+        'scheme'   => 'tcp',
+        'host'     => $_ENV['REDIS_HOST'] ?? '127.0.0.1',
+        'port'     => (int) ($_ENV['REDIS_PORT'] ?? 6379),
+        // Only sent when set — leave REDIS_PASSWORD empty for an unauthenticated Redis.
+        'password' => ($_ENV['REDIS_PASSWORD'] ?? '') !== '' ? $_ENV['REDIS_PASSWORD'] : null,
     ], [
         'prefix' => $_ENV['REDIS_PREFIX'] ?? 'app:',
     ]),
