@@ -1,7 +1,7 @@
 export const environment = {
   production: true,
-  // Point at the deployed VideoMed backend (apps/api) origin at release time.
-  apiBaseUrl: 'https://api.videomed.app',
+  // Deployed VideoMed backend (apps/api) — Debian/aaPanel host.
+  apiBaseUrl: 'https://api.dosthq.com',
   loginPath: 'api/portal/auth/login',
   firebase: {
     apiKey: '',

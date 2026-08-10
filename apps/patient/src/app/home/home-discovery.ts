@@ -19,7 +19,7 @@ import {
 } from 'rxjs';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto, SpecialtyCount } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { IconComponent, SearchSelectComponent } from '@supadoc/ui';
 
 interface DeptMeta {
   readonly tag: string;
@@ -80,7 +80,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 @Component({
   selector: 'pat-home-discovery',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, SearchSelectComponent],
   host: { class: 'block' },
   styles: [
     `
@@ -101,7 +101,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
   ],
   template: `
     <section class="bg-gradient-to-b from-glacier to-white">
-      <div class="mx-auto max-w-[1000px] px-5 py-16 md:px-8">
+      <div class="mx-auto max-w-[1280px] px-5 py-16 md:px-8">
         <div class="flex flex-col items-center gap-4 text-center">
           <span
             class="inline-flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
@@ -250,15 +250,17 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
           }
         </div>
 
-        <!-- Filter chips -->
+        <!-- Filter chips (single row on desktop) -->
         <div
-          class="mx-auto mt-4 flex max-w-4xl flex-wrap items-center justify-center gap-3"
+          class="mx-auto mt-4 flex max-w-5xl flex-wrap items-center justify-center gap-3 lg:flex-nowrap"
         >
-          <div class="flex rounded-field border border-cloud bg-white p-1">
+          <div
+            class="flex shrink-0 rounded-field border border-cloud bg-white p-1"
+          >
             @for (t of consultTypes; track t.value) {
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
+                class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-body-sm transition-colors"
                 [class]="
                   consultationType() === t.value
                     ? 'bg-frost font-medium text-cerulean'
@@ -271,69 +273,43 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             }
           </div>
 
-          <label [class]="chipClass">
-            <sd-icon name="stethoscope" [size]="16" class="text-slate" />
-            <select
-              [value]="specialty()"
-              (change)="specialty.set($any($event.target).value)"
-              [class]="chipSelect"
-              aria-label="Speciality"
-            >
-              <option value="">Speciality</option>
-              @for (d of departments(); track d.name) {
-                <option [value]="d.name">{{ d.name }}</option>
-              }
-            </select>
-          </label>
-
-          <label [class]="chipClass">
-            <sd-icon name="map-pin" [size]="16" class="text-slate" />
-            <select
-              [value]="location()"
-              (change)="location.set($any($event.target).value)"
-              [class]="chipSelect"
-              aria-label="Location"
-            >
-              <option value="">Location</option>
-              @for (l of locations(); track l) {
-                <option [value]="l">{{ l }}</option>
-              }
-            </select>
-          </label>
-
-          <label [class]="chipClass">
-            <sd-icon name="languages" [size]="16" class="text-slate" />
-            <select
-              [value]="language()"
-              (change)="language.set($any($event.target).value)"
-              [class]="chipSelect"
-              aria-label="Language"
-            >
-              <option value="">Language</option>
-              @for (l of languages(); track l) {
-                <option [value]="l">{{ l }}</option>
-              }
-            </select>
-          </label>
-
-          <label [class]="chipClass">
-            <sd-icon name="user-round" [size]="16" class="text-slate" />
-            <select
-              [value]="gender()"
-              (change)="gender.set($any($event.target).value)"
-              [class]="chipSelect"
-              aria-label="Gender"
-            >
-              <option value="">Gender</option>
-              <option value="female">Female</option>
-              <option value="male">Male</option>
-            </select>
-          </label>
+          <sd-search-select
+            class="w-40 lg:min-w-0 lg:flex-1"
+            icon="stethoscope"
+            placeholder="Speciality"
+            [options]="specialtyNames()"
+            [value]="specialty()"
+            (valueChange)="specialty.set($event)"
+          />
+          <sd-search-select
+            class="w-40 lg:min-w-0 lg:flex-1"
+            icon="map-pin"
+            placeholder="Location"
+            [options]="locations()"
+            [value]="location()"
+            (valueChange)="location.set($event)"
+          />
+          <sd-search-select
+            class="w-40 lg:min-w-0 lg:flex-1"
+            icon="languages"
+            placeholder="Language"
+            [options]="languages()"
+            [value]="language()"
+            (valueChange)="language.set($event)"
+          />
+          <sd-search-select
+            class="w-40 lg:min-w-0 lg:flex-1"
+            icon="user-round"
+            placeholder="Gender"
+            [options]="genderOptions"
+            [value]="gender()"
+            (valueChange)="gender.set($event)"
+          />
 
           @if (hasFilters()) {
             <button
               type="button"
-              class="inline-flex items-center gap-1 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
+              class="inline-flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
               (click)="clearFilters()"
             >
               <sd-icon name="x" [size]="14" />Clear
@@ -468,10 +444,13 @@ export class HomeDiscovery implements OnInit {
     { value: 'online' as const, label: 'Online', icon: 'video' },
     { value: 'in_person' as const, label: 'In-person', icon: 'building-2' },
   ];
-  protected readonly chipClass =
-    'flex items-center gap-2 rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink transition-colors focus-within:border-cerulean';
-  protected readonly chipSelect =
-    'bg-transparent font-sans text-body-sm text-ink focus:outline-none';
+  protected readonly genderOptions = [
+    { value: 'female', label: 'Female' },
+    { value: 'male', label: 'Male' },
+  ];
+  protected readonly specialtyNames = computed(() =>
+    this.departments().map((d) => d.name),
+  );
 
   private readonly placeholders = [
     "Search by doctor's name — e.g Dr Grace Bell",

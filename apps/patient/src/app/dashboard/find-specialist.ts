@@ -17,7 +17,11 @@ import {
 import { ActivatedRoute } from '@angular/router';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  IconComponent,
+  SearchSelectComponent,
+} from '@supadoc/ui';
 import { SpecialistCard } from './specialist-card';
 
 interface Criteria {
@@ -39,7 +43,12 @@ interface Criteria {
 @Component({
   selector: 'pat-find-specialist',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, IconComponent, SpecialistCard],
+  imports: [
+    ButtonComponent,
+    IconComponent,
+    SearchSelectComponent,
+    SpecialistCard,
+  ],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -163,11 +172,13 @@ interface Criteria {
             <span class="font-sans text-body-sm font-semibold text-ink"
               >Consultation type</span
             >
-            <div class="flex w-fit rounded-field border border-cloud bg-white p-1">
+            <div
+              class="flex w-fit rounded-field border border-cloud bg-white p-1"
+            >
               @for (t of consultTypes; track t.value) {
                 <button
                   type="button"
-                  class="flex items-center gap-1.5 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
+                  class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
                   [class]="
                     mode() === t.value
                       ? 'bg-frost font-medium text-cerulean'
@@ -182,50 +193,39 @@ interface Criteria {
           </div>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-body-sm font-semibold text-ink"
                 >Location</span
               >
-              <select
+              <sd-search-select
+                placeholder="Any location"
+                [options]="locations()"
                 [value]="location()"
-                (change)="location.set($any($event.target).value)"
-                class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
-              >
-                <option value="">Any location</option>
-                @for (l of locations(); track l) {
-                  <option [value]="l">{{ l }}</option>
-                }
-              </select>
-            </label>
-            <label class="flex flex-col gap-2">
+                (valueChange)="location.set($event)"
+              />
+            </div>
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-body-sm font-semibold text-ink"
                 >Language</span
               >
-              <select
+              <sd-search-select
+                placeholder="Any language"
+                [options]="languages()"
                 [value]="language()"
-                (change)="language.set($any($event.target).value)"
-                class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
-              >
-                <option value="">Any language</option>
-                @for (l of languages(); track l) {
-                  <option [value]="l">{{ l }}</option>
-                }
-              </select>
-            </label>
-            <label class="flex flex-col gap-2">
+                (valueChange)="language.set($event)"
+              />
+            </div>
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-body-sm font-semibold text-ink"
                 >Gender</span
               >
-              <select
+              <sd-search-select
+                placeholder="Any gender"
+                [options]="genderOptions"
                 [value]="gender()"
-                (change)="gender.set($any($event.target).value)"
-                class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
-              >
-                <option value="">Any gender</option>
-                <option value="female">Female</option>
-                <option value="male">Male</option>
-              </select>
-            </label>
+                (valueChange)="gender.set($event)"
+              />
+            </div>
           </div>
 
           @if (activeFilterCount() > 0) {
@@ -326,6 +326,10 @@ export class FindSpecialist {
     { value: 'any' as const, label: 'Any', icon: 'sparkles' },
     { value: 'online' as const, label: 'Online', icon: 'video' },
     { value: 'in_person' as const, label: 'In-person', icon: 'building-2' },
+  ];
+  protected readonly genderOptions = [
+    { value: 'female', label: 'Female' },
+    { value: 'male', label: 'Male' },
   ];
 
   protected readonly all = signal<SpecialistDto[]>([]);

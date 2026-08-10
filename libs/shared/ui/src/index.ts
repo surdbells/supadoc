@@ -5,5 +5,6 @@ export * from './lib/phone-input/phone-input';
 export * from './lib/toggle/toggle';
 export * from './lib/logo/logo';
 export * from './lib/otp/otp';
+export * from './lib/search-select/search-select';
 export * from './lib/icon/icon';
 export * from './lib/icons/icons';

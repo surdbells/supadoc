@@ -19,7 +19,12 @@ import {
 } from 'rxjs';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent, LogoComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  IconComponent,
+  LogoComponent,
+  SearchSelectComponent,
+} from '@supadoc/ui';
 import { SpecialistCard } from '../dashboard/specialist-card';
 
 type Mode = 'any' | 'online' | 'in_person';
@@ -62,6 +67,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
     IconComponent,
     ButtonComponent,
     LogoComponent,
+    SearchSelectComponent,
     SpecialistCard,
   ],
   host: { class: 'block min-h-screen bg-glacier' },
@@ -227,7 +233,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                 @for (t of consultTypes; track t.value) {
                   <button
                     type="button"
-                    class="flex flex-1 items-center justify-center gap-1 rounded-pill px-2 py-1.5 font-sans text-caption transition-colors"
+                    class="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-pill px-2 py-1.5 font-sans text-caption transition-colors"
                     [class]="
                       mode() === t.value
                         ? 'bg-frost font-medium text-cerulean'
@@ -241,68 +247,53 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               </div>
             </div>
 
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
                 >Speciality</span
               >
-              <select
+              <sd-search-select
+                placeholder="Any"
+                [options]="specialties()"
                 [value]="specialty()"
-                (change)="specialty.set($any($event.target).value)"
-                [class]="fieldClass"
-              >
-                <option value="">Any</option>
-                @for (s of specialties(); track s) {
-                  <option [value]="s">{{ s }}</option>
-                }
-              </select>
-            </label>
+                (valueChange)="specialty.set($event)"
+              />
+            </div>
 
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
                 >Location</span
               >
-              <select
+              <sd-search-select
+                placeholder="Any"
+                [options]="locations()"
                 [value]="location()"
-                (change)="location.set($any($event.target).value)"
-                [class]="fieldClass"
-              >
-                <option value="">Any</option>
-                @for (l of locations(); track l) {
-                  <option [value]="l">{{ l }}</option>
-                }
-              </select>
-            </label>
+                (valueChange)="location.set($event)"
+              />
+            </div>
 
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
                 >Language</span
               >
-              <select
+              <sd-search-select
+                placeholder="Any"
+                [options]="languages()"
                 [value]="language()"
-                (change)="language.set($any($event.target).value)"
-                [class]="fieldClass"
-              >
-                <option value="">Any</option>
-                @for (l of languages(); track l) {
-                  <option [value]="l">{{ l }}</option>
-                }
-              </select>
-            </label>
+                (valueChange)="language.set($event)"
+              />
+            </div>
 
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
                 >Gender</span
               >
-              <select
+              <sd-search-select
+                placeholder="Both"
+                [options]="genderOptions"
                 [value]="gender()"
-                (change)="gender.set($any($event.target).value)"
-                [class]="fieldClass"
-              >
-                <option value="">Both</option>
-                <option value="female">Female</option>
-                <option value="male">Male</option>
-              </select>
-            </label>
+                (valueChange)="gender.set($event)"
+              />
+            </div>
 
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between">
@@ -439,6 +430,10 @@ export class PublicSpecialists implements OnInit {
     { value: 'any' as const, label: 'Any', icon: 'sparkles' },
     { value: 'online' as const, label: 'Online', icon: 'video' },
     { value: 'in_person' as const, label: 'In-person', icon: 'building-2' },
+  ];
+  protected readonly genderOptions = [
+    { value: 'female', label: 'Female' },
+    { value: 'male', label: 'Male' },
   ];
   protected readonly fieldClass =
     'rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none';
