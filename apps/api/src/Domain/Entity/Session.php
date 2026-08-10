@@ -95,11 +95,12 @@ class Session
             str_contains($ua, 'Safari/')                   => 'Safari',
             default                                        => 'Browser',
         };
+        // iOS/Android first — an iPhone UA also contains "like Mac OS X".
         $os = match (true) {
+            str_contains($ua, 'iPhone') || str_contains($ua, 'iPad') || str_contains($ua, 'iPod') => 'iOS',
+            str_contains($ua, 'Android')                   => 'Android',
             str_contains($ua, 'Windows')                   => 'Windows',
             str_contains($ua, 'Mac OS X') || str_contains($ua, 'Macintosh') => 'macOS',
-            str_contains($ua, 'Android')                   => 'Android',
-            str_contains($ua, 'iPhone') || str_contains($ua, 'iPad') || str_contains($ua, 'iPod') => 'iOS',
             str_contains($ua, 'Linux')                     => 'Linux',
             default                                        => 'Unknown device',
         };

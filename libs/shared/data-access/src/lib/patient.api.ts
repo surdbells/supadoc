@@ -6,6 +6,7 @@ import type {
   PatientProfileDto,
   PatientSettingsDto,
   PatientSettingsPatch,
+  SessionDto,
   SuccessResponse,
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
@@ -42,6 +43,20 @@ export class PatientApi {
   removeAvatar(): Observable<SuccessResponse<PatientProfileDto>> {
     return this.api.delete<SuccessResponse<PatientProfileDto>>(
       'api/portal/me/avatar',
+    );
+  }
+
+  /** GET /api/portal/me/sessions — active sign-in sessions (devices). */
+  sessions(): Observable<SuccessResponse<SessionDto[]>> {
+    return this.api.get<SuccessResponse<SessionDto[]>>(
+      'api/portal/me/sessions',
+    );
+  }
+
+  /** DELETE /api/portal/me/sessions/{id} — sign out of a session. */
+  revokeSession(id: string): Observable<SuccessResponse<{ revoked: boolean }>> {
+    return this.api.delete<SuccessResponse<{ revoked: boolean }>>(
+      `api/portal/me/sessions/${encodeURIComponent(id)}`,
     );
   }
 

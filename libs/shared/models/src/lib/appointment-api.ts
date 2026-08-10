@@ -187,6 +187,16 @@ export interface HealthProfileDto {
 /** A partial save — any subset of the three sections. */
 export type HealthProfilePatch = Partial<HealthProfileDto>;
 
+/** One active sign-in session, from GET /portal/me/sessions. */
+export interface SessionDto {
+  id: string;
+  device: string;
+  icon: 'laptop' | 'smartphone';
+  ip: string | null;
+  created_at: string;
+  current: boolean;
+}
+
 /** One notification, from `Notification::toArray()`. */
 export interface NotificationDto {
   id: string;
