@@ -44,6 +44,16 @@ class Specialist
     #[ORM\Column(type: 'boolean')]
     private bool $available = true;
 
+    #[ORM\Column(name: 'years_experience', type: 'integer', nullable: true)]
+    private ?int $yearsExperience = null;
+
+    /** Comma-separated spoken languages, e.g. "English, French". */
+    #[ORM\Column(type: 'string', length: 200, nullable: true)]
+    private ?string $languages = null;
+
+    #[ORM\Column(type: 'boolean', options: ['default' => true])]
+    private bool $verified = true;
+
     public function __construct(string $name, string $specialty)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -102,6 +112,21 @@ class Specialist
         return $this->available;
     }
 
+    public function setYearsExperience(?int $years): void
+    {
+        $this->yearsExperience = $years;
+    }
+
+    public function setLanguages(?string $languages): void
+    {
+        $this->languages = $languages !== null && $languages !== '' ? $languages : null;
+    }
+
+    public function setVerified(bool $verified): void
+    {
+        $this->verified = $verified;
+    }
+
     public function toArray(): array
     {
         return [
@@ -113,6 +138,9 @@ class Specialist
             'rating'           => $this->rating,
             'reviews_count'    => $this->reviewsCount,
             'available'        => $this->available,
+            'years_experience' => $this->yearsExperience,
+            'languages'        => $this->languages,
+            'verified'         => $this->verified,
         ];
     }
 }

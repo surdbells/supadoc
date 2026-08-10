@@ -143,6 +143,9 @@ return [
                     'rating'           => ['type' => 'string', 'example' => '4.80'],
                     'reviews_count'    => ['type' => 'integer', 'example' => 128],
                     'available'        => ['type' => 'boolean'],
+                    'years_experience' => ['type' => 'integer', 'nullable' => true, 'example' => 14],
+                    'languages'        => ['type' => 'string', 'nullable' => true, 'example' => 'English, French'],
+                    'verified'         => ['type' => 'boolean'],
                 ],
             ],
             'Appointment' => [

@@ -86,30 +86,33 @@ if ($patient === null) {
 
 // Bookable specialists. Fees are money-as-string. The first (Grace Bell) is the
 // one the seeded appointments reference.
+// [name, specialty, fee, location, rating, reviews, available, years, languages, verified]
 $specialistSeeds = [
-    ['Dr. Grace Bell', 'Cardiology', '150.00', 'Lagos, NG', '4.80', 128, true],
-    ['Dr. Ada Obi', 'Dermatology', '90.00', 'Abuja, NG', '4.60', 84, true],
-    ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true],
-    ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false],
-    ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true],
-    ['Dr. Amaka Nwosu', 'Psychiatry', '130.00', 'Abuja, NG', '4.70', 96, true],
-    ['Dr. Emeka Okonkwo', 'Orthopedics', '160.00', 'Lagos, NG', '4.80', 154, true],
-    ['Dr. Fatima Bello', 'Gynecology', '120.00', 'Kano, NG', '4.90', 178, true],
-    ['Dr. Ibrahim Sani', 'Dentistry', '80.00', 'Kaduna, NG', '4.40', 51, false],
-    ['Dr. Zainab Yusuf', 'Ophthalmology', '100.00', 'Lagos, NG', '4.60', 73, true],
+    ['Dr. Grace Bell', 'Cardiology', '150.00', 'Lagos, NG', '4.80', 128, true, 14, 'English, French', true],
+    ['Dr. Ada Obi', 'Dermatology', '90.00', 'Abuja, NG', '4.60', 84, true, 9, 'English', true],
+    ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true, 18, 'English, Igbo', true],
+    ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false, 11, 'English, French', false],
+    ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true, 7, 'English, Yoruba', true],
+    ['Dr. Amaka Nwosu', 'Psychiatry', '130.00', 'Abuja, NG', '4.70', 96, true, 12, 'English', true],
+    ['Dr. Emeka Okonkwo', 'Orthopedics', '160.00', 'Lagos, NG', '4.80', 154, true, 20, 'English, Igbo', true],
+    ['Dr. Fatima Bello', 'Gynecology', '120.00', 'Kano, NG', '4.90', 178, true, 15, 'English, Hausa', true],
+    ['Dr. Ibrahim Sani', 'Dentistry', '80.00', 'Kaduna, NG', '4.40', 51, false, 6, 'English, Hausa', false],
+    ['Dr. Zainab Yusuf', 'Ophthalmology', '100.00', 'Lagos, NG', '4.60', 73, true, 10, 'English', true],
 ];
 $specialist = null; // first one, referenced by the appointments below
-foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available]) {
-    $s = $em->getRepository(Specialist::class)->findOneBy(['name' => $name]);
-    if ($s === null) {
-        $s = new Specialist($name, $specialty);
-        $s->setConsultationFee($fee);
-        $s->setLocation($location);
-        $s->setRating($rating);
-        $s->setReviewsCount($reviews);
-        $s->setAvailable($available);
-        $em->persist($s);
-    }
+// Upsert so re-running the seed also backfills the newer columns.
+foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available, $years, $langs, $verified]) {
+    $s = $em->getRepository(Specialist::class)->findOneBy(['name' => $name])
+        ?? new Specialist($name, $specialty);
+    $s->setConsultationFee($fee);
+    $s->setLocation($location);
+    $s->setRating($rating);
+    $s->setReviewsCount($reviews);
+    $s->setAvailable($available);
+    $s->setYearsExperience($years);
+    $s->setLanguages($langs);
+    $s->setVerified($verified);
+    $em->persist($s);
     $specialist ??= $s;
 }
 
