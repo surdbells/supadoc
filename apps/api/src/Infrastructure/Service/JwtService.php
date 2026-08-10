@@ -34,10 +34,10 @@ final class JwtService
         string $scope,
         array $roles = [],
         array $permissions = [],
+        ?string $jti = null,
     ): string {
-        $now = time();
-
-        return JWT::encode([
+        $now     = time();
+        $payload = [
             'sub'         => $subject,
             'scope'       => $scope,
             'roles'       => array_values($roles),
@@ -45,7 +45,13 @@ final class JwtService
             'type'        => 'access',
             'iat'         => $now,
             'exp'         => $now + $this->accessTtl,
-        ], $this->secret, self::ALGO);
+        ];
+        // A jti ties the token to a revocable server-side session.
+        if ($jti !== null) {
+            $payload['jti'] = $jti;
+        }
+
+        return JWT::encode($payload, $this->secret, self::ALGO);
     }
 
     public function issueRefreshToken(string $subject, string $scope): string

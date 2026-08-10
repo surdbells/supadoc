@@ -7,6 +7,7 @@ use App\Infrastructure\Middleware\AuthMiddleware;
 use App\Infrastructure\Middleware\CustomerAuthMiddleware;
 use App\Infrastructure\Middleware\RbacMiddleware;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\SessionService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\App;
@@ -19,6 +20,7 @@ use Slim\Routing\RouteCollectorProxy;
 return static function (App $app): void {
     $container = $app->getContainer();
     $jwt       = $container->get(JwtService::class);
+    $sessions  = $container->get(SessionService::class);
 
     // NB: route/group closures must NOT be `static` — Slim binds them to the
     // container via Closure::bindTo(), which returns null for static closures.
@@ -35,7 +37,7 @@ return static function (App $app): void {
     $app->get('/api/docs', Action\Docs\SwaggerUiAction::class);
     $app->get('/api/docs/openapi.json', Action\Docs\OpenApiAction::class);
 
-    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt): void {
+    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions): void {
         // ----- Public -----
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
         $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
@@ -79,6 +81,8 @@ return static function (App $app): void {
             $group->patch('/me/settings', Action\Patient\UpdateMySettingsAction::class);
             $group->get('/me/health-profile', Action\Patient\MyHealthProfileAction::class);
             $group->patch('/me/health-profile', Action\Patient\UpdateMyHealthProfileAction::class);
+            $group->get('/me/sessions', Action\Patient\MySessionsAction::class);
+            $group->delete('/me/sessions/{id}', Action\Patient\RevokeSessionAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
             $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
             $group->get('/specialists/{id}/slots', Action\Specialist\GetSpecialistSlotsAction::class);
@@ -90,6 +94,6 @@ return static function (App $app): void {
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);
-        })->add(new CustomerAuthMiddleware($jwt));
+        })->add(new CustomerAuthMiddleware($jwt, $sessions));
     });
 };

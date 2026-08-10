@@ -251,6 +251,17 @@ return [
                     ],
                 ],
             ],
+            'Session' => [
+                'type'       => 'object',
+                'properties' => [
+                    'id'         => ['type' => 'string'],
+                    'device'     => ['type' => 'string', 'example' => 'Chrome on Windows'],
+                    'icon'       => ['type' => 'string', 'enum' => ['laptop', 'smartphone']],
+                    'ip'         => ['type' => 'string', 'nullable' => true],
+                    'created_at' => ['type' => 'string', 'format' => 'date-time'],
+                    'current'    => ['type' => 'boolean'],
+                ],
+            ],
             'Notification' => [
                 'type'       => 'object',
                 'properties' => [
@@ -627,6 +638,28 @@ return [
                 'responses' => [
                     '200' => ['description' => 'Removed', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/portal/me/sessions' => [
+            'get' => [
+                'tags'      => ['Portal'],
+                'summary'   => "The signed-in patient's active sessions",
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Session']]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/portal/me/sessions/{id}' => [
+            'delete' => [
+                'tags'       => ['Portal'],
+                'summary'    => 'Sign out of a session (device)',
+                'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                'responses'  => [
+                    '200' => ['description' => 'Revoked', ...$json($envelope(['type' => 'object', 'properties' => ['revoked' => ['type' => 'boolean']]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
             ],
         ],

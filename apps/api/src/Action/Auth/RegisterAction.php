@@ -7,6 +7,7 @@ namespace App\Action\Auth;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\RequestClientTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -17,6 +18,7 @@ use Psr\Http\Message\ServerRequestInterface;
 final class RegisterAction
 {
     use ApiResponse;
+    use RequestClientTrait;
 
     public function __construct(
         private readonly JwtService $jwt,
@@ -57,7 +59,15 @@ final class RegisterAction
         // registerCustomer throws ValidationException (→ 422) if email is taken.
         return $this->created(
             $response,
-            $this->auth->registerCustomer($email, $firstName, $lastName, '', $password),
+            $this->auth->registerCustomer(
+                $email,
+                $firstName,
+                $lastName,
+                '',
+                $password,
+                $this->clientUserAgent($request),
+                $this->clientIp($request),
+            ),
             'Account created',
         );
     }

@@ -6,6 +6,7 @@ namespace App\Infrastructure\Middleware;
 
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\SessionService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -20,8 +21,10 @@ final class CustomerAuthMiddleware implements MiddlewareInterface
 {
     use ApiResponse;
 
-    public function __construct(private readonly JwtService $jwt)
-    {
+    public function __construct(
+        private readonly JwtService $jwt,
+        private readonly SessionService $sessions,
+    ) {
     }
 
     public function process(
@@ -47,7 +50,15 @@ final class CustomerAuthMiddleware implements MiddlewareInterface
             );
         }
 
-        $request = $request->withAttribute('customer_id', $payload->sub);
+        // Tokens carry a jti tied to a revocable session; reject revoked ones.
+        $jti = (string) ($payload->jti ?? '');
+        if ($jti !== '' && !$this->sessions->isActive($jti)) {
+            return $this->error(new Response(), 'This session has been signed out', 401);
+        }
+
+        $request = $request
+            ->withAttribute('customer_id', $payload->sub)
+            ->withAttribute('session_id', $jti);
 
         return $handler->handle($request);
     }

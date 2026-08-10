@@ -7,6 +7,7 @@ namespace App\Action\Auth;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\RequestClientTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -18,6 +19,7 @@ use Psr\Http\Message\ServerRequestInterface;
 final class LoginByPhoneAction
 {
     use ApiResponse;
+    use RequestClientTrait;
 
     public function __construct(
         private readonly JwtService $jwt,
@@ -46,7 +48,11 @@ final class LoginByPhoneAction
         // loginCustomerByPhone throws AuthenticationException (→ 401) if no account.
         return $this->success(
             $response,
-            $this->auth->loginCustomerByPhone($phone),
+            $this->auth->loginCustomerByPhone(
+                $phone,
+                $this->clientUserAgent($request),
+                $this->clientIp($request),
+            ),
             'Signed in',
         );
     }

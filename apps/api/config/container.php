@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
+use App\Domain\Repository\SessionRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Agora\AgoraTokenService;
@@ -15,6 +16,7 @@ use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\SessionService;
 use App\Infrastructure\Service\SettingsCacheService;
 use App\Infrastructure\Service\TermiiService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -103,7 +105,11 @@ return [
         $c->get(UserRepository::class),
         $c->get(PatientRepository::class),
         $c->get(JwtService::class),
+        $c->get(SessionService::class),
     ),
+
+    SessionService::class => static fn (ContainerInterface $c): SessionService =>
+        new SessionService($c->get(SessionRepository::class)),
 
     // ----- Repositories -----
     UserRepository::class => static fn (ContainerInterface $c): UserRepository =>
@@ -120,4 +126,7 @@ return [
 
     NotificationRepository::class => static fn (ContainerInterface $c): NotificationRepository =>
         new NotificationRepository($c->get(EntityManagerInterface::class)),
+
+    SessionRepository::class => static fn (ContainerInterface $c): SessionRepository =>
+        new SessionRepository($c->get(EntityManagerInterface::class)),
 ];

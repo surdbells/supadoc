@@ -7,6 +7,7 @@ namespace App\Action\Auth;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\RequestClientTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -17,6 +18,7 @@ use Psr\Http\Message\ServerRequestInterface;
 final class ResetPasswordAction
 {
     use ApiResponse;
+    use RequestClientTrait;
 
     public function __construct(
         private readonly JwtService $jwt,
@@ -52,7 +54,12 @@ final class ResetPasswordAction
         // resetPassword throws AuthenticationException (→ 401) if no account.
         return $this->success(
             $response,
-            $this->auth->resetPassword($email, $newPassword),
+            $this->auth->resetPassword(
+                $email,
+                $newPassword,
+                $this->clientUserAgent($request),
+                $this->clientIp($request),
+            ),
             'Password updated',
         );
     }

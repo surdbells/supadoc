@@ -7,6 +7,7 @@ namespace App\Action\Auth;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
+use App\Infrastructure\Service\RequestClientTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -18,6 +19,7 @@ use Psr\Http\Message\ServerRequestInterface;
 final class GoogleLoginAction
 {
     use ApiResponse;
+    use RequestClientTrait;
 
     public function __construct(
         private readonly FirebaseIdTokenVerifier $verifier,
@@ -43,7 +45,11 @@ final class GoogleLoginAction
 
         return $this->success(
             $response,
-            $this->auth->loginCustomerWithGoogle($identity),
+            $this->auth->loginCustomerWithGoogle(
+                $identity,
+                $this->clientUserAgent($request),
+                $this->clientIp($request),
+            ),
             'Signed in',
         );
     }

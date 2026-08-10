@@ -20,6 +20,7 @@ final class AuthService
         private readonly UserRepository $users,
         private readonly PatientRepository $patients,
         private readonly JwtService $jwt,
+        private readonly SessionService $sessions,
     ) {
     }
 
@@ -46,14 +47,18 @@ final class AuthService
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */
-    public function loginCustomer(string $email, string $password): array
-    {
+    public function loginCustomer(
+        string $email,
+        string $password,
+        string $userAgent = '',
+        string $ip = '',
+    ): array {
         $patient = $this->patients->findByEmail(strtolower(trim($email)));
         if ($patient === null || !$patient->verifyPassword($password)) {
             throw new AuthenticationException('Invalid email or password');
         }
 
-        return $this->issueCustomerTokens($patient);
+        return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }
 
     /**
@@ -64,7 +69,7 @@ final class AuthService
      * @param array{sub:string, email:?string, name:?string, email_verified:bool} $identity
      * @return array{access_token:string, refresh_token:string, user:array}
      */
-    public function loginCustomerWithGoogle(array $identity): array
+    public function loginCustomerWithGoogle(array $identity, string $userAgent = '', string $ip = ''): array
     {
         $email = strtolower(trim((string) ($identity['email'] ?? '')));
         if ($email === '') {
@@ -78,7 +83,7 @@ final class AuthService
             $this->patients->save($patient);
         }
 
-        return $this->issueCustomerTokens($patient);
+        return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }
 
     /**
@@ -93,6 +98,8 @@ final class AuthService
         string $lastName,
         string $phone,
         string $password,
+        string $userAgent = '',
+        string $ip = '',
     ): array {
         $email = strtolower(trim($email));
         $phone = trim($phone);
@@ -120,18 +127,18 @@ final class AuthService
         }
         $this->patients->save($patient);
 
-        return $this->issueCustomerTokens($patient);
+        return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */
-    public function loginCustomerByPhone(string $phone): array
+    public function loginCustomerByPhone(string $phone, string $userAgent = '', string $ip = ''): array
     {
         $patient = $this->patients->findByPhone(trim($phone));
         if ($patient === null) {
             throw new AuthenticationException('No account is registered with this number');
         }
 
-        return $this->issueCustomerTokens($patient);
+        return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }
 
     /**
@@ -139,7 +146,7 @@ final class AuthService
      *
      * @return array{access_token:string, refresh_token:string, user:array}
      */
-    public function resetPassword(string $email, string $newPassword): array
+    public function resetPassword(string $email, string $newPassword, string $userAgent = '', string $ip = ''): array
     {
         $patient = $this->patients->findByEmail(strtolower(trim($email)));
         if ($patient === null) {
@@ -149,7 +156,7 @@ final class AuthService
         $patient->setPassword($newPassword);
         $this->patients->save($patient);
 
-        return $this->issueCustomerTokens($patient);
+        return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }
 
     /** @return array{access_token:string, token_type:string, expires_in:int} */
@@ -189,10 +196,17 @@ final class AuthService
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */
-    private function issueCustomerTokens(Patient $patient): array
+    private function issueCustomerTokens(Patient $patient, string $userAgent = '', string $ip = ''): array
     {
+        // Register a revocable session; its id becomes the token's jti.
+        $jti = $this->sessions->start(
+            $patient,
+            $userAgent !== '' ? $userAgent : null,
+            $ip !== '' ? $ip : null,
+        );
+
         return [
-            'access_token'  => $this->jwt->issueAccessToken($patient->getId(), 'customer'),
+            'access_token'  => $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti),
             'refresh_token' => $this->jwt->issueRefreshToken($patient->getId(), 'customer'),
             'token_type'    => 'Bearer',
             'expires_in'    => $this->jwt->accessTtl(),
