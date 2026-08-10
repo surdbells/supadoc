@@ -24,6 +24,7 @@ import {
   IconComponent,
   InputComponent,
   PhoneInputComponent,
+  SearchSelectComponent,
 } from '@supadoc/ui';
 
 type View =
@@ -59,6 +60,7 @@ interface SectionCard {
     IconComponent,
     InputComponent,
     PhoneInputComponent,
+    SearchSelectComponent,
   ],
   host: { class: 'block' },
   template: `
@@ -288,20 +290,17 @@ interface SectionCard {
                 type="date"
                 formControlName="dob"
               />
-              <label class="flex w-full flex-col gap-2">
+              <div class="flex w-full flex-col gap-2">
                 <span class="font-sans text-body font-semibold text-ink"
                   >Gender <span class="text-alert">*</span></span
                 >
-                <select
-                  formControlName="gender"
-                  class="rounded-field border border-[#d7e0e8] bg-white px-4 py-4 font-sans text-body text-ink focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
-                >
-                  <option value="">Select</option>
-                  <option value="Female">Female</option>
-                  <option value="Male">Male</option>
-                  <option value="Other">Other</option>
-                </select>
-              </label>
+                <sd-search-select
+                  placeholder="Select"
+                  [options]="genderSelectOptions"
+                  [value]="form.controls.gender.value"
+                  (valueChange)="form.controls.gender.setValue($event)"
+                />
+              </div>
               <div class="md:col-span-2">
                 <label class="flex w-full flex-col gap-2">
                   <span class="font-sans text-body font-semibold text-ink"
@@ -585,17 +584,17 @@ interface SectionCard {
                         [class]="rowInput"
                       />
                     </label>
-                    <label class="flex w-full flex-col gap-2">
+                    <div class="flex w-full flex-col gap-2">
                       <span class="font-sans text-caption text-slate"
                         >Severity</span
                       >
-                      <select formControlName="severity" [class]="rowInput">
-                        <option value="">Select</option>
-                        <option value="Low">Low</option>
-                        <option value="Medium">Medium</option>
-                        <option value="High">High</option>
-                      </select>
-                    </label>
+                      <sd-search-select
+                        placeholder="Select"
+                        [options]="severityOptions"
+                        [value]="row.get('severity')?.value"
+                        (valueChange)="row.get('severity')?.setValue($event)"
+                      />
+                    </div>
                   </div>
                   <label class="flex w-full flex-col gap-2">
                     <span class="font-sans text-caption text-slate">Reaction</span>
@@ -712,15 +711,15 @@ interface SectionCard {
                         [class]="rowInput"
                       />
                     </label>
-                    <label class="flex w-full flex-col gap-2">
+                    <div class="flex w-full flex-col gap-2">
                       <span class="font-sans text-caption text-slate">Status</span>
-                      <select formControlName="status" [class]="rowInput">
-                        <option value="">Select</option>
-                        <option value="Active">Active</option>
-                        <option value="Managed">Managed</option>
-                        <option value="Resolved">Resolved</option>
-                      </select>
-                    </label>
+                      <sd-search-select
+                        placeholder="Select"
+                        [options]="statusOptions"
+                        [value]="row.get('status')?.value"
+                        (valueChange)="row.get('status')?.setValue($event)"
+                      />
+                    </div>
                     <label class="flex w-full flex-col gap-2">
                       <span class="font-sans text-caption text-slate">Since</span>
                       <input
@@ -816,20 +815,19 @@ interface SectionCard {
                   />
                 </span>
               </label>
-              <label class="flex w-full flex-col gap-2">
+              <div class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
                   >Coverage Status</span
                 >
-                <span [class]="fieldWrap">
-                  <span class="size-2 shrink-0 rounded-full bg-sage"></span>
-                  <select formControlName="coverage_status" [class]="fieldControl">
-                    <option value="">Select</option>
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                    <option value="Expired">Expired</option>
-                  </select>
-                </span>
-              </label>
+                <sd-search-select
+                  placeholder="Select"
+                  [options]="coverageOptions"
+                  [value]="insuranceForm.controls.coverage_status.value"
+                  (valueChange)="
+                    insuranceForm.controls.coverage_status.setValue($event)
+                  "
+                />
+              </div>
               <label class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
                   >Expiry Date</span
@@ -893,21 +891,19 @@ interface SectionCard {
                   />
                 </span>
               </label>
-              <label class="flex w-full flex-col gap-2">
+              <div class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate"
                   >Relationship</span
                 >
-                <span [class]="fieldWrap">
-                  <select formControlName="relationship" [class]="fieldControl">
-                    <option value="">Select</option>
-                    <option value="Spouse">Spouse</option>
-                    <option value="Parent">Parent</option>
-                    <option value="Sibling">Sibling</option>
-                    <option value="Child">Child</option>
-                    <option value="Friend">Friend</option>
-                  </select>
-                </span>
-              </label>
+                <sd-search-select
+                  placeholder="Select"
+                  [options]="relationshipOptions"
+                  [value]="emergencyForm.controls.relationship.value"
+                  (valueChange)="
+                    emergencyForm.controls.relationship.setValue($event)
+                  "
+                />
+              </div>
               <div class="flex w-full flex-col gap-2">
                 <span class="font-sans text-caption text-slate">Phone</span>
                 <sd-phone-input formControlName="phone" />
@@ -1324,6 +1320,19 @@ export class MyProfile {
   // Standalone input styling for the medical FormArray rows.
   protected readonly rowInput =
     'rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15';
+
+  // Options for the searchable dropdowns (sd-search-select).
+  protected readonly genderSelectOptions = ['Female', 'Male', 'Other'];
+  protected readonly relationshipOptions = [
+    'Spouse',
+    'Parent',
+    'Sibling',
+    'Child',
+    'Friend',
+  ];
+  protected readonly coverageOptions = ['Active', 'Inactive', 'Expired'];
+  protected readonly severityOptions = ['Low', 'Medium', 'High'];
+  protected readonly statusOptions = ['Active', 'Managed', 'Resolved'];
 
   protected readonly medicalTips = [
     'Help your doctor to make better diagnoses and treatment decision',

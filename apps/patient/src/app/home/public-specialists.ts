@@ -185,22 +185,16 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               clear all
             </button>
           }
-          <label
-            class="inline-flex items-center gap-2 rounded-field border border-cloud bg-white px-4 py-2.5"
-          >
-            <sd-icon name="arrow-right" [size]="16" class="rotate-90 text-slate" />
-            <span class="font-sans text-body-sm text-slate">Sort:</span>
-            <select
+          <div class="flex items-center gap-2">
+            <span class="shrink-0 font-sans text-body-sm text-slate">Sort:</span>
+            <sd-search-select
+              class="w-48"
+              [options]="sortOptions"
+              [clearable]="false"
               [value]="sortBy()"
-              (change)="sortBy.set($any($event.target).value)"
-              class="bg-transparent font-sans text-body-sm font-semibold text-ink focus:outline-none"
-            >
-              <option value="recommended">Recommended</option>
-              <option value="rating">Top rated</option>
-              <option value="fee_low">Fee: low to high</option>
-              <option value="experience">Most experienced</option>
-            </select>
-          </label>
+              (valueChange)="sortBy.set($any($event))"
+            />
+          </div>
         </div>
       </div>
 
@@ -315,37 +309,29 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               />
             </div>
 
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
                 >Years of experience</span
               >
-              <select
-                [value]="minYears()"
-                (change)="minYears.set(+$any($event.target).value)"
-                [class]="fieldClass"
-              >
-                <option [value]="0">Any</option>
-                <option [value]="5">5+ years</option>
-                <option [value]="10">10+ years</option>
-                <option [value]="15">15+ years</option>
-              </select>
-            </label>
+              <sd-search-select
+                placeholder="Any"
+                [options]="yearsOptions"
+                [value]="minYears() ? minYears() + '' : ''"
+                (valueChange)="minYears.set($event ? +$event : 0)"
+              />
+            </div>
 
-            <label class="flex flex-col gap-2">
+            <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
                 >Rating</span
               >
-              <select
-                [value]="minRating()"
-                (change)="minRating.set(+$any($event.target).value)"
-                [class]="fieldClass"
-              >
-                <option [value]="0">Any</option>
-                <option [value]="4">4.0+</option>
-                <option [value]="4.5">4.5+</option>
-                <option [value]="4.8">4.8+</option>
-              </select>
-            </label>
+              <sd-search-select
+                placeholder="Any"
+                [options]="ratingOptions"
+                [value]="minRating() ? minRating() + '' : ''"
+                (valueChange)="minRating.set($event ? +$event : 0)"
+              />
+            </div>
           </aside>
         }
 
@@ -435,8 +421,22 @@ export class PublicSpecialists implements OnInit {
     { value: 'female', label: 'Female' },
     { value: 'male', label: 'Male' },
   ];
-  protected readonly fieldClass =
-    'rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none';
+  protected readonly sortOptions = [
+    { value: 'recommended', label: 'Recommended' },
+    { value: 'rating', label: 'Top rated' },
+    { value: 'fee_low', label: 'Fee: low to high' },
+    { value: 'experience', label: 'Most experienced' },
+  ];
+  protected readonly yearsOptions = [
+    { value: '5', label: '5+ years' },
+    { value: '10', label: '10+ years' },
+    { value: '15', label: '15+ years' },
+  ];
+  protected readonly ratingOptions = [
+    { value: '4', label: '4.0+' },
+    { value: '4.5', label: '4.5+' },
+    { value: '4.8', label: '4.8+' },
+  ];
 
   constructor() {
     // Server-side facet filters (debounced).
