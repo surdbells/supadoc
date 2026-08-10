@@ -52,6 +52,10 @@ return static function (App $app): void {
         $group->post('/portal/auth/phone/login', Action\Auth\LoginByPhoneAction::class);
         $group->post('/auth/refresh', Action\Auth\RefreshAction::class);
 
+        // ----- Public marketing data (no auth) -----
+        $group->get('/public/specialties', Action\Public\PublicSpecialtiesAction::class);
+        $group->get('/public/specialists', Action\Public\PublicSpecialistsAction::class);
+
         // ----- Staff (default audience) -----
         $group->group('', function (RouteCollectorProxy $group): void {
             $group->get('/me', Action\Auth\MeAction::class);

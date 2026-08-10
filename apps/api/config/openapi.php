@@ -713,6 +713,29 @@ return [
                 ],
             ],
         ],
+        '/api/public/specialties' => [
+            'get' => [
+                'tags'      => ['Public'],
+                'summary'   => 'Specialties with specialist counts (homepage)',
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'count' => ['type' => 'integer']]]]))],
+                ],
+            ],
+        ],
+        '/api/public/specialists' => [
+            'get' => [
+                'tags'       => ['Public'],
+                'summary'    => 'Public specialist search (homepage autocomplete)',
+                'parameters' => [
+                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'specialty', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 12, 'maximum' => 24]],
+                ],
+                'responses'  => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Specialist']]))],
+                ],
+            ],
+        ],
         '/api/portal/specialists/specialties' => [
             'get' => [
                 'tags'      => ['Portal'],

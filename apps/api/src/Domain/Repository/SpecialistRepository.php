@@ -62,4 +62,29 @@ final class SpecialistRepository extends BaseRepository
             $rows,
         )));
     }
+
+    /**
+     * Each specialty with its number of specialists — for the homepage's
+     * "browse by department" cards.
+     *
+     * @return list<array{name:string,count:int}>
+     */
+    public function specialtyCounts(): array
+    {
+        $rows = $this->qb()
+            ->select('e.specialty AS name, COUNT(e.id) AS cnt')
+            ->andWhere('e.deletedAt IS NULL')
+            ->groupBy('e.specialty')
+            ->orderBy('e.specialty', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        return array_map(
+            static fn (array $row): array => [
+                'name'  => (string) $row['name'],
+                'count' => (int) $row['cnt'],
+            ],
+            $rows,
+        );
+    }
 }
