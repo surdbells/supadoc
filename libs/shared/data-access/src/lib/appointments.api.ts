@@ -2,6 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
   AppointmentDto,
+  BookAppointmentParams,
   CallTokenDto,
   ListAppointmentsQuery,
   PaginatedResponse,
@@ -36,11 +37,9 @@ export class AppointmentsApi {
   }
 
   /** POST /api/portal/appointments — book a consultation for the signed-in patient. */
-  book(params: {
-    specialist_id: string;
-    scheduled_at: string;
-    type: string;
-  }): Observable<SuccessResponse<AppointmentDto>> {
+  book(
+    params: BookAppointmentParams,
+  ): Observable<SuccessResponse<AppointmentDto>> {
     return this.api.post<SuccessResponse<AppointmentDto>>(
       'api/portal/appointments',
       params,

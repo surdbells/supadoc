@@ -64,6 +64,16 @@ export interface SpecialistDto {
   rating: string;
   reviews_count: number;
   available: boolean;
+  years_experience: number | null;
+  languages: string | null;
+  verified: boolean;
+}
+
+/** Body for booking a consultation (POST /portal/appointments). */
+export interface BookAppointmentParams {
+  specialist_id: string;
+  scheduled_at: string;
+  type?: 'video' | 'follow_up' | 'urgent' | 'routine';
 }
 
 /** Agora RTC join credentials for a consultation call. */

@@ -10,62 +10,14 @@ import {
   catchError,
   debounceTime,
   distinctUntilChanged,
-  firstValueFrom,
   of,
   switchMap,
   tap,
 } from 'rxjs';
-import { Router } from '@angular/router';
-import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
+import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
-
-type Availability = 'today' | 'week' | 'next';
-
-interface Specialist {
-  readonly id: string;
-  readonly photo: string;
-  readonly name: string;
-  readonly specialty: string;
-  readonly location: string;
-  readonly languages: string;
-  readonly experience: string;
-  readonly rating: string;
-  readonly reviews: string;
-  readonly price: string;
-  readonly availability: Availability;
-}
-
-const AVAILABILITY: Record<Availability, { label: string; class: string }> = {
-  today: { label: 'Available Today', class: 'bg-sage/15 text-sage' },
-  week: { label: 'This week', class: 'bg-frost text-cerulean' },
-  next: { label: 'Next week', class: 'bg-cloud text-slate' },
-};
-
-// The backend has no avatar/languages/experience — cycle placeholder portraits.
-const PHOTOS = [
-  '/dashboard/avatar-james.png',
-  '/home/doc2.png',
-  '/home/doc3.png',
-  '/home/doc4.png',
-  '/home/doc1.png',
-];
-
-function toSpecialistCard(s: SpecialistDto, i: number): Specialist {
-  return {
-    id: s.id,
-    photo: PHOTOS[i % PHOTOS.length],
-    name: s.name,
-    specialty: s.specialty,
-    location: s.location ?? '—',
-    languages: 'English',
-    experience: 'Verified specialist',
-    rating: Number(s.rating).toFixed(1),
-    reviews: `${s.reviews_count} reviews`,
-    price: `$${s.consultation_fee}`,
-    availability: s.available ? 'today' : 'next',
-  };
-}
+import { SpecialistCard } from './specialist-card';
 
 interface Criteria {
   search: string;
@@ -76,12 +28,13 @@ interface Criteria {
 /**
  * Find a Specialist (Figma 311:4126) — wired to GET /api/portal/specialists.
  * Search and the specialty/availability filters run server-side (debounced),
- * with loading, empty and error states.
+ * with loading, empty and error states. Each result is a `pat-specialist-card`
+ * that books inline.
  */
 @Component({
   selector: 'pat-find-specialist',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, IconComponent],
+  imports: [ButtonComponent, IconComponent, SpecialistCard],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -221,7 +174,7 @@ interface Criteria {
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
             @for (n of [1, 2, 3, 4]; track n) {
               <div
-                class="h-48 animate-pulse rounded-card border border-cloud bg-cloud/40"
+                class="h-72 animate-pulse rounded-card border border-cloud bg-cloud/40"
               ></div>
             }
           </div>
@@ -264,249 +217,24 @@ interface Criteria {
           </div>
         }
         @default {
-          <!-- Count -->
           <div class="flex items-center justify-between">
             <p class="font-sans text-body font-semibold text-ink">
               {{ all().length }} Specialist found
             </p>
           </div>
 
-          <!-- Results -->
-          <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            @for (s of all(); track $index) {
-              <article
-                class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
-              >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="flex items-center gap-3">
-                    <img
-                      [src]="s.photo"
-                      alt=""
-                      width="44"
-                      height="44"
-                      class="size-11 shrink-0 rounded-full object-cover"
-                    />
-                    <div class="flex flex-col">
-                      <p class="font-sans text-body font-semibold text-ink">
-                        {{ s.name }}
-                      </p>
-                      <p class="font-sans text-caption text-slate">
-                        {{ s.specialty }}
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    class="shrink-0 rounded-pill px-3 py-1 font-sans text-[10px] font-medium"
-                    [class]="availability(s).class"
-                  >
-                    {{ availability(s).label }}
-                  </span>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  <div
-                    class="flex items-center justify-between gap-2 font-sans text-caption text-slate"
-                  >
-                    <span class="flex items-center gap-1.5">
-                      <sd-icon name="map-pin" [size]="16" />{{ s.location }}
-                    </span>
-                    <span class="flex items-center gap-1.5">
-                      <sd-icon name="briefcase" [size]="16" />{{ s.experience }}
-                    </span>
-                  </div>
-                  <div
-                    class="flex items-center justify-between gap-2 font-sans text-caption text-slate"
-                  >
-                    <span class="flex items-center gap-1.5">
-                      <sd-icon name="languages" [size]="16" />{{ s.languages }}
-                    </span>
-                    <span class="flex items-center gap-1.5">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="#f2a900"
-                      >
-                        <path
-                          d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                        />
-                      </svg>
-                      {{ s.rating }} ({{ s.reviews }})
-                    </span>
-                  </div>
-                </div>
-
-                <hr class="border-t border-cloud" />
-
-                <div class="flex items-center gap-1.5 text-cerulean">
-                  <sd-icon name="info" [size]="16" />
-                  <span class="font-sans text-body-sm font-medium">
-                    {{ s.price }} / Consultation
-                  </span>
-                </div>
-
-                <div class="flex gap-3">
-                  <sd-button
-                    variant="outline"
-                    size="sm"
-                    [full]="true"
-                    (click)="openBooking(s)"
-                    >View Profile</sd-button
-                  >
-                  <sd-button size="sm" [full]="true" (click)="openBooking(s)">
-                    <sd-icon name="video" [size]="18" />
-                    Book Consultation
-                  </sd-button>
-                </div>
-              </article>
+          <div class="grid grid-cols-1 items-stretch gap-6 xl:grid-cols-2">
+            @for (s of all(); track s.id) {
+              <pat-specialist-card [specialist]="s" />
             }
           </div>
         }
-      }
-
-      <!-- Booking modal -->
-      @if (bookingFor(); as s) {
-        <div
-          class="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
-        >
-          <div
-            class="flex w-full max-w-md flex-col gap-5 rounded-card bg-white p-6 shadow-xl"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <div class="flex min-w-0 flex-col">
-                <h2 class="font-heading text-h5 text-ink">Book Consultation</h2>
-                <p class="truncate font-sans text-body-sm text-slate">
-                  {{ s.name }} · {{ s.specialty }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="shrink-0 text-slate transition-colors hover:text-ink"
-                aria-label="Close"
-                (click)="closeBooking()"
-              >
-                <sd-icon name="x" [size]="20" />
-              </button>
-            </div>
-
-            <label class="flex flex-col gap-2">
-              <span class="font-sans text-caption text-slate">Date &amp; time</span>
-              <input
-                type="datetime-local"
-                [min]="minDateTime"
-                [value]="when()"
-                (input)="when.set($any($event.target).value)"
-                class="rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/15"
-              />
-            </label>
-
-            <label class="flex flex-col gap-2">
-              <span class="font-sans text-caption text-slate"
-                >Consultation type</span
-              >
-              <select
-                [value]="type()"
-                (change)="type.set($any($event.target).value)"
-                class="rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/15"
-              >
-                <option value="video">Video Consultation</option>
-                <option value="follow_up">Patient Follow-up</option>
-                <option value="urgent">Urgent Care</option>
-                <option value="routine">Routine Checkup</option>
-              </select>
-            </label>
-
-            <div
-              class="flex items-center justify-between rounded-field bg-glacier px-4 py-3"
-            >
-              <span class="font-sans text-body-sm text-slate">Consultation fee</span>
-              <span class="font-heading text-h5 text-ink">{{ s.price }}</span>
-            </div>
-
-            @if (bookingError()) {
-              <p
-                class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
-              >
-                {{ bookingError() }}
-              </p>
-            }
-
-            <div class="flex gap-3">
-              <sd-button
-                variant="outline"
-                [full]="true"
-                (click)="closeBooking()"
-                >Cancel</sd-button
-              >
-              <sd-button
-                [full]="true"
-                [disabled]="booking() || !when()"
-                (click)="confirmBooking()"
-              >
-                {{ booking() ? 'Booking…' : 'Confirm Booking' }}
-              </sd-button>
-            </div>
-          </div>
-        </div>
       }
     </div>
   `,
 })
 export class FindSpecialist {
   private readonly specialists = inject(SpecialistsApi);
-  private readonly appointmentsApi = inject(AppointmentsApi);
-  private readonly router = inject(Router);
-
-  // ----- Booking modal -----
-  protected readonly bookingFor = signal<Specialist | null>(null);
-  protected readonly when = signal('');
-  protected readonly type = signal('video');
-  protected readonly booking = signal(false);
-  protected readonly bookingError = signal('');
-  // Earliest bookable slot: one hour from now, as a datetime-local value.
-  protected readonly minDateTime = ((): string => {
-    const d = new Date(Date.now() + 60 * 60 * 1000);
-    const pad = (n: number): string => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-      d.getDate(),
-    )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  })();
-
-  protected openBooking(s: Specialist): void {
-    this.bookingFor.set(s);
-    this.when.set('');
-    this.type.set('video');
-    this.bookingError.set('');
-  }
-
-  protected closeBooking(): void {
-    if (!this.booking()) this.bookingFor.set(null);
-  }
-
-  protected async confirmBooking(): Promise<void> {
-    const s = this.bookingFor();
-    if (!s || !this.when()) return;
-    this.booking.set(true);
-    this.bookingError.set('');
-    try {
-      await firstValueFrom(
-        this.appointmentsApi.book({
-          specialist_id: s.id,
-          scheduled_at: new Date(this.when()).toISOString(),
-          type: this.type(),
-        }),
-      );
-      this.bookingFor.set(null);
-      await this.router.navigate(['/dashboard/appointments']);
-    } catch (err) {
-      this.bookingError.set(
-        (err as { message?: string })?.message ??
-          'Could not book this consultation. Try again.',
-      );
-    } finally {
-      this.booking.set(false);
-    }
-  }
 
   protected readonly query = signal('');
   protected readonly specialty = signal('');
@@ -514,7 +242,7 @@ export class FindSpecialist {
   protected readonly filtersOpen = signal(false);
   protected readonly specialties = signal<string[]>([]);
 
-  protected readonly all = signal<Specialist[]>([]);
+  protected readonly all = signal<SpecialistDto[]>([]);
   private readonly loading = signal(true);
   private readonly loadError = signal(false);
   private readonly reloadTick = signal(0);
@@ -539,9 +267,7 @@ export class FindSpecialist {
     )
       .pipe(
         debounceTime(250),
-        distinctUntilChanged(
-          (a, b) => JSON.stringify(a) === JSON.stringify(b),
-        ),
+        distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
         tap(() => {
           this.loading.set(true);
           this.loadError.set(false);
@@ -566,13 +292,9 @@ export class FindSpecialist {
         takeUntilDestroyed(),
       )
       .subscribe((res) => {
-        if (res) this.all.set(res.data.map(toSpecialistCard));
+        if (res) this.all.set(res.data);
         this.loading.set(false);
       });
-  }
-
-  protected availability(s: Specialist) {
-    return AVAILABILITY[s.availability];
   }
 
   protected readonly activeFilterCount = computed(
