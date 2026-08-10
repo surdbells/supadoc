@@ -772,9 +772,9 @@ return [
                 ],
             ],
         ],
-        '/api/portal/specialists/{id}/slots' => [
+        '/api/public/specialists/{id}/slots' => [
             'get' => [
-                'tags'       => ['Portal'],
+                'tags'       => ['Public'],
                 'summary'    => "A specialist's open consultation slots",
                 'parameters' => [
                     ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
@@ -797,7 +797,6 @@ return [
                             ],
                         ],
                     ]))],
-                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
             ],

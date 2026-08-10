@@ -48,13 +48,13 @@ export class SpecialistsApi {
     );
   }
 
-  /** GET /api/portal/specialists/{id}/slots — the specialist's open slots. */
+  /** GET /api/public/specialists/{id}/slots — the specialist's open slots (public). */
   slots(
     id: string,
     days = 7,
   ): Observable<SuccessResponse<DayAvailability[]>> {
     return this.api.get<SuccessResponse<DayAvailability[]>>(
-      `api/portal/specialists/${encodeURIComponent(id)}/slots`,
+      `api/public/specialists/${encodeURIComponent(id)}/slots`,
       { days },
     );
   }
@@ -73,14 +73,19 @@ export class SpecialistsApi {
     );
   }
 
-  /** GET /api/public/specialists — public specialist search (no auth, homepage). */
-  publicSearch(
-    search: string,
-    limit = 6,
-  ): Observable<SuccessResponse<SpecialistDto[]>> {
+  /** GET /api/public/specialists — public specialist search (no auth). */
+  publicSearch(params: {
+    search?: string;
+    specialty?: string;
+    location?: string;
+    language?: string;
+    gender?: string;
+    mode?: 'online' | 'in_person';
+    limit?: number;
+  }): Observable<SuccessResponse<SpecialistDto[]>> {
     return this.api.get<SuccessResponse<SpecialistDto[]>>(
       'api/public/specialists',
-      { search, limit },
+      params as QueryParams,
     );
   }
 }

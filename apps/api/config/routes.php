@@ -56,6 +56,7 @@ return static function (App $app): void {
         $group->get('/public/specialties', Action\Public\PublicSpecialtiesAction::class);
         $group->get('/public/facets', Action\Public\PublicFacetsAction::class);
         $group->get('/public/specialists', Action\Public\PublicSpecialistsAction::class);
+        $group->get('/public/specialists/{id}/slots', Action\Specialist\GetSpecialistSlotsAction::class);
 
         // ----- Staff (default audience) -----
         $group->group('', function (RouteCollectorProxy $group): void {
@@ -90,7 +91,6 @@ return static function (App $app): void {
             $group->delete('/me/sessions/{id}', Action\Patient\RevokeSessionAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
             $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
-            $group->get('/specialists/{id}/slots', Action\Specialist\GetSpecialistSlotsAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
             $group->post('/appointments', Action\Appointment\CreateMyAppointmentAction::class);

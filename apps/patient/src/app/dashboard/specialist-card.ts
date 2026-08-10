@@ -11,6 +11,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
+import { AuthService } from '@supadoc/auth';
 import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
 import type { DayAvailability, SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
@@ -227,6 +228,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
 export class SpecialistCard implements OnInit {
   private readonly appointments = inject(AppointmentsApi);
   private readonly specialistsApi = inject(SpecialistsApi);
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -320,6 +322,11 @@ export class SpecialistCard implements OnInit {
 
   protected async book(): Promise<void> {
     if (!this.canBook()) return;
+    // Browsing is public, but booking needs an account.
+    if (!this.auth.isAuthenticated()) {
+      void this.router.navigate(['/auth/register']);
+      return;
+    }
     this.booking.set(true);
     this.bookError.set('');
     try {

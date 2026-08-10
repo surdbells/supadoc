@@ -17,7 +17,6 @@ import {
   switchMap,
   tap,
 } from 'rxjs';
-import { AuthService } from '@supadoc/auth';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto, SpecialtyCount } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
@@ -443,7 +442,6 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 })
 export class HomeDiscovery implements OnInit {
   private readonly specialistsApi = inject(SpecialistsApi);
-  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -501,7 +499,7 @@ export class HomeDiscovery implements OnInit {
           q.trim() === ''
             ? of(null)
             : this.specialistsApi
-                .publicSearch(q.trim(), 5)
+                .publicSearch({ search: q.trim(), limit: 5 })
                 .pipe(catchError(() => of(null))),
         ),
         takeUntilDestroyed(),
@@ -605,17 +603,10 @@ export class HomeDiscovery implements OnInit {
     this.enter({});
   }
 
-  /**
-   * Signed-in patients go to the filtered directory (search + all staged
-   * chips); visitors go to register.
-   */
+  /** Everyone lands on the public directory with the search + staged chips. */
   private enter(params: { specialty?: string; q?: string } = {}): void {
-    if (!this.auth.isAuthenticated()) {
-      void this.router.navigateByUrl('/auth/register');
-      return;
-    }
     const mode = this.consultationType();
-    void this.router.navigate(['/dashboard/specialists'], {
+    void this.router.navigate(['/specialists'], {
       queryParams: {
         specialty: (params.specialty ?? this.specialty()) || null,
         q: (params.q ?? '') || null,

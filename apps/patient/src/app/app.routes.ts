@@ -7,6 +7,11 @@ export const appRoutes: Route[] = [
     loadComponent: () => import('./home/home').then((m) => m.Home),
   },
   {
+    path: 'specialists',
+    loadComponent: () =>
+      import('./home/public-specialists').then((m) => m.PublicSpecialists),
+  },
+  {
     path: 'auth',
     loadChildren: () => import('./auth/auth.routes').then((m) => m.authRoutes),
   },
