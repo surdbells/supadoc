@@ -14,6 +14,7 @@ import {
   switchMap,
   tap,
 } from 'rxjs';
+import { ActivatedRoute } from '@angular/router';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
@@ -235,6 +236,7 @@ interface Criteria {
 })
 export class FindSpecialist {
   private readonly specialists = inject(SpecialistsApi);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly query = signal('');
   protected readonly specialty = signal('');
@@ -254,6 +256,14 @@ export class FindSpecialist {
   }));
 
   constructor() {
+    // Deep links from the homepage discovery section pre-fill the search /
+    // specialty filter (e.g. /dashboard/specialists?specialty=Cardiology).
+    const qp = this.route.snapshot.queryParamMap;
+    const sp = qp.get('specialty');
+    if (sp) this.specialty.set(sp);
+    const q = qp.get('q');
+    if (q) this.query.set(q);
+
     // Populate the specialty filter's options once.
     this.specialists
       .specialties()

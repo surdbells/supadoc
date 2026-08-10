@@ -69,6 +69,12 @@ export interface SpecialistDto {
   verified: boolean;
 }
 
+/** A specialty with its specialist count (GET /public/specialties). */
+export interface SpecialtyCount {
+  name: string;
+  count: number;
+}
+
 /** Body for booking a consultation (POST /portal/appointments). */
 export interface BookAppointmentParams {
   specialist_id: string;

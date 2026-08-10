@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { ButtonComponent, IconComponent, LogoComponent } from '@supadoc/ui';
+import { HomeDiscovery } from './home-discovery';
 
 interface Feature {
   readonly icon: string;
@@ -42,7 +43,7 @@ interface Doctor {
 @Component({
   selector: 'pat-home',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, IconComponent, LogoComponent],
+  imports: [ButtonComponent, IconComponent, LogoComponent, HomeDiscovery],
   template: `
     <div class="min-h-screen bg-white font-sans text-ink">
       <!-- ===== Header ===== -->
@@ -172,6 +173,9 @@ interface Doctor {
           </div>
         </div>
       </section>
+
+      <!-- ===== Search & discovery ===== -->
+      <pat-home-discovery />
 
       <!-- ===== Trusted by ===== -->
       <section class="border-y border-cloud/60 bg-white">

@@ -5,6 +5,7 @@ import type {
   ListAppointmentsQuery,
   PaginatedResponse,
   SpecialistDto,
+  SpecialtyCount,
   SuccessResponse,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
@@ -50,6 +51,24 @@ export class SpecialistsApi {
     return this.api.get<SuccessResponse<DayAvailability[]>>(
       `api/portal/specialists/${encodeURIComponent(id)}/slots`,
       { days },
+    );
+  }
+
+  /** GET /api/public/specialties — specialties + counts (no auth, homepage). */
+  publicSpecialties(): Observable<SuccessResponse<SpecialtyCount[]>> {
+    return this.api.get<SuccessResponse<SpecialtyCount[]>>(
+      'api/public/specialties',
+    );
+  }
+
+  /** GET /api/public/specialists — public specialist search (no auth, homepage). */
+  publicSearch(
+    search: string,
+    limit = 6,
+  ): Observable<SuccessResponse<SpecialistDto[]>> {
+    return this.api.get<SuccessResponse<SpecialistDto[]>>(
+      'api/public/specialists',
+      { search, limit },
     );
   }
 }
