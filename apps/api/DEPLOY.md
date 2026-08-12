@@ -162,8 +162,15 @@ chmod -R 775 var public/uploads
 
 ```bash
 php bin/doctrine.php orm:schema-tool:update --force   # == composer schema:apply
+php bin/doctrine.php orm:generate-proxies             # REQUIRED in prod — proxy auto-gen is off
+chown -R www:www var                                  # www must read proxies + write var/cache
 php bin/seed.php                                       # demo specialists + patient (skip in real prod)
 ```
+
+> In production the EntityManager sets `autoGenerateProxyClasses(false)`, so the
+> Doctrine proxies in `var/proxies/` must be generated at deploy time — skipping
+> `orm:generate-proxies` gives a `Failed to open stream … var/proxies/__CG__…`
+> error on the first entity load.
 
 `schema:apply` is idempotent — re-run it after every deploy that changes an
 entity. `bin/seed.php` is only for demo/staging data.
@@ -226,9 +233,11 @@ Make sure the frontend's live origin (`https://app.dosthq.com`) is in
 
 ```bash
 cd /www/wwwroot/api.dosthq.com && git pull
-cd apps/api && composer install --no-dev --optimize-autoloader
+cd supadoc/apps/api && composer install --no-dev --optimize-autoloader
 php bin/doctrine.php orm:schema-tool:update --force
-# aaPanel → PHP 8.2 → Reload (clears OPcache)
+php bin/doctrine.php orm:generate-proxies
+chown -R www:www var
+# aaPanel → PHP → Reload (clears OPcache)
 ```
 
 **Uploaded avatars live on disk** in `public/uploads/avatars/` (git-ignored) —
