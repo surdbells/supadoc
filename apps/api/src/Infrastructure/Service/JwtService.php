@@ -54,17 +54,22 @@ final class JwtService
         return JWT::encode($payload, $this->secret, self::ALGO);
     }
 
-    public function issueRefreshToken(string $subject, string $scope): string
+    public function issueRefreshToken(string $subject, string $scope, ?string $jti = null): string
     {
-        $now = time();
-
-        return JWT::encode([
+        $now     = time();
+        $payload = [
             'sub'   => $subject,
             'scope' => $scope,
             'type'  => 'refresh',
             'iat'   => $now,
             'exp'   => $now + $this->refreshTtl,
-        ], $this->secret, self::ALGO);
+        ];
+        // Bind the refresh token to the same revocable session as its access token.
+        if ($jti !== null) {
+            $payload['jti'] = $jti;
+        }
+
+        return JWT::encode($payload, $this->secret, self::ALGO);
     }
 
     public function validateAccessToken(string $token): stdClass

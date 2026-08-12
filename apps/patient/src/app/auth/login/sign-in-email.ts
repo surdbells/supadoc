@@ -123,11 +123,14 @@ export class SignInEmail {
     this.submitting.set(true);
     this.errorMessage.set('');
     try {
-      await this.auth.login({
-        userName: this.form.controls.email.value,
-        password: this.form.controls.password.value,
-        loginType: 'username',
-      });
+      await this.auth.login(
+        {
+          userName: this.form.controls.email.value,
+          password: this.form.controls.password.value,
+          loginType: 'username',
+        },
+        this.form.controls.remember.value,
+      );
       await this.router.navigateByUrl('/dashboard');
     } catch (err) {
       const message = (err as { message?: string })?.message;

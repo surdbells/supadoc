@@ -185,7 +185,13 @@ final class AuthService
             if ($patient === null) {
                 throw new AuthenticationException('Account no longer exists');
             }
-            $access = $this->jwt->issueAccessToken($patient->getId(), 'customer');
+            // Reuse the session the refresh token is bound to; if it was signed
+            // out (revoked), the refresh must fail too.
+            $jti = isset($payload->jti) ? (string) $payload->jti : null;
+            if ($jti !== null && !$this->sessions->isActive($jti)) {
+                throw new AuthenticationException('This session has been signed out');
+            }
+            $access = $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti);
         }
 
         return [
@@ -207,7 +213,7 @@ final class AuthService
 
         return [
             'access_token'  => $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti),
-            'refresh_token' => $this->jwt->issueRefreshToken($patient->getId(), 'customer'),
+            'refresh_token' => $this->jwt->issueRefreshToken($patient->getId(), 'customer', $jti),
             'token_type'    => 'Bearer',
             'expires_in'    => $this->jwt->accessTtl(),
             'user'          => $patient->toArray(),

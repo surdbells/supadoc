@@ -9,6 +9,7 @@ import type {
 } from '@supadoc/models';
 
 const TOKEN_KEY = 'videomed.token';
+const REFRESH_KEY = 'videomed.refresh';
 
 /**
  * Central auth state for every app, backed by the VideoMed API (via `AuthApi`).
@@ -23,21 +24,23 @@ export class AuthService {
   readonly token = this._token.asReadonly();
   readonly isAuthenticated = computed(() => this._token() !== null);
 
-  /** `POST /login`. Stores the returned bearer token when the API provides one. */
-  async login(params: LoginParams): Promise<void> {
+  /**
+   * `POST /login`. Stores the access + refresh tokens. `remember` decides where
+   * they live: `localStorage` (persists across browser restarts) when true,
+   * `sessionStorage` (cleared when the browser closes) when false.
+   */
+  async login(params: LoginParams, remember = true): Promise<void> {
     const res = await firstValueFrom(this.authApi.login(params));
-    const token = this.extractToken(res);
-    if (token) this.setToken(token);
+    this.storeSession(res, remember);
   }
 
   /**
    * Sign in with a Google (Firebase) ID token — POST /api/portal/auth/google.
    * The backend verifies the token and returns the same session envelope.
    */
-  async loginWithGoogle(idToken: string): Promise<void> {
+  async loginWithGoogle(idToken: string, remember = true): Promise<void> {
     const res = await firstValueFrom(this.authApi.googleLogin(idToken));
-    const token = this.extractToken(res);
-    if (token) this.setToken(token);
+    this.storeSession(res, remember);
   }
 
   /**
@@ -56,6 +59,18 @@ export class AuthService {
       data?.token ??
       null
     );
+  }
+
+  /** The refresh token from a login envelope (local API only), or null. */
+  private extractRefresh(res: LoginResponse): string | null {
+    const data = (res?.['data'] ?? null) as { refresh_token?: string } | null;
+    return data?.refresh_token ?? null;
+  }
+
+  /** Persist a login response's tokens in the storage chosen by `remember`. */
+  private storeSession(res: LoginResponse, remember: boolean): void {
+    const access = this.extractToken(res);
+    if (access) this.setSession(access, this.extractRefresh(res), remember);
   }
 
   // ----- Termii phone flow -----
@@ -87,8 +102,7 @@ export class AuthService {
     password: string;
   }): Promise<void> {
     const res = await firstValueFrom(this.authApi.registerByPhone(params));
-    const token = this.extractToken(res);
-    if (token) this.setToken(token);
+    this.storeSession(res, true);
   }
 
   /** Sign in with a verified phone number. */
@@ -96,8 +110,7 @@ export class AuthService {
     const res = await firstValueFrom(
       this.authApi.loginByPhone(verificationToken),
     );
-    const token = this.extractToken(res);
-    if (token) this.setToken(token);
+    this.storeSession(res, true);
   }
 
   // ----- Email OTP flow (register + recovery) -----
@@ -134,8 +147,7 @@ export class AuthService {
     password: string;
   }): Promise<void> {
     const res = await firstValueFrom(this.authApi.registerWithEmail(params));
-    const token = this.extractToken(res);
-    if (token) this.setToken(token);
+    this.storeSession(res, true);
   }
 
   /** Set a new password after email verification, then sign in. */
@@ -147,8 +159,7 @@ export class AuthService {
     const res = await firstValueFrom(
       this.authApi.resetPasswordWithEmail(params),
     );
-    const token = this.extractToken(res);
-    if (token) this.setToken(token);
+    this.storeSession(res, true);
   }
 
   // ----- Registration -----
@@ -173,6 +184,45 @@ export class AuthService {
     return firstValueFrom(this.authApi.resetPassword(params));
   }
 
+  /** Whether a refresh token is available to renew an expired access token. */
+  hasRefreshToken(): boolean {
+    return this.readStored(REFRESH_KEY) !== null;
+  }
+
+  private refreshInFlight: Promise<boolean> | null = null;
+
+  /**
+   * Exchange the stored refresh token for a fresh access token. Returns false
+   * (and clears the session) when there's no refresh token or it's rejected —
+   * the caller should then treat the user as signed out. Concurrent callers
+   * (e.g. several requests 401-ing at once) share a single in-flight refresh.
+   */
+  refresh(): Promise<boolean> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = this.doRefresh().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async doRefresh(): Promise<boolean> {
+    const refresh = this.readStored(REFRESH_KEY);
+    if (!refresh) return false;
+    try {
+      const res = await firstValueFrom(this.authApi.refresh(refresh));
+      const access = res?.data?.access_token;
+      if (!access) {
+        this.clear();
+        return false;
+      }
+      this.updateAccessToken(access);
+      return true;
+    } catch {
+      this.clear();
+      return false;
+    }
+  }
+
   async logout(): Promise<void> {
     try {
       await firstValueFrom(this.authApi.logout());
@@ -185,31 +235,70 @@ export class AuthService {
 
   private clear(): void {
     this._token.set(null);
-    this.clearToken();
+    for (const s of this.storages()) {
+      try {
+        s.removeItem(TOKEN_KEY);
+        s.removeItem(REFRESH_KEY);
+      } catch {
+        /* no-op */
+      }
+    }
   }
 
-  private setToken(token: string): void {
-    this._token.set(token);
+  /** Store access (+ refresh) in localStorage (remember) or sessionStorage. */
+  private setSession(
+    access: string,
+    refresh: string | null,
+    remember: boolean,
+  ): void {
+    this._token.set(access);
     try {
-      localStorage.setItem(TOKEN_KEY, token);
+      const primary = remember ? localStorage : sessionStorage;
+      const secondary = remember ? sessionStorage : localStorage;
+      primary.setItem(TOKEN_KEY, access);
+      secondary.removeItem(TOKEN_KEY);
+      if (refresh !== null) {
+        primary.setItem(REFRESH_KEY, refresh);
+        secondary.removeItem(REFRESH_KEY);
+      }
     } catch {
       /* storage unavailable — keep the in-memory session */
     }
   }
 
-  private readToken(): string | null {
+  /** Replace just the access token, in whichever storage holds the session. */
+  private updateAccessToken(access: string): void {
+    this._token.set(access);
+    const store =
+      this.readStored(REFRESH_KEY, localStorage) !== null
+        ? localStorage
+        : sessionStorage;
     try {
-      return localStorage.getItem(TOKEN_KEY);
+      store.setItem(TOKEN_KEY, access);
+    } catch {
+      /* keep the in-memory session */
+    }
+  }
+
+  private readToken(): string | null {
+    return this.readStored(TOKEN_KEY);
+  }
+
+  /** Read a key from a specific storage, or from local then session. */
+  private readStored(key: string, only?: Storage): string | null {
+    try {
+      if (only) return only.getItem(key);
+      return localStorage.getItem(key) ?? sessionStorage.getItem(key);
     } catch {
       return null;
     }
   }
 
-  private clearToken(): void {
+  private storages(): Storage[] {
     try {
-      localStorage.removeItem(TOKEN_KEY);
+      return [localStorage, sessionStorage];
     } catch {
-      /* no-op */
+      return [];
     }
   }
 }

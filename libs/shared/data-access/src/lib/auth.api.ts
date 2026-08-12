@@ -182,6 +182,16 @@ export class AuthApi {
     });
   }
 
+  /** Exchange a refresh token for a fresh access token (POST /api/auth/refresh). */
+  refresh(
+    refreshToken: string,
+  ): Observable<{ data: { access_token: string } }> {
+    return this.api.post<{ data: { access_token: string } }>(
+      'api/auth/refresh',
+      { refresh_token: refreshToken },
+    );
+  }
+
   logout(): Observable<unknown> {
     return this.api.post('api/Auth/logout', {});
   }
