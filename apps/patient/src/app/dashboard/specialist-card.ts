@@ -115,53 +115,71 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
             <span
               class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean"
             >
-              <sd-icon name="calendar-clock" [size]="16" />Next available
+              <sd-icon name="calendar-clock" [size]="16" />Next Available
             </span>
             <span class="font-sans text-caption font-medium text-ink">{{
               selectedSummary()
             }}</span>
           </div>
 
-          <!-- Dates -->
-          <div class="flex gap-2 overflow-x-auto pb-1">
-            @for (d of days(); track d.date) {
-              <button
-                type="button"
-                class="flex shrink-0 flex-col items-center rounded-field border px-3 py-1.5 transition-colors"
-                [class]="
-                  selectedDate() === d.date
-                    ? 'border-cerulean bg-cerulean text-white'
-                    : 'border-cloud bg-white text-slate hover:border-cerulean/50'
-                "
-                (click)="pickDate(d)"
-              >
-                <span class="font-sans text-[10px] uppercase">{{
-                  d.weekday
-                }}</span>
-                <span class="font-sans text-body-sm font-semibold">{{
-                  d.day
-                }}</span>
-              </button>
-            }
-          </div>
+          <!-- Collapsible calendar -->
+          <button
+            type="button"
+            class="flex items-center justify-center gap-1 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-cerulean-dark"
+            [attr.aria-expanded]="calendarOpen()"
+            (click)="calendarOpen.set(!calendarOpen())"
+          >
+            {{ calendarOpen() ? 'hide calendar' : 'view calendar' }}
+            <sd-icon
+              name="chevron-down"
+              [size]="16"
+              class="transition-transform"
+              [class.rotate-180]="calendarOpen()"
+            />
+          </button>
 
-          <!-- Times -->
-          <div class="flex flex-wrap gap-2">
-            @for (t of selectedDaySlots(); track t.iso) {
-              <button
-                type="button"
-                class="rounded-field border px-3 py-1 font-sans text-caption transition-colors"
-                [class]="
-                  selectedTime() === t.iso
-                    ? 'border-cerulean bg-cerulean text-white'
-                    : 'border-cloud bg-white text-slate hover:border-cerulean/50'
-                "
-                (click)="selectedTime.set(t.iso)"
-              >
-                {{ t.label }}
-              </button>
-            }
-          </div>
+          @if (calendarOpen()) {
+            <!-- Dates -->
+            <div class="flex gap-2 overflow-x-auto pb-1">
+              @for (d of days(); track d.date) {
+                <button
+                  type="button"
+                  class="flex shrink-0 flex-col items-center rounded-field border px-3 py-1.5 transition-colors"
+                  [class]="
+                    selectedDate() === d.date
+                      ? 'border-cerulean bg-cerulean text-white'
+                      : 'border-cloud bg-white text-slate hover:border-cerulean/50'
+                  "
+                  (click)="pickDate(d)"
+                >
+                  <span class="font-sans text-[10px] uppercase">{{
+                    d.weekday
+                  }}</span>
+                  <span class="font-sans text-body-sm font-semibold">{{
+                    d.day
+                  }}</span>
+                </button>
+              }
+            </div>
+
+            <!-- Times -->
+            <div class="flex flex-wrap gap-2">
+              @for (t of selectedDaySlots(); track t.iso) {
+                <button
+                  type="button"
+                  class="rounded-field border px-3 py-1 font-sans text-caption transition-colors"
+                  [class]="
+                    selectedTime() === t.iso
+                      ? 'border-cerulean bg-cerulean text-white'
+                      : 'border-cloud bg-white text-slate hover:border-cerulean/50'
+                  "
+                  (click)="selectedTime.set(t.iso)"
+                >
+                  {{ t.label }}
+                </button>
+              }
+            </div>
+          }
         </div>
       }
 
@@ -240,6 +258,7 @@ export class SpecialistCard implements OnInit {
 
   protected readonly days = signal<DayAvailability[]>([]);
   protected readonly loadingSlots = signal(true);
+  protected readonly calendarOpen = signal(false);
   protected readonly selectedDate = signal('');
   protected readonly selectedTime = signal('');
 
