@@ -243,6 +243,26 @@ chown -R www:www var
 **Uploaded avatars live on disk** in `public/uploads/avatars/` (git-ignored) —
 they survive `git pull`, so never wipe that folder on deploy.
 
+### One-time: migrate existing prod data to the consultation-flow release
+
+The schema update above only adds nullable columns — it does **not** touch data,
+and `bin/seed.php` refuses to run in production. To adapt your live specialists
+(convert USD fees → Naira, add contact emails, create a doctor login per
+specialist, and seed default pricing), run the idempotent migration **once**
+after the schema update:
+
+```bash
+# Optional: set a shared password for all new doctor logins; otherwise each new
+# login gets a random password printed once in the output.
+DOCTOR_DEFAULT_PASSWORD='ChooseAStrongOne!' php bin/prod-migrate.php --run
+```
+
+It only converts a fee while it still looks USD-era (< 1000), only fills a
+missing email/setting, and never re-passwords or clobbers an existing account —
+so it's safe to re-run. The doctor emails it derives are **placeholders**; update
+each specialist's email to the doctor's real inbox so invites + join links land
+there. Doctors can also join from the emailed link without logging in.
+
 ---
 
 ## Troubleshooting
