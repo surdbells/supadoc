@@ -58,6 +58,9 @@ return static function (App $app): void {
         $group->get('/public/specialists', Action\Public\PublicSpecialistsAction::class);
         $group->get('/public/specialists/{id}/slots', Action\Specialist\GetSpecialistSlotsAction::class);
         $group->get('/public/specialists/{id}', Action\Public\GetPublicSpecialistAction::class);
+        $group->get('/public/pricing', Action\Public\PublicPricingAction::class);
+        // Preauthenticated join — the signed token in the path IS the credential.
+        $group->get('/public/call/{token}', Action\Call\JoinCallAction::class);
 
         // ----- Staff (default audience) -----
         $group->group('', function (RouteCollectorProxy $group): void {
@@ -75,6 +78,9 @@ return static function (App $app): void {
 
             $group->patch('/appointments/{id}/status', Action\Appointment\UpdateAppointmentStatusAction::class)
                 ->add(new RbacMiddleware('appointments.update'));
+
+            $group->patch('/settings/pricing', Action\Settings\UpdatePricingAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----

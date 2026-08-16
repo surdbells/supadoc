@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Repository\AppSettingRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -16,6 +17,7 @@ use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\SessionService;
 use App\Infrastructure\Service\SettingsCacheService;
 use App\Infrastructure\Service\TermiiService;
@@ -113,6 +115,9 @@ return [
     SessionService::class => static fn (ContainerInterface $c): SessionService =>
         new SessionService($c->get(SessionRepository::class)),
 
+    PricingService::class => static fn (ContainerInterface $c): PricingService =>
+        new PricingService($c->get(AppSettingRepository::class)),
+
     // ----- Repositories -----
     UserRepository::class => static fn (ContainerInterface $c): UserRepository =>
         new UserRepository($c->get(EntityManagerInterface::class)),
@@ -131,4 +136,7 @@ return [
 
     SessionRepository::class => static fn (ContainerInterface $c): SessionRepository =>
         new SessionRepository($c->get(EntityManagerInterface::class)),
+
+    AppSettingRepository::class => static fn (ContainerInterface $c): AppSettingRepository =>
+        new AppSettingRepository($c->get(EntityManagerInterface::class)),
 ];

@@ -62,6 +62,15 @@ class Appointment
     #[ORM\Column(name: 'payment_status', type: 'string', length: 20, options: ['default' => 'unpaid'])]
     private string $paymentStatus = 'unpaid';
 
+    /**
+     * Invited third parties (up to 3): list of {name, email}. Each adds the
+     * configurable guest fee to the appointment amount.
+     *
+     * @var list<array{name:string,email:string}>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $guests = null;
+
     public function __construct(
         Patient $patient,
         Specialist $specialist,
@@ -116,6 +125,23 @@ class Appointment
         $this->paymentStatus = $status;
     }
 
+    /** @return list<array{name:string,email:string}> */
+    public function getGuests(): array
+    {
+        return $this->guests ?? [];
+    }
+
+    /** @param list<array{name:string,email:string}> $guests */
+    public function setGuests(array $guests): void
+    {
+        $this->guests = $guests !== [] ? $guests : null;
+    }
+
+    public function setAmount(string $amount): void
+    {
+        $this->amount = $amount;
+    }
+
     /** Enforces the state machine; illegal transitions can't be expressed. */
     public function transitionTo(AppointmentStatus $target): void
     {
@@ -151,6 +177,7 @@ class Appointment
             'notes'          => $this->notes,
             'document_url'   => $this->documentUrl,
             'payment_status' => $this->paymentStatus,
+            'guests'         => $this->getGuests(),
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }

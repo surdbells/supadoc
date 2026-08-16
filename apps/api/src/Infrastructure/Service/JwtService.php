@@ -143,6 +143,54 @@ final class JwtService
         ], $this->secret, self::ALGO);
     }
 
+    /**
+     * A preauthenticated "join the call" token embedded in the emailed link, so
+     * a patient, doctor or guest can join the Agora session without logging in.
+     * Carries the appointment, the display name, the role and an Agora uid.
+     */
+    public function issueCallAccess(
+        string $appointmentId,
+        string $name,
+        string $role,
+        int $uid,
+        int $ttl = 2592000,
+    ): string {
+        $now = time();
+
+        return JWT::encode([
+            'apt'   => $appointmentId,
+            'name'  => $name,
+            'crole' => $role,
+            'uid'   => $uid,
+            'type'  => 'call_access',
+            'iat'   => $now,
+            'exp'   => $now + $ttl,
+        ], $this->secret, self::ALGO);
+    }
+
+    /**
+     * @return array{appointment_id:string,name:string,role:string,uid:int}|null
+     */
+    public function verifyCallAccess(string $token): ?array
+    {
+        try {
+            $payload = JWT::decode($token, new Key($this->secret, self::ALGO));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (($payload->type ?? null) !== 'call_access') {
+            return null;
+        }
+
+        return [
+            'appointment_id' => (string) ($payload->apt ?? ''),
+            'name'           => (string) ($payload->name ?? ''),
+            'role'           => (string) ($payload->crole ?? 'guest'),
+            'uid'            => (int) ($payload->uid ?? 0),
+        ];
+    }
+
     /** The verified email from a valid, unexpired proof token, or null. */
     public function verifyEmailProof(string $token): ?string
     {

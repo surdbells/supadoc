@@ -172,7 +172,21 @@ return [
                     'notes'          => ['type' => 'string', 'nullable' => true],
                     'document_url'   => ['type' => 'string', 'nullable' => true],
                     'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid']],
+                    'guests'         => [
+                        'type'        => 'array',
+                        'description' => 'Invited third parties (max 3); each adds the guest fee.',
+                        'items'       => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'email' => ['type' => 'string', 'format' => 'email']]],
+                    ],
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
+                ],
+            ],
+            'Pricing' => [
+                'type'        => 'object',
+                'description' => 'Back-office-configurable consultation pricing.',
+                'properties'  => [
+                    'currency'     => ['type' => 'string', 'example' => 'NGN'],
+                    'guest_fee'    => ['type' => 'number', 'example' => 5000, 'description' => 'Added per invited guest'],
+                    'platform_fee' => ['type' => 'number', 'example' => 200],
                 ],
             ],
             'PatientProfile' => [
@@ -815,6 +829,58 @@ return [
                 ],
             ],
         ],
+        '/api/public/pricing' => [
+            'get' => [
+                'tags'      => ['Public'],
+                'summary'   => 'Consultation pricing (currency, guest fee, platform fee)',
+                'security'  => [],
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Pricing']))],
+                ],
+            ],
+        ],
+        '/api/public/call/{token}' => [
+            'get' => [
+                'tags'        => ['Public'],
+                'summary'     => 'Resolve a preauthenticated join link into an Agora session',
+                'description' => 'The signed call-access token from the invite email IS the credential — no login. Returns the meeting details plus an Agora token when video is configured.',
+                'security'    => [],
+                'parameters'  => [['name' => 'token', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                'responses'   => [
+                    '200' => ['description' => 'Ready to join', ...$json($envelope([
+                        'type'       => 'object',
+                        'properties' => [
+                            'appointment_id' => ['type' => 'string', 'format' => 'uuid'],
+                            'scheduled_at'   => ['type' => 'string', 'format' => 'date-time'],
+                            'specialist'     => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'specialty' => ['type' => 'string']]],
+                            'you'            => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'role' => ['type' => 'string', 'enum' => ['patient', 'doctor', 'guest']]]],
+                            'configured'     => ['type' => 'boolean'],
+                            'app_id'         => ['type' => 'string'],
+                            'channel'        => ['type' => 'string'],
+                            'uid'            => ['type' => 'integer'],
+                            'token'          => ['type' => 'string'],
+                            'expires_in'     => ['type' => 'integer', 'example' => 3600],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
+        '/api/settings/pricing' => [
+            'patch' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Update consultation pricing (back office)',
+                'description' => 'Requires settings.manage. Only the keys present are changed.',
+                'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/Pricing'])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/Pricing']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing settings.manage'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/appointment-documents' => [
             'post' => [
                 'tags'        => ['Portal'],
@@ -862,6 +928,12 @@ return [
                         'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video'],
                         'notes'         => ['type' => 'string', 'description' => 'Reason for the consultation'],
                         'document_url'  => ['type' => 'string', 'description' => 'Relative URL from POST /portal/appointment-documents'],
+                        'guests'        => [
+                            'type'        => 'array',
+                            'description' => 'Up to 3 invited third parties; each adds the guest fee to the amount.',
+                            'maxItems'    => 3,
+                            'items'       => ['type' => 'object', 'required' => ['name', 'email'], 'properties' => ['name' => ['type' => 'string'], 'email' => ['type' => 'string', 'format' => 'email']]],
+                        ],
                     ],
                 ])],
                 'responses'   => [

@@ -66,6 +66,10 @@ class Specialist
     #[ORM\Column(type: 'string', length: 20, nullable: true)]
     private ?string $gender = null;
 
+    /** Doctor contact email — used server-side for confirmations; never in toArray. */
+    #[ORM\Column(type: 'string', length: 255, nullable: true)]
+    private ?string $email = null;
+
     /** Whether they also offer in-person visits (all offer online/telehealth). */
     #[ORM\Column(name: 'offers_in_person', type: 'boolean', options: ['default' => false])]
     private bool $offersInPerson = false;
@@ -158,6 +162,16 @@ class Specialist
     public function setGender(?string $gender): void
     {
         $this->gender = $gender !== null && $gender !== '' ? strtolower($gender) : null;
+    }
+
+    public function getEmail(): ?string
+    {
+        return $this->email;
+    }
+
+    public function setEmail(?string $email): void
+    {
+        $this->email = $email !== null && $email !== '' ? $email : null;
     }
 
     public function setOffersInPerson(bool $offers): void

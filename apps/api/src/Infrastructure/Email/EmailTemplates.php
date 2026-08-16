@@ -26,7 +26,7 @@ final class EmailTemplates
      * @param array<string, mixed> $appt Appointment::toArray() output.
      * @return array{subject: string, html: string}
      */
-    public static function appointmentConfirmation(array $appt, string $firstName, string $webUrl): array
+    public static function appointmentConfirmation(array $appt, string $firstName, string $webUrl, string $currency = '₦'): array
     {
         $specialist = (array) ($appt['specialist'] ?? []);
         $details    = self::detailsCard([
@@ -34,7 +34,7 @@ final class EmailTemplates
             'Date'         => self::date((string) ($appt['scheduled_at'] ?? '')),
             'Time'         => self::time((string) ($appt['scheduled_at'] ?? '')),
             'Consultation' => (string) ($appt['type_label'] ?? ''),
-            'Amount'       => '$' . (string) ($appt['amount'] ?? '0.00'),
+            'Amount'       => self::money($currency, (string) ($appt['amount'] ?? '0.00')),
         ], self::statusBadge((string) ($appt['status'] ?? ''), (string) ($appt['status_label'] ?? '')));
 
         $body = self::heading('Your appointment is booked')
@@ -71,6 +71,57 @@ final class EmailTemplates
         return [
             'subject' => 'Update on your VideoMed appointment',
             'html'    => self::layout('Appointment updated', 'The status of your appointment has changed.', $body),
+        ];
+    }
+
+    /**
+     * Multi-party session invite carrying a preauthenticated join link. Sent to
+     * the patient, the specialist and each invited guest; `$recipientName` and
+     * `$role` personalise the greeting and `$joinUrl` is that recipient's own
+     * one-tap link into the video room.
+     *
+     * @param array<string, mixed> $appt      Appointment::toArray() output.
+     * @param list<string>         $attendees Display names of everyone on the call.
+     * @return array{subject: string, html: string}
+     */
+    public static function sessionInvite(
+        array $appt,
+        string $recipientName,
+        string $role,
+        string $joinUrl,
+        array $attendees = [],
+        string $currency = '₦',
+    ): array {
+        $specialist = (array) ($appt['specialist'] ?? []);
+        $rows       = [
+            'Specialist'   => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
+            'Date'         => self::date((string) ($appt['scheduled_at'] ?? '')),
+            'Time'         => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Consultation' => (string) ($appt['type_label'] ?? 'Video consultation'),
+        ];
+        if ($attendees !== []) {
+            $rows['Attendees'] = implode(', ', $attendees);
+        }
+        $details = self::detailsCard(
+            $rows,
+            self::statusBadge((string) ($appt['status'] ?? ''), (string) ($appt['status_label'] ?? '')),
+        );
+
+        $intro = match ($role) {
+            'doctor' => 'you have a new video consultation booked. Here are the details and your link to join the call:',
+            'guest'  => "you've been invited to a VideoMed video consultation. Here are the details and your link to join the call:",
+            default  => "you're all set. Here are the details of your consultation and your link to join the call:",
+        };
+
+        $body = self::heading('Your video consultation')
+            . self::lead('Hi ' . self::e($recipientName) . ', ' . $intro)
+            . $details
+            . self::button('Join the call', $joinUrl)
+            . self::note("Your join link is personal to you — please don't forward it. Join 5–10 minutes early on a stable connection.");
+
+        return [
+            'subject' => 'Your VideoMed video consultation & join link',
+            'html'    => self::layout('Video consultation', 'Your VideoMed consultation is booked — here is your join link.', $body),
         ];
     }
 
@@ -195,6 +246,12 @@ final class EmailTemplates
     private static function dot(string $suffix): string
     {
         return $suffix === '' ? '' : '  ·  ' . $suffix;
+    }
+
+    /** "₦45,000.00" — thousands-separated money with the configured symbol. */
+    private static function money(string $currency, string $amount): string
+    {
+        return $currency . number_format((float) $amount, 2);
     }
 
     private static function e(string $value): string

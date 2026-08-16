@@ -38,7 +38,7 @@ if ($em->getRepository(User::class)->findOneBy(['email' => $adminEmail]) === nul
     $admin = new User($adminEmail, 'Ada', 'Admin');
     $admin->setPassword($password);
     $admin->setRoles(['admin']);
-    $admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update']);
+    $admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update', 'settings.manage']);
     $em->persist($admin);
 }
 
@@ -92,22 +92,25 @@ $schedSplit   = ['1' => [['08:00', '12:00'], ['13:00', '18:00']], '2' => [['08:0
 $schedMorning = ['1' => [['08:00', '12:00']], '2' => [['08:00', '12:00']], '3' => [['08:00', '12:00']], '4' => [['08:00', '12:00']], '5' => [['08:00', '12:00']], '6' => [['09:00', '13:00']]];
 $schedEvening = ['1' => [['14:00', '20:00']], '3' => [['14:00', '20:00']], '5' => [['14:00', '20:00']]];
 
-// [name, specialty, fee, location, rating, reviews, available, years, languages, verified, weeklyHours, gender, inPerson]
+// Fees are Naira (money-as-string). Doctor emails are used server-side only
+// (confirmations + preauth join links) and never leave the backend in toArray.
+// Set DEMO_DOCTOR_EMAIL to route the first doctor's invite to a real inbox.
+// [name, specialty, fee, location, rating, reviews, available, years, languages, verified, weeklyHours, gender, inPerson, email]
 $specialistSeeds = [
-    ['Dr. Grace Bell', 'Cardiology', '150.00', 'Lagos, NG', '4.80', 128, true, 14, 'English, French', true, $schedSplit, 'female', true],
-    ['Dr. Ada Obi', 'Dermatology', '90.00', 'Abuja, NG', '4.60', 84, true, 9, 'English', true, $schedWeekday, 'female', false],
-    ['Dr. Chidi Eze', 'Pediatrics', '110.00', 'Port Harcourt, NG', '4.90', 210, true, 18, 'English, Igbo', true, $schedMorning, 'male', true],
-    ['Dr. Ngozi Kama', 'Neurology', '180.00', 'Lagos, NG', '4.70', 65, false, 11, 'English, French', false, $schedWeekday, 'female', false],
-    ['Dr. Tunde Bello', 'General Practice', '70.00', 'Ibadan, NG', '4.50', 42, true, 7, 'English, Yoruba', true, $schedSplit, 'male', true],
-    ['Dr. Amaka Nwosu', 'Psychiatry', '130.00', 'Abuja, NG', '4.70', 96, true, 12, 'English', true, $schedEvening, 'female', false],
-    ['Dr. Emeka Okonkwo', 'Orthopedics', '160.00', 'Lagos, NG', '4.80', 154, true, 20, 'English, Igbo', true, $schedWeekday, 'male', true],
-    ['Dr. Fatima Bello', 'Gynecology', '120.00', 'Kano, NG', '4.90', 178, true, 15, 'English, Hausa', true, $schedMorning, 'female', true],
-    ['Dr. Ibrahim Sani', 'Dentistry', '80.00', 'Kaduna, NG', '4.40', 51, false, 6, 'English, Hausa', false, $schedWeekday, 'male', false],
-    ['Dr. Zainab Yusuf', 'Ophthalmology', '100.00', 'Lagos, NG', '4.60', 73, true, 10, 'English', true, $schedSplit, 'female', false],
+    ['Dr. Grace Bell', 'Cardiology', '15000.00', 'Lagos, NG', '4.80', 128, true, 14, 'English, French', true, $schedSplit, 'female', true, $_ENV['DEMO_DOCTOR_EMAIL'] ?? 'grace.bell@videomed.test'],
+    ['Dr. Ada Obi', 'Dermatology', '9000.00', 'Abuja, NG', '4.60', 84, true, 9, 'English', true, $schedWeekday, 'female', false, 'ada.obi@videomed.test'],
+    ['Dr. Chidi Eze', 'Pediatrics', '11000.00', 'Port Harcourt, NG', '4.90', 210, true, 18, 'English, Igbo', true, $schedMorning, 'male', true, 'chidi.eze@videomed.test'],
+    ['Dr. Ngozi Kama', 'Neurology', '18000.00', 'Lagos, NG', '4.70', 65, false, 11, 'English, French', false, $schedWeekday, 'female', false, 'ngozi.kama@videomed.test'],
+    ['Dr. Tunde Bello', 'General Practice', '7000.00', 'Ibadan, NG', '4.50', 42, true, 7, 'English, Yoruba', true, $schedSplit, 'male', true, 'tunde.bello@videomed.test'],
+    ['Dr. Amaka Nwosu', 'Psychiatry', '13000.00', 'Abuja, NG', '4.70', 96, true, 12, 'English', true, $schedEvening, 'female', false, 'amaka.nwosu@videomed.test'],
+    ['Dr. Emeka Okonkwo', 'Orthopedics', '16000.00', 'Lagos, NG', '4.80', 154, true, 20, 'English, Igbo', true, $schedWeekday, 'male', true, 'emeka.okonkwo@videomed.test'],
+    ['Dr. Fatima Bello', 'Gynecology', '12000.00', 'Kano, NG', '4.90', 178, true, 15, 'English, Hausa', true, $schedMorning, 'female', true, 'fatima.bello@videomed.test'],
+    ['Dr. Ibrahim Sani', 'Dentistry', '8000.00', 'Kaduna, NG', '4.40', 51, false, 6, 'English, Hausa', false, $schedWeekday, 'male', false, 'ibrahim.sani@videomed.test'],
+    ['Dr. Zainab Yusuf', 'Ophthalmology', '10000.00', 'Lagos, NG', '4.60', 73, true, 10, 'English', true, $schedSplit, 'female', false, 'zainab.yusuf@videomed.test'],
 ];
 $specialist = null; // first one, referenced by the appointments below
 // Upsert so re-running the seed also backfills the newer columns.
-foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available, $years, $langs, $verified, $hours, $gender, $inPerson]) {
+foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available, $years, $langs, $verified, $hours, $gender, $inPerson, $email]) {
     $s = $em->getRepository(Specialist::class)->findOneBy(['name' => $name])
         ?? new Specialist($name, $specialty);
     $s->setConsultationFee($fee);
@@ -121,6 +124,7 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
     $s->setWeeklyHours($hours);
     $s->setGender($gender);
     $s->setOffersInPerson($inPerson);
+    $s->setEmail($email);
     $em->persist($s);
     $specialist ??= $s;
 }
@@ -160,7 +164,7 @@ if (count($em->getRepository(Notification::class)->findBy(['patient' => $patient
 
     $notify(NotificationType::APPOINTMENT, 'Appointment confirmed', 'Your consultation with Dr. Grace Bell is confirmed for 1 Sep, 11:00 AM.', false);
     $notify(NotificationType::PRESCRIPTION, 'Prescription ready', 'Your prescription from Dr. Grace Bell is ready for pickup.', false);
-    $notify(NotificationType::PAYMENT, 'Payment received', 'We received your $150.00 payment for a video consultation.', true);
+    $notify(NotificationType::PAYMENT, 'Payment received', 'We received your ₦15,000.00 payment for a video consultation.', true);
     $notify(NotificationType::SYSTEM, 'Welcome to VideoMed', 'Complete your profile to get the most out of VideoMed.', true);
 }
 
