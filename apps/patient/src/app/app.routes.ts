@@ -18,6 +18,12 @@ export const appRoutes: Route[] = [
     loadComponent: () => import('./call/call-join').then((m) => m.CallJoin),
   },
   {
+    // Minimal doctor portal — self-contained sign-in (one login per specialist).
+    path: 'doctor',
+    loadComponent: () =>
+      import('./doctor/doctor-portal').then((m) => m.DoctorPortal),
+  },
+  {
     path: 'auth',
     loadChildren: () => import('./auth/auth.routes').then((m) => m.authRoutes),
   },
