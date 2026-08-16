@@ -896,6 +896,26 @@ return [
                 ],
             ],
         ],
+        '/api/specialists' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'List specialists with their contact email (back office)',
+                'description' => 'Requires specialists.manage. Includes the normally server-side email so an operator can review and fix it.',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'type'  => 'array',
+                        'items' => [
+                            'allOf' => [
+                                ['$ref' => '#/components/schemas/Specialist'],
+                                ['type' => 'object', 'properties' => ['email' => ['type' => 'string', 'nullable' => true]]],
+                            ],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing specialists.manage'],
+                ],
+            ],
+        ],
         '/api/specialists/{id}' => [
             'patch' => [
                 'tags'        => ['Staff'],
