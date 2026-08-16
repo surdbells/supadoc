@@ -61,6 +61,24 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * All of a specialist's appointments (non-deleted), soonest first — the
+     * minimal doctor portal's schedule.
+     *
+     * @return list<Appointment>
+     */
+    public function forSpecialist(string $specialistId, int $limit = 100): array
+    {
+        return $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->orderBy('e.scheduledAt', 'ASC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Live (non-cancelled) appointments for a specialist within [from, to) —
      * used to subtract already-taken slots from generated availability.
      *

@@ -31,6 +31,22 @@ if (($_ENV['APP_ENV'] ?? 'development') === 'production') {
 $em       = DoctrineEntityManagerFactory::create();
 $password = 'password123';
 
+/**
+ * Split a specialist display name ("Dr. Grace Bell") into [first, last] for the
+ * doctor's User row. Always returns exactly two parts.
+ *
+ * @return array{0:string,1:string}
+ */
+function explodeName(string $name): array
+{
+    $clean = trim(preg_replace('/^(dr|prof|mr|mrs|ms)\.?\s+/i', '', $name) ?? $name);
+    $parts = preg_split('/\s+/', $clean) ?: [$clean];
+    $first = $parts[0] ?? $clean;
+    $last  = count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : 'Doctor';
+
+    return [$first, $last];
+}
+
 // Full-access staff. Explicit permissions (NOT super_admin) so RBAC actually
 // matches the token's permissions rather than short-circuiting.
 $adminEmail = 'admin@videomed.test';
@@ -127,6 +143,18 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
     $s->setEmail($email);
     $em->persist($s);
     $specialist ??= $s;
+
+    // A doctor login per specialist (their chosen option 1). They can also join
+    // via the emailed preauth link without logging in.
+    $doctorUser = $em->getRepository(User::class)->findOneBy(['email' => strtolower($email)]);
+    if ($doctorUser === null) {
+        $doctorUser = new User($email, ...explodeName($name));
+        $doctorUser->setPassword($password);
+    }
+    $doctorUser->setRoles(['doctor']);
+    $doctorUser->setPermissions(['appointments.view']);
+    $doctorUser->setSpecialistId($s->getId());
+    $em->persist($doctorUser);
 }
 
 // A spread of appointments for the patient so the wired portal UI has real
@@ -174,6 +202,7 @@ fwrite(STDOUT, json_encode([
     'admin_email'   => $adminEmail,
     'viewer_email'  => $viewerEmail,
     'patient_email' => $patientEmail,
+    'doctor_email'  => $specialist->getEmail(),
     'password'      => $password,
     'patient_id'    => $patient->getId(),
     'specialist_id' => $specialist->getId(),

@@ -81,6 +81,10 @@ return static function (App $app): void {
 
             $group->patch('/settings/pricing', Action\Settings\UpdatePricingAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
+
+            // Minimal doctor portal — a doctor login (role 'doctor') sees only
+            // their own consultations. The action enforces the doctor role.
+            $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----

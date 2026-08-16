@@ -48,6 +48,13 @@ class User
     #[ORM\Column(type: 'boolean')]
     private bool $active = true;
 
+    /**
+     * For doctor accounts, the Specialist profile this login represents (so a
+     * doctor sees only their own consultations). Null for ordinary staff.
+     */
+    #[ORM\Column(name: 'specialist_id', type: 'uuid', nullable: true)]
+    private ?string $specialistId = null;
+
     public function __construct(string $email, string $firstName, string $lastName)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -105,17 +112,28 @@ class User
         return $this->active;
     }
 
+    public function getSpecialistId(): ?string
+    {
+        return $this->specialistId;
+    }
+
+    public function setSpecialistId(?string $specialistId): void
+    {
+        $this->specialistId = $specialistId !== null && $specialistId !== '' ? $specialistId : null;
+    }
+
     public function toArray(): array
     {
         return [
-            'id'          => $this->id,
-            'email'       => $this->email,
-            'first_name'  => $this->firstName,
-            'last_name'   => $this->lastName,
-            'roles'       => $this->roles,
-            'permissions' => $this->permissions,
-            'active'      => $this->active,
-            'created_at'  => $this->createdAt->format(DATE_ATOM),
+            'id'            => $this->id,
+            'email'         => $this->email,
+            'first_name'    => $this->firstName,
+            'last_name'     => $this->lastName,
+            'roles'         => $this->roles,
+            'permissions'   => $this->permissions,
+            'active'        => $this->active,
+            'specialist_id' => $this->specialistId,
+            'created_at'    => $this->createdAt->format(DATE_ATOM),
         ];
     }
 }

@@ -563,6 +563,35 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/appointments' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "A doctor's own consultations (minimal doctor portal)",
+                'description' => 'Staff token from a doctor login (role doctor). Each row includes a preauthenticated join_url.',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'type'       => 'object',
+                        'properties' => [
+                            'specialist'   => ['$ref' => '#/components/schemas/Specialist'],
+                            'appointments' => [
+                                'type'  => 'array',
+                                'items' => [
+                                    'allOf' => [
+                                        ['$ref' => '#/components/schemas/Appointment'],
+                                        ['type' => 'object', 'properties' => [
+                                            'patient_name' => ['type' => 'string'],
+                                            'join_url'     => ['type' => 'string'],
+                                        ]],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Not a doctor login'],
+                ],
+            ],
+        ],
         '/api/portal/me' => [
             'get' => [
                 'tags'      => ['Portal'],
