@@ -88,6 +88,23 @@ export interface SpecialistDto {
   offers_in_person: boolean;
 }
 
+/**
+ * Back-office partial update of a specialist (PATCH /specialists/{id}). Only the
+ * fields present are changed; an empty `email` string clears it.
+ */
+export interface UpdateSpecialistParams {
+  email?: string | null;
+  consultation_fee?: string;
+  available?: boolean;
+  verified?: boolean;
+}
+
+/**
+ * A specialist as returned by the staff edit endpoint — the base fields plus the
+ * normally server-side `email`, echoed back so the operator can confirm the save.
+ */
+export type SpecialistAdminDto = SpecialistDto & { email: string | null };
+
 /** Filter options for the directory (GET /public/facets). */
 export interface SpecialistFacets {
   specialties: SpecialtyCount[];

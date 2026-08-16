@@ -5,10 +5,12 @@ import type {
   ListAppointmentsQuery,
   PaginatedResponse,
   PricingDto,
+  SpecialistAdminDto,
   SpecialistDto,
   SpecialistFacets,
   SpecialtyCount,
   SuccessResponse,
+  UpdateSpecialistParams,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
 
@@ -84,6 +86,21 @@ export class SpecialistsApi {
   /** GET /api/public/pricing — currency + guest/platform fees (no auth). */
   pricing(): Observable<SuccessResponse<PricingDto>> {
     return this.api.get<SuccessResponse<PricingDto>>('api/public/pricing');
+  }
+
+  /**
+   * PATCH /api/specialists/{id} — back-office edit of a specialist's contact
+   * email / fee / availability. Staff-scoped (needs `specialists.manage`); the
+   * response echoes the otherwise server-side email.
+   */
+  update(
+    id: string,
+    params: UpdateSpecialistParams,
+  ): Observable<SuccessResponse<SpecialistAdminDto>> {
+    return this.api.patch<SuccessResponse<SpecialistAdminDto>>(
+      `api/specialists/${encodeURIComponent(id)}`,
+      params,
+    );
   }
 
   /** GET /api/public/specialists — public specialist search (no auth). */
