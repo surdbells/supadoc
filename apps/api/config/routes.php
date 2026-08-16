@@ -82,6 +82,10 @@ return static function (App $app): void {
             $group->patch('/settings/pricing', Action\Settings\UpdatePricingAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
 
+            // Back-office: edit a specialist's contact email / fee / availability.
+            $group->patch('/specialists/{id}', Action\Specialist\UpdateSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+
             // Minimal doctor portal — a doctor login (role 'doctor') sees only
             // their own consultations. The action enforces the doctor role.
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);

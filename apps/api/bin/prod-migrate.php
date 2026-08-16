@@ -66,6 +66,7 @@ function slugEmail(string $name): string
 
 $report = [
     'settings_seeded'   => [],
+    'admins_granted'    => 0,
     'fees_migrated'     => 0,
     'emails_set'        => 0,
     'doctors_created'   => 0,
@@ -73,6 +74,21 @@ $report = [
     'email_conflicts'   => [],
     'new_logins'        => [],
 ];
+
+// 0) Grant the back-office permissions the new endpoints require to any admin,
+//    so pricing + specialist edits work without a reseed. Idempotent merge.
+$backOfficePerms = ['settings.manage', 'specialists.manage'];
+foreach ($em->getRepository(User::class)->findAll() as $user) {
+    if (!in_array('admin', $user->getRoles(), true)) {
+        continue;
+    }
+    $missing = array_diff($backOfficePerms, $user->getPermissions());
+    if ($missing !== []) {
+        $user->setPermissions([...$user->getPermissions(), ...$missing]);
+        $em->persist($user);
+        $report['admins_granted']++;
+    }
+}
 
 // 1) Pricing settings — fill only what's missing (defaults mirror PricingService).
 $defaults = ['currency' => 'NGN', 'guest_fee' => '5000', 'platform_fee' => '200'];

@@ -896,6 +896,35 @@ return [
                 ],
             ],
         ],
+        '/api/specialists/{id}' => [
+            'patch' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Edit a specialist's contact + booking fields (back office)",
+                'description' => 'Requires specialists.manage. Only the keys present change. The response echoes the (normally server-side) email so the operator can confirm it.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'properties' => [
+                        'email'            => ['type' => 'string', 'format' => 'email', 'nullable' => true, 'description' => 'Empty string clears it'],
+                        'consultation_fee' => ['type' => 'string', 'example' => '15000.00'],
+                        'available'        => ['type' => 'boolean'],
+                        'verified'         => ['type' => 'boolean'],
+                    ],
+                ])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/Specialist'],
+                            ['type' => 'object', 'properties' => ['email' => ['type' => 'string', 'nullable' => true]]],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing specialists.manage'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/settings/pricing' => [
             'patch' => [
                 'tags'        => ['Staff'],

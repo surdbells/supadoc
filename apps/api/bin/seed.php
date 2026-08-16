@@ -50,13 +50,16 @@ function explodeName(string $name): array
 // Full-access staff. Explicit permissions (NOT super_admin) so RBAC actually
 // matches the token's permissions rather than short-circuiting.
 $adminEmail = 'admin@videomed.test';
-if ($em->getRepository(User::class)->findOneBy(['email' => $adminEmail]) === null) {
+$admin      = $em->getRepository(User::class)->findOneBy(['email' => $adminEmail]);
+if ($admin === null) {
     $admin = new User($adminEmail, 'Ada', 'Admin');
     $admin->setPassword($password);
-    $admin->setRoles(['admin']);
-    $admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update', 'settings.manage']);
-    $em->persist($admin);
 }
+// Refresh roles/permissions on every run so an existing admin picks up newly
+// added back-office permissions without a manual grant.
+$admin->setRoles(['admin']);
+$admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update', 'settings.manage', 'specialists.manage']);
+$em->persist($admin);
 
 // Read-only staff: has view but not create/book — proves RBAC denies (403).
 $viewerEmail = 'viewer@videomed.test';
