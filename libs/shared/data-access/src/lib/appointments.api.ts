@@ -46,6 +46,16 @@ export class AppointmentsApi {
     );
   }
 
+  /** POST /api/portal/appointment-documents — upload a supporting image, returns its URL. */
+  uploadDocument(file: File): Observable<SuccessResponse<{ url: string }>> {
+    const form = new FormData();
+    form.append('document', file);
+    return this.api.post<SuccessResponse<{ url: string }>>(
+      'api/portal/appointment-documents',
+      form,
+    );
+  }
+
   /** GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials. */
   callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
     return this.api.get<SuccessResponse<CallTokenDto>>(

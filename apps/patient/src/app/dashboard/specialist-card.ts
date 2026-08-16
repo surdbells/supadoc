@@ -10,9 +10,8 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
-import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
+import { SpecialistsApi } from '@supadoc/data-access';
 import type { DayAvailability, SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
@@ -183,14 +182,6 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         </div>
       }
 
-      @if (bookError()) {
-        <p
-          class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert"
-        >
-          {{ bookError() }}
-        </p>
-      }
-
       <hr class="border-t border-cloud" />
 
       <!-- Footer: price + rating -->
@@ -233,18 +224,17 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         <sd-button
           size="sm"
           [full]="true"
-          [disabled]="!canBook() || booking()"
+          [disabled]="!specialist().available"
           (click)="book()"
         >
           <sd-icon name="video" [size]="18" />
-          {{ booking() ? 'Booking…' : 'Book Consultation' }}
+          Book Consultation
         </sd-button>
       </div>
     </article>
   `,
 })
 export class SpecialistCard implements OnInit {
-  private readonly appointments = inject(AppointmentsApi);
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
@@ -253,8 +243,6 @@ export class SpecialistCard implements OnInit {
   readonly specialist = input.required<SpecialistDto>();
 
   protected readonly showAbout = signal(false);
-  protected readonly booking = signal(false);
-  protected readonly bookError = signal('');
 
   protected readonly days = signal<DayAvailability[]>([]);
   protected readonly loadingSlots = signal(true);
@@ -292,10 +280,6 @@ export class SpecialistCard implements OnInit {
     this.selectedDate.set(d.date);
     this.selectedTime.set(d.slots[0]?.iso ?? '');
   }
-
-  protected readonly canBook = computed(
-    () => this.specialist().available && this.selectedTime() !== '',
-  );
 
   protected readonly initials = computed(() =>
     this.specialist()
@@ -339,31 +323,17 @@ export class SpecialistCard implements OnInit {
     return parts.join('') + langs + rated;
   });
 
-  protected async book(): Promise<void> {
-    if (!this.canBook()) return;
-    // Browsing is public, but booking needs an account.
+  /** Browsing is public, but booking needs an account. Signed-in patients go to
+   * the booking wizard (carrying the picked slot); visitors go to register. */
+  protected book(): void {
+    if (!this.specialist().available) return;
     if (!this.auth.isAuthenticated()) {
       void this.router.navigate(['/auth/register']);
       return;
     }
-    this.booking.set(true);
-    this.bookError.set('');
-    try {
-      await firstValueFrom(
-        this.appointments.book({
-          specialist_id: this.specialist().id,
-          scheduled_at: this.selectedTime(),
-          type: 'video',
-        }),
-      );
-      await this.router.navigate(['/dashboard/appointments']);
-    } catch (err) {
-      this.bookError.set(
-        (err as { message?: string })?.message ??
-          'Could not book this consultation. Try again.',
-      );
-    } finally {
-      this.booking.set(false);
-    }
+    void this.router.navigate(
+      ['/dashboard/appointments/book', this.specialist().id],
+      this.selectedTime() ? { queryParams: { slot: this.selectedTime() } } : {},
+    );
   }
 }

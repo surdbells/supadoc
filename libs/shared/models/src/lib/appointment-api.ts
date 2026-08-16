@@ -89,6 +89,8 @@ export interface BookAppointmentParams {
   specialist_id: string;
   scheduled_at: string;
   type?: 'video' | 'follow_up' | 'urgent' | 'routine';
+  notes?: string;
+  document_url?: string;
 }
 
 /** One open consultation slot (from GET /portal/specialists/{id}/slots). */

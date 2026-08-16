@@ -41,6 +41,13 @@ export class SpecialistsApi {
     );
   }
 
+  /** GET /api/public/specialists/{id} — one specialist (public, for booking). */
+  getPublic(id: string): Observable<SuccessResponse<SpecialistDto>> {
+    return this.api.get<SuccessResponse<SpecialistDto>>(
+      `api/public/specialists/${encodeURIComponent(id)}`,
+    );
+  }
+
   /** GET /api/portal/specialists/specialties — distinct specialties for filtering. */
   specialties(): Observable<SuccessResponse<string[]>> {
     return this.api.get<SuccessResponse<string[]>>(
