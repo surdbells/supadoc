@@ -300,9 +300,9 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               </div>
               <input
                 type="range"
-                min="40"
-                max="200"
-                step="10"
+                min="5000"
+                max="20000"
+                step="1000"
                 [value]="feeMax()"
                 (input)="feeMax.set(+$any($event.target).value)"
                 class="w-full accent-cerulean"
@@ -395,7 +395,7 @@ export class PublicSpecialists implements OnInit {
   protected readonly language = signal('');
   protected readonly gender = signal('');
   protected readonly mode = signal<Mode>('any');
-  protected readonly feeMax = signal(200);
+  protected readonly feeMax = signal(20000);
   protected readonly minYears = signal(0);
   protected readonly minRating = signal(0);
   protected readonly sortBy = signal<
@@ -516,7 +516,7 @@ export class PublicSpecialists implements OnInit {
     const years = this.minYears();
     const rating = this.minRating();
     const list = this.all().filter((s) => {
-      if (feeCap < 200 && Number(s.consultation_fee) > feeCap) return false;
+      if (feeCap < 20000 && Number(s.consultation_fee) > feeCap) return false;
       if (years > 0 && (s.years_experience ?? 0) < years) return false;
       if (rating > 0 && Number(s.rating) < rating) return false;
       return true;
@@ -551,8 +551,13 @@ export class PublicSpecialists implements OnInit {
     return hit ? hit.specialty : null;
   });
 
+  private readonly feeFmt = new Intl.NumberFormat('en-NG', {
+    maximumFractionDigits: 0,
+  });
   protected readonly feeLabel = computed(() =>
-    this.feeMax() >= 200 ? 'Up to $200+' : `Up to $${this.feeMax()}`,
+    this.feeMax() >= 20000
+      ? 'Up to ₦20,000+'
+      : `Up to ₦${this.feeFmt.format(this.feeMax())}`,
   );
 
   protected readonly activeFilterCount = computed(
@@ -562,7 +567,7 @@ export class PublicSpecialists implements OnInit {
       (this.language() !== '' ? 1 : 0) +
       (this.gender() !== '' ? 1 : 0) +
       (this.mode() !== 'any' ? 1 : 0) +
-      (this.feeMax() < 200 ? 1 : 0) +
+      (this.feeMax() < 20000 ? 1 : 0) +
       (this.minYears() > 0 ? 1 : 0) +
       (this.minRating() > 0 ? 1 : 0),
   );
@@ -574,7 +579,7 @@ export class PublicSpecialists implements OnInit {
     this.language.set('');
     this.gender.set('');
     this.mode.set('any');
-    this.feeMax.set(200);
+    this.feeMax.set(20000);
     this.minYears.set(0);
     this.minRating.set(0);
   }

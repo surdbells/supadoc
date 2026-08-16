@@ -189,7 +189,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         <span class="flex items-center gap-1.5 text-cerulean">
           <sd-icon name="info" [size]="16" />
           <span class="font-sans text-body-sm font-medium"
-            >\${{ specialist().consultation_fee }} / Consultation</span
+            >{{ fee() }} / Consultation</span
           >
         </span>
         <span
@@ -294,6 +294,15 @@ export class SpecialistCard implements OnInit {
 
   protected readonly rating = computed(() =>
     Number(this.specialist().rating).toFixed(1),
+  );
+
+  /** Consultation fee in Naira, thousands-separated (e.g. "₦15,000"). */
+  protected readonly fee = computed(
+    () =>
+      '₦' +
+      new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 }).format(
+        Number(this.specialist().consultation_fee) || 0,
+      ),
   );
 
   protected readonly availability = computed(() =>

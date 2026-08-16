@@ -4,6 +4,7 @@ import type {
   AppointmentDto,
   BookAppointmentParams,
   CallTokenDto,
+  JoinInfoDto,
   ListAppointmentsQuery,
   PaginatedResponse,
   SuccessResponse,
@@ -60,6 +61,17 @@ export class AppointmentsApi {
   callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
     return this.api.get<SuccessResponse<CallTokenDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/call-token`,
+    );
+  }
+
+  /**
+   * GET /api/public/call/{token} — resolve a preauthenticated join link (from an
+   * invite email) into the meeting details + Agora credentials. No auth: the
+   * signed token in the path is the credential.
+   */
+  joinInfo(token: string): Observable<SuccessResponse<JoinInfoDto>> {
+    return this.api.get<SuccessResponse<JoinInfoDto>>(
+      `api/public/call/${encodeURIComponent(token)}`,
     );
   }
 }

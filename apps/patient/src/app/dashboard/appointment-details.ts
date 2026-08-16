@@ -22,7 +22,13 @@ interface DetailsVm {
   readonly statusLabel: string;
   readonly statusClass: string;
   readonly amount: string;
+  readonly guests: string[];
 }
+
+const NAIRA = new Intl.NumberFormat('en-NG', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 const STATUS_CLASS: Record<string, string> = {
   pending: 'bg-warning/15 text-warning',
@@ -60,7 +66,8 @@ function toDetails(a: AppointmentDto): DetailsVm {
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
     statusLabel: a.status_label,
     statusClass: STATUS_CLASS[a.status] ?? 'bg-cloud text-slate',
-    amount: `$${a.amount}`,
+    amount: `₦${NAIRA.format(Number(a.amount) || 0)}`,
+    guests: (a.guests ?? []).map((g) => g.name),
   };
 }
 
@@ -255,6 +262,14 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   <sd-icon name="credit-card" [size]="20" class="text-slate" />
                   Amount: {{ v.amount }}
                 </span>
+                @if (v.guests.length > 0) {
+                  <span
+                    class="flex items-start gap-2 font-sans text-body-sm text-ink"
+                  >
+                    <sd-icon name="users" [size]="20" class="mt-0.5 shrink-0 text-slate" />
+                    Guests: {{ v.guests.join(', ') }}
+                  </span>
+                }
               </section>
             </div>
           }

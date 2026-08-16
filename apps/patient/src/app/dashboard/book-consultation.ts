@@ -12,14 +12,20 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
-import type { DayAvailability, SpecialistDto } from '@supadoc/models';
+import type {
+  DayAvailability,
+  GuestInvite,
+  PricingDto,
+  SpecialistDto,
+} from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
 /**
- * Book a Consultation (Figma) — a 5-step wizard: date/time, consultation type,
- * reason, optional supporting document, and a booking summary that creates the
- * appointment (payment is a later step, so it's created unpaid). Driven by the
- * specialist's real availability.
+ * Book a Consultation (Figma) — a 7-step wizard: date/time, consultation type,
+ * reason, invite guests (up to 3, each adds the guest fee), optional supporting
+ * document, a booking summary, and a payment step that creates the appointment
+ * (payment is stubbed, so it's created unpaid). Driven by the specialist's real
+ * availability and the back-office-configured Naira pricing.
  */
 @Component({
   selector: 'pat-book-consultation',
@@ -46,10 +52,10 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
       </div>
 
       <!-- Stepper -->
-      <div class="mx-auto flex items-center">
+      <div class="mx-auto flex max-w-full items-center overflow-x-auto pb-1">
         @for (n of steps; track n; let last = $last) {
           <span
-            class="flex size-9 items-center justify-center rounded-full font-sans text-body-sm font-semibold transition-colors"
+            class="flex size-9 shrink-0 items-center justify-center rounded-full font-sans text-body-sm font-semibold transition-colors"
             [class]="
               n < step()
                 ? 'bg-sage text-white'
@@ -66,7 +72,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           </span>
           @if (!last) {
             <span
-              class="h-0.5 w-10 md:w-16"
+              class="h-0.5 w-5 shrink-0 sm:w-9 md:w-12"
               [class]="n < step() ? 'bg-sage' : 'bg-cerulean/20'"
             ></span>
           }
@@ -147,9 +153,9 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
               </div>
               <div class="flex flex-col gap-0.5">
                 <span class="flex items-center gap-1.5 text-slate"
-                  ><sd-icon name="user" [size]="14" />Gender</span
+                  ><sd-icon name="banknote" [size]="14" />Fee</span
                 >
-                <span class="text-ink capitalize">{{ s.gender ?? '—' }}</span>
+                <span class="text-ink">{{ fmt(s.consultation_fee) }}</span>
               </div>
             </div>
           </div>
@@ -315,14 +321,100 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           <ng-container [ngTemplateOutlet]="navRow" />
         }
 
-        <!-- Step 4: document -->
+        <!-- Step 4: invite guests -->
         @if (step() === 4) {
+          <div class="rounded-card border border-cloud bg-white p-6">
+            <div class="mb-1 flex items-center justify-between">
+              <h2 class="font-heading text-h5 text-cerulean">
+                <span
+                  class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
+                  >4</span
+                >Invite Others
+                <span class="font-sans text-body-sm font-normal text-slate"
+                  >(Optional)</span
+                >
+              </h2>
+              <button
+                type="button"
+                class="font-sans text-body-sm font-semibold text-cerulean hover:underline"
+                (click)="next()"
+              >
+                Skip
+              </button>
+            </div>
+            <p class="mb-5 font-sans text-body-sm text-slate">
+              Invite up to 3 people to join this video consultation. Each guest
+              adds <span class="font-semibold text-ink">{{ fmt(guestFee()) }}</span>
+              to the total, and everyone gets an email with their own join link.
+            </p>
+
+            @for (g of guests(); track $index) {
+              <div
+                class="mb-3 flex flex-col gap-3 rounded-card border border-cloud bg-glacier/40 p-4 sm:flex-row sm:items-center"
+              >
+                <input
+                  type="text"
+                  placeholder="Full name"
+                  [value]="g.name"
+                  (input)="setGuest($index, 'name', $any($event.target).value)"
+                  class="w-full flex-1 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
+                />
+                <input
+                  type="email"
+                  placeholder="Email address"
+                  [value]="g.email"
+                  (input)="setGuest($index, 'email', $any($event.target).value)"
+                  class="w-full flex-1 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
+                  [class.border-alert]="g.email.length > 0 && !emailValid(g.email)"
+                />
+                <button
+                  type="button"
+                  aria-label="Remove guest"
+                  class="flex shrink-0 items-center justify-center rounded-field border border-cloud px-3 py-2 text-slate transition-colors hover:border-alert/50 hover:text-alert"
+                  (click)="removeGuest($index)"
+                >
+                  <sd-icon name="trash-2" [size]="18" />
+                </button>
+              </div>
+            }
+
+            @if (guests().length < 3) {
+              <button
+                type="button"
+                class="flex w-full items-center justify-center gap-2 rounded-card border border-dashed border-cerulean/40 bg-frost/20 px-4 py-3 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:bg-frost/40"
+                (click)="addGuest()"
+              >
+                <sd-icon name="plus" [size]="18" />Add
+                {{ guests().length === 0 ? 'a guest' : 'another guest' }}
+              </button>
+            }
+
+            @if (validGuests().length > 0) {
+              <div
+                class="mt-4 flex items-center justify-between rounded-card bg-frost/40 px-4 py-3 font-sans text-body-sm"
+              >
+                <span class="flex items-center gap-2 text-slate"
+                  ><sd-icon name="users" [size]="16" />{{ validGuests().length }}
+                  guest{{ validGuests().length > 1 ? 's' : '' }} ×
+                  {{ fmt(guestFee()) }}</span
+                >
+                <span class="font-semibold text-cerulean">{{
+                  fmt(guestsTotal())
+                }}</span>
+              </div>
+            }
+          </div>
+          <ng-container [ngTemplateOutlet]="navRow" />
+        }
+
+        <!-- Step 5: document -->
+        @if (step() === 5) {
           <div class="rounded-card border border-cloud bg-white p-6">
             <div class="mb-4 flex items-center justify-between">
               <h2 class="font-heading text-h5 text-cerulean">
                 <span
                   class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
-                  >4</span
+                  >5</span
                 >Upload Supporting Document
                 <span class="font-sans text-body-sm font-normal text-slate"
                   >(Optional)</span
@@ -394,13 +486,13 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           <ng-container [ngTemplateOutlet]="navRow" />
         }
 
-        <!-- Step 5: summary -->
-        @if (step() === 5) {
+        <!-- Step 6: summary -->
+        @if (step() === 6) {
           <div class="rounded-card border border-cloud bg-white p-6">
             <h2 class="mb-5 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
-                >5</span
+                >6</span
               >Booking Summary
             </h2>
             <div class="flex items-center gap-4">
@@ -454,6 +546,16 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
                   {{ reason() || '—' }}
                 </dd>
               </div>
+              @if (validGuests().length > 0) {
+                <div class="flex justify-between gap-4">
+                  <dt class="flex items-center gap-2 text-slate">
+                    <sd-icon name="users" [size]="16" />Guests
+                  </dt>
+                  <dd class="max-w-[60%] text-right text-ink">
+                    {{ guestNames() }}
+                  </dd>
+                </div>
+              }
               <div class="flex justify-between gap-4">
                 <dt class="flex items-center gap-2 text-slate">
                   <sd-icon name="file-text" [size]="16" />Supporting Document
@@ -464,14 +566,27 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
               </div>
             </dl>
             <div
-              class="mt-5 flex items-center justify-between border-t border-cloud pt-4"
+              class="mt-5 flex flex-col gap-2 border-t border-cloud pt-4 font-sans text-body-sm"
             >
-              <span class="font-sans text-body font-semibold text-cerulean"
-                >Consultation Fee</span
+              <div class="flex justify-between">
+                <span class="text-slate">Consultation Fee</span>
+                <span class="text-ink">{{ fmt(baseFee()) }}</span>
+              </div>
+              @if (validGuests().length > 0) {
+                <div class="flex justify-between">
+                  <span class="text-slate"
+                    >Guests ({{ validGuests().length }} ×
+                    {{ fmt(guestFee()) }})</span
+                  >
+                  <span class="text-ink">{{ fmt(guestsTotal()) }}</span>
+                </div>
+              }
+              <div
+                class="flex justify-between border-t border-cloud pt-2 font-semibold"
               >
-              <span class="font-sans text-h5 font-semibold text-cerulean"
-                >\${{ s.consultation_fee }}</span
-              >
+                <span class="text-body text-cerulean">Amount</span>
+                <span class="text-h5 text-cerulean">{{ fmt(amount()) }}</span>
+              </div>
             </div>
           </div>
 
@@ -491,31 +606,38 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           </p>
         }
 
-        <!-- Step 6: payment (stub, skippable) -->
-        @if (step() === 6) {
+        <!-- Step 7: payment (stub, skippable) -->
+        @if (step() === 7) {
           <div class="rounded-card border border-cloud bg-white p-6">
             <h2 class="mb-5 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
-                >6</span
+                >7</span
               >Payment Summary
             </h2>
             <div class="flex flex-col gap-3 font-sans text-body-sm">
               <div class="flex justify-between">
                 <span class="text-slate">Consultation Fee</span>
-                <span class="text-ink">\${{ s.consultation_fee }}</span>
+                <span class="text-ink">{{ fmt(baseFee()) }}</span>
               </div>
+              @if (validGuests().length > 0) {
+                <div class="flex justify-between">
+                  <span class="text-slate"
+                    >Guests ({{ validGuests().length }} ×
+                    {{ fmt(guestFee()) }})</span
+                  >
+                  <span class="text-ink">{{ fmt(guestsTotal()) }}</span>
+                </div>
+              }
               <div class="flex justify-between">
                 <span class="text-slate">Platform Fee</span>
-                <span class="text-ink"
-                  >\${{ platformFee.toFixed(2) }}</span
-                >
+                <span class="text-ink">{{ fmt(platformFee()) }}</span>
               </div>
               <div
                 class="flex justify-between border-t border-cloud pt-3 font-semibold"
               >
                 <span class="text-ink">Total</span>
-                <span class="text-cerulean">\${{ total().toFixed(2) }}</span>
+                <span class="text-cerulean">{{ fmt(total()) }}</span>
               </div>
             </div>
 
@@ -619,7 +741,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
                 Skip for now
               </button>
               <sd-button [disabled]="submitting()" (click)="confirm()">
-                {{ submitting() ? 'Confirming…' : 'Pay $' + total().toFixed(2) }}
+                {{ submitting() ? 'Confirming…' : 'Pay ' + fmt(total()) }}
               </sd-button>
             </div>
           </div>
@@ -648,12 +770,12 @@ export class BookConsultation implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly steps = [1, 2, 3, 4, 5, 6];
+  protected readonly steps = [1, 2, 3, 4, 5, 6, 7];
   protected readonly step = signal(1);
-  protected readonly platformFee = 2;
   protected readonly paymentMethod = signal<'wallet' | 'paystack'>('paystack');
 
   protected readonly specialist = signal<SpecialistDto | null>(null);
+  protected readonly pricing = signal<PricingDto | null>(null);
   protected readonly loadError = signal(false);
   protected readonly days = signal<DayAvailability[]>([]);
   protected readonly loadingSlots = signal(true);
@@ -661,6 +783,7 @@ export class BookConsultation implements OnInit {
   protected readonly selectedTime = signal('');
 
   protected readonly reason = signal('');
+  protected readonly guests = signal<GuestInvite[]>([]);
   protected readonly docUrl = signal('');
   protected readonly docName = signal('');
   protected readonly uploadingDoc = signal(false);
@@ -670,6 +793,10 @@ export class BookConsultation implements OnInit {
   protected readonly submitError = signal('');
 
   private specialistId = '';
+  private readonly nf = new Intl.NumberFormat('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
   ngOnInit(): void {
     this.specialistId = this.route.snapshot.paramMap.get('id') ?? '';
@@ -682,6 +809,11 @@ export class BookConsultation implements OnInit {
         next: (res) => this.specialist.set(res.data),
         error: () => this.loadError.set(true),
       });
+
+    this.specialistsApi
+      .pricing()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (res) => this.pricing.set(res.data) });
 
     this.specialistsApi
       .slots(this.specialistId, 7)
@@ -756,26 +888,83 @@ export class BookConsultation implements OnInit {
         ?.label ?? '—',
   );
 
-  /** Per-step "Continue" gate for the shared nav row (steps 2–4). */
+  // ----- Pricing -----
+
+  protected readonly currency = computed(() => {
+    const c = this.pricing()?.currency ?? 'NGN';
+    return c === 'NGN' ? '₦' : c;
+  });
+  protected readonly guestFee = computed(() => this.pricing()?.guest_fee ?? 0);
+  protected readonly platformFee = computed(
+    () => this.pricing()?.platform_fee ?? 0,
+  );
+  protected readonly baseFee = computed(() =>
+    Number(this.specialist()?.consultation_fee ?? 0),
+  );
+  protected readonly validGuests = computed(() =>
+    this.guests().filter((g) => g.name.trim() !== '' && this.emailValid(g.email)),
+  );
+  protected readonly guestsTotal = computed(
+    () => this.validGuests().length * this.guestFee(),
+  );
+  /** Consultation fee + guest fees — what the backend persists as `amount`. */
+  protected readonly amount = computed(() => this.baseFee() + this.guestsTotal());
+  /** Amount + platform fee — the checkout total shown at payment. */
+  protected readonly total = computed(() => this.amount() + this.platformFee());
+
+  protected readonly guestNames = computed(() =>
+    this.validGuests()
+      .map((g) => g.name.trim())
+      .join(', '),
+  );
+
+  protected fmt(value: number | string): string {
+    return this.currency() + this.nf.format(Number(value) || 0);
+  }
+
+  protected emailValid(email: string): boolean {
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+  }
+
+  // ----- Guests -----
+
+  protected addGuest(): void {
+    if (this.guests().length >= 3) return;
+    this.guests.update((list) => [...list, { name: '', email: '' }]);
+  }
+
+  protected removeGuest(index: number): void {
+    this.guests.update((list) => list.filter((_, i) => i !== index));
+  }
+
+  protected setGuest(index: number, field: keyof GuestInvite, value: string): void {
+    this.guests.update((list) =>
+      list.map((g, i) => (i === index ? { ...g, [field]: value } : g)),
+    );
+  }
+
+  /** Per-step "Continue" gate for the shared nav row (steps 2–5). */
   protected readonly canContinue = computed(() => {
     switch (this.step()) {
       case 2:
         return true; // Online is preselected
       case 3:
         return this.reason().trim().length > 0;
+      case 4:
+        // Every started guest row must be complete + valid.
+        return this.guests().every(
+          (g) =>
+            (g.name.trim() === '' && g.email.trim() === '') ||
+            (g.name.trim() !== '' && this.emailValid(g.email)),
+        );
       default:
         return true;
     }
   });
 
   protected next(): void {
-    if (this.step() < 6) this.step.update((s) => s + 1);
+    if (this.step() < 7) this.step.update((s) => s + 1);
   }
-
-  /** Consultation fee + platform fee (display total for the payment step). */
-  protected readonly total = computed(
-    () => Number(this.specialist()?.consultation_fee ?? 0) + this.platformFee,
-  );
 
   protected back(): void {
     if (this.step() > 1) this.step.update((s) => s - 1);
@@ -827,6 +1016,10 @@ export class BookConsultation implements OnInit {
     this.submitting.set(true);
     this.submitError.set('');
     try {
+      const guests = this.validGuests().map((g) => ({
+        name: g.name.trim(),
+        email: g.email.trim(),
+      }));
       await firstValueFrom(
         this.appointments.book({
           specialist_id: this.specialistId,
@@ -834,6 +1027,7 @@ export class BookConsultation implements OnInit {
           type: 'video',
           notes: this.reason().trim() || undefined,
           document_url: this.docUrl() || undefined,
+          guests: guests.length > 0 ? guests : undefined,
         }),
       );
       await this.router.navigate(['/dashboard/appointments'], {

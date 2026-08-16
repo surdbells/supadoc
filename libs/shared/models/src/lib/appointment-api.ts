@@ -18,6 +18,12 @@ export interface ApiSpecialistRef {
   specialty?: string | null;
 }
 
+/** An invited third party on a consultation (adds the guest fee). */
+export interface GuestInvite {
+  name: string;
+  email: string;
+}
+
 /** One appointment as serialised by `Appointment::toArray()`. */
 export interface AppointmentDto {
   id: string;
@@ -29,7 +35,18 @@ export interface AppointmentDto {
   status: ApiAppointmentStatus;
   status_label: string;
   amount: string;
+  notes?: string | null;
+  document_url?: string | null;
+  payment_status?: 'unpaid' | 'pending' | 'paid';
+  guests?: GuestInvite[];
   created_at: string;
+}
+
+/** Back-office-configurable consultation pricing (GET /public/pricing). */
+export interface PricingDto {
+  currency: string;
+  guest_fee: number;
+  platform_fee: number;
 }
 
 export interface PageMeta {
@@ -91,6 +108,7 @@ export interface BookAppointmentParams {
   type?: 'video' | 'follow_up' | 'urgent' | 'routine';
   notes?: string;
   document_url?: string;
+  guests?: GuestInvite[];
 }
 
 /** One open consultation slot (from GET /portal/specialists/{id}/slots). */
@@ -114,6 +132,23 @@ export interface CallTokenDto {
   uid: number;
   token: string;
   expires_in: number;
+}
+
+/**
+ * Resolved preauthenticated join link (GET /public/call/{token}). Carries the
+ * meeting details and, when video is configured, the Agora credentials.
+ */
+export interface JoinInfoDto {
+  appointment_id: string;
+  scheduled_at: string;
+  specialist: { name: string; specialty?: string };
+  you: { name: string; role: 'patient' | 'doctor' | 'guest' };
+  configured: boolean;
+  app_id?: string;
+  channel?: string;
+  uid?: number;
+  token?: string;
+  expires_in?: number;
 }
 
 /** The signed-in patient's profile, from `Patient::toArray()`. */

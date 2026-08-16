@@ -4,6 +4,7 @@ import type {
   DayAvailability,
   ListAppointmentsQuery,
   PaginatedResponse,
+  PricingDto,
   SpecialistDto,
   SpecialistFacets,
   SpecialtyCount,
@@ -78,6 +79,11 @@ export class SpecialistsApi {
     return this.api.get<SuccessResponse<SpecialistFacets>>(
       'api/public/facets',
     );
+  }
+
+  /** GET /api/public/pricing — currency + guest/platform fees (no auth). */
+  pricing(): Observable<SuccessResponse<PricingDto>> {
+    return this.api.get<SuccessResponse<PricingDto>>('api/public/pricing');
   }
 
   /** GET /api/public/specialists — public specialist search (no auth). */
