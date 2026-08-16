@@ -97,6 +97,11 @@ final class CreateMyAppointmentAction
         }
 
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
+        $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
+        $documentUrl = trim((string) ($body['document_url'] ?? ''));
+        if ($documentUrl !== '' && str_starts_with($documentUrl, '/uploads/')) {
+            $appointment->setDocumentUrl($documentUrl);
+        }
         $this->appointments->save($appointment);
 
         $this->notifyBooked($patient, $appointment);

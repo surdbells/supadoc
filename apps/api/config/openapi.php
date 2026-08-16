@@ -168,8 +168,11 @@ return [
                     'type_label'   => ['type' => 'string'],
                     'status'       => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'rescheduled', 'completed', 'cancelled']],
                     'status_label' => ['type' => 'string'],
-                    'amount'       => ['type' => 'string', 'example' => '150.00'],
-                    'created_at'   => ['type' => 'string', 'format' => 'date-time'],
+                    'amount'         => ['type' => 'string', 'example' => '150.00'],
+                    'notes'          => ['type' => 'string', 'nullable' => true],
+                    'document_url'   => ['type' => 'string', 'nullable' => true],
+                    'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid']],
+                    'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
             'PatientProfile' => [
@@ -801,6 +804,41 @@ return [
                 ],
             ],
         ],
+        '/api/public/specialists/{id}' => [
+            'get' => [
+                'tags'       => ['Public'],
+                'summary'    => 'One specialist (for the booking wizard)',
+                'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'  => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Specialist']))],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
+        '/api/portal/appointment-documents' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Upload a supporting document for a booking',
+                'description' => 'multipart/form-data with a `document` image field (JPG/PNG, <= 5MB). Returns its URL for the booking payload.',
+                'requestBody' => [
+                    'required' => true,
+                    'content'  => [
+                        'multipart/form-data' => [
+                            'schema' => [
+                                'type'       => 'object',
+                                'required'   => ['document'],
+                                'properties' => ['document' => ['type' => 'string', 'format' => 'binary']],
+                            ],
+                        ],
+                    ],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'Uploaded', ...$json($envelope(['type' => 'object', 'properties' => ['url' => ['type' => 'string']]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/appointments' => [
             'get' => [
                 'tags'       => ['Portal'],
@@ -822,6 +860,8 @@ return [
                         'specialist_id' => ['type' => 'string', 'format' => 'uuid'],
                         'scheduled_at'  => ['type' => 'string', 'format' => 'date-time'],
                         'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video'],
+                        'notes'         => ['type' => 'string', 'description' => 'Reason for the consultation'],
+                        'document_url'  => ['type' => 'string', 'description' => 'Relative URL from POST /portal/appointment-documents'],
                     ],
                 ])],
                 'responses'   => [

@@ -50,6 +50,18 @@ class Appointment
     #[ORM\Column(type: 'decimal', precision: 12, scale: 2)]
     private string $amount = '0.00';
 
+    /** The patient's reason for the consultation (free text). */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $notes = null;
+
+    /** Relative URL of an optional supporting document (image), or null. */
+    #[ORM\Column(name: 'document_url', type: 'string', length: 300, nullable: true)]
+    private ?string $documentUrl = null;
+
+    /** unpaid | pending | paid — payment is a later step; bookings start unpaid. */
+    #[ORM\Column(name: 'payment_status', type: 'string', length: 20, options: ['default' => 'unpaid'])]
+    private string $paymentStatus = 'unpaid';
+
     public function __construct(
         Patient $patient,
         Specialist $specialist,
@@ -89,6 +101,21 @@ class Appointment
         return $this->scheduledAt;
     }
 
+    public function setNotes(?string $notes): void
+    {
+        $this->notes = $notes !== null && trim($notes) !== '' ? trim($notes) : null;
+    }
+
+    public function setDocumentUrl(?string $url): void
+    {
+        $this->documentUrl = $url !== null && $url !== '' ? $url : null;
+    }
+
+    public function setPaymentStatus(string $status): void
+    {
+        $this->paymentStatus = $status;
+    }
+
     /** Enforces the state machine; illegal transitions can't be expressed. */
     public function transitionTo(AppointmentStatus $target): void
     {
@@ -118,10 +145,13 @@ class Appointment
             'scheduled_at' => $this->scheduledAt->format(DATE_ATOM),
             'type'         => $this->type->value,
             'type_label'   => $this->type->label(),
-            'status'       => $this->status->value,
-            'status_label' => $this->status->label(),
-            'amount'       => $this->amount,
-            'created_at'   => $this->createdAt->format(DATE_ATOM),
+            'status'         => $this->status->value,
+            'status_label'   => $this->status->label(),
+            'amount'         => $this->amount,
+            'notes'          => $this->notes,
+            'document_url'   => $this->documentUrl,
+            'payment_status' => $this->paymentStatus,
+            'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }
 }
