@@ -5,7 +5,7 @@ import {
   signal,
 } from '@angular/core';
 import { IconComponent } from '@supadoc/ui';
-import { environment } from '../../environments/environment';
+import { environment } from '../environments/environment';
 
 interface DoctorAppointment {
   id: string;
@@ -38,7 +38,7 @@ const STATUS_CLASS: Record<string, string> = {
  * token key, so it never entangles with the patient app's customer-scoped auth.
  */
 @Component({
-  selector: 'pat-doctor-portal',
+  selector: 'doc-portal',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   host: { class: 'block min-h-screen bg-glacier' },

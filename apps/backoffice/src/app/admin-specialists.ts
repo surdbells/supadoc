@@ -5,7 +5,7 @@ import {
   signal,
 } from '@angular/core';
 import { IconComponent } from '@supadoc/ui';
-import { environment } from '../../environments/environment';
+import { environment } from '../environments/environment';
 
 interface AdminSpecialist {
   id: string;
@@ -30,7 +30,7 @@ const ADMIN_TOKEN_KEY = 'videomed.admin.token';
  * auth. Requires a staff account with the `specialists.manage` permission.
  */
 @Component({
-  selector: 'pat-admin-specialists',
+  selector: 'bo-specialists',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   host: { class: 'block min-h-screen bg-glacier' },

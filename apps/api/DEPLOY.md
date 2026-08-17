@@ -227,6 +227,30 @@ Make sure the frontend's live origin (`https://app.dosthq.com`) is in
 `CORS_ALLOWED_ORIGINS`. For Google sign-in, also set the web `firebase` config in
 `environment.prod.ts` and the matching `FIREBASE_PROJECT_ID` in the API `.env`.
 
+### 10a. The backoffice + doctor portals (separate Cloudflare Pages projects)
+
+`backoffice` and `doctor` are their own Nx apps, each a standalone Cloudflare
+Pages deployment. Both call the same API with a staff token they obtain
+themselves, and read the API origin from their own `environment.prod.ts`
+(already set to `https://api.dosthq.com`).
+
+Create one Cloudflare Pages project per app with:
+
+| App | Build command | Output directory |
+| --- | --- | --- |
+| backoffice | `npx nx build backoffice --configuration=production` | `dist/apps/backoffice/browser` |
+| doctor | `npx nx build doctor --configuration=production` | `dist/apps/doctor/browser` |
+
+Set `NODE_VERSION=22` and, for SPA routing, add a `_redirects` rule
+`/* /index.html 200` (or Cloudflare's SPA fallback) so deep links resolve.
+
+Then add **each portal's live origin** to `CORS_ALLOWED_ORIGINS` in the API
+`.env` (e.g. `https://backoffice.dosthq.com`, `https://doctor.dosthq.com`) — the
+API returns the first allowed origin when a request's Origin isn't listed, so a
+missing entry shows up as a browser CORS failure on login. The backoffice needs
+a staff account with `specialists.manage`; the doctor portal needs the seeded
+per-specialist `doctor` logins (both handled by `bin/prod-migrate.php`).
+
 ---
 
 ## Redeploying

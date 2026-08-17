@@ -4,8 +4,8 @@
     {
       "name": "doctor",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["nx", "serve", "doctor", "--port", "4200"],
-      "port": 4200
+      "runtimeArgs": ["nx", "serve", "doctor", "--port", "4204"],
+      "port": 4204
     },
     {
       "name": "patient",
