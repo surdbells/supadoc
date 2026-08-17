@@ -120,8 +120,9 @@ REDIS_PORT=6379
 REDIS_PASSWORD=            # set if your Redis has requirepass (aaPanel usually does)
 REDIS_PREFIX=videomed:
 
-# Exact browser origin(s) of the frontend that may call the API (comma-separated):
-CORS_ALLOWED_ORIGINS=https://app.dosthq.com
+# Exact browser origin(s) of the frontend(s) that may call the API (comma-separated):
+# the patient app plus the backoffice + doctor portals (each its own domain).
+CORS_ALLOWED_ORIGINS=https://app.dosthq.com,https://backoffice.dosthq.com,https://doctor.dosthq.com
 # Used to build links in transactional emails:
 APP_WEB_URL=https://app.dosthq.com
 ```
@@ -244,12 +245,13 @@ Create one Cloudflare Pages project per app with:
 Set `NODE_VERSION=22` and, for SPA routing, add a `_redirects` rule
 `/* /index.html 200` (or Cloudflare's SPA fallback) so deep links resolve.
 
-Then add **each portal's live origin** to `CORS_ALLOWED_ORIGINS` in the API
-`.env` (e.g. `https://backoffice.dosthq.com`, `https://doctor.dosthq.com`) — the
-API returns the first allowed origin when a request's Origin isn't listed, so a
-missing entry shows up as a browser CORS failure on login. The backoffice needs
-a staff account with `specialists.manage`; the doctor portal needs the seeded
-per-specialist `doctor` logins (both handled by `bin/prod-migrate.php`).
+Point each Pages project at its own custom domain — **`backoffice.dosthq.com`**
+and **`doctor.dosthq.com`** — and add both to `CORS_ALLOWED_ORIGINS` in the API
+`.env` (already listed in the template above). The API returns the first allowed
+origin when a request's Origin isn't listed, so a missing entry shows up as a
+browser CORS failure on login. The backoffice needs a staff account with
+`specialists.manage`; the doctor portal needs the seeded per-specialist `doctor`
+logins (both handled by `bin/prod-migrate.php`).
 
 ---
 
