@@ -148,6 +148,7 @@ return [
                     'verified'         => ['type' => 'boolean'],
                     'gender'           => ['type' => 'string', 'nullable' => true, 'enum' => ['male', 'female']],
                     'offers_in_person' => ['type' => 'boolean'],
+                    'photo_url'        => ['type' => 'string', 'nullable' => true],
                 ],
             ],
             'Appointment' => [
@@ -927,6 +928,7 @@ return [
                     'properties' => [
                         'email'            => ['type' => 'string', 'format' => 'email', 'nullable' => true, 'description' => 'Empty string clears it'],
                         'consultation_fee' => ['type' => 'string', 'example' => '15000.00'],
+                        'photo_url'        => ['type' => 'string', 'nullable' => true, 'description' => 'Full URL or /uploads path; empty clears it'],
                         'available'        => ['type' => 'boolean'],
                         'verified'         => ['type' => 'boolean'],
                     ],

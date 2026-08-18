@@ -56,6 +56,15 @@ final class UpdateSpecialistAction
             }
         }
 
+        if (array_key_exists('photo_url', $body)) {
+            $photo = trim((string) $body['photo_url']);
+            if ($photo !== '' && !preg_match('#^(https?://|/uploads/)#', $photo)) {
+                $errors['photo_url'] = 'Enter a full URL or an /uploads path';
+            } else {
+                $specialist->setPhotoUrl($photo !== '' ? $photo : null);
+            }
+        }
+
         if (array_key_exists('available', $body)) {
             $specialist->setAvailable((bool) $body['available']);
         }

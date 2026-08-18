@@ -70,6 +70,10 @@ class Specialist
     #[ORM\Column(type: 'string', length: 255, nullable: true)]
     private ?string $email = null;
 
+    /** Public headshot URL (absolute, or a relative /uploads path). */
+    #[ORM\Column(name: 'photo_url', type: 'string', length: 300, nullable: true)]
+    private ?string $photoUrl = null;
+
     /** Whether they also offer in-person visits (all offer online/telehealth). */
     #[ORM\Column(name: 'offers_in_person', type: 'boolean', options: ['default' => false])]
     private bool $offersInPerson = false;
@@ -174,6 +178,16 @@ class Specialist
         $this->email = $email !== null && $email !== '' ? $email : null;
     }
 
+    public function getPhotoUrl(): ?string
+    {
+        return $this->photoUrl;
+    }
+
+    public function setPhotoUrl(?string $url): void
+    {
+        $this->photoUrl = $url !== null && $url !== '' ? $url : null;
+    }
+
     public function setOffersInPerson(bool $offers): void
     {
         $this->offersInPerson = $offers;
@@ -195,6 +209,7 @@ class Specialist
             'verified'         => $this->verified,
             'gender'           => $this->gender,
             'offers_in_person' => $this->offersInPerson,
+            'photo_url'        => $this->photoUrl,
         ];
     }
 }
