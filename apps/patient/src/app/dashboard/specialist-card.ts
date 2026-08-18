@@ -28,16 +28,24 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
   host: { class: 'block' },
   template: `
     <article
-      class="flex h-full flex-col gap-4 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
+      class="flex h-full flex-col gap-4 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)] transition-colors duration-200 hover:border-cerulean/50 hover:bg-frost/20"
     >
       <!-- Header -->
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 items-center gap-3">
-          <span
-            class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
-          >
-            {{ initials() }}
-          </span>
+          @if (photoSrc(); as src) {
+            <img
+              [src]="src"
+              [alt]="specialist().name"
+              class="size-11 shrink-0 rounded-full object-cover"
+            />
+          } @else {
+            <span
+              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+            >
+              {{ initials() }}
+            </span>
+          }
           <div class="flex min-w-0 flex-col">
             <p
               class="flex items-center gap-1.5 font-sans text-body font-semibold text-ink"
@@ -294,6 +302,11 @@ export class SpecialistCard implements OnInit {
 
   protected readonly rating = computed(() =>
     Number(this.specialist().rating).toFixed(1),
+  );
+
+  /** The specialist's headshot resolved to an absolute URL, or null (→ initials). */
+  protected readonly photoSrc = computed(() =>
+    this.specialistsApi.assetUrl(this.specialist().photo_url),
   );
 
   /** Consultation fee in Naira, thousands-separated (e.g. "₦15,000"). */

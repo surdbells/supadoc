@@ -12,6 +12,7 @@ import type {
   SuccessResponse,
   UpdateSpecialistParams,
 } from '@supadoc/models';
+import { API_CONFIG } from './api-config';
 import { ApiService, QueryParams } from './api.service';
 
 /** Query params for the specialist directory. */
@@ -33,6 +34,15 @@ export interface ListSpecialistsQuery
 @Injectable({ providedIn: 'root' })
 export class SpecialistsApi {
   private readonly api = inject(ApiService);
+  private readonly config = inject(API_CONFIG);
+
+  /** Resolve a relative asset path (e.g. a photo_url) to an absolute URL. */
+  assetUrl(relative: string | null | undefined): string | null {
+    if (!relative) return null;
+    if (/^https?:\/\//.test(relative)) return relative;
+    const base = this.config.baseUrl.replace(/\/+$/, '');
+    return `${base}/${relative.replace(/^\/+/, '')}`;
+  }
 
   /** GET /api/portal/specialists — the bookable specialist directory. */
   list(

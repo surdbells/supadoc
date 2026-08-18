@@ -32,10 +32,7 @@ interface Option {
     <div class="relative">
       <button
         type="button"
-        class="flex w-full items-center gap-2 rounded-field border bg-white px-4 py-2.5 font-sans text-body-sm transition-colors"
-        [class]="
-          open() ? 'border-cerulean' : 'border-cloud hover:border-cerulean/50'
-        "
+        [class]="triggerClass()"
         (click)="toggle()"
       >
         @if (icon()) {
@@ -125,8 +122,20 @@ export class SearchSelectComponent {
   readonly searchPlaceholder = input('Search…');
   readonly icon = input<string | undefined>(undefined);
   readonly clearable = input(true);
+  /** 'md' (compact, default) or 'lg' to match sd-input's field height in forms. */
+  readonly size = input<'md' | 'lg'>('md');
 
   protected readonly open = signal(false);
+
+  /** Trigger button classes — size drives the height, open state the border. */
+  protected readonly triggerClass = computed(() => {
+    const size =
+      this.size() === 'lg' ? 'px-4 py-4 text-body' : 'px-4 py-2.5 text-body-sm';
+    const border = this.open()
+      ? 'border-cerulean'
+      : 'border-cloud hover:border-cerulean/50';
+    return `flex w-full items-center gap-2 rounded-field border bg-white font-sans transition-colors ${size} ${border}`;
+  });
   protected readonly filter = signal('');
   private readonly searchInput =
     viewChild<ElementRef<HTMLInputElement>>('q');

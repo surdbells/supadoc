@@ -80,12 +80,11 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         </sd-button>
       </form>
 
-      <a
-        routerLink="/auth/login"
-        class="inline-flex items-center gap-1 font-sans text-body-sm font-semibold text-slate hover:text-ink"
-      >
-        <sd-icon name="arrow-right" [size]="16" class="rotate-180" />
-        Back to log in
+      <a routerLink="/auth/login" class="block w-full">
+        <sd-button variant="outline" [full]="true">
+          <sd-icon name="arrow-right" [size]="18" class="rotate-180" />
+          Back to log in
+        </sd-button>
       </a>
     </div>
   `,

@@ -13,6 +13,7 @@ interface AdminSpecialist {
   specialty: string;
   email: string;
   consultation_fee: string;
+  photo_url: string;
   available: boolean;
   verified: boolean;
   saving: boolean;
@@ -168,6 +169,31 @@ const ADMIN_TOKEN_KEY = 'videomed.admin.token';
                   </label>
                 </div>
 
+                <label class="flex flex-col gap-1.5">
+                  <span class="font-sans text-caption font-semibold text-slate">Photo URL</span>
+                  <div class="flex items-center gap-3">
+                    @if (photoSrc(s.photo_url); as src) {
+                      <img
+                        [src]="src"
+                        [alt]="s.name"
+                        class="size-10 shrink-0 rounded-full border border-cloud object-cover"
+                      />
+                    } @else {
+                      <span
+                        class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-sans text-caption font-semibold text-cerulean"
+                        >{{ initials(s.name) }}</span
+                      >
+                    }
+                    <input
+                      type="url"
+                      [value]="s.photo_url"
+                      (input)="setField(s.id, 'photo_url', $any($event.target).value)"
+                      placeholder="https://… or /uploads/…"
+                      class="w-full rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
+                    />
+                  </div>
+                </label>
+
                 <div class="flex flex-wrap items-center gap-6">
                   <label class="flex cursor-pointer items-center gap-2">
                     <input
@@ -282,6 +308,7 @@ export class AdminSpecialists implements OnInit {
             specialty: String(s['specialty'] ?? ''),
             email: String(s['email'] ?? ''),
             consultation_fee: String(s['consultation_fee'] ?? ''),
+            photo_url: String(s['photo_url'] ?? ''),
             available: Boolean(s['available']),
             verified: Boolean(s['verified']),
             saving: false,
@@ -299,7 +326,7 @@ export class AdminSpecialists implements OnInit {
 
   protected setField(
     id: string,
-    key: 'email' | 'consultation_fee' | 'available' | 'verified',
+    key: 'email' | 'consultation_fee' | 'photo_url' | 'available' | 'verified',
     value: string | boolean,
   ): void {
     this.specialists.update((list) =>
@@ -329,6 +356,7 @@ export class AdminSpecialists implements OnInit {
         body: JSON.stringify({
           email: row.email.trim(),
           consultation_fee: row.consultation_fee,
+          photo_url: row.photo_url.trim(),
           available: row.available,
           verified: row.verified,
         }),
@@ -355,10 +383,31 @@ export class AdminSpecialists implements OnInit {
         saved: true,
         email: String(data.email ?? row.email),
         consultation_fee: String(data.consultation_fee ?? row.consultation_fee),
+        photo_url: String(data.photo_url ?? row.photo_url ?? ''),
       });
     } catch {
       this.patch(id, { saving: false, error: 'Could not reach the server.' });
     }
+  }
+
+  /** Resolve a relative /uploads photo path to an absolute URL for preview. */
+  protected photoSrc(url: string): string | null {
+    const v = url.trim();
+    if (v === '') return null;
+    if (/^https?:\/\//.test(v)) return v;
+    return `${this.base}/${v.replace(/^\/+/, '')}`;
+  }
+
+  /** Initials fallback when a specialist has no photo. */
+  protected initials(name: string): string {
+    return name
+      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase();
   }
 
   protected logout(): void {

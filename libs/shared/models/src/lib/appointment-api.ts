@@ -86,6 +86,7 @@ export interface SpecialistDto {
   verified: boolean;
   gender: string | null;
   offers_in_person: boolean;
+  photo_url: string | null;
 }
 
 /**
@@ -95,6 +96,7 @@ export interface SpecialistDto {
 export interface UpdateSpecialistParams {
   email?: string | null;
   consultation_fee?: string;
+  photo_url?: string | null;
   available?: boolean;
   verified?: boolean;
 }

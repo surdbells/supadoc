@@ -295,6 +295,7 @@ interface SectionCard {
                   >Gender <span class="text-alert">*</span></span
                 >
                 <sd-search-select
+                  size="lg"
                   placeholder="Select"
                   [options]="genderSelectOptions"
                   [value]="form.controls.gender.value"
@@ -1048,19 +1049,40 @@ interface SectionCard {
     </ng-template>
 
     <ng-template #privacyCard>
-      <div
-        class="flex items-center justify-between gap-4 rounded-card bg-gradient-to-r from-frost to-mist p-6"
-      >
-        <div class="flex flex-col gap-1">
-          <p class="font-sans text-body font-semibold text-abyss">
-            Your information is private and secure
-          </p>
-          <p class="font-sans text-body-sm text-ink/70">
-            We use industry standard encryption to protect your personal
-            information.
+      <div class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5">
+        <div class="flex items-center gap-2">
+          <sd-icon name="shield-check" [size]="20" class="text-sage" />
+          <p class="font-sans text-body font-semibold text-ink">
+            Account security
           </p>
         </div>
-        <sd-icon name="shield-check" [size]="40" class="shrink-0 text-white" />
+        <ul class="flex flex-col gap-2 font-sans text-body-sm">
+          <li class="flex items-center gap-2 text-ink">
+            <sd-icon name="circle-check" [size]="18" class="shrink-0 text-sage" />
+            Data encrypted in transit &amp; at rest
+          </li>
+          <li
+            class="flex items-center gap-2"
+            [class]="phoneVerified() ? 'text-ink' : 'text-slate'"
+          >
+            <sd-icon
+              [name]="phoneVerified() ? 'circle-check' : 'info'"
+              [size]="18"
+              class="shrink-0"
+              [class]="phoneVerified() ? 'text-sage' : 'text-slate'"
+            />
+            {{ phoneVerified() ? 'Phone number verified' : 'Phone not verified yet' }}
+          </li>
+          <li class="flex items-center gap-2 text-ink">
+            <sd-icon
+              name="circle-check"
+              [size]="18"
+              class="shrink-0"
+              [class]="profileComplete() === 100 ? 'text-sage' : 'text-slate'"
+            />
+            Profile {{ profileComplete() }}% complete
+          </li>
+        </ul>
       </div>
     </ng-template>
 
