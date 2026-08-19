@@ -121,11 +121,11 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 
         <!-- Search + "find me a doctor" -->
         <div
-          class="mx-auto mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-start"
+          class="mx-auto mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-stretch"
         >
           <div class="relative min-w-0 flex-1">
           <div
-            class="flex items-center gap-3 rounded-field border border-cloud bg-white px-5 py-4 shadow-[0_4px_24px_rgba(10,22,40,0.06)]"
+            class="flex h-full items-center gap-3 rounded-field border border-cloud bg-white px-5 py-4 shadow-[0_4px_24px_rgba(10,22,40,0.06)]"
           >
             <sd-icon name="search" [size]="22" class="shrink-0 text-slate" />
             <div class="relative min-w-0 flex-1">
