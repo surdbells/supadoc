@@ -35,7 +35,13 @@ body {
 
 router-outlet + * {
   display: block;
-  animation: sd-page-enter 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  /*
+   * `backwards` (not `both`): guards the first frame but does NOT hold the
+   * final keyframe. `both`/`forwards` would leave a lingering `transform` on the
+   * routed page, which makes it the containing block for `position: fixed` — so
+   * any modal/overlay inside a page would anchor to the page, not the viewport.
+   */
+  animation: sd-page-enter 420ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
