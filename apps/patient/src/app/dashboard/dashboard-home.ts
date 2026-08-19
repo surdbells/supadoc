@@ -177,11 +177,6 @@ const UPCOMING_BADGE: Record<string, string> = {
                 >Complete Profile</sd-button
               >
             } @else {
-              <div
-                class="flex items-center gap-2 font-sans text-body-sm font-medium text-sage"
-              >
-                <sd-icon name="circle-check" [size]="18" />Profile complete
-              </div>
               <sd-button
                 variant="outline"
                 size="sm"
