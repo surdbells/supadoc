@@ -141,7 +141,7 @@ export class VerifyOtp {
         this.flow.verificationToken.set(token);
         if (this.flow.purpose() === 'login') {
           await this.auth.loginByPhone(token);
-          await this.router.navigateByUrl('/dashboard');
+          await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
         } else {
           await this.router.navigateByUrl('/auth/register/setup');
         }

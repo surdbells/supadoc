@@ -221,7 +221,7 @@ export class RegisterSetup {
           password,
         });
         this.flow.reset();
-        await this.router.navigateByUrl('/dashboard');
+        await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
       } catch (err) {
         const message = (err as { message?: string })?.message;
         this.errorMessage.set(message ?? 'Could not create your account.');
@@ -242,7 +242,7 @@ export class RegisterSetup {
         password,
       });
       this.flow.reset();
-      await this.router.navigateByUrl('/dashboard');
+      await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'Could not create your account.');

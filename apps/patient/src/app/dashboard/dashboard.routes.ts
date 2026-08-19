@@ -1,4 +1,5 @@
 import { Route } from '@angular/router';
+import { authGuard } from '@supadoc/auth';
 import { DashboardShell } from './dashboard-shell';
 
 const placeholder = () =>
@@ -13,6 +14,7 @@ export const dashboardRoutes: Route[] = [
   {
     path: '',
     component: DashboardShell,
+    canActivate: [authGuard],
     children: [
       {
         path: '',

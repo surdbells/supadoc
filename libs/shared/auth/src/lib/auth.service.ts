@@ -10,6 +10,7 @@ import type {
 
 const TOKEN_KEY = 'videomed.token';
 const REFRESH_KEY = 'videomed.refresh';
+const REDIRECT_KEY = 'videomed.redirect';
 
 /**
  * Central auth state for every app, backed by the VideoMed API (via `AuthApi`).
@@ -23,6 +24,41 @@ export class AuthService {
   private readonly _token = signal<string | null>(this.readToken());
   readonly token = this._token.asReadonly();
   readonly isAuthenticated = computed(() => this._token() !== null);
+
+  /**
+   * A destination to return to after signing in — set when a visitor is gated
+   * mid-flow (e.g. clicking "Book Consultation" while signed out). Held in
+   * sessionStorage so it survives the multi-step register flow and refreshes.
+   */
+  rememberRedirect(url: string): void {
+    // Never bounce back into the auth screens themselves.
+    if (!url || url.startsWith('/auth')) return;
+    try {
+      sessionStorage.setItem(REDIRECT_KEY, url);
+    } catch {
+      /* storage unavailable — the redirect is best-effort */
+    }
+  }
+
+  /** The pending post-login destination, if any (without clearing it). */
+  peekRedirect(): string | null {
+    try {
+      return sessionStorage.getItem(REDIRECT_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  /** The pending post-login destination, clearing it. Falls back to null. */
+  consumeRedirect(): string | null {
+    const url = this.peekRedirect();
+    try {
+      sessionStorage.removeItem(REDIRECT_KEY);
+    } catch {
+      /* no-op */
+    }
+    return url;
+  }
 
   /**
    * `POST /login`. Stores the access + refresh tokens. `remember` decides where

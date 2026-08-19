@@ -5,6 +5,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { AuthService } from '@supadoc/auth';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 import { GoogleAuthService } from '../google-auth.service';
 
@@ -110,6 +111,7 @@ import { GoogleAuthService } from '../google-auth.service';
 })
 export class SignInGoogle {
   private readonly google = inject(GoogleAuthService);
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   protected readonly submitting = signal(false);
@@ -120,7 +122,7 @@ export class SignInGoogle {
     this.errorMessage.set('');
     try {
       await this.google.signIn();
-      await this.router.navigateByUrl('/dashboard');
+      await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
       const code = (err as { code?: string })?.code;
       // A user closing the popup isn't an error worth shouting about.

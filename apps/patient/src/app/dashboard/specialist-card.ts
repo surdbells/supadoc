@@ -10,7 +10,6 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { AuthService } from '@supadoc/auth';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { DayAvailability, SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
@@ -251,7 +250,6 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
 })
 export class SpecialistCard implements OnInit {
   private readonly specialistsApi = inject(SpecialistsApi);
-  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -354,14 +352,14 @@ export class SpecialistCard implements OnInit {
     return parts.join('') + langs + rated;
   });
 
-  /** Browsing is public, but booking needs an account. Signed-in patients go to
-   * the booking wizard (carrying the picked slot); visitors go to register. */
+  /**
+   * Browsing is public, booking needs an account. Everyone heads to the booking
+   * wizard (carrying the picked slot). A visitor is intercepted by the route
+   * guard, which remembers this exact URL — so after they sign in or register
+   * they land back here with their selection intact.
+   */
   protected book(): void {
     if (!this.specialist().available) return;
-    if (!this.auth.isAuthenticated()) {
-      void this.router.navigate(['/auth/register']);
-      return;
-    }
     void this.router.navigate(
       ['/dashboard/appointments/book', this.specialist().id],
       this.selectedTime() ? { queryParams: { slot: this.selectedTime() } } : {},

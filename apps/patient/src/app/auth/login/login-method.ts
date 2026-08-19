@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { AuthService } from '@supadoc/auth';
 import { IconComponent } from '@supadoc/ui';
 
 /** Login entry (Figma 345:4922): choose Google / Email / Phone to sign in. */
@@ -10,6 +11,21 @@ import { IconComponent } from '@supadoc/ui';
   template: `
     <div class="flex flex-col gap-14">
       <h1 class="font-heading text-h1 text-abyss">👋 Welcome back</h1>
+
+      @if (pending) {
+        <div
+          class="flex items-center gap-3 rounded-card border border-cerulean/20 bg-frost/40 px-5 py-3"
+        >
+          <sd-icon name="info" [size]="20" class="shrink-0 text-cerulean" />
+          <p class="font-sans text-body-sm text-ink">
+            {{
+              bookingPending
+                ? 'Sign in or create an account to continue booking your consultation — your selection is saved.'
+                : 'Sign in to continue where you left off.'
+            }}
+          </p>
+        </div>
+      }
 
       <div class="flex flex-col gap-10">
         <div class="flex flex-col gap-4 text-center">
@@ -64,6 +80,12 @@ import { IconComponent } from '@supadoc/ui';
   `,
 })
 export class LoginMethod {
+  private readonly redirect = inject(AuthService).peekRedirect();
+  /** A post-login destination is waiting (a gated action, e.g. a booking). */
+  protected readonly pending = this.redirect !== null;
+  protected readonly bookingPending =
+    this.redirect?.includes('/appointments/book') ?? false;
+
   protected readonly methodClass =
     'flex w-full items-center justify-center gap-4 rounded-lg border border-ash bg-white px-6 py-2.5 text-body-lg text-abyss transition-colors hover:bg-glacier';
 }
