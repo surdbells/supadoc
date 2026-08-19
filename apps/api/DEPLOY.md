@@ -257,14 +257,22 @@ logins (both handled by `bin/prod-migrate.php`).
 
 ## Redeploying
 
+The repo lives at `…/api.dosthq.com/supadoc` (the aaPanel site root is its
+parent), so `cd` into `supadoc` — that's where `.git` is.
+
 ```bash
-cd /www/wwwroot/api.dosthq.com && git pull
-cd supadoc/apps/api && composer install --no-dev --optimize-autoloader
+cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main
+cd apps/api && composer install --no-dev --optimize-autoloader
 php bin/doctrine.php orm:schema-tool:update --force
 php bin/doctrine.php orm:generate-proxies
 chown -R www:www var
-# aaPanel → PHP → Reload (clears OPcache)
+/etc/init.d/php-fpm-82 reload   # clears OPcache — match your PHP version (or aaPanel → PHP → Reload)
 ```
+
+> The `git pull` + PHP reload is what makes new code take effect — without the
+> reload, OPcache keeps serving the old bytecode. If `git pull` (run as root)
+> refuses with **"detected dubious ownership"**, run once:
+> `git config --global --add safe.directory /www/wwwroot/api.dosthq.com/supadoc`
 
 **Uploaded avatars live on disk** in `public/uploads/avatars/` (git-ignored) —
 they survive `git pull`, so never wipe that folder on deploy.
@@ -280,7 +288,7 @@ after the schema update:
 ```bash
 # Optional: set a shared password for all new doctor logins; otherwise each new
 # login gets a random password printed once in the output.
-DOCTOR_DEFAULT_PASSWORD='ChooseAStrongOne!' php bin/prod-migrate.php --run
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && DOCTOR_DEFAULT_PASSWORD='ChooseAStrongOne!' php bin/prod-migrate.php --run
 ```
 
 It only converts a fee while it still looks USD-era (< 1000), only fills a
