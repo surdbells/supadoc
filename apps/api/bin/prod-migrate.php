@@ -71,6 +71,7 @@ $report = [
     'emails_set'        => 0,
     'doctors_created'   => 0,
     'doctors_updated'   => 0,
+    'passwords_reset'   => [],
     'email_conflicts'   => [],
     'new_logins'        => [],
 ];
@@ -99,7 +100,11 @@ foreach ($defaults as $key => $value) {
     }
 }
 
-$defaultPassword = trim((string) ($_ENV['DOCTOR_DEFAULT_PASSWORD'] ?? ''));
+// Read from getenv() first — a `VAR=x php …` prefix lands there, whereas $_ENV
+// is only populated when PHP's variables_order includes 'E'. When set, it's also
+// applied to EXISTING doctor logins so you can rotate them all to one password.
+$envPassword     = getenv('DOCTOR_DEFAULT_PASSWORD');
+$defaultPassword = trim((string) ($envPassword !== false ? $envPassword : ($_ENV['DOCTOR_DEFAULT_PASSWORD'] ?? '')));
 
 // 2) Specialists: Naira fees + contact email + doctor login.
 foreach ($em->getRepository(Specialist::class)->findAll() as $specialist) {
@@ -133,6 +138,12 @@ foreach ($em->getRepository(Specialist::class)->findAll() as $specialist) {
         $report['doctors_created']++;
         $report['new_logins'][] = ['email' => $email, 'password' => $password];
     } else {
+        // Existing doctor login: rotate to the shared password if one was given
+        // (safe — only touches doctor accounts, never admin/other staff).
+        if ($defaultPassword !== '') {
+            $user->setPassword($defaultPassword);
+            $report['passwords_reset'][] = $email;
+        }
         $report['doctors_updated']++;
     }
 
