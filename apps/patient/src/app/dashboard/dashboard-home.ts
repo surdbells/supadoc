@@ -145,36 +145,51 @@ const UPCOMING_BADGE: Record<string, string> = {
                 </p>
               </div>
             </div>
-            <div class="flex flex-col gap-1">
-              <div
-                class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
-                role="progressbar"
-                aria-label="Profile completion"
-                [attr.aria-valuenow]="profileComplete()"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
+            @if (profileComplete() < 100) {
+              <div class="flex flex-col gap-1">
                 <div
-                  class="h-full rounded-full bg-cerulean"
-                  [style.width.%]="profileComplete()"
-                ></div>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="font-sans text-caption text-slate"
-                  >Profile complete</span
+                  class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
+                  role="progressbar"
+                  aria-label="Profile completion"
+                  [attr.aria-valuenow]="profileComplete()"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
                 >
-                <span class="font-sans text-body font-semibold text-sage"
-                  >{{ profileComplete() }}%</span
-                >
+                  <div
+                    class="h-full rounded-full bg-cerulean"
+                    [style.width.%]="profileComplete()"
+                  ></div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="font-sans text-caption text-slate"
+                    >Profile complete</span
+                  >
+                  <span class="font-sans text-body font-semibold text-sage"
+                    >{{ profileComplete() }}%</span
+                  >
+                </div>
               </div>
-            </div>
-            <sd-button
-              variant="outline"
-              size="sm"
-              [full]="true"
-              (click)="viewProfile()"
-              >Complete Profile</sd-button
-            >
+              <sd-button
+                variant="outline"
+                size="sm"
+                [full]="true"
+                (click)="viewProfile()"
+                >Complete Profile</sd-button
+              >
+            } @else {
+              <div
+                class="flex items-center gap-2 font-sans text-body-sm font-medium text-sage"
+              >
+                <sd-icon name="circle-check" [size]="18" />Profile complete
+              </div>
+              <sd-button
+                variant="outline"
+                size="sm"
+                [full]="true"
+                (click)="viewProfile()"
+                >View Profile</sd-button
+              >
+            }
           </article>
 
           <!-- Upcoming Appointment -->
