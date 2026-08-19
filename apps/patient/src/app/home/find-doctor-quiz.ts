@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -137,8 +138,27 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
 @Component({
   selector: 'pat-find-doctor-quiz',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SpecialistCard],
+  imports: [IconComponent, SpecialistCard, NgTemplateOutlet],
   template: `
+    <!-- 3D doctor render (drop apps/patient/public/find-doctor.png in); falls
+         back to a brand icon until the asset is present. -->
+    <ng-template #hero let-icon="icon" let-size="size">
+      @if (!heroFailed()) {
+        <img
+          src="find-doctor.png"
+          alt="Find me a doctor"
+          class="h-40 w-auto object-contain sm:h-48"
+          (error)="heroFailed.set(true)"
+        />
+      } @else {
+        <span
+          class="flex size-24 items-center justify-center rounded-full bg-frost/60 text-cerulean sm:size-28"
+        >
+          <sd-icon [name]="icon" [size]="size" />
+        </span>
+      }
+    </ng-template>
+
     @if (open()) {
       <div
         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-abyss/40 p-4 backdrop-blur-sm sm:items-center"
@@ -202,11 +222,10 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
           <!-- ===== Intro ===== -->
           @if (phase() === 'intro') {
             <div class="flex flex-col items-center gap-6 py-6 text-center">
-              <span
-                class="flex size-28 items-center justify-center rounded-full bg-frost/60 text-cerulean"
-              >
-                <sd-icon name="stethoscope" [size]="52" />
-              </span>
+              <ng-container
+                [ngTemplateOutlet]="hero"
+                [ngTemplateOutletContext]="{ icon: 'stethoscope', size: 52 }"
+              />
               <h2 class="font-heading text-h3 text-abyss">What's going on?</h2>
               <div class="flex flex-col gap-3 font-sans text-body text-slate">
                 <p>Answer 3-4 quick questions and we will match you with the right specialist</p>
@@ -424,11 +443,10 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
               }
               @case ('weak') {
                 <div class="flex flex-col items-center gap-6 py-6 text-center">
-                  <span
-                    class="flex size-24 items-center justify-center rounded-full bg-frost/60 text-cerulean"
-                  >
-                    <sd-icon name="stethoscope" [size]="44" />
-                  </span>
+                  <ng-container
+                    [ngTemplateOutlet]="hero"
+                    [ngTemplateOutletContext]="{ icon: 'stethoscope', size: 44 }"
+                  />
                   <h2 class="font-heading text-h3 text-cerulean">
                     We couldn't find a strong match right now
                   </h2>
@@ -456,11 +474,10 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
               }
               @case ('none') {
                 <div class="flex flex-col items-center gap-6 py-6 text-center">
-                  <span
-                    class="flex size-24 items-center justify-center rounded-full bg-frost/60 text-cerulean"
-                  >
-                    <sd-icon name="search" [size]="44" />
-                  </span>
+                  <ng-container
+                    [ngTemplateOutlet]="hero"
+                    [ngTemplateOutletContext]="{ icon: 'search', size: 44 }"
+                  />
                   <h2 class="font-heading text-h3 text-cerulean">No matches found</h2>
                   <p class="max-w-md font-sans text-body text-slate">
                     Try adjust your answers or retake the quiz
@@ -516,6 +533,8 @@ export class FindDoctorQuiz {
   );
   protected readonly top = signal<ScoredSpecialist[]>([]);
   protected readonly showReasoning = signal(false);
+  /** Falls back to a brand icon until public/find-doctor.png exists. */
+  protected readonly heroFailed = signal(false);
 
   protected readonly selectedAreas = computed(() =>
     BODY_AREAS.filter((a) => this.selectedAreaKeys().includes(a.key)),
