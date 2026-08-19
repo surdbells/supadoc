@@ -20,6 +20,7 @@ import {
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto, SpecialtyCount } from '@supadoc/models';
 import { IconComponent, SearchSelectComponent } from '@supadoc/ui';
+import { FindDoctorQuiz } from './find-doctor-quiz';
 
 interface DeptMeta {
   readonly tag: string;
@@ -80,7 +81,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 @Component({
   selector: 'pat-home-discovery',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SearchSelectComponent],
+  imports: [IconComponent, SearchSelectComponent, FindDoctorQuiz],
   host: { class: 'block' },
   styles: [
     `
@@ -118,8 +119,11 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
           </p>
         </div>
 
-        <!-- Search -->
-        <div class="relative mx-auto mt-8 max-w-3xl">
+        <!-- Search + "find me a doctor" -->
+        <div
+          class="mx-auto mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-start"
+        >
+          <div class="relative min-w-0 flex-1">
           <div
             class="flex items-center gap-3 rounded-field border border-cloud bg-white px-5 py-4 shadow-[0_4px_24px_rgba(10,22,40,0.06)]"
           >
@@ -248,7 +252,18 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               }
             </div>
           }
+          </div>
+
+          <button
+            type="button"
+            class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-4 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean"
+            (click)="quizOpen.set(true)"
+          >
+            <sd-icon name="sparkles" [size]="20" />Find a doctor for me
+          </button>
         </div>
+
+        <pat-find-doctor-quiz [(open)]="quizOpen" />
 
         <!-- Filter chips (single row on desktop) -->
         <div
@@ -422,6 +437,7 @@ export class HomeDiscovery implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly query = signal('');
+  protected readonly quizOpen = signal(false);
   protected readonly focused = signal(false);
   protected readonly searching = signal(false);
   protected readonly doctors = signal<SpecialistDto[]>([]);

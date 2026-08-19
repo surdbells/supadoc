@@ -64,12 +64,19 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
             </p>
           </div>
         </div>
-        <span
-          class="shrink-0 rounded-pill px-3 py-1 font-sans text-[10px] font-medium"
-          [class]="availability().class"
-        >
-          {{ availability().label }}
-        </span>
+        <div class="flex shrink-0 flex-col items-end gap-1">
+          @if (matchPercent() !== null) {
+            <span class="font-sans text-body-sm font-bold text-cerulean"
+              >{{ matchPercent() }}% Match</span
+            >
+          }
+          <span
+            class="rounded-pill px-3 py-1 font-sans text-[10px] font-medium"
+            [class]="availability().class"
+          >
+            {{ availability().label }}
+          </span>
+        </div>
       </div>
 
       <!-- Meta -->
@@ -249,6 +256,8 @@ export class SpecialistCard implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly specialist = input.required<SpecialistDto>();
+  /** Optional "X% Match" badge (the Find-me-a-doctor results). Null hides it. */
+  readonly matchPercent = input<number | null>(null);
 
   protected readonly showAbout = signal(false);
 
