@@ -119,9 +119,9 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
           </p>
         </div>
 
-        <!-- Search + "find me a doctor" -->
+        <!-- Search + "find me a doctor" (same width as the filter row below) -->
         <div
-          class="mx-auto mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-stretch"
+          class="mx-auto mt-8 flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-stretch"
         >
           <div class="relative min-w-0 flex-1">
           <div
