@@ -135,6 +135,11 @@ interface Option {
           </ul>
         </div>
       }
+      @if (error()) {
+        <span class="mt-1 block font-label text-caption text-alert">{{
+          error()
+        }}</span>
+      }
     </div>
   `,
 })
@@ -147,20 +152,26 @@ export class SearchSelectComponent {
   readonly clearable = input(true);
   /** 'md' (compact, default) or 'lg' to match sd-input's field height in forms. */
   readonly size = input<'md' | 'lg'>('md');
+  readonly error = input<string>();
 
   protected readonly open = signal(false);
 
-  /** Trigger button classes — size drives the height, open state the border. */
+  /**
+   * Trigger button classes. Matches sd-input's field treatment: soft base
+   * shadow, cerulean focus ring when open, alert ring on error.
+   */
   protected readonly triggerClass = computed(() => {
     const size =
       this.size() === 'lg' ? 'px-4 py-4 text-body' : 'px-4 py-2.5 text-body-sm';
-    const border = this.open()
-      ? 'border-cerulean ring-2 ring-cerulean/15'
-      : 'border-cloud hover:border-cerulean/50';
+    const state = this.error()
+      ? 'border-alert ring-2 ring-alert/20'
+      : this.open()
+        ? 'border-cerulean ring-2 ring-cerulean/20 shadow-[0_2px_10px_rgba(21,101,192,0.08)]'
+        : 'border-cloud hover:border-slate/40';
     return (
       'flex w-full items-center gap-2 rounded-field border bg-white font-sans ' +
       'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
-      `${size} ${border}`
+      `${size} ${state}`
     );
   });
   protected readonly filter = signal('');

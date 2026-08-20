@@ -99,11 +99,11 @@ export class InputComponent implements ControlValueAccessor {
   protected readonly fieldClasses = computed(() => {
     const border = this.error()
       ? 'border-alert focus-within:border-alert focus-within:ring-alert/20'
-      : 'border-[#d7e0e8] hover:border-slate/40 focus-within:border-teal focus-within:ring-teal/20';
+      : 'border-[#d7e0e8] hover:border-slate/40 focus-within:border-cerulean focus-within:ring-cerulean/20';
     return (
       'flex items-center gap-2 rounded-field border bg-white px-4 ' +
       'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
-      'focus-within:ring-2 focus-within:shadow-[0_2px_10px_rgba(0,137,123,0.08)] ' +
+      'focus-within:ring-2 focus-within:shadow-[0_2px_10px_rgba(21,101,192,0.08)] ' +
       border
     );
   });

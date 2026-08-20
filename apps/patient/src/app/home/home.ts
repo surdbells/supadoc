@@ -566,7 +566,7 @@ interface Doctor {
                 (input)="email.set($any($event.target).value)"
                 placeholder="Enter your email"
                 autocomplete="email"
-                class="w-full rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
+                class="w-full rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20"
               />
               <sd-button type="submit" class="w-fit">Subscribe</sd-button>
             </form>

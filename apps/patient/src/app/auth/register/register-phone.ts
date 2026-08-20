@@ -61,7 +61,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
                 </svg>
               </button>
               <input
-                class="w-full rounded-field border border-[#d7e0e8] bg-white px-4 py-4 text-body text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
+                class="w-full rounded-field border border-[#d7e0e8] bg-white px-4 py-4 text-body text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20"
                 type="tel"
                 inputmode="tel"
                 autocomplete="tel-national"

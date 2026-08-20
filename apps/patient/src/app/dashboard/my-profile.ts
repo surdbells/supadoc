@@ -225,7 +225,7 @@ interface SectionCard {
                     inputmode="numeric"
                     maxlength="6"
                     placeholder="123456"
-                    class="w-36 rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body tracking-[0.3em] text-ink focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
+                    class="w-36 rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body tracking-[0.3em] text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20"
                     [value]="otpCode()"
                     (input)="otpCode.set($any($event.target).value)"
                   />
@@ -310,7 +310,7 @@ interface SectionCard {
                   <textarea
                     formControlName="address"
                     rows="3"
-                    class="rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body text-ink focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15"
+                    class="rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20"
                   ></textarea>
                 </label>
               </div>
@@ -1336,12 +1336,12 @@ export class MyProfile {
 
   // Field styling shared by the Insurance / Emergency forms.
   protected readonly fieldWrap =
-    'flex items-center gap-2 rounded-field border border-[#d7e0e8] bg-white px-4 transition-colors focus-within:border-teal focus-within:ring-2 focus-within:ring-teal/15';
+    'flex items-center gap-2 rounded-field border border-[#d7e0e8] bg-white px-4 transition-colors focus-within:border-cerulean focus-within:ring-2 focus-within:ring-cerulean/20';
   protected readonly fieldControl =
     'w-full bg-transparent py-3.5 font-sans text-body text-ink placeholder:text-slate/60 focus:outline-none';
   // Standalone input styling for the medical FormArray rows.
   protected readonly rowInput =
-    'rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/15';
+    'rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
   // Options for the searchable dropdowns (sd-search-select).
   protected readonly genderSelectOptions = ['Female', 'Male', 'Other'];
