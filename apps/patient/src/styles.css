@@ -49,3 +49,24 @@ router-outlet + * {
     animation: none;
   }
 }
+
+/*
+ * Premium hover-lift for clickable cards. Add `sd-card-hover` to any card-like
+ * element that navigates or opens something; it eases a small rise + soft
+ * elevation on hover (and honours reduced-motion).
+ */
+.sd-card-hover {
+  transition:
+    transform 0.2s ease-out,
+    box-shadow 0.2s ease-out,
+    border-color 0.2s ease-out;
+}
+.sd-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(10, 22, 40, 0.1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sd-card-hover:hover {
+    transform: none;
+  }
+}

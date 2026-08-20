@@ -371,7 +371,7 @@ const UPCOMING_BADGE: Record<string, string> = {
             @for (a of quickActions; track a.title) {
               <button
                 type="button"
-                class="flex flex-col items-center gap-4 rounded-card border-[0.5px] border-ash bg-glacier px-2 py-4 text-center transition-colors hover:border-cerulean"
+                class="sd-card-hover flex flex-col items-center gap-4 rounded-card border-[0.5px] border-ash bg-glacier px-2 py-4 text-center hover:border-cerulean"
                 (click)="go(a.link)"
               >
                 <span

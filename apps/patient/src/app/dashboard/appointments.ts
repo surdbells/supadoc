@@ -11,7 +11,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
 type Status =
   'confirmed' | 'pending' | 'completed' | 'cancelled' | 'rescheduled';
@@ -86,7 +86,7 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
 @Component({
   selector: 'pat-appointments',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, IconComponent],
+  imports: [ButtonComponent, EmptyStateComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -149,58 +149,33 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
           </div>
         }
         @case ('error') {
-          <div class="flex flex-col items-center gap-5 py-24 text-center">
-            <span
-              class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert"
-            >
-              <sd-icon name="wifi-off" [size]="36" />
-            </span>
-            <div class="flex max-w-sm flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">
-                Unable to load appointments
-              </h2>
-              <p class="font-sans text-body-sm text-slate">
-                We couldn't retrieve your appointments. Check your connection
-                and try again.
-              </p>
-            </div>
-            <button
-              type="button"
-              class="inline-flex items-center justify-center rounded-field border border-alert px-5 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5"
-              (click)="reload()"
-            >
-              Try Again
-            </button>
-          </div>
+          <sd-empty-state
+            tone="error"
+            icon="wifi-off"
+            title="Unable to load appointments"
+            message="We couldn't retrieve your appointments. Check your connection and try again."
+          >
+            <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
+          </sd-empty-state>
         }
         @case ('empty') {
-          <div class="flex flex-col items-center gap-5 py-24 text-center">
-            <span
-              class="flex size-20 items-center justify-center rounded-full bg-cloud text-slate"
-            >
-              <sd-icon name="calendar-off" [size]="36" />
-            </span>
-            <div class="flex max-w-sm flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">
-                You have no appointment history
-              </h2>
-              <p class="font-sans text-body-sm text-slate">
-                Book a consultation with our healthcare professionals to get
-                started
-              </p>
-            </div>
+          <sd-empty-state
+            icon="calendar-off"
+            title="You have no appointment history"
+            message="Book a consultation with our healthcare professionals to get started"
+          >
             <sd-button (click)="book()">
               <sd-icon name="calendar-days" [size]="18" />
               Book a Consultation
             </sd-button>
-          </div>
+          </sd-empty-state>
         }
         @default {
           <div class="flex flex-col gap-4">
             @for (a of filtered(); track a.id) {
               <button
                 type="button"
-                class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left transition-colors hover:border-cerulean/50"
+                class="sd-card-hover flex items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/50"
                 (click)="open(a)"
               >
                 <img

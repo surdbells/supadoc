@@ -19,6 +19,7 @@ import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import {
   ButtonComponent,
+  EmptyStateComponent,
   IconComponent,
   SearchSelectComponent,
 } from '@supadoc/ui';
@@ -45,6 +46,7 @@ interface Criteria {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ButtonComponent,
+    EmptyStateComponent,
     IconComponent,
     SearchSelectComponent,
     SpecialistCard,
@@ -254,41 +256,23 @@ interface Criteria {
           </div>
         }
         @case ('error') {
-          <div class="flex flex-col items-center gap-5 py-20 text-center">
-            <span
-              class="flex size-24 items-center justify-center rounded-full bg-alert/10 text-alert"
-            >
-              <sd-icon name="wifi-off" [size]="40" />
-            </span>
-            <div class="flex max-w-md flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">
-                Unable to load specialists
-              </h2>
-              <p class="font-sans text-body-sm text-slate">
-                Check your connection and try again.
-              </p>
-            </div>
-            <sd-button class="mt-2" (click)="reload()">Try Again</sd-button>
-          </div>
+          <sd-empty-state
+            tone="error"
+            icon="wifi-off"
+            title="Unable to load specialists"
+            message="Check your connection and try again."
+          >
+            <sd-button (click)="reload()">Try Again</sd-button>
+          </sd-empty-state>
         }
         @case ('empty') {
-          <div class="flex flex-col items-center gap-5 py-20 text-center">
-            <span
-              class="flex size-24 items-center justify-center rounded-full bg-cloud text-slate"
-            >
-              <sd-icon name="user-x" [size]="40" />
-            </span>
-            <div class="flex max-w-md flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">
-                No specialist match your result
-              </h2>
-              <p class="font-sans text-body-sm text-slate">
-                Try broadening your filters — clear a specialty, expand
-                availability, or search a related condition
-              </p>
-            </div>
-            <sd-button class="mt-2" (click)="reset()">Reset Filter</sd-button>
-          </div>
+          <sd-empty-state
+            icon="user-x"
+            title="No specialist match your result"
+            message="Try broadening your filters — clear a specialty, expand availability, or search a related condition"
+          >
+            <sd-button (click)="reset()">Reset Filter</sd-button>
+          </sd-empty-state>
         }
         @default {
           <div class="flex items-center justify-between">

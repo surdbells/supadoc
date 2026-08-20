@@ -9,7 +9,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NotificationsApi } from '@supadoc/data-access';
 import type { NotificationDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
 type Type = 'appointment' | 'prescription' | 'payment' | 'system';
 type Tab = 'all' | 'unread' | Type;
@@ -49,7 +49,7 @@ function toNotice(n: NotificationDto): Notice {
 @Component({
   selector: 'pat-notification',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [ButtonComponent, EmptyStateComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -121,43 +121,28 @@ function toNotice(n: NotificationDto): Notice {
           </div>
         }
         @case ('error') {
-          <div class="flex flex-col items-center gap-5 py-24 text-center">
-            <span class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert">
-              <sd-icon name="wifi-off" [size]="36" />
-            </span>
-            <div class="flex max-w-md flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">Couldn't load notifications</h2>
-              <p class="font-sans text-body-sm text-slate">Check your connection and try again.</p>
-            </div>
-            <button
-              type="button"
-              class="rounded-field border border-alert px-5 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5"
-              (click)="reload()"
-            >
-              Try Again
-            </button>
-          </div>
+          <sd-empty-state
+            tone="error"
+            icon="wifi-off"
+            title="Couldn't load notifications"
+            message="Check your connection and try again."
+          >
+            <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
+          </sd-empty-state>
         }
         @case ('empty') {
-          <div class="flex flex-col items-center gap-5 py-24 text-center">
-            <span class="flex size-20 items-center justify-center rounded-full bg-cloud text-slate">
-              <sd-icon name="bell-off" [size]="36" />
-            </span>
-            <div class="flex max-w-md flex-col gap-2">
-              <h2 class="font-heading text-h5 text-ink">No notifications yet</h2>
-              <p class="font-sans text-body-sm text-slate">
-                When you have new appointments, prescriptions, or account activity,
-                they'll appear here.
-              </p>
-            </div>
-          </div>
+          <sd-empty-state
+            icon="bell-off"
+            title="No notifications yet"
+            message="When you have new appointments, prescriptions, or account activity, they'll appear here."
+          />
         }
         @default {
           <div class="flex flex-col gap-4">
             @for (n of filtered(); track n.id) {
               <button
                 type="button"
-                class="flex gap-3 rounded-card border border-cloud bg-white p-4 text-left transition-colors hover:border-cerulean/40"
+                class="sd-card-hover flex gap-3 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/40"
                 [class.border-l-4]="!n.read"
                 [class.!border-l-cerulean]="!n.read"
                 (click)="open(n)"
