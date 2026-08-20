@@ -67,7 +67,7 @@ interface SectionCard {
     <!-- Success toast (image upload / profile update) -->
     @if (toast()) {
       <div
-        class="fixed right-6 top-6 z-50 flex items-center gap-3 rounded-card border border-sage/30 bg-white px-4 py-3 shadow-lg"
+        class="sd-toast-in fixed right-6 top-6 z-50 flex items-center gap-3 rounded-card border border-sage/30 bg-white px-4 py-3 shadow-lg"
         role="status"
       >
         <sd-icon name="circle-check" [size]="20" class="text-sage" />

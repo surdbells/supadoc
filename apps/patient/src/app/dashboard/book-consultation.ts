@@ -18,7 +18,12 @@ import type {
   PricingDto,
   SpecialistDto,
 } from '@supadoc/models';
-import { ButtonComponent, IconComponent, StepperComponent } from '@supadoc/ui';
+import {
+  AlertComponent,
+  ButtonComponent,
+  IconComponent,
+  StepperComponent,
+} from '@supadoc/ui';
 
 /**
  * Book a Consultation (Figma) — a 7-step wizard: date/time, consultation type,
@@ -33,6 +38,7 @@ import { ButtonComponent, IconComponent, StepperComponent } from '@supadoc/ui';
   imports: [
     NgTemplateOutlet,
     RouterLink,
+    AlertComponent,
     ButtonComponent,
     IconComponent,
     StepperComponent,
@@ -450,11 +456,7 @@ import { ButtonComponent, IconComponent, StepperComponent } from '@supadoc/ui';
               </button>
             }
             @if (docError()) {
-              <p
-                class="mt-2 rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert"
-              >
-                {{ docError() }}
-              </p>
+              <sd-alert class="mt-2 block" tone="error">{{ docError() }}</sd-alert>
             }
             <input
               #docInput
@@ -701,11 +703,7 @@ import { ButtonComponent, IconComponent, StepperComponent } from '@supadoc/ui';
           </div>
 
           @if (submitError()) {
-            <p
-              class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
-            >
-              {{ submitError() }}
-            </p>
+            <sd-alert tone="error">{{ submitError() }}</sd-alert>
           }
 
           <div class="flex flex-wrap items-center justify-between gap-3">

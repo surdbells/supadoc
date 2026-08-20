@@ -2,12 +2,18 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
-import { ButtonComponent, InputComponent } from '@supadoc/ui';
+import { AlertComponent, ButtonComponent, InputComponent } from '@supadoc/ui';
 
 /** Sign in with email (Figma 356:4406). */
 @Component({
   selector: 'pat-sign-in-email',
-  imports: [ReactiveFormsModule, RouterLink, ButtonComponent, InputComponent],
+  imports: [
+    ReactiveFormsModule,
+    RouterLink,
+    AlertComponent,
+    ButtonComponent,
+    InputComponent,
+  ],
   template: `
     <div class="flex flex-col gap-12">
       <h1 class="font-heading text-h1 text-abyss">👋 Welcome back</h1>
@@ -69,11 +75,7 @@ import { ButtonComponent, InputComponent } from '@supadoc/ui';
           </div>
 
           @if (errorMessage()) {
-            <p
-              class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
-            >
-              {{ errorMessage() }}
-            </p>
+            <sd-alert tone="error">{{ errorMessage() }}</sd-alert>
           }
 
           <sd-button type="submit" [full]="true" [disabled]="submitting()">

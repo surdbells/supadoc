@@ -44,13 +44,16 @@ interface NavItem {
   ],
   template: `
     <div class="flex min-h-screen bg-glacier">
-      <!-- Desktop side nav (collapsible) -->
+      <!-- Desktop side nav (collapsible). Width is pinned via inline styles
+           (width/min/max together) so the flex row can't clamp it to the
+           content's min-content size. -->
       <aside
-        class="sticky top-0 hidden h-screen shrink-0 flex-col justify-between border-r-[0.5px] border-ash pt-6 pb-10 transition-[width,padding] duration-200 ease-out lg:flex"
-        [class.w-64]="!collapsed()"
+        class="sticky top-0 hidden h-screen shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash pt-6 pb-10 transition-[width,padding] duration-200 ease-out lg:flex"
         [class.px-6]="!collapsed()"
-        [class.w-20]="collapsed()"
         [class.px-3]="collapsed()"
+        [style.width.px]="collapsed() ? 80 : 256"
+        [style.minWidth.px]="collapsed() ? 80 : 256"
+        [style.maxWidth.px]="collapsed() ? 80 : 256"
       >
         <ng-container
           [ngTemplateOutlet]="nav"

@@ -2,12 +2,23 @@ import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
-import { ButtonComponent, IconComponent, OtpComponent } from '@supadoc/ui';
+import {
+  AlertComponent,
+  ButtonComponent,
+  IconComponent,
+  OtpComponent,
+} from '@supadoc/ui';
 
 /** Verify email/phone OTP (Figma 269:4546). Channel comes from route data. */
 @Component({
   selector: 'pat-verify-otp',
-  imports: [ReactiveFormsModule, ButtonComponent, IconComponent, OtpComponent],
+  imports: [
+    ReactiveFormsModule,
+    AlertComponent,
+    ButtonComponent,
+    IconComponent,
+    OtpComponent,
+  ],
   template: `
     <div class="flex flex-col items-center gap-8 text-center">
       <div
@@ -43,11 +54,7 @@ import { ButtonComponent, IconComponent, OtpComponent } from '@supadoc/ui';
           {{ submitting() ? 'Verifying…' : 'Verify' }}
         </sd-button>
         @if (errorMessage()) {
-          <p
-            class="w-full rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
-          >
-            {{ errorMessage() }}
-          </p>
+          <sd-alert class="w-full" tone="error">{{ errorMessage() }}</sd-alert>
         }
       </form>
 

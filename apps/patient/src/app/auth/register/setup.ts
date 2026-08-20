@@ -3,6 +3,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
 import {
+  AlertComponent,
   ButtonComponent,
   IconComponent,
   InputComponent,
@@ -14,6 +15,7 @@ import {
   selector: 'pat-register-setup',
   imports: [
     ReactiveFormsModule,
+    AlertComponent,
     ButtonComponent,
     IconComponent,
     InputComponent,
@@ -106,11 +108,7 @@ import {
         </label>
 
         @if (errorMessage()) {
-          <p
-            class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
-          >
-            {{ errorMessage() }}
-          </p>
+          <sd-alert tone="error">{{ errorMessage() }}</sd-alert>
         }
         <sd-button
           type="submit"
