@@ -1,6 +1,8 @@
 import { Location } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs';
 import { IconComponent, LogoComponent } from '@supadoc/ui';
 
 interface AuthSlide {
@@ -23,7 +25,7 @@ const SLIDE_INTERVAL_MS = 6000;
  */
 @Component({
   selector: 'pat-auth-layout',
-  imports: [RouterOutlet, LogoComponent, IconComponent],
+  imports: [RouterOutlet, RouterLink, LogoComponent, IconComponent],
   template: `
     <div
       class="flex min-h-screen items-center justify-center bg-cloud p-4 sm:p-6"
@@ -87,10 +89,12 @@ const SLIDE_INTERVAL_MS = 6000;
 
         <main class="flex flex-col px-6 py-6 sm:px-10">
           <header class="flex items-center justify-between">
-            <sd-logo [size]="44" />
+            <a routerLink="/" aria-label="Go to VideoMed home">
+              <sd-logo [size]="44" />
+            </a>
             <button
               type="button"
-              class="inline-flex items-center gap-2 font-sans text-body text-ink hover:text-cerulean"
+              class="inline-flex items-center gap-2 font-sans text-body text-ink transition-colors hover:text-cerulean"
               (click)="back()"
             >
               <sd-icon name="arrow-right" [size]="20" class="rotate-180" />
@@ -109,7 +113,15 @@ const SLIDE_INTERVAL_MS = 6000;
 })
 export class AuthLayout {
   private readonly location = inject(Location);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * In-app navigations since this shell mounted. `location.back()` is only safe
+   * when there's an in-app entry to return to; otherwise (fresh deep-link into
+   * an auth page, or a guard redirect) we fall back to Home so Back never dead-ends.
+   */
+  private navigations = 0;
 
   /** Artwork exported from the VideoMed Figma (headline + copy composited in). */
   protected readonly slides: AuthSlide[] = [
@@ -145,10 +157,23 @@ export class AuthLayout {
   constructor() {
     this.start();
     this.destroyRef.onDestroy(() => this.stop());
+
+    this.router.events
+      .pipe(
+        filter((e) => e instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => this.navigations++);
   }
 
   protected back(): void {
-    this.location.back();
+    // Go back only when we've moved within the app while on the auth screens;
+    // otherwise land on Home rather than leaving the site or dead-ending.
+    if (this.navigations > 1) {
+      this.location.back();
+    } else {
+      void this.router.navigateByUrl('/');
+    }
   }
 
   protected select(index: number): void {

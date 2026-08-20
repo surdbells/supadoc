@@ -264,6 +264,7 @@ export class DashboardShell {
   protected async logOut(): Promise<void> {
     this.menuOpen.set(false);
     await this.auth.logout();
-    await this.router.navigateByUrl('/auth/login');
+    // Land on the public home (a signed-out visitor), not a dead-end login page.
+    await this.router.navigateByUrl('/');
   }
 }
