@@ -28,6 +28,29 @@ interface Option {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   host: { class: 'block' },
+  styles: [
+    `
+      @keyframes sdMenuIn {
+        from {
+          opacity: 0;
+          transform: translateY(-4px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .sd-menu {
+        transform-origin: top;
+        animation: sdMenuIn 0.15s ease-out;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sd-menu {
+          animation: none;
+        }
+      }
+    `,
+  ],
   template: `
     <div class="relative">
       <button
@@ -63,7 +86,7 @@ interface Option {
         ></button>
 
         <div
-          class="absolute left-0 right-0 z-30 mt-2 min-w-[200px] overflow-hidden rounded-card border border-cloud bg-white shadow-xl"
+          class="sd-menu absolute left-0 right-0 z-30 mt-2 min-w-[200px] overflow-hidden rounded-card border border-cloud bg-white shadow-[0_12px_32px_rgba(10,22,40,0.12)] ring-1 ring-black/5"
         >
           <div class="flex items-center gap-2 border-b border-cloud px-3 py-2">
             <sd-icon name="search" [size]="16" class="shrink-0 text-slate" />
@@ -132,9 +155,13 @@ export class SearchSelectComponent {
     const size =
       this.size() === 'lg' ? 'px-4 py-4 text-body' : 'px-4 py-2.5 text-body-sm';
     const border = this.open()
-      ? 'border-cerulean'
+      ? 'border-cerulean ring-2 ring-cerulean/15'
       : 'border-cloud hover:border-cerulean/50';
-    return `flex w-full items-center gap-2 rounded-field border bg-white font-sans transition-colors ${size} ${border}`;
+    return (
+      'flex w-full items-center gap-2 rounded-field border bg-white font-sans ' +
+      'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
+      `${size} ${border}`
+    );
   });
   protected readonly filter = signal('');
   private readonly searchInput =
