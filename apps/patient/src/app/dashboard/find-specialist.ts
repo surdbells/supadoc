@@ -250,7 +250,7 @@ interface Criteria {
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
             @for (n of [1, 2, 3, 4]; track n) {
               <div
-                class="h-72 animate-pulse rounded-card border border-cloud bg-cloud/40"
+                class="h-72 sd-shimmer rounded-card"
               ></div>
             }
           </div>

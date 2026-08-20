@@ -395,9 +395,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
         @if (loadingDepts()) {
           <div class="mt-6 grid grid-cols-2 gap-5 lg:grid-cols-4">
             @for (n of [1, 2, 3, 4, 5, 6, 7, 8]; track n) {
-              <div
-                class="h-44 animate-pulse rounded-card border border-cloud bg-cloud/40"
-              ></div>
+              <div class="sd-shimmer h-44 rounded-card"></div>
             }
           </div>
         } @else {

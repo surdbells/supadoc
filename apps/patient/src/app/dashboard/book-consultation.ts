@@ -18,7 +18,7 @@ import type {
   PricingDto,
   SpecialistDto,
 } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { ButtonComponent, IconComponent, StepperComponent } from '@supadoc/ui';
 
 /**
  * Book a Consultation (Figma) — a 7-step wizard: date/time, consultation type,
@@ -30,7 +30,13 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
 @Component({
   selector: 'pat-book-consultation',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink, ButtonComponent, IconComponent],
+  imports: [
+    NgTemplateOutlet,
+    RouterLink,
+    ButtonComponent,
+    IconComponent,
+    StepperComponent,
+  ],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-8 py-2">
@@ -52,32 +58,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
       </div>
 
       <!-- Stepper -->
-      <div class="mx-auto flex max-w-full items-center overflow-x-auto pb-1">
-        @for (n of steps; track n; let last = $last) {
-          <span
-            class="flex size-9 shrink-0 items-center justify-center rounded-full font-sans text-body-sm font-semibold transition-colors"
-            [class]="
-              n < step()
-                ? 'bg-sage text-white'
-                : n === step()
-                  ? 'bg-cerulean text-white'
-                  : 'bg-cerulean/20 text-cerulean'
-            "
-          >
-            @if (n < step()) {
-              <sd-icon name="check" [size]="18" />
-            } @else {
-              {{ n }}
-            }
-          </span>
-          @if (!last) {
-            <span
-              class="h-0.5 w-5 shrink-0 sm:w-9 md:w-12"
-              [class]="n < step() ? 'bg-sage' : 'bg-cerulean/20'"
-            ></span>
-          }
-        }
-      </div>
+      <sd-stepper [count]="steps.length" [current]="step()" />
 
       @if (loadError()) {
         <div class="flex flex-col items-center gap-4 py-16 text-center">
@@ -169,7 +150,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
             </h2>
             @if (loadingSlots()) {
               <div
-                class="h-28 animate-pulse rounded-card border border-cloud bg-cloud/40"
+                class="sd-shimmer h-28 rounded-card"
               ></div>
             } @else if (days().length === 0) {
               <div
@@ -748,7 +729,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         }
       } @else {
         <div
-          class="h-64 animate-pulse rounded-card border border-cloud bg-cloud/40"
+          class="sd-shimmer h-64 rounded-card"
         ></div>
       }
     </div>

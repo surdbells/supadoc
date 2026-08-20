@@ -111,7 +111,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         </div>
       } @else if (loadingSlots()) {
         <div
-          class="h-28 animate-pulse rounded-card border border-cloud bg-cloud/40"
+          class="sd-shimmer h-28 rounded-card"
         ></div>
       } @else if (days().length === 0) {
         <div

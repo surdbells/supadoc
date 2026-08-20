@@ -13,7 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { IconComponent, StepperComponent } from '@supadoc/ui';
 import { SpecialistCard } from '../dashboard/specialist-card';
 
 interface Issue {
@@ -138,7 +138,7 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
 @Component({
   selector: 'pat-find-doctor-quiz',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SpecialistCard, NgTemplateOutlet],
+  imports: [IconComponent, SpecialistCard, NgTemplateOutlet, StepperComponent],
   template: `
     <!-- 3D doctor render (drop apps/patient/public/find-doctor.png in); falls
          back to a brand icon until the asset is present. -->
@@ -197,26 +197,7 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
 
           <!-- Stepper (during the quiz) -->
           @if (phase() === 'quiz') {
-            <div class="mt-6 flex items-center justify-center">
-              @for (n of [1, 2, 3, 4]; track n; let last = $last) {
-                <span
-                  class="flex size-9 shrink-0 items-center justify-center rounded-full font-sans text-body-sm font-semibold"
-                  [class]="n < step() ? 'bg-sage text-white' : 'bg-cerulean text-white'"
-                >
-                  @if (n < step()) {
-                    <sd-icon name="check" [size]="18" />
-                  } @else {
-                    {{ n }}
-                  }
-                </span>
-                @if (!last) {
-                  <span
-                    class="h-0.5 w-8 shrink-0 sm:w-12"
-                    [class]="n < step() ? 'bg-sage' : 'bg-cerulean/30'"
-                  ></span>
-                }
-              }
-            </div>
+            <sd-stepper class="mt-6" [count]="4" [current]="step()" />
           }
 
           <!-- ===== Intro ===== -->

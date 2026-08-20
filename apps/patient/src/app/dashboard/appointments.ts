@@ -137,12 +137,10 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
               <div
                 class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4"
               >
-                <div
-                  class="size-14 shrink-0 animate-pulse rounded-full bg-cloud"
-                ></div>
+                <div class="sd-shimmer size-14 shrink-0 rounded-full"></div>
                 <div class="flex flex-1 flex-col gap-2">
-                  <div class="h-3 w-40 animate-pulse rounded bg-cloud"></div>
-                  <div class="h-3 w-24 animate-pulse rounded bg-cloud"></div>
+                  <div class="sd-shimmer h-3 w-40 rounded"></div>
+                  <div class="sd-shimmer h-3 w-24 rounded"></div>
                 </div>
               </div>
             }
