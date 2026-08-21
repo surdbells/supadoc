@@ -87,8 +87,10 @@ return [
     ),
 
     AgoraTokenService::class => static fn (): AgoraTokenService => new AgoraTokenService(
-        appId:          $_ENV['AGORA_APP_ID'] ?? '',
-        appCertificate: $_ENV['AGORA_APP_CERTIFICATE'] ?? '',
+        // trim(): a trailing newline/space pasted into .env silently corrupts the
+        // HMAC signature → Agora rejects the token ("invalid token, authorized failed").
+        appId:          trim($_ENV['AGORA_APP_ID'] ?? ''),
+        appCertificate: trim($_ENV['AGORA_APP_CERTIFICATE'] ?? ''),
     ),
 
     EmailOtpService::class => static fn (ContainerInterface $c): EmailOtpService => new EmailOtpService(
