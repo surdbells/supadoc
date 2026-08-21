@@ -160,6 +160,20 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(id));
 
+      // Diagnostic: exactly what we hand the SDK, to compare against a token
+      // that joins Agora's own demo. Safe to log — appId is public, token is
+      // short-lived. Remove once calls are stable.
+      console.info('[videomed:call] join params', {
+        appId: data.app_id,
+        channel: data.channel,
+        uid: data.uid,
+        tokenLength: data.token?.length ?? 0,
+        tokenHead: data.token?.slice(0, 24) ?? '',
+        tokenTail: data.token?.slice(-12) ?? '',
+        expiresIn: data.expires_in,
+        sdk: AgoraRTC.VERSION,
+      });
+
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       this.client = client;
 
@@ -190,6 +204,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
       this.status.set('in-call');
     } catch (err) {
+      console.error('[videomed:call] join failed', err);
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(
         message ?? 'We couldn’t start the call. Please try again.',
