@@ -73,6 +73,8 @@ final class JoinCallAction
             $meeting['configured'] = false;
         }
 
-        return $this->success($response, $meeting, 'Ready to join');
+        return $this->success($response, $meeting, 'Ready to join')
+            // Never let the browser reuse a cached (possibly expired) token.
+            ->withHeader('Cache-Control', 'no-store');
     }
 }

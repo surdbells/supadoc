@@ -54,6 +54,8 @@ final class GetCallTokenAction
             'uid'        => 0,
             'token'      => $token,
             'expires_in' => self::TTL,
-        ], 'Call token issued');
+        ], 'Call token issued')
+            // Never let the browser reuse a cached (possibly expired) token.
+            ->withHeader('Cache-Control', 'no-store');
     }
 }
