@@ -27,6 +27,10 @@ $yn    = static fn (bool $b): string => $b ? 'yes' : 'NO';
 
 echo "=== Agora credential check ===\n\n";
 
+// Clock skew makes Agora reject otherwise-valid tokens ("invalid token").
+// Compare this to real UTC (e.g. https://time.is/UTC) — off by minutes = problem.
+echo 'Server time (UTC):  ' . gmdate('Y-m-d H:i:s') . " UTC\n\n";
+
 // App ID is public (it ships to the browser), so it's safe to print in full —
 // compare it against the App ID shown in the Agora Console.
 echo "AGORA_APP_ID\n";
