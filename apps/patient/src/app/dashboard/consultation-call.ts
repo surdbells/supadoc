@@ -174,6 +174,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         sdk: AgoraRTC.VERSION,
       });
 
+      // Temporary: verbose SDK logging to capture Agora's raw AP exchange.
+      AgoraRTC.setLogLevel(0);
+
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       this.client = client;
 
