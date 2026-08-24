@@ -41,19 +41,22 @@ final class GetCallTokenAction
         if ($appointment === null) {
             throw EntityNotFoundException::for(Appointment::class, $id);
         }
-        if (!$this->agora->isConfigured()) {
+        if (!$this->agora->hasAppId()) {
             return $this->error($response, 'Video calling is not configured', 503);
         }
 
         $channel = $appointment->getId();
-        $token   = $this->agora->rtcToken($channel, 0, self::TTL);
+        // App-ID-only mode (certificate blank) → null token; client joins token-less.
+        $token = $this->agora->isConfigured()
+            ? $this->agora->rtcToken($channel, 0, self::TTL)
+            : null;
 
         return $this->success($response, [
             'app_id'     => $this->agora->appId(),
             'channel'    => $channel,
             'uid'        => 0,
             'token'      => $token,
-            'expires_in' => self::TTL,
+            'expires_in' => $token !== null ? self::TTL : null,
         ], 'Call token issued')
             // Never let the browser reuse a cached (possibly expired) token.
             ->withHeader('Cache-Control', 'no-store');

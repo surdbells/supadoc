@@ -61,13 +61,16 @@ final class JoinCallAction
         ];
 
         // The channel is the appointment id, so every party lands in the same room.
-        if ($this->agora->isConfigured()) {
+        if ($this->agora->hasAppId()) {
             $channel            = $appointment->getId();
             $meeting['app_id']  = $this->agora->appId();
             $meeting['channel'] = $channel;
             $meeting['uid']     = $claims['uid'];
-            $meeting['token']   = $this->agora->rtcToken($channel, $claims['uid'], self::TTL);
-            $meeting['expires_in'] = self::TTL;
+            // App-ID-only mode (certificate blank) → null token; join token-less.
+            $meeting['token']   = $this->agora->isConfigured()
+                ? $this->agora->rtcToken($channel, $claims['uid'], self::TTL)
+                : null;
+            $meeting['expires_in'] = $meeting['token'] !== null ? self::TTL : null;
             $meeting['configured'] = true;
         } else {
             $meeting['configured'] = false;

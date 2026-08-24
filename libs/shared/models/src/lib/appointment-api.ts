@@ -144,13 +144,17 @@ export interface DayAvailability {
   slots: SlotOption[];
 }
 
-/** Agora RTC join credentials for a consultation call. */
+/**
+ * Agora RTC join credentials for a consultation call. `token` is null when the
+ * project runs in App-ID-only mode (no App Certificate) — the client then joins
+ * token-less.
+ */
 export interface CallTokenDto {
   app_id: string;
   channel: string;
   uid: number;
-  token: string;
-  expires_in: number;
+  token: string | null;
+  expires_in: number | null;
 }
 
 /**
@@ -166,8 +170,8 @@ export interface JoinInfoDto {
   app_id?: string;
   channel?: string;
   uid?: number;
-  token?: string;
-  expires_in?: number;
+  token?: string | null;
+  expires_in?: number | null;
 }
 
 /** The signed-in patient's profile, from `Patient::toArray()`. */

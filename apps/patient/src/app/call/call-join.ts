@@ -225,7 +225,8 @@ export class CallJoin implements AfterViewInit, OnDestroy {
       const { data } = await firstValueFrom(this.appointments.joinInfo(token));
       this.info.set(data);
 
-      if (!data.configured || !data.app_id || !data.channel || !data.token) {
+      // token may be null in App-ID-only mode — that's a valid token-less join.
+      if (!data.configured || !data.app_id || !data.channel) {
         this.status.set('not-configured');
         return;
       }
@@ -251,7 +252,7 @@ export class CallJoin implements AfterViewInit, OnDestroy {
       const joinedUid = await client.join(
         data.app_id,
         data.channel,
-        data.token,
+        data.token ?? null,
         data.uid === 0 ? null : data.uid,
       );
       console.info('[videomed:call] joined', { joinedUid });

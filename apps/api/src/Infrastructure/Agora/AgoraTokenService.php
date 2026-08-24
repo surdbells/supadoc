@@ -17,9 +17,19 @@ final class AgoraTokenService
     ) {
     }
 
+    /** Both App ID and certificate present — secured mode; mint real tokens. */
     public function isConfigured(): bool
     {
         return $this->appId !== '' && $this->appCertificate !== '';
+    }
+
+    /**
+     * App ID present (certificate optional). When true but not isConfigured(),
+     * the project runs in App-ID-only mode and clients join with a null token.
+     */
+    public function hasAppId(): bool
+    {
+        return $this->appId !== '';
     }
 
     public function appId(): string
