@@ -247,7 +247,14 @@ export class CallJoin implements AfterViewInit, OnDestroy {
         if (mediaType === 'video') this.remoteJoined.set(false);
       });
 
-      await client.join(data.app_id, data.channel, data.token, data.uid ?? null);
+      // uid 0 → wildcard token, join with null; any non-zero uid is honoured.
+      const joinedUid = await client.join(
+        data.app_id,
+        data.channel,
+        data.token,
+        data.uid === 0 ? null : data.uid,
+      );
+      console.info('[videomed:call] joined', { joinedUid });
       if (this.left) return; // component destroyed mid-join
 
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();

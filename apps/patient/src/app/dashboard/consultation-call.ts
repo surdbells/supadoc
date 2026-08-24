@@ -194,7 +194,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         if (mediaType === 'video') this.remoteJoined.set(false);
       });
 
-      await client.join(data.app_id, data.channel, data.token, data.uid || null);
+      // uid 0 from the backend means "wildcard token" → join with null so Agora
+      // assigns the uid; any non-zero uid is honoured as-is.
+      const joinedUid = await client.join(
+        data.app_id,
+        data.channel,
+        data.token,
+        data.uid === 0 ? null : data.uid,
+      );
+      console.info('[videomed:call] joined', { joinedUid });
       if (this.left) return; // component destroyed mid-join
 
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
