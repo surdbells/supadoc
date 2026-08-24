@@ -91,6 +91,10 @@ return [
         // HMAC signature → Agora rejects the token ("invalid token, authorized failed").
         appId:          trim($_ENV['AGORA_APP_ID'] ?? ''),
         appCertificate: trim($_ENV['AGORA_APP_CERTIFICATE'] ?? ''),
+        // TEMPORARY stopgap while Agora resolves the certificate desync: a fixed
+        // Console token + its channel. Both blank in normal operation.
+        staticToken:    trim($_ENV['AGORA_STATIC_TOKEN'] ?? ''),
+        staticChannel:  trim($_ENV['AGORA_STATIC_CHANNEL'] ?? ''),
     ),
 
     EmailOtpService::class => static fn (ContainerInterface $c): EmailOtpService => new EmailOtpService(

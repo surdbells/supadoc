@@ -62,16 +62,26 @@ final class JoinCallAction
 
         // The channel is the appointment id, so every party lands in the same room.
         if ($this->agora->hasAppId()) {
-            $channel            = $appointment->getId();
             $meeting['app_id']  = $this->agora->appId();
-            $meeting['channel'] = $channel;
-            $meeting['uid']     = $claims['uid'];
-            // App-ID-only mode (certificate blank) → null token; join token-less.
-            $meeting['token']   = $this->agora->isConfigured()
-                ? $this->agora->rtcToken($channel, $claims['uid'], self::TTL)
-                : null;
-            $meeting['expires_in'] = $meeting['token'] !== null ? self::TTL : null;
             $meeting['configured'] = true;
+            if ($this->agora->hasStaticToken()) {
+                // TEMPORARY: fixed Console token overrides minting; its bound channel
+                // wins, so all parties share one room until the cert desync is fixed.
+                // The token is a wildcard (uid 0), so each party's uid still works.
+                $meeting['channel']    = $this->agora->staticChannel();
+                $meeting['uid']        = $claims['uid'];
+                $meeting['token']      = $this->agora->staticToken();
+                $meeting['expires_in'] = null;
+            } else {
+                $channel            = $appointment->getId();
+                $meeting['channel'] = $channel;
+                $meeting['uid']     = $claims['uid'];
+                // App-ID-only mode (certificate blank) → null token; join token-less.
+                $meeting['token']   = $this->agora->isConfigured()
+                    ? $this->agora->rtcToken($channel, $claims['uid'], self::TTL)
+                    : null;
+                $meeting['expires_in'] = $meeting['token'] !== null ? self::TTL : null;
+            }
         } else {
             $meeting['configured'] = false;
         }

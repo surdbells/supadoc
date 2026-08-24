@@ -14,6 +14,11 @@ final class AgoraTokenService
     public function __construct(
         private readonly string $appId,
         private readonly string $appCertificate,
+        // TEMPORARY: a fixed Console-issued token + its channel. When both are set
+        // they override per-appointment minting (see staticToken()). Remove once the
+        // certificate desync is resolved and rtcToken() works again.
+        private readonly string $staticToken = '',
+        private readonly string $staticChannel = '',
     ) {
     }
 
@@ -21,6 +26,28 @@ final class AgoraTokenService
     public function isConfigured(): bool
     {
         return $this->appId !== '' && $this->appCertificate !== '';
+    }
+
+    /**
+     * A hardcoded Console-generated token is configured. STOPGAP for when our own
+     * minted tokens are rejected by the gateway (certificate desync): the backend
+     * hands out this one token + its bound channel for every call, so all parties
+     * join the same room. Console tokens are single-channel and expire in <=24h, so
+     * this needs periodic refreshing and is unfit for real multi-appointment use.
+     */
+    public function hasStaticToken(): bool
+    {
+        return $this->staticToken !== '' && $this->staticChannel !== '';
+    }
+
+    public function staticToken(): string
+    {
+        return $this->staticToken;
+    }
+
+    public function staticChannel(): string
+    {
+        return $this->staticChannel;
     }
 
     /**

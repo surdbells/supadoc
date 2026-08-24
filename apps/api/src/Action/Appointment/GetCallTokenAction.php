@@ -45,6 +45,19 @@ final class GetCallTokenAction
             return $this->error($response, 'Video calling is not configured', 503);
         }
 
+        // TEMPORARY: a fixed Console token overrides minting (its bound channel wins,
+        // so everyone shares one room) while the certificate desync is unresolved.
+        if ($this->agora->hasStaticToken()) {
+            return $this->success($response, [
+                'app_id'     => $this->agora->appId(),
+                'channel'    => $this->agora->staticChannel(),
+                'uid'        => 0,
+                'token'      => $this->agora->staticToken(),
+                'expires_in' => null,
+            ], 'Call token issued')
+                ->withHeader('Cache-Control', 'no-store');
+        }
+
         $channel = $appointment->getId();
         // App-ID-only mode (certificate blank) → null token; client joins token-less.
         $token = $this->agora->isConfigured()
