@@ -158,6 +158,19 @@ export interface CallTokenDto {
 }
 
 /**
+ * The patient's clinical summary shown to the consulting doctor in-call. Only
+ * present when `you.role === 'doctor'` — a guest's join link never carries it.
+ */
+export interface JoinPatientSummary {
+  name: string;
+  date_of_birth: string | null;
+  gender: string | null;
+  allergies: AllergyRow[];
+  conditions: ConditionRow[];
+  medications: MedicationRow[];
+}
+
+/**
  * Resolved preauthenticated join link (GET /public/call/{token}). Carries the
  * meeting details and, when video is configured, the Agora credentials.
  */
@@ -166,6 +179,8 @@ export interface JoinInfoDto {
   scheduled_at: string;
   specialist: { name: string; specialty?: string };
   you: { name: string; role: 'patient' | 'doctor' | 'guest' };
+  /** Present for the doctor role only — the patient's clinical summary. */
+  patient?: JoinPatientSummary;
   configured: boolean;
   app_id?: string;
   channel?: string;

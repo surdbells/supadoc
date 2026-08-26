@@ -6,5 +6,9 @@ export const appRoutes: Route[] = [
     loadComponent: () =>
       import('./doctor-portal').then((m) => m.DoctorPortal),
   },
+  {
+    path: 'call/:token',
+    loadComponent: () => import('./doctor-call').then((m) => m.DoctorCall),
+  },
   { path: '**', redirectTo: '' },
 ];

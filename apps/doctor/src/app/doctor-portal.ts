@@ -1,9 +1,11 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  inject,
   OnInit,
   signal,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import { IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 
@@ -175,12 +177,13 @@ const STATUS_CLASS: Record<string, string> = {
                     </span>
                   }
                 </div>
-                <a
-                  [href]="a.join_url"
+                <button
+                  type="button"
                   class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
+                  (click)="openCall(a)"
                 >
                   <sd-icon name="video" [size]="18" />Join call
-                </a>
+                </button>
               </li>
             }
           </ul>
@@ -201,9 +204,26 @@ export class DoctorPortal implements OnInit {
   protected readonly appointments = signal<DoctorAppointment[]>([]);
 
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
+  private readonly router = inject(Router);
 
   ngOnInit(): void {
     if (this.token()) void this.loadSchedule();
+  }
+
+  /**
+   * Open the in-app consultation cockpit. The join link is
+   * `<web>/call/join/<token>`; we route to our own `/call/:token` with that same
+   * token, falling back to the emailed link if it isn't in the expected shape.
+   */
+  protected openCall(a: DoctorAppointment): void {
+    const marker = '/call/join/';
+    const idx = a.join_url.indexOf(marker);
+    const token = idx >= 0 ? a.join_url.slice(idx + marker.length) : '';
+    if (token) {
+      void this.router.navigate(['/call', token]);
+    } else {
+      window.location.href = a.join_url;
+    }
   }
 
   protected async login(event: Event): Promise<void> {

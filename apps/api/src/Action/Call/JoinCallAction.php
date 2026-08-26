@@ -60,6 +60,22 @@ final class JoinCallAction
             'you'            => ['name' => $claims['name'], 'role' => $claims['role']],
         ];
 
+        // The consulting doctor sees the patient's clinical summary for the visit.
+        // Gated to the doctor role — a guest's token never carries patient health data.
+        if (($claims['role'] ?? '') === 'doctor') {
+            $patient = $appointment->getPatient();
+            $pa      = $patient->toArray();
+            $medical = $patient->getMedical();
+            $meeting['patient'] = [
+                'name'          => trim(((string) $pa['first_name']) . ' ' . ((string) $pa['last_name'])),
+                'date_of_birth' => $pa['date_of_birth'],
+                'gender'        => $pa['gender'],
+                'allergies'     => array_values($medical['allergies'] ?? []),
+                'conditions'    => array_values($medical['conditions'] ?? []),
+                'medications'   => array_values($medical['medications'] ?? []),
+            ];
+        }
+
         // The channel is the appointment id, so every party lands in the same room.
         if ($this->agora->hasAppId()) {
             $meeting['app_id']  = $this->agora->appId();
