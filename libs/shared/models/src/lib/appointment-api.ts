@@ -391,6 +391,39 @@ export interface PatientCarePlanDto {
   author?: string | null;
 }
 
+/** A referral raised during a consultation. */
+export interface ReferralDto {
+  id: string;
+  appointment_id: string;
+  referral_type: 'specialist' | 'hospital' | 'laboratory' | 'imaging';
+  target: string;
+  reason: string;
+  clinical_summary: string | null;
+  priority: 'routine' | 'urgent';
+  status: string;
+  author: string | null;
+  created_at: string;
+}
+
+/** Body for raising a referral. */
+export interface CreateReferralParams {
+  referral_type: 'specialist' | 'hospital' | 'laboratory' | 'imaging';
+  target: string;
+  reason: string;
+  clinical_summary?: string | null;
+  priority?: 'routine' | 'urgent';
+}
+
+/** One consent decision for a consultation. */
+export interface ConsentDto {
+  type: 'recording' | 'ai_transcription' | 'data_sharing';
+  granted: boolean;
+  by_role: string | null;
+  by_name: string | null;
+  version: string;
+  decided_at: string | null;
+}
+
 /** One active sign-in session, from GET /portal/me/sessions. */
 export interface SessionDto {
   id: string;

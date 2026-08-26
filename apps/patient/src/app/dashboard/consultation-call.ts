@@ -22,6 +22,7 @@ import type {
   AllergyRow,
   AppointmentDto,
   ConditionRow,
+  ConsentDto,
   ConsultationSummaryDto,
   HealthProfileDto,
   LabOrderDto,
@@ -29,6 +30,7 @@ import type {
   PatientCarePlanDto,
   PatientProfileDto,
   PrescriptionDto,
+  ReferralDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -545,6 +547,21 @@ interface RecordItem {
                       </ul>
                     </div>
                   }
+                  @if (referrals().length) {
+                    <div class="mt-4 border-t border-white/10 pt-3">
+                      <h4 class="mb-2 font-sans text-body-sm font-semibold text-white">Referrals</h4>
+                      <ul class="flex flex-col gap-2">
+                        @for (r of referrals(); track r.id) {
+                          <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
+                            <p class="font-sans text-body-sm text-white/85">
+                              <span class="capitalize">{{ r.referral_type }}</span> — {{ r.target }}
+                            </p>
+                            <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
                 }
               }
             </div>
@@ -659,6 +676,36 @@ interface RecordItem {
             }
           </div>
 
+          <!-- Privacy & consent -->
+          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
+            <h3 class="mb-1 flex items-center gap-1.5 font-sans text-body font-semibold text-white">
+              <sd-icon name="shield-check" [size]="16" class="text-frost" /> Privacy &amp; Consent
+            </h3>
+            <p class="mb-2 font-sans text-caption text-white/45">
+              You choose what happens in this consultation.
+            </p>
+            @for (c of consentRows; track c.type) {
+              <div class="flex items-center justify-between gap-2 py-1.5">
+                <span class="font-sans text-body-sm text-white/80">{{ c.label }}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  [attr.aria-checked]="consentGranted(c.type)"
+                  [attr.aria-label]="c.label"
+                  class="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60"
+                  [class]="consentGranted(c.type) ? 'bg-success' : 'bg-white/15'"
+                  [disabled]="consentBusy() === c.type"
+                  (click)="toggleConsent(c.type)"
+                >
+                  <span
+                    class="absolute top-0.5 size-5 rounded-full bg-white transition-all"
+                    [class]="consentGranted(c.type) ? 'left-[22px]' : 'left-0.5'"
+                  ></span>
+                </button>
+              </div>
+            }
+          </div>
+
           <!-- Feedback -->
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4 text-center">
             <p class="font-sans text-body-sm font-medium text-white">How was your consultation?</p>
@@ -730,6 +777,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     { key: 'reports', label: 'Reports' },
   ];
   protected readonly stars = [1, 2, 3, 4, 5];
+  protected readonly consentRows: ReadonlyArray<{ type: ConsentDto['type']; label: string }> = [
+    { type: 'recording', label: 'Allow recording' },
+    { type: 'ai_transcription', label: 'AI transcription' },
+    { type: 'data_sharing', label: 'Share with care team' },
+  ];
 
   // ---- Data ----
   protected readonly appointment = signal<AppointmentDto | null>(null);
@@ -741,6 +793,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly issuedRx = signal<PrescriptionDto[]>([]);
   protected readonly labs = signal<LabOrderDto[]>([]);
   protected readonly carePlan = signal<PatientCarePlanDto | null>(null);
+  protected readonly referrals = signal<ReferralDto[]>([]);
+  protected readonly consents = signal<ConsentDto[]>([]);
+  protected readonly consentBusy = signal<string>('');
 
   // ---- Derived: people ----
   protected readonly doctorName = computed(
@@ -966,6 +1021,37 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.carePlan.set(cp.data);
     } catch {
       /* not published */
+    }
+    try {
+      const rf = await firstValueFrom(this.appointments.referrals(this.appointmentId));
+      this.referrals.set(rf.data ?? []);
+    } catch {
+      /* none */
+    }
+    try {
+      const cs = await firstValueFrom(this.appointments.consents(this.appointmentId));
+      this.consents.set(cs.data ?? []);
+    } catch {
+      /* none */
+    }
+  }
+
+  protected consentGranted(type: ConsentDto['type']): boolean {
+    return this.consents().find((c) => c.type === type)?.granted ?? false;
+  }
+
+  protected async toggleConsent(type: ConsentDto['type']): Promise<void> {
+    if (this.consentBusy()) return;
+    this.consentBusy.set(type);
+    try {
+      const res = await firstValueFrom(
+        this.appointments.setConsent(this.appointmentId, type, !this.consentGranted(type)),
+      );
+      this.consents.set(res.data ?? []);
+    } catch {
+      /* keep prior state */
+    } finally {
+      this.consentBusy.set('');
     }
   }
 

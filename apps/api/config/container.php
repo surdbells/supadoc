@@ -7,8 +7,10 @@ use App\Domain\Repository\AppSettingRepository;
 use App\Domain\Repository\AuditEventRepository;
 use App\Domain\Repository\CarePlanRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
+use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\PrescriptionRepository;
+use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -154,6 +156,12 @@ return [
 
     CarePlanRepository::class => static fn (ContainerInterface $c): CarePlanRepository =>
         new CarePlanRepository($c->get(EntityManagerInterface::class)),
+
+    ReferralRepository::class => static fn (ContainerInterface $c): ReferralRepository =>
+        new ReferralRepository($c->get(EntityManagerInterface::class)),
+
+    ConsultationConsentRepository::class => static fn (ContainerInterface $c): ConsultationConsentRepository =>
+        new ConsultationConsentRepository($c->get(EntityManagerInterface::class)),
 
     AuditEventRepository::class => static fn (ContainerInterface $c): AuditEventRepository =>
         new AuditEventRepository($c->get(EntityManagerInterface::class)),

@@ -17,10 +17,12 @@ import AgoraRTC, {
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
 import type {
+  ConsentDto,
   JoinInfoDto,
   LabOrderDto,
   PrescriptionDto,
   PrescriptionItem,
+  ReferralDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
@@ -587,6 +589,61 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                       </button>
                     </div>
                   </div>
+
+                  <!-- Referral -->
+                  <div class="mt-4 border-t border-white/10 pt-3">
+                    <p class="mb-2 font-sans text-body-sm font-semibold text-white">Referral</p>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <select
+                        class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
+                        [value]="refType()"
+                        (change)="refType.set($any($event.target).value)"
+                      >
+                        <option value="specialist" class="bg-ink">Specialist</option>
+                        <option value="hospital" class="bg-ink">Hospital</option>
+                        <option value="laboratory" class="bg-ink">Laboratory</option>
+                        <option value="imaging" class="bg-ink">Imaging</option>
+                      </select>
+                      <input placeholder="Target (e.g. Cardiology)"
+                        class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                        [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
+                    </div>
+                    <input placeholder="Reason for referral"
+                      class="mt-2 w-full min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                      [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
+                    <div class="mt-2 flex items-center gap-2">
+                      <select
+                        class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white focus:border-cerulean focus:outline-none"
+                        [value]="refPriority()" (change)="refPriority.set($any($event.target).value)"
+                      >
+                        <option value="routine" class="bg-ink">Routine</option>
+                        <option value="urgent" class="bg-ink">Urgent</option>
+                      </select>
+                      <button type="button"
+                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                        [disabled]="refBusy() || !canDocument()" (click)="createReferral()">
+                        <sd-icon name="check" [size]="14" /> {{ refBusy() ? 'Creating…' : 'Create referral' }}
+                      </button>
+                    </div>
+                    @if (refError()) {
+                      <p class="mt-1 font-sans text-caption text-alert">{{ refError() }}</p>
+                    }
+                    @if (referrals().length) {
+                      <ul class="mt-3 flex flex-col gap-2">
+                        @for (r of referrals(); track r.id) {
+                          <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
+                            <p class="font-sans text-body-sm text-white/85">
+                              <span class="capitalize">{{ r.referral_type }}</span> → {{ r.target }}
+                              @if (r.priority === 'urgent') {
+                                <span class="ml-1 rounded-pill bg-alert/15 px-1.5 py-0.5 font-sans text-[10px] text-alert">Urgent</span>
+                              }
+                            </p>
+                            <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  </div>
                 }
               }
             </div>
@@ -657,6 +714,13 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                 ></span>
               </li>
             </ul>
+            <div class="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
+              <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/40'" />
+              <span class="font-sans text-caption text-white/60">
+                Recording consent:
+                <span [class]="recordingConsent() ? 'text-success' : 'text-white/50'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
+              </span>
+            </div>
           </div>
         </aside>
       </div>
@@ -712,6 +776,21 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly carePlanItems = signal<string[]>(['']);
   protected readonly carePlanBusy = signal(false);
   protected readonly carePlanSaved = signal('');
+
+  // Referral form + list.
+  protected readonly refType = signal<ReferralDto['referral_type']>('specialist');
+  protected readonly refTarget = signal('');
+  protected readonly refReason = signal('');
+  protected readonly refPriority = signal<'routine' | 'urgent'>('routine');
+  protected readonly refBusy = signal(false);
+  protected readonly refError = signal('');
+  protected readonly referrals = signal<ReferralDto[]>([]);
+
+  // Patient consent decisions (read-only for the doctor).
+  protected readonly consents = signal<ConsentDto[]>([]);
+  protected readonly recordingConsent = computed(
+    () => this.consents().find((c) => c.type === 'recording')?.granted ?? false,
+  );
 
   protected readonly info = signal<JoinInfoDto | null>(null);
 
@@ -797,6 +876,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       void this.loadPrescriptions();
       void this.loadLabOrders();
       void this.loadCarePlan();
+      void this.loadReferrals();
+      void this.loadConsents();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -918,7 +999,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.notesTab.set('labs');
       return;
     }
-    // Referral / Certificate land in later phases; the rest are live.
+    if (label === 'Referral') {
+      this.toolNote.set('');
+      this.notesTab.set('followup');
+      return;
+    }
+    // Certificate lands in a later phase; the rest are live.
     this.toolNote.set(`${label} isn’t wired up yet — coming soon.`);
   }
 
@@ -1179,6 +1265,66 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.carePlanSaved.set('Could not save — retry');
     } finally {
       this.carePlanBusy.set(false);
+    }
+  }
+
+  // ---- Referrals ----
+  private async loadReferrals(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/referrals`,
+        { method: 'GET' },
+      );
+      this.referrals.set(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      /* leave empty */
+    }
+  }
+
+  protected async createReferral(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.refBusy()) return;
+    if (this.refTarget().trim() === '' || this.refReason().trim() === '') {
+      this.refError.set('Target and reason are required.');
+      return;
+    }
+    this.refError.set('');
+    this.refBusy.set(true);
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/referrals`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            referral_type: this.refType(),
+            target: this.refTarget(),
+            reason: this.refReason(),
+            priority: this.refPriority(),
+          }),
+        },
+      );
+      this.refTarget.set('');
+      this.refReason.set('');
+      this.refPriority.set('routine');
+      await this.loadReferrals();
+    } catch (err) {
+      this.refError.set((err as { message?: string })?.message ?? 'Could not create referral.');
+    } finally {
+      this.refBusy.set(false);
+    }
+  }
+
+  // ---- Consent (read-only) ----
+  private async loadConsents(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/consents`,
+        { method: 'GET' },
+      );
+      this.consents.set(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      /* leave empty */
     }
   }
 

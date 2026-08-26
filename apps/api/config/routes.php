@@ -107,6 +107,11 @@ return static function (App $app): void {
             $group->post('/doctor/appointments/{id}/lab-orders', Action\Doctor\CreateLabOrderAction::class);
             $group->get('/doctor/appointments/{id}/care-plan', Action\Doctor\GetCarePlanAction::class);
             $group->put('/doctor/appointments/{id}/care-plan', Action\Doctor\SaveCarePlanAction::class);
+
+            // Referrals + consent (doctor reads consent to know what's permitted).
+            $group->get('/doctor/appointments/{id}/referrals', Action\Doctor\ListReferralsAction::class);
+            $group->post('/doctor/appointments/{id}/referrals', Action\Doctor\CreateReferralAction::class);
+            $group->get('/doctor/appointments/{id}/consents', Action\Doctor\DoctorConsentsAction::class);
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
@@ -134,6 +139,9 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);
             $group->get('/appointments/{id}/lab-orders', Action\Appointment\MyLabOrdersAction::class);
             $group->get('/appointments/{id}/care-plan', Action\Appointment\MyCarePlanAction::class);
+            $group->get('/appointments/{id}/referrals', Action\Appointment\MyReferralsAction::class);
+            $group->get('/appointments/{id}/consents', Action\Appointment\MyConsentsAction::class);
+            $group->post('/appointments/{id}/consents', Action\Appointment\SetConsentAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);

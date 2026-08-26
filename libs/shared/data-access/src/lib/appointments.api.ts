@@ -4,6 +4,7 @@ import type {
   AppointmentDto,
   BookAppointmentParams,
   CallTokenDto,
+  ConsentDto,
   ConsultationSummaryDto,
   JoinInfoDto,
   LabOrderDto,
@@ -11,6 +12,7 @@ import type {
   PaginatedResponse,
   PatientCarePlanDto,
   PrescriptionDto,
+  ReferralDto,
   SuccessResponse,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
@@ -98,6 +100,32 @@ export class AppointmentsApi {
   carePlan(id: string): Observable<SuccessResponse<PatientCarePlanDto>> {
     return this.api.get<SuccessResponse<PatientCarePlanDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/care-plan`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/referrals — the patient's referrals. */
+  referrals(id: string): Observable<SuccessResponse<ReferralDto[]>> {
+    return this.api.get<SuccessResponse<ReferralDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/referrals`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/consents — the patient's consent decisions. */
+  consents(id: string): Observable<SuccessResponse<ConsentDto[]>> {
+    return this.api.get<SuccessResponse<ConsentDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/consents`,
+    );
+  }
+
+  /** POST /api/portal/appointments/{id}/consents — grant or withdraw a consent. */
+  setConsent(
+    id: string,
+    type: ConsentDto['type'],
+    granted: boolean,
+  ): Observable<SuccessResponse<ConsentDto[]>> {
+    return this.api.post<SuccessResponse<ConsentDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/consents`,
+      { type, granted },
     );
   }
 
