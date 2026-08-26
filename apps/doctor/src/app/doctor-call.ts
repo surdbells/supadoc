@@ -290,15 +290,51 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
             <div class="p-4">
               @switch (notesTab()) {
                 @case ('notes') {
+                  <!-- Documentation header: status + auto-save + finalize -->
+                  <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <span class="font-sans text-body-sm font-semibold text-white">SOAP Note</span>
+                      @if (noteFinalized()) {
+                        <span class="flex items-center gap-1 rounded-pill bg-success/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-success">
+                          <sd-icon name="lock" [size]="11" /> Signed &amp; locked
+                        </span>
+                      } @else {
+                        <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/50">Draft</span>
+                      }
+                    </div>
+                    <div class="flex items-center gap-3">
+                      @if (noteSaved()) {
+                        <span class="font-sans text-caption text-white/45">{{ noteSaved() }}</span>
+                      }
+                      @if (!noteFinalized() && canDocument()) {
+                        <button
+                          type="button"
+                          class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                          [disabled]="finalizing()"
+                          (click)="finalizeNote()"
+                        >
+                          {{ finalizing() ? 'Finalizing…' : 'Finalize & sign' }}
+                        </button>
+                      }
+                    </div>
+                  </div>
+
+                  @if (!canDocument()) {
+                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+                      Sign in to the doctor portal to document this consultation.
+                    </p>
+                  }
+
                   <div class="grid gap-4 lg:grid-cols-2">
                     <label class="flex flex-col gap-1.5">
                       <span class="font-sans text-caption font-semibold text-white/60">Subjective</span>
                       <textarea
                         rows="3"
                         placeholder="Patient-reported symptoms and history…"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                         [value]="subjective()"
-                        (input)="subjective.set($any($event.target).value)"
+                        [readOnly]="noteFinalized() || !canDocument()"
+                        (input)="subjective.set($any($event.target).value); scheduleSave()"
                       ></textarea>
                     </label>
                     <label class="flex flex-col gap-1.5">
@@ -306,9 +342,32 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                       <textarea
                         rows="3"
                         placeholder="Examination findings, vitals…"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                         [value]="objective()"
-                        (input)="objective.set($any($event.target).value)"
+                        [readOnly]="noteFinalized() || !canDocument()"
+                        (input)="objective.set($any($event.target).value); scheduleSave()"
+                      ></textarea>
+                    </label>
+                    <label class="flex flex-col gap-1.5">
+                      <span class="font-sans text-caption font-semibold text-white/60">Assessment</span>
+                      <textarea
+                        rows="3"
+                        placeholder="Diagnosis, differential…"
+                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                        [value]="assessment()"
+                        [readOnly]="noteFinalized() || !canDocument()"
+                        (input)="assessment.set($any($event.target).value); scheduleSave()"
+                      ></textarea>
+                    </label>
+                    <label class="flex flex-col gap-1.5">
+                      <span class="font-sans text-caption font-semibold text-white/60">Plan</span>
+                      <textarea
+                        rows="3"
+                        placeholder="Treatment, investigations, follow-up…"
+                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                        [value]="plan()"
+                        [readOnly]="noteFinalized() || !canDocument()"
+                        (input)="plan.set($any($event.target).value); scheduleSave()"
                       ></textarea>
                     </label>
                   </div>
@@ -447,7 +506,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly recordsTab = signal<RecordsTab>('timeline');
   protected readonly subjective = signal('');
   protected readonly objective = signal('');
+  protected readonly assessment = signal('');
+  protected readonly plan = signal('');
   protected readonly toolNote = signal('');
+
+  // Clinical-note persistence state.
+  protected readonly noteStatus = signal<'draft' | 'finalized'>('draft');
+  protected readonly noteSaved = signal('');
+  protected readonly finalizing = signal(false);
+  protected readonly noteFinalized = computed(() => this.noteStatus() === 'finalized');
+  protected readonly canDocument = computed(() => this.doctorToken() !== null);
 
   protected readonly info = signal<JoinInfoDto | null>(null);
 
@@ -512,8 +580,11 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private camTrack?: ICameraVideoTrack;
   private screenTrack?: ILocalVideoTrack;
   private timer?: ReturnType<typeof setInterval>;
+  private noteSaveTimer?: ReturnType<typeof setTimeout>;
   private token = '';
+  private appointmentId = '';
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
+  private readonly DOCTOR_TOKEN_KEY = 'videomed.doctor.token';
   private left = false;
 
   ngAfterViewInit(): void {
@@ -525,6 +596,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     try {
       const data = await this.resolveJoin();
       this.info.set(data);
+      this.appointmentId = data.appointment_id;
+      void this.loadNote();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -636,8 +709,99 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   }
 
   protected useTool(label: string): void {
-    // These clinical actions need their own endpoints/forms; surface intent for now.
+    // ePrescription / Lab / Referral / Certificate land in later phases; the SOAP
+    // note is fully wired below.
     this.toolNote.set(`${label} isn’t wired up yet — coming soon.`);
+  }
+
+  // ---- Clinical note (SOAP) persistence ----
+  private doctorToken(): string | null {
+    try {
+      return localStorage.getItem(this.DOCTOR_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  private async noteFetch(path: string, init: RequestInit): Promise<any> {
+    const token = this.doctorToken();
+    const res = await fetch(`${this.base}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.message ?? 'Request failed');
+    return body;
+  }
+
+  private notePayload(): Record<string, string> {
+    return {
+      subjective: this.subjective(),
+      objective: this.objective(),
+      assessment: this.assessment(),
+      plan: this.plan(),
+    };
+  }
+
+  private async loadNote(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note`,
+        { method: 'GET' },
+      );
+      const n = body.data;
+      this.subjective.set(n.subjective ?? '');
+      this.objective.set(n.objective ?? '');
+      this.assessment.set(n.assessment ?? '');
+      this.plan.set(n.plan ?? '');
+      this.noteStatus.set(n.status === 'finalized' ? 'finalized' : 'draft');
+      if (n.updated_at) this.noteSaved.set('Saved');
+    } catch {
+      /* fresh editor on failure */
+    }
+  }
+
+  /** Debounced auto-save while the note is still a draft. */
+  protected scheduleSave(): void {
+    if (this.noteFinalized() || !this.doctorToken()) return;
+    this.noteSaved.set('Saving…');
+    if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
+    this.noteSaveTimer = setTimeout(() => void this.saveNote(), 1200);
+  }
+
+  private async saveNote(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note`,
+        { method: 'PUT', body: JSON.stringify(this.notePayload()) },
+      );
+      this.noteSaved.set('Saved');
+    } catch {
+      this.noteSaved.set('Save failed — retry');
+    }
+  }
+
+  protected async finalizeNote(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.finalizing()) return;
+    this.finalizing.set(true);
+    if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note/finalize`,
+        { method: 'POST', body: JSON.stringify(this.notePayload()) },
+      );
+      this.noteStatus.set(body.data?.status === 'finalized' ? 'finalized' : 'draft');
+      this.noteSaved.set('Finalized & locked');
+    } catch {
+      this.noteSaved.set('Could not finalize — retry');
+    } finally {
+      this.finalizing.set(false);
+    }
   }
 
   protected async leave(): Promise<void> {
@@ -648,6 +812,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private async teardown(): Promise<void> {
     this.left = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     try {
       this.micTrack?.close();
       this.camTrack?.close();

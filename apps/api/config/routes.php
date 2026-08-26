@@ -91,6 +91,12 @@ return static function (App $app): void {
             // Minimal doctor portal — a doctor login (role 'doctor') sees only
             // their own consultations. The action enforces the doctor role.
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
+
+            // In-consultation clinical documentation. Each action re-checks that
+            // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).
+            $group->get('/doctor/appointments/{id}/note', Action\Doctor\GetClinicalNoteAction::class);
+            $group->put('/doctor/appointments/{id}/note', Action\Doctor\SaveClinicalNoteAction::class);
+            $group->post('/doctor/appointments/{id}/note/finalize', Action\Doctor\FinalizeClinicalNoteAction::class);
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
@@ -114,6 +120,7 @@ return static function (App $app): void {
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
+            $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);

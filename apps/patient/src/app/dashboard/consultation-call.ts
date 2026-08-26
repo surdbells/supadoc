@@ -22,6 +22,7 @@ import type {
   AllergyRow,
   AppointmentDto,
   ConditionRow,
+  ConsultationSummaryDto,
   HealthProfileDto,
   MedicationRow,
   PatientProfileDto,
@@ -383,8 +384,20 @@ interface RecordItem {
                         <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
                           {{ visitSummary() }}
                         </p>
+                        @if (summaryReady() && summary()?.author) {
+                          <p class="mt-1 font-sans text-caption text-white/40">
+                            Finalized by {{ summary()?.author }}
+                          </p>
+                        }
                       </div>
-                      @if (conditions().length) {
+                      @if (assessmentText()) {
+                        <div>
+                          <h4 class="font-sans text-body-sm font-semibold text-white">Assessment</h4>
+                          <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
+                            {{ assessmentText() }}
+                          </p>
+                        </div>
+                      } @else if (conditions().length) {
                         <div>
                           <h4 class="font-sans text-body-sm font-semibold text-white">Assessment</h4>
                           <ul class="mt-1.5 flex flex-col gap-1">
@@ -656,6 +669,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly appointment = signal<AppointmentDto | null>(null);
   private readonly patient = signal<PatientProfileDto | null>(null);
   private readonly health = signal<HealthProfileDto | null>(null);
+  // The doctor's finalized write-up (available:false until they sign it).
+  protected readonly summary = signal<ConsultationSummaryDto | null>(null);
 
   // ---- Derived: people ----
   protected readonly doctorName = computed(
@@ -696,12 +711,24 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     return latest ? `${latest.condition}${latest.year ? ' · ' + latest.year : ''}` : '—';
   });
 
+  // Prefer the doctor's finalized note; fall back to the patient's booking reason.
   protected readonly visitSummary = computed(
     () =>
+      this.summary()?.subjective?.trim() ||
       this.appointment()?.notes?.trim() ||
-      'Your consultation notes will appear here once your specialist adds them.',
+      'Your consultation notes will appear here once your specialist finalizes them.',
   );
+  protected readonly assessmentText = computed(() => this.summary()?.assessment?.trim() ?? '');
+  protected readonly summaryReady = computed(() => this.summary()?.available === true);
   protected readonly nextSteps = computed<string[]>(() => {
+    const plan = this.summary()?.plan?.trim();
+    if (plan) {
+      return plan
+        .split(/\r?\n|\.\s+/)
+        .map((s) => s.trim().replace(/\.$/, ''))
+        .filter(Boolean)
+        .slice(0, 6);
+    }
     const steps: string[] = [];
     if (this.medications().length) steps.push('Continue current medications as prescribed');
     if (this.conditions().length) steps.push('Monitor and log symptoms at home');
@@ -845,6 +872,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.health.set(hp.data);
     } catch {
       /* optional */
+    }
+    try {
+      const s = await firstValueFrom(this.appointments.consultationSummary(this.appointmentId));
+      this.summary.set(s.data);
+    } catch {
+      /* summary not finalized yet */
     }
   }
 

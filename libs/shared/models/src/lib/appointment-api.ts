@@ -277,6 +277,54 @@ export interface HealthProfileDto {
 /** A partial save — any subset of the three sections. */
 export type HealthProfilePatch = Partial<HealthProfileDto>;
 
+/** One post-finalize edit to a clinical note (audit history entry). */
+export interface ClinicalNoteAmendment {
+  at: string;
+  author: string;
+  previous: {
+    subjective: string | null;
+    objective: string | null;
+    assessment: string | null;
+    plan: string | null;
+  };
+}
+
+/** The clinician's SOAP note for a consultation (doctor view). */
+export interface ClinicalNoteDto {
+  appointment_id: string;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
+  status: 'draft' | 'finalized';
+  finalized_at: string | null;
+  author: string | null;
+  amendments: ClinicalNoteAmendment[];
+  updated_at: string | null;
+}
+
+/** The four SOAP fields the doctor saves. */
+export interface ClinicalNoteInput {
+  subjective?: string | null;
+  objective?: string | null;
+  assessment?: string | null;
+  plan?: string | null;
+}
+
+/**
+ * The patient's view of the consultation write-up (GET
+ * /portal/appointments/{id}/consultation). `available` is false until the doctor
+ * finalizes the note; a draft is never exposed to the patient.
+ */
+export interface ConsultationSummaryDto {
+  available: boolean;
+  subjective?: string | null;
+  assessment?: string | null;
+  plan?: string | null;
+  finalized_at?: string | null;
+  author?: string | null;
+}
+
 /** One active sign-in session, from GET /portal/me/sessions. */
 export interface SessionDto {
   id: string;

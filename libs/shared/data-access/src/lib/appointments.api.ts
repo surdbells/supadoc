@@ -4,6 +4,7 @@ import type {
   AppointmentDto,
   BookAppointmentParams,
   CallTokenDto,
+  ConsultationSummaryDto,
   JoinInfoDto,
   ListAppointmentsQuery,
   PaginatedResponse,
@@ -61,6 +62,18 @@ export class AppointmentsApi {
   callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
     return this.api.get<SuccessResponse<CallTokenDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/call-token`,
+    );
+  }
+
+  /**
+   * GET /api/portal/appointments/{id}/consultation — the patient's consultation
+   * write-up. `available` is false until the doctor finalizes the note.
+   */
+  consultationSummary(
+    id: string,
+  ): Observable<SuccessResponse<ConsultationSummaryDto>> {
+    return this.api.get<SuccessResponse<ConsultationSummaryDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/consultation`,
     );
   }
 
