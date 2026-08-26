@@ -16,7 +16,7 @@ import AgoraRTC, {
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
-import type { JoinInfoDto } from '@supadoc/models';
+import type { JoinInfoDto, PrescriptionDto, PrescriptionItem } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 
@@ -392,18 +392,73 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                   </div>
                 }
                 @case ('prescriptions') {
-                  @if (medications().length) {
-                    <ul class="flex flex-col divide-y divide-white/10">
-                      @for (m of medications(); track m.name) {
-                        <li class="flex items-center gap-3 py-2.5">
-                          <sd-icon name="pill" [size]="18" class="text-sky" />
-                          <span class="flex-1 font-sans text-body-sm text-white/85">{{ m.name }}</span>
-                          <span class="font-sans text-caption text-white/45">{{ m.dosage }} · {{ m.frequency }}</span>
-                        </li>
-                      }
-                    </ul>
-                  } @else {
-                    <p class="py-4 text-center font-sans text-body-sm text-white/40">No active prescriptions.</p>
+                  @if (!canDocument()) {
+                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+                      Sign in to the doctor portal to prescribe.
+                    </p>
+                  }
+                  <div class="flex flex-col gap-3">
+                    @for (row of rxItems(); track $index) {
+                      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          <input placeholder="Medication"
+                            class="col-span-2 min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none sm:col-span-1"
+                            [value]="row.medication" (input)="updateRx($index,'medication',$any($event.target).value)" />
+                          <input placeholder="Strength (e.g. 50mg)"
+                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                            [value]="row.strength" (input)="updateRx($index,'strength',$any($event.target).value)" />
+                          <input placeholder="Dosage (e.g. 1 tablet)"
+                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                            [value]="row.dosage" (input)="updateRx($index,'dosage',$any($event.target).value)" />
+                          <input placeholder="Frequency (e.g. daily)"
+                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                            [value]="row.frequency" (input)="updateRx($index,'frequency',$any($event.target).value)" />
+                          <input placeholder="Duration (e.g. 30 days)"
+                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                            [value]="row.duration" (input)="updateRx($index,'duration',$any($event.target).value)" />
+                          <input placeholder="Instructions"
+                            class="col-span-2 min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none sm:col-span-3"
+                            [value]="row.instructions" (input)="updateRx($index,'instructions',$any($event.target).value)" />
+                        </div>
+                        @if (rxItems().length > 1) {
+                          <button type="button"
+                            class="mt-2 flex items-center gap-1 font-sans text-caption text-white/50 transition-colors hover:text-alert"
+                            (click)="removeRxRow($index)">
+                            <sd-icon name="trash-2" [size]="13" /> Remove
+                          </button>
+                        }
+                      </div>
+                    }
+                    <div class="flex flex-wrap items-center gap-2">
+                      <button type="button"
+                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                        (click)="addRxRow()">
+                        <sd-icon name="plus" [size]="14" /> Add medication
+                      </button>
+                      <button type="button"
+                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                        [disabled]="rxBusy() || !canDocument()" (click)="issueRx()">
+                        <sd-icon name="check" [size]="14" /> {{ rxBusy() ? 'Issuing…' : 'Sign & issue' }}
+                      </button>
+                    </div>
+                    @if (rxError()) {
+                      <p class="font-sans text-caption text-alert">{{ rxError() }}</p>
+                    }
+                  </div>
+
+                  @if (issuedRx().length) {
+                    <div class="mt-4 border-t border-white/10 pt-3">
+                      <p class="mb-2 font-sans text-caption font-semibold text-white/60">Issued this consultation</p>
+                      <ul class="flex flex-col gap-2">
+                        @for (p of issuedRx(); track p.id) {
+                          <li class="flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2">
+                            <sd-icon name="pill" [size]="16" class="text-sky" />
+                            <span class="flex-1 font-sans text-body-sm text-white/85">{{ rxSummary(p) }}</span>
+                            <span class="rounded-pill bg-success/15 px-2 py-0.5 font-sans text-[10px] text-success">Signed</span>
+                          </li>
+                        }
+                      </ul>
+                    </div>
                   }
                 }
                 @case ('labs') {
@@ -517,6 +572,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly noteFinalized = computed(() => this.noteStatus() === 'finalized');
   protected readonly canDocument = computed(() => this.doctorToken() !== null);
 
+  // ePrescription builder + issued list.
+  protected readonly rxItems = signal<PrescriptionItem[]>([this.emptyRx()]);
+  protected readonly rxNotes = signal('');
+  protected readonly rxBusy = signal(false);
+  protected readonly rxError = signal('');
+  protected readonly issuedRx = signal<PrescriptionDto[]>([]);
+
   protected readonly info = signal<JoinInfoDto | null>(null);
 
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
@@ -598,6 +660,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.info.set(data);
       this.appointmentId = data.appointment_id;
       void this.loadNote();
+      void this.loadPrescriptions();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -709,8 +772,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   }
 
   protected useTool(label: string): void {
-    // ePrescription / Lab / Referral / Certificate land in later phases; the SOAP
-    // note is fully wired below.
+    if (label === 'ePrescription') {
+      this.toolNote.set('');
+      this.notesTab.set('prescriptions');
+      return;
+    }
+    // Lab / Referral / Certificate land in later phases; SOAP + ePrescription live.
     this.toolNote.set(`${label} isn’t wired up yet — coming soon.`);
   }
 
@@ -802,6 +869,79 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     } finally {
       this.finalizing.set(false);
     }
+  }
+
+  // ---- ePrescription ----
+  private emptyRx(): PrescriptionItem {
+    return {
+      medication: '',
+      strength: '',
+      dosage: '',
+      frequency: '',
+      duration: '',
+      quantity: '',
+      instructions: '',
+    };
+  }
+
+  protected addRxRow(): void {
+    this.rxItems.update((rows) => [...rows, this.emptyRx()]);
+  }
+
+  protected removeRxRow(index: number): void {
+    this.rxItems.update((rows) =>
+      rows.length <= 1 ? [this.emptyRx()] : rows.filter((_, i) => i !== index),
+    );
+  }
+
+  protected updateRx(index: number, field: keyof PrescriptionItem, value: string): void {
+    this.rxItems.update((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    );
+  }
+
+  private async loadPrescriptions(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/prescriptions`,
+        { method: 'GET' },
+      );
+      this.issuedRx.set(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      /* leave empty */
+    }
+  }
+
+  protected async issueRx(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.rxBusy()) return;
+    const items = this.rxItems().filter((r) => r.medication.trim() !== '');
+    if (items.length === 0) {
+      this.rxError.set('Add at least one medication.');
+      return;
+    }
+    this.rxError.set('');
+    this.rxBusy.set(true);
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/prescriptions`,
+        { method: 'POST', body: JSON.stringify({ items, notes: this.rxNotes() }) },
+      );
+      this.rxItems.set([this.emptyRx()]);
+      this.rxNotes.set('');
+      await this.loadPrescriptions();
+      this.notesTab.set('prescriptions');
+    } catch (err) {
+      this.rxError.set((err as { message?: string })?.message ?? 'Could not issue prescription.');
+    } finally {
+      this.rxBusy.set(false);
+    }
+  }
+
+  protected rxSummary(p: PrescriptionDto): string {
+    return p.items
+      .map((i) => [i.medication, i.strength, i.dosage].filter(Boolean).join(' '))
+      .join(', ');
   }
 
   protected async leave(): Promise<void> {

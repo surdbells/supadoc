@@ -325,6 +325,37 @@ export interface ConsultationSummaryDto {
   author?: string | null;
 }
 
+/** One medication line on an e-prescription. */
+export interface PrescriptionItem {
+  medication: string;
+  strength?: string;
+  dosage?: string;
+  frequency?: string;
+  route?: string;
+  duration?: string;
+  quantity?: string;
+  instructions?: string;
+  refills?: string;
+}
+
+/** An issued (or draft) e-prescription for a consultation. */
+export interface PrescriptionDto {
+  id: string;
+  appointment_id: string;
+  items: PrescriptionItem[];
+  notes: string | null;
+  status: 'draft' | 'signed';
+  signed_at: string | null;
+  author: string | null;
+  created_at: string;
+}
+
+/** Body for issuing a prescription (POST .../prescriptions). */
+export interface CreatePrescriptionParams {
+  items: PrescriptionItem[];
+  notes?: string | null;
+}
+
 /** One active sign-in session, from GET /portal/me/sessions. */
 export interface SessionDto {
   id: string;

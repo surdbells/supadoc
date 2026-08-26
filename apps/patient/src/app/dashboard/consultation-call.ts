@@ -26,6 +26,7 @@ import type {
   HealthProfileDto,
   MedicationRow,
   PatientProfileDto,
+  PrescriptionDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -443,7 +444,35 @@ interface RecordItem {
                   </div>
                 }
                 @case ('prescriptions') {
-                  @if (medications().length) {
+                  @if (issuedRx().length) {
+                    <div class="flex flex-col gap-3">
+                      @for (p of issuedRx(); track p.id) {
+                        <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                          <div class="mb-2 flex items-center justify-between">
+                            <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-sky">
+                              <sd-icon name="pill" [size]="14" /> New prescription
+                            </span>
+                            <span class="font-sans text-[10px] text-white/40">{{ rxDate(p.signed_at) }}</span>
+                          </div>
+                          <ul class="flex flex-col gap-2">
+                            @for (it of p.items; track $index) {
+                              <li class="flex flex-col">
+                                <span class="font-sans text-body-sm font-medium text-white">
+                                  {{ it.medication }}@if (it.strength) { {{ it.strength }} }
+                                </span>
+                                @if (rxLine(it)) {
+                                  <span class="font-sans text-caption text-white/50">{{ rxLine(it) }}</span>
+                                }
+                              </li>
+                            }
+                          </ul>
+                          @if (p.author) {
+                            <p class="mt-2 font-sans text-caption text-white/40">{{ p.author }}</p>
+                          }
+                        </div>
+                      }
+                    </div>
+                  } @else if (medications().length) {
                     <ul class="flex flex-col divide-y divide-white/10">
                       @for (m of medications(); track m.name) {
                         <li class="flex items-center gap-3 py-3">
@@ -461,7 +490,7 @@ interface RecordItem {
                     </ul>
                   } @else {
                     <p class="py-6 text-center font-sans text-body-sm text-white/40">
-                      No active prescriptions.
+                      No prescriptions issued yet.
                     </p>
                   }
                 }
@@ -671,6 +700,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly health = signal<HealthProfileDto | null>(null);
   // The doctor's finalized write-up (available:false until they sign it).
   protected readonly summary = signal<ConsultationSummaryDto | null>(null);
+  // Prescriptions the doctor has issued for this consultation.
+  protected readonly issuedRx = signal<PrescriptionDto[]>([]);
 
   // ---- Derived: people ----
   protected readonly doctorName = computed(
@@ -879,6 +910,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     } catch {
       /* summary not finalized yet */
     }
+    try {
+      const rx = await firstValueFrom(this.appointments.prescriptions(this.appointmentId));
+      this.issuedRx.set(rx.data ?? []);
+    } catch {
+      /* none issued yet */
+    }
   }
 
   private async renewToken(): Promise<void> {
@@ -964,6 +1001,19 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   protected download(r: RecordItem): void {
     if (r.url) window.open(r.url, '_blank', 'noopener');
+  }
+
+  protected rxDate(iso: string | null): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d.getTime())
+      ? ''
+      : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+  }
+
+  protected rxLine(item: { dosage?: string; frequency?: string; duration?: string; instructions?: string }): string {
+    const core = [item.dosage, item.frequency, item.duration].filter(Boolean).join(' · ');
+    return item.instructions ? `${core}${core ? ' — ' : ''}${item.instructions}` : core;
   }
 
   protected goProfile(): void {

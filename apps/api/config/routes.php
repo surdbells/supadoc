@@ -97,6 +97,10 @@ return static function (App $app): void {
             $group->get('/doctor/appointments/{id}/note', Action\Doctor\GetClinicalNoteAction::class);
             $group->put('/doctor/appointments/{id}/note', Action\Doctor\SaveClinicalNoteAction::class);
             $group->post('/doctor/appointments/{id}/note/finalize', Action\Doctor\FinalizeClinicalNoteAction::class);
+
+            // ePrescription — build + issue, list issued.
+            $group->get('/doctor/appointments/{id}/prescriptions', Action\Doctor\ListPrescriptionsAction::class);
+            $group->post('/doctor/appointments/{id}/prescriptions', Action\Doctor\CreatePrescriptionAction::class);
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
@@ -121,6 +125,7 @@ return static function (App $app): void {
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
+            $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);

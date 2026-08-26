@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AppSettingRepository;
+use App\Domain\Repository\AuditEventRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
+use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -14,6 +16,7 @@ use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
+use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
@@ -140,6 +143,15 @@ return [
 
     ClinicalNoteRepository::class => static fn (ContainerInterface $c): ClinicalNoteRepository =>
         new ClinicalNoteRepository($c->get(EntityManagerInterface::class)),
+
+    PrescriptionRepository::class => static fn (ContainerInterface $c): PrescriptionRepository =>
+        new PrescriptionRepository($c->get(EntityManagerInterface::class)),
+
+    AuditEventRepository::class => static fn (ContainerInterface $c): AuditEventRepository =>
+        new AuditEventRepository($c->get(EntityManagerInterface::class)),
+
+    AuditLogger::class => static fn (ContainerInterface $c): AuditLogger =>
+        new AuditLogger($c->get(AuditEventRepository::class)),
 
     NotificationRepository::class => static fn (ContainerInterface $c): NotificationRepository =>
         new NotificationRepository($c->get(EntityManagerInterface::class)),

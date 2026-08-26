@@ -8,6 +8,7 @@ import type {
   JoinInfoDto,
   ListAppointmentsQuery,
   PaginatedResponse,
+  PrescriptionDto,
   SuccessResponse,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
@@ -74,6 +75,13 @@ export class AppointmentsApi {
   ): Observable<SuccessResponse<ConsultationSummaryDto>> {
     return this.api.get<SuccessResponse<ConsultationSummaryDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/consultation`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/prescriptions — the patient's issued scripts. */
+  prescriptions(id: string): Observable<SuccessResponse<PrescriptionDto[]>> {
+    return this.api.get<SuccessResponse<PrescriptionDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/prescriptions`,
     );
   }
 

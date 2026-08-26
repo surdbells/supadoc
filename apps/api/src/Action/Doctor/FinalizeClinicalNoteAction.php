@@ -9,6 +9,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AuditLogger;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -26,6 +27,7 @@ final class FinalizeClinicalNoteAction
         private readonly UserRepository $users,
         private readonly AppointmentRepository $appointments,
         private readonly ClinicalNoteRepository $notes,
+        private readonly AuditLogger $audit,
     ) {
     }
 
@@ -51,7 +53,8 @@ final class FinalizeClinicalNoteAction
             is_string($body['plan'] ?? null) ? $body['plan'] : null,
         ];
 
-        if ($note->isFinalized()) {
+        $wasFinalized = $note->isFinalized();
+        if ($wasFinalized) {
             $note->amend($author, ...$content);
         } else {
             $note->applyDraft(...$content);
@@ -59,6 +62,15 @@ final class FinalizeClinicalNoteAction
         }
 
         $this->notes->save($note);
+
+        $this->audit->record(
+            $author,
+            'doctor',
+            $wasFinalized ? 'note.amended' : 'note.finalized',
+            $id,
+            'clinical_note',
+            $note->getId(),
+        );
 
         return $this->success($response, $note->toArray(), 'Consultation finalized')
             ->withHeader('Cache-Control', 'no-store');
