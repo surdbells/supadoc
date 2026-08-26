@@ -220,6 +220,23 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
           <div class="relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink xl:aspect-auto xl:min-h-[420px] xl:flex-1">
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
+            <!-- Doctor PiP. Kept in the DOM (hidden until in-call) so the camera
+                 can attach before status flips — otherwise the local tile is black. -->
+            <div
+              class="absolute bottom-24 right-4 z-10 h-32 w-24 overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:h-40 sm:w-28"
+              [class.hidden]="status() !== 'in-call'"
+            >
+              <div #localVideo class="h-full w-full"></div>
+              @if (!camOn()) {
+                <div class="absolute inset-0 flex items-center justify-center bg-abyss text-white/60">
+                  <sd-icon name="video-off" [size]="22" />
+                </div>
+              }
+              <span class="absolute bottom-1.5 left-1.5 rounded bg-abyss/70 px-1.5 py-0.5 font-sans text-[10px] text-white/80">
+                You
+              </span>
+            </div>
+
             @if (!remoteJoined() && status() === 'in-call') {
               <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/75">
                 <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
@@ -261,19 +278,6 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
               <div class="absolute right-4 top-4 flex items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
                 <span class="font-label text-caption font-semibold text-white">HD</span>
                 <span class="size-2 rounded-full bg-success"></span>
-              </div>
-
-              <!-- Doctor PiP -->
-              <div class="absolute bottom-24 right-4 h-32 w-24 overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:h-40 sm:w-28">
-                <div #localVideo class="h-full w-full"></div>
-                @if (!camOn()) {
-                  <div class="absolute inset-0 flex items-center justify-center bg-abyss text-white/60">
-                    <sd-icon name="video-off" [size]="22" />
-                  </div>
-                }
-                <span class="absolute bottom-1.5 left-1.5 rounded bg-abyss/70 px-1.5 py-0.5 font-sans text-[10px] text-white/80">
-                  You
-                </span>
               </div>
 
               <!-- Controls -->

@@ -13,8 +13,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET /api/doctor/appointments/{id}/copilot — the current AI draft (if any) plus
- * whether the copilot is available on this environment.
+ * GET /api/doctor/appointments/{id}/copilot — whether the copilot is available and
+ * the current AI draft (if one has been generated).
  */
 final class GetCopilotDraftAction
 {

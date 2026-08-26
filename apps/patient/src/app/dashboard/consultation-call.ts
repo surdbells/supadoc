@@ -241,6 +241,26 @@ interface RecordItem {
             <!-- Remote (doctor) main stage -->
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
+            <!-- Local (patient) picture-in-picture. Kept in the DOM (hidden until
+                 in-call) so the camera can attach before status flips — otherwise
+                 the element doesn't exist yet and the local tile stays black. -->
+            <div
+              class="absolute bottom-24 right-4 z-10 h-32 w-24 overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:h-40 sm:w-28"
+              [class.hidden]="status() !== 'in-call'"
+            >
+              <div #localVideo class="h-full w-full"></div>
+              @if (!camOn()) {
+                <div class="absolute inset-0 flex items-center justify-center bg-abyss text-white/60">
+                  <sd-icon name="video-off" [size]="22" />
+                </div>
+              }
+              <span
+                class="absolute bottom-1.5 left-1.5 rounded bg-abyss/70 px-1.5 py-0.5 font-sans text-[10px] text-white/80"
+              >
+                You
+              </span>
+            </div>
+
             @if (recordingActive() && status() === 'in-call') {
               <div
                 class="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1.5 font-sans text-caption font-medium text-white shadow-lg"
@@ -314,23 +334,6 @@ interface RecordItem {
               >
                 <span class="font-label text-caption font-semibold text-white">HD</span>
                 <span class="size-2 rounded-full bg-success"></span>
-              </div>
-
-              <!-- Local (patient) picture-in-picture -->
-              <div
-                class="absolute bottom-24 right-4 h-32 w-24 overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:h-40 sm:w-28"
-              >
-                <div #localVideo class="h-full w-full"></div>
-                @if (!camOn()) {
-                  <div class="absolute inset-0 flex items-center justify-center bg-abyss text-white/60">
-                    <sd-icon name="video-off" [size]="22" />
-                  </div>
-                }
-                <span
-                  class="absolute bottom-1.5 left-1.5 rounded bg-abyss/70 px-1.5 py-0.5 font-sans text-[10px] text-white/80"
-                >
-                  You
-                </span>
               </div>
 
               <!-- Live captions -->

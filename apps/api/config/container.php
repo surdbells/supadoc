@@ -14,7 +14,6 @@ use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\SessionMetricRepository;
-use App\Domain\Repository\TranscriptSegmentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -93,6 +92,14 @@ return [
 
     FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
         new FirebaseIdTokenVerifier($_ENV['FIREBASE_PROJECT_ID'] ?? ''),
+
+    CopilotService::class => static fn (): CopilotService => new CopilotService(
+        // Anthropic Messages API. Blank key => isConfigured() false => copilot 503
+        // (transcription still works — it needs no server credentials).
+        apiKey:  trim($_ENV['COPILOT_API_KEY'] ?? ''),
+        model:   trim($_ENV['COPILOT_MODEL'] ?? '') ?: 'claude-sonnet-4-5',
+        baseUrl: trim($_ENV['COPILOT_BASE_URL'] ?? '') ?: 'https://api.anthropic.com',
+    ),
 
     TermiiService::class => static fn (): TermiiService => new TermiiService(
         apiKey:   $_ENV['TERMII_API_KEY'] ?? '',
@@ -201,13 +208,6 @@ return [
 
     AuditLogger::class => static fn (ContainerInterface $c): AuditLogger =>
         new AuditLogger($c->get(AuditEventRepository::class)),
-
-    // Clinical AI copilot (LLM). Blank API key => isConfigured() false => 503.
-    CopilotService::class => static fn (): CopilotService => new CopilotService(
-        apiKey:  trim($_ENV['COPILOT_API_KEY'] ?? ''),
-        model:   trim($_ENV['COPILOT_MODEL'] ?? '') !== '' ? trim($_ENV['COPILOT_MODEL']) : 'claude-3-5-sonnet-latest',
-        baseUrl: trim($_ENV['COPILOT_BASE_URL'] ?? '') !== '' ? trim($_ENV['COPILOT_BASE_URL']) : 'https://api.anthropic.com',
-    ),
 
     NotificationRepository::class => static fn (ContainerInterface $c): NotificationRepository =>
         new NotificationRepository($c->get(EntityManagerInterface::class)),
