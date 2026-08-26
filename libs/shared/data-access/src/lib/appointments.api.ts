@@ -15,6 +15,7 @@ import type {
   PrescriptionDto,
   ReferralDto,
   SuccessResponse,
+  TranscriptSegmentDto,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
 
@@ -145,6 +146,24 @@ export class AppointmentsApi {
     return this.api.post<SuccessResponse<{ recorded: boolean }>>(
       `api/portal/appointments/${encodeURIComponent(id)}/metrics`,
       payload,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/transcript — recent transcript for captions. */
+  transcript(id: string): Observable<SuccessResponse<TranscriptSegmentDto[]>> {
+    return this.api.get<SuccessResponse<TranscriptSegmentDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/transcript`,
+    );
+  }
+
+  /** POST /api/portal/appointments/{id}/transcript — append a transcribed utterance. */
+  appendTranscript(
+    id: string,
+    text: string,
+  ): Observable<SuccessResponse<{ recorded: boolean }>> {
+    return this.api.post<SuccessResponse<{ recorded: boolean }>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/transcript`,
+      { text },
     );
   }
 

@@ -18,16 +18,34 @@ import AgoraRTC, {
 } from 'agora-rtc-sdk-ng';
 import type {
   ConsentDto,
+  CopilotDraftDto,
   JoinInfoDto,
   LabOrderDto,
   PrescriptionDto,
   PrescriptionItem,
   ReferralDto,
+  TranscriptSegmentDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 
-type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
+type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot';
+
+/** Minimal Web Speech API surface (not in lib.dom types). */
+interface SpeechRec {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult:
+    | ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void)
+    | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+type SpeechRecCtor = new () => SpeechRec;
 type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
 
 /**
@@ -664,6 +682,113 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                     }
                   </div>
                 }
+                @case ('copilot') {
+                  <!-- Live transcription -->
+                  <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <span class="font-sans text-body-sm font-semibold text-white">Live transcription</span>
+                    <button
+                      type="button"
+                      class="flex items-center gap-1.5 rounded-field px-3 py-1.5 font-sans text-caption font-semibold transition-colors disabled:opacity-50"
+                      [class]="transcribing() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-cerulean text-white hover:bg-cerulean-dark'"
+                      [disabled]="!canDocument() || (!transcribing() && (!aiConsent() || !speechSupported()))"
+                      (click)="toggleTranscription()"
+                    >
+                      <span class="size-2 rounded-full" [class]="transcribing() ? 'animate-pulse bg-alert' : 'bg-white/70'"></span>
+                      {{ transcribing() ? 'Stop' : 'Start' }} transcription
+                    </button>
+                  </div>
+                  @if (!aiConsent()) {
+                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+                      Live transcription needs the patient's AI‑transcription consent.
+                    </p>
+                  } @else if (!speechSupported()) {
+                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+                      This browser doesn't support speech recognition (try Chrome).
+                    </p>
+                  }
+
+                  <div class="max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                    @for (seg of transcript(); track seg.id) {
+                      <p class="mb-1.5 font-sans text-body-sm">
+                        <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-sage'">{{ seg.role }}:</span>
+                        <span class="text-white/80"> {{ seg.text }}</span>
+                      </p>
+                    } @empty {
+                      <p class="py-4 text-center font-sans text-caption text-white/40">
+                        Transcript appears here once transcription starts.
+                      </p>
+                    }
+                  </div>
+
+                  <!-- AI copilot -->
+                  <div class="mt-4 border-t border-white/10 pt-3">
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <span class="flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
+                        <sd-icon name="sparkles" [size]="15" class="text-frost" /> AI copilot
+                      </span>
+                      @if (copilotConfigured()) {
+                        <button
+                          type="button"
+                          class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                          [disabled]="copilotBusy() || !aiConsent()"
+                          (click)="generateDraft()"
+                        >
+                          {{ copilotBusy() ? 'Generating…' : 'Generate AI draft' }}
+                        </button>
+                      }
+                    </div>
+                    @if (!copilotConfigured()) {
+                      <p class="rounded-2xl bg-white/[0.04] px-3 py-2 font-sans text-caption text-white/50">
+                        AI drafting isn't enabled on this environment.
+                      </p>
+                    }
+                    @if (copilotError()) {
+                      <p class="mt-1 font-sans text-caption text-alert">{{ copilotError() }}</p>
+                    }
+                    @if (copilotDraft(); as d) {
+                      <div class="mt-2 rounded-2xl border border-frost/30 bg-frost/5 p-3">
+                        <p class="mb-2 flex items-center gap-1.5 font-sans text-caption font-semibold text-frost">
+                          <sd-icon name="sparkles" [size]="12" /> AI DRAFT — review before saving
+                        </p>
+                        @if (d.summary) {
+                          <p class="mb-2 font-sans text-body-sm text-white/80">{{ d.summary }}</p>
+                        }
+                        <div class="grid gap-2 sm:grid-cols-2">
+                          @if (d.assessment) {
+                            <div>
+                              <p class="font-sans text-caption font-semibold text-white/60">Assessment</p>
+                              <p class="font-sans text-body-sm text-white/75">{{ d.assessment }}</p>
+                            </div>
+                          }
+                          @if (d.plan) {
+                            <div>
+                              <p class="font-sans text-caption font-semibold text-white/60">Plan</p>
+                              <p class="font-sans text-body-sm text-white/75">{{ d.plan }}</p>
+                            </div>
+                          }
+                        </div>
+                        @if (d.diagnoses.length || d.medications.length) {
+                          <div class="mt-2 flex flex-wrap gap-1.5">
+                            @for (x of d.diagnoses; track x) {
+                              <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/70">{{ x }}</span>
+                            }
+                            @for (x of d.medications; track x) {
+                              <span class="rounded-pill bg-sky/15 px-2 py-0.5 font-sans text-[10px] text-sky">{{ x }}</span>
+                            }
+                          </div>
+                        }
+                        <button
+                          type="button"
+                          class="mt-3 flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/85 transition-colors hover:bg-white/10 disabled:opacity-50"
+                          [disabled]="noteFinalized()"
+                          (click)="useDraftInNote()"
+                        >
+                          <sd-icon name="arrow-right" [size]="14" /> Use in SOAP note
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
               }
             </div>
           </div>
@@ -817,6 +942,18 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly recordingBusy = signal(false);
   protected readonly recordingError = signal('');
 
+  // Live transcription + AI copilot.
+  protected readonly aiConsent = computed(
+    () => this.consents().find((c) => c.type === 'ai_transcription')?.granted ?? false,
+  );
+  protected readonly transcribing = signal(false);
+  protected readonly transcript = signal<TranscriptSegmentDto[]>([]);
+  protected readonly copilotConfigured = signal(false);
+  protected readonly copilotDraft = signal<CopilotDraftDto | null>(null);
+  protected readonly copilotBusy = signal(false);
+  protected readonly copilotError = signal('');
+  protected readonly speechSupported = signal(this.detectSpeech());
+
   protected readonly info = signal<JoinInfoDto | null>(null);
 
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
@@ -824,6 +961,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     { key: 'prescriptions', label: 'Prescriptions' },
     { key: 'labs', label: 'Lab Orders' },
     { key: 'followup', label: 'Follow-ups' },
+    { key: 'copilot', label: 'Transcript & AI' },
   ];
   protected readonly recordsTabs: ReadonlyArray<{ key: RecordsTab; label: string }> = [
     { key: 'timeline', label: 'Timeline' },
@@ -882,6 +1020,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private noteSaveTimer?: ReturnType<typeof setTimeout>;
   private metricsTimer?: ReturnType<typeof setInterval>;
+  private transcriptPoll?: ReturnType<typeof setInterval>;
+  private recognition?: SpeechRec;
   private netUplink = 0;
   private netDownlink = 0;
   private token = '';
@@ -907,6 +1047,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       void this.loadReferrals();
       void this.loadConsents();
       void this.loadRecording();
+      void this.loadCopilot();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -1423,11 +1564,156 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     this.metricsTimer = setInterval(() => void report(), 15000);
   }
 
+  // ---- Live transcription + AI copilot ----
+  private detectSpeech(): boolean {
+    const w = window as unknown as { SpeechRecognition?: SpeechRecCtor; webkitSpeechRecognition?: SpeechRecCtor };
+    return !!(w.SpeechRecognition ?? w.webkitSpeechRecognition);
+  }
+
+  private async loadCopilot(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/copilot`,
+        { method: 'GET' },
+      );
+      this.copilotConfigured.set(body.data?.configured === true);
+      if (body.data?.draft) this.copilotDraft.set(body.data.draft);
+    } catch {
+      /* copilot unavailable */
+    }
+    await this.loadTranscript();
+    this.ensureTranscriptPoll();
+  }
+
+  private async loadTranscript(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/transcript`,
+        { method: 'GET' },
+      );
+      if (Array.isArray(body.data)) this.transcript.set(body.data);
+    } catch {
+      /* leave prior */
+    }
+  }
+
+  private ensureTranscriptPoll(): void {
+    if (this.transcriptPoll) return;
+    this.transcriptPoll = setInterval(() => void this.loadTranscript(), 8000);
+  }
+
+  protected toggleTranscription(): void {
+    if (this.transcribing()) {
+      this.stopRecognition();
+      return;
+    }
+    if (!this.aiConsent()) {
+      this.copilotError.set('The patient has not granted AI-transcription consent.');
+      return;
+    }
+    if (!this.speechSupported()) {
+      this.copilotError.set('This browser does not support speech recognition.');
+      return;
+    }
+    this.copilotError.set('');
+    this.startRecognition();
+  }
+
+  private startRecognition(): void {
+    const w = window as unknown as { SpeechRecognition?: SpeechRecCtor; webkitSpeechRecognition?: SpeechRecCtor };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = 'en-US';
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) {
+          const text = r[0].transcript.trim();
+          if (text) this.postSegment(text);
+        }
+      }
+    };
+    rec.onend = () => {
+      if (this.transcribing()) {
+        try {
+          rec.start();
+        } catch {
+          /* already restarting */
+        }
+      }
+    };
+    rec.onerror = () => {
+      /* transient — onend will restart while transcribing */
+    };
+    this.recognition = rec;
+    this.transcribing.set(true);
+    try {
+      rec.start();
+    } catch {
+      /* ignore double-start */
+    }
+    this.ensureTranscriptPoll();
+  }
+
+  private stopRecognition(): void {
+    this.transcribing.set(false);
+    try {
+      this.recognition?.stop();
+    } catch {
+      /* ignore */
+    }
+    this.recognition = undefined;
+  }
+
+  private postSegment(text: string): void {
+    this.transcript.update((t) => [...t, { id: 'local-' + t.length, role: 'doctor', text, at: '' }]);
+    void this.noteFetch(
+      `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/transcript`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+    ).catch(() => undefined);
+  }
+
+  protected async generateDraft(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.copilotBusy()) return;
+    this.copilotError.set('');
+    this.copilotBusy.set(true);
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/copilot/draft`,
+        { method: 'POST' },
+      );
+      this.copilotDraft.set(body.data);
+    } catch (err) {
+      this.copilotError.set((err as { message?: string })?.message ?? 'Could not generate a draft.');
+    } finally {
+      this.copilotBusy.set(false);
+    }
+  }
+
+  /** Carry the AI draft into the SOAP editor for the clinician to review + finalize. */
+  protected useDraftInNote(): void {
+    const d = this.copilotDraft();
+    if (!d || this.noteFinalized()) return;
+    if (d.subjective) this.subjective.set(d.subjective);
+    if (d.objective) this.objective.set(d.objective);
+    if (d.assessment) this.assessment.set(d.assessment);
+    if (d.plan) this.plan.set(d.plan);
+    this.notesTab.set('notes');
+    this.scheduleSave();
+  }
+
   private async teardown(): Promise<void> {
     this.left = true;
     if (this.timer) clearInterval(this.timer);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     if (this.metricsTimer) clearInterval(this.metricsTimer);
+    if (this.transcriptPoll) clearInterval(this.transcriptPoll);
+    this.stopRecognition();
     try {
       this.micTrack?.close();
       this.camTrack?.close();

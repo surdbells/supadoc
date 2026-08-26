@@ -31,11 +31,27 @@ import type {
   PatientProfileDto,
   PrescriptionDto,
   ReferralDto,
+  TranscriptSegmentDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
 type DocsTab = 'all' | 'labs' | 'imaging' | 'reports';
+
+/** Minimal Web Speech API surface (not in lib.dom types). */
+interface SpeechRec {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult:
+    | ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void)
+    | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type SpeechRecCtor = new () => SpeechRec;
 
 interface ChatMessage {
   readonly mine: boolean;
@@ -317,6 +333,18 @@ interface RecordItem {
                 </span>
               </div>
 
+              <!-- Live captions -->
+              @if (captionsOn() && latestCaptions().length) {
+                <div class="absolute inset-x-6 bottom-28 mx-auto max-w-xl rounded-2xl bg-abyss/80 px-4 py-2 text-center backdrop-blur">
+                  @for (seg of latestCaptions(); track seg.id) {
+                    <p class="font-sans text-body-sm text-white/90">
+                      <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-sage'">{{ seg.role }}:</span>
+                      {{ seg.text }}
+                    </p>
+                  }
+                </div>
+              }
+
               <!-- Controls -->
               <div
                 class="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-pill bg-abyss/75 px-3 py-2.5 backdrop-blur sm:gap-3 sm:px-4"
@@ -386,6 +414,24 @@ interface RecordItem {
                     }
                   </span>
                   <span class="font-sans text-[10px] text-white/70">Chat</span>
+                </button>
+
+                <button
+                  type="button"
+                  class="flex flex-col items-center gap-1"
+                  aria-label="Toggle captions"
+                  [attr.title]="!aiConsentGranted() ? 'Turn on AI-transcription consent to use captions' : null"
+                  [disabled]="!aiConsentGranted()"
+                  (click)="toggleCaptions()"
+                >
+                  <span
+                    class="flex size-11 items-center justify-center rounded-full font-label text-caption font-bold text-white transition-colors"
+                    [class]="captionsOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
+                    [class.opacity-40]="!aiConsentGranted()"
+                  >
+                    CC
+                  </span>
+                  <span class="font-sans text-[10px] text-white/70">Captions</span>
                 </button>
 
                 <button
@@ -910,6 +956,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly consentBusy = signal<string>('');
   protected readonly recordingActive = signal(false);
+  // Live captions / patient-side transcription.
+  protected readonly captionsOn = signal(false);
+  protected readonly captions = signal<TranscriptSegmentDto[]>([]);
+  protected readonly speechSupported = signal(this.detectSpeech());
+  protected readonly aiConsentGranted = computed(
+    () => this.consents().find((c) => c.type === 'ai_transcription')?.granted ?? false,
+  );
 
   // ---- Derived: people ----
   protected readonly doctorName = computed(
@@ -1051,6 +1104,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private recordingPoll?: ReturnType<typeof setInterval>;
   private metricsTimer?: ReturnType<typeof setInterval>;
+  private captionsPoll?: ReturnType<typeof setInterval>;
+  private recognition?: SpeechRec;
   private netUplink = 0;
   private netDownlink = 0;
   private appointmentId = '';
@@ -1253,6 +1308,92 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.metricsTimer = setInterval(report, 15000);
   }
 
+  // ---- Live captions / patient transcription ----
+  private detectSpeech(): boolean {
+    const w = window as unknown as { SpeechRecognition?: SpeechRecCtor; webkitSpeechRecognition?: SpeechRecCtor };
+    return !!(w.SpeechRecognition ?? w.webkitSpeechRecognition);
+  }
+
+  protected toggleCaptions(): void {
+    if (this.captionsOn()) {
+      this.captionsOn.set(false);
+      this.stopCaptionRecognition();
+      if (this.captionsPoll) {
+        clearInterval(this.captionsPoll);
+        this.captionsPoll = undefined;
+      }
+      return;
+    }
+    if (!this.aiConsentGranted()) return;
+    this.captionsOn.set(true);
+    void this.loadCaptions();
+    this.captionsPoll = setInterval(() => void this.loadCaptions(), 6000);
+    if (this.speechSupported()) this.startCaptionRecognition();
+  }
+
+  protected latestCaptions(): TranscriptSegmentDto[] {
+    return this.captions().slice(-2);
+  }
+
+  private async loadCaptions(): Promise<void> {
+    try {
+      const res = await firstValueFrom(this.appointments.transcript(this.appointmentId));
+      this.captions.set(res.data ?? []);
+    } catch {
+      /* leave prior */
+    }
+  }
+
+  private startCaptionRecognition(): void {
+    const w = window as unknown as { SpeechRecognition?: SpeechRecCtor; webkitSpeechRecognition?: SpeechRecCtor };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = 'en-US';
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) {
+          const text = r[0].transcript.trim();
+          if (text) {
+            this.appointments
+              .appendTranscript(this.appointmentId, text)
+              .subscribe({ next: () => undefined, error: () => undefined });
+          }
+        }
+      }
+    };
+    rec.onend = () => {
+      if (this.captionsOn()) {
+        try {
+          rec.start();
+        } catch {
+          /* already restarting */
+        }
+      }
+    };
+    rec.onerror = () => {
+      /* transient */
+    };
+    this.recognition = rec;
+    try {
+      rec.start();
+    } catch {
+      /* ignore double-start */
+    }
+  }
+
+  private stopCaptionRecognition(): void {
+    try {
+      this.recognition?.stop();
+    } catch {
+      /* ignore */
+    }
+    this.recognition = undefined;
+  }
+
   protected async toggleMic(): Promise<void> {
     if (!this.micTrack) return;
     const on = !this.micOn();
@@ -1435,6 +1576,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     if (this.timer) clearInterval(this.timer);
     if (this.recordingPoll) clearInterval(this.recordingPoll);
     if (this.metricsTimer) clearInterval(this.metricsTimer);
+    if (this.captionsPoll) clearInterval(this.captionsPoll);
+    this.stopCaptionRecognition();
     try {
       this.micTrack?.close();
       this.camTrack?.close();

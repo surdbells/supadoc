@@ -448,6 +448,36 @@ export interface PatientRecordingsDto {
   recordings: RecordingDto[];
 }
 
+/** One utterance in the live consultation transcript. */
+export interface TranscriptSegmentDto {
+  id: string;
+  role: 'patient' | 'doctor';
+  text: string;
+  at: string;
+}
+
+/** The AI copilot's structured draft for a consultation (clinician-review only). */
+export interface CopilotDraftDto {
+  appointment_id: string;
+  summary: string | null;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
+  symptoms: string[];
+  medications: string[];
+  diagnoses: string[];
+  follow_up: string | null;
+  generated_by: string | null;
+  generated_at: string;
+}
+
+/** Doctor's copilot state (GET .../copilot). */
+export interface DoctorCopilotStateDto {
+  configured: boolean;
+  draft: CopilotDraftDto | null;
+}
+
 /** One active sign-in session, from GET /portal/me/sessions. */
 export interface SessionDto {
   id: string;

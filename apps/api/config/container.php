@@ -8,11 +8,13 @@ use App\Domain\Repository\AuditEventRepository;
 use App\Domain\Repository\CarePlanRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
+use App\Domain\Repository\CopilotDraftRepository;
 use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\SessionMetricRepository;
+use App\Domain\Repository\TranscriptSegmentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -25,6 +27,7 @@ use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\AuthService;
+use App\Infrastructure\Service\CopilotService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
@@ -187,11 +190,24 @@ return [
     SessionMetricRepository::class => static fn (ContainerInterface $c): SessionMetricRepository =>
         new SessionMetricRepository($c->get(EntityManagerInterface::class)),
 
+    TranscriptSegmentRepository::class => static fn (ContainerInterface $c): TranscriptSegmentRepository =>
+        new TranscriptSegmentRepository($c->get(EntityManagerInterface::class)),
+
+    CopilotDraftRepository::class => static fn (ContainerInterface $c): CopilotDraftRepository =>
+        new CopilotDraftRepository($c->get(EntityManagerInterface::class)),
+
     AuditEventRepository::class => static fn (ContainerInterface $c): AuditEventRepository =>
         new AuditEventRepository($c->get(EntityManagerInterface::class)),
 
     AuditLogger::class => static fn (ContainerInterface $c): AuditLogger =>
         new AuditLogger($c->get(AuditEventRepository::class)),
+
+    // Clinical AI copilot (LLM). Blank API key => isConfigured() false => 503.
+    CopilotService::class => static fn (): CopilotService => new CopilotService(
+        apiKey:  trim($_ENV['COPILOT_API_KEY'] ?? ''),
+        model:   trim($_ENV['COPILOT_MODEL'] ?? '') !== '' ? trim($_ENV['COPILOT_MODEL']) : 'claude-3-5-sonnet-latest',
+        baseUrl: trim($_ENV['COPILOT_BASE_URL'] ?? '') !== '' ? trim($_ENV['COPILOT_BASE_URL']) : 'https://api.anthropic.com',
+    ),
 
     NotificationRepository::class => static fn (ContainerInterface $c): NotificationRepository =>
         new NotificationRepository($c->get(EntityManagerInterface::class)),

@@ -121,6 +121,12 @@ return static function (App $app): void {
             // RTC connection-quality sample from the doctor's call client.
             $group->post('/doctor/appointments/{id}/metrics', Action\Doctor\ReportMetricAction::class);
 
+            // Live transcription (consent-gated) + AI copilot draft.
+            $group->get('/doctor/appointments/{id}/transcript', Action\Doctor\GetTranscriptAction::class);
+            $group->post('/doctor/appointments/{id}/transcript', Action\Doctor\AppendTranscriptAction::class);
+            $group->get('/doctor/appointments/{id}/copilot', Action\Doctor\GetCopilotDraftAction::class);
+            $group->post('/doctor/appointments/{id}/copilot/draft', Action\Doctor\GenerateCopilotDraftAction::class);
+
             // Back-office consultation monitoring (real data: activity, recordings, audit).
             $group->get('/admin/monitoring/overview', Action\Admin\MonitoringOverviewAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
@@ -164,6 +170,8 @@ return static function (App $app): void {
             $group->post('/appointments/{id}/consents', Action\Appointment\SetConsentAction::class);
             $group->get('/appointments/{id}/recordings', Action\Appointment\MyRecordingsAction::class);
             $group->post('/appointments/{id}/metrics', Action\Appointment\ReportMyMetricAction::class);
+            $group->get('/appointments/{id}/transcript', Action\Appointment\GetMyTranscriptAction::class);
+            $group->post('/appointments/{id}/transcript', Action\Appointment\AppendMyTranscriptAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);
