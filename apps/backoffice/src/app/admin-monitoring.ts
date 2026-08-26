@@ -45,6 +45,28 @@ interface AuditRow {
   created_at: string;
 }
 
+interface QualitySample {
+  uplink: number;
+  downlink: number;
+  rtt: number | null;
+  worst: number;
+  at: string;
+}
+
+interface QualityRow {
+  appointment_id: string;
+  patient_name: string;
+  specialist: string;
+  patient: QualitySample | null;
+  doctor: QualitySample | null;
+  worst: number;
+}
+
+interface QualityData {
+  average_rtt: number | null;
+  consultations: QualityRow[];
+}
+
 const ADMIN_TOKEN_KEY = 'videomed.admin.token';
 
 /**
@@ -162,6 +184,52 @@ const ADMIN_TOKEN_KEY = 'videomed.admin.token';
                 </table>
               </div>
             }
+            @case ('quality') {
+              <div class="flex flex-col gap-3">
+                @if (quality()?.average_rtt !== null && quality()?.average_rtt !== undefined) {
+                  <p class="font-sans text-body-sm text-slate">
+                    Average round-trip time:
+                    <span class="font-semibold text-ink">{{ quality()?.average_rtt }} ms</span>
+                    <span class="ml-1 text-caption text-ash">(across recent samples)</span>
+                  </p>
+                }
+                <div class="overflow-x-auto rounded-card border border-cloud bg-white">
+                  <table class="w-full min-w-[680px] text-left">
+                    <thead class="border-b border-cloud font-sans text-caption text-slate">
+                      <tr>
+                        <th class="px-4 py-3">Consultation</th>
+                        <th class="px-4 py-3">Patient link</th>
+                        <th class="px-4 py-3">Patient RTT</th>
+                        <th class="px-4 py-3">Doctor link</th>
+                        <th class="px-4 py-3">Doctor RTT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (c of quality()?.consultations ?? []; track c.appointment_id) {
+                        <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
+                          <td class="px-4 py-3">
+                            <span class="font-medium">{{ c.patient_name }}</span>
+                            <span class="block text-caption text-slate">{{ c.specialist }}</span>
+                          </td>
+                          <td class="px-4 py-3 font-medium" [class]="qualityLabel(c.patient?.worst).cls">
+                            {{ qualityLabel(c.patient?.worst).text }}
+                          </td>
+                          <td class="px-4 py-3 text-slate">{{ c.patient?.rtt ? c.patient?.rtt + ' ms' : '—' }}</td>
+                          <td class="px-4 py-3 font-medium" [class]="qualityLabel(c.doctor?.worst).cls">
+                            {{ qualityLabel(c.doctor?.worst).text }}
+                          </td>
+                          <td class="px-4 py-3 text-slate">{{ c.doctor?.rtt ? c.doctor?.rtt + ' ms' : '—' }}</td>
+                        </tr>
+                      } @empty {
+                        <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                          No quality samples yet — they appear once calls are in progress.
+                        </td></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            }
             @case ('recordings') {
               <div class="overflow-x-auto rounded-card border border-cloud bg-white">
                 <table class="w-full min-w-[560px] text-left">
@@ -223,15 +291,17 @@ const ADMIN_TOKEN_KEY = 'videomed.admin.token';
 export class AdminMonitoring implements OnInit {
   protected readonly token = signal<string | null>(this.readToken());
   protected readonly accessError = signal('');
-  protected readonly tab = signal<'consultations' | 'recordings' | 'audit'>('consultations');
+  protected readonly tab = signal<'consultations' | 'quality' | 'recordings' | 'audit'>('consultations');
 
   protected readonly overview = signal<Overview | null>(null);
   protected readonly consultations = signal<ConsultationRow[]>([]);
   protected readonly recordings = signal<RecordingRow[]>([]);
   protected readonly audit = signal<AuditRow[]>([]);
+  protected readonly quality = signal<QualityData | null>(null);
 
   protected readonly tabs = [
     { key: 'consultations' as const, label: 'Consultations' },
+    { key: 'quality' as const, label: 'Quality' },
     { key: 'recordings' as const, label: 'Recordings' },
     { key: 'audit' as const, label: 'Audit log' },
   ];
@@ -265,7 +335,26 @@ export class AdminMonitoring implements OnInit {
       this.fetchInto('/api/admin/monitoring/consultations?per_page=25', (d) => this.consultations.set((d ?? []) as ConsultationRow[])),
       this.fetchInto('/api/admin/monitoring/recordings', (d) => this.recordings.set((d ?? []) as RecordingRow[])),
       this.fetchInto('/api/admin/monitoring/audit?per_page=40', (d) => this.audit.set((d ?? []) as AuditRow[])),
+      this.fetchInto('/api/admin/monitoring/quality', (d) => this.quality.set(d as QualityData)),
     ]);
+  }
+
+  protected qualityLabel(q: number | undefined): { text: string; cls: string } {
+    switch (q) {
+      case 1:
+        return { text: 'Excellent', cls: 'text-sage' };
+      case 2:
+        return { text: 'Good', cls: 'text-sage' };
+      case 3:
+        return { text: 'Poor', cls: 'text-warning' };
+      case 4:
+        return { text: 'Bad', cls: 'text-warning' };
+      case 5:
+      case 6:
+        return { text: 'Very bad', cls: 'text-alert' };
+      default:
+        return { text: '—', cls: 'text-ash' };
+    }
   }
 
   private async fetchInto(path: string, set: (data: unknown) => void): Promise<void> {

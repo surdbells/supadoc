@@ -1050,6 +1050,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private screenTrack?: ILocalVideoTrack;
   private timer?: ReturnType<typeof setInterval>;
   private recordingPoll?: ReturnType<typeof setInterval>;
+  private metricsTimer?: ReturnType<typeof setInterval>;
+  private netUplink = 0;
+  private netDownlink = 0;
   private appointmentId = '';
   private left = false;
 
@@ -1091,6 +1094,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       });
       // Long consultations outlive a single token — re-mint and renew in place.
       client.on('token-privilege-will-expire', () => void this.renewToken());
+      client.on('network-quality', (s) => {
+        this.netUplink = s.uplinkNetworkQuality ?? 0;
+        this.netDownlink = s.downlinkNetworkQuality ?? 0;
+      });
 
       // uid 0 from the backend means "wildcard token" → join with null so Agora
       // assigns the uid; any non-zero uid is honoured as-is.
@@ -1113,6 +1120,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.status.set('in-call');
       this.startTimer();
       this.startRecordingPoll();
+      this.startMetricsReport();
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'We couldn’t start the call. Please try again.');
@@ -1221,6 +1229,28 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     };
     void check();
     this.recordingPoll = setInterval(() => void check(), 12000);
+  }
+
+  /** Report an RTC quality sample every 15s so the back-office can monitor calls. */
+  private startMetricsReport(): void {
+    const report = (): void => {
+      if (!this.client) return;
+      let rtt: number | null = null;
+      try {
+        const stats = this.client.getRTCStats();
+        rtt = stats?.RTT && stats.RTT > 0 ? Math.round(stats.RTT) : null;
+      } catch {
+        /* stats unavailable */
+      }
+      this.appointments
+        .reportMetric(this.appointmentId, {
+          uplink: this.netUplink,
+          downlink: this.netDownlink,
+          rtt,
+        })
+        .subscribe({ next: () => undefined, error: () => undefined });
+    };
+    this.metricsTimer = setInterval(report, 15000);
   }
 
   protected async toggleMic(): Promise<void> {
@@ -1404,6 +1434,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.stopDeviceTest();
     if (this.timer) clearInterval(this.timer);
     if (this.recordingPoll) clearInterval(this.recordingPoll);
+    if (this.metricsTimer) clearInterval(this.metricsTimer);
     try {
       this.micTrack?.close();
       this.camTrack?.close();

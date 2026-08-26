@@ -12,6 +12,7 @@ use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
+use App\Domain\Repository\SessionMetricRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -182,6 +183,9 @@ return [
 
     RecordingRepository::class => static fn (ContainerInterface $c): RecordingRepository =>
         new RecordingRepository($c->get(EntityManagerInterface::class)),
+
+    SessionMetricRepository::class => static fn (ContainerInterface $c): SessionMetricRepository =>
+        new SessionMetricRepository($c->get(EntityManagerInterface::class)),
 
     AuditEventRepository::class => static fn (ContainerInterface $c): AuditEventRepository =>
         new AuditEventRepository($c->get(EntityManagerInterface::class)),

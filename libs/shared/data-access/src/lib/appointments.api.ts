@@ -137,6 +137,17 @@ export class AppointmentsApi {
     );
   }
 
+  /** POST /api/portal/appointments/{id}/metrics — report an RTC quality sample. */
+  reportMetric(
+    id: string,
+    payload: { uplink: number; downlink: number; rtt: number | null },
+  ): Observable<SuccessResponse<{ recorded: boolean }>> {
+    return this.api.post<SuccessResponse<{ recorded: boolean }>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/metrics`,
+      payload,
+    );
+  }
+
   /**
    * GET /api/public/call/{token} — resolve a preauthenticated join link (from an
    * invite email) into the meeting details + Agora credentials. No auth: the

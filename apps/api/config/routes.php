@@ -118,6 +118,9 @@ return static function (App $app): void {
             $group->post('/doctor/appointments/{id}/recording/start', Action\Doctor\StartRecordingAction::class);
             $group->post('/doctor/appointments/{id}/recording/stop', Action\Doctor\StopRecordingAction::class);
 
+            // RTC connection-quality sample from the doctor's call client.
+            $group->post('/doctor/appointments/{id}/metrics', Action\Doctor\ReportMetricAction::class);
+
             // Back-office consultation monitoring (real data: activity, recordings, audit).
             $group->get('/admin/monitoring/overview', Action\Admin\MonitoringOverviewAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
@@ -126,6 +129,8 @@ return static function (App $app): void {
             $group->get('/admin/monitoring/recordings', Action\Admin\MonitoringRecordingsAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
             $group->get('/admin/monitoring/audit', Action\Admin\MonitoringAuditAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->get('/admin/monitoring/quality', Action\Admin\MonitoringQualityAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
         })->add(new AuthMiddleware($jwt));
 
@@ -158,6 +163,7 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/consents', Action\Appointment\MyConsentsAction::class);
             $group->post('/appointments/{id}/consents', Action\Appointment\SetConsentAction::class);
             $group->get('/appointments/{id}/recordings', Action\Appointment\MyRecordingsAction::class);
+            $group->post('/appointments/{id}/metrics', Action\Appointment\ReportMyMetricAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);

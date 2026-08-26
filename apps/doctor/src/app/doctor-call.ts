@@ -881,6 +881,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private screenTrack?: ILocalVideoTrack;
   private timer?: ReturnType<typeof setInterval>;
   private noteSaveTimer?: ReturnType<typeof setTimeout>;
+  private metricsTimer?: ReturnType<typeof setInterval>;
+  private netUplink = 0;
+  private netDownlink = 0;
   private token = '';
   private appointmentId = '';
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
@@ -928,6 +931,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
         if (mediaType === 'video') this.remoteJoined.set(false);
       });
       client.on('token-privilege-will-expire', () => void this.renewToken());
+      client.on('network-quality', (s) => {
+        this.netUplink = s.uplinkNetworkQuality ?? 0;
+        this.netDownlink = s.downlinkNetworkQuality ?? 0;
+      });
 
       await client.join(
         data.app_id,
@@ -946,6 +953,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
 
       this.status.set('in-call');
       this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
+      this.startMetricsReport();
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'This join link is invalid or has expired.');
@@ -1392,10 +1400,34 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     void this.router.navigate(['/']);
   }
 
+  /** Report an RTC quality sample every 15s for back-office monitoring. */
+  private startMetricsReport(): void {
+    const report = async (): Promise<void> => {
+      if (!this.client || !this.doctorToken()) return;
+      let rtt: number | null = null;
+      try {
+        const stats = this.client.getRTCStats();
+        rtt = stats?.RTT && stats.RTT > 0 ? Math.round(stats.RTT) : null;
+      } catch {
+        /* stats unavailable */
+      }
+      try {
+        await this.noteFetch(
+          `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/metrics`,
+          { method: 'POST', body: JSON.stringify({ uplink: this.netUplink, downlink: this.netDownlink, rtt }) },
+        );
+      } catch {
+        /* fire-and-forget */
+      }
+    };
+    this.metricsTimer = setInterval(() => void report(), 15000);
+  }
+
   private async teardown(): Promise<void> {
     this.left = true;
     if (this.timer) clearInterval(this.timer);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
+    if (this.metricsTimer) clearInterval(this.metricsTimer);
     try {
       this.micTrack?.close();
       this.camTrack?.close();
