@@ -91,10 +91,12 @@ echo str_repeat('-', 64) . PHP_EOL;
 // --- test each candidate against the token's embedded signature -------------
 $match = null;
 foreach ($candidates as $label => $cert) {
+    // Same key/data order as RtcTokenBuilder2::sign(): cert/prior-hash is the DATA,
+    // issueTs/salt is the KEY.
     $signing  = hash_hmac(
         'sha256',
+        hash_hmac('sha256', $cert, pack('V', $issueTs), true),
         pack('V', $salt),
-        hash_hmac('sha256', pack('V', $issueTs), $cert, true),
         true,
     );
     $expected = hash_hmac('sha256', $signingInfo, $signing, true);

@@ -156,9 +156,14 @@ final class AccessToken2
 
     private function sign(): string
     {
-        $sign = hash_hmac('sha256', AgoraPacker::packUint32($this->issueTs), $this->appCertificate, true);
+        // Agora's gateway derives the signing key with the certificate/prior-hash as
+        // the HMAC *data* and the issueTs/salt as the *key* (verified empirically
+        // against a gateway-accepted token). The reverse order produces a token that
+        // decodes fine but fails signature validation ("invalid token, authorized
+        // failed"), so key/data order here is load-bearing.
+        $sign = hash_hmac('sha256', $this->appCertificate, AgoraPacker::packUint32($this->issueTs), true);
 
-        return hash_hmac('sha256', AgoraPacker::packUint32($this->salt), $sign, true);
+        return hash_hmac('sha256', $sign, AgoraPacker::packUint32($this->salt), true);
     }
 }
 
