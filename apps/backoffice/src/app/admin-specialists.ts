@@ -4,6 +4,7 @@ import {
   OnInit,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 
@@ -33,18 +34,26 @@ const ADMIN_TOKEN_KEY = 'videomed.admin.token';
 @Component({
   selector: 'bo-specialists',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, RouterLink],
   host: { class: 'block min-h-screen bg-glacier' },
   template: `
     <div class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-8">
-      <header class="flex items-center justify-between gap-4">
-        <span class="font-heading text-h4 tracking-tight">
-          <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
-          <span
-            class="ml-2 rounded-pill bg-ink/10 px-2.5 py-1 align-middle font-sans text-caption font-semibold text-ink"
-            >Admin</span
-          >
-        </span>
+      <header class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-4">
+          <span class="font-heading text-h4 tracking-tight">
+            <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
+            <span
+              class="ml-2 rounded-pill bg-ink/10 px-2.5 py-1 align-middle font-sans text-caption font-semibold text-ink"
+              >Admin</span
+            >
+          </span>
+          @if (token()) {
+            <nav class="flex items-center gap-1">
+              <a routerLink="/" class="rounded-field bg-frost px-3 py-1.5 font-sans text-body-sm font-semibold text-cerulean">Specialists</a>
+              <a routerLink="/monitoring" class="rounded-field px-3 py-1.5 font-sans text-body-sm text-slate transition-colors hover:bg-cloud">Monitoring</a>
+            </nav>
+          }
+        </div>
         @if (token()) {
           <button
             type="button"

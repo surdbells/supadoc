@@ -37,6 +37,16 @@ abstract class BaseRepository
         return $this->getRepo()->find($id);
     }
 
+    /** Total row count for this entity. */
+    public function count(): int
+    {
+        return (int) $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from($this->getEntityClass(), 'e')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     public function findOrFail(string $id): object
     {
         $entity = $this->find($id);

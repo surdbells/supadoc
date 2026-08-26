@@ -45,6 +45,48 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * Appointment counts grouped by status (for the admin monitoring overview).
+     *
+     * @return array<string, int>
+     */
+    public function statusCounts(): array
+    {
+        $rows = $this->em->createQueryBuilder()
+            ->select('e.status AS status, COUNT(e.id) AS c')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.deletedAt IS NULL')
+            ->groupBy('e.status')
+            ->getQuery()
+            ->getScalarResult();
+
+        $out = [];
+        foreach ($rows as $row) {
+            // DQL returns the enum's backing value for a scalar select.
+            $status       = $row['status'] instanceof AppointmentStatus ? $row['status']->value : (string) $row['status'];
+            $out[$status] = (int) $row['c'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The most recent appointments (non-deleted), newest first — the monitoring list.
+     *
+     * @return array{items: list<Appointment>, total: int}
+     */
+    public function recent(int $offset, int $perPage): array
+    {
+        return $this->paginatedQuery(
+            $this->qb()->andWhere('e.deletedAt IS NULL'),
+            $this->alias(),
+            $offset,
+            $perPage,
+            'scheduledAt',
+            'desc',
+        );
+    }
+
+    /**
      * One appointment, but only if it belongs to the given patient — the portal
      * scopes reads so a customer can never fetch someone else's record.
      */

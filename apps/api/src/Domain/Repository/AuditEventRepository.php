@@ -28,4 +28,19 @@ final class AuditEventRepository extends BaseRepository
             ->getQuery()
             ->getResult();
     }
+
+    /**
+     * Platform-wide audit log, newest first, optionally filtered by action.
+     *
+     * @return array{items: list<AuditEvent>, total: int}
+     */
+    public function page(int $offset, int $perPage, ?string $action = null): array
+    {
+        $qb = $this->qb();
+        if ($action !== null && $action !== '') {
+            $qb->andWhere('e.action = :action')->setParameter('action', $action);
+        }
+
+        return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, 'createdAt', 'desc');
+    }
 }

@@ -6,5 +6,10 @@ export const appRoutes: Route[] = [
     loadComponent: () =>
       import('./admin-specialists').then((m) => m.AdminSpecialists),
   },
+  {
+    path: 'monitoring',
+    loadComponent: () =>
+      import('./admin-monitoring').then((m) => m.AdminMonitoring),
+  },
   { path: '**', redirectTo: '' },
 ];

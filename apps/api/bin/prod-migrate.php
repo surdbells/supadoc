@@ -78,7 +78,7 @@ $report = [
 
 // 0) Grant the back-office permissions the new endpoints require to any admin,
 //    so pricing + specialist edits work without a reseed. Idempotent merge.
-$backOfficePerms = ['settings.manage', 'specialists.manage'];
+$backOfficePerms = ['settings.manage', 'specialists.manage', 'monitoring.view'];
 foreach ($em->getRepository(User::class)->findAll() as $user) {
     if (!in_array('admin', $user->getRoles(), true)) {
         continue;

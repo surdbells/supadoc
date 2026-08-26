@@ -117,6 +117,16 @@ return static function (App $app): void {
             $group->get('/doctor/appointments/{id}/recording', Action\Doctor\GetRecordingAction::class);
             $group->post('/doctor/appointments/{id}/recording/start', Action\Doctor\StartRecordingAction::class);
             $group->post('/doctor/appointments/{id}/recording/stop', Action\Doctor\StopRecordingAction::class);
+
+            // Back-office consultation monitoring (real data: activity, recordings, audit).
+            $group->get('/admin/monitoring/overview', Action\Admin\MonitoringOverviewAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->get('/admin/monitoring/consultations', Action\Admin\MonitoringConsultationsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->get('/admin/monitoring/recordings', Action\Admin\MonitoringRecordingsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->get('/admin/monitoring/audit', Action\Admin\MonitoringAuditAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
