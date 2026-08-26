@@ -6,8 +6,10 @@ import type {
   CallTokenDto,
   ConsultationSummaryDto,
   JoinInfoDto,
+  LabOrderDto,
   ListAppointmentsQuery,
   PaginatedResponse,
+  PatientCarePlanDto,
   PrescriptionDto,
   SuccessResponse,
 } from '@supadoc/models';
@@ -82,6 +84,20 @@ export class AppointmentsApi {
   prescriptions(id: string): Observable<SuccessResponse<PrescriptionDto[]>> {
     return this.api.get<SuccessResponse<PrescriptionDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/prescriptions`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/lab-orders — the patient's lab orders. */
+  labOrders(id: string): Observable<SuccessResponse<LabOrderDto[]>> {
+    return this.api.get<SuccessResponse<LabOrderDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/lab-orders`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/care-plan — the published care plan. */
+  carePlan(id: string): Observable<SuccessResponse<PatientCarePlanDto>> {
+    return this.api.get<SuccessResponse<PatientCarePlanDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/care-plan`,
     );
   }
 

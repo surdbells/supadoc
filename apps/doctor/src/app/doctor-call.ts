@@ -16,7 +16,12 @@ import AgoraRTC, {
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
-import type { JoinInfoDto, PrescriptionDto, PrescriptionItem } from '@supadoc/models';
+import type {
+  JoinInfoDto,
+  LabOrderDto,
+  PrescriptionDto,
+  PrescriptionItem,
+} from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 
@@ -462,10 +467,126 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                   }
                 }
                 @case ('labs') {
-                  <p class="py-4 text-center font-sans text-body-sm text-white/40">No lab orders yet.</p>
+                  @if (!canDocument()) {
+                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+                      Sign in to the doctor portal to order tests.
+                    </p>
+                  }
+                  <div class="flex flex-col gap-3">
+                    <label class="flex flex-col gap-1.5">
+                      <span class="font-sans text-caption font-semibold text-white/60">Tests (one per line)</span>
+                      <textarea
+                        rows="3"
+                        placeholder="Complete Blood Count&#10;Lipid Panel"
+                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                        [value]="labTests()"
+                        (input)="labTests.set($any($event.target).value)"
+                      ></textarea>
+                    </label>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label class="flex flex-col gap-1.5">
+                        <span class="font-sans text-caption font-semibold text-white/60">Priority</span>
+                        <select
+                          class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
+                          [value]="labPriority()"
+                          (change)="labPriority.set($any($event.target).value)"
+                        >
+                          <option value="routine" class="bg-ink">Routine</option>
+                          <option value="urgent" class="bg-ink">Urgent</option>
+                        </select>
+                      </label>
+                      <label class="flex flex-col gap-1.5">
+                        <span class="font-sans text-caption font-semibold text-white/60">Instructions</span>
+                        <input
+                          placeholder="Fasting required, etc."
+                          class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                          [value]="labInstructions()"
+                          (input)="labInstructions.set($any($event.target).value)"
+                        />
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      class="flex w-fit items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                      [disabled]="labBusy() || !canDocument()"
+                      (click)="issueLab()"
+                    >
+                      <sd-icon name="check" [size]="14" /> {{ labBusy() ? 'Sending…' : 'Sign & send order' }}
+                    </button>
+                    @if (labError()) {
+                      <p class="font-sans text-caption text-alert">{{ labError() }}</p>
+                    }
+                  </div>
+                  @if (issuedLabs().length) {
+                    <div class="mt-4 border-t border-white/10 pt-3">
+                      <p class="mb-2 font-sans text-caption font-semibold text-white/60">Ordered</p>
+                      <ul class="flex flex-col gap-2">
+                        @for (o of issuedLabs(); track o.id) {
+                          <li class="flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2">
+                            <sd-icon name="clipboard-list" [size]="16" class="text-frost" />
+                            <span class="flex-1 font-sans text-body-sm text-white/85">{{ o.tests.join(', ') }}</span>
+                            <span
+                              class="rounded-pill px-2 py-0.5 font-sans text-[10px] capitalize"
+                              [class]="o.priority === 'urgent' ? 'bg-alert/15 text-alert' : 'bg-white/[0.06] text-white/60'"
+                            >{{ o.priority }}</span>
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
                 }
                 @case ('followup') {
-                  <p class="py-4 text-center font-sans text-body-sm text-white/40">No follow-up scheduled.</p>
+                  @if (!canDocument()) {
+                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+                      Sign in to the doctor portal to build a care plan.
+                    </p>
+                  }
+                  <div class="mb-2 flex items-center justify-between">
+                    <span class="font-sans text-body-sm font-semibold text-white">Care Plan</span>
+                    @if (carePlanSaved()) {
+                      <span class="font-sans text-caption text-white/45">{{ carePlanSaved() }}</span>
+                    }
+                  </div>
+                  <div class="flex flex-col gap-2">
+                    @for (item of carePlanItems(); track $index) {
+                      <div class="flex items-center gap-2">
+                        <sd-icon name="circle-check" [size]="16" class="shrink-0 text-sage" />
+                        <input
+                          placeholder="e.g. Monitor blood pressure daily"
+                          class="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                          [value]="item"
+                          (input)="updateCareItem($index, $any($event.target).value)"
+                        />
+                        @if (carePlanItems().length > 1) {
+                          <button
+                            type="button"
+                            class="shrink-0 text-white/40 transition-colors hover:text-alert"
+                            aria-label="Remove item"
+                            (click)="removeCareItem($index)"
+                          >
+                            <sd-icon name="trash-2" [size]="15" />
+                          </button>
+                        }
+                      </div>
+                    }
+                    <div class="mt-1 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                        (click)="addCareItem()"
+                      >
+                        <sd-icon name="plus" [size]="14" /> Add item
+                      </button>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                        [disabled]="carePlanBusy() || !canDocument()"
+                        (click)="saveCarePlan()"
+                      >
+                        <sd-icon name="check" [size]="14" /> Save &amp; publish
+                      </button>
+                    </div>
+                  </div>
                 }
               }
             </div>
@@ -579,6 +700,19 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly rxError = signal('');
   protected readonly issuedRx = signal<PrescriptionDto[]>([]);
 
+  // Lab orders builder + list.
+  protected readonly labTests = signal('');
+  protected readonly labInstructions = signal('');
+  protected readonly labPriority = signal<'routine' | 'urgent'>('routine');
+  protected readonly labBusy = signal(false);
+  protected readonly labError = signal('');
+  protected readonly issuedLabs = signal<LabOrderDto[]>([]);
+
+  // Care plan editor.
+  protected readonly carePlanItems = signal<string[]>(['']);
+  protected readonly carePlanBusy = signal(false);
+  protected readonly carePlanSaved = signal('');
+
   protected readonly info = signal<JoinInfoDto | null>(null);
 
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
@@ -661,6 +795,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.appointmentId = data.appointment_id;
       void this.loadNote();
       void this.loadPrescriptions();
+      void this.loadLabOrders();
+      void this.loadCarePlan();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -777,7 +913,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.notesTab.set('prescriptions');
       return;
     }
-    // Lab / Referral / Certificate land in later phases; SOAP + ePrescription live.
+    if (label === 'Lab Request') {
+      this.toolNote.set('');
+      this.notesTab.set('labs');
+      return;
+    }
+    // Referral / Certificate land in later phases; the rest are live.
     this.toolNote.set(`${label} isn’t wired up yet — coming soon.`);
   }
 
@@ -942,6 +1083,103 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     return p.items
       .map((i) => [i.medication, i.strength, i.dosage].filter(Boolean).join(' '))
       .join(', ');
+  }
+
+  // ---- Lab orders ----
+  private async loadLabOrders(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/lab-orders`,
+        { method: 'GET' },
+      );
+      this.issuedLabs.set(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      /* leave empty */
+    }
+  }
+
+  protected async issueLab(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.labBusy()) return;
+    const tests = this.labTests()
+      .split(/\r?\n|,/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tests.length === 0) {
+      this.labError.set('Add at least one test.');
+      return;
+    }
+    this.labError.set('');
+    this.labBusy.set(true);
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/lab-orders`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            tests,
+            instructions: this.labInstructions(),
+            priority: this.labPriority(),
+          }),
+        },
+      );
+      this.labTests.set('');
+      this.labInstructions.set('');
+      this.labPriority.set('routine');
+      await this.loadLabOrders();
+    } catch (err) {
+      this.labError.set((err as { message?: string })?.message ?? 'Could not create order.');
+    } finally {
+      this.labBusy.set(false);
+    }
+  }
+
+  // ---- Care plan ----
+  private async loadCarePlan(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/care-plan`,
+        { method: 'GET' },
+      );
+      const items: string[] = Array.isArray(body.data?.items) ? body.data.items : [];
+      this.carePlanItems.set(items.length ? items : ['']);
+      if (body.data?.published) this.carePlanSaved.set('Published');
+    } catch {
+      /* leave empty */
+    }
+  }
+
+  protected addCareItem(): void {
+    this.carePlanItems.update((rows) => [...rows, '']);
+  }
+
+  protected removeCareItem(index: number): void {
+    this.carePlanItems.update((rows) =>
+      rows.length <= 1 ? [''] : rows.filter((_, i) => i !== index),
+    );
+  }
+
+  protected updateCareItem(index: number, value: string): void {
+    this.carePlanItems.update((rows) => rows.map((r, i) => (i === index ? value : r)));
+  }
+
+  protected async saveCarePlan(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.carePlanBusy()) return;
+    const items = this.carePlanItems().map((s) => s.trim()).filter(Boolean);
+    this.carePlanBusy.set(true);
+    this.carePlanSaved.set('Saving…');
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/care-plan`,
+        { method: 'PUT', body: JSON.stringify({ items }) },
+      );
+      this.carePlanSaved.set('Published to patient');
+    } catch {
+      this.carePlanSaved.set('Could not save — retry');
+    } finally {
+      this.carePlanBusy.set(false);
+    }
   }
 
   protected async leave(): Promise<void> {

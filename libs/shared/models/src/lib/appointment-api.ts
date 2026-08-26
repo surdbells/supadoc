@@ -356,6 +356,41 @@ export interface CreatePrescriptionParams {
   notes?: string | null;
 }
 
+/** A lab / investigation order placed during a consultation. */
+export interface LabOrderDto {
+  id: string;
+  appointment_id: string;
+  tests: string[];
+  instructions: string | null;
+  priority: 'routine' | 'urgent';
+  status: string;
+  author: string | null;
+  created_at: string;
+}
+
+/** Body for placing a lab order. */
+export interface CreateLabOrderParams {
+  tests: string[];
+  instructions?: string | null;
+  priority?: 'routine' | 'urgent';
+}
+
+/** The care plan (doctor-editable view). */
+export interface CarePlanDto {
+  appointment_id: string;
+  items: string[];
+  published: boolean;
+  author: string | null;
+  updated_at: string | null;
+}
+
+/** The patient's view of the care plan (available:false until published). */
+export interface PatientCarePlanDto {
+  available: boolean;
+  items: string[];
+  author?: string | null;
+}
+
 /** One active sign-in session, from GET /portal/me/sessions. */
 export interface SessionDto {
   id: string;

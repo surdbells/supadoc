@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AppSettingRepository;
 use App\Domain\Repository\AuditEventRepository;
+use App\Domain\Repository\CarePlanRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
+use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
@@ -146,6 +148,12 @@ return [
 
     PrescriptionRepository::class => static fn (ContainerInterface $c): PrescriptionRepository =>
         new PrescriptionRepository($c->get(EntityManagerInterface::class)),
+
+    LabOrderRepository::class => static fn (ContainerInterface $c): LabOrderRepository =>
+        new LabOrderRepository($c->get(EntityManagerInterface::class)),
+
+    CarePlanRepository::class => static fn (ContainerInterface $c): CarePlanRepository =>
+        new CarePlanRepository($c->get(EntityManagerInterface::class)),
 
     AuditEventRepository::class => static fn (ContainerInterface $c): AuditEventRepository =>
         new AuditEventRepository($c->get(EntityManagerInterface::class)),

@@ -24,7 +24,9 @@ import type {
   ConditionRow,
   ConsultationSummaryDto,
   HealthProfileDto,
+  LabOrderDto,
   MedicationRow,
+  PatientCarePlanDto,
   PatientProfileDto,
   PrescriptionDto,
 } from '@supadoc/models';
@@ -495,19 +497,54 @@ interface RecordItem {
                   }
                 }
                 @case ('labs') {
-                  <p class="py-6 text-center font-sans text-body-sm text-white/40">
-                    No lab orders for this consultation yet.
-                  </p>
-                }
-                @case ('followup') {
-                  <div class="flex flex-col gap-3">
-                    <h4 class="font-sans text-body-sm font-semibold text-white">Follow-up Plan</h4>
-                    <ul class="flex list-disc flex-col gap-1 pl-4">
-                      @for (s of nextSteps(); track s) {
-                        <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
+                  @if (labs().length) {
+                    <ul class="flex flex-col gap-2">
+                      @for (o of labs(); track o.id) {
+                        <li class="rounded-2xl bg-white/[0.04] p-3">
+                          <div class="flex items-center justify-between">
+                            <span class="flex items-center gap-2 font-sans text-body-sm font-medium text-white">
+                              <sd-icon name="clipboard-list" [size]="16" class="text-frost" /> Lab order
+                            </span>
+                            <span class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-[10px] capitalize text-warning">
+                              {{ o.status }}
+                            </span>
+                          </div>
+                          <p class="mt-1 font-sans text-body-sm text-white/70">{{ o.tests.join(', ') }}</p>
+                          @if (o.author) {
+                            <p class="mt-1 font-sans text-caption text-white/40">Ordered by {{ o.author }}</p>
+                          }
+                        </li>
                       }
                     </ul>
-                  </div>
+                  } @else {
+                    <p class="py-6 text-center font-sans text-body-sm text-white/40">
+                      No lab orders for this consultation yet.
+                    </p>
+                  }
+                }
+                @case ('followup') {
+                  @if (carePlan()?.available && (carePlan()?.items?.length ?? 0) > 0) {
+                    <div>
+                      <h4 class="font-sans text-body-sm font-semibold text-white">Your Care Plan</h4>
+                      <ul class="mt-2 flex flex-col gap-1.5">
+                        @for (item of carePlan()?.items ?? []; track $index) {
+                          <li class="flex items-start gap-2 font-sans text-body-sm text-white/70">
+                            <sd-icon name="circle-check" [size]="16" class="mt-0.5 shrink-0 text-sage" />
+                            {{ item }}
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  } @else {
+                    <div class="flex flex-col gap-3">
+                      <h4 class="font-sans text-body-sm font-semibold text-white">Follow-up Plan</h4>
+                      <ul class="flex list-disc flex-col gap-1 pl-4">
+                        @for (s of nextSteps(); track s) {
+                          <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
+                        }
+                      </ul>
+                    </div>
+                  }
                 }
               }
             </div>
@@ -702,6 +739,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly summary = signal<ConsultationSummaryDto | null>(null);
   // Prescriptions the doctor has issued for this consultation.
   protected readonly issuedRx = signal<PrescriptionDto[]>([]);
+  protected readonly labs = signal<LabOrderDto[]>([]);
+  protected readonly carePlan = signal<PatientCarePlanDto | null>(null);
 
   // ---- Derived: people ----
   protected readonly doctorName = computed(
@@ -915,6 +954,18 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.issuedRx.set(rx.data ?? []);
     } catch {
       /* none issued yet */
+    }
+    try {
+      const lo = await firstValueFrom(this.appointments.labOrders(this.appointmentId));
+      this.labs.set(lo.data ?? []);
+    } catch {
+      /* none */
+    }
+    try {
+      const cp = await firstValueFrom(this.appointments.carePlan(this.appointmentId));
+      this.carePlan.set(cp.data);
+    } catch {
+      /* not published */
     }
   }
 

@@ -101,6 +101,12 @@ return static function (App $app): void {
             // ePrescription — build + issue, list issued.
             $group->get('/doctor/appointments/{id}/prescriptions', Action\Doctor\ListPrescriptionsAction::class);
             $group->post('/doctor/appointments/{id}/prescriptions', Action\Doctor\CreatePrescriptionAction::class);
+
+            // Lab orders + care plan.
+            $group->get('/doctor/appointments/{id}/lab-orders', Action\Doctor\ListLabOrdersAction::class);
+            $group->post('/doctor/appointments/{id}/lab-orders', Action\Doctor\CreateLabOrderAction::class);
+            $group->get('/doctor/appointments/{id}/care-plan', Action\Doctor\GetCarePlanAction::class);
+            $group->put('/doctor/appointments/{id}/care-plan', Action\Doctor\SaveCarePlanAction::class);
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
@@ -126,6 +132,8 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);
+            $group->get('/appointments/{id}/lab-orders', Action\Appointment\MyLabOrdersAction::class);
+            $group->get('/appointments/{id}/care-plan', Action\Appointment\MyCarePlanAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);
