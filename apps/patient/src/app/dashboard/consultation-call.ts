@@ -70,6 +70,108 @@ interface RecordItem {
   host: { class: 'block' },
   template: `
     <div class="rounded-card bg-abyss p-3 text-white sm:p-4 lg:p-5">
+      @if (phase() === 'waiting') {
+        <!-- ============================ WAITING ROOM ============================ -->
+        <div class="mx-auto flex max-w-3xl flex-col items-center gap-5 py-4 text-center">
+          <span class="font-heading text-h5 tracking-tight">
+            <span class="text-frost">Video</span><span class="text-sage">Med</span>
+          </span>
+
+          <div class="flex flex-col items-center gap-1.5">
+            <span class="flex size-20 items-center justify-center rounded-full bg-cerulean/20 font-heading text-h4 font-semibold text-frost">
+              {{ doctorInitials() }}
+            </span>
+            <h1 class="font-heading text-h4 text-white">{{ doctorName() }}</h1>
+            @if (doctorSpecialty()) {
+              <p class="font-sans text-body-sm text-white/60">{{ doctorSpecialty() }}</p>
+            }
+            <p class="mt-1 flex items-center gap-1.5 font-sans text-caption text-white/50">
+              <sd-icon name="calendar-clock" [size]="14" /> {{ scheduledLabel() }}
+            </p>
+          </div>
+
+          <!-- Device check -->
+          <div class="w-full rounded-card border border-white/10 bg-white/[0.03] p-4">
+            <div class="grid gap-4 sm:grid-cols-[200px_minmax(0,1fr)] sm:items-center">
+              <div class="relative aspect-video overflow-hidden rounded-2xl bg-ink">
+                <video #previewVideo class="h-full w-full object-cover" playsinline muted></video>
+                @if (!camReady()) {
+                  <div class="absolute inset-0 flex items-center justify-center text-white/40">
+                    <sd-icon name="video-off" [size]="24" />
+                  </div>
+                }
+              </div>
+              <div class="flex flex-col gap-3 text-left">
+                <div class="flex items-center gap-2">
+                  <sd-icon name="video" [size]="16" [class]="camReady() ? 'text-success' : 'text-white/40'" />
+                  <span class="font-sans text-body-sm text-white/80">
+                    Camera {{ camReady() ? 'ready' : 'unavailable' }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <sd-icon name="mic" [size]="16" [class]="micReady() ? 'text-success' : 'text-white/40'" />
+                  <span class="whitespace-nowrap font-sans text-body-sm text-white/80">Microphone</span>
+                  <span class="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+                    <span
+                      class="block h-full rounded-full bg-success transition-[width] duration-100"
+                      [style.width.%]="micLevel() * 100"
+                    ></span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="flex w-fit items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                  (click)="testSpeaker()"
+                >
+                  <sd-icon name="headphones" [size]="14" /> Test speaker
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Consent review -->
+          <div class="w-full rounded-card border border-white/10 bg-white/[0.03] p-4 text-left">
+            <p class="mb-2 flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
+              <sd-icon name="shield-check" [size]="16" class="text-frost" /> Before you join
+            </p>
+            @for (c of consentRows; track c.type) {
+              <div class="flex items-center justify-between gap-2 py-1">
+                <span class="font-sans text-body-sm text-white/70">{{ c.label }}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  [attr.aria-checked]="consentGranted(c.type)"
+                  [attr.aria-label]="c.label"
+                  class="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60"
+                  [class]="consentGranted(c.type) ? 'bg-success' : 'bg-white/15'"
+                  [disabled]="consentBusy() === c.type"
+                  (click)="toggleConsent(c.type)"
+                >
+                  <span
+                    class="absolute top-0.5 size-5 rounded-full bg-white transition-all"
+                    [class]="consentGranted(c.type) ? 'left-[22px]' : 'left-0.5'"
+                  ></span>
+                </button>
+              </div>
+            }
+          </div>
+
+          <button
+            type="button"
+            class="flex w-full max-w-sm items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-cerulean-dark"
+            (click)="enterConsultation()"
+          >
+            <sd-icon name="video" [size]="20" /> Enter consultation
+          </button>
+          <button
+            type="button"
+            class="font-sans text-caption text-white/50 transition-colors hover:text-white/80"
+            (click)="leave()"
+          >
+            Back to appointments
+          </button>
+        </div>
+      } @else {
       <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
         <!-- ============================ MAIN ============================ -->
         <div class="flex min-w-0 flex-col gap-4">
@@ -731,6 +833,7 @@ interface RecordItem {
           </div>
         </div>
       </div>
+      }
     </div>
   `,
 })
@@ -742,6 +845,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
   private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
+  private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
 
   // ---- Call state ----
   protected readonly status = signal<'loading' | 'in-call' | 'error'>('loading');
@@ -803,6 +907,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   );
   protected readonly doctorSpecialty = computed(
     () => this.appointment()?.specialist?.specialty ?? '',
+  );
+  protected readonly doctorInitials = computed(() =>
+    this.doctorName()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase(),
   );
 
   // ---- Derived: health summary ----
@@ -911,6 +1024,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     return tab === 'all' ? all : all.filter((r) => r.kind === tab);
   });
 
+  // ---- Waiting room / device test ----
+  protected readonly phase = signal<'waiting' | 'live'>('waiting');
+  protected readonly micLevel = signal(0); // 0..1 for the level meter
+  protected readonly camReady = signal(false);
+  protected readonly micReady = signal(false);
+  private previewStream?: MediaStream;
+  private audioCtx?: AudioContext;
+  private meterRaf?: number;
+
   // ---- Agora ----
   private client?: IAgoraRTCClient;
   private micTrack?: IMicrophoneAudioTrack;
@@ -921,15 +1043,22 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private left = false;
 
   ngAfterViewInit(): void {
-    void this.start();
+    this.appointmentId = this.route.snapshot.paramMap.get('id') ?? '';
+    // Load the record context up front so the waiting room can show the doctor,
+    // and start the device check — but don't join Agora until the patient enters.
+    void this.loadContext();
+    void this.startDeviceTest();
   }
 
-  private async start(): Promise<void> {
-    this.appointmentId = this.route.snapshot.paramMap.get('id') ?? '';
-    // Load the surrounding context in parallel with the call — none of it blocks
-    // the join, and a failure just leaves that panel on its placeholder.
-    void this.loadContext();
+  /** Patient leaves the waiting room and joins the live consultation. */
+  protected enterConsultation(): void {
+    if (this.phase() === 'live') return;
+    this.stopDeviceTest();
+    this.phase.set('live');
+    void this.joinCall();
+  }
 
+  private async joinCall(): Promise<void> {
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
 
@@ -1166,8 +1295,87 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     void this.router.navigate(['/dashboard/appointments']);
   }
 
+  // ---- Device test (waiting room) ----
+  private async startDeviceTest(): Promise<void> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      this.previewStream = stream;
+      this.camReady.set(stream.getVideoTracks().length > 0);
+      this.micReady.set(stream.getAudioTracks().length > 0);
+      const el = this.previewVideo()?.nativeElement;
+      if (el) {
+        el.srcObject = stream;
+        el.muted = true;
+        void el.play().catch(() => undefined);
+      }
+      this.startMeter(stream);
+    } catch {
+      this.camReady.set(false);
+      this.micReady.set(false);
+    }
+  }
+
+  private startMeter(stream: MediaStream): void {
+    try {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      this.audioCtx = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const tick = (): void => {
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+        this.micLevel.set(Math.min(1, peak / 90));
+        this.meterRaf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch {
+      /* meter is best-effort */
+    }
+  }
+
+  protected testSpeaker(): void {
+    try {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 440;
+      gain.gain.value = 0.08;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      setTimeout(() => {
+        osc.stop();
+        void ctx.close();
+      }, 500);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  private stopDeviceTest(): void {
+    if (this.meterRaf) cancelAnimationFrame(this.meterRaf);
+    this.meterRaf = undefined;
+    try {
+      void this.audioCtx?.close();
+    } catch {
+      /* ignore */
+    }
+    this.audioCtx = undefined;
+    this.previewStream?.getTracks().forEach((t) => t.stop());
+    this.previewStream = undefined;
+    const el = this.previewVideo()?.nativeElement;
+    if (el) el.srcObject = null;
+  }
+
   private async teardown(): Promise<void> {
     this.left = true;
+    this.stopDeviceTest();
     if (this.timer) clearInterval(this.timer);
     try {
       this.micTrack?.close();
