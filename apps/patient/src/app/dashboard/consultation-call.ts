@@ -225,6 +225,15 @@ interface RecordItem {
             <!-- Remote (doctor) main stage -->
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
+            @if (recordingActive() && status() === 'in-call') {
+              <div
+                class="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1.5 font-sans text-caption font-medium text-white shadow-lg"
+              >
+                <span class="size-2 animate-pulse rounded-full bg-white"></span>
+                This consultation is being recorded
+              </div>
+            }
+
             <!-- Waiting for doctor -->
             @if (!remoteJoined() && status() === 'in-call') {
               <div
@@ -900,6 +909,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly referrals = signal<ReferralDto[]>([]);
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly consentBusy = signal<string>('');
+  protected readonly recordingActive = signal(false);
 
   // ---- Derived: people ----
   protected readonly doctorName = computed(
@@ -1039,6 +1049,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private camTrack?: ICameraVideoTrack;
   private screenTrack?: ILocalVideoTrack;
   private timer?: ReturnType<typeof setInterval>;
+  private recordingPoll?: ReturnType<typeof setInterval>;
   private appointmentId = '';
   private left = false;
 
@@ -1101,6 +1112,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
       this.status.set('in-call');
       this.startTimer();
+      this.startRecordingPoll();
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'We couldn’t start the call. Please try again.');
@@ -1195,6 +1207,20 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private startTimer(): void {
     this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
+  }
+
+  /** Poll whether the doctor has started recording so the patient always knows. */
+  private startRecordingPoll(): void {
+    const check = async (): Promise<void> => {
+      try {
+        const res = await firstValueFrom(this.appointments.recordings(this.appointmentId));
+        this.recordingActive.set(res.data?.active === true);
+      } catch {
+        /* leave as-is */
+      }
+    };
+    void check();
+    this.recordingPoll = setInterval(() => void check(), 12000);
   }
 
   protected async toggleMic(): Promise<void> {
@@ -1377,6 +1403,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.left = true;
     this.stopDeviceTest();
     if (this.timer) clearInterval(this.timer);
+    if (this.recordingPoll) clearInterval(this.recordingPoll);
     try {
       this.micTrack?.close();
       this.camTrack?.close();

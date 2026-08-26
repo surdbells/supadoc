@@ -82,8 +82,27 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
           >
             <sd-icon name="users" [size]="14" /> {{ participantCount() }}
           </span>
+
+          @if (recordingConfigured()) {
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-sans text-caption transition-colors disabled:opacity-50"
+              [class]="recordingActive() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-white/5 text-white/70 hover:bg-white/10'"
+              [disabled]="recordingBusy() || (!recordingActive() && !recordingConsent())"
+              [attr.title]="!recordingActive() && !recordingConsent() ? 'Patient recording consent required' : null"
+              (click)="toggleRecording()"
+            >
+              <span class="size-2 rounded-full" [class]="recordingActive() ? 'animate-pulse bg-alert' : 'bg-white/40'"></span>
+              {{ recordingActive() ? 'Recording' : (recordingBusy() ? '…' : 'Record') }}
+            </button>
+          }
         </div>
       </header>
+      @if (recordingError()) {
+        <p class="border-b border-alert/20 bg-alert/10 px-4 py-2 text-center font-sans text-caption text-alert">
+          {{ recordingError() }}
+        </p>
+      }
 
       <!-- Cockpit -->
       <div
@@ -792,6 +811,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     () => this.consents().find((c) => c.type === 'recording')?.granted ?? false,
   );
 
+  // Cloud recording.
+  protected readonly recordingConfigured = signal(false);
+  protected readonly recordingActive = signal(false);
+  protected readonly recordingBusy = signal(false);
+  protected readonly recordingError = signal('');
+
   protected readonly info = signal<JoinInfoDto | null>(null);
 
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
@@ -878,6 +903,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       void this.loadCarePlan();
       void this.loadReferrals();
       void this.loadConsents();
+      void this.loadRecording();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -1325,6 +1351,39 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.consents.set(Array.isArray(body.data) ? body.data : []);
     } catch {
       /* leave empty */
+    }
+  }
+
+  // ---- Cloud recording ----
+  private async loadRecording(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/recording`,
+        { method: 'GET' },
+      );
+      this.recordingConfigured.set(body.data?.configured === true);
+      this.recordingActive.set(body.data?.active === true);
+    } catch {
+      /* recording unavailable */
+    }
+  }
+
+  protected async toggleRecording(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.recordingBusy()) return;
+    this.recordingError.set('');
+    this.recordingBusy.set(true);
+    const path = this.recordingActive() ? 'recording/stop' : 'recording/start';
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/${path}`,
+        { method: 'POST' },
+      );
+      this.recordingActive.set(!this.recordingActive());
+    } catch (err) {
+      this.recordingError.set((err as { message?: string })?.message ?? 'Recording failed.');
+    } finally {
+      this.recordingBusy.set(false);
     }
   }
 

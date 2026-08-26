@@ -11,6 +11,7 @@ import type {
   ListAppointmentsQuery,
   PaginatedResponse,
   PatientCarePlanDto,
+  PatientRecordingsDto,
   PrescriptionDto,
   ReferralDto,
   SuccessResponse,
@@ -126,6 +127,13 @@ export class AppointmentsApi {
     return this.api.post<SuccessResponse<ConsentDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/consents`,
       { type, granted },
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/recordings — recording state + finished files. */
+  recordings(id: string): Observable<SuccessResponse<PatientRecordingsDto>> {
+    return this.api.get<SuccessResponse<PatientRecordingsDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/recordings`,
     );
   }
 

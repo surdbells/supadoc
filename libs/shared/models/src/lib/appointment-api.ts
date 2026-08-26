@@ -424,6 +424,30 @@ export interface ConsentDto {
   decided_at: string | null;
 }
 
+/** A cloud-recording session for a consultation. */
+export interface RecordingDto {
+  id: string;
+  appointment_id: string;
+  status: 'recording' | 'stopped' | 'failed';
+  started_by: string | null;
+  started_at: string;
+  stopped_at: string | null;
+  files: string[];
+}
+
+/** Doctor's recording state (GET .../recording). */
+export interface DoctorRecordingStateDto {
+  configured: boolean;
+  active: boolean;
+  recording: RecordingDto | null;
+}
+
+/** Patient's recording state (GET .../recordings). */
+export interface PatientRecordingsDto {
+  active: boolean;
+  recordings: RecordingDto[];
+}
+
 /** One active sign-in session, from GET /portal/me/sessions. */
 export interface SessionDto {
   id: string;

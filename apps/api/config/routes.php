@@ -112,6 +112,11 @@ return static function (App $app): void {
             $group->get('/doctor/appointments/{id}/referrals', Action\Doctor\ListReferralsAction::class);
             $group->post('/doctor/appointments/{id}/referrals', Action\Doctor\CreateReferralAction::class);
             $group->get('/doctor/appointments/{id}/consents', Action\Doctor\DoctorConsentsAction::class);
+
+            // Cloud recording — consent-gated start/stop + status.
+            $group->get('/doctor/appointments/{id}/recording', Action\Doctor\GetRecordingAction::class);
+            $group->post('/doctor/appointments/{id}/recording/start', Action\Doctor\StartRecordingAction::class);
+            $group->post('/doctor/appointments/{id}/recording/stop', Action\Doctor\StopRecordingAction::class);
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
@@ -142,6 +147,7 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/referrals', Action\Appointment\MyReferralsAction::class);
             $group->get('/appointments/{id}/consents', Action\Appointment\MyConsentsAction::class);
             $group->post('/appointments/{id}/consents', Action\Appointment\SetConsentAction::class);
+            $group->get('/appointments/{id}/recordings', Action\Appointment\MyRecordingsAction::class);
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);

@@ -10,12 +10,14 @@ use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\PrescriptionRepository;
+use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
@@ -105,6 +107,21 @@ return [
         staticChannel:  trim($_ENV['AGORA_STATIC_CHANNEL'] ?? ''),
     ),
 
+    // Cloud recording — RESTful API (Customer ID/Secret) + cloud storage config.
+    // Blank customer key/secret or bucket => isConfigured() false => endpoints 503.
+    AgoraRecordingService::class => static fn (): AgoraRecordingService => new AgoraRecordingService(
+        appId:          trim($_ENV['AGORA_APP_ID'] ?? ''),
+        customerId:     trim($_ENV['AGORA_CUSTOMER_ID'] ?? ''),
+        customerSecret: trim($_ENV['AGORA_CUSTOMER_SECRET'] ?? ''),
+        storage:        [
+            'vendor'    => (int) ($_ENV['AGORA_RECORDING_VENDOR'] ?? 0),
+            'region'    => (int) ($_ENV['AGORA_RECORDING_REGION'] ?? 0),
+            'bucket'    => trim($_ENV['AGORA_RECORDING_BUCKET'] ?? ''),
+            'accessKey' => trim($_ENV['AGORA_RECORDING_ACCESS_KEY'] ?? ''),
+            'secretKey' => trim($_ENV['AGORA_RECORDING_SECRET_KEY'] ?? ''),
+        ],
+    ),
+
     EmailOtpService::class => static fn (ContainerInterface $c): EmailOtpService => new EmailOtpService(
         $c->get(RedisClient::class),
         $c->get(MailService::class),
@@ -162,6 +179,9 @@ return [
 
     ConsultationConsentRepository::class => static fn (ContainerInterface $c): ConsultationConsentRepository =>
         new ConsultationConsentRepository($c->get(EntityManagerInterface::class)),
+
+    RecordingRepository::class => static fn (ContainerInterface $c): RecordingRepository =>
+        new RecordingRepository($c->get(EntityManagerInterface::class)),
 
     AuditEventRepository::class => static fn (ContainerInterface $c): AuditEventRepository =>
         new AuditEventRepository($c->get(EntityManagerInterface::class)),
