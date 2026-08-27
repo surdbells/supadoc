@@ -155,3 +155,108 @@
     animation: none;
   }
 }
+
+/* ===== Consultation cockpit — light theme =====
+ * The call cockpits (`.sd-call`) are dark by default. In light mode we flip only
+ * the surrounding CHROME (panels, notes, top bar, chat); the video stage
+ * (`.sd-stage`) stays dark in both themes because video reads best on black, so
+ * its dark utilities are re-asserted below. Higher specificity than the base
+ * Tailwind utilities, so no template class changes are needed. */
+.sd-call[data-theme='light'] {
+  background-color: #eef4f8;
+  color: #1c2b3a;
+}
+
+/* Surfaces */
+.sd-call[data-theme='light'] .bg-abyss {
+  background-color: #eef4f8;
+}
+.sd-call[data-theme='light'] .bg-white\/\[0\.03\],
+.sd-call[data-theme='light'] .bg-white\/\[0\.04\] {
+  background-color: #ffffff;
+}
+.sd-call[data-theme='light'] .bg-white\/\[0\.06\],
+.sd-call[data-theme='light'] .bg-white\/\[0\.08\] {
+  background-color: #f1f9ff;
+}
+.sd-call[data-theme='light'] .bg-white\/5,
+.sd-call[data-theme='light'] .bg-white\/10 {
+  background-color: #e8eef2;
+}
+.sd-call[data-theme='light'] .bg-white\/15,
+.sd-call[data-theme='light'] .bg-white\/20,
+.sd-call[data-theme='light'] .bg-white\/25 {
+  background-color: #dbe6ec;
+}
+
+/* Borders + dividers */
+.sd-call[data-theme='light'] .border-white\/10,
+.sd-call[data-theme='light'] .border-white\/15,
+.sd-call[data-theme='light'] .border-white\/20 {
+  border-color: #d9e2e6;
+}
+.sd-call[data-theme='light'] .divide-white\/10 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #d9e2e6;
+}
+
+/* Text */
+.sd-call[data-theme='light'] .text-white,
+.sd-call[data-theme='light'] .text-white\/90,
+.sd-call[data-theme='light'] .text-white\/85,
+.sd-call[data-theme='light'] .text-white\/80,
+.sd-call[data-theme='light'] .text-white\/75 {
+  color: #1c2b3a;
+}
+.sd-call[data-theme='light'] .text-white\/70,
+.sd-call[data-theme='light'] .text-white\/60 {
+  color: #546e7a;
+}
+.sd-call[data-theme='light'] .text-white\/50,
+.sd-call[data-theme='light'] .text-white\/45,
+.sd-call[data-theme='light'] .text-white\/40 {
+  color: #7c909a;
+}
+.sd-call[data-theme='light'] .text-white\/30,
+.sd-call[data-theme='light'] .text-white\/25 {
+  color: #a9b8c0;
+}
+.sd-call[data-theme='light'] .placeholder\:text-white\/40::placeholder,
+.sd-call[data-theme='light'] .placeholder\:text-white\/35::placeholder {
+  color: #8598a0;
+}
+/* Frost reads too pale on white */
+.sd-call[data-theme='light'] .text-frost {
+  color: #1565c0;
+}
+
+/* Re-assert dark inside the video stage (always dark, both themes) */
+.sd-call[data-theme='light'] .sd-stage .bg-abyss {
+  background-color: #0a1628;
+}
+.sd-call[data-theme='light'] .sd-stage .bg-white\/10 {
+  background-color: rgb(255 255 255 / 0.1);
+}
+.sd-call[data-theme='light'] .sd-stage .bg-white\/15 {
+  background-color: rgb(255 255 255 / 0.15);
+}
+.sd-call[data-theme='light'] .sd-stage .bg-white\/25 {
+  background-color: rgb(255 255 255 / 0.25);
+}
+.sd-call[data-theme='light'] .sd-stage .border-white\/15 {
+  border-color: rgb(255 255 255 / 0.15);
+}
+.sd-call[data-theme='light'] .sd-stage .text-white {
+  color: #ffffff;
+}
+.sd-call[data-theme='light'] .sd-stage .text-white\/90 {
+  color: rgb(255 255 255 / 0.9);
+}
+.sd-call[data-theme='light'] .sd-stage .text-white\/80 {
+  color: rgb(255 255 255 / 0.8);
+}
+.sd-call[data-theme='light'] .sd-stage .text-white\/70 {
+  color: rgb(255 255 255 / 0.7);
+}
+.sd-call[data-theme='light'] .sd-stage .text-white\/60 {
+  color: rgb(255 255 255 / 0.6);
+}

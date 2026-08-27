@@ -85,7 +85,7 @@ interface RecordItem {
   imports: [IconComponent],
   host: { class: 'block' },
   template: `
-    <div class="rounded-card bg-abyss p-3 text-white sm:p-4 lg:p-5">
+    <div class="sd-call rounded-card bg-abyss p-3 text-white sm:p-4 lg:p-5" [attr.data-theme]="theme()">
       @if (phase() === 'waiting') {
         <!-- ============================ WAITING ROOM ============================ -->
         <div class="mx-auto flex max-w-3xl flex-col items-center gap-5 py-4 text-center">
@@ -226,6 +226,14 @@ interface RecordItem {
               <button
                 type="button"
                 class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                [attr.aria-label]="theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+                (click)="toggleTheme()"
+              >
+                <sd-icon name="lightbulb" [size]="18" />
+              </button>
+              <button
+                type="button"
+                class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 aria-label="More options"
                 (click)="moreOpen.set(!moreOpen())"
               >
@@ -236,7 +244,7 @@ interface RecordItem {
 
           <!-- Video stage -->
           <div
-            class="relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink"
+            class="sd-stage relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink"
           >
             <!-- Remote (doctor) main stage -->
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
@@ -914,6 +922,27 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly remoteJoined = signal(false);
   protected readonly moreOpen = signal(false);
   protected readonly elapsed = signal(0);
+
+  /** Cockpit light/dark theme (chrome only; the video stage stays dark). */
+  protected readonly theme = signal<'dark' | 'light'>(this.readTheme());
+
+  protected toggleTheme(): void {
+    const next = this.theme() === 'dark' ? 'light' : 'dark';
+    this.theme.set(next);
+    try {
+      localStorage.setItem('videomed.call.theme', next);
+    } catch {
+      /* preference is best-effort */
+    }
+  }
+
+  private readTheme(): 'dark' | 'light' {
+    try {
+      return localStorage.getItem('videomed.call.theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  }
 
   // ---- Chat ----
   protected readonly chatOpen = signal(false);

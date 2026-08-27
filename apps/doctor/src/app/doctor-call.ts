@@ -59,7 +59,7 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
-  host: { class: 'block min-h-screen bg-abyss text-white' },
+  host: { class: 'sd-call block min-h-screen bg-abyss text-white', '[attr.data-theme]': 'theme()' },
   template: `
     <div class="flex min-h-screen flex-col">
       <!-- Top bar -->
@@ -100,6 +100,15 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
           >
             <sd-icon name="users" [size]="14" /> {{ participantCount() }}
           </span>
+
+          <button
+            type="button"
+            class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            [attr.aria-label]="theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+            (click)="toggleTheme()"
+          >
+            <sd-icon name="lightbulb" [size]="18" />
+          </button>
 
           @if (recordingConfigured()) {
             <button
@@ -217,7 +226,7 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
 
         <!-- ===================== STAGE ===================== -->
         <section class="flex min-w-0 flex-col gap-4">
-          <div class="relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink xl:aspect-auto xl:min-h-[420px] xl:flex-1">
+          <div class="sd-stage relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink xl:aspect-auto xl:min-h-[420px] xl:flex-1">
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
             <!-- Doctor PiP. Kept in the DOM (hidden until in-call) so the camera
@@ -939,6 +948,27 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly recordingConsent = computed(
     () => this.consents().find((c) => c.type === 'recording')?.granted ?? false,
   );
+
+  /** Cockpit light/dark theme (chrome only; the video stage stays dark). */
+  protected readonly theme = signal<'dark' | 'light'>(this.readTheme());
+
+  protected toggleTheme(): void {
+    const next = this.theme() === 'dark' ? 'light' : 'dark';
+    this.theme.set(next);
+    try {
+      localStorage.setItem('videomed.call.theme', next);
+    } catch {
+      /* preference is best-effort */
+    }
+  }
+
+  private readTheme(): 'dark' | 'light' {
+    try {
+      return localStorage.getItem('videomed.call.theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  }
 
   // Cloud recording.
   protected readonly recordingConfigured = signal(false);
