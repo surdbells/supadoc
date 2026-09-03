@@ -109,12 +109,12 @@ export const dashboardRoutes: Route[] = [
       },
       {
         path: 'wallet',
-        loadComponent: placeholder,
-        data: {
-          title: 'Wallet',
-          icon: 'wallet',
-          description: 'Manage your balance, funds and transactions.',
-        },
+        loadComponent: () => import('./wallet').then((m) => m.Wallet),
+      },
+      {
+        path: 'wallet/transactions',
+        loadComponent: () =>
+          import('./wallet-transactions').then((m) => m.WalletTransactions),
       },
       { path: '**', redirectTo: '' },
     ],

@@ -5,6 +5,7 @@ export * from './lib/appointments.api';
 export * from './lib/specialists.api';
 export * from './lib/patient.api';
 export * from './lib/notifications.api';
+export * from './lib/wallet.api';
 export * from './lib/profile.api';
 export * from './lib/logger';
 export * from './lib/http-error.interceptor';

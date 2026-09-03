@@ -62,6 +62,9 @@ return static function (App $app): void {
         // Preauthenticated join — the signed token in the path IS the credential.
         $group->get('/public/call/{token}', Action\Call\JoinCallAction::class);
 
+        // Paystack webhook (public) — signature-verified + re-verified server-side.
+        $group->post('/webhooks/paystack', Action\Wallet\PaystackWebhookAction::class);
+
         // ----- Staff (default audience) -----
         $group->group('', function (RouteCollectorProxy $group): void {
             $group->get('/me', Action\Auth\MeAction::class);
@@ -172,6 +175,12 @@ return static function (App $app): void {
             $group->post('/appointments/{id}/metrics', Action\Appointment\ReportMyMetricAction::class);
             $group->get('/appointments/{id}/transcript', Action\Appointment\GetMyTranscriptAction::class);
             $group->post('/appointments/{id}/transcript', Action\Appointment\AppendMyTranscriptAction::class);
+            // Wallet — balance, ledger, and Paystack-funded top-ups.
+            $group->get('/wallet', Action\Wallet\GetWalletAction::class);
+            $group->get('/wallet/transactions', Action\Wallet\ListWalletTransactionsAction::class);
+            $group->post('/wallet/fund', Action\Wallet\FundWalletAction::class);
+            $group->post('/wallet/verify', Action\Wallet\VerifyFundingAction::class);
+
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);

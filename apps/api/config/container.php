@@ -14,6 +14,9 @@ use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\SessionMetricRepository;
+use App\Domain\Repository\TranscriptSegmentRepository;
+use App\Domain\Repository\WalletRepository;
+use App\Domain\Repository\WalletTransactionRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
@@ -33,7 +36,9 @@ use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\SessionService;
 use App\Infrastructure\Service\SettingsCacheService;
+use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\TermiiService;
+use App\Infrastructure\Service\WalletService;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -92,6 +97,24 @@ return [
 
     FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
         new FirebaseIdTokenVerifier($_ENV['FIREBASE_PROJECT_ID'] ?? ''),
+
+    WalletService::class => static fn (ContainerInterface $c): WalletService => new WalletService(
+        $c->get(EntityManagerInterface::class),
+        $c->get(WalletRepository::class),
+        $c->get(WalletTransactionRepository::class),
+        // Supported wallet currencies; the first is the default (NGN).
+        array_values(array_filter(array_map(
+            static fn (string $x): string => strtoupper(trim($x)),
+            explode(',', (string) ($_ENV['WALLET_CURRENCIES'] ?? 'NGN')),
+        ))) ?: ['NGN'],
+    ),
+
+    PaystackService::class => static fn (): PaystackService => new PaystackService(
+        // Wallet funding fulfillment. Blank secret key => funding endpoints 503.
+        secretKey: trim($_ENV['PAYSTACK_SECRET_KEY'] ?? ''),
+        publicKey: trim($_ENV['PAYSTACK_PUBLIC_KEY'] ?? ''),
+        baseUrl:   trim($_ENV['PAYSTACK_BASE_URL'] ?? '') !== '' ? trim($_ENV['PAYSTACK_BASE_URL']) : 'https://api.paystack.co',
+    ),
 
     CopilotService::class => static fn (): CopilotService => new CopilotService(
         // Anthropic Messages API. Blank key => isConfigured() false => copilot 503
@@ -196,6 +219,12 @@ return [
 
     SessionMetricRepository::class => static fn (ContainerInterface $c): SessionMetricRepository =>
         new SessionMetricRepository($c->get(EntityManagerInterface::class)),
+
+    WalletRepository::class => static fn (ContainerInterface $c): WalletRepository =>
+        new WalletRepository($c->get(EntityManagerInterface::class)),
+
+    WalletTransactionRepository::class => static fn (ContainerInterface $c): WalletTransactionRepository =>
+        new WalletTransactionRepository($c->get(EntityManagerInterface::class)),
 
     TranscriptSegmentRepository::class => static fn (ContainerInterface $c): TranscriptSegmentRepository =>
         new TranscriptSegmentRepository($c->get(EntityManagerInterface::class)),

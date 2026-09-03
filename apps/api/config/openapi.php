@@ -302,6 +302,121 @@ return [
         ],
     ],
     'paths' => [
+        // ----- Wallet (customer) -----
+        '/api/portal/wallet' => [
+            'get' => ['tags' => ['Wallet'], 'summary' => 'Get wallet balance + recent entries', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/wallet/transactions' => [
+            'get' => ['tags' => ['Wallet'], 'summary' => 'List wallet ledger (paginated, ?type=)', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/wallet/fund' => [
+            'post' => ['tags' => ['Wallet'], 'summary' => 'Start a Paystack top-up', 'responses' => ['201' => ['description' => 'Checkout URL']]],
+        ],
+        '/api/portal/wallet/verify' => [
+            'post' => ['tags' => ['Wallet'], 'summary' => 'Verify + settle a top-up', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/webhooks/paystack' => [
+            'post' => ['tags' => ['Webhooks'], 'summary' => 'Paystack event webhook', 'security' => [], 'responses' => ['200' => ['description' => 'Received']]],
+        ],
+
+        // ----- Consultation: doctor clinical actions -----
+        '/api/doctor/appointments/{id}/note' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Get SOAP note', 'responses' => ['200' => ['description' => 'OK']]],
+            'put' => ['tags' => ['Doctor'], 'summary' => 'Save SOAP note draft', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/note/finalize' => [
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Finalize (lock) the SOAP note', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/prescriptions' => [
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'List issued prescriptions', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Issue an e-prescription', 'responses' => ['201' => ['description' => 'Created']]],
+        ],
+        '/api/doctor/appointments/{id}/lab-orders' => [
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'List lab orders', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Create a lab order', 'responses' => ['201' => ['description' => 'Created']]],
+        ],
+        '/api/doctor/appointments/{id}/referrals' => [
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'List referrals', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Create a referral', 'responses' => ['201' => ['description' => 'Created']]],
+        ],
+        '/api/doctor/appointments/{id}/care-plan' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Get care plan', 'responses' => ['200' => ['description' => 'OK']]],
+            'put' => ['tags' => ['Doctor'], 'summary' => 'Save care plan', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/consents' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Read the patient consent state', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/recording' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Recording availability + active session', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/recording/start' => [
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Start cloud recording (consent-gated)', 'responses' => ['201' => ['description' => 'Started']]],
+        ],
+        '/api/doctor/appointments/{id}/recording/stop' => [
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Stop cloud recording', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/metrics' => [
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Report an RTC quality sample', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/transcript' => [
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'Get the consultation transcript', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Append a transcript segment', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/copilot' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Get the AI copilot draft', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/doctor/appointments/{id}/copilot/draft' => [
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Generate an AI clinical draft', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+
+        // ----- Consultation: patient views -----
+        '/api/portal/appointments/{id}/consultation' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'Consultation summary', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/prescriptions' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'My prescriptions', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/lab-orders' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'My lab orders', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/referrals' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'My referrals', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/care-plan' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'My care plan', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/consents' => [
+            'get'  => ['tags' => ['Consultation'], 'summary' => 'My consent state', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Consultation'], 'summary' => 'Grant/withdraw a consent', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/recordings' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'Recording state + finished files', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/transcript' => [
+            'get'  => ['tags' => ['Consultation'], 'summary' => 'Transcript tail (captions)', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Consultation'], 'summary' => 'Append a transcript segment', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/metrics' => [
+            'post' => ['tags' => ['Consultation'], 'summary' => 'Report an RTC quality sample', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+
+        // ----- Back-office monitoring -----
+        '/api/admin/monitoring/overview' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'Platform activity overview', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/admin/monitoring/consultations' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'Recent consultations', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/admin/monitoring/recordings' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'Recent recordings', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/admin/monitoring/audit' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'Audit log (paginated)', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/admin/monitoring/quality' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'RTC quality per consultation', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+
         '/health' => [
             'get' => [
                 'tags'      => ['System'],
