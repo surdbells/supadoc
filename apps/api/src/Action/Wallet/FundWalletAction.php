@@ -42,6 +42,19 @@ final class FundWalletAction
         /** @var Patient $patient */
         $patient = $this->patients->findOrFail($customerId);
 
+        // Paystack requires a real, deliverable customer email (it rejects blank,
+        // malformed, or reserved-TLD addresses like `@…​.test`). Catch it here so
+        // the patient gets an actionable 422 instead of a downstream 502.
+        $email = trim($patient->getEmail());
+        if ($this->isUnusableEmail($email)) {
+            return $this->error(
+                $response,
+                'Add a valid email address to your profile before funding your wallet.',
+                422,
+                ['email' => 'A real, deliverable email is required for payments.'],
+            );
+        }
+
         $body     = (array) ($request->getParsedBody() ?? []);
         $currency = strtoupper((string) ($body['currency'] ?? $this->wallets->defaultCurrency()));
         if (!$this->wallets->isSupported($currency)) {
@@ -62,7 +75,7 @@ final class FundWalletAction
 
         try {
             $init = $this->paystack->initialize(
-                $patient->getEmail(),
+                $email,
                 $this->wallets->toMinor($amount),
                 $currency,
                 $reference,
@@ -94,5 +107,21 @@ final class FundWalletAction
             'reference'         => $reference,
             'access_code'       => $init['access_code'],
         ], 'Payment started', 201)->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
+     * True if an email can't be used with the payment gateway: blank, malformed,
+     * or on an RFC 2606 / mDNS reserved TLD (`.test`, `.example`, `.invalid`,
+     * `.localhost`, `.local`) — Paystack rejects all of these as invalid.
+     */
+    private function isUnusableEmail(string $email): bool
+    {
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return true;
+        }
+        $domain = strtolower((string) substr((string) strrchr($email, '@'), 1));
+        $tld    = (string) strrchr($domain, '.');
+
+        return in_array($tld, ['.test', '.example', '.invalid', '.localhost', '.local'], true);
     }
 }
