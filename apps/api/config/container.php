@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Domain\Repository\AppointmentReminderRepository;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AppSettingRepository;
 use App\Domain\Repository\AuditEventRepository;
@@ -26,11 +27,14 @@ use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
+use App\Infrastructure\Email\WalletMailer;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
+use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\CopilotService;
 use App\Infrastructure\Service\AvailabilityService;
+use App\Infrastructure\Service\ReminderService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
@@ -102,11 +106,33 @@ return [
         $c->get(EntityManagerInterface::class),
         $c->get(WalletRepository::class),
         $c->get(WalletTransactionRepository::class),
+        $c->get(WalletMailer::class),
         // Supported wallet currencies; the first is the default (NGN).
         array_values(array_filter(array_map(
             static fn (string $x): string => strtoupper(trim($x)),
             explode(',', (string) ($_ENV['WALLET_CURRENCIES'] ?? 'NGN')),
         ))) ?: ['NGN'],
+    ),
+
+    WalletMailer::class => static fn (ContainerInterface $c): WalletMailer => new WalletMailer(
+        $c->get(PatientRepository::class),
+        $c->get(MailService::class),
+    ),
+
+    AppointmentPaymentService::class => static fn (ContainerInterface $c): AppointmentPaymentService =>
+        new AppointmentPaymentService($c->get(WalletService::class)),
+
+    ReminderService::class => static fn (ContainerInterface $c): ReminderService => new ReminderService(
+        $c->get(AppointmentRepository::class),
+        $c->get(AppointmentReminderRepository::class),
+        $c->get(NotificationRepository::class),
+        $c->get(MailService::class),
+        $c->get(JwtService::class),
+        // Minutes-before offsets for join reminders (largest first); default 24h + 1h.
+        array_values(array_filter(array_map(
+            static fn (string $x): int => (int) trim($x),
+            explode(',', (string) ($_ENV['REMINDER_OFFSETS'] ?? '1440,60')),
+        ), static fn (int $m): bool => $m > 0)) ?: [1440, 60],
     ),
 
     PaystackService::class => static fn (): PaystackService => new PaystackService(
@@ -195,6 +221,9 @@ return [
 
     AppointmentRepository::class => static fn (ContainerInterface $c): AppointmentRepository =>
         new AppointmentRepository($c->get(EntityManagerInterface::class)),
+
+    AppointmentReminderRepository::class => static fn (ContainerInterface $c): AppointmentReminderRepository =>
+        new AppointmentReminderRepository($c->get(EntityManagerInterface::class)),
 
     ClinicalNoteRepository::class => static fn (ContainerInterface $c): ClinicalNoteRepository =>
         new ClinicalNoteRepository($c->get(EntityManagerInterface::class)),

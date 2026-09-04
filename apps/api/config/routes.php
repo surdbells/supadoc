@@ -94,6 +94,7 @@ return static function (App $app): void {
             // Minimal doctor portal — a doctor login (role 'doctor') sees only
             // their own consultations. The action enforces the doctor role.
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
+            $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
 
             // In-consultation clinical documentation. Each action re-checks that
             // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).
@@ -165,6 +166,7 @@ return static function (App $app): void {
             $group->post('/appointments', Action\Appointment\CreateMyAppointmentAction::class);
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
+            $group->post('/appointments/{id}/cancel', Action\Appointment\CancelMyAppointmentAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);

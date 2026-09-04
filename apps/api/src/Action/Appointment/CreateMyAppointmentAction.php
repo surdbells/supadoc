@@ -10,6 +10,7 @@ use App\Domain\Entity\Patient;
 use App\Domain\Entity\Specialist;
 use App\Domain\Enum\ConsultationType;
 use App\Domain\Enum\NotificationType;
+use App\Domain\Exception\InsufficientFundsException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
@@ -17,6 +18,7 @@ use App\Domain\Repository\SpecialistRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
@@ -49,6 +51,7 @@ final class CreateMyAppointmentAction
         private readonly AvailabilityService $availability,
         private readonly PricingService $pricing,
         private readonly JwtService $jwt,
+        private readonly AppointmentPaymentService $payments,
     ) {
     }
 
@@ -119,6 +122,21 @@ final class CreateMyAppointmentAction
         }
         $appointment->setGuests($guests);
         $appointment->setAmount($this->totalAmount($specialist, count($guests)));
+
+        // Charge the wallet before persisting: debit throws (with no charge) when
+        // the balance is short, so we never create an unpaid appointment. On
+        // success the appointment is marked paid and a receipt email is sent.
+        try {
+            $this->payments->chargeForBooking($appointment);
+        } catch (InsufficientFundsException) {
+            return $this->error(
+                $response,
+                'Your wallet balance is too low to book this consultation. Please top up your wallet and try again.',
+                422,
+                ['wallet' => 'insufficient_funds'],
+            );
+        }
+
         $this->appointments->save($appointment);
 
         $this->notifyBooked($patient, $appointment);

@@ -9,6 +9,7 @@ use App\Domain\Entity\WalletTransaction;
 use App\Domain\Exception\InsufficientFundsException;
 use App\Domain\Repository\WalletRepository;
 use App\Domain\Repository\WalletTransactionRepository;
+use App\Infrastructure\Email\WalletMailer;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 
@@ -34,6 +35,7 @@ final class WalletService
         private readonly EntityManagerInterface $em,
         private readonly WalletRepository $wallets,
         private readonly WalletTransactionRepository $txns,
+        private readonly WalletMailer $mailer,
         array $currencies = ['NGN'],
     ) {
         $this->currencies = $currencies !== [] ? array_values(array_map('strtoupper', $currencies)) : ['NGN'];
@@ -99,7 +101,8 @@ final class WalletService
      */
     public function settleTopup(string $reference, ?string $providerReference = null): WalletTransaction
     {
-        return $this->em->wrapInTransaction(function () use ($reference, $providerReference): WalletTransaction {
+        $newlySettled = false;
+        $txn          = $this->em->wrapInTransaction(function () use ($reference, $providerReference, &$newlySettled): WalletTransaction {
             $txn = $this->txns->byReference($reference);
             if ($txn === null) {
                 throw new \RuntimeException('Unknown wallet transaction');
@@ -112,9 +115,18 @@ final class WalletService
             $balance = bcadd($wallet->getBalance(), $txn->getAmount(), self::SCALE);
             $wallet->setBalance($balance);
             $txn->markPosted($balance, 'paystack', $providerReference);
+            $newlySettled = true;
 
             return $txn;
         });
+
+        // Receipt sent once, after the settling transaction commits (a second
+        // settle from the webhook/verify race finds it already success → no email).
+        if ($newlySettled) {
+            $this->mailer->sendReceipt($txn);
+        }
+
+        return $txn;
     }
 
     /** Mark a pending top-up failed (verify returned failed/abandoned). */
@@ -158,7 +170,8 @@ final class WalletService
         // Ensure the wallet exists (own tx) before locking it inside the posting tx.
         $walletId = $this->walletFor($patientId, $currency)->getId();
 
-        return $this->em->wrapInTransaction(function () use (
+        $newlyPosted = false;
+        $txn         = $this->em->wrapInTransaction(function () use (
             $patientId,
             $walletId,
             $amount,
@@ -166,6 +179,7 @@ final class WalletService
             $type,
             $reference,
             $description,
+            &$newlyPosted,
         ): WalletTransaction {
             $existing = $this->txns->byReference($reference);
             if ($existing !== null && $existing->isSuccess()) {
@@ -197,9 +211,18 @@ final class WalletService
             $txn->markPosted($balance);
             $wallet->setBalance($balance);
             $this->em->persist($txn);
+            $newlyPosted = true;
 
             return $txn;
         });
+
+        // Receipt sent once, after the posting commits (idempotent re-postings
+        // return the existing success entry and send nothing).
+        if ($newlyPosted) {
+            $this->mailer->sendReceipt($txn);
+        }
+
+        return $txn;
     }
 
     private function lock(string $walletId): Wallet

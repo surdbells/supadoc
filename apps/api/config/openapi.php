@@ -297,6 +297,7 @@ return [
         ],
         'responses' => [
             'Unauthorized' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Missing/invalid token'],
+            'Forbidden'    => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Not allowed'],
             'NotFound'     => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Not found'],
             'Validation'   => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Validation failed'],
         ],
@@ -1175,6 +1176,36 @@ return [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/cancel' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Cancel one of the patient\'s own appointments',
+                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee and emails a receipt.',
+                'operationId' => 'portalCancelAppointment',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'Cancelled', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/confirm' => [
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Confirm a pending appointment (assigned doctor)',
+                'description' => 'Moves the appointment to CONFIRMED and emails the patient. Only the assigned doctor may confirm.',
+                'operationId' => 'doctorConfirmAppointment',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'Confirmed', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],

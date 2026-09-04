@@ -110,6 +110,16 @@ class Appointment
         return $this->scheduledAt;
     }
 
+    public function getAmount(): string
+    {
+        return $this->amount;
+    }
+
+    public function getPaymentStatus(): string
+    {
+        return $this->paymentStatus;
+    }
+
     public function setNotes(?string $notes): void
     {
         $this->notes = $notes !== null && trim($notes) !== '' ? trim($notes) : null;

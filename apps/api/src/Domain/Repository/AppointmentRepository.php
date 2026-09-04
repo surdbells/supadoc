@@ -121,6 +121,30 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * Upcoming, still-active appointments whose start falls in [from, to) —
+     * the reminder cron's due window. Excludes cancelled and completed bookings.
+     *
+     * @return list<Appointment>
+     */
+    public function dueForReminder(DateTimeImmutable $from, DateTimeImmutable $to): array
+    {
+        return $this->qb()
+            ->andWhere('e.scheduledAt >= :from')
+            ->andWhere('e.scheduledAt < :to')
+            ->andWhere('e.status NOT IN (:done)')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->setParameter('done', [
+                AppointmentStatus::CANCELLED->value,
+                AppointmentStatus::COMPLETED->value,
+            ])
+            ->orderBy('e.scheduledAt', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Live (non-cancelled) appointments for a specialist within [from, to) —
      * used to subtract already-taken slots from generated availability.
      *

@@ -166,6 +166,87 @@ final class EmailTemplates
         ];
     }
 
+    /**
+     * Wallet receipt — one builder for every posting (funding / consultation
+     * debit / refund / adjustment), with clear transaction details.
+     *
+     * @param array<string, mixed> $txn WalletTransaction::toArray() output.
+     * @return array{subject: string, html: string}
+     */
+    public static function walletReceipt(array $txn, string $firstName, string $symbol, string $webUrl): array
+    {
+        $type      = (string) ($txn['type'] ?? '');
+        $direction = (string) ($txn['direction'] ?? '');
+        $credit    = $direction === 'credit';
+        $amount    = self::money($symbol, (string) ($txn['amount'] ?? '0'));
+        $signed    = ($credit ? '+' : '−') . $amount;
+
+        [$subject, $title, $intro] = match (true) {
+            $credit && $type === 'topup'         => ['Your VideoMed wallet has been funded', 'Wallet funded', 'your wallet top-up was successful.'],
+            $credit && $type === 'refund'        => ['Refund credited to your VideoMed wallet', 'Refund credited', 'a refund has been added to your wallet.'],
+            $credit                              => ['Your VideoMed wallet was credited', 'Wallet credited', 'your wallet has been credited.'],
+            !$credit && $type === 'consultation' => ['Payment received — VideoMed', 'Payment received', 'your consultation has been paid from your wallet.'],
+            default                              => ['Your VideoMed wallet was debited', 'Wallet debited', 'your wallet has been debited.'],
+        };
+
+        $rows = [
+            'Amount'      => $signed,
+            'Transaction' => (string) ($txn['label'] ?? ucfirst($type)),
+            'Reference'   => (string) ($txn['reference'] ?? ''),
+            'Date'        => self::dateTime((string) ($txn['created_at'] ?? '')),
+        ];
+        if (($txn['description'] ?? '') !== '') {
+            $rows['Details'] = (string) $txn['description'];
+        }
+        if (($txn['balance_after'] ?? null) !== null) {
+            $rows['New balance'] = self::money($symbol, (string) $txn['balance_after']);
+        }
+
+        $body = self::heading($title)
+            . self::lead('Hi ' . self::e($firstName) . ', ' . $intro)
+            . self::infoCard($rows)
+            . self::button('View wallet', $webUrl . '/dashboard/wallet')
+            . self::note("Keep this receipt for your records. If you don't recognise this transaction, contact support right away.");
+
+        return [
+            'subject' => $subject,
+            'html'    => self::layout($title, $intro, $body),
+        ];
+    }
+
+    /**
+     * Upcoming-consultation reminder carrying that recipient's personal join
+     * link. Sent to the patient, the specialist and each guest ahead of the call.
+     *
+     * @param array<string, mixed> $appt Appointment::toArray() output.
+     * @return array{subject: string, html: string}
+     */
+    public static function joinReminder(
+        array $appt,
+        string $recipientName,
+        string $whenLabel,
+        string $joinUrl,
+    ): array {
+        $specialist = (array) ($appt['specialist'] ?? []);
+        $rows       = [
+            'Specialist'   => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
+            'Date'         => self::date((string) ($appt['scheduled_at'] ?? '')),
+            'Time'         => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Consultation' => (string) ($appt['type_label'] ?? 'Video consultation'),
+        ];
+
+        $body = self::heading('Your consultation is coming up')
+            . self::lead('Hi ' . self::e($recipientName) . ', your video consultation is ' . self::e($whenLabel) . '. Use your personal link below to join.')
+            . self::infoCard($rows)
+            . self::button('Join the call', $joinUrl)
+            . self::note("Your join link is personal to you — please don't forward it. Join 5–10 minutes early on a stable connection.");
+
+        return [
+            'subject' => 'Reminder: your VideoMed consultation is ' . $whenLabel,
+            'html'    => self::layout('Consultation reminder', 'Your VideoMed consultation is ' . $whenLabel . '.', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body): string
@@ -233,6 +314,32 @@ final class EmailTemplates
         return $html . '</table></td></tr></table>';
     }
 
+    /**
+     * A simple label/value card (no status row) — for receipts and reminders.
+     *
+     * @param array<string, string> $rows label => value (blank values skipped)
+     */
+    private static function infoCard(array $rows): string
+    {
+        $rows = array_filter($rows, static fn (string $v): bool => $v !== '');
+        $html = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ' . self::CLOUD . ';border-radius:12px;">'
+            . '<tr><td style="padding:8px 22px;">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">';
+
+        $i    = 0;
+        $last = count($rows) - 1;
+        foreach ($rows as $label => $value) {
+            $border = $i === $last ? '' : 'border-bottom:1px solid ' . self::CLOUD . ';';
+            $html .= '<tr>'
+                . '<td style="padding:10px 0;font-size:13px;color:' . self::SLATE . ';' . $border . '">' . self::e($label) . '</td>'
+                . '<td align="right" style="padding:10px 0;font-size:14px;font-weight:600;color:' . self::INK . ';' . $border . '">' . self::e($value) . '</td>'
+                . '</tr>';
+            $i++;
+        }
+
+        return $html . '</table></td></tr></table>';
+    }
+
     private static function button(string $label, string $url): string
     {
         return '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 0;"><tr>'
@@ -263,6 +370,11 @@ final class EmailTemplates
     private static function time(string $iso): string
     {
         return $iso === '' ? '' : (new DateTimeImmutable($iso))->format('g:i A');
+    }
+
+    private static function dateTime(string $iso): string
+    {
+        return $iso === '' ? '' : (new DateTimeImmutable($iso))->format('D, j M Y \a\t g:i A');
     }
 
     private static function dot(string $suffix): string
