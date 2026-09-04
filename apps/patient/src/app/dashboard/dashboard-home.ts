@@ -12,6 +12,7 @@ import {
   AppointmentsApi,
   NotificationsApi,
   PatientApi,
+  WalletApi,
 } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
@@ -285,24 +286,33 @@ const UPCOMING_BADGE: Record<string, string> = {
           <article
             class="relative flex flex-col gap-4 rounded-card border-[0.5px] border-ash px-6 py-4"
           >
-            <header class="flex items-center gap-2">
-              <sd-icon name="wallet" [size]="20" class="text-ink" />
-              <h3 class="font-sans text-body font-semibold text-ink">Wallet</h3>
-            </header>
-            <div
-              class="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center"
-            >
-              <span
-                class="flex size-12 items-center justify-center rounded-full bg-cloud text-slate"
+            <header class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <sd-icon name="wallet" [size]="20" class="text-ink" />
+                <h3 class="font-sans text-body font-semibold text-ink">Wallet</h3>
+              </div>
+              <button
+                type="button"
+                class="flex items-center gap-1 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean"
+                (click)="goWallet()"
               >
-                <sd-icon name="wallet" [size]="24" />
-              </span>
-              <p class="font-sans text-body-sm font-medium text-ink">
-                Coming soon
-              </p>
-              <p class="font-sans text-caption text-slate">
-                Manage payments and transactions here.
-              </p>
+                Manage <sd-icon name="chevron-right" [size]="14" />
+              </button>
+            </header>
+            <div class="flex flex-1 flex-col justify-center gap-3 rounded-card bg-frost/40 px-5 py-6">
+              <span class="font-sans text-caption text-slate">Current Balance</span>
+              @if (walletLoading()) {
+                <div class="sd-shimmer h-8 w-32 rounded-lg"></div>
+              } @else {
+                <p class="font-heading text-h4 tracking-tight text-ocean">{{ walletLabel() }}</p>
+              }
+              <button
+                type="button"
+                class="mt-1 flex w-fit items-center gap-2 rounded-field bg-cerulean px-4 py-2 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
+                (click)="goWallet()"
+              >
+                <sd-icon name="plus" [size]="16" /> Add funds
+              </button>
             </div>
           </article>
         </div>
@@ -419,6 +429,7 @@ export class DashboardHome {
   private readonly appointments = inject(AppointmentsApi);
   private readonly patient = inject(PatientApi);
   private readonly notificationsApi = inject(NotificationsApi);
+  private readonly walletApi = inject(WalletApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
@@ -449,6 +460,28 @@ export class DashboardHome {
 
   // Notifications widget — the most recent few from GET /api/portal/notifications.
   protected readonly notifications = signal<Notice[]>([]);
+
+  // Wallet widget — balance from GET /api/portal/wallet.
+  protected readonly walletLoading = signal(true);
+  protected readonly walletBalance = signal<string | null>(null);
+  protected readonly walletCurrency = signal('NGN');
+  protected readonly walletLabel = computed(() => {
+    const n = Number(this.walletBalance() ?? '0');
+    if (isNaN(n)) return '';
+    try {
+      return new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: this.walletCurrency(),
+        minimumFractionDigits: 2,
+      }).format(n);
+    } catch {
+      return `${this.walletCurrency()} ${n.toLocaleString('en-NG')}`;
+    }
+  });
+
+  protected goWallet(): void {
+    void this.router.navigate(['/dashboard/wallet']);
+  }
 
   constructor() {
     this.notificationsApi
@@ -481,6 +514,18 @@ export class DashboardHome {
           this.loadingUpcoming.set(false);
         },
         error: () => this.loadingUpcoming.set(false),
+      });
+
+    this.walletApi
+      .wallet()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.walletBalance.set(res.data.balance);
+          this.walletCurrency.set(res.data.currency);
+          this.walletLoading.set(false);
+        },
+        error: () => this.walletLoading.set(false),
       });
 
     this.patient
