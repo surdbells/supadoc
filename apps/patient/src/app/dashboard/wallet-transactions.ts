@@ -35,41 +35,41 @@ const FILTERS: Filter[] = [
   template: `
     <div class="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <header class="flex items-start justify-between gap-4">
-        <div>
-          <h1 class="font-heading text-h3 text-ink">Transaction history</h1>
-          <p class="font-sans text-body text-slate">View all past transactions.</p>
+        <div class="flex flex-col gap-2">
+          <h1 class="font-heading text-h2 text-ink">Transaction history</h1>
+          <p class="font-sans text-body text-slate">View all past transactions</p>
         </div>
         <a
           routerLink="/dashboard/wallet"
-          class="flex shrink-0 items-center gap-1.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-cerulean"
+          class="flex shrink-0 items-center gap-2 font-sans text-body-lg text-slate transition-colors hover:text-cerulean"
         >
-          <sd-icon name="arrow-right" [size]="18" class="rotate-180" /> Back
+          <sd-icon name="arrow-right" [size]="24" class="rotate-180" /> Back
         </a>
       </header>
 
       <!-- Filter pills -->
-      <div class="flex items-center justify-between gap-4 rounded-pill border border-cloud bg-white px-2 py-2">
-        <div class="flex flex-wrap items-center gap-1">
+      <div
+        class="flex items-center justify-between gap-4 rounded-[32px] border border-[#d1e9fd] bg-glacier px-6 py-3 shadow-[0_2px_1.5px_rgba(33,150,243,0.3)]"
+      >
+        <div class="flex flex-wrap items-center gap-4">
           @for (f of filters; track f.key) {
             <button
               type="button"
-              class="rounded-pill px-4 py-2 font-sans text-body-sm transition-colors"
-              [class]="active() === f.key ? 'bg-frost font-semibold text-cerulean' : 'text-slate hover:bg-glacier'"
+              class="rounded-[24px] px-4 py-2 font-sans text-body font-semibold transition-colors"
+              [class]="active() === f.key ? 'bg-cerulean/30 text-cerulean' : 'text-slate hover:bg-frost/40'"
               (click)="select(f)"
             >
               {{ f.label }}
             </button>
           }
         </div>
-        @if (active() !== 'all') {
-          <button
-            type="button"
-            class="shrink-0 px-3 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean"
-            (click)="select(filters[0])"
-          >
-            Clear all
-          </button>
-        }
+        <button
+          type="button"
+          class="shrink-0 px-3 font-sans text-body-sm text-cerulean transition-colors hover:text-ocean"
+          (click)="select(filters[0])"
+        >
+          Clear all
+        </button>
       </div>
 
       @if (loading() && txns().length === 0) {

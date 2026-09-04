@@ -15,7 +15,7 @@ const TITLES: Record<string, string> = {
   adjustment: 'Adjustment',
 };
 
-/** One wallet ledger entry, rendered as a card (used by the wallet + history views). */
+/** One wallet ledger entry, rendered exactly per the Figma "History Card". */
 @Component({
   selector: 'pat-wallet-transaction-row',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -23,50 +23,52 @@ const TITLES: Record<string, string> = {
   host: { class: 'block' },
   template: `
     @if (txn(); as t) {
-      <div class="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 rounded-card border border-cloud bg-white p-4 sm:grid-cols-[auto_1.4fr_1fr_1fr_0.8fr] sm:p-5">
-        <!-- Icon -->
-        <span
-          class="flex size-10 shrink-0 items-center justify-center rounded-full"
-          [class]="credit() ? 'bg-sage/15 text-sage' : 'bg-alert/10 text-alert'"
-        >
-          <sd-icon name="arrow-right" [size]="18" [class]="credit() ? 'rotate-[135deg]' : '-rotate-45'" />
-        </span>
-
-        <!-- Title + subtitle -->
-        <div class="flex min-w-0 flex-col">
-          <span class="font-heading text-body font-semibold text-ink">{{ title() }}</span>
-          @if (t.description) {
-            <span class="truncate font-sans text-body-sm text-slate">{{ t.description }}</span>
-          }
+      <div
+        class="flex flex-col gap-3 rounded-[24px] border-[0.5px] border-[#d1e9fd] bg-white p-5 shadow-[0_4px_2px_rgba(21,101,192,0.05)] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-6"
+      >
+        <!-- Icon + title/subtitle -->
+        <div class="flex items-center gap-4 sm:gap-5">
+          <span
+            class="flex shrink-0 items-center justify-center rounded-full p-2"
+            [class]="credit() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'"
+          >
+            <sd-icon name="arrow-right" [size]="24" [class]="credit() ? 'rotate-[135deg]' : '-rotate-45'" />
+          </span>
+          <div class="flex min-w-0 flex-col gap-1">
+            <span class="font-sans text-body-lg text-ink">{{ title() }}</span>
+            @if (t.description) {
+              <span class="truncate font-sans text-body-sm text-slate">{{ t.description }}</span>
+            }
+          </div>
         </div>
 
         <!-- Date + time -->
-        <div class="col-start-2 flex flex-col gap-1 sm:col-start-auto">
-          <span class="flex items-center gap-1.5 font-sans text-body-sm text-slate">
-            <sd-icon name="calendar-days" [size]="15" /> {{ dateLabel() }}
+        <div class="flex flex-col gap-2 sm:w-[150px] sm:shrink-0">
+          <span class="flex items-center gap-2 font-sans text-body-sm text-slate">
+            <sd-icon name="calendar-days" [size]="18" class="text-slate" /> {{ dateLabel() }}
           </span>
-          <span class="flex items-center gap-1.5 font-sans text-body-sm text-slate">
-            <sd-icon name="clock" [size]="15" /> {{ timeLabel() }}
+          <span class="flex items-center gap-2 font-sans text-body-sm text-slate">
+            <sd-icon name="clock" [size]="18" class="text-slate" /> {{ timeLabel() }}
           </span>
         </div>
 
         <!-- Amount + status badge -->
-        <div class="col-start-2 flex flex-col items-start gap-1 sm:col-start-auto sm:items-start">
-          <span class="font-heading text-body font-semibold" [class]="credit() ? 'text-sage' : 'text-alert'">
+        <div class="flex flex-col items-start justify-center gap-1">
+          <span class="font-sans text-body-lg" [class]="credit() ? 'text-sage' : 'text-alert'">
             {{ credit() ? '+' : '-' }}{{ amountLabel() }}
           </span>
           <span
-            class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium"
-            [class]="credit() ? 'bg-sage/15 text-sage' : 'bg-alert/10 text-alert'"
+            class="rounded-[12px] px-4 py-1.5 font-sans text-body-sm"
+            [class]="credit() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'"
           >
             {{ t.label }}
           </span>
         </div>
 
         <!-- Running balance -->
-        <div class="col-start-2 flex flex-col sm:col-start-auto sm:text-right">
-          <span class="font-heading text-body font-semibold text-ink">{{ balanceLabel() }}</span>
-          <span class="font-sans text-caption text-slate">Wallet Balance</span>
+        <div class="flex flex-col justify-center gap-1 sm:w-[135px] sm:shrink-0 sm:text-center">
+          <span class="font-sans text-body-lg text-ink">{{ balanceLabel() }}</span>
+          <span class="font-sans text-body-sm text-slate">Wallet Balance</span>
         </div>
       </div>
     }
