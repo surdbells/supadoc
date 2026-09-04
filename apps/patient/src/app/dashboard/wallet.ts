@@ -69,13 +69,20 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
       <section
         class="relative flex items-center justify-between gap-4 rounded-card border-[0.5px] border-[#d1e9fd] bg-[#d1e9fd] p-6 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
       >
-        <!-- Decorative watermark, clipped to its own layer so the card itself
-             can stay un-clipped and the currency menu below can overflow. -->
-        <div class="pointer-events-none absolute inset-0 overflow-hidden rounded-card">
+        <!-- Decorative stacked-wallet motif (Figma 1633:31710): two overlapping
+             wallets in the card's right-of-centre gap, behind the Add funds
+             button. Clipped to their own layer so the card itself stays
+             un-clipped and the currency menu below can overflow. -->
+        <div class="pointer-events-none absolute inset-0 overflow-hidden rounded-card" aria-hidden="true">
           <sd-icon
             name="wallet"
-            [size]="140"
-            class="absolute right-24 top-1/2 -translate-y-1/2 text-white/40"
+            [size]="118"
+            class="absolute right-[39%] top-1/2 -translate-y-[62%] text-white/25"
+          />
+          <sd-icon
+            name="wallet"
+            [size]="150"
+            class="absolute right-[27%] top-1/2 -translate-y-[42%] text-white/45"
           />
         </div>
         <span
