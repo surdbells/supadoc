@@ -157,6 +157,8 @@ return static function (App $app): void {
             $group->get('/me/sessions', Action\Patient\MySessionsAction::class);
             $group->delete('/me/sessions/{id}', Action\Patient\RevokeSessionAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
+            $group->post('/me/email/request-otp', Action\Patient\RequestEmailChangeOtpAction::class);
+            $group->post('/me/email', Action\Patient\ChangeMyEmailAction::class);
             $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);

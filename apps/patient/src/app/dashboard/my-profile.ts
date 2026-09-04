@@ -17,12 +17,13 @@ import {
 } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
-import { PatientApi } from '@supadoc/data-access';
+import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type { HealthProfileDto, MedicalDto } from '@supadoc/models';
 import {
   ButtonComponent,
   IconComponent,
   InputComponent,
+  OtpComponent,
   PhoneInputComponent,
   SearchSelectComponent,
 } from '@supadoc/ui';
@@ -59,6 +60,7 @@ interface SectionCard {
     ButtonComponent,
     IconComponent,
     InputComponent,
+    OtpComponent,
     PhoneInputComponent,
     SearchSelectComponent,
   ],
@@ -315,12 +317,21 @@ interface SectionCard {
                 </label>
               </div>
             </div>
-            <p
-              class="flex items-center gap-1.5 font-sans text-caption text-slate"
+            <div
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-caption text-slate"
             >
-              <sd-icon name="info" [size]="16" />
-              Your email address can't be changed from here
-            </p>
+              <span class="flex items-center gap-1.5">
+                <sd-icon name="mail" [size]="16" />
+                {{ email() }}
+              </span>
+              <button
+                type="button"
+                class="font-semibold text-cerulean transition-colors hover:text-ocean"
+                (click)="openEmailChange()"
+              >
+                Change email address
+              </button>
+            </div>
             <div class="flex gap-3">
               <sd-button
                 variant="outline"
@@ -1004,9 +1015,18 @@ interface SectionCard {
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <p class="font-heading text-h5 text-ink">{{ fullName() }}</p>
-          <p class="truncate font-sans text-caption text-slate">
-            {{ email() }}
-          </p>
+          <div class="flex items-center gap-2">
+            <p class="truncate font-sans text-caption text-slate">
+              {{ email() }}
+            </p>
+            <button
+              type="button"
+              class="shrink-0 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean"
+              (click)="openEmailChange()"
+            >
+              Change
+            </button>
+          </div>
           @if (avatarSrc()) {
             <button
               type="button"
@@ -1115,6 +1135,97 @@ interface SectionCard {
       </div>
     </ng-template>
 
+    <!-- Change-email modal (two steps: new address → OTP sent to it) -->
+    @if (emailModalOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button
+          type="button"
+          class="absolute inset-0 cursor-default bg-abyss/40"
+          aria-label="Close"
+          (click)="closeEmailChange()"
+        ></button>
+        <div
+          class="relative z-10 flex w-full max-w-[480px] flex-col gap-6 rounded-[16px] border-[0.5px] border-[#d1e9fd] bg-white px-6 py-8 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
+        >
+          <div class="flex items-center justify-between">
+            <h3 class="font-heading text-h5 text-ink">Change email address</h3>
+            <button
+              type="button"
+              class="text-slate transition-colors hover:text-ink"
+              aria-label="Close"
+              (click)="closeEmailChange()"
+            >
+              <sd-icon name="x" [size]="24" />
+            </button>
+          </div>
+          <hr class="border-t border-cloud" />
+
+          @if (emailStep() === 'email') {
+            <form class="flex flex-col gap-6" [formGroup]="emailForm" (ngSubmit)="sendEmailOtp()">
+              <p class="font-sans text-body-sm text-slate">
+                Enter your new email address. We'll send a 6-digit code to it to
+                confirm it's yours. Your current email is
+                <span class="font-semibold text-ink">{{ email() }}</span>.
+              </p>
+              <sd-input
+                label="New email"
+                type="email"
+                placeholder="you@example.com"
+                autocomplete="email"
+                formControlName="email"
+                [error]="emailFieldError()"
+              />
+              @if (emailError()) {
+                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert">
+                  {{ emailError() }}
+                </p>
+              }
+              <sd-button type="submit" [full]="true" [disabled]="emailBusy()">
+                {{ emailBusy() ? 'Sending…' : 'Send code' }}
+              </sd-button>
+            </form>
+          } @else {
+            <form class="flex flex-col gap-6" [formGroup]="emailForm" (ngSubmit)="confirmEmailChange()">
+              <p class="font-sans text-body-sm text-slate">
+                Enter the 6-digit code we sent to
+                <span class="font-semibold text-ink">{{ emailForm.controls.email.value }}</span>.
+              </p>
+              <sd-otp formControlName="otp" />
+              @if (emailDevCode()) {
+                <p class="font-sans text-caption text-slate">
+                  Dev code: <span class="font-semibold text-ink">{{ emailDevCode() }}</span>
+                </p>
+              }
+              @if (emailError()) {
+                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert">
+                  {{ emailError() }}
+                </p>
+              }
+              <sd-button type="submit" [full]="true" [disabled]="emailBusy()">
+                {{ emailBusy() ? 'Updating…' : 'Confirm & change email' }}
+              </sd-button>
+              <div class="flex items-center justify-between font-sans text-caption">
+                <button
+                  type="button"
+                  class="font-semibold text-slate transition-colors hover:text-ink"
+                  (click)="emailStep.set('email')"
+                >
+                  Use a different email
+                </button>
+                <button
+                  type="button"
+                  class="font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-60"
+                  [disabled]="emailBusy()"
+                  (click)="resendEmailOtp()"
+                >
+                  Resend code
+                </button>
+              </div>
+            </form>
+          }
+        </div>
+      </div>
+    }
   `,
 })
 export class MyProfile {
@@ -1131,6 +1242,23 @@ export class MyProfile {
   protected readonly phoneVerifyError = signal('');
   protected readonly otpCode = signal('');
   private pinId = '';
+
+  // Email change (modal: enter new email → confirm code sent to it).
+  protected readonly emailModalOpen = signal(false);
+  protected readonly emailStep = signal<'email' | 'otp'>('email');
+  protected readonly emailBusy = signal(false);
+  protected readonly emailError = signal('');
+  protected readonly emailDevCode = signal('');
+  protected readonly emailForm = this.fb.nonNullable.group({
+    email: ['', [Validators.required, Validators.email]],
+    otp: ['', [Validators.required, Validators.minLength(6)]],
+  });
+  /** Inline field error under the email input (invalid/touched only). */
+  protected emailFieldError(): string {
+    const c = this.emailForm.controls.email;
+    if (!c.touched || c.valid) return '';
+    return c.errors?.['required'] ? 'This field is required' : 'Enter a valid email address';
+  }
 
   protected readonly view = signal<View>('home');
   protected readonly toast = signal('');
@@ -1644,6 +1772,71 @@ export class MyProfile {
     this.phoneVerifyState.set('idle');
     this.otpCode.set('');
     this.phoneVerifyError.set('');
+  }
+
+  // ----- Change email -----
+
+  protected openEmailChange(): void {
+    this.emailForm.reset({ email: '', otp: '' });
+    this.emailStep.set('email');
+    this.emailError.set('');
+    this.emailDevCode.set('');
+    this.emailModalOpen.set(true);
+  }
+
+  protected closeEmailChange(): void {
+    this.emailModalOpen.set(false);
+    this.emailBusy.set(false);
+  }
+
+  /** Step 1 — email a code to the requested new address. */
+  protected async sendEmailOtp(): Promise<void> {
+    const control = this.emailForm.controls.email;
+    if (control.invalid) {
+      control.markAsTouched();
+      return;
+    }
+    this.emailBusy.set(true);
+    this.emailError.set('');
+    try {
+      const res = await firstValueFrom(
+        this.patient.requestEmailChangeOtp(control.value.trim().toLowerCase()),
+      );
+      this.emailDevCode.set(res.data.dev_code ?? '');
+      this.emailForm.controls.otp.reset('');
+      this.emailStep.set('otp');
+    } catch (err) {
+      this.emailError.set(apiErrorMessage(err, 'Could not send the code. Please try again.'));
+    } finally {
+      this.emailBusy.set(false);
+    }
+  }
+
+  protected resendEmailOtp(): void {
+    void this.sendEmailOtp();
+  }
+
+  /** Step 2 — confirm the code and swap the account email. */
+  protected async confirmEmailChange(): Promise<void> {
+    if (this.emailForm.invalid) {
+      this.emailForm.markAllAsTouched();
+      return;
+    }
+    const { email, otp } = this.emailForm.getRawValue();
+    this.emailBusy.set(true);
+    this.emailError.set('');
+    try {
+      const res = await firstValueFrom(
+        this.patient.changeEmail(email.trim().toLowerCase(), otp),
+      );
+      this.applyProfile(res.data);
+      this.closeEmailChange();
+      this.showToast('Email updated successfully');
+    } catch (err) {
+      this.emailError.set(apiErrorMessage(err, 'That code is invalid or expired.'));
+    } finally {
+      this.emailBusy.set(false);
+    }
   }
 
   private showToast(message: string): void {

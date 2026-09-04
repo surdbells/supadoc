@@ -128,9 +128,11 @@ final class EmailTemplates
     /** @return array{subject: string, html: string} */
     public static function verificationCode(string $code, string $purpose): array
     {
-        $intro = $purpose === 'reset'
-            ? 'Use this code to reset your VideoMed password.'
-            : 'Use this code to verify your email and finish creating your VideoMed account.';
+        $intro = match ($purpose) {
+            'reset'        => 'Use this code to reset your VideoMed password.',
+            'change_email' => 'Use this code to confirm this is your new VideoMed email address.',
+            default        => 'Use this code to verify your email and finish creating your VideoMed account.',
+        };
 
         $body = self::heading('Your verification code')
             . self::lead($intro)
@@ -141,6 +143,26 @@ final class EmailTemplates
         return [
             'subject' => 'Your VideoMed verification code',
             'html'    => self::layout('Verification code', 'Your VideoMed verification code', $body),
+        ];
+    }
+
+    /**
+     * Security notice sent to the OLD address after the account email is changed,
+     * so a hijack can't happen silently.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function emailChanged(string $firstName, string $newEmail, string $supportEmail = 'support@videomed.app'): array
+    {
+        $body = self::heading('Your email address was changed')
+            . self::lead('Hi ' . self::e($firstName) . ', the email on your VideoMed account was just changed to '
+                . '<strong style="color:' . self::INK . ';">' . self::e($newEmail) . '</strong>. '
+                . 'Future sign-ins and notifications will use the new address.')
+            . self::note("If you made this change, no action is needed. If you didn't, contact us immediately at " . $supportEmail . ' — this message was sent to your previous address.');
+
+        return [
+            'subject' => 'Your VideoMed email address was changed',
+            'html'    => self::layout('Email changed', 'The email on your VideoMed account was changed.', $body),
         ];
     }
 

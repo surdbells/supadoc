@@ -101,6 +101,31 @@ export class PatientApi {
     );
   }
 
+  /**
+   * POST /api/portal/me/email/request-otp — email a verification code to a new
+   * address to start changing the account email. `dev_code` is present only in
+   * non-production.
+   */
+  requestEmailChangeOtp(
+    email: string,
+  ): Observable<SuccessResponse<{ sent: boolean; dev_code?: string }>> {
+    return this.api.post<SuccessResponse<{ sent: boolean; dev_code?: string }>>(
+      'api/portal/me/email/request-otp',
+      { email },
+    );
+  }
+
+  /** POST /api/portal/me/email — confirm the code and change the account email. */
+  changeEmail(
+    email: string,
+    otp: string,
+  ): Observable<SuccessResponse<PatientProfileDto>> {
+    return this.api.post<SuccessResponse<PatientProfileDto>>(
+      'api/portal/me/email',
+      { email, otp },
+    );
+  }
+
   /** GET /api/portal/me/settings — the signed-in patient's preferences. */
   settings(): Observable<SuccessResponse<PatientSettingsDto>> {
     return this.api.get<SuccessResponse<PatientSettingsDto>>(

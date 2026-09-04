@@ -861,6 +861,32 @@ return [
                 ],
             ],
         ],
+        '/api/portal/me/email/request-otp' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Start changing the account email',
+                'description' => 'Emails a verification code to the requested new address (which must be well-formed, not the current one, and not already in use). In non-production the response includes dev_code.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email'], 'properties' => ['email' => ['type' => 'string', 'format' => 'email']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Code sent', ...$json($envelope(['type' => 'object', 'properties' => ['sent' => ['type' => 'boolean'], 'dev_code' => ['type' => 'string']]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/me/email' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Confirm and change the account email',
+                'description' => 'Verifies the code sent to the new address, swaps the email, and notifies the previous address. Returns the updated profile.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email', 'otp'], 'properties' => ['email' => ['type' => 'string', 'format' => 'email'], 'otp' => ['type' => 'string']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/specialists' => [
             'get' => [
                 'tags'       => ['Portal'],

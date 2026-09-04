@@ -87,6 +87,17 @@ class Patient
         return $this->email;
     }
 
+    /**
+     * Change the account email. Normalised to match the constructor and
+     * {@see PatientRepository::findByEmail()} (lower-cased, trimmed). Callers
+     * must have verified ownership of the new address (OTP) and confirmed it is
+     * not already taken.
+     */
+    public function setEmail(string $email): void
+    {
+        $this->email = strtolower(trim($email));
+    }
+
     public function setPassword(string $plain): void
     {
         $this->passwordHash = password_hash($plain, PASSWORD_DEFAULT);
