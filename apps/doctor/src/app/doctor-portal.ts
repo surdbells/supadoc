@@ -130,6 +130,15 @@ const STATUS_CLASS: Record<string, string> = {
           </p>
         </div>
 
+        @if (notice()) {
+          <div
+            class="flex items-center gap-2 rounded-card bg-alert/10 px-4 py-2.5 font-sans text-caption text-alert"
+            role="status"
+          >
+            <sd-icon name="triangle-alert" [size]="16" />{{ notice() }}
+          </div>
+        }
+
         @if (loading()) {
           <div
             class="h-40 animate-pulse rounded-card border border-cloud bg-white/60"
@@ -177,13 +186,27 @@ const STATUS_CLASS: Record<string, string> = {
                     </span>
                   }
                 </div>
-                <button
-                  type="button"
-                  class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
-                  (click)="openCall(a)"
-                >
-                  <sd-icon name="video" [size]="18" />Join call
-                </button>
+                <div class="flex shrink-0 items-center gap-2">
+                  @if (a.status === 'pending' || a.status === 'rescheduled') {
+                    <button
+                      type="button"
+                      class="flex items-center justify-center gap-2 rounded-field border border-sage px-4 py-2.5 font-sans text-body-sm font-semibold text-sage transition-colors hover:bg-sage/10 disabled:opacity-60"
+                      [disabled]="confirmingId() === a.id"
+                      (click)="confirm(a)"
+                    >
+                      <sd-icon name="circle-check" [size]="18" />{{
+                        confirmingId() === a.id ? 'Confirming…' : 'Confirm'
+                      }}
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
+                    (click)="openCall(a)"
+                  >
+                    <sd-icon name="video" [size]="18" />Join call
+                  </button>
+                </div>
               </li>
             }
           </ul>
@@ -202,6 +225,9 @@ export class DoctorPortal implements OnInit {
   protected readonly loading = signal(false);
   protected readonly specialistName = signal('');
   protected readonly appointments = signal<DoctorAppointment[]>([]);
+  /** Id of the appointment currently being confirmed (per-row busy state). */
+  protected readonly confirmingId = signal<string | null>(null);
+  protected readonly notice = signal('');
 
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
   private readonly router = inject(Router);
@@ -223,6 +249,45 @@ export class DoctorPortal implements OnInit {
       void this.router.navigate(['/call', token]);
     } else {
       window.location.href = a.join_url;
+    }
+  }
+
+  /** Confirm a pending/rescheduled consultation; the patient is emailed. */
+  protected async confirm(a: DoctorAppointment): Promise<void> {
+    if (this.confirmingId()) return;
+    this.confirmingId.set(a.id);
+    this.notice.set('');
+    try {
+      const res = await fetch(
+        `${this.base}/api/doctor/appointments/${encodeURIComponent(a.id)}/confirm`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.token()}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      if (res.status === 401) {
+        this.logout();
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        this.notice.set(body?.message ?? 'Could not confirm the appointment.');
+        return;
+      }
+      const status: string = body?.data?.status ?? 'confirmed';
+      const statusLabel: string = body?.data?.status_label ?? 'Confirmed';
+      this.appointments.update((list) =>
+        list.map((x) =>
+          x.id === a.id ? { ...x, status, status_label: statusLabel } : x,
+        ),
+      );
+    } catch {
+      this.notice.set('Could not reach the server. Please try again.');
+    } finally {
+      this.confirmingId.set(null);
     }
   }
 
