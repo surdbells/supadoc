@@ -17,7 +17,7 @@ export interface ApiError {
   statusCode: number;
   message: string;
   /** Optional field-level validation errors, keyed by field name. */
-  errors?: Record<string, string[]>;
+  errors?: Record<string, string>;
 }
 
 /** Cursor/offset pagination envelope. */

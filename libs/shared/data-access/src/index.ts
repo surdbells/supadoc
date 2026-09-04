@@ -8,5 +8,6 @@ export * from './lib/notifications.api';
 export * from './lib/wallet.api';
 export * from './lib/profile.api';
 export * from './lib/logger';
+export * from './lib/api-error.util';
 export * from './lib/http-error.interceptor';
 export * from './lib/provide-data-access';

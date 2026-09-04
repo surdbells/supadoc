@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { WalletApi } from '@supadoc/data-access';
+import { apiErrorMessage, WalletApi } from '@supadoc/data-access';
 import type { WalletDto, WalletTransactionDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { WalletTransactionRow } from './wallet-transaction-row';
@@ -404,9 +404,9 @@ export class Wallet implements OnInit {
           // Hand off to Paystack's hosted checkout.
           window.location.href = res.data.authorization_url;
         },
-        error: (err: { error?: { message?: string } }) => {
+        error: (err: unknown) => {
           this.funding.set(false);
-          this.fundError.set(err?.error?.message ?? 'Could not start the payment. Please try again.');
+          this.fundError.set(apiErrorMessage(err, 'Could not start the payment. Please try again.'));
         },
       });
   }
