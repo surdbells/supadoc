@@ -83,7 +83,7 @@ export class WalletTransactionRow {
   );
   protected readonly balanceLabel = computed(() =>
     this.txn().balance_after !== null
-      ? this.money(this.txn().balance_after as string, this.txn().currency, true)
+      ? this.money(this.txn().balance_after as string, this.txn().currency, false)
       : '—',
   );
 

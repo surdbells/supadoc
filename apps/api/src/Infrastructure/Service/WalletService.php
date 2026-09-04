@@ -86,7 +86,7 @@ final class WalletService
             WalletTransaction::STATUS_PENDING,
         );
         $txn->setProvider('paystack');
-        $txn->setDescription('Wallet funded via Paystack');
+        $txn->setDescription('Wallet funded via paystack');
         $this->txns->save($txn);
 
         return $txn;

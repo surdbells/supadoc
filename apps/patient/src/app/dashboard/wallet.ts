@@ -22,6 +22,14 @@ const CURRENCY_NAMES: Record<string, string> = {
   KES: 'Shilling',
 };
 
+const CURRENCY_FLAGS: Record<string, string> = {
+  NGN: '🇳🇬',
+  USD: '🇺🇸',
+  GHS: '🇬🇭',
+  ZAR: '🇿🇦',
+  KES: '🇰🇪',
+};
+
 const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
 
 /**
@@ -38,7 +46,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
     <div class="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <header>
         <h1 class="font-heading text-h3 text-ink">My Wallet</h1>
-        <p class="font-sans text-body text-slate">Manage your funds. View balance and transactions.</p>
+        <p class="font-sans text-body text-slate">Manage your funds. View balance and transaction</p>
       </header>
 
       @if (verifying()) {
@@ -89,6 +97,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
                   class="flex items-center gap-2 rounded-pill bg-white/70 px-3 py-1.5 font-sans text-body-sm font-medium text-ink transition-colors hover:bg-white"
                   (click)="currencyOpen.set(!currencyOpen())"
                 >
+                  <span class="text-body" aria-hidden="true">{{ flag() }}</span>
                   {{ currencyName() }}
                   <sd-icon name="chevron-down" [size]="16" class="text-slate" />
                 </button>
@@ -125,13 +134,14 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
       <section class="flex flex-col gap-4">
         <div class="flex items-center justify-between gap-4">
           <h2 class="flex items-center gap-2 font-heading text-h5 text-ink">
-            <sd-icon name="history" [size]="20" class="text-slate" /> Transaction history
+            <sd-icon name="clipboard-list" [size]="20" class="text-slate" /> Transaction history
           </h2>
           <a
             routerLink="/dashboard/wallet/transactions"
-            class="flex items-center gap-1.5 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-slate transition-colors hover:border-ash"
+            class="flex items-center gap-2 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-slate transition-colors hover:border-ash"
           >
             <sd-icon name="filter" [size]="16" /> All
+            <sd-icon name="chevron-down" [size]="16" class="text-slate" />
           </a>
         </div>
 
@@ -141,21 +151,27 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
             <div class="sd-shimmer h-20 rounded-card"></div>
           </div>
         } @else if (recent().length === 0) {
-          <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
-            <span class="flex size-16 items-center justify-center rounded-full bg-glacier text-slate">
+          <div class="flex flex-col items-center gap-3 py-12 text-center">
+            <span class="flex size-16 items-center justify-center rounded-full bg-cloud text-slate">
               <sd-icon name="wallet" [size]="30" />
             </span>
             <p class="font-heading text-body-lg font-semibold text-ink">Your wallet is empty</p>
-            <p class="max-w-sm font-sans text-body-sm text-slate">
-              You have no funds in your wallet yet. Add funds to book consultations and other services.
+            <p class="max-w-md font-sans text-body-sm text-slate">
+              You have no fund in your wallet yet. Add funds to book consultation and other services.
             </p>
             <button
               type="button"
-              class="mt-2 flex items-center gap-2 rounded-field bg-cerulean px-6 py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean"
+              class="mt-4 flex w-full max-w-xl items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-4 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean"
               (click)="openFund()"
             >
               <sd-icon name="plus" [size]="18" /> Add funds
             </button>
+            <a
+              routerLink="/dashboard/wallet/transactions"
+              class="mt-1 flex items-center justify-center gap-1.5 py-1 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean"
+            >
+              View all transactions <sd-icon name="arrow-right" [size]="16" />
+            </a>
           </div>
         } @else {
           <ul class="flex flex-col gap-3">
@@ -229,7 +245,9 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
             >
               {{ funding() ? 'Redirecting…' : 'Continue to payment' }}
             </button>
-            <p class="text-center font-sans text-caption text-slate">Secured by Paystack</p>
+            <p class="flex items-center justify-center gap-1.5 text-center font-sans text-caption text-slate">
+              Secured by <span class="font-label font-semibold text-ink">paystack</span>
+            </p>
           </div>
         </div>
       </div>
@@ -260,6 +278,7 @@ export class Wallet implements OnInit {
   protected readonly recent = computed(() => this.wallet()?.recent ?? []);
   protected readonly currencies = computed(() => this.wallet()?.currencies ?? ['NGN']);
   protected readonly currencyName = computed(() => this.nameOf(this.currency()));
+  protected readonly flag = computed(() => CURRENCY_FLAGS[this.currency()] ?? '');
   protected readonly balanceLabel = computed(() =>
     this.format(this.wallet()?.balance ?? '0', this.currency(), true),
   );

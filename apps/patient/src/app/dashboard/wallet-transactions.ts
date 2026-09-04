@@ -83,7 +83,7 @@ const FILTERS: Filter[] = [
             <sd-icon name="wallet" [size]="30" />
           </span>
           <p class="font-heading text-body-lg font-semibold text-ink">No transaction history</p>
-          <p class="font-sans text-body-sm text-slate">You haven't made any transactions yet.</p>
+          <p class="font-sans text-body-sm text-slate">You haven't made any transaction yet.</p>
         </div>
       } @else {
         <ul class="flex flex-col gap-3">
