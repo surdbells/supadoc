@@ -71,6 +71,9 @@ final class FundWalletAction
             );
         } catch (\RuntimeException $e) {
             $this->wallets->failTopup($reference);
+            // Surface the real cause in the server log (the client only gets a
+            // generic message). Run `php bin/paystack-check.php` to diagnose.
+            error_log(sprintf('[wallet.fund] paystack initialize failed (ref=%s): %s', $reference, $e->getMessage()));
 
             return $this->error($response, 'Could not start the payment. Please try again.', 502);
         }
