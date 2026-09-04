@@ -11,7 +11,12 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { AppointmentsApi, SpecialistsApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  AppointmentsApi,
+  SpecialistsApi,
+  WalletApi,
+} from '@supadoc/data-access';
 import type {
   DayAvailability,
   GuestInvite,
@@ -612,94 +617,65 @@ import {
                   <span class="text-ink">{{ fmt(guestsTotal()) }}</span>
                 </div>
               }
-              <div class="flex justify-between">
-                <span class="text-slate">Platform Fee</span>
-                <span class="text-ink">{{ fmt(platformFee()) }}</span>
-              </div>
               <div
                 class="flex justify-between border-t border-cloud pt-3 font-semibold"
               >
                 <span class="text-ink">Total</span>
-                <span class="text-cerulean">{{ fmt(total()) }}</span>
+                <span class="text-cerulean">{{ fmt(amount()) }}</span>
               </div>
             </div>
 
             <h3 class="mb-3 mt-6 font-heading text-body font-semibold text-cerulean">
-              Select Payment Method
+              Pay from wallet
             </h3>
-            <div class="flex flex-col gap-3">
-              <button
-                type="button"
-                class="flex items-center gap-3 rounded-card border p-4 text-left transition-colors"
-                [class]="
-                  paymentMethod() === 'wallet'
-                    ? 'border-cerulean bg-frost/30'
-                    : 'border-cloud hover:border-cerulean/50'
-                "
-                (click)="paymentMethod.set('wallet')"
-              >
-                <span
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border-2"
-                  [class]="
-                    paymentMethod() === 'wallet'
-                      ? 'border-cerulean'
-                      : 'border-cloud'
-                  "
-                >
-                  @if (paymentMethod() === 'wallet') {
-                    <span class="size-2.5 rounded-full bg-cerulean"></span>
+            <div
+              class="flex items-center justify-between gap-3 rounded-card border p-4"
+              [class]="
+                walletLoaded() && !walletSufficient()
+                  ? 'border-alert/40 bg-alert/5'
+                  : 'border-cerulean bg-frost/30'
+              "
+            >
+              <span class="flex items-center gap-3">
+                <sd-icon name="wallet" [size]="24" class="text-cerulean" />
+                <span class="flex flex-col">
+                  <span class="font-sans text-caption text-slate">Wallet balance</span>
+                  @if (walletLoaded()) {
+                    <span class="font-heading text-body font-semibold text-ink">{{
+                      fmt(walletBalance() ?? 0)
+                    }}</span>
+                  } @else {
+                    <span class="sd-shimmer mt-1 h-4 w-24 rounded"></span>
                   }
                 </span>
-                <span class="flex-1 font-sans text-body font-semibold text-ink"
-                  >Wallet Balance</span
-                >
-                <span class="font-sans text-caption text-slate"
-                  >Coming soon</span
-                >
-              </button>
-              <button
-                type="button"
-                class="flex items-center gap-3 rounded-card border p-4 text-left transition-colors"
-                [class]="
-                  paymentMethod() === 'paystack'
-                    ? 'border-cerulean bg-frost/30'
-                    : 'border-cloud hover:border-cerulean/50'
-                "
-                (click)="paymentMethod.set('paystack')"
-              >
+              </span>
+              @if (walletLoaded()) {
                 <span
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border-2"
-                  [class]="
-                    paymentMethod() === 'paystack'
-                      ? 'border-cerulean'
-                      : 'border-cloud'
-                  "
+                  class="font-sans text-caption font-semibold"
+                  [class]="walletSufficient() ? 'text-sage' : 'text-alert'"
                 >
-                  @if (paymentMethod() === 'paystack') {
-                    <span class="size-2.5 rounded-full bg-cerulean"></span>
-                  }
+                  {{ walletSufficient() ? 'Enough to book' : 'Too low' }}
                 </span>
-                <span class="flex-1 font-sans text-body font-semibold text-ink"
-                  >Paystack</span
-                >
-                <span class="font-heading text-body font-bold text-[#00c3f7]"
-                  >pay<span class="text-[#011b33]">stack</span></span
-                >
-              </button>
+              }
             </div>
 
-            <p
-              class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate"
-            >
-              <sd-icon
-                name="info"
-                [size]="16"
-                class="mt-0.5 shrink-0 text-cerulean"
-              />
-              Online payment isn't enabled yet. Confirm now to book — your
-              appointment is created as <span class="font-medium">unpaid</span>
-              and you can pay once payments go live.
-            </p>
+            @if (walletLoaded() && !walletSufficient()) {
+              <p
+                class="mt-4 flex items-start gap-2 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert"
+              >
+                <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
+                Your wallet is short by {{ fmt(walletShortfall()) }}. Top up your
+                wallet to book this consultation.
+              </p>
+            } @else {
+              <p
+                class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate"
+              >
+                <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+                {{ fmt(amount()) }} will be debited from your wallet when you
+                confirm — you'll get a receipt by email.
+              </p>
+            }
           </div>
 
           @if (submitError()) {
@@ -710,19 +686,18 @@ import {
             <sd-button variant="outline" (click)="back()"
               >Back to previous</sd-button
             >
-            <div class="flex items-center gap-3">
-              <button
-                type="button"
-                class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink disabled:opacity-50"
-                [disabled]="submitting()"
+            @if (walletLoaded() && !walletSufficient()) {
+              <sd-button (click)="goTopUp()">
+                Top up wallet <sd-icon name="arrow-right" [size]="18" />
+              </sd-button>
+            } @else {
+              <sd-button
+                [disabled]="submitting() || !walletLoaded()"
                 (click)="confirm()"
               >
-                Skip for now
-              </button>
-              <sd-button [disabled]="submitting()" (click)="confirm()">
-                {{ submitting() ? 'Confirming…' : 'Pay ' + fmt(total()) }}
+                {{ submitting() ? 'Booking…' : 'Pay ' + fmt(amount()) + ' & book' }}
               </sd-button>
-            </div>
+            }
           </div>
         }
       } @else {
@@ -745,13 +720,17 @@ import {
 export class BookConsultation implements OnInit {
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly appointments = inject(AppointmentsApi);
+  private readonly wallet = inject(WalletApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly steps = [1, 2, 3, 4, 5, 6, 7];
   protected readonly step = signal(1);
-  protected readonly paymentMethod = signal<'wallet' | 'paystack'>('paystack');
+
+  // Wallet — the consultation is paid from the patient's wallet balance.
+  protected readonly walletBalance = signal<number | null>(null);
+  protected readonly walletLoaded = signal(false);
 
   protected readonly specialist = signal<SpecialistDto | null>(null);
   protected readonly pricing = signal<PricingDto | null>(null);
@@ -793,6 +772,17 @@ export class BookConsultation implements OnInit {
       .pricing()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (res) => this.pricing.set(res.data) });
+
+    this.wallet
+      .wallet()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.walletBalance.set(Number(res.data.balance));
+          this.walletLoaded.set(true);
+        },
+        error: () => this.walletLoaded.set(true),
+      });
 
     this.specialistsApi
       .slots(this.specialistId, 7)
@@ -886,10 +876,19 @@ export class BookConsultation implements OnInit {
   protected readonly guestsTotal = computed(
     () => this.validGuests().length * this.guestFee(),
   );
-  /** Consultation fee + guest fees — what the backend persists as `amount`. */
+  /** Consultation fee + guest fees — what the backend charges the wallet. */
   protected readonly amount = computed(() => this.baseFee() + this.guestsTotal());
   /** Amount + platform fee — the checkout total shown at payment. */
   protected readonly total = computed(() => this.amount() + this.platformFee());
+
+  /** Wallet covers the charge (only meaningful once the balance has loaded). */
+  protected readonly walletSufficient = computed(
+    () => this.walletBalance() !== null && (this.walletBalance() as number) >= this.amount(),
+  );
+  /** How much more the wallet needs to cover this booking. */
+  protected readonly walletShortfall = computed(() =>
+    Math.max(0, this.amount() - (this.walletBalance() ?? 0)),
+  );
 
   protected readonly guestNames = computed(() =>
     this.validGuests()
@@ -1013,12 +1012,23 @@ export class BookConsultation implements OnInit {
         queryParams: { booked: '1' },
       });
     } catch (err) {
+      // Backstop: the server rejects an underfunded wallet with a 422 flag —
+      // flip the balance to a known-short state so the top-up CTA shows.
+      const fields = (err as { errors?: Record<string, string> })?.errors;
+      if (fields?.['wallet'] === 'insufficient_funds') {
+        this.walletBalance.set(Math.max(0, this.amount() - 1));
+        this.walletLoaded.set(true);
+      }
       this.submitError.set(
-        (err as { message?: string })?.message ??
-          'Could not complete your booking. Please try again.',
+        apiErrorMessage(err, 'Could not complete your booking. Please try again.'),
       );
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  /** Send the patient to the wallet to top up, then come back to re-book. */
+  protected goTopUp(): void {
+    void this.router.navigate(['/dashboard/wallet']);
   }
 }

@@ -37,7 +37,7 @@ export interface AppointmentDto {
   amount: string;
   notes?: string | null;
   document_url?: string | null;
-  payment_status?: 'unpaid' | 'pending' | 'paid';
+  payment_status?: 'unpaid' | 'pending' | 'paid' | 'refunded';
   guests?: GuestInvite[];
   created_at: string;
 }

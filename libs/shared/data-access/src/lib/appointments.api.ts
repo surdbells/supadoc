@@ -55,6 +55,17 @@ export class AppointmentsApi {
     );
   }
 
+  /**
+   * POST /api/portal/appointments/{id}/cancel — cancel the patient's own
+   * booking. A paid booking is refunded to the wallet server-side.
+   */
+  cancel(id: string): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/cancel`,
+      {},
+    );
+  }
+
   /** POST /api/portal/appointment-documents — upload a supporting image, returns its URL. */
   uploadDocument(file: File): Observable<SuccessResponse<{ url: string }>> {
     const form = new FormData();

@@ -1,8 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, map, of, startWith, switchMap } from 'rxjs';
-import { AppointmentsApi } from '@supadoc/data-access';
+import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
@@ -23,6 +30,7 @@ interface DetailsVm {
   readonly statusClass: string;
   readonly amount: string;
   readonly guests: string[];
+  readonly canCancel: boolean;
 }
 
 const NAIRA = new Intl.NumberFormat('en-NG', {
@@ -68,6 +76,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
     statusClass: STATUS_CLASS[a.status] ?? 'bg-cloud text-slate',
     amount: `₦${NAIRA.format(Number(a.amount) || 0)}`,
     guests: (a.guests ?? []).map((g) => g.name),
+    canCancel: ['pending', 'confirmed', 'rescheduled'].includes(a.status),
   };
 }
 
@@ -99,6 +108,17 @@ function toDetails(a: AppointmentDto): DetailsVm {
           Book Consultation
         </sd-button>
       </div>
+
+      @if (notice(); as n) {
+        <div
+          class="flex items-center gap-2 rounded-card px-5 py-3 font-sans text-body-sm"
+          [class]="n.ok ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'"
+          role="status"
+        >
+          <sd-icon [name]="n.ok ? 'circle-check' : 'triangle-alert'" [size]="18" />
+          {{ n.text }}
+        </div>
+      }
 
       @switch (viewState()) {
         @case ('loading') {
@@ -204,13 +224,17 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 <sd-button variant="outline" [full]="true"
                   >Reschedule Appointment</sd-button
                 >
-                <button
-                  type="button"
-                  class="inline-flex w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5"
-                >
-                  <sd-icon name="trash-2" [size]="18" />
-                  Cancel Appointment
-                </button>
+                @if (v.canCancel) {
+                  <button
+                    type="button"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60"
+                    [disabled]="cancelling()"
+                    (click)="cancel(v.id)"
+                  >
+                    <sd-icon name="trash-2" [size]="18" />
+                    {{ cancelling() ? 'Cancelling…' : 'Cancel Appointment' }}
+                  </button>
+                }
               </div>
             </section>
 
@@ -282,9 +306,44 @@ export class AppointmentDetails {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly appointments = inject(AppointmentsApi);
+  private readonly destroyRef = inject(DestroyRef);
+
+  protected readonly cancelling = signal(false);
+  protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
+  /** Latest appointment after an in-place mutation (e.g. cancel), overriding the fetch. */
+  private readonly override = signal<AppointmentDto | null>(null);
 
   protected joinCall(id: string): void {
     void this.router.navigate(['/dashboard/call', id]);
+  }
+
+  protected cancel(id: string): void {
+    if (this.cancelling()) return;
+    if (!window.confirm('Cancel this appointment? Any payment will be refunded to your wallet.')) {
+      return;
+    }
+    this.cancelling.set(true);
+    this.notice.set(null);
+    this.appointments
+      .cancel(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.override.set(res.data);
+          this.cancelling.set(false);
+          this.notice.set({
+            ok: true,
+            text:
+              res.data.payment_status === 'refunded'
+                ? 'Appointment cancelled. Your payment has been refunded to your wallet.'
+                : 'Appointment cancelled.',
+          });
+        },
+        error: (err) => {
+          this.cancelling.set(false);
+          this.notice.set({ ok: false, text: apiErrorMessage(err, 'Could not cancel the appointment.') });
+        },
+      });
   }
 
   /** Booking starts at the specialist directory (same as the dashboard CTA). */
@@ -313,7 +372,7 @@ export class AppointmentDetails {
   protected readonly viewState = computed(() => this.result().state);
 
   protected readonly vm = computed<DetailsVm | null>(() => {
-    const appt = this.result().appt;
+    const appt = this.override() ?? this.result().appt;
     return appt ? toDetails(appt) : null;
   });
 }
