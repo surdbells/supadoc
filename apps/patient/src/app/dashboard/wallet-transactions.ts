@@ -33,7 +33,7 @@ const FILTERS: Filter[] = [
   imports: [IconComponent, RouterLink, WalletTransactionRow],
   host: { class: 'block' },
   template: `
-    <div class="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <div class="flex flex-col gap-6 py-2">
       <header class="flex items-start justify-between gap-4">
         <div class="flex flex-col gap-2">
           <h1 class="font-heading text-h2 text-ink">Transaction history</h1>

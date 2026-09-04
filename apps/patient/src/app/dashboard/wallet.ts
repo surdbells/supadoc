@@ -43,7 +43,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
   imports: [IconComponent, RouterLink, WalletTransactionRow],
   host: { class: 'block' },
   template: `
-    <div class="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <div class="flex flex-col gap-6 py-2">
       <header>
         <h1 class="font-heading text-h2 text-ink">My Wallet</h1>
         <p class="font-sans text-body text-slate">Manage your funds. View balance and transaction</p>
@@ -67,13 +67,17 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
 
       <!-- Balance card -->
       <section
-        class="relative flex items-center justify-between gap-4 overflow-hidden rounded-card border-[0.5px] border-[#d1e9fd] bg-[#d1e9fd] p-6 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
+        class="relative flex items-center justify-between gap-4 rounded-card border-[0.5px] border-[#d1e9fd] bg-[#d1e9fd] p-6 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
       >
-        <sd-icon
-          name="wallet"
-          [size]="140"
-          class="pointer-events-none absolute right-24 top-1/2 -translate-y-1/2 text-white/40"
-        />
+        <!-- Decorative watermark, clipped to its own layer so the card itself
+             can stay un-clipped and the currency menu below can overflow. -->
+        <div class="pointer-events-none absolute inset-0 overflow-hidden rounded-card">
+          <sd-icon
+            name="wallet"
+            [size]="140"
+            class="absolute right-24 top-1/2 -translate-y-1/2 text-white/40"
+          />
+        </div>
         <span
           class="absolute right-6 top-6 flex items-center gap-1.5 rounded-pill bg-white/70 px-3 py-1 font-sans text-caption font-semibold text-sage"
         >
@@ -103,7 +107,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
               <sd-icon name="chevron-down" [size]="16" class="text-slate" />
             </button>
             @if (currencyOpen()) {
-              <div class="absolute left-0 z-10 mt-1 min-w-40 rounded-field border border-cloud bg-white py-1 shadow-lg">
+              <div class="absolute left-0 z-20 mt-1 min-w-40 rounded-field border border-cloud bg-white py-1 shadow-lg">
                 @for (c of currencies(); track c) {
                   <button
                     type="button"
