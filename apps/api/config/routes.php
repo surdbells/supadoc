@@ -68,6 +68,7 @@ return static function (App $app): void {
         // ----- Staff (default audience) -----
         $group->group('', function (RouteCollectorProxy $group): void {
             $group->get('/me', Action\Auth\MeAction::class);
+            $group->post('/me/password', Action\Auth\ChangePasswordAction::class);
 
             $group->get('/appointments', Action\Appointment\ListAppointmentsAction::class)
                 ->add(new RbacMiddleware('appointments.view'));
@@ -95,6 +96,8 @@ return static function (App $app): void {
             // their own consultations. The action enforces the doctor role.
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
             $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
+            $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
+            $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
 
             // In-consultation clinical documentation. Each action re-checks that
             // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).

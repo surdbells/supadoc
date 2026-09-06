@@ -22,6 +22,21 @@ export interface StaffLoginData {
   user: StaffUserDto;
 }
 
+// ----- Doctor self-service profile -----
+
+/** Fields a doctor may change on their own profile (all optional/partial). */
+export interface DoctorProfileUpdate {
+  email?: string;
+  photo_url?: string;
+  location?: string;
+  languages?: string;
+  years_experience?: number | string | null;
+  gender?: 'male' | 'female' | '';
+  offers_in_person?: boolean;
+  available?: boolean;
+  weekly_hours?: Record<string, [string, string][]> | null;
+}
+
 // ----- Doctor schedule -----
 
 /** A row in the doctor's schedule — an appointment plus join affordances. */

@@ -620,6 +620,19 @@ return [
                 ],
             ],
         ],
+        '/api/me/password' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Change the signed-in staff user's password",
+                'description' => 'Requires the current password; the new one must be at least 8 characters. Works for any staff account (admin, doctor, viewer).',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['current_password', 'new_password'], 'properties' => ['current_password' => ['type' => 'string', 'format' => 'password'], 'new_password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['type' => 'object', 'properties' => ['changed' => ['type' => 'boolean']]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/appointments' => [
             'get' => [
                 'tags'       => ['Staff'],
@@ -676,6 +689,40 @@ return [
                 'responses'   => [
                     '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/profile' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "The signed-in doctor's own profile",
+                'description' => 'Doctor self-service — the linked specialist profile, including the contact email.',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Specialist']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                ],
+            ],
+            'patch' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Update the signed-in doctor's own profile",
+                'description' => 'Doctor self-service: email, photo_url, location, languages, years_experience, gender, offers_in_person, available, weekly_hours. Fee and verified stay back-office controlled.',
+                'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => [
+                    'email' => ['type' => 'string', 'format' => 'email'],
+                    'photo_url' => ['type' => 'string'],
+                    'location' => ['type' => 'string'],
+                    'languages' => ['type' => 'string'],
+                    'years_experience' => ['type' => 'integer'],
+                    'gender' => ['type' => 'string', 'enum' => ['male', 'female']],
+                    'offers_in_person' => ['type' => 'boolean'],
+                    'available' => ['type' => 'boolean'],
+                    'weekly_hours' => ['type' => 'object'],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/Specialist']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],

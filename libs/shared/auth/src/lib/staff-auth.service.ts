@@ -81,6 +81,16 @@ export class StaffAuthService {
     }
   }
 
+  /** POST /api/me/password — change the signed-in staff user's password. */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await firstValueFrom(
+      this.api.post('api/me/password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    );
+  }
+
   hasRefreshToken(): boolean {
     return this.read(this.refreshKey) !== null;
   }

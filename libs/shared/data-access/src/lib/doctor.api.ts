@@ -11,12 +11,14 @@ import type {
   CreatePrescriptionParams,
   CreateReferralParams,
   DoctorCopilotStateDto,
+  DoctorProfileUpdate,
   DoctorRecordingStateDto,
   DoctorScheduleDto,
   LabOrderDto,
   PrescriptionDto,
   RecordingDto,
   ReferralDto,
+  SpecialistAdminDto,
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
@@ -48,6 +50,23 @@ export class DoctorApi {
     return this.api.post<SuccessResponse<AppointmentDto>>(
       `${this.base(id)}/confirm`,
       {},
+    );
+  }
+
+  // ----- Profile (self-service) -----
+
+  /** GET /api/doctor/profile — the doctor's own profile (incl. contact email). */
+  getProfile(): Observable<SuccessResponse<SpecialistAdminDto>> {
+    return this.api.get<SuccessResponse<SpecialistAdminDto>>('api/doctor/profile');
+  }
+
+  /** PATCH /api/doctor/profile — update the doctor's own profile. */
+  updateProfile(
+    params: DoctorProfileUpdate,
+  ): Observable<SuccessResponse<SpecialistAdminDto>> {
+    return this.api.patch<SuccessResponse<SpecialistAdminDto>>(
+      'api/doctor/profile',
+      params,
     );
   }
 
