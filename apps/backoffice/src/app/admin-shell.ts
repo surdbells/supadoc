@@ -103,9 +103,19 @@ const NAV: NavItem[] = [
           }
         </nav>
       </div>
-      <button type="button" class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40" (click)="logout()">
-        <sd-icon name="log-out" [size]="20" />Sign out
-      </button>
+      <div class="flex flex-col gap-1">
+        <a
+          routerLink="/settings"
+          routerLinkActive="bg-frost !text-cerulean"
+          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          (click)="menuOpen.set(false)"
+        >
+          <sd-icon name="settings" [size]="20" />Settings
+        </a>
+        <button type="button" class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40" (click)="logout()">
+          <sd-icon name="log-out" [size]="20" />Sign out
+        </button>
+      </div>
     </ng-template>
   `,
 })

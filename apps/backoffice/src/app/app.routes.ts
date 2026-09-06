@@ -54,6 +54,11 @@ export const appRoutes: Route[] = [
         canActivate: [permissionGuard('settings.manage')],
         loadComponent: () => import('./pricing/pricing').then((m) => m.AdminPricing),
       },
+      {
+        // Account settings — any signed-in staff user (no extra permission).
+        path: 'settings',
+        loadComponent: () => import('./settings/settings').then((m) => m.AdminSettings),
+      },
     ],
   },
   { path: '**', redirectTo: '' },
