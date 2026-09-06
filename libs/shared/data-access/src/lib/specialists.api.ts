@@ -99,6 +99,14 @@ export class SpecialistsApi {
   }
 
   /**
+   * GET /api/specialists — back-office specialist list (unpaginated, incl. the
+   * contact email). Staff-scoped (needs `specialists.manage`).
+   */
+  listAdmin(): Observable<SuccessResponse<SpecialistAdminDto[]>> {
+    return this.api.get<SuccessResponse<SpecialistAdminDto[]>>('api/specialists');
+  }
+
+  /**
    * PATCH /api/specialists/{id} — back-office edit of a specialist's contact
    * email / fee / availability. Staff-scoped (needs `specialists.manage`); the
    * response echoes the otherwise server-side email.

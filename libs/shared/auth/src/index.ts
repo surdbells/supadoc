@@ -4,3 +4,7 @@ export * from './lib/auth.interceptor';
 export * from './lib/auth-refresh.interceptor';
 export * from './lib/auth.guard';
 export * from './lib/provide-auth';
+export * from './lib/staff-auth.service';
+export * from './lib/staff-auth.interceptor';
+export * from './lib/staff-auth.guard';
+export * from './lib/provide-staff-auth';

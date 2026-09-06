@@ -9,7 +9,7 @@ import {
   httpErrorInterceptor,
   provideSupadocDataAccess,
 } from '@supadoc/data-access';
-import { authInterceptor, provideSupadocAuth } from '@supadoc/auth';
+import { provideStaffAuth, staffAuthInterceptor } from '@supadoc/auth';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { appRoutes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -20,10 +20,14 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(appRoutes),
     provideHttpClient(
-      withInterceptors([authInterceptor, httpErrorInterceptor]),
+      withInterceptors([staffAuthInterceptor, httpErrorInterceptor]),
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
-    provideSupadocAuth(),
+    // Doctor silo: its own token key, and only `doctor` accounts may sign in.
+    provideStaffAuth({
+      storageKey: 'videomed.doctor.token',
+      requiredRole: 'doctor',
+    }),
     provideSupadocIcons(),
   ],
 };
