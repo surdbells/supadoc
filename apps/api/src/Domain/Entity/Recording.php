@@ -79,6 +79,17 @@ class Recording
         return $this->id;
     }
 
+    public function getAppointmentId(): string
+    {
+        return $this->appointmentId;
+    }
+
+    /** @return list<string> the recorded file keys (empty until stopped). */
+    public function getFiles(): array
+    {
+        return $this->files ?? [];
+    }
+
     public function getResourceId(): string
     {
         return $this->resourceId;

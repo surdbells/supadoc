@@ -7,6 +7,7 @@ import type {
   MonitoringQualityDto,
   PaginatedResponse,
   RecordingDto,
+  RecordingFilesDto,
   SuccessResponse,
 } from '@supadoc/models';
 import { ApiService, QueryParams } from './api.service';
@@ -44,6 +45,13 @@ export class MonitoringApi {
   recordings(): Observable<SuccessResponse<RecordingDto[]>> {
     return this.api.get<SuccessResponse<RecordingDto[]>>(
       'api/admin/monitoring/recordings',
+    );
+  }
+
+  /** GET /api/admin/recordings/{id}/files — playback/download URLs. */
+  recordingFiles(id: string): Observable<SuccessResponse<RecordingFilesDto>> {
+    return this.api.get<SuccessResponse<RecordingFilesDto>>(
+      `api/admin/recordings/${encodeURIComponent(id)}/files`,
     );
   }
 

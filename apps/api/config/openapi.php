@@ -350,6 +350,9 @@ return [
         '/api/doctor/appointments/{id}/recording' => [
             'get' => ['tags' => ['Doctor'], 'summary' => 'Recording availability + active session', 'responses' => ['200' => ['description' => 'OK']]],
         ],
+        '/api/doctor/appointments/{id}/recording/files' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Recording playback/download URLs', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
         '/api/doctor/appointments/{id}/recording/start' => [
             'post' => ['tags' => ['Doctor'], 'summary' => 'Start cloud recording (consent-gated)', 'responses' => ['201' => ['description' => 'Started']]],
         ],
@@ -410,6 +413,9 @@ return [
         ],
         '/api/admin/monitoring/recordings' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'Recent recordings', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/admin/recordings/{id}/files' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'Recording playback/download URLs', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/admin/monitoring/audit' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'Audit log (paginated)', 'responses' => ['200' => ['description' => 'OK']]],

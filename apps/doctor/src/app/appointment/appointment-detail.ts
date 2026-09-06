@@ -21,6 +21,7 @@ import type {
   LabOrderDto,
   PrescriptionDto,
   PrescriptionItem,
+  RecordingFileDto,
   ReferralDto,
   TranscriptSegmentDto,
 } from '@supadoc/models';
@@ -336,6 +337,27 @@ const FIELD =
                 } @else {
                   <div class="sd-shimmer h-16 rounded-field"></div>
                 }
+
+                <div class="flex flex-col gap-2 border-t border-cloud pt-4">
+                  <h3 class="font-heading text-body font-semibold text-slate">Recorded files</h3>
+                  @for (f of recordingFiles(); track f.key) {
+                    <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-2.5">
+                      <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
+                        <sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" />
+                        <span class="truncate">{{ f.name }}</span>
+                      </span>
+                      @if (f.url) {
+                        <a [href]="f.url" target="_blank" rel="noopener" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline">
+                          <sd-icon name="download" [size]="16" />Download
+                        </a>
+                      } @else {
+                        <span class="shrink-0 font-sans text-caption text-slate">Storage not configured</span>
+                      }
+                    </div>
+                  } @empty {
+                    <p class="font-sans text-body-sm text-slate">No recorded files yet.</p>
+                  }
+                </div>
               </div>
             }
 
@@ -436,6 +458,7 @@ export class DoctorAppointmentDetail implements OnInit {
   // Consents / recording / AI
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly recording = signal<DoctorRecordingStateDto | null>(null);
+  protected readonly recordingFiles = signal<RecordingFileDto[]>([]);
   protected readonly transcript = signal<TranscriptSegmentDto[]>([]);
   protected readonly copilot = signal<CopilotDraftDto | null>(null);
 
@@ -497,6 +520,7 @@ export class DoctorAppointmentDetail implements OnInit {
         break;
       case 'recording':
         this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined });
+        this.api.recordingFiles(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recordingFiles.set(r.data.files), error: () => undefined });
         break;
       case 'ai':
         this.api.transcript(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.transcript.set(r.data), error: () => undefined });
@@ -610,7 +634,10 @@ export class DoctorAppointmentDetail implements OnInit {
     this.runSection(this.api.startRecording(this.id), () => this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined }), 'Could not start recording — check the patient has granted recording consent.');
   }
   protected stopRecording(): void {
-    this.runSection(this.api.stopRecording(this.id), () => this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined }));
+    this.runSection(this.api.stopRecording(this.id), () => {
+      this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined });
+      this.api.recordingFiles(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recordingFiles.set(r.data.files), error: () => undefined });
+    });
   }
 
   // ----- AI -----

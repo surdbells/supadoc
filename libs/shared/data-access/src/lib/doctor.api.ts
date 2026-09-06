@@ -17,6 +17,7 @@ import type {
   LabOrderDto,
   PrescriptionDto,
   RecordingDto,
+  RecordingFilesDto,
   ReferralDto,
   SpecialistAdminDto,
   SuccessResponse,
@@ -195,6 +196,13 @@ export class DoctorApi {
     return this.api.post<SuccessResponse<RecordingDto | { active: false }>>(
       `${this.base(id)}/recording/stop`,
       {},
+    );
+  }
+
+  /** GET .../recording/files — playback/download URLs for the appt's recordings. */
+  recordingFiles(id: string): Observable<SuccessResponse<RecordingFilesDto>> {
+    return this.api.get<SuccessResponse<RecordingFilesDto>>(
+      `${this.base(id)}/recording/files`,
     );
   }
 

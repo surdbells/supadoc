@@ -38,6 +38,7 @@ use App\Infrastructure\Service\ReminderService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
+use App\Infrastructure\Service\RecordingStorage;
 use App\Infrastructure\Service\SessionService;
 use App\Infrastructure\Service\SettingsCacheService;
 use App\Infrastructure\Service\PaystackService;
@@ -180,6 +181,17 @@ return [
             'accessKey' => trim($_ENV['AGORA_RECORDING_ACCESS_KEY'] ?? ''),
             'secretKey' => trim($_ENV['AGORA_RECORDING_SECRET_KEY'] ?? ''),
         ],
+    ),
+
+    // Resolves recording file keys to playback/download URLs (public/CDN base,
+    // or an S3 SigV4 presigned URL). Not configured => url() returns null.
+    RecordingStorage::class => static fn (): RecordingStorage => new RecordingStorage(
+        publicBase: trim($_ENV['AGORA_RECORDING_PUBLIC_BASE'] ?? ''),
+        bucket:     trim($_ENV['AGORA_RECORDING_BUCKET'] ?? ''),
+        region:     trim($_ENV['AGORA_RECORDING_S3_REGION'] ?? ''),
+        accessKey:  trim($_ENV['AGORA_RECORDING_ACCESS_KEY'] ?? ''),
+        secretKey:  trim($_ENV['AGORA_RECORDING_SECRET_KEY'] ?? ''),
+        endpoint:   trim($_ENV['AGORA_RECORDING_S3_ENDPOINT'] ?? ''),
     ),
 
     EmailOtpService::class => static fn (ContainerInterface $c): EmailOtpService => new EmailOtpService(

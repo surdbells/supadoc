@@ -119,3 +119,18 @@ export interface AuditEventDto {
 
 /** Re-export so back-office code can import the recording shape from one place. */
 export type MonitoringRecordingDto = RecordingDto;
+
+/** One resolved recording file (url is null when storage isn't configured). */
+export interface RecordingFileDto {
+  recording_id?: string;
+  key: string;
+  name: string;
+  url: string | null;
+}
+
+/** Playback/download URLs for a recording (or a consultation's recordings). */
+export interface RecordingFilesDto {
+  configured: boolean;
+  recording?: RecordingDto;
+  files: RecordingFileDto[];
+}

@@ -136,6 +136,7 @@ return static function (App $app): void {
 
             // Cloud recording — consent-gated start/stop + status.
             $group->get('/doctor/appointments/{id}/recording', Action\Doctor\GetRecordingAction::class);
+            $group->get('/doctor/appointments/{id}/recording/files', Action\Doctor\GetRecordingFilesAction::class);
             $group->post('/doctor/appointments/{id}/recording/start', Action\Doctor\StartRecordingAction::class);
             $group->post('/doctor/appointments/{id}/recording/stop', Action\Doctor\StopRecordingAction::class);
 
@@ -154,6 +155,8 @@ return static function (App $app): void {
             $group->get('/admin/monitoring/consultations', Action\Admin\MonitoringConsultationsAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
             $group->get('/admin/monitoring/recordings', Action\Admin\MonitoringRecordingsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->get('/admin/recordings/{id}/files', Action\Admin\AdminRecordingFilesAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
             $group->get('/admin/monitoring/audit', Action\Admin\MonitoringAuditAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));

@@ -12,6 +12,7 @@ import type {
   MonitoringConsultationRow,
   MonitoringQualityDto,
   RecordingDto,
+  RecordingFileDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -124,6 +125,7 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
                   <th class="px-4 py-3">Started by</th>
                   <th class="px-4 py-3">Started</th>
                   <th class="px-4 py-3">Files</th>
+                  <th class="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -133,9 +135,14 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
                     <td class="px-4 py-3 text-slate">{{ r.started_by || '—' }}</td>
                     <td class="px-4 py-3 text-slate">{{ when(r.started_at) }}</td>
                     <td class="px-4 py-3 text-slate">{{ r.files.length }}</td>
+                    <td class="px-4 py-3 text-right">
+                      @if (r.files.length > 0) {
+                        <button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openFiles(r)">View files</button>
+                      } @else { <span class="text-ash">—</span> }
+                    </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="4" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No recordings.' }}</td></tr>
+                  <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No recordings.' }}</td></tr>
                 }
               </tbody>
             </table>
@@ -143,6 +150,39 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
         }
       }
     </div>
+
+    @if (filesOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="filesOpen.set(false)"></button>
+        <div class="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
+          <div class="flex items-center justify-between">
+            <h2 class="font-heading text-h5 text-ink">Recording files</h2>
+            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="filesOpen.set(false)"><sd-icon name="x" [size]="24" /></button>
+          </div>
+          @if (filesLoading()) {
+            <div class="sd-shimmer h-16 rounded-field"></div>
+          } @else {
+            @for (f of files(); track f.key) {
+              <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-2.5">
+                <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
+                  <sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" />
+                  <span class="truncate">{{ f.name }}</span>
+                </span>
+                @if (f.url) {
+                  <a [href]="f.url" target="_blank" rel="noopener" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline">
+                    <sd-icon name="download" [size]="16" />Download
+                  </a>
+                } @else {
+                  <span class="shrink-0 font-sans text-caption text-slate">Storage not configured</span>
+                }
+              </div>
+            } @empty {
+              <p class="font-sans text-body-sm text-slate">No files.</p>
+            }
+          }
+        </div>
+      </div>
+    }
   `,
 })
 export class AdminMonitoring implements OnInit {
@@ -162,8 +202,29 @@ export class AdminMonitoring implements OnInit {
   protected readonly quality = signal<MonitoringQualityDto | null>(null);
   protected readonly recordings = signal<RecordingDto[]>([]);
 
+  // Files modal
+  protected readonly filesOpen = signal(false);
+  protected readonly filesLoading = signal(false);
+  protected readonly files = signal<RecordingFileDto[]>([]);
+
   ngOnInit(): void {
     this.select('consultations');
+  }
+
+  protected openFiles(r: RecordingDto): void {
+    this.filesOpen.set(true);
+    this.filesLoading.set(true);
+    this.files.set([]);
+    this.api
+      .recordingFiles(r.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.files.set(res.data.files);
+          this.filesLoading.set(false);
+        },
+        error: () => this.filesLoading.set(false),
+      });
   }
 
   protected select(tab: TabKey): void {
