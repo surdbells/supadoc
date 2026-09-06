@@ -84,6 +84,16 @@ return static function (App $app): void {
             $group->get('/patients', Action\Admin\SearchPatientsAction::class)
                 ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
 
+            // Staff & role management.
+            $group->get('/staff', Action\Admin\ListStaffAction::class)
+                ->add(new RbacMiddleware('staff.manage'));
+            $group->post('/staff', Action\Admin\CreateStaffAction::class)
+                ->add(new RbacMiddleware('staff.manage'));
+            $group->patch('/staff/{id}', Action\Admin\UpdateStaffAction::class)
+                ->add(new RbacMiddleware('staff.manage'));
+            $group->post('/staff/{id}/password', Action\Admin\ResetStaffPasswordAction::class)
+                ->add(new RbacMiddleware('staff.manage'));
+
             $group->patch('/appointments/{id}/status', Action\Appointment\UpdateAppointmentStatusAction::class)
                 ->add(new RbacMiddleware('appointments.update'));
 

@@ -693,6 +693,77 @@ return [
                 ],
             ],
         ],
+        '/api/staff' => [
+            'get' => [
+                'tags'      => ['Staff'],
+                'summary'   => 'List staff accounts',
+                'description' => 'The staff directory. Needs staff.manage.',
+                'responses' => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/StaffUser']]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing staff.manage'],
+                ],
+            ],
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Create a staff account',
+                'description' => 'Needs staff.manage. Only a super_admin may grant the super_admin role.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email', 'first_name', 'last_name', 'password'], 'properties' => [
+                    'email' => ['type' => 'string', 'format' => 'email'],
+                    'first_name' => ['type' => 'string'],
+                    'last_name' => ['type' => 'string'],
+                    'password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8],
+                    'roles' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'permissions' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'specialist_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true],
+                ]])],
+                'responses'   => [
+                    '201' => ['description' => 'Created', ...$json($envelope(['$ref' => '#/components/schemas/StaffUser']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing staff.manage / super_admin'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/staff/{id}' => [
+            'patch' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Update a staff account',
+                'description' => 'Partial. Only a super_admin may grant super_admin or edit a super_admin; you cannot deactivate yourself.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => [
+                    'email' => ['type' => 'string', 'format' => 'email'],
+                    'first_name' => ['type' => 'string'],
+                    'last_name' => ['type' => 'string'],
+                    'roles' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'permissions' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'active' => ['type' => 'boolean'],
+                    'specialist_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/StaffUser']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing staff.manage / super_admin'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/staff/{id}/password' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Reset a staff account's password (admin)",
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['new_password'], 'properties' => ['new_password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Reset', ...$json($envelope(['type' => 'object', 'properties' => ['changed' => ['type' => 'boolean']]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing staff.manage / super_admin'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/appointments/{id}' => [
             'get' => [
                 'tags'       => ['Staff'],

@@ -7,6 +7,7 @@ export * from './lib/admin-patients.api';
 export * from './lib/doctor.api';
 export * from './lib/monitoring.api';
 export * from './lib/settings.api';
+export * from './lib/staff.api';
 export * from './lib/specialists.api';
 export * from './lib/patient.api';
 export * from './lib/notifications.api';

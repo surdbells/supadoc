@@ -23,4 +23,20 @@ final class UserRepository extends BaseRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+
+    /**
+     * All staff users (non-deleted), by name — the back-office staff directory.
+     *
+     * @return list<User>
+     */
+    public function all(int $limit = 500): array
+    {
+        return $this->qb()
+            ->andWhere('e.deletedAt IS NULL')
+            ->orderBy('e.firstName', 'ASC')
+            ->addOrderBy('e.lastName', 'ASC')
+            ->setMaxResults(max(1, min(1000, $limit)))
+            ->getQuery()
+            ->getResult();
+    }
 }

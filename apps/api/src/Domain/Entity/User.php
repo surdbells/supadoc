@@ -73,6 +73,26 @@ class User
         return $this->email;
     }
 
+    public function setEmail(string $email): void
+    {
+        $this->email = strtolower(trim($email));
+    }
+
+    public function setFirstName(string $firstName): void
+    {
+        $this->firstName = $firstName;
+    }
+
+    public function setLastName(string $lastName): void
+    {
+        $this->lastName = $lastName;
+    }
+
+    public function setActive(bool $active): void
+    {
+        $this->active = $active;
+    }
+
     public function setPassword(string $plain): void
     {
         $this->passwordHash = password_hash($plain, PASSWORD_DEFAULT);

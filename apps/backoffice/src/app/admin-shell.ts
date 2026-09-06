@@ -27,6 +27,7 @@ const NAV: NavItem[] = [
   { label: 'Appointments', icon: 'calendar-days', link: '/appointments', permission: 'appointments.view' },
   { label: 'Monitoring', icon: 'activity', link: '/monitoring', permission: 'monitoring.view' },
   { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage' },
+  { label: 'Staff & roles', icon: 'users', link: '/staff', permission: 'staff.manage' },
   { label: 'Pricing', icon: 'banknote', link: '/pricing', permission: 'settings.manage' },
   { label: 'Audit log', icon: 'history', link: '/audit', permission: 'monitoring.view' },
 ];
