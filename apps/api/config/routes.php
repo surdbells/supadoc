@@ -80,6 +80,10 @@ return static function (App $app): void {
                 // Array + default requireAll:false means ANY of these permissions.
                 ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
 
+            // Staff patient lookup for booking on a patient's behalf.
+            $group->get('/patients', Action\Admin\SearchPatientsAction::class)
+                ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
+
             $group->patch('/appointments/{id}/status', Action\Appointment\UpdateAppointmentStatusAction::class)
                 ->add(new RbacMiddleware('appointments.update'));
 

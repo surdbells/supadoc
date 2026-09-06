@@ -32,4 +32,32 @@ final class PatientRepository extends BaseRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+
+    /**
+     * Staff lookup by name / email / phone (case-insensitive substring), for the
+     * back-office appointment-creation flow.
+     *
+     * @return list<Patient>
+     */
+    public function search(string $term, int $limit = 10): array
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return [];
+        }
+        $like = '%' . strtolower($term) . '%';
+
+        return $this->qb()
+            ->andWhere('e.deletedAt IS NULL')
+            ->andWhere(
+                '(LOWER(e.firstName) LIKE :q OR LOWER(e.lastName) LIKE :q '
+                . "OR LOWER(CONCAT(e.firstName, ' ', e.lastName)) LIKE :q "
+                . 'OR LOWER(e.email) LIKE :q OR e.phone LIKE :q)',
+            )
+            ->setParameter('q', $like)
+            ->orderBy('e.firstName', 'ASC')
+            ->setMaxResults(max(1, min(50, $limit)))
+            ->getQuery()
+            ->getResult();
+    }
 }

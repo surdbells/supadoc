@@ -36,6 +36,12 @@ export const appRoutes: Route[] = [
           import('./appointments/appointments').then((m) => m.AdminAppointments),
       },
       {
+        path: 'appointments/new',
+        canActivate: [permissionGuard('appointments.create')],
+        loadComponent: () =>
+          import('./appointments/appointment-new').then((m) => m.AdminAppointmentNew),
+      },
+      {
         path: 'appointments/:id',
         canActivate: [permissionGuard('appointments.view')],
         loadComponent: () =>

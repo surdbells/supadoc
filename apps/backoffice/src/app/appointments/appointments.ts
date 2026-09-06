@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
@@ -9,6 +10,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { AdminAppointmentsApi } from '@supadoc/data-access';
+import { StaffAuthService } from '@supadoc/auth';
 import type { AppointmentDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -34,9 +36,16 @@ const FILTERS: Filter[] = [
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Appointments</h1>
-        <p class="font-sans text-body text-slate">Every consultation across the platform.</p>
+      <header class="flex flex-wrap items-start justify-between gap-4">
+        <div class="flex flex-col gap-1">
+          <h1 class="font-heading text-h3 text-ink">Appointments</h1>
+          <p class="font-sans text-body text-slate">Every consultation across the platform.</p>
+        </div>
+        @if (canCreate()) {
+          <a routerLink="/appointments/new" class="flex shrink-0 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">
+            <sd-icon name="plus" [size]="18" />New appointment
+          </a>
+        }
       </header>
 
       <div class="flex flex-wrap gap-2">
@@ -98,8 +107,10 @@ const FILTERS: Filter[] = [
 })
 export class AdminAppointments implements OnInit {
   private readonly api = inject(AdminAppointmentsApi);
+  private readonly auth = inject(StaffAuthService);
   private readonly destroyRef = inject(DestroyRef);
 
+  protected readonly canCreate = computed(() => this.auth.hasPermission('appointments.create'));
   protected readonly filters = FILTERS;
   protected readonly active = signal('all');
   protected readonly items = signal<AppointmentDto[]>([]);

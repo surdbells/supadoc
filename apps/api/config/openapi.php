@@ -668,6 +668,31 @@ return [
                 ],
             ],
         ],
+        '/api/patients' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Search patients (name / email / phone)',
+                'description' => 'Staff lookup for booking on a patient\'s behalf. Requires a 2+ char query; returns a slim projection. Needs appointments.create/book.',
+                'parameters'  => [
+                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Name, email or phone (min 2 chars)'],
+                    ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 10]],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'         => ['type' => 'string', 'format' => 'uuid'],
+                            'first_name' => ['type' => 'string'],
+                            'last_name'  => ['type' => 'string'],
+                            'email'      => ['type' => 'string'],
+                            'phone'      => ['type' => 'string', 'nullable' => true],
+                        ],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing appointments.create/book'],
+                ],
+            ],
+        ],
         '/api/appointments/{id}' => [
             'get' => [
                 'tags'       => ['Staff'],

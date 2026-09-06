@@ -22,6 +22,15 @@ export interface StaffLoginData {
   user: StaffUserDto;
 }
 
+/** Slim patient result from the staff `GET /api/patients` search. */
+export interface PatientSummaryDto {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+}
+
 // ----- Doctor self-service profile -----
 
 /** Fields a doctor may change on their own profile (all optional/partial). */
