@@ -912,6 +912,25 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/patients' => [
+            'get' => [
+                'tags'       => ['Staff'],
+                'summary'    => "The doctor's own patients (paginated)",
+                'parameters' => [
+                    ...$paginationParams,
+                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
+                ],
+                'responses'  => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']],
+            ],
+        ],
+        '/api/doctor/patients/{id}' => [
+            'get' => [
+                'tags'       => ['Staff'],
+                'summary'    => "A patient's record (doctor must have seen them)",
+                'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'  => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
         '/api/doctor/earnings' => [
             'get' => ['tags' => ['Staff'], 'summary' => "Doctor earnings summary + available balance", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],

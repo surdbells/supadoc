@@ -190,6 +190,83 @@ final class AppointmentRepository extends BaseRepository
         return number_format((float) $qb->getQuery()->getSingleScalarResult(), 2, '.', '');
     }
 
+    /** Does this specialist have any appointment with the given patient? */
+    public function hasAppointmentWith(string $specialistId, string $patientId): bool
+    {
+        $count = (int) $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.patient = :patient')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('patient', $patientId)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return $count > 0;
+    }
+
+    /** A specialist's appointments with one patient, newest first. @return list<Appointment> */
+    public function forSpecialistAndPatient(string $specialistId, string $patientId): array
+    {
+        return $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.patient = :patient')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('patient', $patientId)
+            ->orderBy('e.scheduledAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * A specialist's patients (one row per patient) with visit count + last
+     * visit, newest-visit first, paginated with optional name/email search.
+     *
+     * @return array{items: list<array<string,mixed>>, total: int}
+     */
+    public function patientsForSpecialist(
+        int $offset,
+        int $perPage,
+        string $specialistId,
+        ?string $search = null,
+    ): array {
+        $applySearch = $search !== null && trim($search) !== '';
+        $like        = $applySearch ? '%' . strtolower(trim($search)) . '%' : null;
+        $searchExpr  = "(LOWER(CONCAT(p.firstName, ' ', p.lastName)) LIKE :q OR LOWER(p.email) LIKE :q)";
+
+        $countQb = $this->em->createQueryBuilder()
+            ->select('COUNT(DISTINCT e.patient)')
+            ->from(Appointment::class, 'e')
+            ->join('e.patient', 'p')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+        if ($applySearch) {
+            $countQb->andWhere($searchExpr)->setParameter('q', $like);
+        }
+        $total = (int) $countQb->getQuery()->getSingleScalarResult();
+
+        $qb = $this->em->createQueryBuilder()
+            ->select('IDENTITY(e.patient) AS patient_id, p.firstName AS first_name, p.lastName AS last_name, p.email AS email, COUNT(e.id) AS visit_count, MAX(e.scheduledAt) AS last_visit')
+            ->from(Appointment::class, 'e')
+            ->join('e.patient', 'p')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->groupBy('e.patient, p.firstName, p.lastName, p.email')
+            ->orderBy('last_visit', 'DESC')
+            ->setFirstResult(max(0, $offset))
+            ->setMaxResults(max(1, $perPage))
+            ->setParameter('specialist', $specialistId);
+        if ($applySearch) {
+            $qb->andWhere($searchExpr)->setParameter('q', $like);
+        }
+
+        return ['items' => $qb->getQuery()->getArrayResult(), 'total' => $total];
+    }
+
     /** Distinct patients a specialist has ever had an appointment with. */
     public function distinctPatientsForSpecialist(string $specialistId): int
     {

@@ -159,6 +159,7 @@ export class DoctorShell {
     { label: 'Dashboard', icon: 'layout-dashboard', link: '/dashboard' },
     { label: 'Schedule', icon: 'calendar-days', link: '/schedule' },
     { label: 'History', icon: 'history', link: '/appointments/history' },
+    { label: 'Patients', icon: 'users', link: '/patients' },
     { label: 'Earnings', icon: 'banknote', link: '/earnings' },
     { label: 'Payouts', icon: 'wallet', link: '/payouts' },
     { label: 'Availability', icon: 'calendar-clock', link: '/availability' },

@@ -125,6 +125,8 @@ return static function (App $app): void {
             $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/decline', Action\Doctor\DeclineDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
+            $group->get('/doctor/patients', Action\Doctor\DoctorPatientsAction::class);
+            $group->get('/doctor/patients/{id}', Action\Doctor\DoctorPatientDetailAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
             // Earnings + payouts (doctor self-service).

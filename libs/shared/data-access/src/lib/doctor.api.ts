@@ -13,6 +13,8 @@ import type {
   DoctorAppointmentDto,
   DoctorCopilotStateDto,
   DoctorDashboardDto,
+  DoctorPatientListItemDto,
+  DoctorPatientRecordDto,
   DoctorProfileDto,
   DoctorProfileUpdate,
   DoctorRecordingStateDto,
@@ -100,6 +102,25 @@ export class DoctorApi {
   }
 
   // ----- Profile (self-service) -----
+
+  // ----- Patients -----
+
+  patients(query?: {
+    page?: number;
+    per_page?: number;
+    search?: string;
+  }): Observable<PaginatedResponse<DoctorPatientListItemDto>> {
+    return this.api.get<PaginatedResponse<DoctorPatientListItemDto>>(
+      'api/doctor/patients',
+      query as QueryParams | undefined,
+    );
+  }
+
+  patient(id: string): Observable<SuccessResponse<DoctorPatientRecordDto>> {
+    return this.api.get<SuccessResponse<DoctorPatientRecordDto>>(
+      `api/doctor/patients/${encodeURIComponent(id)}`,
+    );
+  }
 
   // ----- Earnings & payouts -----
 

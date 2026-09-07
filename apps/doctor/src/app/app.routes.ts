@@ -40,6 +40,16 @@ export const appRoutes: Route[] = [
           ),
       },
       {
+        path: 'patients',
+        loadComponent: () =>
+          import('./patients/patients').then((m) => m.DoctorPatients),
+      },
+      {
+        path: 'patients/:id',
+        loadComponent: () =>
+          import('./patients/patient-detail').then((m) => m.DoctorPatientDetail),
+      },
+      {
         path: 'availability',
         loadComponent: () =>
           import('./availability/availability').then((m) => m.DoctorAvailability),

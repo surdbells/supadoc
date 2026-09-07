@@ -1,5 +1,6 @@
 import type {
   AppointmentDto,
+  MedicalDto,
   RecordingDto,
   SpecialistAdminDto,
   SpecialistDto,
@@ -86,6 +87,31 @@ export interface DoctorDashboardDto {
 /** The doctor's own profile (specialist + contact email + weekly availability). */
 export interface DoctorProfileDto extends SpecialistAdminDto {
   weekly_hours?: WeeklyHours | null;
+}
+
+// ----- Patients (doctor-scoped) -----
+
+export interface DoctorPatientListItemDto {
+  patient_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  visit_count: number;
+  last_visit: string | null;
+}
+
+export interface DoctorPatientRecordDto {
+  patient: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    gender: string | null;
+    date_of_birth: string | null;
+  };
+  medical: MedicalDto;
+  appointments: AppointmentDto[];
+  visit_count: number;
 }
 
 // ----- Earnings & payouts -----
