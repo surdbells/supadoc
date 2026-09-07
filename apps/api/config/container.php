@@ -11,6 +11,7 @@ use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\CopilotDraftRepository;
 use App\Domain\Repository\LabOrderRepository;
+use App\Domain\Repository\MessageRepository;
 use App\Domain\Repository\PayoutAccountRepository;
 use App\Domain\Repository\PayoutRepository;
 use App\Domain\Repository\PrescriptionRepository;
@@ -261,6 +262,9 @@ return [
 
     StaffNotificationRepository::class => static fn (ContainerInterface $c): StaffNotificationRepository =>
         new StaffNotificationRepository($c->get(EntityManagerInterface::class)),
+
+    MessageRepository::class => static fn (ContainerInterface $c): MessageRepository =>
+        new MessageRepository($c->get(EntityManagerInterface::class)),
 
     StaffNotifier::class => static fn (ContainerInterface $c): StaffNotifier => new StaffNotifier(
         $c->get(StaffNotificationRepository::class),

@@ -144,6 +144,10 @@ return static function (App $app): void {
             $group->get('/doctor/payouts', Action\Doctor\ListDoctorPayoutsAction::class);
             $group->post('/doctor/payouts', Action\Doctor\RequestPayoutAction::class);
 
+            // Secure async thread with the patient (per-appointment).
+            $group->get('/doctor/appointments/{id}/messages', Action\Doctor\ListDoctorMessagesAction::class);
+            $group->post('/doctor/appointments/{id}/messages', Action\Doctor\PostDoctorMessageAction::class);
+
             // In-consultation clinical documentation. Each action re-checks that
             // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).
             $group->get('/doctor/appointments/{id}/note', Action\Doctor\GetClinicalNoteAction::class);
@@ -221,6 +225,8 @@ return static function (App $app): void {
             $group->post('/appointments/{id}/review', Action\Patient\SubmitReviewAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
+            $group->get('/appointments/{id}/messages', Action\Appointment\MyMessagesAction::class);
+            $group->post('/appointments/{id}/messages', Action\Appointment\PostMyMessageAction::class);
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);
             $group->get('/appointments/{id}/lab-orders', Action\Appointment\MyLabOrdersAction::class);
             $group->get('/appointments/{id}/care-plan', Action\Appointment\MyCarePlanAction::class);

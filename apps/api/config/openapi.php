@@ -328,6 +328,10 @@ return [
         '/api/doctor/appointments/{id}/note/finalize' => [
             'post' => ['tags' => ['Doctor'], 'summary' => 'Finalize (lock) the SOAP note', 'responses' => ['200' => ['description' => 'OK']]],
         ],
+        '/api/doctor/appointments/{id}/messages' => [
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'Read the patient message thread', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Post a message to the patient', 'responses' => ['201' => ['description' => 'Created'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
         '/api/doctor/appointments/{id}/prescriptions' => [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'List issued prescriptions', 'responses' => ['200' => ['description' => 'OK']]],
             'post' => ['tags' => ['Doctor'], 'summary' => 'Issue an e-prescription', 'responses' => ['201' => ['description' => 'Created']]],
@@ -376,6 +380,10 @@ return [
         // ----- Consultation: patient views -----
         '/api/portal/appointments/{id}/consultation' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'Consultation summary', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/messages' => [
+            'get'  => ['tags' => ['Consultation'], 'summary' => 'Read the doctor message thread', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'post' => ['tags' => ['Consultation'], 'summary' => 'Post a message to the doctor', 'responses' => ['201' => ['description' => 'Created'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/portal/appointments/{id}/prescriptions' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My prescriptions', 'responses' => ['200' => ['description' => 'OK']]],

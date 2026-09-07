@@ -8,10 +8,18 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { catchError, map, of, startWith, switchMap } from 'rxjs';
+import {
+  catchError,
+  distinctUntilChanged,
+  filter,
+  map,
+  of,
+  startWith,
+  switchMap,
+} from 'rxjs';
 import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import type { AppointmentDto, MessageDto } from '@supadoc/models';
+import { ButtonComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
 
 interface SharedDoc {
   readonly name: string;
@@ -86,7 +94,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
 @Component({
   selector: 'pat-appointment-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, ButtonComponent, IconComponent],
+  imports: [RouterLink, ButtonComponent, IconComponent, MessageThreadComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -308,6 +316,31 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 }
               </section>
             </div>
+
+            <!-- Secure messages with the doctor -->
+            <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+              <div class="flex flex-col gap-1">
+                <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
+                  <sd-icon name="message-square" [size]="20" />
+                  Messages
+                </h2>
+                <p class="font-sans text-caption text-slate">
+                  Message {{ v.name }} about this consultation. For emergencies, call your local emergency number.
+                </p>
+              </div>
+              <div class="h-[52vh]">
+                <sd-message-thread
+                  viewerRole="patient"
+                  [messages]="messages()"
+                  [loading]="messagesLoading()"
+                  [sending]="sendingMessage()"
+                  [placeholder]="'Message ' + v.name + '…'"
+                  emptyText="No messages yet. Send a message to your doctor."
+                  (send)="sendMessage(v.id, $event)"
+                />
+              </div>
+              @if (messageError()) { <p class="font-sans text-caption text-alert">{{ messageError() }}</p> }
+            </section>
           }
         }
       }
@@ -346,6 +379,56 @@ export class AppointmentDetails {
 
   protected readonly cancelling = signal(false);
   protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
+
+  // Secure messaging
+  protected readonly messages = signal<MessageDto[]>([]);
+  protected readonly messagesLoading = signal(false);
+  protected readonly sendingMessage = signal(false);
+  protected readonly messageError = signal('');
+
+  constructor() {
+    // Load the thread whenever the appointment id in the route changes.
+    this.route.paramMap
+      .pipe(
+        map((p) => p.get('id') ?? ''),
+        filter((id): id is string => id !== ''),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((id) => this.loadMessages(id));
+  }
+
+  private loadMessages(id: string): void {
+    this.messagesLoading.set(true);
+    this.appointments
+      .messages(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.messages.set(res.data);
+          this.messagesLoading.set(false);
+        },
+        error: () => this.messagesLoading.set(false),
+      });
+  }
+
+  protected sendMessage(id: string, body: string): void {
+    this.sendingMessage.set(true);
+    this.messageError.set('');
+    this.appointments
+      .sendMessage(id, body)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.messages.update((list) => [...list, res.data]);
+          this.sendingMessage.set(false);
+        },
+        error: (err) => {
+          this.messageError.set(apiErrorMessage(err, 'Could not send the message.'));
+          this.sendingMessage.set(false);
+        },
+      });
+  }
 
   // Review
   protected readonly reviewOpen = signal(false);

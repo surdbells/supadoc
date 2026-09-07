@@ -9,6 +9,7 @@ import type {
   JoinInfoDto,
   LabOrderDto,
   ListAppointmentsQuery,
+  MessageDto,
   PaginatedResponse,
   PatientCarePlanDto,
   PatientRecordingsDto,
@@ -187,6 +188,21 @@ export class AppointmentsApi {
     return this.api.post<SuccessResponse<{ recorded: boolean }>>(
       `api/portal/appointments/${encodeURIComponent(id)}/transcript`,
       { text },
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/messages — the doctor thread (marks doctor messages read). */
+  messages(id: string): Observable<SuccessResponse<MessageDto[]>> {
+    return this.api.get<SuccessResponse<MessageDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/messages`,
+    );
+  }
+
+  /** POST /api/portal/appointments/{id}/messages — send a message to the doctor. */
+  sendMessage(id: string, body: string): Observable<SuccessResponse<MessageDto>> {
+    return this.api.post<SuccessResponse<MessageDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/messages`,
+      { body },
     );
   }
 

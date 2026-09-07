@@ -10,6 +10,7 @@ enum NotificationType: string
     case APPOINTMENT  = 'appointment';
     case PRESCRIPTION = 'prescription';
     case PAYMENT      = 'payment';
+    case MESSAGE      = 'message';
     case SYSTEM       = 'system';
 
     public function label(): string
@@ -18,6 +19,7 @@ enum NotificationType: string
             self::APPOINTMENT  => 'Appointment',
             self::PRESCRIPTION => 'Prescription',
             self::PAYMENT      => 'Payment',
+            self::MESSAGE      => 'Message',
             self::SYSTEM       => 'System',
         };
     }

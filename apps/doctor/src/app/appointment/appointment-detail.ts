@@ -20,6 +20,7 @@ import type {
   DoctorAppointmentDto,
   DoctorRecordingStateDto,
   LabOrderDto,
+  MessageDto,
   PrescriptionDto,
   PrescriptionItem,
   RecordingFileDto,
@@ -27,10 +28,11 @@ import type {
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { IconComponent, MessageThreadComponent } from '@supadoc/ui';
 
 type TabKey =
   | 'notes'
+  | 'messages'
   | 'prescriptions'
   | 'labs'
   | 'care'
@@ -47,6 +49,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { key: 'notes', label: 'Clinical note', icon: 'file-text' },
+  { key: 'messages', label: 'Messages', icon: 'message-square' },
   { key: 'prescriptions', label: 'Prescriptions', icon: 'pill' },
   { key: 'labs', label: 'Lab orders', icon: 'clipboard-list' },
   { key: 'care', label: 'Care plan', icon: 'list' },
@@ -76,7 +79,7 @@ const FIELD =
 @Component({
   selector: 'doc-appointment-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, IconComponent, MessageThreadComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -204,6 +207,27 @@ const FIELD =
                     Finalized by {{ note()?.author }} — the patient can now see the summary.
                   </p>
                 }
+              </div>
+            }
+
+            @case ('messages') {
+              <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-1">
+                  <h2 class="font-heading text-body-lg text-ink">Secure messages</h2>
+                  <p class="font-sans text-caption text-slate">Async, non-urgent messages with the patient. Not for emergencies.</p>
+                </div>
+                <div class="h-[58vh]">
+                  <sd-message-thread
+                    viewerRole="doctor"
+                    [messages]="messages()"
+                    [loading]="messagesLoading()"
+                    [sending]="sendingMessage()"
+                    placeholder="Message the patient…"
+                    emptyText="No messages yet. Send the first message to your patient."
+                    (send)="sendMessage($event)"
+                  />
+                </div>
+                @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
               </div>
             }
 
@@ -469,6 +493,11 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly savingNote = signal(false);
   protected readonly finalized = computed(() => this.note()?.status === 'finalized');
 
+  // Messages
+  protected readonly messages = signal<MessageDto[]>([]);
+  protected readonly messagesLoading = signal(false);
+  protected readonly sendingMessage = signal(false);
+
   // Prescriptions
   protected readonly prescriptions = signal<PrescriptionDto[]>([]);
   protected readonly rxItems = signal<PrescriptionItem[]>([{ medication: '' }]);
@@ -539,6 +568,16 @@ export class DoctorAppointmentDetail implements OnInit {
           error: () => undefined,
         });
         break;
+      case 'messages':
+        this.messagesLoading.set(true);
+        this.api.messages(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (r) => {
+            this.messages.set(r.data);
+            this.messagesLoading.set(false);
+          },
+          error: () => this.messagesLoading.set(false),
+        });
+        break;
       case 'prescriptions':
         this.api.listPrescriptions(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.prescriptions.set(r.data), error: () => undefined });
         break;
@@ -586,6 +625,22 @@ export class DoctorAppointmentDetail implements OnInit {
       error: () => {
         this.sectionError.set('Could not save the note.');
         this.savingNote.set(false);
+      },
+    });
+  }
+
+  // ----- Messages -----
+  protected sendMessage(body: string): void {
+    this.sendingMessage.set(true);
+    this.sectionError.set('');
+    this.api.sendMessage(this.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.messages.update((list) => [...list, r.data]);
+        this.sendingMessage.set(false);
+      },
+      error: (err) => {
+        this.sectionError.set(apiErrorMessage(err, 'Could not send the message.'));
+        this.sendingMessage.set(false);
       },
     });
   }

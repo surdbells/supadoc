@@ -493,7 +493,7 @@ export interface SessionDto {
 /** One notification, from `Notification::toArray()`. */
 export interface NotificationDto {
   id: string;
-  type: 'appointment' | 'prescription' | 'payment' | 'system';
+  type: 'appointment' | 'prescription' | 'payment' | 'message' | 'system';
   type_label: string;
   title: string;
   body: string;

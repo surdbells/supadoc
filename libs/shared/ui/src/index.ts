@@ -2,6 +2,7 @@ export * from './lib/alert/alert';
 export * from './lib/button/button';
 export * from './lib/card/card';
 export * from './lib/empty-state/empty-state';
+export * from './lib/message-thread/message-thread';
 export * from './lib/input/input';
 export * from './lib/phone-input/phone-input';
 export * from './lib/toggle/toggle';

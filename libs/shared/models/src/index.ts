@@ -4,5 +4,6 @@ export * from './lib/user';
 export * from './lib/appointment';
 export * from './lib/appointment-api';
 export * from './lib/staff';
+export * from './lib/message';
 export * from './lib/wallet';
 export * from './lib/auth-dto';

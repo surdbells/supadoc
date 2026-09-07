@@ -22,6 +22,7 @@ import type {
   EarningsSummaryDto,
   EarningsTxnDto,
   LabOrderDto,
+  MessageDto,
   PaginatedResponse,
   PayoutAccountDto,
   PayoutAccountInput,
@@ -193,6 +194,21 @@ export class DoctorApi {
     return this.api.patch<SuccessResponse<DoctorProfileDto>>(
       'api/doctor/profile',
       params,
+    );
+  }
+
+  // ----- Secure messaging -----
+
+  /** GET .../messages — the patient thread (marks the patient's messages read). */
+  messages(id: string): Observable<SuccessResponse<MessageDto[]>> {
+    return this.api.get<SuccessResponse<MessageDto[]>>(`${this.base(id)}/messages`);
+  }
+
+  /** POST .../messages — reply to the patient. */
+  sendMessage(id: string, body: string): Observable<SuccessResponse<MessageDto>> {
+    return this.api.post<SuccessResponse<MessageDto>>(
+      `${this.base(id)}/messages`,
+      { body },
     );
   }
 

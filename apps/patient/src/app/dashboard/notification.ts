@@ -11,7 +11,7 @@ import { NotificationsApi } from '@supadoc/data-access';
 import type { NotificationDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
-type Type = 'appointment' | 'prescription' | 'payment' | 'system';
+type Type = 'appointment' | 'prescription' | 'payment' | 'message' | 'system';
 type Tab = 'all' | 'unread' | Type;
 
 interface Notice {
@@ -27,6 +27,7 @@ const TYPE: Record<Type, { label: string; icon: string; tint: string }> = {
   appointment: { label: 'Appointment', icon: 'calendar-clock', tint: 'bg-frost text-cerulean' },
   prescription: { label: 'Prescription', icon: 'pill', tint: 'bg-teal/10 text-teal' },
   payment: { label: 'Payment', icon: 'credit-card', tint: 'bg-sage/15 text-sage' },
+  message: { label: 'Message', icon: 'message-square', tint: 'bg-frost text-cerulean' },
   system: { label: 'System', icon: 'bell', tint: 'bg-sky/10 text-sky' },
 };
 
@@ -202,7 +203,7 @@ export class Notification {
   }
 
   protected type(n: Notice) {
-    return TYPE[n.type];
+    return TYPE[n.type] ?? TYPE.system;
   }
 
   protected reload(): void {
