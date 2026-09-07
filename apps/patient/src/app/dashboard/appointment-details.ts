@@ -31,6 +31,7 @@ interface DetailsVm {
   readonly amount: string;
   readonly guests: string[];
   readonly canCancel: boolean;
+  readonly canReview: boolean;
 }
 
 const NAIRA = new Intl.NumberFormat('en-NG', {
@@ -77,6 +78,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
     amount: `₦${NAIRA.format(Number(a.amount) || 0)}`,
     guests: (a.guests ?? []).map((g) => g.name),
     canCancel: ['pending', 'confirmed', 'rescheduled'].includes(a.status),
+    canReview: a.status === 'completed',
   };
 }
 
@@ -235,6 +237,16 @@ function toDetails(a: AppointmentDto): DetailsVm {
                     {{ cancelling() ? 'Cancelling…' : 'Cancel Appointment' }}
                   </button>
                 }
+                @if (v.canReview && !reviewed()) {
+                  <sd-button variant="outline" [full]="true" (click)="reviewOpen.set(true)">
+                    <sd-icon name="star" [size]="18" />Leave a review
+                  </sd-button>
+                }
+                @if (reviewed()) {
+                  <p class="flex items-center justify-center gap-1.5 font-sans text-body-sm font-semibold text-sage">
+                    <sd-icon name="circle-check" [size]="18" />Thanks for your review!
+                  </p>
+                }
               </div>
             </section>
 
@@ -300,6 +312,30 @@ function toDetails(a: AppointmentDto): DetailsVm {
         }
       }
     </div>
+
+    @if (reviewOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="reviewOpen.set(false)"></button>
+        <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
+          <div class="flex items-center justify-between">
+            <h3 class="font-heading text-h5 text-ink">Rate your consultation</h3>
+            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="reviewOpen.set(false)"><sd-icon name="x" [size]="24" /></button>
+          </div>
+          <div class="flex justify-center gap-2">
+            @for (i of [1,2,3,4,5]; track i) {
+              <button type="button" (click)="reviewRating.set(i)" [attr.aria-label]="i + ' stars'">
+                <sd-icon name="star" [size]="32" [class]="i <= reviewRating() ? 'text-warning' : 'text-cloud'" />
+              </button>
+            }
+          </div>
+          <textarea rows="3" class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" placeholder="Share how it went (optional)" [value]="reviewComment()" (input)="reviewComment.set($any($event.target).value)"></textarea>
+          @if (reviewError()) { <p class="font-sans text-caption text-alert">{{ reviewError() }}</p> }
+          <sd-button [full]="true" [disabled]="reviewing()" (click)="submitReview()">
+            {{ reviewing() ? 'Submitting…' : 'Submit review' }}
+          </sd-button>
+        </div>
+      </div>
+    }
   `,
 })
 export class AppointmentDetails {
@@ -310,11 +346,40 @@ export class AppointmentDetails {
 
   protected readonly cancelling = signal(false);
   protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
+
+  // Review
+  protected readonly reviewOpen = signal(false);
+  protected readonly reviewRating = signal(5);
+  protected readonly reviewComment = signal('');
+  protected readonly reviewing = signal(false);
+  protected readonly reviewError = signal('');
+  protected readonly reviewed = signal(false);
   /** Latest appointment after an in-place mutation (e.g. cancel), overriding the fetch. */
   private readonly override = signal<AppointmentDto | null>(null);
 
   protected joinCall(id: string): void {
     void this.router.navigate(['/dashboard/call', id]);
+  }
+
+  protected submitReview(): void {
+    const id = this.vm()?.id;
+    if (!id || this.reviewing()) return;
+    this.reviewing.set(true);
+    this.reviewError.set('');
+    this.appointments
+      .review(id, this.reviewRating(), this.reviewComment().trim() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.reviewing.set(false);
+          this.reviewOpen.set(false);
+          this.reviewed.set(true);
+        },
+        error: (err) => {
+          this.reviewError.set(apiErrorMessage(err, 'Could not submit your review.'));
+          this.reviewing.set(false);
+        },
+      });
   }
 
   protected cancel(id: string): void {

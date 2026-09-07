@@ -87,6 +87,8 @@ export interface SpecialistDto {
   gender: string | null;
   offers_in_person: boolean;
   photo_url: string | null;
+  bio?: string | null;
+  qualifications?: string | null;
 }
 
 /**

@@ -931,6 +931,15 @@ return [
                 'responses'  => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden'], '404' => ['$ref' => '#/components/responses/NotFound']],
             ],
         ],
+        '/api/doctor/reviews' => [
+            'get' => ['tags' => ['Staff'], 'summary' => "The doctor's reviews (paginated)", 'parameters' => [...$paginationParams], 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/reviews/summary' => [
+            'get' => ['tags' => ['Staff'], 'summary' => 'Rating average, count and distribution', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/reviews/{id}/respond' => [
+            'post' => ['tags' => ['Staff'], 'summary' => 'Respond to a review', 'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]], 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
         '/api/doctor/earnings' => [
             'get' => ['tags' => ['Staff'], 'summary' => "Doctor earnings summary + available balance", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
@@ -1436,6 +1445,20 @@ return [
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
                     '200' => ['description' => 'Cancelled', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/review' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Review a completed consultation (1–5 + comment)',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['rating'], 'properties' => ['rating' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5], 'comment' => ['type' => 'string']]])],
+                'responses'   => [
+                    '201' => ['description' => 'Created'],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '422' => ['$ref' => '#/components/responses/Validation'],

@@ -66,6 +66,18 @@ export class AppointmentsApi {
     );
   }
 
+  /** POST /api/portal/appointments/{id}/review — rate a completed consultation. */
+  review(
+    id: string,
+    rating: number,
+    comment?: string,
+  ): Observable<SuccessResponse<{ id: string; rating: number }>> {
+    return this.api.post<SuccessResponse<{ id: string; rating: number }>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/review`,
+      { rating, comment },
+    );
+  }
+
   /** POST /api/portal/appointment-documents — upload a supporting image, returns its URL. */
   uploadDocument(file: File): Observable<SuccessResponse<{ url: string }>> {
     const form = new FormData();

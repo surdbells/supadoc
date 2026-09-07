@@ -53,6 +53,8 @@ export interface DoctorProfileUpdate {
   offers_in_person?: boolean;
   available?: boolean;
   weekly_hours?: Record<string, [string, string][]> | null;
+  bio?: string;
+  qualifications?: string;
 }
 
 // ----- Doctor schedule -----
@@ -87,6 +89,26 @@ export interface DoctorDashboardDto {
 /** The doctor's own profile (specialist + contact email + weekly availability). */
 export interface DoctorProfileDto extends SpecialistAdminDto {
   weekly_hours?: WeeklyHours | null;
+}
+
+// ----- Reviews -----
+
+export interface ReviewDto {
+  id: string;
+  specialist_id: string;
+  patient_name: string;
+  appointment_id: string | null;
+  rating: number;
+  comment: string | null;
+  response: string | null;
+  responded_at: string | null;
+  created_at: string;
+}
+
+export interface ReviewSummaryDto {
+  average: string;
+  count: number;
+  distribution: Record<string, number>;
 }
 
 // ----- Patients (doctor-scoped) -----

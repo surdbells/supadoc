@@ -160,6 +160,7 @@ export class DoctorShell {
     { label: 'Schedule', icon: 'calendar-days', link: '/schedule' },
     { label: 'History', icon: 'history', link: '/appointments/history' },
     { label: 'Patients', icon: 'users', link: '/patients' },
+    { label: 'Reviews', icon: 'star', link: '/reviews' },
     { label: 'Earnings', icon: 'banknote', link: '/earnings' },
     { label: 'Payouts', icon: 'wallet', link: '/payouts' },
     { label: 'Availability', icon: 'calendar-clock', link: '/availability' },

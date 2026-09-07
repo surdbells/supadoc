@@ -15,6 +15,7 @@ use App\Domain\Repository\PayoutAccountRepository;
 use App\Domain\Repository\PayoutRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
+use App\Domain\Repository\ReviewRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\SessionMetricRepository;
 use App\Domain\Repository\TranscriptSegmentRepository;
@@ -252,6 +253,9 @@ return [
 
     PayoutRepository::class => static fn (ContainerInterface $c): PayoutRepository =>
         new PayoutRepository($c->get(EntityManagerInterface::class)),
+
+    ReviewRepository::class => static fn (ContainerInterface $c): ReviewRepository =>
+        new ReviewRepository($c->get(EntityManagerInterface::class)),
 
     ClinicalNoteRepository::class => static fn (ContainerInterface $c): ClinicalNoteRepository =>
         new ClinicalNoteRepository($c->get(EntityManagerInterface::class)),

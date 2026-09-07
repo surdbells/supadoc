@@ -27,6 +27,8 @@ import type {
   PayoutAccountInput,
   PayoutDto,
   PrescriptionDto,
+  ReviewDto,
+  ReviewSummaryDto,
   RecordingDto,
   RecordingFilesDto,
   ReferralDto,
@@ -119,6 +121,29 @@ export class DoctorApi {
   patient(id: string): Observable<SuccessResponse<DoctorPatientRecordDto>> {
     return this.api.get<SuccessResponse<DoctorPatientRecordDto>>(
       `api/doctor/patients/${encodeURIComponent(id)}`,
+    );
+  }
+
+  // ----- Reviews -----
+
+  reviews(query?: {
+    page?: number;
+    per_page?: number;
+  }): Observable<PaginatedResponse<ReviewDto>> {
+    return this.api.get<PaginatedResponse<ReviewDto>>(
+      'api/doctor/reviews',
+      query as QueryParams | undefined,
+    );
+  }
+
+  reviewsSummary(): Observable<SuccessResponse<ReviewSummaryDto>> {
+    return this.api.get<SuccessResponse<ReviewSummaryDto>>('api/doctor/reviews/summary');
+  }
+
+  respondReview(id: string, response: string): Observable<SuccessResponse<ReviewDto>> {
+    return this.api.post<SuccessResponse<ReviewDto>>(
+      `api/doctor/reviews/${encodeURIComponent(id)}/respond`,
+      { response },
     );
   }
 

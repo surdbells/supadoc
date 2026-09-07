@@ -100,6 +100,14 @@ final class UpdateDoctorProfileAction
             $specialist->setWeeklyHours(is_array($hours) && $hours !== [] ? $hours : null);
         }
 
+        if (array_key_exists('bio', $body)) {
+            $specialist->setBio(trim((string) $body['bio']));
+        }
+
+        if (array_key_exists('qualifications', $body)) {
+            $specialist->setQualifications(trim((string) $body['qualifications']));
+        }
+
         if ($errors !== []) {
             return $this->error($response, 'Validation failed', 422, $errors);
         }

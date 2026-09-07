@@ -78,6 +78,14 @@ class Specialist
     #[ORM\Column(name: 'offers_in_person', type: 'boolean', options: ['default' => false])]
     private bool $offersInPerson = false;
 
+    /** Public "about me" blurb. */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $bio = null;
+
+    /** Qualifications / credentials, e.g. "MBBS, FMCP · MDCN 12345". */
+    #[ORM\Column(type: 'string', length: 300, nullable: true)]
+    private ?string $qualifications = null;
+
     public function __construct(string $name, string $specialty)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -193,6 +201,16 @@ class Specialist
         $this->offersInPerson = $offers;
     }
 
+    public function setBio(?string $bio): void
+    {
+        $this->bio = $bio !== null && trim($bio) !== '' ? trim($bio) : null;
+    }
+
+    public function setQualifications(?string $qualifications): void
+    {
+        $this->qualifications = $qualifications !== null && trim($qualifications) !== '' ? trim($qualifications) : null;
+    }
+
     public function toArray(): array
     {
         return [
@@ -210,6 +228,8 @@ class Specialist
             'gender'           => $this->gender,
             'offers_in_person' => $this->offersInPerson,
             'photo_url'        => $this->photoUrl,
+            'bio'              => $this->bio,
+            'qualifications'   => $this->qualifications,
         ];
     }
 }

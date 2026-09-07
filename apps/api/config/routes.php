@@ -127,6 +127,9 @@ return static function (App $app): void {
             $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
             $group->get('/doctor/patients', Action\Doctor\DoctorPatientsAction::class);
             $group->get('/doctor/patients/{id}', Action\Doctor\DoctorPatientDetailAction::class);
+            $group->get('/doctor/reviews', Action\Doctor\DoctorReviewsAction::class);
+            $group->get('/doctor/reviews/summary', Action\Doctor\DoctorReviewsSummaryAction::class);
+            $group->post('/doctor/reviews/{id}/respond', Action\Doctor\RespondToReviewAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
             // Earnings + payouts (doctor self-service).
@@ -211,6 +214,7 @@ return static function (App $app): void {
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->post('/appointments/{id}/cancel', Action\Appointment\CancelMyAppointmentAction::class);
+            $group->post('/appointments/{id}/review', Action\Patient\SubmitReviewAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);

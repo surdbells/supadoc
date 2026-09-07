@@ -79,6 +79,14 @@ const FIELD =
               <span class="font-sans text-caption font-semibold text-slate">Photo URL</span>
               <input type="url" class="${FIELD}" [value]="photoUrl()" (input)="photoUrl.set($any($event.target).value)" placeholder="https://… or /uploads/…" />
             </label>
+            <label class="flex flex-col gap-1.5 sm:col-span-2">
+              <span class="font-sans text-caption font-semibold text-slate">Qualifications / credentials</span>
+              <input class="${FIELD}" [value]="qualifications()" (input)="qualifications.set($any($event.target).value)" placeholder="e.g. MBBS, FMCP · MDCN 12345" />
+            </label>
+            <label class="flex flex-col gap-1.5 sm:col-span-2">
+              <span class="font-sans text-caption font-semibold text-slate">About you</span>
+              <textarea rows="4" class="${FIELD}" [value]="bio()" (input)="bio.set($any($event.target).value)" placeholder="A short bio patients will see on your profile."></textarea>
+            </label>
           </div>
 
           <div class="flex flex-wrap items-center gap-6">
@@ -150,6 +158,8 @@ export class DoctorProfile implements OnInit {
   protected readonly years = signal('');
   protected readonly gender = signal('');
   protected readonly photoUrl = signal('');
+  protected readonly qualifications = signal('');
+  protected readonly bio = signal('');
   protected readonly available = signal(true);
   protected readonly offersInPerson = signal(false);
   protected readonly savingProfile = signal(false);
@@ -189,6 +199,8 @@ export class DoctorProfile implements OnInit {
           this.years.set(p.years_experience != null ? String(p.years_experience) : '');
           this.gender.set(p.gender ?? '');
           this.photoUrl.set(p.photo_url ?? '');
+          this.qualifications.set(p.qualifications ?? '');
+          this.bio.set(p.bio ?? '');
           this.available.set(!!p.available);
           this.offersInPerson.set(!!p.offers_in_person);
           this.loading.set(false);
@@ -211,6 +223,8 @@ export class DoctorProfile implements OnInit {
         years_experience: this.years().trim() === '' ? null : this.years().trim(),
         gender: this.gender() as 'male' | 'female' | '',
         photo_url: this.photoUrl().trim(),
+        qualifications: this.qualifications().trim(),
+        bio: this.bio().trim(),
         available: this.available(),
         offers_in_person: this.offersInPerson(),
       })
