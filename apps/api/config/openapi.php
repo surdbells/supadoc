@@ -526,6 +526,18 @@ return [
                 ],
             ],
         ],
+        '/api/portal/auth/2fa' => [
+            'post' => [
+                'tags'     => ['Auth'],
+                'summary'  => 'Complete sign-in with a 2FA / recovery code',
+                'security' => [],
+                'responses' => [
+                    '200' => ['description' => 'Signed in'],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/auth/register' => [
             'post' => [
                 'tags'        => ['Auth'],
@@ -1179,6 +1191,29 @@ return [
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
+            ],
+        ],
+        '/api/portal/me/2fa/setup' => [
+            'post' => [
+                'tags'      => ['Portal'],
+                'summary'   => 'Begin enabling 2FA (returns secret + otpauth URI)',
+                'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '409' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/portal/me/2fa/enable' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Confirm + activate 2FA, returns one-time recovery codes',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['code'], 'properties' => ['code' => ['type' => 'string']]])],
+                'responses'   => ['200' => ['description' => 'Enabled'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/portal/me/2fa/disable' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Disable 2FA (requires the account password)',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['password'], 'properties' => ['password' => ['type' => 'string']]])],
+                'responses'   => ['200' => ['description' => 'Disabled'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
         ],
         '/api/portal/specialists' => [

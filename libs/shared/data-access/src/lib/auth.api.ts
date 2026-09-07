@@ -31,6 +31,17 @@ export class AuthApi {
   }
 
   /**
+   * Complete a 2FA sign-in: exchange the challenge from the password step plus a
+   * TOTP / recovery code for a session (POST /api/portal/auth/2fa).
+   */
+  verifyTwoFactor(challenge: string, code: string): Observable<LoginResponse> {
+    return this.api.post<LoginResponse>('api/portal/auth/2fa', {
+      challenge,
+      code,
+    });
+  }
+
+  /**
    * Exchange a Google (Firebase) ID token for a session — VideoMed backend only
    * (POST /api/portal/auth/google).
    */

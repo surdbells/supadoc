@@ -203,6 +203,7 @@ export interface PatientProfileDto {
   gender: string | null;
   address: string | null;
   avatar_url: string | null;
+  two_factor_enabled?: boolean;
   created_at: string;
 }
 

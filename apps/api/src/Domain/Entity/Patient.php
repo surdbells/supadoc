@@ -55,6 +55,17 @@ class Patient
     #[ORM\Column(name: 'phone_verified_at', type: 'datetime_immutable', nullable: true)]
     private ?DateTimeImmutable $phoneVerifiedAt = null;
 
+    /** Base32 TOTP secret; set at setup, only enforced once $twoFactorEnabled. */
+    #[ORM\Column(name: 'totp_secret', type: 'string', length: 64, nullable: true)]
+    private ?string $totpSecret = null;
+
+    #[ORM\Column(name: 'two_factor_enabled', type: 'boolean', options: ['default' => false])]
+    private bool $twoFactorEnabled = false;
+
+    /** Hashes of single-use recovery codes (never stored in the clear). */
+    #[ORM\Column(name: 'two_factor_backup_codes', type: 'json', nullable: true)]
+    private ?array $twoFactorBackupCodes = null;
+
     /** Sparse override map of app preferences; see {@see PatientSettings}. */
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $settings = null;
@@ -106,6 +117,78 @@ class Patient
     public function verifyPassword(string $plain): bool
     {
         return $this->passwordHash !== '' && password_verify($plain, $this->passwordHash);
+    }
+
+    // ----- Two-factor authentication (TOTP) -----
+
+    /** Store a (not-yet-active) TOTP secret from the setup step. */
+    public function setTotpSecret(?string $secret): void
+    {
+        $this->totpSecret = $secret;
+    }
+
+    public function getTotpSecret(): ?string
+    {
+        return $this->totpSecret;
+    }
+
+    public function isTwoFactorEnabled(): bool
+    {
+        return $this->twoFactorEnabled;
+    }
+
+    /**
+     * Activate 2FA and store the hashed recovery codes.
+     *
+     * @param list<string> $backupCodeHashes
+     */
+    public function enableTwoFactor(array $backupCodeHashes): void
+    {
+        $this->twoFactorEnabled     = true;
+        $this->twoFactorBackupCodes = array_values($backupCodeHashes);
+    }
+
+    /** Turn 2FA off and forget the secret + recovery codes. */
+    public function disableTwoFactor(): void
+    {
+        $this->twoFactorEnabled     = false;
+        $this->totpSecret           = null;
+        $this->twoFactorBackupCodes = null;
+    }
+
+    /** How many unused recovery codes remain. */
+    public function backupCodesRemaining(): int
+    {
+        return count($this->twoFactorBackupCodes ?? []);
+    }
+
+    /**
+     * Verify a recovery code against the stored hashes; on success the code is
+     * consumed (removed) and true is returned. Single-use.
+     */
+    public function consumeBackupCode(string $code): bool
+    {
+        $code   = self::normalizeBackupCode($code);
+        if ($code === '') {
+            return false;
+        }
+        $hashes = $this->twoFactorBackupCodes ?? [];
+        foreach ($hashes as $i => $hash) {
+            if (is_string($hash) && password_verify($code, $hash)) {
+                unset($hashes[$i]);
+                $this->twoFactorBackupCodes = array_values($hashes);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Canonical form of a recovery code (case/format-insensitive). */
+    public static function normalizeBackupCode(string $code): string
+    {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $code) ?? '');
     }
 
     public function getPhone(): ?string
@@ -244,6 +327,7 @@ class Patient
             'gender'         => $this->gender,
             'address'        => $this->address,
             'avatar_url'     => $this->avatarUrl,
+            'two_factor_enabled' => $this->twoFactorEnabled,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }

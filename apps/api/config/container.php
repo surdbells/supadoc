@@ -52,6 +52,7 @@ use App\Infrastructure\Service\SessionService;
 use App\Infrastructure\Service\SettingsCacheService;
 use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\TermiiService;
+use App\Infrastructure\Service\TotpService;
 use App\Infrastructure\Service\WalletService;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Handler\StreamHandler;
@@ -229,7 +230,10 @@ return [
         $c->get(PatientRepository::class),
         $c->get(JwtService::class),
         $c->get(SessionService::class),
+        $c->get(TotpService::class),
     ),
+
+    TotpService::class => static fn (): TotpService => new TotpService(),
 
     SessionService::class => static fn (ContainerInterface $c): SessionService =>
         new SessionService($c->get(SessionRepository::class)),

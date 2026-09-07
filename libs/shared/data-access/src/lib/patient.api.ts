@@ -8,6 +8,8 @@ import type {
   PatientSettingsPatch,
   SessionDto,
   SuccessResponse,
+  TwoFactorEnableDto,
+  TwoFactorSetupDto,
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
 import { ApiService } from './api.service';
@@ -123,6 +125,34 @@ export class PatientApi {
     return this.api.post<SuccessResponse<PatientProfileDto>>(
       'api/portal/me/email',
       { email, otp },
+    );
+  }
+
+  // ----- Two-factor authentication -----
+
+  /** POST /api/portal/me/2fa/setup — start enabling 2FA (secret + otpauth URI). */
+  setupTwoFactor(): Observable<SuccessResponse<TwoFactorSetupDto>> {
+    return this.api.post<SuccessResponse<TwoFactorSetupDto>>(
+      'api/portal/me/2fa/setup',
+      {},
+    );
+  }
+
+  /** POST /api/portal/me/2fa/enable — confirm with a code; returns recovery codes. */
+  enableTwoFactor(code: string): Observable<SuccessResponse<TwoFactorEnableDto>> {
+    return this.api.post<SuccessResponse<TwoFactorEnableDto>>(
+      'api/portal/me/2fa/enable',
+      { code },
+    );
+  }
+
+  /** POST /api/portal/me/2fa/disable — turn 2FA off (requires the password). */
+  disableTwoFactor(
+    password: string,
+  ): Observable<SuccessResponse<{ enabled: boolean }>> {
+    return this.api.post<SuccessResponse<{ enabled: boolean }>>(
+      'api/portal/me/2fa/disable',
+      { password },
     );
   }
 

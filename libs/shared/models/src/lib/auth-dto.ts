@@ -76,3 +76,21 @@ export interface LoginResponse {
   jwt?: string;
   [key: string]: unknown;
 }
+
+/** A pending second-factor step returned by `AuthService.login`. */
+export interface TwoFactorChallenge {
+  challenge: string;
+  remember: boolean;
+}
+
+/** Response of POST /api/portal/me/2fa/setup. */
+export interface TwoFactorSetupDto {
+  secret: string;
+  otpauth_uri: string;
+}
+
+/** Response of POST /api/portal/me/2fa/enable. */
+export interface TwoFactorEnableDto {
+  enabled: boolean;
+  backup_codes: string[];
+}

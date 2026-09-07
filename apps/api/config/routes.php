@@ -44,6 +44,7 @@ return static function (App $app): void {
         $group->post('/portal/auth/google', Action\Auth\GoogleLoginAction::class);  // customer (Google)
         $group->post('/portal/auth/email/request-otp', Action\Auth\RequestEmailOtpAction::class);
         $group->post('/portal/auth/email/verify-otp', Action\Auth\VerifyEmailOtpAction::class);
+        $group->post('/portal/auth/2fa', Action\Auth\VerifyTwoFactorLoginAction::class); // 2FA sign-in step
         $group->post('/portal/auth/register', Action\Auth\RegisterAction::class);
         $group->post('/portal/auth/reset-password', Action\Auth\ResetPasswordAction::class);
         $group->post('/portal/auth/phone/request-otp', Action\Auth\RequestPhoneOtpAction::class);
@@ -224,6 +225,9 @@ return static function (App $app): void {
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
             $group->post('/me/email/request-otp', Action\Patient\RequestEmailChangeOtpAction::class);
             $group->post('/me/email', Action\Patient\ChangeMyEmailAction::class);
+            $group->post('/me/2fa/setup', Action\Patient\SetupTwoFactorAction::class);
+            $group->post('/me/2fa/enable', Action\Patient\EnableTwoFactorAction::class);
+            $group->post('/me/2fa/disable', Action\Patient\DisableTwoFactorAction::class);
             $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);

@@ -6,6 +6,7 @@ import type {
   LoginResponse,
   RegisterParams,
   ResetPasswordParams,
+  TwoFactorChallenge,
 } from '@supadoc/models';
 
 const TOKEN_KEY = 'videomed.token';
@@ -61,12 +62,39 @@ export class AuthService {
   }
 
   /**
-   * `POST /login`. Stores the access + refresh tokens. `remember` decides where
-   * they live: `localStorage` (persists across browser restarts) when true,
-   * `sessionStorage` (cleared when the browser closes) when false.
+   * `POST /login`. On success stores the access + refresh tokens and resolves
+   * with `null`. When the account has 2FA enabled, no session is stored and a
+   * {@link TwoFactorChallenge} is returned instead — the caller must then call
+   * {@link verifyTwoFactor}. `remember` decides where tokens live: `localStorage`
+   * (persists across restarts) when true, else `sessionStorage`.
    */
-  async login(params: LoginParams, remember = true): Promise<void> {
+  async login(
+    params: LoginParams,
+    remember = true,
+  ): Promise<TwoFactorChallenge | null> {
     const res = await firstValueFrom(this.authApi.login(params));
+    const data = (res?.['data'] ?? null) as
+      | { two_factor_required?: boolean; challenge?: string }
+      | null;
+    if (data?.two_factor_required && data.challenge) {
+      return { challenge: data.challenge, remember };
+    }
+    this.storeSession(res, remember);
+    return null;
+  }
+
+  /**
+   * Second step of a 2FA sign-in: exchange the challenge + a TOTP / recovery code
+   * for a session.
+   */
+  async verifyTwoFactor(
+    challenge: string,
+    code: string,
+    remember = true,
+  ): Promise<void> {
+    const res = await firstValueFrom(
+      this.authApi.verifyTwoFactor(challenge, code),
+    );
     this.storeSession(res, remember);
   }
 

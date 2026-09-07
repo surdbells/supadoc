@@ -130,6 +130,38 @@ final class JwtService
         return (string) $payload->phone;
     }
 
+    /**
+     * Short-lived proof that a patient passed the password step and now owes a
+     * second factor. Exchanged (with a valid TOTP / backup code) for real tokens.
+     */
+    public function issueTwoFactorChallenge(string $patientId, int $ttl = 600): string
+    {
+        $now = time();
+
+        return JWT::encode([
+            'sub'  => $patientId,
+            'type' => '2fa_challenge',
+            'iat'  => $now,
+            'exp'  => $now + $ttl,
+        ], $this->secret, self::ALGO);
+    }
+
+    /** The patient id from a valid, unexpired 2FA challenge, or null. */
+    public function verifyTwoFactorChallenge(string $token): ?string
+    {
+        try {
+            $payload = JWT::decode($token, new Key($this->secret, self::ALGO));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (($payload->type ?? null) !== '2fa_challenge' || empty($payload->sub)) {
+            return null;
+        }
+
+        return (string) $payload->sub;
+    }
+
     /** Short-lived proof that an email was just verified over an emailed OTP. */
     public function issueEmailProof(string $email, int $ttl = 900): string
     {

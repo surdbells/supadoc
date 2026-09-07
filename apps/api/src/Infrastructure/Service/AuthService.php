@@ -21,6 +21,7 @@ final class AuthService
         private readonly PatientRepository $patients,
         private readonly JwtService $jwt,
         private readonly SessionService $sessions,
+        private readonly TotpService $totp,
     ) {
     }
 
@@ -46,7 +47,13 @@ final class AuthService
         ];
     }
 
-    /** @return array{access_token:string, refresh_token:string, user:array} */
+    /**
+     * Password step of customer sign-in. When the account has 2FA enabled, this
+     * returns a challenge instead of tokens — the caller must then exchange it
+     * (with a TOTP / recovery code) via {@see completeTwoFactorLogin()}.
+     *
+     * @return array{access_token:string, refresh_token:string, user:array}|array{two_factor_required:true, challenge:string}
+     */
     public function loginCustomer(
         string $email,
         string $password,
@@ -56,6 +63,52 @@ final class AuthService
         $patient = $this->patients->findByEmail(strtolower(trim($email)));
         if ($patient === null || !$patient->verifyPassword($password)) {
             throw new AuthenticationException('Invalid email or password');
+        }
+
+        if ($patient->isTwoFactorEnabled()) {
+            return [
+                'two_factor_required' => true,
+                'challenge'           => $this->jwt->issueTwoFactorChallenge($patient->getId()),
+            ];
+        }
+
+        return $this->issueCustomerTokens($patient, $userAgent, $ip);
+    }
+
+    /**
+     * Exchange a 2FA challenge (from {@see loginCustomer()}) plus a TOTP code — or
+     * a single-use recovery code — for real tokens.
+     *
+     * @return array{access_token:string, refresh_token:string, user:array}
+     */
+    public function completeTwoFactorLogin(
+        string $challenge,
+        string $code,
+        string $userAgent = '',
+        string $ip = '',
+    ): array {
+        $patientId = $this->jwt->verifyTwoFactorChallenge($challenge);
+        if ($patientId === null) {
+            throw new AuthenticationException('Your sign-in session expired. Please sign in again.');
+        }
+
+        $patient = $this->patients->find($patientId);
+        if ($patient === null || !$patient->isTwoFactorEnabled()) {
+            throw new AuthenticationException('Two-factor authentication is not active for this account');
+        }
+
+        $code   = trim($code);
+        $secret = (string) $patient->getTotpSecret();
+        $ok     = $secret !== '' && $this->totp->verify($secret, $code);
+        if (!$ok) {
+            // Fall back to a single-use recovery code.
+            $ok = $patient->consumeBackupCode($code);
+            if ($ok) {
+                $this->patients->save($patient);
+            }
+        }
+        if (!$ok) {
+            throw new AuthenticationException('That code is incorrect or has expired');
         }
 
         return $this->issueCustomerTokens($patient, $userAgent, $ip);

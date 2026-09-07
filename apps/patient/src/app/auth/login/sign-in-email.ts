@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
+import type { TwoFactorChallenge } from '@supadoc/models';
 import { AlertComponent, ButtonComponent, InputComponent } from '@supadoc/ui';
 
 /** Sign in with email (Figma 356:4406). */
@@ -18,6 +19,45 @@ import { AlertComponent, ButtonComponent, InputComponent } from '@supadoc/ui';
     <div class="flex flex-col gap-12">
       <h1 class="font-heading text-h1 text-abyss">👋 Welcome back</h1>
 
+      @if (twoFactor()) {
+        <div class="flex flex-col gap-12">
+          <div class="flex flex-col gap-4 text-center">
+            <h2 class="font-heading text-h2 text-ink">Two-step verification</h2>
+            <p class="text-h5 text-slate">
+              Enter the 6-digit code from your authenticator app, or a recovery code.
+            </p>
+          </div>
+
+          <form class="flex flex-col gap-12" [formGroup]="codeForm" (ngSubmit)="verify()">
+            <sd-input
+              label="Authentication code"
+              [required]="true"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              placeholder="123456"
+              formControlName="code"
+            />
+
+            @if (errorMessage()) {
+              <sd-alert tone="error">{{ errorMessage() }}</sd-alert>
+            }
+
+            <div class="flex flex-col gap-4">
+              <sd-button type="submit" [full]="true" [disabled]="submitting()">
+                {{ submitting() ? 'Verifying…' : 'Verify & continue' }}
+              </sd-button>
+              <button
+                type="button"
+                class="font-sans text-body-sm text-slate transition-colors hover:text-ink"
+                (click)="cancelTwoFactor()"
+              >
+                Back to sign in
+              </button>
+            </div>
+          </form>
+        </div>
+      } @else {
       <div class="flex flex-col gap-12">
         <div class="flex flex-col gap-4 text-center">
           <h2 class="font-heading text-h2 text-ink">Sign In with your Email</h2>
@@ -92,6 +132,7 @@ import { AlertComponent, ButtonComponent, InputComponent } from '@supadoc/ui';
           >Register</a
         >
       </p>
+      }
     </div>
   `,
 })
@@ -102,11 +143,16 @@ export class SignInEmail {
 
   protected readonly submitting = signal(false);
   protected readonly errorMessage = signal('');
+  protected readonly twoFactor = signal<TwoFactorChallenge | null>(null);
 
   protected readonly form = this.fb.nonNullable.group({
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required]],
     remember: [false],
+  });
+
+  protected readonly codeForm = this.fb.nonNullable.group({
+    code: ['', [Validators.required]],
   });
 
   protected fieldError(name: 'email' | 'password'): string {
@@ -125,7 +171,7 @@ export class SignInEmail {
     this.submitting.set(true);
     this.errorMessage.set('');
     try {
-      await this.auth.login(
+      const challenge = await this.auth.login(
         {
           userName: this.form.controls.email.value,
           password: this.form.controls.password.value,
@@ -133,6 +179,11 @@ export class SignInEmail {
         },
         this.form.controls.remember.value,
       );
+      if (challenge) {
+        // Account has 2FA — move to the code step instead of navigating.
+        this.twoFactor.set(challenge);
+        return;
+      }
       await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
       const message = (err as { message?: string })?.message;
@@ -140,5 +191,34 @@ export class SignInEmail {
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  protected async verify(): Promise<void> {
+    const challenge = this.twoFactor();
+    if (!challenge || this.codeForm.invalid) {
+      this.codeForm.markAllAsTouched();
+      return;
+    }
+    this.submitting.set(true);
+    this.errorMessage.set('');
+    try {
+      await this.auth.verifyTwoFactor(
+        challenge.challenge,
+        this.codeForm.controls.code.value,
+        challenge.remember,
+      );
+      await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
+    } catch (err) {
+      const message = (err as { message?: string })?.message;
+      this.errorMessage.set(message ?? 'That code is incorrect. Please try again.');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  protected cancelTwoFactor(): void {
+    this.twoFactor.set(null);
+    this.codeForm.reset();
+    this.errorMessage.set('');
   }
 }
