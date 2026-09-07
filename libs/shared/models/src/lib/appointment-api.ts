@@ -416,6 +416,33 @@ export interface CreateReferralParams {
   priority?: 'routine' | 'urgent';
 }
 
+/** A medical certificate issued during a consultation. */
+export interface MedicalCertificateDto {
+  id: string;
+  appointment_id: string;
+  type: 'sick_leave' | 'fitness' | 'general';
+  type_label: string;
+  diagnosis: string | null;
+  statement: string;
+  from_date: string | null;
+  to_date: string | null;
+  days: number | null;
+  author: string | null;
+  created_at: string;
+}
+
+/** Body for issuing a medical certificate. */
+export interface CreateCertificateParams {
+  type: 'sick_leave' | 'fitness' | 'general';
+  statement: string;
+  diagnosis?: string | null;
+  from_date?: string | null;
+  to_date?: string | null;
+}
+
+/** A printable clinical document kind, addressable via .../documents/{kind}/{id}. */
+export type ClinicalDocumentKind = 'prescription' | 'referral' | 'certificate';
+
 /** One consent decision for a consultation. */
 export interface ConsentDto {
   type: 'recording' | 'ai_transcription' | 'data_sharing';

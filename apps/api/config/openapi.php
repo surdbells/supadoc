@@ -344,6 +344,13 @@ return [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'List referrals', 'responses' => ['200' => ['description' => 'OK']]],
             'post' => ['tags' => ['Doctor'], 'summary' => 'Create a referral', 'responses' => ['201' => ['description' => 'Created']]],
         ],
+        '/api/doctor/appointments/{id}/certificates' => [
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'List medical certificates', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Issue a medical certificate', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/doctor/appointments/{id}/documents/{kind}/{docId}' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Render a printable clinical document (HTML)', 'responses' => ['200' => ['description' => 'HTML document'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
         '/api/doctor/appointments/{id}/care-plan' => [
             'get' => ['tags' => ['Doctor'], 'summary' => 'Get care plan', 'responses' => ['200' => ['description' => 'OK']]],
             'put' => ['tags' => ['Doctor'], 'summary' => 'Save care plan', 'responses' => ['200' => ['description' => 'OK']]],
@@ -393,6 +400,12 @@ return [
         ],
         '/api/portal/appointments/{id}/referrals' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My referrals', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/certificates' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'My medical certificates', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/appointments/{id}/documents/{kind}/{docId}' => [
+            'get' => ['tags' => ['Consultation'], 'summary' => 'Render one of my clinical documents (HTML)', 'responses' => ['200' => ['description' => 'HTML document'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/portal/appointments/{id}/care-plan' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My care plan', 'responses' => ['200' => ['description' => 'OK']]],

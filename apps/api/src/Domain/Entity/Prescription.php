@@ -67,6 +67,16 @@ class Prescription
         return $this->id;
     }
 
+    public function getAppointmentId(): string
+    {
+        return $this->appointmentId;
+    }
+
+    public function getSignedAt(): ?DateTimeImmutable
+    {
+        return $this->signedAt;
+    }
+
     public function isSigned(): bool
     {
         return $this->status === self::STATUS_SIGNED;

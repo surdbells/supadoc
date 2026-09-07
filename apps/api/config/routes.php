@@ -167,6 +167,11 @@ return static function (App $app): void {
             // Referrals + consent (doctor reads consent to know what's permitted).
             $group->get('/doctor/appointments/{id}/referrals', Action\Doctor\ListReferralsAction::class);
             $group->post('/doctor/appointments/{id}/referrals', Action\Doctor\CreateReferralAction::class);
+
+            // Medical certificates + printable clinical documents.
+            $group->get('/doctor/appointments/{id}/certificates', Action\Doctor\ListCertificatesAction::class);
+            $group->post('/doctor/appointments/{id}/certificates', Action\Doctor\CreateCertificateAction::class);
+            $group->get('/doctor/appointments/{id}/documents/{kind}/{docId}', Action\Doctor\RenderDoctorDocumentAction::class);
             $group->get('/doctor/appointments/{id}/consents', Action\Doctor\DoctorConsentsAction::class);
 
             // Cloud recording — consent-gated start/stop + status.
@@ -231,6 +236,8 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/lab-orders', Action\Appointment\MyLabOrdersAction::class);
             $group->get('/appointments/{id}/care-plan', Action\Appointment\MyCarePlanAction::class);
             $group->get('/appointments/{id}/referrals', Action\Appointment\MyReferralsAction::class);
+            $group->get('/appointments/{id}/certificates', Action\Appointment\MyCertificatesAction::class);
+            $group->get('/appointments/{id}/documents/{kind}/{docId}', Action\Appointment\RenderMyDocumentAction::class);
             $group->get('/appointments/{id}/consents', Action\Appointment\MyConsentsAction::class);
             $group->post('/appointments/{id}/consents', Action\Appointment\SetConsentAction::class);
             $group->get('/appointments/{id}/recordings', Action\Appointment\MyRecordingsAction::class);

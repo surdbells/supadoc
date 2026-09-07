@@ -65,6 +65,11 @@ class Referral
         return $this->id;
     }
 
+    public function getAppointmentId(): string
+    {
+        return $this->appointmentId;
+    }
+
     public function setType(string $type): void
     {
         $this->referralType = in_array($type, self::TYPES, true) ? $type : 'specialist';

@@ -4,11 +4,13 @@ import type {
   AppointmentDto,
   BookAppointmentParams,
   CallTokenDto,
+  ClinicalDocumentKind,
   ConsentDto,
   ConsultationSummaryDto,
   JoinInfoDto,
   LabOrderDto,
   ListAppointmentsQuery,
+  MedicalCertificateDto,
   MessageDto,
   PaginatedResponse,
   PatientCarePlanDto,
@@ -133,6 +135,24 @@ export class AppointmentsApi {
   referrals(id: string): Observable<SuccessResponse<ReferralDto[]>> {
     return this.api.get<SuccessResponse<ReferralDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/referrals`,
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/certificates — the patient's medical certificates. */
+  certificates(id: string): Observable<SuccessResponse<MedicalCertificateDto[]>> {
+    return this.api.get<SuccessResponse<MedicalCertificateDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/certificates`,
+    );
+  }
+
+  /** GET a rendered clinical document as HTML (open via openClinicalDocument). */
+  document(
+    id: string,
+    kind: ClinicalDocumentKind,
+    docId: string,
+  ): Observable<string> {
+    return this.api.getText(
+      `api/portal/appointments/${encodeURIComponent(id)}/documents/${kind}/${encodeURIComponent(docId)}`,
     );
   }
 

@@ -10,16 +10,22 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { Observable } from 'rxjs';
-import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  DoctorApi,
+  openClinicalDocument,
+} from '@supadoc/data-access';
 import type {
   AppointmentDto,
   CarePlanDto,
+  ClinicalDocumentKind,
   ClinicalNoteDto,
   ConsentDto,
   CopilotDraftDto,
   DoctorAppointmentDto,
   DoctorRecordingStateDto,
   LabOrderDto,
+  MedicalCertificateDto,
   MessageDto,
   PrescriptionDto,
   PrescriptionItem,
@@ -37,6 +43,7 @@ type TabKey =
   | 'labs'
   | 'care'
   | 'referrals'
+  | 'certificates'
   | 'consents'
   | 'recording'
   | 'ai';
@@ -54,6 +61,7 @@ const TABS: Tab[] = [
   { key: 'labs', label: 'Lab orders', icon: 'clipboard-list' },
   { key: 'care', label: 'Care plan', icon: 'list' },
   { key: 'referrals', label: 'Referrals', icon: 'share-2' },
+  { key: 'certificates', label: 'Certificates', icon: 'id-card' },
   { key: 'consents', label: 'Consents', icon: 'shield-check' },
   { key: 'recording', label: 'Recording', icon: 'circle-play' },
   { key: 'ai', label: 'Transcript & AI', icon: 'activity' },
@@ -260,7 +268,12 @@ const FIELD =
                   <h3 class="font-heading text-body font-semibold text-slate">Issued</h3>
                   @for (rx of prescriptions(); track rx.id) {
                     <div class="rounded-field border border-cloud p-4">
-                      <p class="font-sans text-caption text-slate">{{ date(rx.created_at) }} • {{ rx.status }}</p>
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="font-sans text-caption text-slate">{{ date(rx.created_at) }} • {{ rx.status }}</p>
+                        <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('prescription', rx.id)">
+                          <sd-icon name="file-text" [size]="15" />Open / print
+                        </button>
+                      </div>
                       <ul class="mt-2 flex flex-col gap-1 font-sans text-body-sm text-ink">
                         @for (it of rx.items; track $index) {
                           <li>{{ it.medication }}<span class="text-slate"> {{ it.strength }} — {{ it.dosage }} {{ it.frequency }} {{ it.duration }}</span></li>
@@ -346,10 +359,65 @@ const FIELD =
                   <h3 class="font-heading text-body font-semibold text-slate">Raised</h3>
                   @for (r of referrals(); track r.id) {
                     <div class="rounded-field border border-cloud p-4">
-                      <p class="font-sans text-body-sm font-semibold text-ink">{{ r.referral_type }} → {{ r.target }}</p>
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="font-sans text-body-sm font-semibold text-ink">{{ r.referral_type }} → {{ r.target }}</p>
+                        <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('referral', r.id)">
+                          <sd-icon name="file-text" [size]="15" />Open / print
+                        </button>
+                      </div>
                       <p class="font-sans text-caption text-slate">{{ r.reason }} • {{ r.priority }}</p>
                     </div>
                   } @empty { <p class="font-sans text-body-sm text-slate">No referrals.</p> }
+                </div>
+              </div>
+            }
+
+            @case ('certificates') {
+              <div class="flex flex-col gap-6">
+                <h2 class="font-heading text-body-lg text-ink">New certificate</h2>
+                <div class="flex flex-col gap-3">
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <select class="${FIELD}" [value]="certType()" (change)="certType.set($any($event.target).value)">
+                      <option value="sick_leave">Sick leave</option>
+                      <option value="fitness">Fitness / return to work</option>
+                      <option value="general">General</option>
+                    </select>
+                    <input class="${FIELD}" placeholder="Diagnosis (optional)" [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
+                  </div>
+                  @if (certType() === 'sick_leave') {
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label class="flex flex-col gap-1.5">
+                        <span class="font-sans text-caption font-semibold text-slate">From</span>
+                        <input type="date" class="${FIELD}" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" />
+                      </label>
+                      <label class="flex flex-col gap-1.5">
+                        <span class="font-sans text-caption font-semibold text-slate">To</span>
+                        <input type="date" class="${FIELD}" [value]="certTo()" (input)="certTo.set($any($event.target).value)" />
+                      </label>
+                    </div>
+                  }
+                  <textarea rows="3" class="${FIELD}" placeholder="Certifying statement (e.g. the patient is unfit for work and requires rest)" [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
+                  @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                  <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="issueCertificate()">
+                    {{ sectionBusy() ? 'Issuing…' : 'Issue certificate' }}
+                  </button>
+                </div>
+                <div class="flex flex-col gap-3">
+                  <h3 class="font-heading text-body font-semibold text-slate">Issued</h3>
+                  @for (c of certificates(); track c.id) {
+                    <div class="rounded-field border border-cloud p-4">
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="font-sans text-body-sm font-semibold text-ink">{{ c.type_label }}</p>
+                        <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('certificate', c.id)">
+                          <sd-icon name="file-text" [size]="15" />Open / print
+                        </button>
+                      </div>
+                      @if (c.from_date && c.to_date) {
+                        <p class="font-sans text-caption text-slate">{{ c.from_date }} → {{ c.to_date }}@if (c.days) { • {{ c.days }} day{{ c.days === 1 ? '' : 's' }} }</p>
+                      }
+                      <p class="mt-1 font-sans text-body-sm text-ink">{{ c.statement }}</p>
+                    </div>
+                  } @empty { <p class="font-sans text-body-sm text-slate">No certificates issued.</p> }
                 </div>
               </div>
             }
@@ -520,6 +588,14 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly refSummary = signal('');
   protected readonly refPriority = signal<'routine' | 'urgent'>('routine');
 
+  // Certificates
+  protected readonly certificates = signal<MedicalCertificateDto[]>([]);
+  protected readonly certType = signal<MedicalCertificateDto['type']>('sick_leave');
+  protected readonly certStatement = signal('');
+  protected readonly certDiagnosis = signal('');
+  protected readonly certFrom = signal('');
+  protected readonly certTo = signal('');
+
   // Consents / recording / AI
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly recording = signal<DoctorRecordingStateDto | null>(null);
@@ -589,6 +665,9 @@ export class DoctorAppointmentDetail implements OnInit {
         break;
       case 'referrals':
         this.api.listReferrals(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.referrals.set(r.data), error: () => undefined });
+        break;
+      case 'certificates':
+        this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.certificates.set(r.data), error: () => undefined });
         break;
       case 'consents':
         this.api.consents(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.consents.set(r.data), error: () => undefined });
@@ -718,6 +797,38 @@ export class DoctorAppointmentDetail implements OnInit {
         this.api.listReferrals(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.referrals.set(r.data), error: () => undefined });
       },
     );
+  }
+
+  // ----- Certificates + documents -----
+  protected issueCertificate(): void {
+    if (this.certStatement().trim() === '') {
+      this.sectionError.set('Add a certifying statement.');
+      return;
+    }
+    if (this.certType() === 'sick_leave' && (this.certFrom() === '' || this.certTo() === '')) {
+      this.sectionError.set('Set the leave period.');
+      return;
+    }
+    this.runSection(
+      this.api.createCertificate(this.id, {
+        type: this.certType(),
+        statement: this.certStatement(),
+        diagnosis: this.certDiagnosis() || null,
+        from_date: this.certType() === 'sick_leave' ? this.certFrom() : null,
+        to_date: this.certType() === 'sick_leave' ? this.certTo() : null,
+      }),
+      () => {
+        this.certStatement.set('');
+        this.certDiagnosis.set('');
+        this.certFrom.set('');
+        this.certTo.set('');
+        this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.certificates.set(r.data), error: () => undefined });
+      },
+    );
+  }
+
+  protected openDoc(kind: ClinicalDocumentKind, docId: string): void {
+    openClinicalDocument(this.api.document(this.id, kind, docId));
   }
 
   // ----- Recording -----

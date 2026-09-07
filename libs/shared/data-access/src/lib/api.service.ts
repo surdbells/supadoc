@@ -23,6 +23,17 @@ export class ApiService {
     return this.http.get<T>(this.url(path), { params: this.toParams(params) });
   }
 
+  /**
+   * GET a resource as raw text (e.g. a rendered HTML document). The auth
+   * interceptor still attaches the bearer token, unlike a plain `<a href>`.
+   */
+  getText(path: string, params?: QueryParams): Observable<string> {
+    return this.http.get(this.url(path), {
+      params: this.toParams(params),
+      responseType: 'text',
+    });
+  }
+
   post<T>(path: string, body?: unknown): Observable<T> {
     return this.http.post<T>(this.url(path), body);
   }

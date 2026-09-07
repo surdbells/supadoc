@@ -12,14 +12,30 @@ import {
   catchError,
   distinctUntilChanged,
   filter,
+  forkJoin,
   map,
   of,
   startWith,
   switchMap,
 } from 'rxjs';
-import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
-import type { AppointmentDto, MessageDto } from '@supadoc/models';
+import {
+  apiErrorMessage,
+  AppointmentsApi,
+  openClinicalDocument,
+} from '@supadoc/data-access';
+import type {
+  AppointmentDto,
+  ClinicalDocumentKind,
+  MessageDto,
+} from '@supadoc/models';
 import { ButtonComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
+
+interface DocumentItem {
+  readonly kind: ClinicalDocumentKind;
+  readonly id: string;
+  readonly title: string;
+  readonly meta: string;
+}
 
 interface SharedDoc {
   readonly name: string;
@@ -317,6 +333,29 @@ function toDetails(a: AppointmentDto): DetailsVm {
               </section>
             </div>
 
+            <!-- Clinical documents (prescriptions, referrals, certificates) -->
+            @if (clinicalDocs().length > 0) {
+              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
+                  <sd-icon name="file-text" [size]="20" />
+                  Documents
+                </h2>
+                <ul class="flex flex-col gap-2">
+                  @for (doc of clinicalDocs(); track doc.kind + doc.id) {
+                    <li class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-3">
+                      <span class="flex min-w-0 flex-col">
+                        <span class="font-sans text-body-sm font-semibold text-ink">{{ doc.title }}</span>
+                        @if (doc.meta) { <span class="truncate font-sans text-caption text-slate">{{ doc.meta }}</span> }
+                      </span>
+                      <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc(doc)">
+                        <sd-icon name="download" [size]="16" />Open / print
+                      </button>
+                    </li>
+                  }
+                </ul>
+              </section>
+            }
+
             <!-- Secure messages with the doctor -->
             <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
               <div class="flex flex-col gap-1">
@@ -386,8 +425,11 @@ export class AppointmentDetails {
   protected readonly sendingMessage = signal(false);
   protected readonly messageError = signal('');
 
+  // Clinical documents (issued prescriptions, referrals, certificates)
+  protected readonly clinicalDocs = signal<DocumentItem[]>([]);
+
   constructor() {
-    // Load the thread whenever the appointment id in the route changes.
+    // Load the thread + documents whenever the appointment id in the route changes.
     this.route.paramMap
       .pipe(
         map((p) => p.get('id') ?? ''),
@@ -395,7 +437,56 @@ export class AppointmentDetails {
         distinctUntilChanged(),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((id) => this.loadMessages(id));
+      .subscribe((id) => {
+        this.loadMessages(id);
+        this.loadDocuments(id);
+      });
+  }
+
+  private loadDocuments(id: string): void {
+    forkJoin({
+      prescriptions: this.appointments.prescriptions(id).pipe(catchError(() => of(null))),
+      referrals: this.appointments.referrals(id).pipe(catchError(() => of(null))),
+      certificates: this.appointments.certificates(id).pipe(catchError(() => of(null))),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(({ prescriptions, referrals, certificates }) => {
+        const docs: DocumentItem[] = [];
+        for (const rx of prescriptions?.data ?? []) {
+          const names = rx.items.map((i) => i.medication).filter(Boolean);
+          docs.push({
+            kind: 'prescription',
+            id: rx.id,
+            title: 'Prescription',
+            meta: names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : ''),
+          });
+        }
+        for (const r of referrals?.data ?? []) {
+          docs.push({
+            kind: 'referral',
+            id: r.id,
+            title: `Referral · ${r.target}`,
+            meta: r.reason,
+          });
+        }
+        for (const c of certificates?.data ?? []) {
+          docs.push({
+            kind: 'certificate',
+            id: c.id,
+            title: c.type_label,
+            meta:
+              c.from_date && c.to_date
+                ? `${c.from_date} → ${c.to_date}`
+                : new Date(c.created_at).toLocaleDateString('en-GB'),
+          });
+        }
+        this.clinicalDocs.set(docs);
+      });
+  }
+
+  protected openDoc(doc: DocumentItem): void {
+    const id = this.vm()?.id;
+    if (id) openClinicalDocument(this.appointments.document(id, doc.kind, doc.id));
   }
 
   private loadMessages(id: string): void {

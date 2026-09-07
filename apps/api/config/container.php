@@ -11,6 +11,7 @@ use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\CopilotDraftRepository;
 use App\Domain\Repository\LabOrderRepository;
+use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\MessageRepository;
 use App\Domain\Repository\PayoutAccountRepository;
 use App\Domain\Repository\PayoutRepository;
@@ -30,6 +31,7 @@ use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
+use App\Infrastructure\Document\ClinicalDocumentRenderer;
 use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Email\WalletMailer;
@@ -207,6 +209,13 @@ return [
         ($_ENV['APP_ENV'] ?? 'production') !== 'production',
     ),
 
+    // Printable clinical documents (prescription / referral / certificate).
+    ClinicalDocumentRenderer::class => static fn (): ClinicalDocumentRenderer => new ClinicalDocumentRenderer(
+        clinicName:    trim($_ENV['CLINIC_NAME'] ?? '') !== '' ? trim($_ENV['CLINIC_NAME']) : 'VideoMed',
+        clinicTagline: trim($_ENV['CLINIC_TAGLINE'] ?? '') !== '' ? trim($_ENV['CLINIC_TAGLINE']) : 'Telehealth Consultations',
+        clinicContact: trim($_ENV['CLINIC_CONTACT'] ?? ''),
+    ),
+
     MailService::class => static fn (ContainerInterface $c): MailService => new MailService(
         token:       $_ENV['ZEPTOMAIL_TOKEN'] ?? '',
         fromAddress: $_ENV['ZEPTOMAIL_FROM_ADDRESS'] ?? '',
@@ -265,6 +274,9 @@ return [
 
     MessageRepository::class => static fn (ContainerInterface $c): MessageRepository =>
         new MessageRepository($c->get(EntityManagerInterface::class)),
+
+    MedicalCertificateRepository::class => static fn (ContainerInterface $c): MedicalCertificateRepository =>
+        new MedicalCertificateRepository($c->get(EntityManagerInterface::class)),
 
     StaffNotifier::class => static fn (ContainerInterface $c): StaffNotifier => new StaffNotifier(
         $c->get(StaffNotificationRepository::class),

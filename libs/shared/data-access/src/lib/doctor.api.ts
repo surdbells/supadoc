@@ -3,10 +3,12 @@ import { Observable } from 'rxjs';
 import type {
   AppointmentDto,
   CarePlanDto,
+  ClinicalDocumentKind,
   ClinicalNoteDto,
   ClinicalNoteInput,
   ConsentDto,
   CopilotDraftDto,
+  CreateCertificateParams,
   CreateLabOrderParams,
   CreatePrescriptionParams,
   CreateReferralParams,
@@ -22,6 +24,7 @@ import type {
   EarningsSummaryDto,
   EarningsTxnDto,
   LabOrderDto,
+  MedicalCertificateDto,
   MessageDto,
   PaginatedResponse,
   PayoutAccountDto,
@@ -305,6 +308,35 @@ export class DoctorApi {
     return this.api.post<SuccessResponse<ReferralDto>>(
       `${this.base(id)}/referrals`,
       params,
+    );
+  }
+
+  // ----- Certificates + printable documents -----
+
+  listCertificates(id: string): Observable<SuccessResponse<MedicalCertificateDto[]>> {
+    return this.api.get<SuccessResponse<MedicalCertificateDto[]>>(
+      `${this.base(id)}/certificates`,
+    );
+  }
+
+  createCertificate(
+    id: string,
+    params: CreateCertificateParams,
+  ): Observable<SuccessResponse<MedicalCertificateDto>> {
+    return this.api.post<SuccessResponse<MedicalCertificateDto>>(
+      `${this.base(id)}/certificates`,
+      params,
+    );
+  }
+
+  /** GET a rendered clinical document as HTML (open via openClinicalDocument). */
+  document(
+    id: string,
+    kind: ClinicalDocumentKind,
+    docId: string,
+  ): Observable<string> {
+    return this.api.getText(
+      `${this.base(id)}/documents/${kind}/${encodeURIComponent(docId)}`,
     );
   }
 
