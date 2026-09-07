@@ -626,6 +626,18 @@ return [
                 ],
             ],
         ],
+        '/api/me/notifications' => [
+            'get' => ['tags' => ['Staff'], 'summary' => "The staff user's notifications (paginated, ?unread)", 'parameters' => [...$paginationParams, ['name' => 'unread', 'in' => 'query', 'schema' => ['type' => 'boolean']]], 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+        ],
+        '/api/me/notifications/unread' => [
+            'get' => ['tags' => ['Staff'], 'summary' => 'Unread notification count', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+        ],
+        '/api/me/notifications/read-all' => [
+            'post' => ['tags' => ['Staff'], 'summary' => 'Mark all notifications read', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+        ],
+        '/api/me/notifications/{id}/read' => [
+            'post' => ['tags' => ['Staff'], 'summary' => 'Mark one notification read', 'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]], 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
         '/api/me/password' => [
             'post' => [
                 'tags'        => ['Staff'],

@@ -91,6 +91,18 @@ export interface DoctorProfileDto extends SpecialistAdminDto {
   weekly_hours?: WeeklyHours | null;
 }
 
+// ----- Staff notifications -----
+
+export interface StaffNotificationDto {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read: boolean;
+  created_at: string;
+}
+
 // ----- Reviews -----
 
 export interface ReviewDto {

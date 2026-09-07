@@ -8,6 +8,7 @@ use App\Domain\Entity\Payout;
 use App\Domain\Repository\PayoutRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -19,6 +20,7 @@ final class RejectPayoutAction
     public function __construct(
         private readonly PayoutRepository $payouts,
         private readonly UserRepository $users,
+        private readonly StaffNotifier $notifier,
     ) {
     }
 
@@ -39,6 +41,8 @@ final class RejectPayoutAction
         $actor = $this->actorName((string) $request->getAttribute('user_id'));
         $payout->reject($actor, isset($body['admin_note']) ? (string) $body['admin_note'] : null);
         $this->payouts->save($payout);
+
+        $this->notifier->notifyDoctor($payout->getSpecialistId(), 'payout', 'Payout rejected', 'Your payout request was declined.', '/payouts');
 
         return $this->success($response, $payout->toArray(), 'Payout rejected');
     }

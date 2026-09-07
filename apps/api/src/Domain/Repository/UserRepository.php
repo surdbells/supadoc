@@ -24,6 +24,18 @@ final class UserRepository extends BaseRepository
             ->getOneOrNullResult();
     }
 
+    /** The staff user linked to a specialist (a doctor login), if any. */
+    public function findBySpecialist(string $specialistId): ?User
+    {
+        return $this->qb()
+            ->andWhere('e.specialistId = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
     /**
      * All staff users (non-deleted), by name — the back-office staff directory.
      *

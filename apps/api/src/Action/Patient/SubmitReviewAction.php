@@ -10,6 +10,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\ReviewRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -26,6 +27,7 @@ final class SubmitReviewAction
         private readonly AppointmentRepository $appointments,
         private readonly ReviewRepository $reviews,
         private readonly SpecialistRepository $specialists,
+        private readonly StaffNotifier $notifier,
     ) {
     }
 
@@ -74,6 +76,14 @@ final class SubmitReviewAction
         $specialist->setRating($summary['average']);
         $specialist->setReviewsCount($summary['count']);
         $this->specialists->save($specialist);
+
+        $this->notifier->notifyDoctor(
+            $specialist->getId(),
+            'review',
+            'New review',
+            'You received a ' . $rating . '-star review.',
+            '/reviews',
+        );
 
         return $this->created($response, $review->toArray(), 'Thanks for your review');
     }

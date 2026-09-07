@@ -16,6 +16,7 @@ use App\Domain\Repository\PayoutRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReviewRepository;
+use App\Domain\Repository\StaffNotificationRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\SessionMetricRepository;
 use App\Domain\Repository\TranscriptSegmentRepository;
@@ -39,6 +40,7 @@ use App\Infrastructure\Service\CopilotService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\EarningsService;
 use App\Infrastructure\Service\ReminderService;
+use App\Infrastructure\Service\StaffNotifier;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
@@ -256,6 +258,14 @@ return [
 
     ReviewRepository::class => static fn (ContainerInterface $c): ReviewRepository =>
         new ReviewRepository($c->get(EntityManagerInterface::class)),
+
+    StaffNotificationRepository::class => static fn (ContainerInterface $c): StaffNotificationRepository =>
+        new StaffNotificationRepository($c->get(EntityManagerInterface::class)),
+
+    StaffNotifier::class => static fn (ContainerInterface $c): StaffNotifier => new StaffNotifier(
+        $c->get(StaffNotificationRepository::class),
+        $c->get(UserRepository::class),
+    ),
 
     ClinicalNoteRepository::class => static fn (ContainerInterface $c): ClinicalNoteRepository =>
         new ClinicalNoteRepository($c->get(EntityManagerInterface::class)),

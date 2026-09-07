@@ -8,6 +8,7 @@ use App\Domain\Entity\Payout;
 use App\Domain\Repository\PayoutRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -19,6 +20,7 @@ final class ApprovePayoutAction
     public function __construct(
         private readonly PayoutRepository $payouts,
         private readonly UserRepository $users,
+        private readonly StaffNotifier $notifier,
     ) {
     }
 
@@ -39,6 +41,8 @@ final class ApprovePayoutAction
         $actor = $this->actorName((string) $request->getAttribute('user_id'));
         $payout->approve($actor, isset($body['admin_note']) ? (string) $body['admin_note'] : null);
         $this->payouts->save($payout);
+
+        $this->notifier->notifyDoctor($payout->getSpecialistId(), 'payout', 'Payout approved', 'Your payout request has been approved.', '/payouts');
 
         return $this->success($response, $payout->toArray(), 'Payout approved');
     }

@@ -70,6 +70,11 @@ export const appRoutes: Route[] = [
           import('./payouts/payouts').then((m) => m.DoctorPayouts),
       },
       {
+        path: 'notifications',
+        loadComponent: () =>
+          import('./notifications/notifications').then((m) => m.DoctorNotifications),
+      },
+      {
         path: 'profile',
         loadComponent: () =>
           import('./profile/doctor-profile').then((m) => m.DoctorProfile),

@@ -13,6 +13,7 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
+import { StaffNotificationsApi } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
 
 interface NavItem {
@@ -73,6 +74,16 @@ interface NavItem {
           </div>
 
           <div class="flex items-center gap-3">
+            <a
+              routerLink="/notifications"
+              class="relative text-ink transition-colors hover:text-cerulean"
+              aria-label="Notifications"
+            >
+              <sd-icon name="bell" [size]="22" />
+              @if (unread() > 0) {
+                <span class="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-alert px-1 text-[10px] font-semibold text-white">{{ unread() > 9 ? '9+' : unread() }}</span>
+              }
+            </a>
             <span
               class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
             >
@@ -137,9 +148,11 @@ interface NavItem {
 })
 export class DoctorShell {
   private readonly auth = inject(StaffAuthService);
+  private readonly notificationsApi = inject(StaffNotificationsApi);
   private readonly router = inject(Router);
 
   protected readonly menuOpen = signal(false);
+  protected readonly unread = signal(0);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly specialty = computed(
     () => this.auth.user()?.roles.includes('doctor') ? 'Specialist' : '',
@@ -170,6 +183,10 @@ export class DoctorShell {
   constructor() {
     // Refresh roles/permissions in the background (they may have changed).
     void this.auth.loadMe();
+    this.notificationsApi.unread().subscribe({
+      next: (res) => this.unread.set(res.data.count),
+      error: () => undefined,
+    });
   }
 
   protected logout(): void {

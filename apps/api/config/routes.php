@@ -69,6 +69,10 @@ return static function (App $app): void {
         $group->group('', function (RouteCollectorProxy $group): void {
             $group->get('/me', Action\Auth\MeAction::class);
             $group->post('/me/password', Action\Auth\ChangePasswordAction::class);
+            $group->get('/me/notifications', Action\Auth\ListStaffNotificationsAction::class);
+            $group->get('/me/notifications/unread', Action\Auth\UnreadStaffNotificationsAction::class);
+            $group->post('/me/notifications/read-all', Action\Auth\MarkAllStaffNotificationsReadAction::class);
+            $group->post('/me/notifications/{id}/read', Action\Auth\MarkStaffNotificationReadAction::class);
 
             $group->get('/appointments', Action\Appointment\ListAppointmentsAction::class)
                 ->add(new RbacMiddleware('appointments.view'));

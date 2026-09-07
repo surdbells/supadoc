@@ -22,6 +22,7 @@ use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
+use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -52,6 +53,7 @@ final class CreateMyAppointmentAction
         private readonly PricingService $pricing,
         private readonly JwtService $jwt,
         private readonly AppointmentPaymentService $payments,
+        private readonly StaffNotifier $notifier,
     ) {
     }
 
@@ -142,7 +144,17 @@ final class CreateMyAppointmentAction
         $this->notifyBooked($patient, $appointment);
         $this->sendInvites($appointment, $patient, $specialist, $guests);
 
-        return $this->created($response, $appointment->toArray(), 'Appointment booked');
+        $a = $appointment->toArray();
+        $this->notifier->notifyDoctor(
+            $specialist->getId(),
+            'appointment',
+            'New booking',
+            trim(((string) $patient->toArray()['first_name']) . ' ' . ((string) $patient->toArray()['last_name']))
+                . ' booked a ' . ((string) $a['type_label']) . '.',
+            '/schedule',
+        );
+
+        return $this->created($response, $a, 'Appointment booked');
     }
 
     /**
