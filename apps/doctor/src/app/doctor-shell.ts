@@ -99,7 +99,7 @@ interface NavItem {
 
     <ng-template #nav>
       <div class="flex flex-col gap-10">
-        <a routerLink="/schedule" class="flex items-center gap-2" (click)="menuOpen.set(false)">
+        <a routerLink="/dashboard" class="flex items-center gap-2" (click)="menuOpen.set(false)">
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
@@ -156,7 +156,10 @@ export class DoctorShell {
   );
 
   protected readonly navItems: NavItem[] = [
+    { label: 'Dashboard', icon: 'layout-dashboard', link: '/dashboard' },
     { label: 'Schedule', icon: 'calendar-days', link: '/schedule' },
+    { label: 'History', icon: 'history', link: '/appointments/history' },
+    { label: 'Availability', icon: 'calendar-clock', link: '/availability' },
     { label: 'My Profile', icon: 'user', link: '/profile' },
   ];
 

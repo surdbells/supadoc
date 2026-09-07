@@ -37,7 +37,10 @@ final class GetDoctorProfileAction
 
         return $this->success(
             $response,
-            $specialist->toArray() + ['email' => $specialist->getEmail()],
+            $specialist->toArray() + [
+                'email'        => $specialist->getEmail(),
+                'weekly_hours' => $specialist->getWeeklyHours(),
+            ],
         );
     }
 }

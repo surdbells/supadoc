@@ -112,12 +112,20 @@ interface Group {
                         <button
                           type="button"
                           class="flex items-center justify-center gap-2 rounded-field border border-sage px-4 py-2.5 font-sans text-body-sm font-semibold text-sage transition-colors hover:bg-sage/10 disabled:opacity-60"
-                          [disabled]="confirmingId() === a.id"
+                          [disabled]="busyId() === a.id"
                           (click)="confirm(a)"
                         >
                           <sd-icon name="circle-check" [size]="18" />{{
-                            confirmingId() === a.id ? 'Confirming…' : 'Confirm'
+                            busyId() === a.id ? 'Working…' : 'Confirm'
                           }}
+                        </button>
+                        <button
+                          type="button"
+                          class="flex items-center justify-center gap-2 rounded-field border border-alert px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60"
+                          [disabled]="busyId() === a.id"
+                          (click)="decline(a)"
+                        >
+                          <sd-icon name="x" [size]="18" />Decline
                         </button>
                       }
                       <button
@@ -148,7 +156,7 @@ export class DoctorSchedule implements OnInit {
   protected readonly notice = signal('');
   protected readonly specialistName = signal('');
   protected readonly appointments = signal<DoctorAppointmentDto[]>([]);
-  protected readonly confirmingId = signal<string | null>(null);
+  protected readonly busyId = signal<string | null>(null);
 
   protected readonly total = computed(() => this.appointments().length);
 
@@ -198,28 +206,52 @@ export class DoctorSchedule implements OnInit {
   }
 
   protected confirm(a: DoctorAppointmentDto): void {
-    if (this.confirmingId()) return;
-    this.confirmingId.set(a.id);
+    if (this.busyId()) return;
+    this.busyId.set(a.id);
     this.notice.set('');
     this.api
       .confirm(a.id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.appointments.update((list) =>
-            list.map((x) =>
-              x.id === a.id
-                ? { ...x, status: res.data.status, status_label: res.data.status_label }
-                : x,
-            ),
-          );
-          this.confirmingId.set(null);
+          this.patchStatus(a.id, res.data.status, res.data.status_label);
+          this.busyId.set(null);
         },
         error: () => {
           this.notice.set('Could not confirm the appointment.');
-          this.confirmingId.set(null);
+          this.busyId.set(null);
         },
       });
+  }
+
+  protected decline(a: DoctorAppointmentDto): void {
+    if (this.busyId()) return;
+    if (!window.confirm('Decline this appointment? Any payment will be refunded to the patient.')) return;
+    this.busyId.set(a.id);
+    this.notice.set('');
+    this.api
+      .decline(a.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.patchStatus(a.id, res.data.status, res.data.status_label);
+          this.busyId.set(null);
+        },
+        error: () => {
+          this.notice.set('Could not decline the appointment.');
+          this.busyId.set(null);
+        },
+      });
+  }
+
+  private patchStatus(
+    id: string,
+    status: DoctorAppointmentDto['status'],
+    statusLabel: string,
+  ): void {
+    this.appointments.update((list) =>
+      list.map((x) => (x.id === id ? { ...x, status, status_label: statusLabel } : x)),
+    );
   }
 
   /** Route into the in-app cockpit using the token embedded in the join link. */

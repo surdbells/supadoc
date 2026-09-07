@@ -1,4 +1,12 @@
-import type { AppointmentDto, RecordingDto, SpecialistDto } from './appointment-api';
+import type {
+  AppointmentDto,
+  RecordingDto,
+  SpecialistAdminDto,
+  SpecialistDto,
+} from './appointment-api';
+
+/** Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end] "HH:MM". */
+export type WeeklyHours = Record<string, [string, string][]>;
 
 /** A staff/admin/doctor account (mirrors the API `User::toArray()`). */
 export interface StaffUserDto {
@@ -58,6 +66,26 @@ export interface DoctorAppointmentDto extends AppointmentDto {
 export interface DoctorScheduleDto {
   specialist: SpecialistDto;
   appointments: DoctorAppointmentDto[];
+}
+
+/** `GET /api/doctor/dashboard` — headline metrics + today's agenda. */
+export interface DoctorDashboardDto {
+  today: number;
+  pending: number;
+  upcoming: number;
+  completed_month: number;
+  patients: number;
+  rating: string;
+  reviews_count: number;
+  earnings_month: string;
+  currency: string;
+  next: DoctorAppointmentDto | null;
+  agenda: DoctorAppointmentDto[];
+}
+
+/** The doctor's own profile (specialist + contact email + weekly availability). */
+export interface DoctorProfileDto extends SpecialistAdminDto {
+  weekly_hours?: WeeklyHours | null;
 }
 
 // ----- Back-office monitoring -----

@@ -108,8 +108,12 @@ return static function (App $app): void {
 
             // Minimal doctor portal — a doctor login (role 'doctor') sees only
             // their own consultations. The action enforces the doctor role.
+            $group->get('/doctor/dashboard', Action\Doctor\DoctorDashboardAction::class);
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
+            $group->get('/doctor/appointments/history', Action\Doctor\DoctorAppointmentHistoryAction::class);
             $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
+            $group->post('/doctor/appointments/{id}/decline', Action\Doctor\DeclineDoctorAppointmentAction::class);
+            $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
 

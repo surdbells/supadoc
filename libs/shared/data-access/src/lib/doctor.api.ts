@@ -10,20 +10,23 @@ import type {
   CreateLabOrderParams,
   CreatePrescriptionParams,
   CreateReferralParams,
+  DoctorAppointmentDto,
   DoctorCopilotStateDto,
+  DoctorDashboardDto,
+  DoctorProfileDto,
   DoctorProfileUpdate,
   DoctorRecordingStateDto,
   DoctorScheduleDto,
   LabOrderDto,
+  PaginatedResponse,
   PrescriptionDto,
   RecordingDto,
   RecordingFilesDto,
   ReferralDto,
-  SpecialistAdminDto,
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { ApiService } from './api.service';
+import { ApiService, QueryParams } from './api.service';
 
 /**
  * The doctor portal's clinical API — every `/api/doctor/*` endpoint, returning
@@ -39,10 +42,47 @@ export class DoctorApi {
     return `api/doctor/appointments/${encodeURIComponent(id)}`;
   }
 
+  /** GET /api/doctor/dashboard — headline metrics + today's agenda. */
+  dashboard(): Observable<SuccessResponse<DoctorDashboardDto>> {
+    return this.api.get<SuccessResponse<DoctorDashboardDto>>('api/doctor/dashboard');
+  }
+
   /** GET /api/doctor/appointments — the signed-in doctor's schedule. */
   schedule(): Observable<SuccessResponse<DoctorScheduleDto>> {
     return this.api.get<SuccessResponse<DoctorScheduleDto>>(
       'api/doctor/appointments',
+    );
+  }
+
+  /** GET /api/doctor/appointments/history — paginated, filterable history. */
+  history(query?: {
+    page?: number;
+    per_page?: number;
+    status?: string;
+    search?: string;
+  }): Observable<PaginatedResponse<DoctorAppointmentDto>> {
+    return this.api.get<PaginatedResponse<DoctorAppointmentDto>>(
+      'api/doctor/appointments/history',
+      query as QueryParams | undefined,
+    );
+  }
+
+  /** POST /api/doctor/appointments/{id}/decline — decline + refund. */
+  decline(id: string): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `${this.base(id)}/decline`,
+      {},
+    );
+  }
+
+  /** POST /api/doctor/appointments/{id}/reschedule — move to a new time. */
+  reschedule(
+    id: string,
+    scheduledAt: string,
+  ): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `${this.base(id)}/reschedule`,
+      { scheduled_at: scheduledAt },
     );
   }
 
@@ -56,16 +96,16 @@ export class DoctorApi {
 
   // ----- Profile (self-service) -----
 
-  /** GET /api/doctor/profile — the doctor's own profile (incl. contact email). */
-  getProfile(): Observable<SuccessResponse<SpecialistAdminDto>> {
-    return this.api.get<SuccessResponse<SpecialistAdminDto>>('api/doctor/profile');
+  /** GET /api/doctor/profile — the doctor's own profile (email + weekly hours). */
+  getProfile(): Observable<SuccessResponse<DoctorProfileDto>> {
+    return this.api.get<SuccessResponse<DoctorProfileDto>>('api/doctor/profile');
   }
 
   /** PATCH /api/doctor/profile — update the doctor's own profile. */
   updateProfile(
     params: DoctorProfileUpdate,
-  ): Observable<SuccessResponse<SpecialistAdminDto>> {
-    return this.api.patch<SuccessResponse<SpecialistAdminDto>>(
+  ): Observable<SuccessResponse<DoctorProfileDto>> {
+    return this.api.patch<SuccessResponse<DoctorProfileDto>>(
       'api/doctor/profile',
       params,
     );

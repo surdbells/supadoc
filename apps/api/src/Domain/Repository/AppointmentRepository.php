@@ -145,6 +145,137 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * Count a specialist's appointments, optionally filtered by status and a
+     * [from, to) window (either bound optional).
+     *
+     * @param list<AppointmentStatus>|null $statuses
+     */
+    public function countForSpecialist(
+        string $specialistId,
+        ?array $statuses = null,
+        ?DateTimeImmutable $from = null,
+        ?DateTimeImmutable $to = null,
+    ): int {
+        $qb = $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+        $this->applyStatusWindow($qb, $statuses, $from, $to);
+
+        return (int) $qb->getQuery()->getSingleScalarResult();
+    }
+
+    /**
+     * Sum of the `amount` of a specialist's appointments in the given statuses /
+     * window (money-as-string, scale 2). Used for the earnings snapshot.
+     *
+     * @param list<AppointmentStatus> $statuses
+     */
+    public function sumAmountForSpecialist(
+        string $specialistId,
+        array $statuses,
+        ?DateTimeImmutable $from = null,
+        ?DateTimeImmutable $to = null,
+    ): string {
+        $qb = $this->em->createQueryBuilder()
+            ->select('COALESCE(SUM(e.amount), 0)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+        $this->applyStatusWindow($qb, $statuses, $from, $to);
+
+        return number_format((float) $qb->getQuery()->getSingleScalarResult(), 2, '.', '');
+    }
+
+    /** Distinct patients a specialist has ever had an appointment with. */
+    public function distinctPatientsForSpecialist(string $specialistId): int
+    {
+        return (int) $this->em->createQueryBuilder()
+            ->select('COUNT(DISTINCT e.patient)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /** The specialist's next upcoming, still-active appointment, if any. */
+    public function nextForSpecialist(string $specialistId, DateTimeImmutable $now): ?Appointment
+    {
+        return $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.scheduledAt >= :now')
+            ->andWhere('e.status NOT IN (:done)')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('now', $now)
+            ->setParameter('done', [AppointmentStatus::CANCELLED->value, AppointmentStatus::COMPLETED->value])
+            ->orderBy('e.scheduledAt', 'ASC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    /**
+     * Paginated appointment history for a specialist, newest first, optionally
+     * filtered by status and a patient-name search.
+     *
+     * @param list<AppointmentStatus>|null $statuses
+     * @return array{items: list<Appointment>, total: int}
+     */
+    public function paginatedForSpecialist(
+        int $offset,
+        int $perPage,
+        string $specialistId,
+        ?array $statuses = null,
+        ?string $search = null,
+    ): array {
+        $qb = $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+
+        if ($statuses !== null && $statuses !== []) {
+            $qb->andWhere('e.status IN (:statuses)')
+                ->setParameter('statuses', array_map(static fn (AppointmentStatus $s): string => $s->value, $statuses));
+        }
+        if ($search !== null && trim($search) !== '') {
+            $qb->join('e.patient', 'p')
+                ->andWhere("LOWER(CONCAT(p.firstName, ' ', p.lastName)) LIKE :q OR LOWER(p.email) LIKE :q")
+                ->setParameter('q', '%' . strtolower(trim($search)) . '%');
+        }
+
+        return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, 'scheduledAt', 'desc');
+    }
+
+    /**
+     * Apply an optional status list + [from, to) window to a count/sum builder.
+     *
+     * @param list<AppointmentStatus>|null $statuses
+     */
+    private function applyStatusWindow(
+        \Doctrine\ORM\QueryBuilder $qb,
+        ?array $statuses,
+        ?DateTimeImmutable $from,
+        ?DateTimeImmutable $to,
+    ): void {
+        if ($statuses !== null && $statuses !== []) {
+            $qb->andWhere('e.status IN (:statuses)')
+                ->setParameter('statuses', array_map(static fn (AppointmentStatus $s): string => $s->value, $statuses));
+        }
+        if ($from !== null) {
+            $qb->andWhere('e.scheduledAt >= :from')->setParameter('from', $from);
+        }
+        if ($to !== null) {
+            $qb->andWhere('e.scheduledAt < :to')->setParameter('to', $to);
+        }
+    }
+
+    /**
      * Live (non-cancelled) appointments for a specialist within [from, to) —
      * used to subtract already-taken slots from generated availability.
      *

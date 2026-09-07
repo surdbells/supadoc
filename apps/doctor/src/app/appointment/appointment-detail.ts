@@ -10,8 +10,9 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { Observable } from 'rxjs';
-import { DoctorApi } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type {
+  AppointmentDto,
   CarePlanDto,
   ClinicalNoteDto,
   ConsentDto,
@@ -23,6 +24,7 @@ import type {
   PrescriptionItem,
   RecordingFileDto,
   ReferralDto,
+  SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
@@ -109,17 +111,44 @@ const FIELD =
                 <span class="text-cloud">•</span>{{ a.type_label }}
               </span>
             </div>
-            <button
-              type="button"
-              class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
-              (click)="join(a)"
-            >
-              <sd-icon name="video" [size]="18" />Join call
-            </button>
+            <div class="flex shrink-0 flex-wrap items-center gap-2">
+              @if (canConfirm(a.status)) {
+                <button type="button" class="flex items-center gap-2 rounded-field border border-sage px-4 py-2.5 font-sans text-body-sm font-semibold text-sage transition-colors hover:bg-sage/10 disabled:opacity-60" [disabled]="actionBusy()" (click)="confirm()">
+                  <sd-icon name="circle-check" [size]="18" />Confirm
+                </button>
+              }
+              @if (canReschedule(a.status)) {
+                <button type="button" class="flex items-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="toggleReschedule()">
+                  <sd-icon name="calendar-clock" [size]="18" />Reschedule
+                </button>
+              }
+              @if (canCancel(a.status)) {
+                <button type="button" class="flex items-center gap-2 rounded-field border border-alert px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="decline()">
+                  <sd-icon name="x" [size]="18" />Decline
+                </button>
+              }
+              <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">
+                <sd-icon name="video" [size]="18" />Join call
+              </button>
+            </div>
           } @else {
             <div class="sd-shimmer h-10 w-64 rounded-lg"></div>
           }
         </header>
+
+        @if (rescheduleOpen()) {
+          <div class="flex flex-wrap items-end gap-3 rounded-card border border-cloud bg-white p-4">
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
+              <input type="datetime-local" class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
+            </label>
+            <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
+            <button type="button" class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink" (click)="rescheduleOpen.set(false)">Cancel</button>
+          </div>
+        }
+        @if (actionError()) {
+          <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ actionError() }}</p>
+        }
 
         <!-- Tabs -->
         <div class="flex flex-wrap gap-2 border-b border-cloud pb-3">
@@ -416,6 +445,13 @@ export class DoctorAppointmentDetail implements OnInit {
   private id = '';
   protected readonly appt = signal<DoctorAppointmentDto | null>(null);
   protected readonly apptError = signal('');
+
+  // Lifecycle actions (confirm / decline / reschedule)
+  protected readonly actionBusy = signal(false);
+  protected readonly actionError = signal('');
+  protected readonly rescheduleOpen = signal(false);
+  protected readonly rescheduleAt = signal('');
+
   protected readonly tab = signal<TabKey>('notes');
   private readonly loaded = new Set<TabKey>();
 
@@ -671,6 +707,55 @@ export class DoctorAppointmentDetail implements OnInit {
     const token = idx >= 0 ? a.join_url.slice(idx + marker.length) : '';
     if (token) void this.router.navigate(['/call', token]);
     else window.location.href = a.join_url;
+  }
+
+  // ----- Lifecycle actions -----
+  protected canConfirm(s: string): boolean {
+    return s === 'pending' || s === 'rescheduled';
+  }
+  protected canReschedule(s: string): boolean {
+    return ['pending', 'confirmed', 'rescheduled'].includes(s);
+  }
+  protected canCancel(s: string): boolean {
+    return ['pending', 'confirmed', 'rescheduled'].includes(s);
+  }
+  protected toggleReschedule(): void {
+    this.rescheduleOpen.update((v) => !v);
+    this.actionError.set('');
+  }
+  protected confirm(): void {
+    this.runAction(this.api.confirm(this.id));
+  }
+  protected decline(): void {
+    if (!window.confirm('Decline this appointment? Any payment will be refunded to the patient.')) return;
+    this.runAction(this.api.decline(this.id));
+  }
+  protected submitReschedule(): void {
+    if (this.rescheduleAt().trim() === '') {
+      this.actionError.set('Choose a new date and time.');
+      return;
+    }
+    this.runAction(
+      this.api.reschedule(this.id, new Date(this.rescheduleAt()).toISOString()),
+      () => this.rescheduleOpen.set(false),
+    );
+  }
+  private runAction(call: Observable<SuccessResponse<AppointmentDto>>, onOk?: () => void): void {
+    this.actionBusy.set(true);
+    this.actionError.set('');
+    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.appt.update((a) =>
+          a ? { ...a, status: res.data.status, status_label: res.data.status_label, scheduled_at: res.data.scheduled_at } : a,
+        );
+        this.actionBusy.set(false);
+        onOk?.();
+      },
+      error: (err) => {
+        this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.'));
+        this.actionBusy.set(false);
+      },
+    });
   }
 
   protected statusClass(status: string): string {

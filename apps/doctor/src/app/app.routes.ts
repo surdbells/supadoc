@@ -16,11 +16,21 @@ export const appRoutes: Route[] = [
     canActivate: [staffAuthGuard],
     loadComponent: () => import('./doctor-shell').then((m) => m.DoctorShell),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'schedule' },
+      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+      {
+        path: 'dashboard',
+        loadComponent: () =>
+          import('./dashboard/dashboard').then((m) => m.DoctorDashboard),
+      },
       {
         path: 'schedule',
         loadComponent: () =>
           import('./schedule/schedule').then((m) => m.DoctorSchedule),
+      },
+      {
+        path: 'appointments/history',
+        loadComponent: () =>
+          import('./appointment/history').then((m) => m.DoctorAppointmentHistory),
       },
       {
         path: 'appointments/:id',
@@ -28,6 +38,11 @@ export const appRoutes: Route[] = [
           import('./appointment/appointment-detail').then(
             (m) => m.DoctorAppointmentDetail,
           ),
+      },
+      {
+        path: 'availability',
+        loadComponent: () =>
+          import('./availability/availability').then((m) => m.DoctorAvailability),
       },
       {
         path: 'profile',

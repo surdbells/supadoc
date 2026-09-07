@@ -858,6 +858,60 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/dashboard' => [
+            'get' => [
+                'tags'      => ['Staff'],
+                'summary'   => "Doctor dashboard metrics + today's agenda",
+                'responses' => [
+                    '200' => ['description' => 'OK'],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/history' => [
+            'get' => [
+                'tags'       => ['Staff'],
+                'summary'    => "A doctor's appointment history (paginated)",
+                'parameters' => [
+                    ...$paginationParams,
+                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses'],
+                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Patient name or email'],
+                ],
+                'responses'  => [
+                    '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Appointment'))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/decline' => [
+            'post' => [
+                'tags'       => ['Staff'],
+                'summary'    => 'Decline a booking (assigned doctor); refunds if paid',
+                'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'  => [
+                    '200' => ['description' => 'Declined', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/reschedule' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Reschedule a booking (assigned doctor)',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['scheduled_at'], 'properties' => ['scheduled_at' => ['type' => 'string', 'format' => 'date-time']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Rescheduled', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/me' => [
             'get' => [
                 'tags'      => ['Portal'],

@@ -110,6 +110,11 @@ class Appointment
         return $this->scheduledAt;
     }
 
+    public function setScheduledAt(DateTimeImmutable $scheduledAt): void
+    {
+        $this->scheduledAt = $scheduledAt;
+    }
+
     public function getAmount(): string
     {
         return $this->amount;
