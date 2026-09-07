@@ -108,6 +108,11 @@ export const dashboardRoutes: Route[] = [
           import('./settings-faqs').then((m) => m.SettingsFaqs),
       },
       {
+        path: 'settings/help/support',
+        loadComponent: () =>
+          import('./settings-support').then((m) => m.SettingsSupport),
+      },
+      {
         path: 'wallet',
         loadComponent: () => import('./wallet').then((m) => m.Wallet),
       },

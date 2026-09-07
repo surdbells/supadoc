@@ -207,6 +207,16 @@ return static function (App $app): void {
             // Booking + revenue analytics.
             $group->get('/admin/analytics', Action\Admin\AnalyticsAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
+
+            // Support desk (back office).
+            $group->get('/admin/support/tickets', Action\Admin\ListSupportTicketsAction::class)
+                ->add(new RbacMiddleware('support.manage'));
+            $group->get('/admin/support/tickets/{id}', Action\Admin\GetSupportTicketAction::class)
+                ->add(new RbacMiddleware('support.manage'));
+            $group->post('/admin/support/tickets/{id}/messages', Action\Admin\ReplySupportTicketAction::class)
+                ->add(new RbacMiddleware('support.manage'));
+            $group->patch('/admin/support/tickets/{id}', Action\Admin\UpdateSupportTicketAction::class)
+                ->add(new RbacMiddleware('support.manage'));
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
@@ -261,6 +271,12 @@ return static function (App $app): void {
             $group->get('/notifications', Action\Notification\ListNotificationsAction::class);
             $group->post('/notifications/read-all', Action\Notification\MarkAllNotificationsReadAction::class);
             $group->post('/notifications/{id}/read', Action\Notification\MarkNotificationReadAction::class);
+
+            // Support tickets (patient side).
+            $group->get('/support/tickets', Action\Support\ListMyTicketsAction::class);
+            $group->post('/support/tickets', Action\Support\CreateTicketAction::class);
+            $group->get('/support/tickets/{id}', Action\Support\GetMyTicketAction::class);
+            $group->post('/support/tickets/{id}/messages', Action\Support\ReplyToMyTicketAction::class);
         })->add(new CustomerAuthMiddleware($jwt, $sessions));
     });
 };

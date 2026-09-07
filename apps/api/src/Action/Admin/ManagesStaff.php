@@ -28,6 +28,7 @@ trait ManagesStaff
         'monitoring.view',
         'staff.manage',
         'payouts.manage',
+        'support.manage',
     ];
 
     /** @return list<string> the given roles filtered to the known set */

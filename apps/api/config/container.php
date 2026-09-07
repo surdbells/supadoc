@@ -19,6 +19,8 @@ use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReviewRepository;
 use App\Domain\Repository\StaffNotificationRepository;
+use App\Domain\Repository\SupportMessageRepository;
+use App\Domain\Repository\SupportTicketRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\SessionMetricRepository;
 use App\Domain\Repository\TranscriptSegmentRepository;
@@ -281,6 +283,12 @@ return [
 
     MedicalCertificateRepository::class => static fn (ContainerInterface $c): MedicalCertificateRepository =>
         new MedicalCertificateRepository($c->get(EntityManagerInterface::class)),
+
+    SupportTicketRepository::class => static fn (ContainerInterface $c): SupportTicketRepository =>
+        new SupportTicketRepository($c->get(EntityManagerInterface::class)),
+
+    SupportMessageRepository::class => static fn (ContainerInterface $c): SupportMessageRepository =>
+        new SupportMessageRepository($c->get(EntityManagerInterface::class)),
 
     StaffNotifier::class => static fn (ContainerInterface $c): StaffNotifier => new StaffNotifier(
         $c->get(StaffNotificationRepository::class),

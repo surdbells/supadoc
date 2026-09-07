@@ -447,6 +447,16 @@ return [
         '/api/admin/analytics' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'Booking + revenue analytics (?range=7d|30d|90d|12m)', 'responses' => ['200' => ['description' => 'OK']]],
         ],
+        '/api/admin/support/tickets' => [
+            'get' => ['tags' => ['Support'], 'summary' => 'Support ticket queue (?status=)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/admin/support/tickets/{id}' => [
+            'get'   => ['tags' => ['Support'], 'summary' => 'One ticket + its thread', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'patch' => ['tags' => ['Support'], 'summary' => 'Change a ticket status', 'responses' => ['200' => ['description' => 'OK'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/admin/support/tickets/{id}/messages' => [
+            'post' => ['tags' => ['Support'], 'summary' => 'Post a staff reply', 'responses' => ['201' => ['description' => 'Created'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
 
         '/health' => [
             'get' => [
@@ -1192,6 +1202,16 @@ return [
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
+        ],
+        '/api/portal/support/tickets' => [
+            'get'  => ['tags' => ['Portal'], 'summary' => 'My support tickets', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+            'post' => ['tags' => ['Portal'], 'summary' => 'Open a support ticket', 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['subject', 'message'], 'properties' => ['subject' => ['type' => 'string'], 'category' => ['type' => 'string'], 'message' => ['type' => 'string']]])], 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/portal/support/tickets/{id}' => [
+            'get' => ['tags' => ['Portal'], 'summary' => 'One of my tickets + its thread', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/support/tickets/{id}/messages' => [
+            'post' => ['tags' => ['Portal'], 'summary' => 'Reply to my ticket', 'responses' => ['201' => ['description' => 'Created'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/portal/me/2fa/setup' => [
             'post' => [

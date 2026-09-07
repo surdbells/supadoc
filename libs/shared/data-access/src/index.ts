@@ -10,6 +10,7 @@ export * from './lib/monitoring.api';
 export * from './lib/settings.api';
 export * from './lib/staff.api';
 export * from './lib/staff-notifications.api';
+export * from './lib/support.api';
 export * from './lib/specialists.api';
 export * from './lib/patient.api';
 export * from './lib/notifications.api';

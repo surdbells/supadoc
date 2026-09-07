@@ -74,14 +74,14 @@ export class SettingsHelp {
     {
       icon: 'headphones',
       title: 'Contact Support',
-      desc: 'Reply within 2 hours',
-      href: 'mailto:support@videomed.com',
+      desc: 'Open a ticket — we usually reply within 2 hours',
+      link: '/dashboard/settings/help/support',
     },
     {
       icon: 'message-square',
-      title: 'Live chat',
-      desc: 'Chat with a care specialist',
-      href: '#',
+      title: 'My tickets',
+      desc: 'View replies and past conversations',
+      link: '/dashboard/settings/help/support',
     },
   ];
 }

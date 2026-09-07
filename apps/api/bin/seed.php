@@ -58,7 +58,7 @@ if ($admin === null) {
 // Refresh roles/permissions on every run so an existing admin picks up newly
 // added back-office permissions without a manual grant.
 $admin->setRoles(['admin']);
-$admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update', 'settings.manage', 'specialists.manage', 'monitoring.view', 'staff.manage', 'payouts.manage']);
+$admin->setPermissions(['appointments.view', 'appointments.create', 'appointments.book', 'appointments.update', 'settings.manage', 'specialists.manage', 'monitoring.view', 'staff.manage', 'payouts.manage', 'support.manage']);
 $em->persist($admin);
 
 // Read-only staff: has view but not create/book — proves RBAC denies (403).

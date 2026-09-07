@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage' },
   { label: 'Staff & roles', icon: 'users', link: '/staff', permission: 'staff.manage' },
   { label: 'Payouts', icon: 'wallet', link: '/payouts', permission: 'payouts.manage' },
+  { label: 'Support', icon: 'headphones', link: '/support', permission: 'support.manage' },
   { label: 'Pricing', icon: 'banknote', link: '/pricing', permission: 'settings.manage' },
   { label: 'Audit log', icon: 'history', link: '/audit', permission: 'monitoring.view' },
 ];
