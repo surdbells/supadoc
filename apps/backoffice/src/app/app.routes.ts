@@ -19,6 +19,12 @@ export const appRoutes: Route[] = [
           import('./dashboard/dashboard').then((m) => m.AdminDashboard),
       },
       {
+        path: 'analytics',
+        canActivate: [permissionGuard('monitoring.view')],
+        loadComponent: () =>
+          import('./analytics/analytics').then((m) => m.AdminAnalytics),
+      },
+      {
         path: 'monitoring',
         canActivate: [permissionGuard('monitoring.view')],
         loadComponent: () =>

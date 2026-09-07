@@ -70,6 +70,51 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * Lightweight rows for analytics, over a booking-date window. Returns scalar
+     * fields only (no hydration) so a wide range stays cheap; aggregation into
+     * time-series/top-lists happens in PHP (DB-portable, no vendor date funcs).
+     *
+     * @return list<array{created_at: DateTimeImmutable, amount: string, payment_status: string, status: string, type: string, specialist_id: string, specialist_name: string}>
+     */
+    public function analyticsRows(DateTimeImmutable $from, DateTimeImmutable $to): array
+    {
+        $rows = $this->em->createQueryBuilder()
+            ->select(
+                'e.createdAt AS created_at',
+                'e.amount AS amount',
+                'e.paymentStatus AS payment_status',
+                'e.status AS status',
+                'e.type AS type',
+                's.id AS specialist_id',
+                's.name AS specialist_name',
+            )
+            ->from(Appointment::class, 'e')
+            ->join('e.specialist', 's')
+            ->andWhere('e.deletedAt IS NULL')
+            ->andWhere('e.createdAt >= :from')
+            ->andWhere('e.createdAt <= :to')
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery()
+            ->getArrayResult();
+
+        return array_map(static function (array $r): array {
+            $status = $r['status'] ?? '';
+            $type   = $r['type'] ?? '';
+
+            return [
+                'created_at'     => $r['created_at'],
+                'amount'         => (string) ($r['amount'] ?? '0.00'),
+                'payment_status' => (string) ($r['payment_status'] ?? ''),
+                'status'         => is_object($status) ? $status->value : (string) $status,
+                'type'           => is_object($type) ? $type->value : (string) $type,
+                'specialist_id'  => (string) ($r['specialist_id'] ?? ''),
+                'specialist_name' => (string) ($r['specialist_name'] ?? ''),
+            ];
+        }, $rows);
+    }
+
+    /**
      * The most recent appointments (non-deleted), newest first — the monitoring list.
      *
      * @return array{items: list<Appointment>, total: int}

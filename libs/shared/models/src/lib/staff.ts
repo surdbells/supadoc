@@ -227,6 +227,40 @@ export interface MonitoringOverviewDto {
   audit_events: number;
 }
 
+/** One point in an analytics time-series (a day or a month). */
+export interface AnalyticsPoint {
+  label: string;
+  appointments: number;
+  revenue: string;
+}
+
+/** One specialist's contribution in the analytics report. */
+export interface AnalyticsSpecialist {
+  id: string;
+  name: string;
+  appointments: number;
+  revenue: string;
+}
+
+/** Booking + revenue analytics (GET /api/admin/analytics). */
+export interface AnalyticsDto {
+  range: '7d' | '30d' | '90d' | '12m';
+  granularity: 'day' | 'month';
+  from: string;
+  to: string;
+  kpis: {
+    appointments: number;
+    revenue: string;
+    paid_count: number;
+    avg_fee: string;
+    completion_rate: number;
+  };
+  series: AnalyticsPoint[];
+  by_status: Record<string, number>;
+  by_type: Record<string, number>;
+  top_specialists: AnalyticsSpecialist[];
+}
+
 export interface MonitoringConsultationRow {
   id: string;
   patient_name: string;

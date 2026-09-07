@@ -444,6 +444,9 @@ return [
         '/api/admin/monitoring/quality' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'RTC quality per consultation', 'responses' => ['200' => ['description' => 'OK']]],
         ],
+        '/api/admin/analytics' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'Booking + revenue analytics (?range=7d|30d|90d|12m)', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
 
         '/health' => [
             'get' => [

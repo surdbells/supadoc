@@ -80,9 +80,9 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
         }
         @case ('quality') {
           <div class="flex flex-col gap-3">
-            @if (quality()?.average_rtt != null) {
+            @if (quality()?.average_rtt; as avgRtt) {
               <p class="font-sans text-body-sm text-slate">
-                Average round-trip time: <span class="font-semibold text-ink">{{ quality()?.average_rtt }} ms</span>
+                Average round-trip time: <span class="font-semibold text-ink">{{ avgRtt }} ms</span>
               </p>
             }
             <div class="overflow-x-auto rounded-card border border-cloud bg-white">

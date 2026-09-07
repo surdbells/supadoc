@@ -25,6 +25,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { label: 'Dashboard', icon: 'layout-dashboard', link: '/dashboard', permission: 'monitoring.view' },
   { label: 'Appointments', icon: 'calendar-days', link: '/appointments', permission: 'appointments.view' },
+  { label: 'Analytics', icon: 'chart-column', link: '/analytics', permission: 'monitoring.view' },
   { label: 'Monitoring', icon: 'activity', link: '/monitoring', permission: 'monitoring.view' },
   { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage' },
   { label: 'Staff & roles', icon: 'users', link: '/staff', permission: 'staff.manage' },

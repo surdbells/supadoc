@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  AnalyticsDto,
   AuditEventDto,
   MonitoringConsultationRow,
   MonitoringOverviewDto,
@@ -62,5 +63,12 @@ export class MonitoringApi {
       'api/admin/monitoring/audit',
       query as QueryParams | undefined,
     );
+  }
+
+  /** GET /api/admin/analytics?range= — booking + revenue analytics. */
+  analytics(range: AnalyticsDto['range']): Observable<SuccessResponse<AnalyticsDto>> {
+    return this.api.get<SuccessResponse<AnalyticsDto>>('api/admin/analytics', {
+      range,
+    });
   }
 }

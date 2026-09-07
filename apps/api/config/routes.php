@@ -202,6 +202,10 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('monitoring.view'));
             $group->get('/admin/monitoring/quality', Action\Admin\MonitoringQualityAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
+
+            // Booking + revenue analytics.
+            $group->get('/admin/analytics', Action\Admin\AnalyticsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
         })->add(new AuthMiddleware($jwt));
 
         // ----- Customer portal (customer audience) -----
