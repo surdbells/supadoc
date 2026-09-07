@@ -912,6 +912,32 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/earnings' => [
+            'get' => ['tags' => ['Staff'], 'summary' => "Doctor earnings summary + available balance", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/earnings/transactions' => [
+            'get' => ['tags' => ['Staff'], 'summary' => 'Earnings lines per completed consultation (paginated)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/payout-account' => [
+            'get' => ['tags' => ['Staff'], 'summary' => "The doctor's payout beneficiary", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'put' => ['tags' => ['Staff'], 'summary' => 'Save the payout beneficiary', 'responses' => ['200' => ['description' => 'Saved'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/doctor/payouts' => [
+            'get'  => ['tags' => ['Staff'], 'summary' => "The doctor's payout requests", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'post' => ['tags' => ['Staff'], 'summary' => 'Request a payout of available earnings', 'responses' => ['201' => ['description' => 'Requested'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/admin/payouts' => [
+            'get' => ['tags' => ['Monitoring'], 'summary' => 'All payout requests (paginated, ?status)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing payouts.manage']]],
+        ],
+        '/api/admin/payouts/{id}/approve' => [
+            'post' => ['tags' => ['Monitoring'], 'summary' => 'Approve a payout', 'responses' => ['200' => ['description' => 'Approved'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/admin/payouts/{id}/mark-paid' => [
+            'post' => ['tags' => ['Monitoring'], 'summary' => 'Mark a payout paid', 'responses' => ['200' => ['description' => 'Paid'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/admin/payouts/{id}/reject' => [
+            'post' => ['tags' => ['Monitoring'], 'summary' => 'Reject a payout', 'responses' => ['200' => ['description' => 'Rejected'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
         '/api/portal/me' => [
             'get' => [
                 'tags'      => ['Portal'],

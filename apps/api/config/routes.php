@@ -85,6 +85,17 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
 
             // Staff & role management.
+            // Payouts (back office).
+            $group->get('/admin/payouts', Action\Admin\ListPayoutsAction::class)
+                ->add(new RbacMiddleware('payouts.manage'));
+            $group->post('/admin/payouts/{id}/approve', Action\Admin\ApprovePayoutAction::class)
+                ->add(new RbacMiddleware('payouts.manage'));
+            $group->post('/admin/payouts/{id}/mark-paid', Action\Admin\MarkPayoutPaidAction::class)
+                ->add(new RbacMiddleware('payouts.manage'));
+            $group->post('/admin/payouts/{id}/reject', Action\Admin\RejectPayoutAction::class)
+                ->add(new RbacMiddleware('payouts.manage'));
+
+            // Staff & role management.
             $group->get('/staff', Action\Admin\ListStaffAction::class)
                 ->add(new RbacMiddleware('staff.manage'));
             $group->post('/staff', Action\Admin\CreateStaffAction::class)
@@ -116,6 +127,13 @@ return static function (App $app): void {
             $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
+            // Earnings + payouts (doctor self-service).
+            $group->get('/doctor/earnings', Action\Doctor\DoctorEarningsAction::class);
+            $group->get('/doctor/earnings/transactions', Action\Doctor\DoctorEarningsTransactionsAction::class);
+            $group->get('/doctor/payout-account', Action\Doctor\GetPayoutAccountAction::class);
+            $group->put('/doctor/payout-account', Action\Doctor\SavePayoutAccountAction::class);
+            $group->get('/doctor/payouts', Action\Doctor\ListDoctorPayoutsAction::class);
+            $group->post('/doctor/payouts', Action\Doctor\RequestPayoutAction::class);
 
             // In-consultation clinical documentation. Each action re-checks that
             // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).

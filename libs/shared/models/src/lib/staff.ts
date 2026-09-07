@@ -88,6 +88,73 @@ export interface DoctorProfileDto extends SpecialistAdminDto {
   weekly_hours?: WeeklyHours | null;
 }
 
+// ----- Earnings & payouts -----
+
+export interface EarningsSummaryDto {
+  currency: string;
+  commission_percent: number;
+  gross_total: string;
+  commission_total: string;
+  net_total: string;
+  payouts_total: string;
+  available_balance: string;
+  gross_month: string;
+  net_month: string;
+  completed_count: number;
+  has_open_payout: boolean;
+}
+
+export interface EarningsTxnDto {
+  appointment_id: string;
+  patient_name: string;
+  date: string;
+  gross: string;
+  commission: string;
+  net: string;
+}
+
+export interface PayoutAccountDto {
+  account_holder: string;
+  bank_name: string;
+  country: string;
+  currency: string;
+  account_number: string | null;
+  iban: string | null;
+  swift: string | null;
+  routing_number: string | null;
+  updated_at: string | null;
+}
+
+export interface PayoutAccountInput {
+  account_holder: string;
+  bank_name: string;
+  country: string;
+  currency: string;
+  account_number?: string | null;
+  iban?: string | null;
+  swift?: string | null;
+  routing_number?: string | null;
+}
+
+export type PayoutStatus = 'pending' | 'approved' | 'paid' | 'rejected';
+
+export interface PayoutDto {
+  id: string;
+  specialist_id: string;
+  specialist_name: string;
+  amount: string;
+  currency: string;
+  status: PayoutStatus;
+  note: string | null;
+  admin_note: string | null;
+  decided_by: string | null;
+  reference: string | null;
+  account: PayoutAccountDto | null;
+  requested_at: string;
+  decided_at: string | null;
+  paid_at: string | null;
+}
+
 // ----- Back-office monitoring -----
 
 export interface MonitoringOverviewDto {

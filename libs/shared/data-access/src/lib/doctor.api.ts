@@ -17,8 +17,13 @@ import type {
   DoctorProfileUpdate,
   DoctorRecordingStateDto,
   DoctorScheduleDto,
+  EarningsSummaryDto,
+  EarningsTxnDto,
   LabOrderDto,
   PaginatedResponse,
+  PayoutAccountDto,
+  PayoutAccountInput,
+  PayoutDto,
   PrescriptionDto,
   RecordingDto,
   RecordingFilesDto,
@@ -95,6 +100,40 @@ export class DoctorApi {
   }
 
   // ----- Profile (self-service) -----
+
+  // ----- Earnings & payouts -----
+
+  earnings(): Observable<SuccessResponse<EarningsSummaryDto>> {
+    return this.api.get<SuccessResponse<EarningsSummaryDto>>('api/doctor/earnings');
+  }
+
+  earningsTransactions(query?: {
+    page?: number;
+    per_page?: number;
+  }): Observable<PaginatedResponse<EarningsTxnDto>> {
+    return this.api.get<PaginatedResponse<EarningsTxnDto>>(
+      'api/doctor/earnings/transactions',
+      query as QueryParams | undefined,
+    );
+  }
+
+  getPayoutAccount(): Observable<SuccessResponse<PayoutAccountDto | null>> {
+    return this.api.get<SuccessResponse<PayoutAccountDto | null>>('api/doctor/payout-account');
+  }
+
+  savePayoutAccount(
+    params: PayoutAccountInput,
+  ): Observable<SuccessResponse<PayoutAccountDto>> {
+    return this.api.put<SuccessResponse<PayoutAccountDto>>('api/doctor/payout-account', params);
+  }
+
+  payouts(): Observable<SuccessResponse<PayoutDto[]>> {
+    return this.api.get<SuccessResponse<PayoutDto[]>>('api/doctor/payouts');
+  }
+
+  requestPayout(amount: string, note?: string): Observable<SuccessResponse<PayoutDto>> {
+    return this.api.post<SuccessResponse<PayoutDto>>('api/doctor/payouts', { amount, note });
+  }
 
   /** GET /api/doctor/profile — the doctor's own profile (email + weekly hours). */
   getProfile(): Observable<SuccessResponse<DoctorProfileDto>> {

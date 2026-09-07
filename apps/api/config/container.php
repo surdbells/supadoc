@@ -11,6 +11,8 @@ use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\CopilotDraftRepository;
 use App\Domain\Repository\LabOrderRepository;
+use App\Domain\Repository\PayoutAccountRepository;
+use App\Domain\Repository\PayoutRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
@@ -34,6 +36,7 @@ use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\CopilotService;
 use App\Infrastructure\Service\AvailabilityService;
+use App\Infrastructure\Service\EarningsService;
 use App\Infrastructure\Service\ReminderService;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
@@ -221,6 +224,13 @@ return [
     PricingService::class => static fn (ContainerInterface $c): PricingService =>
         new PricingService($c->get(AppSettingRepository::class)),
 
+    // Doctor earnings: platform keeps DOCTOR_COMMISSION_PERCENT of gross (default 0).
+    EarningsService::class => static fn (ContainerInterface $c): EarningsService => new EarningsService(
+        $c->get(AppointmentRepository::class),
+        $c->get(PayoutRepository::class),
+        (float) ($_ENV['DOCTOR_COMMISSION_PERCENT'] ?? 0),
+    ),
+
     // ----- Repositories -----
     UserRepository::class => static fn (ContainerInterface $c): UserRepository =>
         new UserRepository($c->get(EntityManagerInterface::class)),
@@ -236,6 +246,12 @@ return [
 
     AppointmentReminderRepository::class => static fn (ContainerInterface $c): AppointmentReminderRepository =>
         new AppointmentReminderRepository($c->get(EntityManagerInterface::class)),
+
+    PayoutAccountRepository::class => static fn (ContainerInterface $c): PayoutAccountRepository =>
+        new PayoutAccountRepository($c->get(EntityManagerInterface::class)),
+
+    PayoutRepository::class => static fn (ContainerInterface $c): PayoutRepository =>
+        new PayoutRepository($c->get(EntityManagerInterface::class)),
 
     ClinicalNoteRepository::class => static fn (ContainerInterface $c): ClinicalNoteRepository =>
         new ClinicalNoteRepository($c->get(EntityManagerInterface::class)),

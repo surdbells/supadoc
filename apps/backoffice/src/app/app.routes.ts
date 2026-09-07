@@ -61,6 +61,11 @@ export const appRoutes: Route[] = [
         loadComponent: () => import('./staff/staff').then((m) => m.AdminStaff),
       },
       {
+        path: 'payouts',
+        canActivate: [permissionGuard('payouts.manage')],
+        loadComponent: () => import('./payouts/payouts').then((m) => m.AdminPayouts),
+      },
+      {
         path: 'pricing',
         canActivate: [permissionGuard('settings.manage')],
         loadComponent: () => import('./pricing/pricing').then((m) => m.AdminPricing),
