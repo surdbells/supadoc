@@ -149,6 +149,10 @@ return static function (App $app): void {
             $group->get('/doctor/appointments/{id}/messages', Action\Doctor\ListDoctorMessagesAction::class);
             $group->post('/doctor/appointments/{id}/messages', Action\Doctor\PostDoctorMessageAction::class);
 
+            // Patient's medical documents — reviewable in-call.
+            $group->get('/doctor/appointments/{id}/patient-documents', Action\Doctor\ListPatientDocumentsAction::class);
+            $group->get('/doctor/appointments/{id}/patient-documents/{docId}/file', Action\Doctor\DownloadPatientDocumentAction::class);
+
             // In-consultation clinical documentation. Each action re-checks that
             // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).
             $group->get('/doctor/appointments/{id}/note', Action\Doctor\GetClinicalNoteAction::class);
@@ -235,6 +239,12 @@ return static function (App $app): void {
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);
             $group->post('/me/email/request-otp', Action\Patient\RequestEmailChangeOtpAction::class);
             $group->post('/me/email', Action\Patient\ChangeMyEmailAction::class);
+
+            // Medical documents — the patient's own record library.
+            $group->get('/document-types', Action\Patient\DocumentTypesAction::class);
+            $group->get('/documents', Action\Patient\ListMyDocumentsAction::class);
+            $group->post('/documents', Action\Patient\UploadMyDocumentAction::class);
+            $group->get('/documents/{id}/file', Action\Patient\DownloadMyDocumentAction::class);
             $group->post('/me/2fa/setup', Action\Patient\SetupTwoFactorAction::class);
             $group->post('/me/2fa/enable', Action\Patient\EnableTwoFactorAction::class);
             $group->post('/me/2fa/disable', Action\Patient\DisableTwoFactorAction::class);

@@ -332,6 +332,12 @@ return [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'Read the patient message thread', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
             'post' => ['tags' => ['Doctor'], 'summary' => 'Post a message to the patient', 'responses' => ['201' => ['description' => 'Created'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
+        '/api/doctor/appointments/{id}/patient-documents' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => "The patient's medical documents (in-call)", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/appointments/{id}/patient-documents/{docId}/file' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => "Stream one of the patient's documents", 'responses' => ['200' => ['description' => 'File'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
         '/api/doctor/appointments/{id}/prescriptions' => [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'List issued prescriptions', 'responses' => ['200' => ['description' => 'OK']]],
             'post' => ['tags' => ['Doctor'], 'summary' => 'Issue an e-prescription', 'responses' => ['201' => ['description' => 'Created']]],
@@ -391,6 +397,16 @@ return [
         '/api/portal/appointments/{id}/messages' => [
             'get'  => ['tags' => ['Consultation'], 'summary' => 'Read the doctor message thread', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
             'post' => ['tags' => ['Consultation'], 'summary' => 'Post a message to the doctor', 'responses' => ['201' => ['description' => 'Created'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/document-types' => [
+            'get' => ['tags' => ['Documents'], 'summary' => 'Medical document type catalogue', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/documents' => [
+            'get'  => ['tags' => ['Documents'], 'summary' => 'List my medical documents (?search=&type=&sort_dir=)', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => ['tags' => ['Documents'], 'summary' => 'Upload a medical document (multipart)', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/portal/documents/{id}/file' => [
+            'get' => ['tags' => ['Documents'], 'summary' => 'Stream one of my documents', 'responses' => ['200' => ['description' => 'File'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/portal/appointments/{id}/prescriptions' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My prescriptions', 'responses' => ['200' => ['description' => 'OK']]],

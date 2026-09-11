@@ -12,6 +12,7 @@ use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\CopilotDraftRepository;
 use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\MedicalCertificateRepository;
+use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\MessageRepository;
 use App\Domain\Repository\PayoutAccountRepository;
 use App\Domain\Repository\PayoutRepository;
@@ -48,6 +49,7 @@ use App\Infrastructure\Service\ReminderService;
 use App\Infrastructure\Service\StaffNotifier;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\MedicalDocumentStorage;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\RecordingStorage;
 use App\Infrastructure\Service\SessionService;
@@ -212,6 +214,9 @@ return [
         ($_ENV['APP_ENV'] ?? 'production') !== 'production',
     ),
 
+    // Patient medical-document files (stored outside the web root).
+    MedicalDocumentStorage::class => static fn (): MedicalDocumentStorage => new MedicalDocumentStorage(),
+
     // Printable clinical documents (prescription / referral / certificate).
     ClinicalDocumentRenderer::class => static fn (): ClinicalDocumentRenderer => new ClinicalDocumentRenderer(
         clinicName:    trim($_ENV['CLINIC_NAME'] ?? '') !== '' ? trim($_ENV['CLINIC_NAME']) : 'VideoMed',
@@ -283,6 +288,9 @@ return [
 
     MedicalCertificateRepository::class => static fn (ContainerInterface $c): MedicalCertificateRepository =>
         new MedicalCertificateRepository($c->get(EntityManagerInterface::class)),
+
+    MedicalDocumentRepository::class => static fn (ContainerInterface $c): MedicalDocumentRepository =>
+        new MedicalDocumentRepository($c->get(EntityManagerInterface::class)),
 
     SupportTicketRepository::class => static fn (ContainerInterface $c): SupportTicketRepository =>
         new SupportTicketRepository($c->get(EntityManagerInterface::class)),
