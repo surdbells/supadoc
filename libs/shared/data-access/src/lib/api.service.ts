@@ -34,6 +34,17 @@ export class ApiService {
     });
   }
 
+  /**
+   * GET a resource as a binary Blob (e.g. a streamed file). Authenticated via the
+   * interceptor, so it works for access-controlled files a public URL can't reach.
+   */
+  getBlob(path: string, params?: QueryParams): Observable<Blob> {
+    return this.http.get(this.url(path), {
+      params: this.toParams(params),
+      responseType: 'blob',
+    });
+  }
+
   post<T>(path: string, body?: unknown): Observable<T> {
     return this.http.post<T>(this.url(path), body);
   }

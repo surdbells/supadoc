@@ -34,3 +34,33 @@ export function openClinicalDocument(document$: Observable<string>): void {
     },
   });
 }
+
+/**
+ * Opens a fetched binary file (PDF, image, video, …) in a new tab for viewing.
+ * Same popup-safe pattern as {@link openClinicalDocument}: open the tab on the
+ * click, then point it at a blob URL once the bytes arrive.
+ */
+export function openBlobDocument(file$: Observable<Blob>): void {
+  const tab = window.open('', '_blank');
+  if (tab) {
+    tab.document.write(
+      '<!doctype html><meta charset="utf-8"><title>Opening…</title>' +
+        '<body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#546e7a;display:flex;align-items:center;justify-content:center;height:100vh">Opening document…</body>',
+    );
+  }
+
+  file$.subscribe({
+    next: (blob) => {
+      const url = URL.createObjectURL(blob);
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    },
+    error: () => {
+      if (tab) {
+        tab.document.body.innerHTML =
+          '<div style="padding:24px;font-family:sans-serif;color:#c62828">Could not open the document. Please try again.</div>';
+      }
+    },
+  });
+}

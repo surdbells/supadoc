@@ -47,6 +47,11 @@ export const dashboardRoutes: Route[] = [
           import('./consultation-call').then((m) => m.ConsultationCall),
       },
       {
+        path: 'documents',
+        loadComponent: () =>
+          import('./documents').then((m) => m.PatientDocuments),
+      },
+      {
         path: 'history',
         loadComponent: () => import('./history').then((m) => m.History),
       },

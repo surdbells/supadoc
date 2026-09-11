@@ -6,6 +6,7 @@ export * from './lib/admin-appointments.api';
 export * from './lib/admin-patients.api';
 export * from './lib/admin-payouts.api';
 export * from './lib/doctor.api';
+export * from './lib/documents.api';
 export * from './lib/monitoring.api';
 export * from './lib/settings.api';
 export * from './lib/staff.api';

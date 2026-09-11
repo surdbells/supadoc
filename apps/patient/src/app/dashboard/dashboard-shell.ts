@@ -313,6 +313,11 @@ export class DashboardShell {
     { label: 'History', icon: 'history', link: '/dashboard/history' },
     { label: 'Notification', icon: 'bell', link: '/dashboard/notifications' },
     { label: 'Wallet', icon: 'wallet', link: '/dashboard/wallet' },
+    {
+      label: 'Upload Document',
+      icon: 'upload',
+      link: '/dashboard/documents',
+    },
     { label: 'My Profile', icon: 'user', link: '/dashboard/profile' },
   ];
 
