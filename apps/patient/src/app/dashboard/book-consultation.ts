@@ -664,9 +664,32 @@ import {
                 class="mt-4 flex items-start gap-2 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert"
               >
                 <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
-                Your wallet is short by {{ fmt(walletShortfall()) }}. Top up your
-                wallet to book this consultation.
+                Your wallet is short by {{ fmt(walletShortfall()) }}. Add funds
+                below to book without losing your details.
               </p>
+              <!-- Inline top-up (Paystack) — no navigation, booking stays intact -->
+              <div class="mt-3 flex flex-col gap-2 rounded-card border border-cloud bg-glacier/40 p-4">
+                <label class="flex flex-col gap-1.5">
+                  <span class="font-sans text-caption font-semibold text-slate">Amount to add</span>
+                  <div class="flex items-center gap-2 rounded-field border border-cloud bg-white px-3 py-2.5 focus-within:border-cerulean">
+                    <span class="font-sans text-body-sm text-slate">{{ currency() }}</span>
+                    <input
+                      inputmode="numeric"
+                      class="min-w-0 flex-1 bg-transparent font-sans text-body-sm text-ink outline-none"
+                      [value]="effectiveTopUp()"
+                      (input)="topUpAmount.set($any($event.target).value)"
+                      [disabled]="funding()"
+                    />
+                  </div>
+                </label>
+                @if (fundError()) {
+                  <sd-alert tone="error" class="block">{{ fundError() }}</sd-alert>
+                }
+                <p class="font-sans text-caption text-slate">
+                  You'll pay securely via Paystack in a pop-up. Once it clears, we
+                  book your consultation automatically.
+                </p>
+              </div>
             } @else {
               <p
                 class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate"
@@ -687,8 +710,9 @@ import {
               >Back to previous</sd-button
             >
             @if (walletLoaded() && !walletSufficient()) {
-              <sd-button (click)="goTopUp()">
-                Top up wallet <sd-icon name="arrow-right" [size]="18" />
+              <sd-button [disabled]="funding()" (click)="topUpAndBook()">
+                {{ funding() ? 'Processing…' : 'Fund ' + fmt(topUpValue()) + ' & book' }}
+                @if (!funding()) { <sd-icon name="arrow-right" [size]="18" /> }
               </sd-button>
             } @else {
               <sd-button
@@ -749,6 +773,13 @@ export class BookConsultation implements OnInit {
 
   protected readonly submitting = signal(false);
   protected readonly submitError = signal('');
+
+  // Inline wallet top-up (Paystack popup) during booking — the entered
+  // consultation details are kept intact; on success we book automatically.
+  protected readonly funding = signal(false);
+  protected readonly fundError = signal('');
+  protected readonly topUpAmount = signal('');
+  private paystackLoader?: Promise<PaystackPopCtor>;
 
   private specialistId = '';
   private readonly nf = new Intl.NumberFormat('en-NG', {
@@ -890,6 +921,17 @@ export class BookConsultation implements OnInit {
     Math.max(0, this.amount() - (this.walletBalance() ?? 0)),
   );
 
+  /** The top-up amount to fund: the patient's input, else the exact shortfall. */
+  protected readonly topUpValue = computed(() => {
+    const typed = Number(this.topUpAmount());
+    if (this.topUpAmount().trim() !== '' && !Number.isNaN(typed) && typed > 0) return typed;
+    return Math.ceil(this.walletShortfall());
+  });
+  /** String shown in the amount input (defaults to the shortfall). */
+  protected effectiveTopUp(): string {
+    return this.topUpAmount().trim() !== '' ? this.topUpAmount() : String(Math.ceil(this.walletShortfall()));
+  }
+
   protected readonly guestNames = computed(() =>
     this.validGuests()
       .map((g) => g.name.trim())
@@ -1027,8 +1069,92 @@ export class BookConsultation implements OnInit {
     }
   }
 
-  /** Send the patient to the wallet to top up, then come back to re-book. */
-  protected goTopUp(): void {
-    void this.router.navigate(['/dashboard/wallet']);
+  /**
+   * Fund the wallet inline (Paystack pop-up) then book — all without leaving the
+   * booking wizard, so the chosen slot, reason, guests and document survive.
+   */
+  protected async topUpAndBook(): Promise<void> {
+    if (this.funding()) return;
+    const amount = this.topUpValue();
+    if (amount < this.walletShortfall()) {
+      this.fundError.set(`Add at least ${this.fmt(this.walletShortfall())} to cover this booking.`);
+      return;
+    }
+    this.funding.set(true);
+    this.fundError.set('');
+    try {
+      const currency = this.pricing()?.currency ?? 'NGN';
+      const init = await firstValueFrom(this.wallet.fund(String(amount), currency));
+      const Pop = await this.loadPaystack();
+      const popup = new Pop();
+      popup.resumeTransaction(init.data.access_code, {
+        onSuccess: () => void this.afterFunding(init.data.reference),
+        onCancel: () => {
+          this.funding.set(false);
+          this.fundError.set('Payment cancelled. Your booking details are saved — try again when ready.');
+        },
+        onError: () => {
+          this.funding.set(false);
+          this.fundError.set('The payment could not be completed. Please try again.');
+        },
+      });
+    } catch (err) {
+      this.funding.set(false);
+      this.fundError.set(apiErrorMessage(err, 'Could not start the top-up. Please try again.'));
+    }
+  }
+
+  /** Verify the top-up, refresh the balance, then book if now covered. */
+  private async afterFunding(reference: string): Promise<void> {
+    try {
+      await firstValueFrom(this.wallet.verify(reference));
+      const res = await firstValueFrom(this.wallet.wallet());
+      this.walletBalance.set(Number(res.data.balance));
+      this.walletLoaded.set(true);
+      this.topUpAmount.set('');
+      if (this.walletSufficient()) {
+        this.funding.set(false);
+        await this.confirm();
+      } else {
+        this.funding.set(false);
+        this.fundError.set('Your wallet was funded but is still short for this booking. Add a little more.');
+      }
+    } catch {
+      this.funding.set(false);
+      this.fundError.set('We could not confirm the payment yet. If you were charged, your wallet will update shortly.');
+    }
+  }
+
+  /** Lazy-load Paystack's inline v2 script once and resolve its constructor. */
+  private loadPaystack(): Promise<PaystackPopCtor> {
+    this.paystackLoader ??= new Promise<PaystackPopCtor>((resolve, reject) => {
+      const existing = (window as unknown as { PaystackPop?: PaystackPopCtor }).PaystackPop;
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://js.paystack.co/v2/inline.js';
+      script.async = true;
+      script.onload = () => {
+        const ctor = (window as unknown as { PaystackPop?: PaystackPopCtor }).PaystackPop;
+        if (ctor) resolve(ctor);
+        else reject(new Error('Paystack failed to load'));
+      };
+      script.onerror = () => reject(new Error('Paystack failed to load'));
+      document.head.appendChild(script);
+    });
+    return this.paystackLoader;
   }
 }
+
+/** Minimal shape of Paystack Inline v2 used here (not shipped with types). */
+interface PaystackTxnCallbacks {
+  onSuccess?: (transaction: { reference?: string }) => void;
+  onCancel?: () => void;
+  onError?: (error: unknown) => void;
+}
+interface PaystackPopInstance {
+  resumeTransaction(accessCode: string, callbacks?: PaystackTxnCallbacks): void;
+}
+type PaystackPopCtor = new () => PaystackPopInstance;
