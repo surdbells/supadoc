@@ -17,7 +17,12 @@ import AgoraRTC, {
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
-import { AppointmentsApi, PatientApi } from '@supadoc/data-access';
+import {
+  AppointmentsApi,
+  DocumentsApi,
+  openBlobDocument,
+  PatientApi,
+} from '@supadoc/data-access';
 import type {
   AllergyRow,
   AppointmentDto,
@@ -26,6 +31,7 @@ import type {
   ConsultationSummaryDto,
   HealthProfileDto,
   LabOrderDto,
+  MedicalDocumentDto,
   MedicationRow,
   PatientCarePlanDto,
   PatientProfileDto,
@@ -66,6 +72,8 @@ interface RecordItem {
   readonly kind: DocsTab;
   readonly badge: string;
   readonly url: string | null;
+  /** Set for medical-library documents — opened via an authenticated blob. */
+  readonly docId?: string;
 }
 
 /**
@@ -813,7 +821,7 @@ interface RecordItem {
             </div>
             @if (visibleRecords().length) {
               <ul class="flex flex-col divide-y divide-white/10">
-                @for (r of visibleRecords(); track r.title) {
+                @for (r of visibleRecords(); track r.docId ?? r.title) {
                   <li class="flex items-center gap-3 py-2.5">
                     <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
                       <sd-icon [name]="r.kind === 'imaging' ? 'camera' : 'file-text'" [size]="18" />
@@ -828,8 +836,8 @@ interface RecordItem {
                     <button
                       type="button"
                       class="flex size-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
-                      aria-label="Download"
-                      [disabled]="!r.url"
+                      aria-label="Open document"
+                      [disabled]="!r.url && !r.docId"
                       (click)="download(r)"
                     >
                       <sd-icon name="download" [size]="16" />
@@ -908,6 +916,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly appointments = inject(AppointmentsApi);
   private readonly patientApi = inject(PatientApi);
+  private readonly documentsApi = inject(DocumentsApi);
 
   private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
   private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
@@ -1099,20 +1108,43 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     { label: 'SpO₂', value: '—', unit: '%' },
     { label: 'Weight', value: '—', unit: 'kg' },
   ];
+  /** The patient's medical-document library (loaded once in-call). */
+  private readonly libraryDocs = signal<MedicalDocumentDto[]>([]);
+
   private readonly records = computed<RecordItem[]>(() => {
     const list: RecordItem[] = [];
     const doc = this.appointment()?.document_url ?? null;
     if (doc) {
       list.push({
-        title: 'Uploaded document',
+        title: 'Booking attachment',
         date: 'This appointment',
         kind: 'reports',
         badge: 'FILE',
         url: this.patientApi.assetUrl(doc),
       });
     }
+    for (const d of this.libraryDocs()) {
+      list.push({
+        title: d.title,
+        date: this.rxDate(d.created_at),
+        kind: this.docKind(d.document_type),
+        badge: d.extension.toUpperCase(),
+        url: null,
+        docId: d.id,
+      });
+    }
     return list;
   });
+
+  private docKind(type: string): DocsTab {
+    if (['xray_report', 'ct_scan_report', 'mri_report', 'ultrasound_report', 'echocardiogram_report', 'radiology_report'].includes(type)) {
+      return 'imaging';
+    }
+    if (['laboratory_test_report', 'blood_test_report', 'urine_test_report', 'pathology_report', 'histopathology_report', 'biopsy_report', 'genetic_test_report'].includes(type)) {
+      return 'labs';
+    }
+    return 'reports';
+  }
   protected readonly visibleRecords = computed(() => {
     const tab = this.docsTab();
     const all = this.records();
@@ -1233,6 +1265,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.health.set(hp.data);
     } catch {
       /* optional */
+    }
+    try {
+      const docs = await firstValueFrom(this.documentsApi.list({ per_page: 100 }));
+      this.libraryDocs.set(docs.data ?? []);
+    } catch {
+      /* library optional in-call */
     }
     try {
       const s = await firstValueFrom(this.appointments.consultationSummary(this.appointmentId));
@@ -1495,7 +1533,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   protected download(r: RecordItem): void {
-    if (r.url) window.open(r.url, '_blank', 'noopener');
+    if (r.docId) {
+      openBlobDocument(this.documentsApi.fileBlob(r.docId));
+    } else if (r.url) {
+      window.open(r.url, '_blank', 'noopener');
+    }
   }
 
   protected rxDate(iso: string | null): string {

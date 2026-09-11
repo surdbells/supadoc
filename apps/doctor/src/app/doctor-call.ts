@@ -21,6 +21,8 @@ import type {
   CopilotDraftDto,
   JoinInfoDto,
   LabOrderDto,
+  MedicalCertificateDto,
+  MedicalDocumentDto,
   PrescriptionDto,
   PrescriptionItem,
   ReferralDto,
@@ -60,8 +62,19 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   host: { class: 'sd-call block min-h-screen bg-abyss text-white', '[attr.data-theme]': 'theme()' },
+  styles: [
+    `
+      /* Subtle, near-invisible scrollbars — the cockpit scrolls its panels
+         internally without heavy browser scroll chrome. */
+      :host ::-webkit-scrollbar { width: 6px; height: 6px; }
+      :host ::-webkit-scrollbar-track { background: transparent; }
+      :host ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 999px; }
+      :host ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+      :host * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent; }
+    `,
+  ],
   template: `
-    <div class="flex min-h-screen flex-col">
+    <div class="flex min-h-screen flex-col xl:h-screen xl:overflow-hidden">
       <!-- Top bar -->
       <header
         class="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3"
@@ -133,10 +146,10 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
 
       <!-- Cockpit -->
       <div
-        class="grid flex-1 gap-4 p-4 xl:grid-cols-[300px_minmax(0,1fr)_320px]"
+        class="grid flex-1 gap-4 p-4 xl:min-h-0 xl:grid-cols-[300px_minmax(0,1fr)_320px] xl:overflow-hidden"
       >
         <!-- ===================== PATIENT CHART ===================== -->
-        <aside class="flex flex-col gap-4 xl:overflow-y-auto">
+        <aside class="flex flex-col gap-4 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
             <div class="flex items-center gap-3">
               <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-cerulean/20 font-heading text-body font-semibold text-frost">
@@ -225,7 +238,7 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
         </aside>
 
         <!-- ===================== STAGE ===================== -->
-        <section class="flex min-w-0 flex-col gap-4">
+        <section class="flex min-w-0 flex-col gap-4 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="sd-stage relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink xl:aspect-auto xl:min-h-[420px] xl:flex-1">
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
@@ -694,6 +707,57 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                       </ul>
                     }
                   </div>
+
+                  <!-- Certificate -->
+                  <div class="mt-4 border-t border-white/10 pt-3">
+                    <p class="mb-2 font-sans text-body-sm font-semibold text-white">Medical Certificate</p>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <select
+                        class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
+                        [value]="certType()" (change)="certType.set($any($event.target).value)"
+                      >
+                        <option value="sick_leave" class="bg-ink">Sick leave</option>
+                        <option value="fitness" class="bg-ink">Fitness / return to work</option>
+                        <option value="general" class="bg-ink">General</option>
+                      </select>
+                      <input placeholder="Diagnosis (optional)"
+                        class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                        [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
+                    </div>
+                    @if (certType() === 'sick_leave') {
+                      <div class="mt-2 grid grid-cols-2 gap-2">
+                        <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">From</span>
+                          <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
+                        <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">To</span>
+                          <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
+                      </div>
+                    }
+                    <textarea rows="2" placeholder="Certifying statement (e.g. unfit for work and requires rest)"
+                      class="mt-2 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                      [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
+                    <div class="mt-2 flex items-center gap-2">
+                      <button type="button"
+                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                        [disabled]="certBusy() || !canDocument()" (click)="issueCertificate()">
+                        <sd-icon name="check" [size]="14" /> {{ certBusy() ? 'Issuing…' : 'Issue certificate' }}
+                      </button>
+                    </div>
+                    @if (certError()) {
+                      <p class="mt-1 font-sans text-caption text-alert">{{ certError() }}</p>
+                    }
+                    @if (issuedCerts().length) {
+                      <ul class="mt-3 flex flex-col gap-2">
+                        @for (c of issuedCerts(); track c.id) {
+                          <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
+                            <p class="font-sans text-body-sm text-white/85">{{ c.type_label }}</p>
+                            @if (c.from_date && c.to_date) {
+                              <p class="font-sans text-caption text-white/50">{{ c.from_date }} → {{ c.to_date }}</p>
+                            }
+                          </li>
+                        }
+                      </ul>
+                    }
+                  </div>
                 }
                 @case ('copilot') {
                   <!-- Live transcription -->
@@ -808,7 +872,7 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
         </section>
 
         <!-- ===================== RECORDS + PARTICIPANTS ===================== -->
-        <aside class="flex flex-col gap-4 xl:overflow-y-auto">
+        <aside class="flex flex-col gap-4 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
             <h3 class="mb-3 font-sans text-body font-semibold text-white">Medical Records</h3>
             <div class="mb-3 flex gap-1 overflow-x-auto">
@@ -823,20 +887,38 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
                 </button>
               }
             </div>
-            <div class="flex flex-col items-center gap-2 py-6 text-center">
-              <sd-icon name="clipboard-list" [size]="26" class="text-white/30" />
-              <p class="font-sans text-caption text-white/40">
-                Records sync from the patient's EMR — none shared in this session yet.
-              </p>
-            </div>
-          </div>
-
-          <!-- Shared during call -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-2 font-sans text-body-sm font-semibold text-white">Shared During Call</h3>
-            <p class="py-3 text-center font-sans text-caption text-white/40">
-              Files shared in the call appear here.
-            </p>
+            @if (docsLoading()) {
+              <div class="flex flex-col gap-2">
+                @for (i of [1, 2]; track i) { <div class="sd-shimmer h-12 rounded-2xl bg-white/[0.04]"></div> }
+              </div>
+            } @else if (visibleDocs().length) {
+              <ul class="flex flex-col gap-2">
+                @for (d of visibleDocs(); track d.id) {
+                  <li>
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                      (click)="openPatientDoc(d)"
+                      [attr.title]="'Open ' + d.title"
+                    >
+                      <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
+                        <sd-icon [name]="docIcon(d)" [size]="16" />
+                      </span>
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate font-sans text-body-sm text-white">{{ d.title }}</span>
+                        <span class="truncate font-sans text-[10px] uppercase text-white/45">{{ d.type_label }} · {{ d.extension }} · {{ d.size_label }}</span>
+                      </span>
+                      <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px]" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-frost/15 text-frost'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
+                    </button>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <div class="flex flex-col items-center gap-2 py-6 text-center">
+                <sd-icon name="clipboard-list" [size]="26" class="text-white/30" />
+                <p class="font-sans text-caption text-white/40">{{ docsEmptyLabel() }}</p>
+              </div>
+            }
           </div>
 
           <!-- Participants -->
@@ -943,6 +1025,20 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly refError = signal('');
   protected readonly referrals = signal<ReferralDto[]>([]);
 
+  // Medical certificate builder + issued list.
+  protected readonly certType = signal<MedicalCertificateDto['type']>('sick_leave');
+  protected readonly certStatement = signal('');
+  protected readonly certDiagnosis = signal('');
+  protected readonly certFrom = signal('');
+  protected readonly certTo = signal('');
+  protected readonly certBusy = signal(false);
+  protected readonly certError = signal('');
+  protected readonly issuedCerts = signal<MedicalCertificateDto[]>([]);
+
+  // The patient's uploaded medical documents (reviewed in-call, right panel).
+  protected readonly patientDocs = signal<MedicalDocumentDto[]>([]);
+  protected readonly docsLoading = signal(false);
+
   // Patient consent decisions (read-only for the doctor).
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly recordingConsent = computed(
@@ -1038,6 +1134,31 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     const a = this.info()?.patient?.allergies ?? [];
     return a.length ? a.map((x) => x.allergen).join(', ') : 'None recorded';
   });
+  /** Documents shown for the active Records tab (all / imaging / labs). */
+  protected readonly visibleDocs = computed(() => {
+    const tab = this.recordsTab();
+    const docs = this.patientDocs();
+    if (tab === 'imaging') return docs.filter((d) => DoctorCall.IMAGING_TYPES.has(d.document_type));
+    if (tab === 'labs') return docs.filter((d) => DoctorCall.LAB_TYPES.has(d.document_type));
+    return docs; // timeline + documents show everything
+  });
+  protected docsEmptyLabel(): string {
+    switch (this.recordsTab()) {
+      case 'imaging':
+        return 'No imaging on file.';
+      case 'labs':
+        return 'No lab reports on file.';
+      default:
+        return 'No documents uploaded yet.';
+    }
+  }
+  protected docIcon(d: MedicalDocumentDto): string {
+    const ext = d.extension.toLowerCase();
+    if (['mp4', 'webm', 'mov'].includes(ext)) return 'video';
+    if (['jpg', 'jpeg', 'png'].includes(ext)) return 'camera';
+    return 'file-text';
+  }
+
   protected readonly participantCount = computed(() => (this.remoteJoined() ? 2 : 1));
   protected readonly doctorInitials = computed(() => this.initials(this.doctorName()));
   protected readonly patientInitials = computed(() => this.initials(this.patientName()));
@@ -1064,6 +1185,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private readonly DOCTOR_TOKEN_KEY = 'videomed.doctor.token';
   private left = false;
 
+  /** Document types surfaced under the Imaging / Labs records tabs. */
+  private static readonly IMAGING_TYPES = new Set([
+    'xray_report', 'ct_scan_report', 'mri_report', 'ultrasound_report', 'echocardiogram_report', 'radiology_report',
+  ]);
+  private static readonly LAB_TYPES = new Set([
+    'laboratory_test_report', 'blood_test_report', 'urine_test_report', 'pathology_report', 'histopathology_report', 'biopsy_report', 'genetic_test_report',
+  ]);
+
   ngAfterViewInit(): void {
     void this.start();
   }
@@ -1079,6 +1208,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       void this.loadLabOrders();
       void this.loadCarePlan();
       void this.loadReferrals();
+      void this.loadCertificates();
+      void this.loadPatientDocuments();
       void this.loadConsents();
       void this.loadRecording();
       void this.loadCopilot();
@@ -1213,8 +1344,111 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.notesTab.set('followup');
       return;
     }
-    // Certificate lands in a later phase; the rest are live.
-    this.toolNote.set(`${label} isn’t wired up yet — coming soon.`);
+    if (label === 'Certificate') {
+      this.toolNote.set('');
+      this.notesTab.set('followup');
+      return;
+    }
+    this.toolNote.set('');
+  }
+
+  // ---- Patient medical documents (in-call review) ----
+  private async loadPatientDocuments(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    this.docsLoading.set(true);
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/patient-documents`,
+        { method: 'GET' },
+      );
+      this.patientDocs.set(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      /* leave empty */
+    } finally {
+      this.docsLoading.set(false);
+    }
+  }
+
+  /** Open a patient document in a new tab (authenticated blob — no public URL). */
+  protected openPatientDoc(doc: MedicalDocumentDto): void {
+    const tab = window.open('', '_blank');
+    if (tab) {
+      tab.document.write(
+        '<!doctype html><meta charset="utf-8"><title>Opening…</title>' +
+          '<body style="margin:0;font-family:sans-serif;color:#546e7a;display:flex;align-items:center;justify-content:center;height:100vh">Opening document…</body>',
+      );
+    }
+    const token = this.doctorToken();
+    fetch(
+      `${this.base}/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/patient-documents/${encodeURIComponent(doc.id)}/file`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    )
+      .then((res) => {
+        if (!res.ok) throw new Error('Could not open the document');
+        return res.blob();
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        if (tab) tab.location.href = url;
+        else window.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 120_000);
+      })
+      .catch(() => {
+        if (tab) tab.document.body.innerHTML =
+          '<div style="padding:24px;font-family:sans-serif;color:#c62828">Could not open the document.</div>';
+      });
+  }
+
+  // ---- Medical certificate ----
+  private async loadCertificates(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken()) return;
+    try {
+      const body = await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/certificates`,
+        { method: 'GET' },
+      );
+      this.issuedCerts.set(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      /* leave empty */
+    }
+  }
+
+  protected async issueCertificate(): Promise<void> {
+    if (!this.appointmentId || !this.doctorToken() || this.certBusy()) return;
+    if (this.certStatement().trim() === '') {
+      this.certError.set('Add a certifying statement.');
+      return;
+    }
+    if (this.certType() === 'sick_leave' && (this.certFrom() === '' || this.certTo() === '')) {
+      this.certError.set('Set the leave period.');
+      return;
+    }
+    this.certError.set('');
+    this.certBusy.set(true);
+    try {
+      await this.noteFetch(
+        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/certificates`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            type: this.certType(),
+            statement: this.certStatement(),
+            diagnosis: this.certDiagnosis() || null,
+            from_date: this.certType() === 'sick_leave' ? this.certFrom() : null,
+            to_date: this.certType() === 'sick_leave' ? this.certTo() : null,
+          }),
+        },
+      );
+      this.certStatement.set('');
+      this.certDiagnosis.set('');
+      this.certFrom.set('');
+      this.certTo.set('');
+      await this.loadCertificates();
+    } catch (err) {
+      this.certError.set((err as { message?: string })?.message ?? 'Could not issue certificate.');
+    } finally {
+      this.certBusy.set(false);
+    }
   }
 
   // ---- Clinical note (SOAP) persistence ----
