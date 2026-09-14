@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\AuthenticationException;
 use App\Domain\Exception\ValidationException;
+use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\UserRepository;
 
@@ -22,6 +25,7 @@ final class AuthService
         private readonly JwtService $jwt,
         private readonly SessionService $sessions,
         private readonly TotpService $totp,
+        private readonly NotificationRepository $notifications,
     ) {
     }
 
@@ -264,6 +268,8 @@ final class AuthService
             $ip !== '' ? $ip : null,
         );
 
+        $this->notifySignIn($patient, $userAgent);
+
         return [
             'access_token'  => $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti),
             'refresh_token' => $this->jwt->issueRefreshToken($patient->getId(), 'customer', $jti),
@@ -271,6 +277,50 @@ final class AuthService
             'expires_in'    => $this->jwt->accessTtl(),
             'user'          => $patient->toArray(),
         ];
+    }
+
+    /** Best-effort in-app security notification for a new sign-in. */
+    private function notifySignIn(Patient $patient, string $userAgent): void
+    {
+        try {
+            $device = $this->deviceLabel($userAgent);
+            $body   = 'A new sign-in to your account was detected'
+                . ($device !== '' ? ' on ' . $device : '')
+                . '. If this wasn\'t you, change your password.';
+            $this->notifications->save(new Notification(
+                $patient,
+                NotificationType::SYSTEM,
+                'New sign-in',
+                $body,
+            ));
+        } catch (\Throwable) {
+            // Sign-in already succeeded; a missing notification isn't fatal.
+        }
+    }
+
+    /** A short, human device hint from the User-Agent (best-effort). */
+    private function deviceLabel(string $userAgent): string
+    {
+        if ($userAgent === '') {
+            return '';
+        }
+        $os = match (true) {
+            str_contains($userAgent, 'Android')                         => 'Android',
+            (bool) preg_match('/iPhone|iPad|iOS/', $userAgent)          => 'iOS',
+            str_contains($userAgent, 'Windows')                         => 'Windows',
+            (bool) preg_match('/Mac OS X|Macintosh/', $userAgent)       => 'macOS',
+            str_contains($userAgent, 'Linux')                           => 'Linux',
+            default                                                     => '',
+        };
+        $browser = match (true) {
+            str_contains($userAgent, 'Edg/')     => 'Edge',
+            str_contains($userAgent, 'Chrome/')  => 'Chrome',
+            str_contains($userAgent, 'Firefox/') => 'Firefox',
+            str_contains($userAgent, 'Safari/')  => 'Safari',
+            default                              => '',
+        };
+
+        return trim($browser . ($browser !== '' && $os !== '' ? ' · ' : '') . $os);
     }
 
     /**

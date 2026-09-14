@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Entity\Notification;
 use App\Domain\Entity\Wallet;
 use App\Domain\Entity\WalletTransaction;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\InsufficientFundsException;
+use App\Domain\Repository\NotificationRepository;
+use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\WalletRepository;
 use App\Domain\Repository\WalletTransactionRepository;
 use App\Infrastructure\Email\WalletMailer;
@@ -36,6 +40,8 @@ final class WalletService
         private readonly WalletRepository $wallets,
         private readonly WalletTransactionRepository $txns,
         private readonly WalletMailer $mailer,
+        private readonly NotificationRepository $notifications,
+        private readonly PatientRepository $patients,
         array $currencies = ['NGN'],
     ) {
         $this->currencies = $currencies !== [] ? array_values(array_map('strtoupper', $currencies)) : ['NGN'];
@@ -124,9 +130,30 @@ final class WalletService
         // settle from the webhook/verify race finds it already success → no email).
         if ($newlySettled) {
             $this->mailer->sendReceipt($txn);
+            $this->notifyToppedUp($txn);
         }
 
         return $txn;
+    }
+
+    /** Best-effort in-app payment notification when a top-up credits the wallet. */
+    private function notifyToppedUp(WalletTransaction $txn): void
+    {
+        try {
+            $patient = $this->patients->find($txn->getPatientId());
+            if ($patient === null) {
+                return;
+            }
+            $currency = $txn->getCurrency() === 'NGN' ? '₦' : $txn->getCurrency();
+            $this->notifications->save(new Notification(
+                $patient,
+                NotificationType::PAYMENT,
+                'Wallet funded',
+                sprintf('Your wallet was credited with %s%s.', $currency, $txn->getAmount()),
+            ));
+        } catch (\Throwable) {
+            // Funding already succeeded; a missing notification isn't fatal.
+        }
     }
 
     /** Mark a pending top-up failed (verify returned failed/abandoned). */

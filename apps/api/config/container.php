@@ -122,6 +122,8 @@ return [
         $c->get(WalletRepository::class),
         $c->get(WalletTransactionRepository::class),
         $c->get(WalletMailer::class),
+        $c->get(NotificationRepository::class),
+        $c->get(PatientRepository::class),
         // Supported wallet currencies; the first is the default (NGN).
         array_values(array_filter(array_map(
             static fn (string $x): string => strtoupper(trim($x)),
@@ -238,6 +240,7 @@ return [
         $c->get(JwtService::class),
         $c->get(SessionService::class),
         $c->get(TotpService::class),
+        $c->get(NotificationRepository::class),
     ),
 
     TotpService::class => static fn (): TotpService => new TotpService(),
