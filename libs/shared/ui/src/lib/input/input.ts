@@ -52,6 +52,8 @@ export type InputType =
           [disabled]="disabled()"
           [attr.inputmode]="type() === 'tel' ? 'tel' : null"
           [attr.autocomplete]="autocomplete() || null"
+          [attr.min]="min() || null"
+          [attr.max]="max() || null"
           (input)="onInput($event)"
           (blur)="onTouched()"
         />
@@ -83,6 +85,9 @@ export class InputComponent implements ControlValueAccessor {
   readonly error = input<string>();
   readonly success = input<string>();
   readonly required = input(false);
+  /** Native min/max — used for date bounds (e.g. a maximum date of birth). */
+  readonly min = input<string>();
+  readonly max = input<string>();
 
   protected readonly value = signal('');
   protected readonly disabled = signal(false);

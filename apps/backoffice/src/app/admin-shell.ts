@@ -13,7 +13,7 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
-import { IconComponent } from '@supadoc/ui';
+import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
 
 interface NavItem {
   readonly label: string;
@@ -39,7 +39,7 @@ const NAV: NavItem[] = [
 @Component({
   selector: 'bo-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent, ConfirmDialogComponent],
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
@@ -116,11 +116,22 @@ const NAV: NavItem[] = [
         >
           <sd-icon name="settings" [size]="20" />Settings
         </a>
-        <button type="button" class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40" (click)="logout()">
+        <button type="button" class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40" (click)="askLogout()">
           <sd-icon name="log-out" [size]="20" />Sign out
         </button>
       </div>
     </ng-template>
+
+    <sd-confirm-dialog
+      [open]="confirmLogout()"
+      title="Sign out?"
+      message="You'll need to sign in again to access the console."
+      confirmLabel="Sign out"
+      icon="log-out"
+      [danger]="true"
+      (confirm)="logout()"
+      (cancel)="confirmLogout.set(false)"
+    />
   `,
 })
 export class AdminShell {
@@ -128,6 +139,7 @@ export class AdminShell {
   private readonly router = inject(Router);
 
   protected readonly menuOpen = signal(false);
+  protected readonly confirmLogout = signal(false);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly roleLabel = computed(() => this.auth.roles()[0] ?? 'staff');
   protected readonly visibleNav = computed(() =>
@@ -148,7 +160,13 @@ export class AdminShell {
     void this.auth.loadMe();
   }
 
+  protected askLogout(): void {
+    this.menuOpen.set(false);
+    this.confirmLogout.set(true);
+  }
+
   protected logout(): void {
+    this.confirmLogout.set(false);
     this.menuOpen.set(false);
     this.auth.logout();
     void this.router.navigateByUrl('/auth/login');

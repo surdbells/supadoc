@@ -16,7 +16,7 @@ import {
 } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
 import { NotificationsApi, PatientApi } from '@supadoc/data-access';
-import { IconComponent, LogoComponent } from '@supadoc/ui';
+import { ConfirmDialogComponent, IconComponent, LogoComponent } from '@supadoc/ui';
 
 interface NavItem {
   readonly label: string;
@@ -41,6 +41,7 @@ interface NavItem {
     RouterLinkActive,
     IconComponent,
     LogoComponent,
+    ConfirmDialogComponent,
   ],
   template: `
     <div class="flex min-h-screen bg-glacier">
@@ -227,7 +228,7 @@ interface NavItem {
           [class.px-4]="!collapsed"
           [class.justify-center]="collapsed"
           [attr.title]="collapsed ? 'Log Out' : null"
-          (click)="logOut()"
+          (click)="askLogout()"
         >
           <sd-icon name="log-out" [size]="20" />
           @if (!collapsed) {
@@ -236,6 +237,17 @@ interface NavItem {
         </button>
       </div>
     </ng-template>
+
+    <sd-confirm-dialog
+      [open]="confirmLogout()"
+      title="Log out?"
+      message="You'll need to sign in again to access your dashboard."
+      confirmLabel="Log out"
+      icon="log-out"
+      [danger]="true"
+      (confirm)="logOut()"
+      (cancel)="confirmLogout.set(false)"
+    />
   `,
 })
 export class DashboardShell {
@@ -246,6 +258,7 @@ export class DashboardShell {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly menuOpen = signal(false);
+  protected readonly confirmLogout = signal(false);
   protected readonly unread = signal(0);
   /** Desktop sidebar collapsed to an icon rail; persisted across sessions. */
   protected readonly collapsed = signal(this.readCollapsed());
@@ -337,7 +350,14 @@ export class DashboardShell {
       .toUpperCase(),
   );
 
+  /** Ask before logging out — prevents accidental one-tap sign-outs. */
+  protected askLogout(): void {
+    this.menuOpen.set(false);
+    this.confirmLogout.set(true);
+  }
+
   protected async logOut(): Promise<void> {
+    this.confirmLogout.set(false);
     this.menuOpen.set(false);
     await this.auth.logout();
     // Land on the public home (a signed-out visitor), not a dead-end login page.

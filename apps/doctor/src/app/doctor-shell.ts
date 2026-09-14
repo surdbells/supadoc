@@ -14,7 +14,7 @@ import {
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
 import { StaffNotificationsApi } from '@supadoc/data-access';
-import { IconComponent } from '@supadoc/ui';
+import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
 
 interface NavItem {
   readonly label: string;
@@ -30,7 +30,7 @@ interface NavItem {
 @Component({
   selector: 'doc-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent, ConfirmDialogComponent],
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
@@ -138,12 +138,23 @@ interface NavItem {
       <button
         type="button"
         class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
-        (click)="logout()"
+        (click)="askLogout()"
       >
         <sd-icon name="log-out" [size]="20" />
         Sign out
       </button>
     </ng-template>
+
+    <sd-confirm-dialog
+      [open]="confirmLogout()"
+      title="Sign out?"
+      message="You'll need to sign in again to access your consultations."
+      confirmLabel="Sign out"
+      icon="log-out"
+      [danger]="true"
+      (confirm)="logout()"
+      (cancel)="confirmLogout.set(false)"
+    />
   `,
 })
 export class DoctorShell {
@@ -152,6 +163,7 @@ export class DoctorShell {
   private readonly router = inject(Router);
 
   protected readonly menuOpen = signal(false);
+  protected readonly confirmLogout = signal(false);
   protected readonly unread = signal(0);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly specialty = computed(
@@ -189,7 +201,13 @@ export class DoctorShell {
     });
   }
 
+  protected askLogout(): void {
+    this.menuOpen.set(false);
+    this.confirmLogout.set(true);
+  }
+
   protected logout(): void {
+    this.confirmLogout.set(false);
     this.menuOpen.set(false);
     this.auth.logout();
     void this.router.navigateByUrl('/auth/login');

@@ -9,10 +9,12 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  AbstractControl,
   FormArray,
   FormBuilder,
   FormGroup,
   ReactiveFormsModule,
+  ValidationErrors,
   Validators,
 } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
@@ -291,6 +293,8 @@ interface SectionCard {
                 [required]="true"
                 type="date"
                 formControlName="dob"
+                [max]="maxDob"
+                [error]="dobError()"
               />
               <div class="flex w-full flex-col gap-2">
                 <span class="font-sans text-body font-semibold text-ink"
@@ -1333,10 +1337,25 @@ export class MyProfile {
   protected readonly form = this.fb.nonNullable.group({
     fullName: ['', [Validators.required]],
     phone: ['', [Validators.required]],
-    dob: [''],
+    dob: ['', [adultDobValidator]],
     gender: [''],
     address: [''],
   });
+
+  /** Latest date of birth that still makes the patient 18+ (YYYY-MM-DD). */
+  protected readonly maxDob = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 18);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  protected dobError(): string {
+    const c = this.form.controls.dob;
+    if (!c.errors || (!c.touched && !c.dirty)) return '';
+    if (c.errors['future']) return 'Date of birth cannot be in the future.';
+    if (c.errors['underage']) return 'You must be at least 18 years old to use VideoMed.';
+    return '';
+  }
 
   // ----- Health profile (emergency / insurance / medical) -----
   protected readonly emergencyForm = this.fb.nonNullable.group({
@@ -1844,4 +1863,22 @@ export class MyProfile {
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => this.toast.set(''), 3000);
   }
+}
+
+/**
+ * Date of birth must be a real past date that makes the patient at least 18.
+ * Empty is allowed (requiredness is handled separately); a future date or an
+ * under-18 date is rejected.
+ */
+function adultDobValidator(control: AbstractControl): ValidationErrors | null {
+  const raw = typeof control.value === 'string' ? control.value.trim() : '';
+  if (raw === '') return null;
+  const dob = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(dob.getTime())) return null;
+
+  const now = new Date();
+  if (dob.getTime() > now.getTime()) return { future: true };
+
+  const eighteenthBirthday = new Date(dob.getFullYear() + 18, dob.getMonth(), dob.getDate());
+  return eighteenthBirthday.getTime() > now.getTime() ? { underage: true } : null;
 }
