@@ -999,7 +999,7 @@ interface SectionCard {
             class="absolute bottom-0 right-0 flex size-8 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-frost/50 transition-opacity disabled:opacity-60"
             [attr.aria-label]="uploadingAvatar() ? 'Uploading' : 'Change photo'"
             [disabled]="uploadingAvatar()"
-            (click)="avatarInput.click()"
+            (click)="avatarModalOpen.set(true)"
           >
             @if (uploadingAvatar()) {
               <span
@@ -1016,6 +1016,42 @@ interface SectionCard {
             class="hidden"
             (change)="onAvatarSelected($event)"
           />
+
+          @if (avatarModalOpen()) {
+            <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="avatarModalOpen.set(false)"></button>
+              <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
+                <div class="flex items-start justify-between">
+                  <div class="flex flex-col gap-1">
+                    <h3 class="font-heading text-h5 text-ink">Update profile photo</h3>
+                    <p class="font-sans text-body-sm text-slate">Drag an image here, or choose a file.</p>
+                  </div>
+                  <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="avatarModalOpen.set(false)">
+                    <sd-icon name="x" [size]="22" />
+                  </button>
+                </div>
+                <div
+                  class="flex flex-col items-center gap-3 rounded-card border-2 border-dashed px-6 py-10 text-center transition-colors"
+                  [class]="avatarDragging() ? 'border-cerulean bg-frost/40' : 'border-cloud bg-glacier/40'"
+                  (dragover)="$event.preventDefault(); avatarDragging.set(true)"
+                  (dragleave)="avatarDragging.set(false)"
+                  (drop)="onAvatarDrop($event)"
+                >
+                  @if (uploadingAvatar()) {
+                    <span class="size-7 animate-spin rounded-full border-2 border-cloud border-t-cerulean"></span>
+                    <span class="font-sans text-body-sm text-slate">Uploading…</span>
+                  } @else {
+                    <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
+                    <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
+                    <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
+                    <button type="button" class="mt-1 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="avatarInput.click()">
+                      Choose from file
+                    </button>
+                  }
+                </div>
+              </div>
+            </div>
+          }
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <p class="font-heading text-h5 text-ink">{{ fullName() }}</p>
@@ -1280,6 +1316,8 @@ export class MyProfile {
     this.patient.assetUrl(this.avatarPath()),
   );
   protected readonly uploadingAvatar = signal(false);
+  protected readonly avatarModalOpen = signal(false);
+  protected readonly avatarDragging = signal(false);
 
   protected readonly initials = computed(() =>
     this.fullName()
@@ -1529,11 +1567,25 @@ export class MyProfile {
     else this.view.set('home');
   }
 
-  protected async onAvatarSelected(event: Event): Promise<void> {
+  protected onAvatarSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = ''; // let the user re-pick the same file later
-    if (!file) return;
+    if (file) void this.processAvatar(file);
+  }
+
+  protected onAvatarDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.avatarDragging.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) void this.processAvatar(file);
+  }
+
+  private async processAvatar(file: File): Promise<void> {
+    if (!/^image\/(png|jpe?g|webp|gif)$/.test(file.type)) {
+      this.showToast('Use a PNG, JPG, WEBP or GIF image.');
+      return;
+    }
     if (file.size > 2 * 1024 * 1024) {
       this.showToast('Image must be 2MB or smaller.');
       return;
@@ -1542,6 +1594,7 @@ export class MyProfile {
     try {
       const res = await firstValueFrom(this.patient.uploadAvatar(file));
       this.applyProfile(res.data);
+      this.avatarModalOpen.set(false);
       this.showToast('Profile photo updated successfully');
     } catch (err) {
       this.showToast(

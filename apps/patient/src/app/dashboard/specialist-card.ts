@@ -218,22 +218,15 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         </span>
       </div>
 
-      <!-- About (View Profile) -->
-      @if (showAbout()) {
-        <p class="font-sans text-body-sm leading-relaxed text-slate">
-          {{ about() }}
-        </p>
-      }
-
       <!-- Actions -->
       <div class="mt-auto flex gap-3">
         <sd-button
           variant="outline"
           size="sm"
           [full]="true"
-          (click)="showAbout.set(!showAbout())"
+          (click)="profileOpen.set(true)"
         >
-          {{ showAbout() ? 'Hide Profile' : 'View Profile' }}
+          View Profile
         </sd-button>
         <sd-button
           size="sm"
@@ -246,6 +239,45 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         </sd-button>
       </div>
     </article>
+
+    <!-- Profile card pop-up -->
+    @if (profileOpen()) {
+      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="profileOpen.set(false)"></button>
+        <div class="relative z-10 flex w-full max-w-md flex-col gap-4 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
+          <button type="button" class="absolute right-4 top-4 text-slate transition-colors hover:text-ink" aria-label="Close" (click)="profileOpen.set(false)">
+            <sd-icon name="x" [size]="22" />
+          </button>
+          <div class="flex items-center gap-4">
+            @if (photoSrc()) {
+              <img [src]="photoSrc()" [alt]="specialist().name" width="64" height="64" class="size-16 shrink-0 rounded-full object-cover" />
+            } @else {
+              <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean">{{ initials() }}</span>
+            }
+            <div class="flex min-w-0 flex-col gap-0.5">
+              <span class="flex items-center gap-1.5 font-heading text-h5 text-ink">
+                {{ specialist().name }}
+                @if (specialist().verified) { <sd-icon name="circle-check" [size]="16" class="text-cerulean" /> }
+              </span>
+              <span class="font-sans text-body-sm text-cerulean">{{ specialist().specialty }}</span>
+              <span class="flex items-center gap-1 font-sans text-caption text-slate">
+                <sd-icon name="star" [size]="14" class="text-warning" /> {{ rating() }} ({{ specialist().reviews_count }} reviews)
+              </span>
+            </div>
+          </div>
+          <dl class="grid grid-cols-2 gap-3 border-t border-cloud pt-4 font-sans text-caption">
+            <div class="flex flex-col gap-0.5"><dt class="text-slate">Location</dt><dd class="text-ink">{{ specialist().location ?? '—' }}</dd></div>
+            <div class="flex flex-col gap-0.5"><dt class="text-slate">Experience</dt><dd class="text-ink">{{ specialist().years_experience ?? '—' }} yrs</dd></div>
+            <div class="flex flex-col gap-0.5"><dt class="text-slate">Languages</dt><dd class="text-ink">{{ specialist().languages ?? '—' }}</dd></div>
+            <div class="flex flex-col gap-0.5"><dt class="text-slate">Consultation fee</dt><dd class="text-ink">{{ fee() }}</dd></div>
+          </dl>
+          <p class="font-sans text-body-sm leading-relaxed text-slate">{{ about() }}</p>
+          <sd-button [full]="true" [disabled]="!specialist().available" (click)="profileOpen.set(false); book()">
+            <sd-icon name="video" [size]="18" /> Book Consultation
+          </sd-button>
+        </div>
+      </div>
+    }
   `,
 })
 export class SpecialistCard implements OnInit {
@@ -257,7 +289,7 @@ export class SpecialistCard implements OnInit {
   /** Optional "X% Match" badge (the Find-me-a-doctor results). Null hides it. */
   readonly matchPercent = input<number | null>(null);
 
-  protected readonly showAbout = signal(false);
+  protected readonly profileOpen = signal(false);
 
   protected readonly days = signal<DayAvailability[]>([]);
   protected readonly loadingSlots = signal(true);

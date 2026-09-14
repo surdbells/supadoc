@@ -251,7 +251,7 @@ const UPCOMING_BADGE: Record<string, string> = {
                   <span class="font-sans text-caption">{{ u.time }}</span>
                 </span>
               </div>
-              <div class="flex gap-6">
+              <div class="flex gap-3">
                 <sd-button
                   variant="outline"
                   size="sm"
@@ -306,13 +306,9 @@ const UPCOMING_BADGE: Record<string, string> = {
               } @else {
                 <p class="font-heading text-h4 tracking-tight text-ocean">{{ walletLabel() }}</p>
               }
-              <button
-                type="button"
-                class="mt-1 flex w-fit items-center gap-2 rounded-field bg-cerulean px-4 py-2 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
-                (click)="goWallet()"
-              >
+              <sd-button size="sm" [full]="true" class="mt-1 block" (click)="goWallet()">
                 <sd-icon name="plus" [size]="16" /> Add funds
-              </button>
+              </sd-button>
             </div>
           </article>
         </div>
