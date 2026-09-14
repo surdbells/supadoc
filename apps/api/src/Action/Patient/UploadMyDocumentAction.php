@@ -35,7 +35,12 @@ final class UploadMyDocumentAction
         ResponseInterface $response,
     ): ResponseInterface {
         $customerId = (string) $request->getAttribute('customer_id');
-        $body       = (array) ($request->getParsedBody() ?? []);
+        // Multipart text fields: the parsed body is populated from $_POST by the
+        // request factory; fall back to $_POST directly in case it wasn't.
+        $body = $request->getParsedBody();
+        if (!is_array($body) || $body === []) {
+            $body = $_POST;
+        }
 
         $type = (string) ($body['document_type'] ?? '');
         if (!DocumentType::isValid($type)) {
@@ -60,6 +65,10 @@ final class UploadMyDocumentAction
             $meta = $this->storage->store($file, $customerId);
         } catch (\RuntimeException $e) {
             return $this->error($response, $e->getMessage(), 422, ['file' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            error_log('[documents.upload] storage failed: ' . $e->getMessage());
+
+            return $this->error($response, 'Could not process the file. Please try again.', 500);
         }
 
         $p          = $patient->toArray();
@@ -79,7 +88,17 @@ final class UploadMyDocumentAction
         if ($type === 'other') {
             $document->setCustomType($customType);
         }
-        $this->documents->save($document);
+
+        try {
+            $this->documents->save($document);
+        } catch (\Throwable $e) {
+            // Don't leave an orphaned file if the metadata row can't be written
+            // (e.g. the medical_documents table hasn't been migrated yet).
+            $this->storage->delete($document);
+            error_log('[documents.upload] save failed (has the medical_documents table been created?): ' . $e->getMessage());
+
+            return $this->error($response, 'Could not save the document. Please try again.', 500);
+        }
 
         return $this->created($response, $document->toArray(), 'Document uploaded');
     }

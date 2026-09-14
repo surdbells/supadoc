@@ -62,6 +62,10 @@ class Appointment
     #[ORM\Column(name: 'payment_status', type: 'string', length: 20, options: ['default' => 'unpaid'])]
     private string $paymentStatus = 'unpaid';
 
+    /** Paystack reference when the consultation was paid directly by card. */
+    #[ORM\Column(name: 'payment_reference', type: 'string', length: 100, nullable: true)]
+    private ?string $paymentReference = null;
+
     /**
      * Invited third parties (up to 3): list of {name, email}. Each adds the
      * configurable guest fee to the appointment amount.
@@ -138,6 +142,18 @@ class Appointment
     public function setPaymentStatus(string $status): void
     {
         $this->paymentStatus = $status;
+    }
+
+    public function getPaymentReference(): ?string
+    {
+        return $this->paymentReference;
+    }
+
+    /** Mark the consultation paid directly by card (Paystack), not the wallet. */
+    public function payByCard(string $reference): void
+    {
+        $this->paymentStatus    = 'paid';
+        $this->paymentReference = $reference;
     }
 
     /** @return list<array{name:string,email:string}> */

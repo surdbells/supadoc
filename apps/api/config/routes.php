@@ -252,6 +252,7 @@ return static function (App $app): void {
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
             $group->post('/appointments', Action\Appointment\CreateMyAppointmentAction::class);
+            $group->post('/appointments/pay-init', Action\Appointment\InitAppointmentPaymentAction::class);
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->post('/appointments/{id}/cancel', Action\Appointment\CancelMyAppointmentAction::class);

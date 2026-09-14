@@ -1514,6 +1514,7 @@ return [
                         'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video'],
                         'notes'         => ['type' => 'string', 'description' => 'Reason for the consultation'],
                         'document_url'  => ['type' => 'string', 'description' => 'Relative URL from POST /portal/appointment-documents'],
+                        'payment_reference' => ['type' => 'string', 'description' => 'Paystack reference from pay-init, to pay by card instead of the wallet'],
                         'guests'        => [
                             'type'        => 'array',
                             'description' => 'Up to 3 invited third parties; each adds the guest fee to the amount.',
@@ -1527,6 +1528,25 @@ return [
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/pay-init' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Start a direct card payment for a consultation',
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['specialist_id'],
+                    'properties' => [
+                        'specialist_id' => ['type' => 'string', 'format' => 'uuid'],
+                        'guest_count'   => ['type' => 'integer', 'minimum' => 0, 'maximum' => 3],
+                    ],
+                ])],
+                'responses'   => [
+                    '201' => ['description' => 'Payment started'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '503' => ['description' => 'Card payment not configured'],
                 ],
             ],
         ],

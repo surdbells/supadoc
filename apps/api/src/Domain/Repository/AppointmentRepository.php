@@ -44,6 +44,18 @@ final class AppointmentRepository extends BaseRepository
         return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, $sortBy, $sortDir);
     }
 
+    /** True if a card payment reference has already been used to book. */
+    public function existsByPaymentReference(string $reference): bool
+    {
+        return (int) $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.paymentReference = :ref')
+            ->setParameter('ref', $reference)
+            ->getQuery()
+            ->getSingleScalarResult() > 0;
+    }
+
     /**
      * Appointment counts grouped by status (for the admin monitoring overview).
      *

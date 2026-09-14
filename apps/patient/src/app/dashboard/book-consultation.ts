@@ -626,78 +626,88 @@ import {
             </div>
 
             <h3 class="mb-3 mt-6 font-heading text-body font-semibold text-cerulean">
-              Pay from wallet
+              Payment method
             </h3>
-            <div
-              class="flex items-center justify-between gap-3 rounded-card border p-4"
-              [class]="
-                walletLoaded() && !walletSufficient()
-                  ? 'border-alert/40 bg-alert/5'
-                  : 'border-cerulean bg-frost/30'
-              "
-            >
-              <span class="flex items-center gap-3">
-                <sd-icon name="wallet" [size]="24" class="text-cerulean" />
-                <span class="flex flex-col">
-                  <span class="font-sans text-caption text-slate">Wallet balance</span>
-                  @if (walletLoaded()) {
-                    <span class="font-heading text-body font-semibold text-ink">{{
-                      fmt(walletBalance() ?? 0)
-                    }}</span>
-                  } @else {
-                    <span class="sd-shimmer mt-1 h-4 w-24 rounded"></span>
-                  }
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                class="flex items-center gap-3 rounded-card border-2 p-4 text-left transition-colors"
+                [class]="payMethod() === 'card' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                (click)="payMethod.set('card')"
+              >
+                <sd-icon name="credit-card" [size]="22" class="shrink-0 text-cerulean" />
+                <span class="flex min-w-0 flex-col">
+                  <span class="font-sans text-body-sm font-semibold text-ink">Pay with card</span>
+                  <span class="font-sans text-caption text-slate">Secure checkout via Paystack</span>
                 </span>
-              </span>
-              @if (walletLoaded()) {
-                <span
-                  class="font-sans text-caption font-semibold"
-                  [class]="walletSufficient() ? 'text-sage' : 'text-alert'"
-                >
-                  {{ walletSufficient() ? 'Enough to book' : 'Too low' }}
+                @if (payMethod() === 'card') {
+                  <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
+                }
+              </button>
+              <button
+                type="button"
+                class="flex items-center gap-3 rounded-card border-2 p-4 text-left transition-colors"
+                [class]="payMethod() === 'wallet' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                (click)="payMethod.set('wallet')"
+              >
+                <sd-icon name="wallet" [size]="22" class="shrink-0 text-cerulean" />
+                <span class="flex min-w-0 flex-col">
+                  <span class="font-sans text-body-sm font-semibold text-ink">Pay from wallet</span>
+                  <span class="font-sans text-caption text-slate">{{
+                    walletLoaded() ? 'Balance ' + fmt(walletBalance() ?? 0) : 'Balance …'
+                  }}</span>
                 </span>
-              }
+                @if (payMethod() === 'wallet') {
+                  <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
+                }
+              </button>
             </div>
 
-            @if (walletLoaded() && !walletSufficient()) {
-              <p
-                class="mt-4 flex items-start gap-2 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert"
-              >
-                <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
-                Your wallet is short by {{ fmt(walletShortfall()) }}. Add funds
-                below to book without losing your details.
-              </p>
-              <!-- Inline top-up (Paystack) — no navigation, booking stays intact -->
-              <div class="mt-3 flex flex-col gap-2 rounded-card border border-cloud bg-glacier/40 p-4">
-                <label class="flex flex-col gap-1.5">
-                  <span class="font-sans text-caption font-semibold text-slate">Amount to add</span>
-                  <div class="flex items-center gap-2 rounded-field border border-cloud bg-white px-3 py-2.5 focus-within:border-cerulean">
-                    <span class="font-sans text-body-sm text-slate">{{ currency() }}</span>
-                    <input
-                      inputmode="numeric"
-                      class="min-w-0 flex-1 bg-transparent font-sans text-body-sm text-ink outline-none"
-                      [value]="effectiveTopUp()"
-                      (input)="topUpAmount.set($any($event.target).value)"
-                      [disabled]="funding()"
-                    />
-                  </div>
-                </label>
-                @if (fundError()) {
-                  <sd-alert tone="error" class="block">{{ fundError() }}</sd-alert>
-                }
-                <p class="font-sans text-caption text-slate">
-                  You'll pay securely via Paystack in a pop-up. Once it clears, we
-                  book your consultation automatically.
-                </p>
-              </div>
-            } @else {
-              <p
-                class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate"
-              >
+            @if (payMethod() === 'card') {
+              <p class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
                 <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
-                {{ fmt(amount()) }} will be debited from your wallet when you
-                confirm — you'll get a receipt by email.
+                {{ fmt(amount()) }} will be charged to your card now via Paystack — you'll get a receipt by email.
               </p>
+              @if (fundError()) {
+                <sd-alert tone="error" class="mt-2 block">{{ fundError() }}</sd-alert>
+              }
+            } @else {
+              @if (walletLoaded() && !walletSufficient()) {
+                <p class="mt-4 flex items-start gap-2 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert">
+                  <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
+                  Your wallet is short by {{ fmt(walletShortfall()) }}. Add funds
+                  below to book without losing your details.
+                </p>
+                <!-- Inline top-up (Paystack) — no navigation, booking stays intact -->
+                <div class="mt-3 flex flex-col gap-2 rounded-card border border-cloud bg-glacier/40 p-4">
+                  <label class="flex flex-col gap-1.5">
+                    <span class="font-sans text-caption font-semibold text-slate">Amount to add</span>
+                    <div class="flex items-center gap-2 rounded-field border border-cloud bg-white px-3 py-2.5 focus-within:border-cerulean">
+                      <span class="font-sans text-body-sm text-slate">{{ currency() }}</span>
+                      <input
+                        inputmode="numeric"
+                        class="min-w-0 flex-1 bg-transparent font-sans text-body-sm text-ink outline-none"
+                        [value]="effectiveTopUp()"
+                        (input)="topUpAmount.set($any($event.target).value)"
+                        [disabled]="funding()"
+                      />
+                    </div>
+                  </label>
+                  @if (fundError()) {
+                    <sd-alert tone="error" class="block">{{ fundError() }}</sd-alert>
+                  }
+                  <p class="font-sans text-caption text-slate">
+                    You'll pay securely via Paystack in a pop-up. Once it clears, we
+                    book your consultation automatically.
+                  </p>
+                </div>
+              } @else {
+                <p class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
+                  <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+                  {{ fmt(amount()) }} will be debited from your wallet when you
+                  confirm — you'll get a receipt by email.
+                </p>
+              }
             }
           </div>
 
@@ -709,7 +719,12 @@ import {
             <sd-button variant="outline" (click)="back()"
               >Back to previous</sd-button
             >
-            @if (walletLoaded() && !walletSufficient()) {
+            @if (payMethod() === 'card') {
+              <sd-button [disabled]="funding() || submitting()" (click)="payWithCard()">
+                {{ funding() || submitting() ? 'Processing…' : 'Pay ' + fmt(amount()) + ' with card' }}
+                @if (!funding() && !submitting()) { <sd-icon name="arrow-right" [size]="18" /> }
+              </sd-button>
+            } @else if (walletLoaded() && !walletSufficient()) {
               <sd-button [disabled]="funding()" (click)="topUpAndBook()">
                 {{ funding() ? 'Processing…' : 'Fund ' + fmt(topUpValue()) + ' & book' }}
                 @if (!funding()) { <sd-icon name="arrow-right" [size]="18" /> }
@@ -719,7 +734,7 @@ import {
                 [disabled]="submitting() || !walletLoaded()"
                 (click)="confirm()"
               >
-                {{ submitting() ? 'Booking…' : 'Pay ' + fmt(amount()) + ' & book' }}
+                {{ submitting() ? 'Booking…' : 'Pay ' + fmt(amount()) + ' from wallet' }}
               </sd-button>
             }
           </div>
@@ -774,8 +789,12 @@ export class BookConsultation implements OnInit {
   protected readonly submitting = signal(false);
   protected readonly submitError = signal('');
 
-  // Inline wallet top-up (Paystack popup) during booking — the entered
-  // consultation details are kept intact; on success we book automatically.
+  // Payment method — card (Paystack, direct) or wallet. Card is the default so
+  // patients are never forced to fund a wallet first.
+  protected readonly payMethod = signal<'card' | 'wallet'>('card');
+
+  // Inline Paystack popup during booking — the entered consultation details are
+  // kept intact; on success we book automatically.
   protected readonly funding = signal(false);
   protected readonly fundError = signal('');
   protected readonly topUpAmount = signal('');
@@ -1028,7 +1047,7 @@ export class BookConsultation implements OnInit {
     this.next();
   }
 
-  protected async confirm(): Promise<void> {
+  protected async confirm(paymentReference?: string): Promise<void> {
     if (!this.selectedTime()) {
       this.step.set(1);
       return;
@@ -1048,6 +1067,7 @@ export class BookConsultation implements OnInit {
           notes: this.reason().trim() || undefined,
           document_url: this.docUrl() || undefined,
           guests: guests.length > 0 ? guests : undefined,
+          payment_reference: paymentReference,
         }),
       );
       await this.router.navigate(['/dashboard/appointments'], {
@@ -1066,6 +1086,45 @@ export class BookConsultation implements OnInit {
       );
     } finally {
       this.submitting.set(false);
+    }
+  }
+
+  /**
+   * Pay the consultation fee directly by card (Paystack pop-up) then book — no
+   * wallet top-up required, and the wizard's details are preserved throughout.
+   */
+  protected async payWithCard(): Promise<void> {
+    if (this.funding() || this.submitting()) return;
+    if (!this.selectedTime()) {
+      this.step.set(1);
+      return;
+    }
+    this.funding.set(true);
+    this.fundError.set('');
+    this.submitError.set('');
+    try {
+      const init = await firstValueFrom(
+        this.appointments.payInit(this.specialistId, this.validGuests().length),
+      );
+      const Pop = await this.loadPaystack();
+      const popup = new Pop();
+      popup.resumeTransaction(init.data.access_code, {
+        onSuccess: () => {
+          this.funding.set(false);
+          void this.confirm(init.data.reference);
+        },
+        onCancel: () => {
+          this.funding.set(false);
+          this.fundError.set('Payment cancelled. Your booking details are saved — try again when ready.');
+        },
+        onError: () => {
+          this.funding.set(false);
+          this.fundError.set('The payment could not be completed. Please try again.');
+        },
+      });
+    } catch (err) {
+      this.funding.set(false);
+      this.fundError.set(apiErrorMessage(err, 'Could not start the card payment. Please try again.'));
     }
   }
 

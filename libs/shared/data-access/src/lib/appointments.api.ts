@@ -2,6 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
   AppointmentDto,
+  AppointmentPayInitDto,
   BookAppointmentParams,
   CallTokenDto,
   ClinicalDocumentKind,
@@ -78,6 +79,17 @@ export class AppointmentsApi {
     return this.api.post<SuccessResponse<{ id: string; rating: number }>>(
       `api/portal/appointments/${encodeURIComponent(id)}/review`,
       { rating, comment },
+    );
+  }
+
+  /** POST /api/portal/appointments/pay-init — start a direct card payment for a booking. */
+  payInit(
+    specialistId: string,
+    guestCount: number,
+  ): Observable<SuccessResponse<AppointmentPayInitDto>> {
+    return this.api.post<SuccessResponse<AppointmentPayInitDto>>(
+      'api/portal/appointments/pay-init',
+      { specialist_id: specialistId, guest_count: guestCount },
     );
   }
 

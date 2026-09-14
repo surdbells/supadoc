@@ -21,6 +21,7 @@ use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
@@ -54,6 +55,7 @@ final class CreateMyAppointmentAction
         private readonly JwtService $jwt,
         private readonly AppointmentPaymentService $payments,
         private readonly StaffNotifier $notifier,
+        private readonly PaystackService $paystack,
     ) {
     }
 
@@ -125,21 +127,39 @@ final class CreateMyAppointmentAction
         $appointment->setGuests($guests);
         $appointment->setAmount($this->totalAmount($specialist, count($guests)));
 
-        // Charge the wallet before persisting: debit throws (with no charge) when
-        // the balance is short, so we never create an unpaid appointment. On
-        // success the appointment is marked paid and a receipt email is sent.
-        try {
-            $this->payments->chargeForBooking($appointment);
-        } catch (InsufficientFundsException) {
-            return $this->error(
-                $response,
-                'Your wallet balance is too low to book this consultation. Please top up your wallet and try again.',
-                422,
-                ['wallet' => 'insufficient_funds'],
-            );
+        // Two ways to pay: a verified card payment (Paystack reference) or the
+        // wallet. Card lets the patient pay the fee directly, without funding a
+        // wallet first.
+        $reference = trim((string) ($body['payment_reference'] ?? ''));
+        $paidByCard = false;
+        if ($reference !== '') {
+            $cardError = $this->verifyCardPayment($reference, $appointment);
+            if ($cardError !== null) {
+                return $this->error($response, $cardError, 422, ['payment' => $cardError]);
+            }
+            $appointment->payByCard($reference);
+            $paidByCard = true;
+        } else {
+            // Charge the wallet before persisting: debit throws (with no charge)
+            // when the balance is short, so we never create an unpaid appointment.
+            // On success the appointment is marked paid and a receipt is emailed.
+            try {
+                $this->payments->chargeForBooking($appointment);
+            } catch (InsufficientFundsException) {
+                return $this->error(
+                    $response,
+                    'Your wallet balance is too low to book this consultation. Pay by card, or top up your wallet and try again.',
+                    422,
+                    ['wallet' => 'insufficient_funds'],
+                );
+            }
         }
 
         $this->appointments->save($appointment);
+
+        if ($paidByCard) {
+            $this->notifyCardPayment($patient, $appointment);
+        }
 
         $this->notifyBooked($patient, $appointment);
         $this->sendInvites($appointment, $patient, $specialist, $guests);
@@ -155,6 +175,55 @@ final class CreateMyAppointmentAction
         );
 
         return $this->created($response, $a, 'Appointment booked');
+    }
+
+    /**
+     * Server-side verification of a direct card payment before it can book a
+     * consultation. Returns a user-safe error string, or null when the payment
+     * is valid: it must be a fresh (unused) Paystack reference whose transaction
+     * succeeded, in the right currency, for at least the appointment amount.
+     */
+    private function verifyCardPayment(string $reference, Appointment $appointment): ?string
+    {
+        if ($this->appointments->existsByPaymentReference($reference)) {
+            return 'This payment has already been used for a booking.';
+        }
+        try {
+            $tx = $this->paystack->verify($reference);
+        } catch (\Throwable $e) {
+            error_log('[appointments.book] card verify failed: ' . $e->getMessage());
+
+            return 'We could not verify your card payment. Please try again.';
+        }
+        if ($tx['status'] !== 'success') {
+            return 'Your card payment was not completed.';
+        }
+        if ($tx['currency'] !== strtoupper($this->pricing->currency())) {
+            return 'The payment currency does not match. Please contact support.';
+        }
+        $expectedMinor = (int) bcmul($appointment->getAmount(), '100', 0);
+        if ($tx['amount_minor'] < $expectedMinor) {
+            return 'The amount paid does not cover this consultation.';
+        }
+
+        return null;
+    }
+
+    /** In-app payment notification for a direct card booking. */
+    private function notifyCardPayment(Patient $patient, Appointment $appointment): void
+    {
+        try {
+            $a        = $appointment->toArray();
+            $currency = $this->pricing->currency() === 'NGN' ? '₦' : $this->pricing->currency();
+            $this->notifications->save(new Notification(
+                $patient,
+                NotificationType::PAYMENT,
+                'Payment received',
+                sprintf('We received your payment of %s%s for your consultation with %s.', $currency, $a['amount'], $a['specialist']['name']),
+            ));
+        } catch (\Throwable) {
+            // The booking + payment already succeeded; a missing notification isn't fatal.
+        }
     }
 
     /**

@@ -72,8 +72,13 @@ final class MedicalDocumentStorage
 
         $tmp  = $file->getStream()->getMetadata('uri');
         $tmp  = is_string($tmp) ? $tmp : '';
-        $mime = $tmp !== '' && is_file($tmp) ? (new \finfo(FILEINFO_MIME_TYPE))->file($tmp) : '';
-        $mime = is_string($mime) ? $mime : '';
+        // fileinfo is bundled with PHP but guard anyway — a missing extension must
+        // degrade to extension-based validation, never fatal the whole upload.
+        $mime = '';
+        if ($tmp !== '' && is_file($tmp) && class_exists('\finfo')) {
+            $sniffed = (new \finfo(FILEINFO_MIME_TYPE))->file($tmp);
+            $mime    = is_string($sniffed) ? $sniffed : '';
+        }
 
         if (!$this->contentMatches($ext, $mime, $tmp)) {
             throw new RuntimeException('The file content does not match its extension');

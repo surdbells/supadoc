@@ -130,6 +130,17 @@ export interface BookAppointmentParams {
   notes?: string;
   document_url?: string;
   guests?: GuestInvite[];
+  /** Paystack reference from pay-init — pays by card instead of the wallet. */
+  payment_reference?: string;
+}
+
+/** Response of POST /portal/appointments/pay-init — a direct card checkout. */
+export interface AppointmentPayInitDto {
+  authorization_url: string;
+  access_code: string;
+  reference: string;
+  amount: string;
+  currency: string;
 }
 
 /** One open consultation slot (from GET /portal/specialists/{id}/slots). */
