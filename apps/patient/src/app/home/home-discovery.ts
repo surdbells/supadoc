@@ -102,8 +102,8 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
   ],
   template: `
     <section class="bg-gradient-to-b from-glacier to-white">
-      <div class="mx-auto max-w-[1280px] px-5 pb-16 pt-6 md:px-8">
-        <div class="flex flex-col items-center gap-4 text-center">
+      <div class="mx-auto max-w-[1280px] px-5 pb-16 pt-4 md:px-8">
+        <div class="flex flex-col items-center gap-3 text-center">
           <span
             class="inline-flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
           >
@@ -121,7 +121,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 
         <!-- Search + "find me a doctor" (same width as the filter row below) -->
         <div
-          class="mx-auto mt-8 flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-stretch"
+          class="mx-auto mt-6 flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-stretch"
         >
           <div class="relative min-w-0 flex-1">
           <div

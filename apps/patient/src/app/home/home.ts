@@ -154,9 +154,9 @@ interface Doctor {
            hero visual is a transparent PNG placed over it. -->
       <section class="bg-gradient-to-b from-white via-white to-glacier">
         <div
-          class="mx-auto grid max-w-[1280px] items-center gap-x-12 gap-y-6 px-5 py-8 md:px-8 lg:grid-cols-2 lg:py-10"
+          class="mx-auto grid max-w-[1280px] items-center gap-x-12 gap-y-4 px-5 py-6 md:px-8 lg:grid-cols-2 lg:py-5"
         >
-          <div class="flex min-w-0 flex-col gap-6">
+          <div class="flex min-w-0 flex-col gap-5">
             <span
               class="inline-flex w-fit items-center gap-2 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-medium text-cerulean"
             >
@@ -197,14 +197,16 @@ interface Doctor {
             </ul>
           </div>
 
-          <!-- Visual: transparent PNG exported from the VideoMed design. -->
+          <!-- Visual: transparent PNG exported from the VideoMed design. Height
+               is capped so the near-square image doesn't drive the hero tall and
+               push the search/filters below the fold. -->
           <div class="mx-auto w-full min-w-0 max-w-md lg:max-w-none">
             <img
               src="/home/hero.png"
               alt="Doctor on a secure VideoMed video consultation, with patient rating and HIPAA-compliant badges"
               width="1086"
               height="1070"
-              class="w-full"
+              class="mx-auto max-h-[240px] w-auto object-contain sm:max-h-[280px] lg:max-h-[320px] lg:w-full"
             />
           </div>
         </div>
