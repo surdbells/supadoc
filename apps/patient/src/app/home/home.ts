@@ -1,12 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { AuthService } from '@supadoc/auth';
 import { ButtonComponent, IconComponent, LogoComponent } from '@supadoc/ui';
 import { HomeDiscovery } from './home-discovery';
+import { ThemeService } from '../theme.service';
 
 interface Feature {
   readonly icon: string;
@@ -66,23 +69,49 @@ interface Doctor {
           </nav>
 
           <div class="hidden items-center gap-3 lg:flex">
-            <sd-button variant="ghost" size="sm" (click)="go('/auth/login')"
-              >Login</sd-button
+            <button
+              type="button"
+              class="flex size-9 items-center justify-center rounded-full text-ink transition-colors hover:bg-glacier hover:text-cerulean"
+              [attr.aria-label]="isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
+              [attr.title]="isDark() ? 'Light mode' : 'Dark mode'"
+              (click)="toggleTheme()"
             >
-            <sd-button size="sm" (click)="go('/auth/register')"
-              >Register</sd-button
-            >
+              <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="20" />
+            </button>
+            @if (loggedIn()) {
+              <sd-button size="sm" (click)="go('/dashboard')">
+                <sd-icon name="layout-dashboard" [size]="16" />
+                Go to Dashboard
+              </sd-button>
+            } @else {
+              <sd-button variant="ghost" size="sm" (click)="go('/auth/login')"
+                >Login</sd-button
+              >
+              <sd-button size="sm" (click)="go('/auth/register')"
+                >Register</sd-button
+              >
+            }
           </div>
 
-          <button
-            type="button"
-            class="text-ink lg:hidden"
-            [attr.aria-expanded]="menuOpen()"
-            aria-label="Toggle menu"
-            (click)="menuOpen.set(!menuOpen())"
-          >
-            <sd-icon [name]="menuOpen() ? 'x' : 'menu'" [size]="24" />
-          </button>
+          <div class="flex items-center gap-1 lg:hidden">
+            <button
+              type="button"
+              class="flex size-9 items-center justify-center rounded-full text-ink transition-colors hover:bg-glacier hover:text-cerulean"
+              [attr.aria-label]="isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
+              (click)="toggleTheme()"
+            >
+              <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="22" />
+            </button>
+            <button
+              type="button"
+              class="text-ink"
+              [attr.aria-expanded]="menuOpen()"
+              aria-label="Toggle menu"
+              (click)="menuOpen.set(!menuOpen())"
+            >
+              <sd-icon [name]="menuOpen() ? 'x' : 'menu'" [size]="24" />
+            </button>
+          </div>
         </div>
 
         @if (menuOpen()) {
@@ -98,16 +127,23 @@ interface Doctor {
               >
             }
             <div class="mt-2 flex gap-3">
-              <sd-button
-                variant="outline"
-                size="sm"
-                [full]="true"
-                (click)="go('/auth/login')"
-                >Login</sd-button
-              >
-              <sd-button size="sm" [full]="true" (click)="go('/auth/register')"
-                >Register</sd-button
-              >
+              @if (loggedIn()) {
+                <sd-button size="sm" [full]="true" (click)="go('/dashboard')">
+                  <sd-icon name="layout-dashboard" [size]="16" />
+                  Go to Dashboard
+                </sd-button>
+              } @else {
+                <sd-button
+                  variant="outline"
+                  size="sm"
+                  [full]="true"
+                  (click)="go('/auth/login')"
+                  >Login</sd-button
+                >
+                <sd-button size="sm" [full]="true" (click)="go('/auth/register')"
+                  >Register</sd-button
+                >
+              }
             </div>
           </nav>
         }
@@ -140,7 +176,7 @@ interface Doctor {
               support — all in one place.
             </p>
             <div class="flex flex-wrap gap-4">
-              <sd-button (click)="go('/auth/register')">
+              <sd-button (click)="book()">
                 <sd-icon name="calendar-days" [size]="18" />
                 Book a Consultation
               </sd-button>
@@ -485,9 +521,7 @@ interface Doctor {
             }
           </div>
           <div class="mt-10 flex justify-center">
-            <sd-button (click)="go('/auth/register')"
-              >Book a Consultation</sd-button
-            >
+            <sd-button (click)="book()">Book a Consultation</sd-button>
           </div>
         </div>
       </section>
@@ -506,7 +540,7 @@ interface Doctor {
               Join thousands of patients who trust VideoMed for quality
               healthcare.
             </p>
-            <sd-button class="w-fit" (click)="go('/auth/register')"
+            <sd-button class="w-fit" (click)="book()"
               >Book a Consultation</sd-button
             >
           </div>
@@ -632,7 +666,16 @@ interface Doctor {
 })
 export class Home {
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly themeSvc = inject(ThemeService);
+  /** Reflects the header/CTAs to the signed-in state (no logout needed to browse home). */
+  protected readonly loggedIn = computed(() => this.auth.isAuthenticated());
+  protected readonly isDark = computed(() => this.themeSvc.theme() === 'dark');
   protected readonly menuOpen = signal(false);
+
+  protected toggleTheme(): void {
+    this.themeSvc.toggle();
+  }
   protected readonly email = signal('');
   protected readonly subscribed = signal(false);
 
@@ -775,6 +818,11 @@ export class Home {
   protected go(url: string): void {
     this.menuOpen.set(false);
     void this.router.navigateByUrl(url);
+  }
+
+  /** Book CTA: signed-in users go straight to the specialist directory. */
+  protected book(): void {
+    this.go(this.loggedIn() ? '/dashboard/specialists' : '/auth/register');
   }
 
   protected scrollTo(id: string): void {

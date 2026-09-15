@@ -48,6 +48,7 @@ import {
         </p>
         <sd-button
           type="submit"
+          class="w-full"
           [full]="true"
           [disabled]="form.invalid || submitting()"
         >

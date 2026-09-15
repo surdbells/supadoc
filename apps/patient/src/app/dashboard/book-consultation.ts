@@ -455,7 +455,7 @@ import {
                     >Click to upload or drag and drop</span
                   >
                   <span class="font-sans text-caption text-slate"
-                    >Supported format: PNG or JPG, up to 5MB</span
+                    >Supported format: PDF, JPG, PNG or WEBP, up to 10MB</span
                   >
                 }
               </button>
@@ -466,7 +466,7 @@ import {
             <input
               #docInput
               type="file"
-              accept="image/png,image/jpeg"
+              accept="application/pdf,image/png,image/jpeg,image/webp"
               class="hidden"
               (change)="onDocumentSelected($event)"
             />
@@ -1015,12 +1015,16 @@ export class BookConsultation implements OnInit {
     input.value = '';
     if (!file) return;
     this.docError.set('');
-    if (!/^image\/(png|jpe?g)$/.test(file.type)) {
-      this.docError.set('Only PNG or JPG images are allowed.');
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const ok =
+      /^(application\/pdf|image\/(png|jpe?g|webp))$/.test(file.type) ||
+      ['pdf', 'png', 'jpg', 'jpeg', 'webp'].includes(ext);
+    if (!ok) {
+      this.docError.set('Upload a PDF, JPG, PNG or WEBP file.');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      this.docError.set('File must be 5MB or smaller.');
+    if (file.size > 10 * 1024 * 1024) {
+      this.docError.set('File must be 10MB or smaller.');
       return;
     }
     this.uploadingDoc.set(true);
@@ -1029,9 +1033,7 @@ export class BookConsultation implements OnInit {
       this.docUrl.set(res.data.url);
       this.docName.set(file.name);
     } catch (err) {
-      this.docError.set(
-        (err as { message?: string })?.message ?? 'Could not upload the file.',
-      );
+      this.docError.set(apiErrorMessage(err, 'Could not upload the file.'));
     } finally {
       this.uploadingDoc.set(false);
     }
