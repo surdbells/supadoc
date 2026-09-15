@@ -206,7 +206,7 @@ interface Doctor {
               alt="Doctor on a secure VideoMed video consultation, with patient rating and HIPAA-compliant badges"
               width="1086"
               height="1070"
-              class="mx-auto max-h-[240px] w-auto object-contain sm:max-h-[280px] lg:max-h-[320px] lg:w-full"
+              class="mx-auto max-h-[240px] w-auto object-contain sm:max-h-[280px] lg:max-h-[320px] lg:w-full lg:object-right"
             />
           </div>
         </div>

@@ -270,12 +270,12 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
           class="mx-auto mt-4 flex max-w-5xl flex-wrap items-center justify-center gap-3 lg:flex-nowrap"
         >
           <div
-            class="flex shrink-0 rounded-field border border-cloud bg-white p-1"
+            class="flex shrink-0 rounded-field border border-cloud bg-white p-1.5"
           >
             @for (t of consultTypes; track t.value) {
               <button
                 type="button"
-                class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-body-sm transition-colors"
+                class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2.5 font-sans text-body transition-colors"
                 [class]="
                   consultationType() === t.value
                     ? 'bg-frost font-medium text-cerulean'
@@ -283,13 +283,14 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                 "
                 (click)="consultationType.set(t.value)"
               >
-                <sd-icon [name]="t.icon" [size]="16" />{{ t.label }}
+                <sd-icon [name]="t.icon" [size]="18" />{{ t.label }}
               </button>
             }
           </div>
 
           <sd-search-select
-            class="w-40 lg:min-w-0 lg:flex-1"
+            size="lg"
+            class="w-44 lg:min-w-0 lg:flex-1"
             icon="stethoscope"
             placeholder="Speciality"
             [options]="specialtyNames()"
@@ -297,7 +298,8 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             (valueChange)="specialty.set($event)"
           />
           <sd-search-select
-            class="w-40 lg:min-w-0 lg:flex-1"
+            size="lg"
+            class="w-44 lg:min-w-0 lg:flex-1"
             icon="map-pin"
             placeholder="Location"
             [options]="locations()"
@@ -305,7 +307,8 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             (valueChange)="location.set($event)"
           />
           <sd-search-select
-            class="w-40 lg:min-w-0 lg:flex-1"
+            size="lg"
+            class="w-44 lg:min-w-0 lg:flex-1"
             icon="languages"
             placeholder="Language"
             [options]="languages()"
@@ -313,7 +316,8 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             (valueChange)="language.set($event)"
           />
           <sd-search-select
-            class="w-40 lg:min-w-0 lg:flex-1"
+            size="lg"
+            class="w-44 lg:min-w-0 lg:flex-1"
             icon="user-round"
             placeholder="Gender"
             [options]="genderOptions"
