@@ -17,6 +17,7 @@ import {
 import { AuthService } from '@supadoc/auth';
 import { NotificationsApi, PatientApi } from '@supadoc/data-access';
 import { ConfirmDialogComponent, IconComponent, LogoComponent } from '@supadoc/ui';
+import { ThemeService } from '../theme.service';
 
 interface NavItem {
   readonly label: string;
@@ -100,6 +101,15 @@ interface NavItem {
           </div>
 
           <div class="flex items-center gap-4 lg:gap-6">
+            <button
+              type="button"
+              class="text-ink transition-colors hover:text-cerulean"
+              [attr.aria-label]="isDark() ? 'Switch to light mode' : 'Switch to dark mode'"
+              [attr.title]="isDark() ? 'Light mode' : 'Dark mode'"
+              (click)="toggleTheme()"
+            >
+              <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="22" />
+            </button>
             <button
               type="button"
               class="relative text-ink transition-colors hover:text-cerulean"
@@ -256,6 +266,12 @@ export class DashboardShell {
   private readonly patient = inject(PatientApi);
   private readonly notificationsApi = inject(NotificationsApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly themeSvc = inject(ThemeService);
+
+  protected readonly isDark = computed(() => this.themeSvc.theme() === 'dark');
+  protected toggleTheme(): void {
+    this.themeSvc.toggle();
+  }
 
   protected readonly menuOpen = signal(false);
   protected readonly confirmLogout = signal(false);

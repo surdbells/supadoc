@@ -6,6 +6,22 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- Apply the saved (or system) theme before first paint — no flash of light. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('videomed.theme');
+          var dark =
+            saved === 'dark' ||
+            (saved === null &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+        } catch (e) {
+          /* storage blocked — default to light */
+        }
+      })();
+    </script>
   </head>
   <body>
     <pat-root></pat-root>

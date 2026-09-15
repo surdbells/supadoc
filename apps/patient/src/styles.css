@@ -70,3 +70,186 @@ router-outlet + * {
     transform: none;
   }
 }
+
+/* =====================================================================
+ * Dark mode — patient portal.
+ *
+ * Approach (matches the call cockpit): we override the *light* surface / text /
+ * border utility classes under `html[data-theme='dark']`, rather than flipping
+ * the `--color-*` tokens. That keeps `text-white`, `bg-cerulean` and the other
+ * brand/accent utilities correct everywhere (buttons, dark heroes, the video
+ * cockpit) while turning every light surface dark. Toggled by ThemeService.
+ * ===================================================================== */
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+html[data-theme='dark'] body {
+  background-color: #0d141c;
+  color: #e5edf4;
+}
+
+/* ----- Surfaces ----- */
+html[data-theme='dark'] .bg-white {
+  background-color: #161f2b;
+}
+html[data-theme='dark'] .bg-white\/90 {
+  background-color: rgba(22, 31, 43, 0.92);
+}
+html[data-theme='dark'] .bg-white\/70 {
+  background-color: rgba(22, 31, 43, 0.7);
+}
+html[data-theme='dark'] .bg-glacier,
+html[data-theme='dark'] .hover\:bg-glacier:hover {
+  background-color: #0d141c;
+}
+html[data-theme='dark'] .bg-glacier\/60 {
+  background-color: rgba(13, 20, 28, 0.6);
+}
+html[data-theme='dark'] .bg-glacier\/40 {
+  background-color: rgba(13, 20, 28, 0.4);
+}
+html[data-theme='dark'] .bg-cloud,
+html[data-theme='dark'] .hover\:bg-cloud:hover {
+  background-color: #212c39;
+}
+html[data-theme='dark'] .bg-cloud\/70 {
+  background-color: rgba(33, 44, 57, 0.7);
+}
+html[data-theme='dark'] .bg-cloud\/40 {
+  background-color: rgba(33, 44, 57, 0.4);
+}
+
+/* Frost tints → cerulean-tinted dark (selected states, badges, chips). */
+html[data-theme='dark'] .bg-frost {
+  background-color: rgba(33, 111, 209, 0.26);
+}
+html[data-theme='dark'] .bg-frost\/70,
+html[data-theme='dark'] .hover\:bg-frost\/70:hover {
+  background-color: rgba(33, 111, 209, 0.22);
+}
+html[data-theme='dark'] .bg-frost\/60 {
+  background-color: rgba(33, 111, 209, 0.2);
+}
+html[data-theme='dark'] .bg-frost\/50 {
+  background-color: rgba(33, 111, 209, 0.18);
+}
+html[data-theme='dark'] .bg-frost\/40,
+html[data-theme='dark'] .hover\:bg-frost\/40:hover {
+  background-color: rgba(33, 111, 209, 0.16);
+}
+html[data-theme='dark'] .bg-frost\/30 {
+  background-color: rgba(33, 111, 209, 0.14);
+}
+html[data-theme='dark'] .bg-frost\/20,
+html[data-theme='dark'] .hover\:bg-frost\/20:hover {
+  background-color: rgba(33, 111, 209, 0.12);
+}
+
+/* ----- Text ----- */
+html[data-theme='dark'] .text-ink,
+html[data-theme='dark'] .hover\:text-ink:hover {
+  color: #e5edf4;
+}
+html[data-theme='dark'] .text-ink\/80 {
+  color: rgba(229, 237, 244, 0.8);
+}
+html[data-theme='dark'] .text-abyss {
+  color: #f2f7fb;
+}
+html[data-theme='dark'] .text-slate {
+  color: #94a6b5;
+}
+html[data-theme='dark'] .text-slate\/70 {
+  color: rgba(148, 166, 181, 0.75);
+}
+html[data-theme='dark'] .text-slate\/40 {
+  color: rgba(148, 166, 181, 0.45);
+}
+html[data-theme='dark'] .text-ocean {
+  color: #6ea8e6;
+}
+html[data-theme='dark'] .text-cloud {
+  color: #ccd6e0;
+}
+
+/* ----- Borders / rings / dividers ----- */
+html[data-theme='dark'] .border-cloud {
+  border-color: #29323f;
+}
+html[data-theme='dark'] .border-cloud\/70 {
+  border-color: rgba(41, 50, 63, 0.7);
+}
+html[data-theme='dark'] .border-cloud\/60 {
+  border-color: rgba(41, 50, 63, 0.6);
+}
+html[data-theme='dark'] .border-ash,
+html[data-theme='dark'] .border-ash\/60 {
+  border-color: #3a4a58;
+}
+html[data-theme='dark'] .border-slate,
+html[data-theme='dark'] .hover\:border-slate:hover {
+  border-color: #5b6f80;
+}
+html[data-theme='dark'] .border-frost {
+  border-color: rgba(33, 111, 209, 0.4);
+}
+html[data-theme='dark'] .ring-cloud\/70 {
+  --tw-ring-color: rgba(41, 50, 63, 0.7);
+}
+html[data-theme='dark'] .ring-cloud\/60 {
+  --tw-ring-color: rgba(41, 50, 63, 0.6);
+}
+
+/* The sd-input arbitrary-hex border (see input.ts). */
+html[data-theme='dark'] .border-\[\#b8c6d4\] {
+  border-color: #3a4a58;
+}
+
+/* Placeholders — keep them dim on dark. */
+html[data-theme='dark'] .placeholder\:text-slate\/60::placeholder,
+html[data-theme='dark'] .placeholder\:text-slate\/70::placeholder,
+html[data-theme='dark'] .placeholder\:text-slate::placeholder {
+  color: rgba(148, 166, 181, 0.55);
+}
+
+/* ----- Landing gradients (from/via/to color stops) ----- */
+html[data-theme='dark'] .from-white {
+  --tw-gradient-from: #0d141c;
+}
+html[data-theme='dark'] .via-white {
+  --tw-gradient-via: #0d141c;
+}
+html[data-theme='dark'] .to-white {
+  --tw-gradient-to: #0d141c;
+}
+html[data-theme='dark'] .from-glacier {
+  --tw-gradient-from: #0d141c;
+}
+html[data-theme='dark'] .to-glacier {
+  --tw-gradient-to: #0f1822;
+}
+html[data-theme='dark'] .from-frost {
+  --tw-gradient-from: rgba(33, 111, 209, 0.16);
+}
+html[data-theme='dark'] .to-mist {
+  --tw-gradient-to: rgba(33, 111, 209, 0.08);
+}
+
+/* Skeleton shimmer reads dark. */
+html[data-theme='dark'] .sd-shimmer {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+html[data-theme='dark'] .sd-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+}
+
+/* Card hover elevation is invisible on dark — deepen it. */
+html[data-theme='dark'] .sd-card-hover:hover {
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
