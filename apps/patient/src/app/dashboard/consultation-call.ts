@@ -200,7 +200,7 @@ interface RecordItem {
         <!-- ============================ MAIN ============================ -->
         <div class="flex min-w-0 flex-col gap-4">
           <!-- Action bar -->
-          <div class="flex items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <button
               type="button"
               class="flex items-center gap-2 rounded-pill px-2 py-1.5 font-sans text-body-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"

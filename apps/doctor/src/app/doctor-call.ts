@@ -77,9 +77,9 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
     <div class="flex min-h-screen flex-col xl:h-screen xl:overflow-hidden">
       <!-- Top bar -->
       <header
-        class="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3"
+        class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 px-4 py-3"
       >
-        <div class="flex items-center gap-3">
+        <div class="flex min-w-0 items-center gap-3">
           <button
             type="button"
             class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
