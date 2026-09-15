@@ -54,7 +54,7 @@ interface Doctor {
         class="sticky top-0 z-30 border-b border-cloud/70 bg-white/90 backdrop-blur"
       >
         <div
-          class="mx-auto flex h-16 max-w-[1280px] items-center justify-between gap-4 px-5 md:h-20 md:px-8"
+          class="mx-auto flex h-16 w-[90%] max-w-[1800px] items-center justify-between gap-4 md:h-20"
         >
           <sd-logo [size]="32" />
 
@@ -154,7 +154,7 @@ interface Doctor {
            hero visual is a transparent PNG placed over it. -->
       <section class="bg-gradient-to-b from-white via-white to-glacier">
         <div
-          class="mx-auto grid max-w-[1280px] items-center gap-x-12 gap-y-4 px-5 py-6 md:px-8 lg:grid-cols-2 lg:py-5"
+          class="mx-auto grid w-[90%] max-w-[1800px] items-center gap-x-12 gap-y-4 py-6 lg:grid-cols-2 lg:py-5"
         >
           <div class="flex min-w-0 flex-col gap-5">
             <span
@@ -217,7 +217,7 @@ interface Doctor {
 
       <!-- ===== Trusted by ===== -->
       <section class="border-y border-cloud/60 bg-white">
-        <div class="mx-auto max-w-[1280px] px-5 py-10 md:px-8">
+        <div class="mx-auto w-[90%] max-w-[1800px] py-10">
           <p class="text-center font-sans text-body text-slate">
             Trusted by patients, Partnered with leading organizations.
           </p>
@@ -236,7 +236,7 @@ interface Doctor {
       <!-- ===== About ===== -->
       <section id="about" class="overflow-hidden bg-frost/40">
         <div
-          class="relative mx-auto max-w-[1280px] px-5 py-16 md:px-8 lg:py-24"
+          class="relative mx-auto w-[90%] max-w-[1800px] py-16 lg:py-24"
         >
           <!-- Decorative globe, connectors and photos (lg+) -->
           <div
@@ -338,7 +338,7 @@ interface Doctor {
 
       <!-- ===== Features ===== -->
       <section class="bg-white">
-        <div class="mx-auto max-w-[1280px] px-5 py-16 md:px-8">
+        <div class="mx-auto w-[90%] max-w-[1800px] py-16">
           <div class="mb-10 flex flex-col items-center gap-2 text-center">
             <h2 class="font-heading text-h3 text-abyss">
               Healthcare that works for you
@@ -370,7 +370,7 @@ interface Doctor {
       <!-- ===== Counter (measurable impact) ===== -->
       <section class="bg-abyss">
         <div
-          class="mx-auto grid max-w-[1280px] items-center gap-10 px-5 py-16 md:px-8 lg:grid-cols-2"
+          class="mx-auto grid w-[90%] max-w-[1800px] items-center gap-10 py-16 lg:grid-cols-2"
         >
           <img
             src="/home/counter-photo.png"
@@ -413,7 +413,7 @@ interface Doctor {
 
       <!-- ===== How it works ===== -->
       <section id="how" class="bg-glacier">
-        <div class="mx-auto max-w-[1280px] px-5 py-16 md:px-8">
+        <div class="mx-auto w-[90%] max-w-[1800px] py-16">
           <div class="mb-12 flex flex-col items-center gap-2 text-center">
             <h2 class="font-heading text-h3 text-abyss">How VideoMed Works</h2>
             <p class="font-sans text-body-lg text-slate">
@@ -445,7 +445,7 @@ interface Doctor {
 
       <!-- ===== Featured specialists ===== -->
       <section class="bg-white">
-        <div class="mx-auto max-w-[1280px] px-5 py-16 md:px-8">
+        <div class="mx-auto w-[90%] max-w-[1800px] py-16">
           <div class="mb-10 flex flex-col items-center gap-2 text-center">
             <span
               class="inline-flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
@@ -531,7 +531,7 @@ interface Doctor {
       <!-- ===== Ready / Stay connected ===== -->
       <section class="overflow-hidden bg-frost/40">
         <div
-          class="mx-auto grid max-w-[1280px] items-center gap-10 px-5 py-16 md:px-8 lg:grid-cols-[1fr_360px_1fr]"
+          class="mx-auto grid w-[90%] max-w-[1800px] items-center gap-10 py-16 lg:grid-cols-[1fr_360px_1fr]"
         >
           <!-- Left CTA -->
           <div class="flex flex-col gap-5">
@@ -618,7 +618,7 @@ interface Doctor {
       <!-- ===== Footer ===== -->
       <footer class="bg-abyss text-frost">
         <div
-          class="mx-auto grid max-w-[1280px] gap-10 px-5 py-14 md:grid-cols-4 md:px-8"
+          class="mx-auto grid w-[90%] max-w-[1800px] gap-10 py-14 md:grid-cols-4"
         >
           <div class="flex flex-col gap-4">
             <sd-logo [size]="32" [wordmark]="false" />
@@ -644,7 +644,7 @@ interface Doctor {
         </div>
         <div class="border-t border-white/10">
           <div
-            class="mx-auto flex max-w-[1280px] flex-col items-center justify-between gap-3 px-5 py-5 md:flex-row md:px-8"
+            class="mx-auto flex w-[90%] max-w-[1800px] flex-col items-center justify-between gap-3 py-5 md:flex-row"
           >
             <p class="font-sans text-caption text-frost/70">
               © 2026 VideoMed. All rights reserved.
