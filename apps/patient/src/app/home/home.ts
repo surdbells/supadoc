@@ -118,7 +118,7 @@ interface Doctor {
            hero visual is a transparent PNG placed over it. -->
       <section class="bg-gradient-to-b from-white via-white to-glacier">
         <div
-          class="mx-auto grid max-w-[1280px] items-center gap-12 px-5 py-14 md:px-8 lg:grid-cols-2 lg:py-20"
+          class="mx-auto grid max-w-[1280px] items-center gap-x-12 gap-y-6 px-5 py-8 md:px-8 lg:grid-cols-2 lg:py-10"
         >
           <div class="flex min-w-0 flex-col gap-6">
             <span

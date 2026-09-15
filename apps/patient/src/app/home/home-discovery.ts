@@ -102,7 +102,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
   ],
   template: `
     <section class="bg-gradient-to-b from-glacier to-white">
-      <div class="mx-auto max-w-[1280px] px-5 py-16 md:px-8">
+      <div class="mx-auto max-w-[1280px] px-5 pb-16 pt-6 md:px-8">
         <div class="flex flex-col items-center gap-4 text-center">
           <span
             class="inline-flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
