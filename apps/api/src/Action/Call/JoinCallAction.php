@@ -73,6 +73,7 @@ final class JoinCallAction
                 'allergies'     => array_values($medical['allergies'] ?? []),
                 'conditions'    => array_values($medical['conditions'] ?? []),
                 'medications'   => array_values($medical['medications'] ?? []),
+                'history'       => array_values($medical['history'] ?? []),
             ];
         }
 

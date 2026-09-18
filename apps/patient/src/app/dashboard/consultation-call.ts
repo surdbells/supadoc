@@ -543,9 +543,12 @@ interface RecordItem {
                   type="button"
                   class="relative whitespace-nowrap px-3 py-3 font-sans text-body-sm transition-colors"
                   [class]="notesTab() === t.key ? 'text-white' : 'text-white/50 hover:text-white/80'"
-                  (click)="notesTab.set(t.key)"
+                  (click)="openNotesTab(t.key)"
                 >
                   {{ t.label }}
+                  @if (t.key === 'prescriptions' && newRx()) {
+                    <span class="absolute right-0 top-2 size-2 rounded-full bg-cerulean" aria-label="New prescription"></span>
+                  }
                   @if (notesTab() === t.key) {
                     <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
                   }
@@ -994,6 +997,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly labs = signal<LabOrderDto[]>([]);
   protected readonly carePlan = signal<PatientCarePlanDto | null>(null);
   protected readonly referrals = signal<ReferralDto[]>([]);
+  /** A prescription arrived during the call while the patient was on another tab. */
+  protected readonly newRx = signal(false);
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly consentBusy = signal<string>('');
   protected readonly recordingActive = signal(false);
@@ -1169,6 +1174,18 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private recordingPoll?: ReturnType<typeof setInterval>;
   private metricsTimer?: ReturnType<typeof setInterval>;
   private captionsPoll?: ReturnType<typeof setInterval>;
+  private clinicalPoll?: ReturnType<typeof setInterval>;
+
+  /**
+   * Warn before a refresh/close during a live call — reloading drops the patient
+   * from the consultation. Armed only while actually in-call.
+   */
+  private readonly onBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (this.status() === 'in-call' && !this.left) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  };
   private recognition?: SpeechRec;
   private netUplink = 0;
   private netDownlink = 0;
@@ -1177,6 +1194,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.appointmentId = this.route.snapshot.paramMap.get('id') ?? '';
+    window.addEventListener('beforeunload', this.onBeforeUnload);
     // Load the record context up front so the waiting room can show the doctor,
     // and start the device check — but don't join Agora until the patient enters.
     void this.loadContext();
@@ -1240,6 +1258,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.startTimer();
       this.startRecordingPoll();
       this.startMetricsReport();
+      this.startClinicalPoll();
     } catch (err) {
       const message = (err as { message?: string })?.message;
       this.errorMessage.set(message ?? 'We couldn’t start the call. Please try again.');
@@ -1272,12 +1291,24 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     } catch {
       /* library optional in-call */
     }
+    await this.refreshClinical();
     try {
-      const s = await firstValueFrom(this.appointments.consultationSummary(this.appointmentId));
-      this.summary.set(s.data);
+      const cs = await firstValueFrom(this.appointments.consents(this.appointmentId));
+      this.consents.set(cs.data ?? []);
     } catch {
-      /* summary not finalized yet */
+      /* none */
     }
+  }
+
+  /**
+   * Re-fetch the clinical artefacts the doctor issues during the visit
+   * (prescriptions, lab orders, care plan, referrals, summary). Polled while the
+   * call is live so the patient sees a new prescription in place — without the
+   * page reload that would tear down the call. Flags a badge on the Prescriptions
+   * tab when a new script arrives and the patient isn't already looking at it.
+   */
+  private async refreshClinical(): Promise<void> {
+    const prevRx = this.issuedRx().length;
     try {
       const rx = await firstValueFrom(this.appointments.prescriptions(this.appointmentId));
       this.issuedRx.set(rx.data ?? []);
@@ -1303,10 +1334,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       /* none */
     }
     try {
-      const cs = await firstValueFrom(this.appointments.consents(this.appointmentId));
-      this.consents.set(cs.data ?? []);
+      const s = await firstValueFrom(this.appointments.consultationSummary(this.appointmentId));
+      this.summary.set(s.data);
     } catch {
-      /* none */
+      /* summary not finalized yet */
+    }
+    if (this.issuedRx().length > prevRx && this.notesTab() !== 'prescriptions') {
+      this.newRx.set(true);
     }
   }
 
@@ -1354,6 +1388,21 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     };
     void check();
     this.recordingPoll = setInterval(() => void check(), 12000);
+  }
+
+  /**
+   * Poll the doctor-issued clinical artefacts every 15s so a prescription (or lab
+   * order, care plan, referral) issued mid-call appears without a page reload.
+   */
+  private startClinicalPoll(): void {
+    if (this.clinicalPoll) return;
+    this.clinicalPoll = setInterval(() => void this.refreshClinical(), 15000);
+  }
+
+  /** Open a Notes-panel tab, clearing the "new prescription" badge when relevant. */
+  protected openNotesTab(tab: NotesTab): void {
+    this.notesTab.set(tab);
+    if (tab === 'prescriptions') this.newRx.set(false);
   }
 
   /** Report an RTC quality sample every 15s so the back-office can monitor calls. */
@@ -1646,11 +1695,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private async teardown(): Promise<void> {
     this.left = true;
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
     this.stopDeviceTest();
     if (this.timer) clearInterval(this.timer);
     if (this.recordingPoll) clearInterval(this.recordingPoll);
     if (this.metricsTimer) clearInterval(this.metricsTimer);
     if (this.captionsPoll) clearInterval(this.captionsPoll);
+    if (this.clinicalPoll) clearInterval(this.clinicalPoll);
     this.stopCaptionRecognition();
     try {
       this.micTrack?.close();

@@ -228,6 +228,29 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
             }
           </div>
 
+          <!-- Medical History -->
+          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
+            <h3 class="mb-2 flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
+              <sd-icon name="clipboard-list" [size]="15" class="text-frost" /> Medical History
+            </h3>
+            @if (history().length) {
+              <ul class="flex flex-col gap-2">
+                @for (h of history(); track $index) {
+                  <li class="flex flex-col">
+                    <span class="font-sans text-body-sm text-white/85">
+                      {{ h.condition }}@if (h.year) { <span class="text-white/45"> · {{ h.year }}</span> }
+                    </span>
+                    @if (h.note) {
+                      <span class="font-sans text-caption text-white/45">{{ h.note }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="font-sans text-body-sm text-white/40">None recorded.</p>
+            }
+          </div>
+
           <button
             type="button"
             class="flex items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
@@ -1130,6 +1153,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   });
   protected readonly conditions = computed(() => this.info()?.patient?.conditions ?? []);
   protected readonly medications = computed(() => this.info()?.patient?.medications ?? []);
+  protected readonly history = computed(() => this.info()?.patient?.history ?? []);
   protected readonly allergiesLabel = computed(() => {
     const a = this.info()?.patient?.allergies ?? [];
     return a.length ? a.map((x) => x.allergen).join(', ') : 'None recorded';
@@ -1185,6 +1209,19 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private readonly DOCTOR_TOKEN_KEY = 'videomed.doctor.token';
   private left = false;
 
+  /**
+   * Guard against an accidental refresh/close mid-consultation — reloading tears
+   * down the Agora session and drops the doctor from the call. Only armed while
+   * actually in-call, so the browser's native "Leave site?" prompt never nags
+   * before the call starts or after it ends.
+   */
+  private readonly onBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (this.status() === 'in-call' && !this.left) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  };
+
   /** Document types surfaced under the Imaging / Labs records tabs. */
   private static readonly IMAGING_TYPES = new Set([
     'xray_report', 'ct_scan_report', 'mri_report', 'ultrasound_report', 'echocardiogram_report', 'radiology_report',
@@ -1194,6 +1231,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   ]);
 
   ngAfterViewInit(): void {
+    window.addEventListener('beforeunload', this.onBeforeUnload);
     void this.start();
   }
 
@@ -1977,6 +2015,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
 
   private async teardown(): Promise<void> {
     this.left = true;
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
     if (this.timer) clearInterval(this.timer);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     if (this.metricsTimer) clearInterval(this.metricsTimer);

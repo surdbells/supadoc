@@ -200,6 +200,7 @@ export interface JoinPatientSummary {
   allergies: AllergyRow[];
   conditions: ConditionRow[];
   medications: MedicationRow[];
+  history: MedicalHistoryRow[];
 }
 
 /**
