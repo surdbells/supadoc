@@ -1,7 +1,9 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  AddAvailabilityInput,
   AppointmentDto,
+  BlockAvailabilityInput,
   CarePlanDto,
   ClinicalDocumentKind,
   ClinicalNoteDto,
@@ -13,6 +15,7 @@ import type {
   CreatePrescriptionParams,
   CreateReferralParams,
   DoctorAppointmentDto,
+  DoctorAvailabilityDto,
   DoctorCopilotStateDto,
   DoctorDashboardDto,
   DoctorPatientListItemDto,
@@ -39,6 +42,7 @@ import type {
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
+import { API_CONFIG } from './api-config';
 import { ApiService, QueryParams } from './api.service';
 
 /**
@@ -50,9 +54,18 @@ import { ApiService, QueryParams } from './api.service';
 @Injectable({ providedIn: 'root' })
 export class DoctorApi {
   private readonly api = inject(ApiService);
+  private readonly config = inject(API_CONFIG);
 
   private base(id: string): string {
     return `api/doctor/appointments/${encodeURIComponent(id)}`;
+  }
+
+  /** Resolve a relative asset path (e.g. a photo_url) to an absolute URL. */
+  assetUrl(relative: string | null | undefined): string | null {
+    if (!relative) return null;
+    if (/^https?:\/\//.test(relative)) return relative;
+    const base = this.config.baseUrl.replace(/\/+$/, '');
+    return `${base}/${relative.replace(/^\/+/, '')}`;
   }
 
   /** GET /api/doctor/dashboard — headline metrics + today's agenda. */
@@ -197,6 +210,63 @@ export class DoctorApi {
     return this.api.patch<SuccessResponse<DoctorProfileDto>>(
       'api/doctor/profile',
       params,
+    );
+  }
+
+  /** POST /api/doctor/avatar — upload the doctor's headshot (multipart). */
+  uploadAvatar(file: File): Observable<SuccessResponse<DoctorProfileDto>> {
+    const form = new FormData();
+    form.append('avatar', file);
+    return this.api.post<SuccessResponse<DoctorProfileDto>>(
+      'api/doctor/avatar',
+      form,
+    );
+  }
+
+  /** DELETE /api/doctor/avatar — remove the doctor's headshot. */
+  removeAvatar(): Observable<SuccessResponse<DoctorProfileDto>> {
+    return this.api.delete<SuccessResponse<DoctorProfileDto>>(
+      'api/doctor/avatar',
+    );
+  }
+
+  // ----- Availability (date-specific slots) -----
+
+  /** GET /api/doctor/availability — open/booked/blocked slots for a window. */
+  availability(
+    from?: string,
+    to?: string,
+  ): Observable<SuccessResponse<DoctorAvailabilityDto>> {
+    return this.api.get<SuccessResponse<DoctorAvailabilityDto>>(
+      'api/doctor/availability',
+      { from, to },
+    );
+  }
+
+  /** POST /api/doctor/availability — publish open slots for a date. */
+  addAvailability(
+    input: AddAvailabilityInput,
+  ): Observable<SuccessResponse<{ created: number }>> {
+    return this.api.post<SuccessResponse<{ created: number }>>(
+      'api/doctor/availability',
+      input,
+    );
+  }
+
+  /** POST /api/doctor/availability/block — block a day or time span. */
+  blockAvailability(
+    input: BlockAvailabilityInput,
+  ): Observable<SuccessResponse<unknown>> {
+    return this.api.post<SuccessResponse<unknown>>(
+      'api/doctor/availability/block',
+      input,
+    );
+  }
+
+  /** DELETE /api/doctor/availability/{id} — remove a slot or block. */
+  deleteAvailability(id: string): Observable<SuccessResponse<unknown>> {
+    return this.api.delete<SuccessResponse<unknown>>(
+      `api/doctor/availability/${encodeURIComponent(id)}`,
     );
   }
 

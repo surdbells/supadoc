@@ -8,175 +8,475 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import {
+  AbstractControl,
+  FormArray,
+  FormBuilder,
+  FormGroup,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
-import { IconComponent } from '@supadoc/ui';
+import type { DoctorProfileDto } from '@supadoc/models';
+import {
+  ButtonComponent,
+  IconComponent,
+  InputComponent,
+  SearchSelectComponent,
+} from '@supadoc/ui';
 
-const FIELD =
-  'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+/** Date must be a valid, non-future day. */
+function pastDateValidator(c: AbstractControl): ValidationErrors | null {
+  const v = c.value as string;
+  if (!v) return null;
+  const d = new Date(`${v}T00:00:00`);
+  if (isNaN(d.getTime())) return { invalid: true };
+  return d > new Date() ? { future: true } : null;
+}
 
-/** The signed-in doctor's account + editable public profile (route `/profile`). */
+const ROW_INPUT =
+  'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+
+/**
+ * The signed-in doctor's profile (route `/profile`): a read view, an edit form,
+ * a public-profile preview popup and a success toast — all in one component,
+ * toggled by the `view` signal (mirrors the patient My Profile pattern).
+ */
 @Component({
   selector: 'doc-profile',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [
+    ReactiveFormsModule,
+    ButtonComponent,
+    IconComponent,
+    InputComponent,
+    SearchSelectComponent,
+  ],
   host: { class: 'block' },
   template: `
+    @if (toast()) {
+      <div class="sd-toast-in fixed left-1/2 top-6 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-card border border-sage/30 bg-sage px-5 py-3 shadow-lg" role="status">
+        <sd-icon name="circle-check" [size]="20" class="text-white" />
+        <span class="font-sans text-body-sm font-semibold text-white">{{ toast() }}</span>
+      </div>
+    }
+
     <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">My Profile</h1>
-        <p class="font-sans text-body text-slate">Manage your public profile and account.</p>
-      </header>
-
-      <section class="flex items-center gap-4 rounded-card border border-cloud bg-white p-6">
-        <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean">
-          {{ initials() || 'DR' }}
-        </span>
-        <div class="flex min-w-0 flex-col gap-1">
-          <p class="font-heading text-h5 text-ink">{{ name() || 'Doctor' }}</p>
-          <p class="truncate font-sans text-body-sm text-slate">{{ loginEmail() }}</p>
-          <p class="font-sans text-caption text-slate">{{ specialty() }}</p>
+      @if (loading()) {
+        <div class="sd-shimmer h-40 rounded-card"></div>
+        <div class="grid gap-6 lg:grid-cols-2">
+          <div class="sd-shimmer h-72 rounded-card"></div>
+          <div class="sd-shimmer h-72 rounded-card"></div>
         </div>
-      </section>
-
-      <!-- Editable public profile -->
-      <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-        <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-          <sd-icon name="user" [size]="20" />Public profile
-        </h2>
-
-        @if (loading()) {
-          <div class="sd-shimmer h-40 rounded-field"></div>
-        } @else if (loadError()) {
+      } @else if (loadError()) {
+        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
-        } @else {
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Contact email</span>
-              <input type="email" class="${FIELD}" [value]="email()" (input)="email.set($any($event.target).value)" placeholder="you@example.com" />
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Location</span>
-              <input class="${FIELD}" [value]="location()" (input)="location.set($any($event.target).value)" placeholder="Lagos, NG" />
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Languages</span>
-              <input class="${FIELD}" [value]="languages()" (input)="languages.set($any($event.target).value)" placeholder="English, French" />
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Years of experience</span>
-              <input type="number" min="0" class="${FIELD}" [value]="years()" (input)="years.set($any($event.target).value)" />
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Gender</span>
-              <select class="${FIELD}" [value]="gender()" (change)="gender.set($any($event.target).value)">
-                <option value="">Prefer not to say</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Photo URL</span>
-              <input type="url" class="${FIELD}" [value]="photoUrl()" (input)="photoUrl.set($any($event.target).value)" placeholder="https://… or /uploads/…" />
-            </label>
-            <label class="flex flex-col gap-1.5 sm:col-span-2">
-              <span class="font-sans text-caption font-semibold text-slate">Qualifications / credentials</span>
-              <input class="${FIELD}" [value]="qualifications()" (input)="qualifications.set($any($event.target).value)" placeholder="e.g. MBBS, FMCP · MDCN 12345" />
-            </label>
-            <label class="flex flex-col gap-1.5 sm:col-span-2">
-              <span class="font-sans text-caption font-semibold text-slate">About you</span>
-              <textarea rows="4" class="${FIELD}" [value]="bio()" (input)="bio.set($any($event.target).value)" placeholder="A short bio patients will see on your profile."></textarea>
-            </label>
-          </div>
+        </div>
+      } @else {
+        @switch (view()) {
+          @case ('view') {
+            <header class="flex flex-col gap-1">
+              <h1 class="font-heading text-h3 text-ink">My Profile</h1>
+              <p class="font-sans text-body text-slate">Manage your personal information and account details.</p>
+            </header>
 
-          <div class="flex flex-wrap items-center gap-6">
-            <label class="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" class="size-4 accent-cerulean" [checked]="available()" (change)="available.set($any($event.target).checked)" />
-              <span class="font-sans text-body-sm text-ink">Available for booking</span>
-            </label>
-            <label class="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" class="size-4 accent-cerulean" [checked]="offersInPerson()" (change)="offersInPerson.set($any($event.target).checked)" />
-              <span class="font-sans text-body-sm text-ink">Offer in-person visits</span>
-            </label>
-          </div>
+            <div class="grid gap-6 lg:grid-cols-2">
+              <div class="flex flex-col gap-6">
+                <!-- Profile summary -->
+                <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                  <div class="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+                    <span class="shrink-0">
+                      @if (photoSrc()) {
+                        <img [src]="photoSrc()" alt="" width="96" height="96" class="size-24 rounded-full object-cover" />
+                      } @else {
+                        <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean">{{ initials() || 'DR' }}</span>
+                      }
+                    </span>
+                    <div class="flex min-w-0 flex-1 flex-col gap-2 text-center sm:text-left">
+                      <div class="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                        <h2 class="font-heading text-h4 text-ink">{{ profile()?.name }}</h2>
+                        @if (profile()?.verified) {
+                          <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean">
+                            <sd-icon name="circle-check" [size]="14" />Verified
+                          </span>
+                        }
+                      </div>
+                      <p class="font-sans text-body font-semibold text-cerulean">{{ profile()?.specialty }}</p>
+                      <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-sans text-caption text-slate sm:justify-start">
+                        <span class="flex items-center gap-1"><sd-icon name="star" [size]="15" class="text-warning" /> {{ profile()?.rating }} ({{ profile()?.reviews_count }} reviews)</span>
+                        @if (profile()?.years_experience) {
+                          <span class="flex items-center gap-1"><sd-icon name="briefcase" [size]="15" /> {{ profile()?.years_experience }} year experience</span>
+                        }
+                        @if (locationText()) {
+                          <span class="flex items-center gap-1"><sd-icon name="map-pin" [size]="15" /> {{ locationText() }}</span>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex flex-col gap-3 sm:flex-row">
+                    <sd-button variant="outline" [full]="true" (click)="publicOpen.set(true)">
+                      <sd-icon name="user" [size]="18" />View Public Profile
+                    </sd-button>
+                    <sd-button [full]="true" (click)="startEdit()">
+                      <sd-icon name="pencil" [size]="18" />Edit Profile
+                    </sd-button>
+                  </div>
+                </section>
 
-          @if (profileNotice()) {
-            <p class="rounded-field px-4 py-2 font-label text-caption" [class]="profileOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'">{{ profileNotice() }}</p>
+                <!-- Personal Information -->
+                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                    <sd-icon name="user" [size]="20" class="text-cerulean" />Personal Information
+                  </h3>
+                  <dl class="flex flex-col divide-y divide-cloud">
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Full name</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.name }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Email address</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.email || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Phone number</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.phone || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Date of birth</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.date_of_birth || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Gender</dt><dd class="text-right font-sans text-body-sm capitalize text-ink">{{ profile()?.gender || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Country / Location</dt><dd class="text-right font-sans text-body-sm text-ink">{{ locationText() || '—' }}</dd></div>
+                  </dl>
+                </section>
+              </div>
+
+              <!-- Professional Information -->
+              <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                  <sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information
+                </h3>
+                <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                  <span class="font-sans text-caption text-slate">Medical Speciality</span>
+                  <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.specialty }}</span>
+                </div>
+                <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                  <span class="font-sans text-caption text-slate">Years of experience</span>
+                  <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.years_experience ?? '—' }} {{ profile()?.years_experience ? 'years' : '' }}</span>
+                </div>
+                @if (expertise().length) {
+                  <div class="flex flex-col gap-2 border-b border-cloud pb-4">
+                    <span class="font-sans text-caption text-slate">Area of Expertise</span>
+                    <div class="flex flex-wrap gap-2">
+                      @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ x }}</span> }
+                    </div>
+                  </div>
+                }
+                @if (profile()?.bio) {
+                  <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                    <span class="font-sans text-caption text-slate">Professional biography</span>
+                    <p class="font-sans text-body-sm leading-relaxed text-ink">{{ profile()?.bio }}</p>
+                  </div>
+                }
+                @if (qualificationRows.length) {
+                  <div class="flex flex-col gap-2 border-b border-cloud pb-4">
+                    <span class="font-sans text-caption text-slate">Qualifications</span>
+                    @for (q of qualificationRows.controls; track $index) {
+                      <span class="font-sans text-body-sm text-ink">{{ qualLine(q) }}</span>
+                    }
+                  </div>
+                }
+                @if (certificationRows.length) {
+                  <div class="flex flex-col gap-2 border-b border-cloud pb-4">
+                    <span class="font-sans text-caption text-slate">Certifications</span>
+                    @for (c of certificationRows.controls; track $index) {
+                      <span class="font-sans text-body-sm text-ink">{{ certLine(c) }}</span>
+                    }
+                  </div>
+                }
+                @if (languages().length) {
+                  <div class="flex flex-col gap-2">
+                    <span class="font-sans text-caption text-slate">Languages</span>
+                    <div class="flex flex-wrap gap-2">
+                      @for (l of languages(); track l) { <span class="rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">{{ l }}</span> }
+                    </div>
+                  </div>
+                }
+              </section>
+            </div>
           }
-          <button type="button" class="flex w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="savingProfile()" (click)="saveProfile()">
-            <sd-icon name="check" [size]="18" />{{ savingProfile() ? 'Saving…' : 'Save profile' }}
-          </button>
-          <p class="font-sans text-caption text-slate">
-            Your name, specialty, consultation fee and verified status are managed by the back office.
-          </p>
-        }
-      </section>
 
-      <!-- Change password -->
-      <section class="flex max-w-md flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-        <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-          <sd-icon name="lock" [size]="20" />Change password
-        </h2>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-sans text-caption font-semibold text-slate">Current password</span>
-          <input type="password" autocomplete="current-password" class="${FIELD}" [value]="currentPw()" (input)="currentPw.set($any($event.target).value)" />
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-sans text-caption font-semibold text-slate">New password</span>
-          <input type="password" autocomplete="new-password" class="${FIELD}" [value]="newPw()" (input)="newPw.set($any($event.target).value)" placeholder="At least 8 characters" />
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-sans text-caption font-semibold text-slate">Confirm new password</span>
-          <input type="password" autocomplete="new-password" class="${FIELD}" [value]="confirmPw()" (input)="confirmPw.set($any($event.target).value)" />
-        </label>
-        @if (pwNotice()) {
-          <p class="rounded-field px-4 py-2 font-label text-caption" [class]="pwOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'">{{ pwNotice() }}</p>
+          @case ('edit') {
+            <header class="flex items-start justify-between gap-4">
+              <h1 class="font-heading text-h3 text-ink">Edit Profile</h1>
+              <button type="button" class="flex shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean" (click)="cancelEdit()">
+                <sd-icon name="chevron-right" [size]="18" class="rotate-180" />Back
+              </button>
+            </header>
+
+            <!-- Photo -->
+            <section class="flex flex-col items-center gap-4 rounded-card border border-cloud bg-white p-6 sm:flex-row">
+              <div class="relative shrink-0">
+                @if (photoSrc()) {
+                  <img [src]="photoSrc()" alt="" width="96" height="96" class="size-24 rounded-full object-cover" />
+                } @else {
+                  <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean">{{ initials() || 'DR' }}</span>
+                }
+                <button type="button" class="absolute bottom-0 right-0 flex size-9 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-white transition-opacity disabled:opacity-60" [disabled]="uploadingAvatar()" aria-label="Change photo" (click)="avatarModalOpen.set(true)">
+                  @if (uploadingAvatar()) {
+                    <span class="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+                  } @else { <sd-icon name="camera" [size]="16" /> }
+                </button>
+              </div>
+              <div class="flex flex-col items-center gap-3 sm:flex-row">
+                <button type="button" class="font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean" (click)="avatarModalOpen.set(true)">Replace photo</button>
+                @if (photoSrc()) {
+                  <button type="button" class="flex items-center gap-1.5 rounded-field border border-alert/40 px-4 py-2 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="uploadingAvatar()" (click)="deletePhoto()">
+                    <sd-icon name="trash-2" [size]="16" />Delete photo
+                  </button>
+                }
+              </div>
+            </section>
+
+            <form class="grid gap-6 lg:grid-cols-2" [formGroup]="form" (ngSubmit)="save()">
+              <!-- Personal -->
+              <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="user" [size]="20" class="text-cerulean" />Personal Information</h3>
+                <sd-input label="Full name" [required]="true" formControlName="name" [error]="fieldError('name')" />
+                <sd-input label="Email address" type="email" formControlName="email" [error]="fieldError('email')" />
+                <sd-input label="Phone number" type="tel" formControlName="phone" />
+                <sd-input label="Date of birth" type="date" formControlName="dob" [max]="today" [error]="dobError()" />
+                <div class="flex w-full flex-col gap-2">
+                  <span class="font-sans text-body font-semibold text-ink">Gender</span>
+                  <sd-search-select size="lg" placeholder="Select" [options]="genderOptions" [value]="form.controls.gender.value" (valueChange)="form.controls.gender.setValue($event)" />
+                </div>
+                <sd-input label="Country / Location" formControlName="country" />
+              </section>
+
+              <!-- Professional -->
+              <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information</h3>
+                <sd-input label="Medical Speciality" [required]="true" formControlName="specialty" [error]="fieldError('specialty')" />
+                <sd-input label="Years of experience" type="number" formControlName="years" />
+
+                <!-- Area of expertise (chips) -->
+                <div class="flex w-full flex-col gap-2">
+                  <span class="font-sans text-body font-semibold text-ink">Area of Expertise</span>
+                  @if (expertise().length) {
+                    <div class="flex flex-wrap gap-2">
+                      @for (x of expertise(); track x; let i = $index) {
+                        <span class="flex items-center gap-1 rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">
+                          {{ x }}
+                          <button type="button" class="text-cerulean/70 transition-colors hover:text-alert" aria-label="Remove" (click)="removeExpertise(i)"><sd-icon name="x" [size]="14" /></button>
+                        </span>
+                      }
+                    </div>
+                  }
+                  <input class="${ROW_INPUT}" placeholder="Add an area, press enter" [value]="expertiseDraft()" (input)="expertiseDraft.set($any($event.target).value)" (keydown.enter)="addExpertise($event)" />
+                </div>
+
+                <label class="flex w-full flex-col gap-2">
+                  <span class="font-sans text-body font-semibold text-ink">Professional biography</span>
+                  <textarea rows="4" class="${ROW_INPUT}" formControlName="bio"></textarea>
+                </label>
+
+                <!-- Languages (chips) -->
+                <div class="flex w-full flex-col gap-2">
+                  <span class="font-sans text-body font-semibold text-ink">Languages</span>
+                  @if (languages().length) {
+                    <div class="flex flex-wrap gap-2">
+                      @for (l of languages(); track l; let i = $index) {
+                        <span class="flex items-center gap-1 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">
+                          {{ l }}
+                          <button type="button" class="text-slate transition-colors hover:text-alert" aria-label="Remove" (click)="removeLanguage(i)"><sd-icon name="x" [size]="14" /></button>
+                        </span>
+                      }
+                    </div>
+                  }
+                  <input class="${ROW_INPUT}" placeholder="Add a language, press enter" [value]="languageDraft()" (input)="languageDraft.set($any($event.target).value)" (keydown.enter)="addLanguage($event)" />
+                </div>
+
+                <!-- Qualifications -->
+                <div class="flex w-full flex-col gap-3" formArrayName="qualifications">
+                  <div class="flex items-center justify-between">
+                    <span class="font-sans text-body font-semibold text-ink">Qualifications</span>
+                    <button type="button" class="flex items-center gap-1 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean" (click)="addQualification()"><sd-icon name="plus" [size]="16" />Add qualification</button>
+                  </div>
+                  @for (row of qualificationRows.controls; track $index) {
+                    <div [formGroupName]="$index" class="flex flex-col gap-3 rounded-card border border-cloud p-4">
+                      <div class="flex items-center justify-between">
+                        <span class="font-sans text-caption font-semibold text-slate">Entry {{ $index + 1 }}</span>
+                        <button type="button" class="text-alert transition-colors hover:text-alert/70" aria-label="Remove" (click)="removeRow(qualificationRows, $index)"><sd-icon name="trash-2" [size]="16" /></button>
+                      </div>
+                      <input class="${ROW_INPUT}" placeholder="Degree / title (e.g. MD, Cardiology)" formControlName="title" />
+                      <input class="${ROW_INPUT}" placeholder="Institution" formControlName="institution" />
+                      <input class="${ROW_INPUT}" placeholder="Year" formControlName="year" />
+                    </div>
+                  }
+                </div>
+
+                <!-- Certifications -->
+                <div class="flex w-full flex-col gap-3" formArrayName="certifications">
+                  <div class="flex items-center justify-between">
+                    <span class="font-sans text-body font-semibold text-ink">Certifications</span>
+                    <button type="button" class="flex items-center gap-1 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean" (click)="addCertification()"><sd-icon name="plus" [size]="16" />Add certification</button>
+                  </div>
+                  @for (row of certificationRows.controls; track $index) {
+                    <div [formGroupName]="$index" class="flex flex-col gap-3 rounded-card border border-cloud p-4">
+                      <div class="flex items-center justify-between">
+                        <span class="font-sans text-caption font-semibold text-slate">Entry {{ $index + 1 }}</span>
+                        <button type="button" class="text-alert transition-colors hover:text-alert/70" aria-label="Remove" (click)="removeRow(certificationRows, $index)"><sd-icon name="trash-2" [size]="16" /></button>
+                      </div>
+                      <input class="${ROW_INPUT}" placeholder="Certification name" formControlName="name" />
+                      <input class="${ROW_INPUT}" placeholder="Issuing body" formControlName="body" />
+                      <input class="${ROW_INPUT}" placeholder="Year" formControlName="year" />
+                    </div>
+                  }
+                </div>
+              </section>
+
+              @if (saveError()) {
+                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert lg:col-span-2">{{ saveError() }}</p>
+              }
+              <div class="flex justify-end gap-3 lg:col-span-2">
+                <sd-button variant="outline" type="button" (click)="cancelEdit()">Cancel</sd-button>
+                <sd-button type="submit" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save changes' }}</sd-button>
+              </div>
+            </form>
+          }
         }
-        <button type="button" class="flex w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="savingPw()" (click)="changePassword()">
-          {{ savingPw() ? 'Updating…' : 'Update password' }}
-        </button>
-      </section>
+      }
     </div>
+
+    <!-- Avatar upload modal -->
+    @if (avatarModalOpen()) {
+      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="avatarModalOpen.set(false)"></button>
+        <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
+          <div class="flex items-start justify-between">
+            <div class="flex flex-col gap-1">
+              <h3 class="font-heading text-h5 text-ink">Update profile photo</h3>
+              <p class="font-sans text-body-sm text-slate">Drag an image here, or choose a file.</p>
+            </div>
+            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="avatarModalOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
+          </div>
+          <div class="flex flex-col items-center gap-3 rounded-card border-2 border-dashed px-6 py-10 text-center transition-colors" [class]="avatarDragging() ? 'border-cerulean bg-frost/40' : 'border-cloud bg-glacier/40'"
+            (dragover)="$event.preventDefault(); avatarDragging.set(true)" (dragleave)="avatarDragging.set(false)" (drop)="onAvatarDrop($event)">
+            @if (uploadingAvatar()) {
+              <span class="size-7 animate-spin rounded-full border-2 border-cloud border-t-cerulean"></span>
+              <span class="font-sans text-body-sm text-slate">Uploading…</span>
+            } @else {
+              <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
+              <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
+              <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
+              <button type="button" class="mt-1 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="avatarInput.click()">Choose from file</button>
+            }
+          </div>
+          <input #avatarInput type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" (change)="onAvatarSelected($event)" />
+        </div>
+      </div>
+    }
+
+    <!-- Public profile popup -->
+    @if (publicOpen()) {
+      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="publicOpen.set(false)"></button>
+        <div class="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-y-auto rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)] sm:p-8">
+          <button type="button" class="absolute right-5 top-5 text-slate transition-colors hover:text-ink" aria-label="Close" (click)="publicOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
+          <div class="flex items-center gap-4">
+            @if (photoSrc()) {
+              <img [src]="photoSrc()" alt="" width="80" height="80" class="size-20 rounded-full object-cover" />
+            } @else {
+              <span class="flex size-20 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean">{{ initials() || 'DR' }}</span>
+            }
+            <div class="flex flex-col gap-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="font-heading text-h4 text-ink">{{ profile()?.name }}</h2>
+                @if (profile()?.verified) {
+                  <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean"><sd-icon name="circle-check" [size]="14" />Verified</span>
+                }
+              </div>
+              <p class="font-sans text-body font-semibold text-cerulean">{{ profile()?.specialty }}</p>
+              <span class="flex items-center gap-1 font-sans text-caption text-slate"><sd-icon name="star" [size]="15" class="text-warning" /> {{ profile()?.rating }} ({{ profile()?.reviews_count }} reviews)</span>
+            </div>
+          </div>
+
+          @if (profile()?.bio) {
+            <div class="mt-6 flex flex-col gap-2">
+              <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="file-text" [size]="18" class="text-cerulean" />Bio</h3>
+              <p class="font-sans text-body-sm leading-relaxed text-ink">{{ profile()?.bio }}</p>
+            </div>
+          }
+
+          <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="languages" [size]="15" />Languages</span><span class="font-sans text-body-sm text-ink">{{ languages().length ? languages().join(', ') : '—' }}</span></div>
+            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="briefcase" [size]="15" />Experience</span><span class="font-sans text-body-sm text-ink">{{ profile()?.years_experience ?? '—' }} {{ profile()?.years_experience ? 'years' : '' }}</span></div>
+            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="map-pin" [size]="15" />Country</span><span class="font-sans text-body-sm text-ink">{{ locationText() || '—' }}</span></div>
+            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="user" [size]="15" />Gender</span><span class="font-sans text-body-sm capitalize text-ink">{{ profile()?.gender || '—' }}</span></div>
+          </div>
+
+          @if (expertise().length) {
+            <div class="mt-6 flex flex-col gap-2">
+              <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="sparkles" [size]="18" class="text-cerulean" />Area of expertise</h3>
+              <div class="flex flex-wrap gap-2">
+                @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ x }}</span> }
+              </div>
+            </div>
+          }
+
+          <div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
+            @if (qualificationRows.length) {
+              <div class="flex flex-col gap-2">
+                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="graduation-cap" [size]="18" class="text-cerulean" />Qualifications</h3>
+                @for (q of qualificationRows.controls; track $index) {
+                  <div class="flex items-start gap-2">
+                    <sd-icon name="check" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+                    <div class="flex flex-col"><span class="font-sans text-body-sm font-semibold text-ink">{{ q.get('title')?.value }}</span><span class="font-sans text-caption text-slate">{{ qualSub(q) }}</span></div>
+                  </div>
+                }
+              </div>
+            }
+            @if (certificationRows.length) {
+              <div class="flex flex-col gap-2">
+                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="award" [size]="18" class="text-cerulean" />Certifications</h3>
+                @for (c of certificationRows.controls; track $index) {
+                  <div class="flex items-start gap-2">
+                    <sd-icon name="award" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+                    <div class="flex flex-col"><span class="font-sans text-body-sm font-semibold text-ink">{{ c.get('name')?.value }}</span><span class="font-sans text-caption text-slate">{{ certSub(c) }}</span></div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class DoctorProfile implements OnInit {
-  private readonly auth = inject(StaffAuthService);
+  private readonly fb = inject(FormBuilder);
   private readonly api = inject(DoctorApi);
+  private readonly auth = inject(StaffAuthService);
   private readonly destroyRef = inject(DestroyRef);
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  protected readonly name = computed(() => this.auth.displayName());
-  protected readonly loginEmail = computed(() => this.auth.user()?.email ?? '');
-
+  protected readonly view = signal<'view' | 'edit'>('view');
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
-  protected readonly specialty = signal('');
+  protected readonly saving = signal(false);
+  protected readonly saveError = signal('');
+  protected readonly toast = signal('');
 
-  // Profile form
-  protected readonly email = signal('');
-  protected readonly location = signal('');
-  protected readonly languages = signal('');
-  protected readonly years = signal('');
-  protected readonly gender = signal('');
-  protected readonly photoUrl = signal('');
-  protected readonly qualifications = signal('');
-  protected readonly bio = signal('');
-  protected readonly available = signal(true);
-  protected readonly offersInPerson = signal(false);
-  protected readonly savingProfile = signal(false);
-  protected readonly profileNotice = signal('');
-  protected readonly profileOk = signal(false);
+  protected readonly profile = signal<DoctorProfileDto | null>(null);
+  protected readonly photoPath = signal<string | null>(null);
+  protected readonly photoSrc = computed(() => this.api.assetUrl(this.photoPath()));
+  protected readonly uploadingAvatar = signal(false);
+  protected readonly avatarModalOpen = signal(false);
+  protected readonly avatarDragging = signal(false);
+  protected readonly publicOpen = signal(false);
 
-  // Password form
-  protected readonly currentPw = signal('');
-  protected readonly newPw = signal('');
-  protected readonly confirmPw = signal('');
-  protected readonly savingPw = signal(false);
-  protected readonly pwNotice = signal('');
-  protected readonly pwOk = signal(false);
+  protected readonly expertise = signal<string[]>([]);
+  protected readonly expertiseDraft = signal('');
+  protected readonly languages = signal<string[]>([]);
+  protected readonly languageDraft = signal('');
+
+  protected readonly today = new Date().toISOString().slice(0, 10);
+  protected readonly genderOptions = ['Male', 'Female'];
 
   protected readonly initials = computed(() =>
-    this.auth
-      .displayName()
+    (this.profile()?.name ?? this.auth.displayName())
       .split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)
@@ -185,24 +485,39 @@ export class DoctorProfile implements OnInit {
       .toUpperCase(),
   );
 
+  protected readonly locationText = computed(
+    () => this.profile()?.country || this.profile()?.location || '',
+  );
+
+  protected readonly form = this.fb.nonNullable.group({
+    name: ['', [Validators.required]],
+    specialty: ['', [Validators.required]],
+    email: ['', [Validators.email]],
+    phone: [''],
+    dob: ['', [pastDateValidator]],
+    gender: [''],
+    country: [''],
+    years: [''],
+    bio: [''],
+    qualifications: this.fb.array<FormGroup>([]),
+    certifications: this.fb.array<FormGroup>([]),
+  });
+
+  get qualificationRows(): FormArray<FormGroup> {
+    return this.form.get('qualifications') as FormArray<FormGroup>;
+  }
+  get certificationRows(): FormArray<FormGroup> {
+    return this.form.get('certifications') as FormArray<FormGroup>;
+  }
+
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
     this.api
       .getProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          const p = res.data;
-          this.specialty.set(p.specialty ?? '');
-          this.email.set(p.email ?? '');
-          this.location.set(p.location ?? '');
-          this.languages.set(p.languages ?? '');
-          this.years.set(p.years_experience != null ? String(p.years_experience) : '');
-          this.gender.set(p.gender ?? '');
-          this.photoUrl.set(p.photo_url ?? '');
-          this.qualifications.set(p.qualifications ?? '');
-          this.bio.set(p.bio ?? '');
-          this.available.set(!!p.available);
-          this.offersInPerson.set(!!p.offers_in_person);
+          this.apply(res.data);
           this.loading.set(false);
         },
         error: () => {
@@ -212,62 +527,237 @@ export class DoctorProfile implements OnInit {
       });
   }
 
-  protected saveProfile(): void {
-    this.savingProfile.set(true);
-    this.profileNotice.set('');
+  private apply(p: DoctorProfileDto): void {
+    this.profile.set(p);
+    this.photoPath.set(p.photo_url ?? null);
+    this.expertise.set(p.expertise ?? []);
+    this.languages.set(
+      (p.languages ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+
+    this.qualificationRows.clear();
+    for (const q of p.qualification_entries ?? []) {
+      this.qualificationRows.push(
+        this.fb.group({
+          title: [q.title ?? ''],
+          institution: [q.institution ?? ''],
+          year: [q.year ?? ''],
+        }),
+      );
+    }
+    this.certificationRows.clear();
+    for (const c of p.certifications ?? []) {
+      this.certificationRows.push(
+        this.fb.group({
+          name: [c.name ?? ''],
+          body: [c.body ?? ''],
+          year: [c.year ?? ''],
+        }),
+      );
+    }
+
+    this.form.patchValue({
+      name: p.name ?? '',
+      specialty: p.specialty ?? '',
+      email: p.email ?? '',
+      phone: p.phone ?? '',
+      dob: p.date_of_birth ?? '',
+      gender: p.gender ? p.gender.charAt(0).toUpperCase() + p.gender.slice(1) : '',
+      country: p.country ?? p.location ?? '',
+      years: p.years_experience != null ? String(p.years_experience) : '',
+      bio: p.bio ?? '',
+    });
+  }
+
+  protected startEdit(): void {
+    const p = this.profile();
+    if (p) this.apply(p);
+    this.saveError.set('');
+    this.view.set('edit');
+  }
+
+  protected cancelEdit(): void {
+    const p = this.profile();
+    if (p) this.apply(p);
+    this.view.set('view');
+  }
+
+  protected fieldError(name: 'name' | 'specialty' | 'email'): string {
+    const c = this.form.controls[name];
+    if (!c.errors || (!c.touched && !c.dirty)) return '';
+    if (c.errors['required']) return 'This field is required';
+    if (c.errors['email']) return 'Enter a valid email address';
+    return '';
+  }
+
+  protected dobError(): string {
+    const c = this.form.controls.dob;
+    if (!c.errors || (!c.touched && !c.dirty)) return '';
+    if (c.errors['future']) return 'Date of birth cannot be in the future.';
+    if (c.errors['invalid']) return 'Enter a valid date.';
+    return '';
+  }
+
+  // ----- Chips -----
+  protected addExpertise(event: Event): void {
+    event.preventDefault();
+    const v = this.expertiseDraft().trim();
+    if (v && !this.expertise().includes(v)) {
+      this.expertise.update((list) => [...list, v]);
+    }
+    this.expertiseDraft.set('');
+  }
+  protected removeExpertise(i: number): void {
+    this.expertise.update((list) => list.filter((_, idx) => idx !== i));
+  }
+  protected addLanguage(event: Event): void {
+    event.preventDefault();
+    const v = this.languageDraft().trim();
+    if (v && !this.languages().includes(v)) {
+      this.languages.update((list) => [...list, v]);
+    }
+    this.languageDraft.set('');
+  }
+  protected removeLanguage(i: number): void {
+    this.languages.update((list) => list.filter((_, idx) => idx !== i));
+  }
+
+  // ----- Repeatable entries -----
+  protected addQualification(): void {
+    this.qualificationRows.push(
+      this.fb.group({ title: [''], institution: [''], year: [''] }),
+    );
+  }
+  protected addCertification(): void {
+    this.certificationRows.push(
+      this.fb.group({ name: [''], body: [''], year: [''] }),
+    );
+  }
+  protected removeRow(arr: FormArray<FormGroup>, i: number): void {
+    arr.removeAt(i);
+  }
+
+  protected qualLine(q: AbstractControl): string {
+    const g = q.value as { title?: string; institution?: string; year?: string };
+    const meta = [g.institution, g.year].filter(Boolean).join(' · ');
+    return meta ? `${g.title} — ${meta}` : (g.title ?? '');
+  }
+  protected qualSub(q: AbstractControl): string {
+    const g = q.value as { institution?: string; year?: string };
+    return [g.institution, g.year].filter(Boolean).join(' · ');
+  }
+  protected certLine(c: AbstractControl): string {
+    const g = c.value as { name?: string; body?: string; year?: string };
+    const meta = [g.body, g.year].filter(Boolean).join(' · ');
+    return meta ? `${g.name} — ${meta}` : (g.name ?? '');
+  }
+  protected certSub(c: AbstractControl): string {
+    const g = c.value as { body?: string; year?: string };
+    return [g.body, g.year].filter(Boolean).join(' · ');
+  }
+
+  // ----- Avatar -----
+  protected onAvatarSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void this.processAvatar(file);
+  }
+  protected onAvatarDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.avatarDragging.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) void this.processAvatar(file);
+  }
+  private async processAvatar(file: File): Promise<void> {
+    if (!/^image\/(png|jpe?g|webp|gif)$/.test(file.type)) {
+      this.showToast('Use a PNG, JPG, WEBP or GIF image.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      this.showToast('Image must be 2MB or smaller.');
+      return;
+    }
+    this.uploadingAvatar.set(true);
+    try {
+      const res = await firstValueFrom(this.api.uploadAvatar(file));
+      this.profile.set(res.data);
+      this.photoPath.set(res.data.photo_url ?? null);
+      this.avatarModalOpen.set(false);
+      this.showToast('Profile photo updated successfully');
+    } catch (err) {
+      this.showToast(apiErrorMessage(err, 'Could not upload your photo.'));
+    } finally {
+      this.uploadingAvatar.set(false);
+    }
+  }
+  protected async deletePhoto(): Promise<void> {
+    this.uploadingAvatar.set(true);
+    try {
+      const res = await firstValueFrom(this.api.removeAvatar());
+      this.profile.set(res.data);
+      this.photoPath.set(null);
+      this.showToast('Profile photo removed');
+    } catch (err) {
+      this.showToast(apiErrorMessage(err, 'Could not remove your photo.'));
+    } finally {
+      this.uploadingAvatar.set(false);
+    }
+  }
+
+  // ----- Save -----
+  protected save(): void {
+    this.form.markAllAsTouched();
+    if (this.form.invalid) return;
+    this.saving.set(true);
+    this.saveError.set('');
+
+    const v = this.form.getRawValue();
     this.api
       .updateProfile({
-        email: this.email().trim(),
-        location: this.location().trim(),
-        languages: this.languages().trim(),
-        years_experience: this.years().trim() === '' ? null : this.years().trim(),
-        gender: this.gender() as 'male' | 'female' | '',
-        photo_url: this.photoUrl().trim(),
-        qualifications: this.qualifications().trim(),
-        bio: this.bio().trim(),
-        available: this.available(),
-        offers_in_person: this.offersInPerson(),
+        name: v.name.trim(),
+        specialty: v.specialty.trim(),
+        email: v.email.trim(),
+        phone: v.phone.trim(),
+        date_of_birth: v.dob || null,
+        gender: (v.gender.toLowerCase() as 'male' | 'female' | ''),
+        country: v.country.trim(),
+        years_experience: v.years.trim() === '' ? null : v.years.trim(),
+        bio: v.bio.trim(),
+        languages: this.languages().join(', '),
+        expertise: this.expertise(),
+        qualification_entries: this.qualificationRows.controls.map((g) => ({
+          title: String(g.get('title')?.value ?? '').trim(),
+          institution: String(g.get('institution')?.value ?? '').trim(),
+          year: String(g.get('year')?.value ?? '').trim(),
+        })),
+        certifications: this.certificationRows.controls.map((g) => ({
+          name: String(g.get('name')?.value ?? '').trim(),
+          body: String(g.get('body')?.value ?? '').trim(),
+          year: String(g.get('year')?.value ?? '').trim(),
+        })),
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
-          this.profileOk.set(true);
-          this.profileNotice.set('Profile updated.');
-          this.savingProfile.set(false);
+        next: (res) => {
+          this.apply(res.data);
+          this.saving.set(false);
+          this.view.set('view');
+          this.showToast('Your profile has been successfully updated');
         },
         error: (err) => {
-          this.profileOk.set(false);
-          this.profileNotice.set(apiErrorMessage(err, 'Could not save your profile.'));
-          this.savingProfile.set(false);
+          this.saving.set(false);
+          this.saveError.set(apiErrorMessage(err, 'Could not save your profile.'));
         },
       });
   }
 
-  protected async changePassword(): Promise<void> {
-    this.pwNotice.set('');
-    if (this.newPw().length < 8) {
-      this.pwOk.set(false);
-      this.pwNotice.set('New password must be at least 8 characters.');
-      return;
-    }
-    if (this.newPw() !== this.confirmPw()) {
-      this.pwOk.set(false);
-      this.pwNotice.set('New passwords do not match.');
-      return;
-    }
-    this.savingPw.set(true);
-    try {
-      await this.auth.changePassword(this.currentPw(), this.newPw());
-      this.pwOk.set(true);
-      this.pwNotice.set('Password updated.');
-      this.currentPw.set('');
-      this.newPw.set('');
-      this.confirmPw.set('');
-    } catch (err) {
-      this.pwOk.set(false);
-      this.pwNotice.set(apiErrorMessage(err, 'Could not update your password.'));
-    } finally {
-      this.savingPw.set(false);
-    }
+  private showToast(message: string): void {
+    this.toast.set(message);
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.toast.set(''), 3500);
   }
 }

@@ -6,6 +6,7 @@ use App\Domain\Repository\AppointmentReminderRepository;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AppSettingRepository;
 use App\Domain\Repository\AuditEventRepository;
+use App\Domain\Repository\AvailabilitySlotRepository;
 use App\Domain\Repository\CarePlanRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
@@ -112,7 +113,10 @@ return [
         new SettingsCacheService($c->get(RedisClient::class)),
 
     AvailabilityService::class => static fn (ContainerInterface $c): AvailabilityService =>
-        new AvailabilityService($c->get(AppointmentRepository::class)),
+        new AvailabilityService(
+            $c->get(AppointmentRepository::class),
+            $c->get(AvailabilitySlotRepository::class),
+        ),
 
     FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
         new FirebaseIdTokenVerifier($_ENV['FIREBASE_PROJECT_ID'] ?? ''),
@@ -270,6 +274,9 @@ return [
 
     AppointmentRepository::class => static fn (ContainerInterface $c): AppointmentRepository =>
         new AppointmentRepository($c->get(EntityManagerInterface::class)),
+
+    AvailabilitySlotRepository::class => static fn (ContainerInterface $c): AvailabilitySlotRepository =>
+        new AvailabilitySlotRepository($c->get(EntityManagerInterface::class)),
 
     AppointmentReminderRepository::class => static fn (ContainerInterface $c): AppointmentReminderRepository =>
         new AppointmentReminderRepository($c->get(EntityManagerInterface::class)),

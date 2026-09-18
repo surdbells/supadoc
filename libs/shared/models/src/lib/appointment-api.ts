@@ -72,11 +72,26 @@ export interface PaginatedResponse<T> {
 }
 
 /** One specialist as serialised by `Specialist::toArray()`. */
+/** A structured qualification entry, e.g. { title: 'MBBS', institution: 'CMC', year: '2011' }. */
+export interface QualificationEntry {
+  title: string;
+  institution: string;
+  year: string;
+}
+
+/** A structured certification entry, e.g. { name: '…', body: 'RSSDI', year: '2019' }. */
+export interface CertificationEntry {
+  name: string;
+  body: string;
+  year: string;
+}
+
 export interface SpecialistDto {
   id: string;
   name: string;
   specialty: string;
   location: string | null;
+  country?: string | null;
   consultation_fee: string;
   rating: string;
   reviews_count: number;
@@ -89,6 +104,10 @@ export interface SpecialistDto {
   photo_url: string | null;
   bio?: string | null;
   qualifications?: string | null;
+  expertise?: string[];
+  qualification_entries?: QualificationEntry[];
+  certifications?: CertificationEntry[];
+  slot_minutes?: number;
 }
 
 /**

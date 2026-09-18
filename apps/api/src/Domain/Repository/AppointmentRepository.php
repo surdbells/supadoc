@@ -324,17 +324,29 @@ final class AppointmentRepository extends BaseRepository
         return ['items' => $qb->getQuery()->getArrayResult(), 'total' => $total];
     }
 
-    /** Distinct patients a specialist has ever had an appointment with. */
-    public function distinctPatientsForSpecialist(string $specialistId): int
-    {
-        return (int) $this->em->createQueryBuilder()
+    /**
+     * Distinct patients a specialist has had an appointment with — all-time, or
+     * within an optional [from, to) booking-start window (for period deltas).
+     */
+    public function distinctPatientsForSpecialist(
+        string $specialistId,
+        ?DateTimeImmutable $from = null,
+        ?DateTimeImmutable $to = null,
+    ): int {
+        $qb = $this->em->createQueryBuilder()
             ->select('COUNT(DISTINCT e.patient)')
             ->from(Appointment::class, 'e')
             ->andWhere('e.specialist = :specialist')
             ->andWhere('e.deletedAt IS NULL')
-            ->setParameter('specialist', $specialistId)
-            ->getQuery()
-            ->getSingleScalarResult();
+            ->setParameter('specialist', $specialistId);
+        if ($from !== null) {
+            $qb->andWhere('e.scheduledAt >= :from')->setParameter('from', $from);
+        }
+        if ($to !== null) {
+            $qb->andWhere('e.scheduledAt < :to')->setParameter('to', $to);
+        }
+
+        return (int) $qb->getQuery()->getSingleScalarResult();
     }
 
     /** The specialist's next upcoming, still-active appointment, if any. */

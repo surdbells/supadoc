@@ -1,6 +1,8 @@
 import type {
   AppointmentDto,
+  CertificationEntry,
   MedicalDto,
+  QualificationEntry,
   RecordingDto,
   SpecialistAdminDto,
   SpecialistDto,
@@ -44,7 +46,12 @@ export interface PatientSummaryDto {
 
 /** Fields a doctor may change on their own profile (all optional/partial). */
 export interface DoctorProfileUpdate {
+  name?: string;
+  specialty?: string;
   email?: string;
+  phone?: string;
+  date_of_birth?: string | null;
+  country?: string;
   photo_url?: string;
   location?: string;
   languages?: string;
@@ -55,6 +62,10 @@ export interface DoctorProfileUpdate {
   weekly_hours?: Record<string, [string, string][]> | null;
   bio?: string;
   qualifications?: string;
+  expertise?: string[];
+  qualification_entries?: QualificationEntry[];
+  certifications?: CertificationEntry[];
+  slot_minutes?: number;
 }
 
 // ----- Doctor schedule -----
@@ -74,21 +85,72 @@ export interface DoctorScheduleDto {
 /** `GET /api/doctor/dashboard` — headline metrics + today's agenda. */
 export interface DoctorDashboardDto {
   today: number;
+  today_completed: number;
+  today_delta: number | null;
   pending: number;
   upcoming: number;
   completed_month: number;
+  completed_delta: number | null;
   patients: number;
+  patients_week: number;
+  patients_delta: number | null;
   rating: string;
   reviews_count: number;
   earnings_month: string;
+  earnings_delta: number | null;
   currency: string;
   next: DoctorAppointmentDto | null;
   agenda: DoctorAppointmentDto[];
 }
 
-/** The doctor's own profile (specialist + contact email + weekly availability). */
+/** The doctor's own profile (specialist + contact email/phone + weekly availability). */
 export interface DoctorProfileDto extends SpecialistAdminDto {
+  phone?: string | null;
+  date_of_birth?: string | null;
   weekly_hours?: WeeklyHours | null;
+}
+
+// ----- Doctor availability (date-specific slots) -----
+
+/** A slot's derived state on the doctor's availability calendar. */
+export type SlotStatus = 'open' | 'booked' | 'blocked';
+
+/** One row on the doctor's availability calendar (GET /api/doctor/availability). */
+export interface AvailabilitySlotDto {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  kind: 'open' | 'block';
+  status: SlotStatus;
+  reason: string | null;
+  patient_name?: string;
+}
+
+/** `GET /api/doctor/availability` payload. */
+export interface DoctorAvailabilityDto {
+  from: string;
+  to: string;
+  slot_minutes: number;
+  slots: AvailabilitySlotDto[];
+}
+
+/** Body for `POST /api/doctor/availability` (publish open slots). */
+export interface AddAvailabilityInput {
+  date: string;
+  start: string;
+  end: string;
+  duration: number;
+  recurring?: boolean;
+  weeks?: number;
+}
+
+/** Body for `POST /api/doctor/availability/block`. */
+export interface BlockAvailabilityInput {
+  date: string;
+  entire_day?: boolean;
+  start?: string;
+  end?: string;
+  reason?: string;
 }
 
 // ----- Staff notifications -----

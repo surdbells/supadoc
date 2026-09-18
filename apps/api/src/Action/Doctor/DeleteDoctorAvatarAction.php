@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
+use App\Action\Patient\UploadMyAvatarAction;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
@@ -11,11 +12,10 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET /api/doctor/profile — the signed-in doctor's own public profile
- * (the linked Specialist), including the contact email that is otherwise
- * server-side only.
+ * DELETE /api/doctor/avatar — remove the doctor's headshot (deletes the stored
+ * file when it's a local upload) and clear the profile photo.
  */
-final class GetDoctorProfileAction
+final class DeleteDoctorAvatarAction
 {
     use ApiResponse;
     use ResolvesDoctorSpecialist;
@@ -35,6 +35,10 @@ final class GetDoctorProfileAction
             return $this->error($response, 'This account is not a doctor profile', 403);
         }
 
-        return $this->success($response, $specialist->toPrivateArray());
+        UploadMyAvatarAction::deleteLocalAvatar($specialist->getPhotoUrl());
+        $specialist->setPhotoUrl(null);
+        $this->specialists->save($specialist);
+
+        return $this->success($response, $specialist->toPrivateArray(), 'Photo removed');
     }
 }

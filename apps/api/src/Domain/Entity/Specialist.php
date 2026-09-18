@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
+use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Ramsey\Uuid\Uuid;
 
@@ -85,6 +86,46 @@ class Specialist
     /** Qualifications / credentials, e.g. "MBBS, FMCP · MDCN 12345". */
     #[ORM\Column(type: 'string', length: 300, nullable: true)]
     private ?string $qualifications = null;
+
+    /** Contact phone for the doctor (self-service profile). */
+    #[ORM\Column(type: 'string', length: 40, nullable: true)]
+    private ?string $phone = null;
+
+    #[ORM\Column(name: 'date_of_birth', type: 'date_immutable', nullable: true)]
+    private ?DateTimeImmutable $dateOfBirth = null;
+
+    /** Country / region, distinct from the free-text `location`. */
+    #[ORM\Column(type: 'string', length: 120, nullable: true)]
+    private ?string $country = null;
+
+    /**
+     * Areas of expertise (chips), e.g. ["Heart Failure", "Hypertension"].
+     *
+     * @var list<string>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $expertise = null;
+
+    /**
+     * Structured qualifications: each {title, institution, year}. Kept alongside
+     * the legacy `qualifications` string (still used by the public directory).
+     *
+     * @var list<array{title:string,institution:string,year:string}>|null
+     */
+    #[ORM\Column(name: 'qualification_entries', type: 'json', nullable: true)]
+    private ?array $qualificationEntries = null;
+
+    /**
+     * Certifications: each {name, body, year}.
+     *
+     * @var list<array{name:string,body:string,year:string}>|null
+     */
+    #[ORM\Column(type: 'json', nullable: true)]
+    private ?array $certifications = null;
+
+    /** Default consultation length in minutes for generated slots (15/30/45/60). */
+    #[ORM\Column(name: 'slot_minutes', type: 'integer', options: ['default' => 30])]
+    private int $slotMinutes = 30;
 
     public function __construct(string $name, string $specialty)
     {
@@ -211,6 +252,91 @@ class Specialist
         $this->qualifications = $qualifications !== null && trim($qualifications) !== '' ? trim($qualifications) : null;
     }
 
+    public function setName(string $name): void
+    {
+        $this->name = trim($name);
+    }
+
+    public function setSpecialty(string $specialty): void
+    {
+        $this->specialty = trim($specialty);
+    }
+
+    public function getPhone(): ?string
+    {
+        return $this->phone;
+    }
+
+    public function setPhone(?string $phone): void
+    {
+        $this->phone = $phone !== null && trim($phone) !== '' ? trim($phone) : null;
+    }
+
+    public function getDateOfBirth(): ?DateTimeImmutable
+    {
+        return $this->dateOfBirth;
+    }
+
+    public function setDateOfBirth(?DateTimeImmutable $dob): void
+    {
+        $this->dateOfBirth = $dob;
+    }
+
+    public function setCountry(?string $country): void
+    {
+        $this->country = $country !== null && trim($country) !== '' ? trim($country) : null;
+    }
+
+    /** @return list<string> */
+    public function getExpertise(): array
+    {
+        return $this->expertise ?? [];
+    }
+
+    /** @param list<string> $expertise */
+    public function setExpertise(array $expertise): void
+    {
+        $clean = array_values(array_filter(array_map(
+            static fn (mixed $x): string => trim((string) $x),
+            $expertise,
+        ), static fn (string $x): bool => $x !== ''));
+        $this->expertise = $clean !== [] ? $clean : null;
+    }
+
+    /** @return list<array{title:string,institution:string,year:string}> */
+    public function getQualificationEntries(): array
+    {
+        return $this->qualificationEntries ?? [];
+    }
+
+    /** @param list<array{title:string,institution:string,year:string}> $entries */
+    public function setQualificationEntries(array $entries): void
+    {
+        $this->qualificationEntries = $entries !== [] ? array_values($entries) : null;
+    }
+
+    /** @return list<array{name:string,body:string,year:string}> */
+    public function getCertifications(): array
+    {
+        return $this->certifications ?? [];
+    }
+
+    /** @param list<array{name:string,body:string,year:string}> $entries */
+    public function setCertifications(array $entries): void
+    {
+        $this->certifications = $entries !== [] ? array_values($entries) : null;
+    }
+
+    public function getSlotMinutes(): int
+    {
+        return $this->slotMinutes > 0 ? $this->slotMinutes : 30;
+    }
+
+    public function setSlotMinutes(int $minutes): void
+    {
+        $this->slotMinutes = in_array($minutes, [15, 30, 45, 60], true) ? $minutes : 30;
+    }
+
     public function toArray(): array
     {
         return [
@@ -218,6 +344,7 @@ class Specialist
             'name'             => $this->name,
             'specialty'        => $this->specialty,
             'location'         => $this->location,
+            'country'          => $this->country,
             'consultation_fee' => $this->consultationFee,
             'rating'           => $this->rating,
             'reviews_count'    => $this->reviewsCount,
@@ -230,6 +357,27 @@ class Specialist
             'photo_url'        => $this->photoUrl,
             'bio'              => $this->bio,
             'qualifications'   => $this->qualifications,
+            'expertise'        => $this->getExpertise(),
+            'qualification_entries' => $this->getQualificationEntries(),
+            'certifications'   => $this->getCertifications(),
+            'slot_minutes'     => $this->getSlotMinutes(),
+        ];
+    }
+
+    /**
+     * The authenticated doctor's own profile — the public {@see toArray} plus the
+     * personal fields (phone, date of birth) that must never appear in the public
+     * directory.
+     *
+     * @return array<string,mixed>
+     */
+    public function toPrivateArray(): array
+    {
+        return $this->toArray() + [
+            'email'         => $this->email,
+            'phone'         => $this->phone,
+            'date_of_birth' => $this->dateOfBirth?->format('Y-m-d'),
+            'weekly_hours'  => $this->weeklyHours,
         ];
     }
 }

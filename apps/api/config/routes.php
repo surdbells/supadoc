@@ -137,6 +137,13 @@ return static function (App $app): void {
             $group->post('/doctor/reviews/{id}/respond', Action\Doctor\RespondToReviewAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
+            $group->post('/doctor/avatar', Action\Doctor\UploadDoctorAvatarAction::class);
+            $group->delete('/doctor/avatar', Action\Doctor\DeleteDoctorAvatarAction::class);
+            // Date-specific availability: publish/remove open slots, block days.
+            $group->get('/doctor/availability', Action\Doctor\ListAvailabilityAction::class);
+            $group->post('/doctor/availability', Action\Doctor\AddAvailabilityAction::class);
+            $group->post('/doctor/availability/block', Action\Doctor\BlockAvailabilityAction::class);
+            $group->delete('/doctor/availability/{id}', Action\Doctor\DeleteAvailabilityAction::class);
             // Earnings + payouts (doctor self-service).
             $group->get('/doctor/earnings', Action\Doctor\DoctorEarningsAction::class);
             $group->get('/doctor/earnings/transactions', Action\Doctor\DoctorEarningsTransactionsAction::class);
