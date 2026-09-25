@@ -6,6 +6,7 @@ import {
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 import { GoogleAuthService } from '../google-auth.service';
 
@@ -125,13 +126,41 @@ export class SignInGoogle {
       await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
       const code = (err as { code?: string })?.code;
-      // A user closing the popup isn't an error worth shouting about.
+      // A user closing/cancelling the popup isn't an error worth shouting about.
       if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-        const message = (err as { message?: string })?.message;
-        this.errorMessage.set(message ?? 'Google sign-in failed. Please try again.');
+        this.errorMessage.set(this.friendlyError(err, code));
       }
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  /**
+   * A human message for a failed Google sign-in. Firebase throws technical
+   * strings ("Firebase: Error (auth/popup-blocked)."), so map its codes to plain
+   * language; anything from our own backend goes through {@link apiErrorMessage}
+   * (which already handles offline/server errors).
+   */
+  private friendlyError(err: unknown, code?: string): string {
+    if (code && code.startsWith('auth/')) {
+      const map: Record<string, string> = {
+        'auth/popup-blocked':
+          'Your browser blocked the sign-in popup. Allow popups for this site, then try again.',
+        'auth/network-request-failed':
+          "We couldn't reach Google. Check your internet connection and try again.",
+        'auth/unauthorized-domain':
+          "This site isn't authorised for Google sign-in yet. Please contact support.",
+        'auth/account-exists-with-different-credential':
+          'An account already exists with this email. Sign in with your email and password instead.',
+        'auth/too-many-requests':
+          'Too many attempts. Please wait a moment, then try again.',
+        'auth/operation-not-allowed':
+          "Google sign-in isn't enabled yet. Please contact support.",
+        'auth/user-disabled':
+          'This account has been disabled. Please contact support.',
+      };
+      return map[code] ?? "Google sign-in didn't complete. Please try again.";
+    }
+    return apiErrorMessage(err, 'Google sign-in failed. Please try again.');
   }
 }

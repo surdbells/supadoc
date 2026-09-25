@@ -23,7 +23,8 @@ interface Stat {
   readonly value: string | number;
   readonly icon: string;
   readonly tint: string;
-  readonly hint?: string;
+  /** Small muted text shown inline to the right of the value. */
+  readonly inlineSub?: string;
   readonly delta: number | null;
   readonly deltaPeriod?: string;
 }
@@ -62,7 +63,7 @@ const NOTE_ICON: Record<string, string> = {
     <div class="flex flex-col gap-6 py-2">
       <header class="flex flex-col gap-1">
         <h1 class="font-heading text-h3 text-ink">{{ greeting() }} 👋</h1>
-        <p class="font-sans text-body text-slate">Here's your activities for today.</p>
+        <p class="font-sans text-body text-slate">Here's your Activities for today.</p>
       </header>
 
       @if (loading()) {
@@ -97,30 +98,35 @@ const NOTE_ICON: Record<string, string> = {
                   <sd-icon [name]="s.icon" [size]="16" />
                 </span>
               </div>
-              <p class="font-heading text-h4 text-ink">{{ s.value }}</p>
-              <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                @if (s.delta !== null) {
+              <p class="flex items-baseline gap-2">
+                <span class="font-heading text-h4 text-ink">{{ s.value }}</span>
+                @if (s.inlineSub) {
+                  <span class="font-sans text-caption font-medium text-slate">{{ s.inlineSub }}</span>
+                }
+              </p>
+              @if (s.delta !== null) {
+                <div class="flex flex-wrap items-center gap-x-1.5">
                   <span class="flex items-center gap-0.5 font-sans text-caption font-semibold" [class]="s.delta >= 0 ? 'text-sage' : 'text-alert'">
                     <sd-icon [name]="s.delta >= 0 ? 'trending-up' : 'trending-down'" [size]="13" />{{ absDelta(s.delta) }}%
                   </span>
                   <span class="font-sans text-caption text-slate">{{ s.deltaPeriod }}</span>
-                } @else if (s.hint) {
-                  <span class="font-sans text-caption text-slate">{{ s.hint }}</span>
-                }
-                @if (s.delta !== null && s.hint) {
-                  <span class="font-sans text-caption text-slate">· {{ s.hint }}</span>
-                }
-              </div>
+                </div>
+              }
             </div>
           }
         </div>
 
         <!-- Today's Schedule + Notifications -->
+        @if (scheduleOpen() || notificationsOpen()) {
         <div class="grid gap-6 lg:grid-cols-2">
+          @if (scheduleOpen()) {
           <section class="flex flex-col rounded-card border border-cloud bg-white">
-            <div class="flex items-center gap-2 border-b border-cloud px-5 py-4">
-              <sd-icon name="calendar-days" [size]="20" class="text-cerulean" />
-              <h2 class="font-heading text-body-lg text-ink">Today's Schedule</h2>
+            <div class="flex items-center justify-between gap-2 border-b border-cloud px-5 py-4">
+              <div class="flex items-center gap-2">
+                <sd-icon name="calendar-days" [size]="20" class="text-cerulean" />
+                <h2 class="font-heading text-body-lg text-ink">Today's Schedule</h2>
+              </div>
+              <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Dismiss" (click)="scheduleOpen.set(false)"><sd-icon name="x" [size]="18" /></button>
             </div>
             @if (d.agenda.length === 0) {
               <div class="flex flex-1 flex-col items-center justify-center gap-2 px-5 py-12 text-center">
@@ -129,7 +135,7 @@ const NOTE_ICON: Record<string, string> = {
               </div>
             } @else {
               <ul class="flex flex-col divide-y divide-cloud">
-                @for (a of d.agenda.slice(0, 4); track a.id) {
+                @for (a of d.agenda.slice(0, 4); track a.id; let i = $index) {
                   <li class="flex items-center gap-3 px-5 py-3.5">
                     <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean">
                       {{ initialsFor(a.patient_name) }}
@@ -138,26 +144,33 @@ const NOTE_ICON: Record<string, string> = {
                       <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ a.patient_name }}</span>
                       <span class="truncate font-sans text-caption text-slate">{{ a.type_label }}</span>
                     </div>
-                    <div class="flex flex-col items-end gap-1">
-                      <span class="rounded-pill px-2 py-0.5 text-[10px] font-semibold" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                    <div class="flex flex-col items-end gap-0.5">
+                      <span class="font-sans text-caption font-semibold" [class]="statusText(a.status)">{{ a.status_label }}</span>
                       <span class="font-sans text-caption text-slate">{{ time(a.scheduled_at) }}</span>
                     </div>
-                    <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-3 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">
-                      <sd-icon name="video" [size]="14" />Join
-                    </button>
+                    @if (i === 0) {
+                      <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">Join</button>
+                    } @else {
+                      <a [routerLink]="['/appointments', a.id]" class="ml-1 flex shrink-0 items-center rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean">View</a>
+                    }
                   </li>
                 }
               </ul>
               <a routerLink="/schedule" class="mt-auto flex items-center justify-center gap-1 border-t border-cloud px-5 py-3.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:bg-frost/30">
-                View all schedule <sd-icon name="arrow-right" [size]="16" />
+                View All Schedule <sd-icon name="arrow-right" [size]="16" />
               </a>
             }
           </section>
+          }
 
+          @if (notificationsOpen()) {
           <section class="flex flex-col rounded-card border border-cloud bg-white">
-            <div class="flex items-center gap-2 border-b border-cloud px-5 py-4">
-              <sd-icon name="bell" [size]="20" class="text-cerulean" />
-              <h2 class="font-heading text-body-lg text-ink">Notifications</h2>
+            <div class="flex items-center justify-between gap-2 border-b border-cloud px-5 py-4">
+              <div class="flex items-center gap-2">
+                <sd-icon name="bell" [size]="20" class="text-cerulean" />
+                <h2 class="font-heading text-body-lg text-ink">Notifications</h2>
+              </div>
+              <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Dismiss" (click)="notificationsOpen.set(false)"><sd-icon name="x" [size]="18" /></button>
             </div>
             @if (notifications().length === 0) {
               <div class="flex flex-1 flex-col items-center justify-center gap-2 px-5 py-12 text-center">
@@ -175,16 +188,21 @@ const NOTE_ICON: Record<string, string> = {
                       <span class="font-sans text-body-sm font-semibold text-ink">{{ n.title }}</span>
                       @if (n.body) { <span class="truncate font-sans text-caption text-slate">{{ n.body }}</span> }
                     </div>
-                    <span class="shrink-0 font-sans text-caption text-slate">{{ ago(n.created_at) }}</span>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <span class="font-sans text-caption text-slate">{{ ago(n.created_at) }}</span>
+                      @if (!n.read) { <span class="size-2 rounded-full bg-cerulean" aria-label="Unread"></span> }
+                    </div>
                   </li>
                 }
               </ul>
               <a routerLink="/notifications" class="mt-auto flex items-center justify-center gap-1 border-t border-cloud px-5 py-3.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:bg-frost/30">
-                View all notifications <sd-icon name="arrow-right" [size]="16" />
+                View All Notifications <sd-icon name="arrow-right" [size]="16" />
               </a>
             }
           </section>
+          }
         </div>
+        }
 
         <!-- Quick actions -->
         <section class="flex flex-col gap-4">
@@ -210,7 +228,7 @@ const NOTE_ICON: Record<string, string> = {
               <sd-icon name="shield" [size]="22" />
             </span>
             <div class="flex flex-col">
-              <p class="font-heading text-body-lg text-ink">Keep your availability updated</p>
+              <p class="font-heading text-body-lg text-ink">Set next week's availability</p>
               <p class="font-sans text-body-sm text-slate">Doctors who keep their schedule updated get up to 3x more bookings.</p>
             </div>
           </div>
@@ -233,12 +251,15 @@ export class DoctorDashboard implements OnInit {
   protected readonly error = signal('');
   protected readonly data = signal<DoctorDashboardDto | null>(null);
   protected readonly notifications = signal<StaffNotificationDto[]>([]);
+  // The two summary cards are dismissable (matches the design's ✕ affordance).
+  protected readonly scheduleOpen = signal(true);
+  protected readonly notificationsOpen = signal(true);
 
   protected readonly greeting = computed(() => {
     const h = new Date().getHours();
     const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-    const name = this.auth.displayName();
-    return name ? `${part}, ${name}` : part;
+    const first = this.auth.displayName().split(/\s+/).filter(Boolean)[0] ?? '';
+    return first ? `${part}, Dr ${first}` : part;
   });
 
   protected readonly stats = computed<Stat[]>(() => {
@@ -250,16 +271,15 @@ export class DoctorDashboard implements OnInit {
         value: d.today,
         icon: 'calendar-days',
         tint: 'bg-frost text-cerulean',
-        hint: `${d.today_completed} completed`,
+        inlineSub: `${d.today_completed} completed`,
         delta: d.today_delta,
-        deltaPeriod: 'vs yesterday',
+        deltaPeriod: 'vs. yesterday',
       },
       {
-        label: 'Completed',
+        label: 'Completed Consultation',
         value: d.completed_month,
         icon: 'circle-check',
         tint: 'bg-sage/15 text-sage',
-        hint: 'this month',
         delta: d.completed_delta,
         deltaPeriod: 'vs last month',
       },
@@ -268,7 +288,7 @@ export class DoctorDashboard implements OnInit {
         value: d.patients,
         icon: 'users',
         tint: 'bg-cerulean/10 text-cerulean',
-        hint: `+${d.patients_week} this week`,
+        inlineSub: `+${d.patients_week} this week`,
         delta: d.patients_delta,
         deltaPeriod: 'vs last week',
       },
@@ -277,7 +297,6 @@ export class DoctorDashboard implements OnInit {
         value: this.money(d.currency, d.earnings_month),
         icon: 'wallet',
         tint: 'bg-sage/15 text-sage',
-        hint: 'this month',
         delta: d.earnings_delta,
         deltaPeriod: 'vs last month',
       },
@@ -286,7 +305,7 @@ export class DoctorDashboard implements OnInit {
         value: d.rating,
         icon: 'star',
         tint: 'bg-warning/15 text-warning',
-        hint: `${d.reviews_count} reviews`,
+        inlineSub: `${d.reviews_count} reviews`,
         delta: null,
       },
     ];
@@ -294,9 +313,9 @@ export class DoctorDashboard implements OnInit {
 
   protected readonly quickActions: QuickAction[] = [
     { label: 'Patients', subtitle: 'View and manage your patient roster', icon: 'users', tint: 'bg-cerulean/10 text-cerulean', link: '/patients' },
-    { label: 'History', subtitle: 'Review your past consultations', icon: 'history', tint: 'bg-sage/15 text-sage', link: '/appointments/history' },
-    { label: 'Schedule', subtitle: 'View and manage your appointments', icon: 'calendar-days', tint: 'bg-cerulean/10 text-cerulean', link: '/schedule' },
-    { label: 'Availability', subtitle: 'Manage your consultation hours', icon: 'calendar-clock', tint: 'bg-sage/15 text-sage', link: '/availability' },
+    { label: 'Consultation History', subtitle: 'Review your past consultations', icon: 'calendar-clock', tint: 'bg-sage/15 text-sage', link: '/appointments/history' },
+    { label: 'My Appointments', subtitle: 'View and manage your appointments', icon: 'calendar-days', tint: 'bg-cerulean/10 text-cerulean', link: '/schedule' },
+    { label: 'History', subtitle: 'Review your past consultation', icon: 'history', tint: 'bg-sage/15 text-sage', link: '/appointments/history' },
   ];
 
   ngOnInit(): void {
@@ -336,6 +355,15 @@ export class DoctorDashboard implements OnInit {
   }
   protected statusClass(status: string): string {
     return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
+  }
+  protected statusText(status: string): string {
+    return status === 'confirmed'
+      ? 'text-sage'
+      : status === 'pending' || status === 'rescheduled'
+        ? 'text-warning'
+        : status === 'cancelled'
+          ? 'text-alert'
+          : 'text-slate';
   }
   protected noteIcon(type: string): string {
     return NOTE_ICON[type] ?? 'bell';

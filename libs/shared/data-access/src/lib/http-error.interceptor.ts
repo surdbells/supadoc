@@ -19,7 +19,9 @@ export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
       const fields = apiErrorFields(error);
       const apiError: ApiError = {
         statusCode: error.status,
-        message: apiErrorMessage(error, 'Unexpected server error'),
+        // apiErrorMessage already resolves offline / 5xx / transport-noise to a
+        // clear human message, so no generic technical string ever reaches the UI.
+        message: apiErrorMessage(error),
         errors: Object.keys(fields).length > 0 ? fields : undefined,
       };
       logger.error(

@@ -13,7 +13,7 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
-import { StaffNotificationsApi } from '@supadoc/data-access';
+import { DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
 import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
 
 interface NavItem {
@@ -81,27 +81,31 @@ interface NavItem {
             >
               <sd-icon name="bell" [size]="22" />
               @if (unread() > 0) {
-                <span class="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-alert px-1 text-[10px] font-semibold text-white">{{ unread() > 9 ? '9+' : unread() }}</span>
+                <span class="absolute -right-1 -top-1 size-2.5 rounded-full border-2 border-white bg-alert"></span>
               }
             </a>
-            <span
-              class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
-            >
-              {{ initials() || 'DR' }}
-            </span>
+            @if (photoSrc()) {
+              <img [src]="photoSrc()" alt="" width="40" height="40" class="size-10 shrink-0 rounded-full object-cover" />
+            } @else {
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+              >
+                {{ initials() || 'DR' }}
+              </span>
+            }
             <div class="hidden flex-col leading-tight sm:flex">
               <span class="font-sans text-body-sm font-semibold text-ink">{{
                 displayName() || 'Doctor'
               }}</span>
               <span class="font-sans text-caption text-slate">{{
-                specialty()
+                specialty() || 'Specialist'
               }}</span>
             </div>
           </div>
         </header>
 
         <main class="px-5 pb-10 sm:px-6">
-          <div class="mx-auto w-full max-w-6xl">
+          <div class="mx-auto w-full">
             <router-outlet />
           </div>
         </main>
@@ -135,14 +139,25 @@ interface NavItem {
         </nav>
       </div>
 
-      <button
-        type="button"
-        class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
-        (click)="askLogout()"
-      >
-        <sd-icon name="log-out" [size]="20" />
-        Sign out
-      </button>
+      <div class="flex flex-col gap-1 border-t border-ash pt-4">
+        <a
+          routerLink="/settings"
+          routerLinkActive="bg-frost !text-cerulean"
+          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          (click)="menuOpen.set(false)"
+        >
+          <sd-icon name="settings" [size]="20" />
+          Settings
+        </a>
+        <button
+          type="button"
+          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          (click)="askLogout()"
+        >
+          <sd-icon name="log-out" [size]="20" />
+          Log Out
+        </button>
+      </div>
     </ng-template>
 
     <sd-confirm-dialog
@@ -160,15 +175,15 @@ interface NavItem {
 export class DoctorShell {
   private readonly auth = inject(StaffAuthService);
   private readonly notificationsApi = inject(StaffNotificationsApi);
+  private readonly doctorApi = inject(DoctorApi);
   private readonly router = inject(Router);
 
   protected readonly menuOpen = signal(false);
   protected readonly confirmLogout = signal(false);
   protected readonly unread = signal(0);
   protected readonly displayName = computed(() => this.auth.displayName());
-  protected readonly specialty = computed(
-    () => this.auth.user()?.roles.includes('doctor') ? 'Specialist' : '',
-  );
+  protected readonly specialty = signal('');
+  protected readonly photoSrc = signal<string | null>(null);
   protected readonly initials = computed(() =>
     this.auth
       .displayName()
@@ -183,12 +198,13 @@ export class DoctorShell {
   protected readonly navItems: NavItem[] = [
     { label: 'Dashboard', icon: 'layout-dashboard', link: '/dashboard' },
     { label: 'Schedule', icon: 'calendar-days', link: '/schedule' },
-    { label: 'History', icon: 'history', link: '/appointments/history' },
     { label: 'Patients', icon: 'users', link: '/patients' },
+    { label: 'History', icon: 'history', link: '/appointments/history' },
     { label: 'Reviews', icon: 'star', link: '/reviews' },
     { label: 'Earnings', icon: 'banknote', link: '/earnings' },
-    { label: 'Payouts', icon: 'wallet', link: '/payouts' },
+    { label: 'Payout', icon: 'wallet', link: '/payouts' },
     { label: 'Availability', icon: 'calendar-clock', link: '/availability' },
+    { label: 'Notification', icon: 'bell', link: '/notifications' },
     { label: 'My Profile', icon: 'user', link: '/profile' },
   ];
 
@@ -197,6 +213,14 @@ export class DoctorShell {
     void this.auth.loadMe();
     this.notificationsApi.unread().subscribe({
       next: (res) => this.unread.set(res.data.count),
+      error: () => undefined,
+    });
+    // The header shows the doctor's real specialty + headshot.
+    this.doctorApi.getProfile().subscribe({
+      next: (res) => {
+        this.specialty.set(res.data.specialty ?? '');
+        this.photoSrc.set(this.doctorApi.assetUrl(res.data.photo_url));
+      },
       error: () => undefined,
     });
   }

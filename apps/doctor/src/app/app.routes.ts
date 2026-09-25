@@ -79,6 +79,11 @@ export const appRoutes: Route[] = [
         loadComponent: () =>
           import('./profile/doctor-profile').then((m) => m.DoctorProfile),
       },
+      {
+        path: 'settings',
+        loadComponent: () =>
+          import('./settings/settings').then((m) => m.DoctorSettings),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

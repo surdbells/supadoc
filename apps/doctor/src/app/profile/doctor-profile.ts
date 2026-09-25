@@ -23,8 +23,10 @@ import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorProfileDto } from '@supadoc/models';
 import {
   ButtonComponent,
+  DoctorProfileCardComponent,
   IconComponent,
   InputComponent,
+  type PublicDoctorProfileData,
   SearchSelectComponent,
 } from '@supadoc/ui';
 
@@ -51,6 +53,7 @@ const ROW_INPUT =
   imports: [
     ReactiveFormsModule,
     ButtonComponent,
+    DoctorProfileCardComponent,
     IconComponent,
     InputComponent,
     SearchSelectComponent,
@@ -58,9 +61,9 @@ const ROW_INPUT =
   host: { class: 'block' },
   template: `
     @if (toast()) {
-      <div class="sd-toast-in fixed left-1/2 top-6 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-card border border-sage/30 bg-sage px-5 py-3 shadow-lg" role="status">
+      <div class="sd-toast-in fixed left-1/2 top-6 z-[70] flex w-[min(680px,92vw)] -translate-x-1/2 items-center justify-center gap-2.5 rounded-card bg-sage px-6 py-3.5 shadow-[0_8px_30px_rgba(16,127,101,0.25)]" role="status">
         <sd-icon name="circle-check" [size]="20" class="text-white" />
-        <span class="font-sans text-body-sm font-semibold text-white">{{ toast() }}</span>
+        <span class="font-sans text-body font-semibold text-white">{{ toast() }}</span>
       </div>
     }
 
@@ -373,73 +376,9 @@ const ROW_INPUT =
     @if (publicOpen()) {
       <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
         <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="publicOpen.set(false)"></button>
-        <div class="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-y-auto rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)] sm:p-8">
-          <button type="button" class="absolute right-5 top-5 text-slate transition-colors hover:text-ink" aria-label="Close" (click)="publicOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
-          <div class="flex items-center gap-4">
-            @if (photoSrc()) {
-              <img [src]="photoSrc()" alt="" width="80" height="80" class="size-20 rounded-full object-cover" />
-            } @else {
-              <span class="flex size-20 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean">{{ initials() || 'DR' }}</span>
-            }
-            <div class="flex flex-col gap-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <h2 class="font-heading text-h4 text-ink">{{ profile()?.name }}</h2>
-                @if (profile()?.verified) {
-                  <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean"><sd-icon name="circle-check" [size]="14" />Verified</span>
-                }
-              </div>
-              <p class="font-sans text-body font-semibold text-cerulean">{{ profile()?.specialty }}</p>
-              <span class="flex items-center gap-1 font-sans text-caption text-slate"><sd-icon name="star" [size]="15" class="text-warning" /> {{ profile()?.rating }} ({{ profile()?.reviews_count }} reviews)</span>
-            </div>
-          </div>
-
-          @if (profile()?.bio) {
-            <div class="mt-6 flex flex-col gap-2">
-              <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="file-text" [size]="18" class="text-cerulean" />Bio</h3>
-              <p class="font-sans text-body-sm leading-relaxed text-ink">{{ profile()?.bio }}</p>
-            </div>
-          }
-
-          <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="languages" [size]="15" />Languages</span><span class="font-sans text-body-sm text-ink">{{ languages().length ? languages().join(', ') : '—' }}</span></div>
-            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="briefcase" [size]="15" />Experience</span><span class="font-sans text-body-sm text-ink">{{ profile()?.years_experience ?? '—' }} {{ profile()?.years_experience ? 'years' : '' }}</span></div>
-            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="map-pin" [size]="15" />Country</span><span class="font-sans text-body-sm text-ink">{{ locationText() || '—' }}</span></div>
-            <div class="flex flex-col gap-1 rounded-card border border-cloud px-4 py-3"><span class="flex items-center gap-1.5 font-sans text-caption text-slate"><sd-icon name="user" [size]="15" />Gender</span><span class="font-sans text-body-sm capitalize text-ink">{{ profile()?.gender || '—' }}</span></div>
-          </div>
-
-          @if (expertise().length) {
-            <div class="mt-6 flex flex-col gap-2">
-              <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="sparkles" [size]="18" class="text-cerulean" />Area of expertise</h3>
-              <div class="flex flex-wrap gap-2">
-                @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ x }}</span> }
-              </div>
-            </div>
-          }
-
-          <div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-            @if (qualificationRows.length) {
-              <div class="flex flex-col gap-2">
-                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="graduation-cap" [size]="18" class="text-cerulean" />Qualifications</h3>
-                @for (q of qualificationRows.controls; track $index) {
-                  <div class="flex items-start gap-2">
-                    <sd-icon name="check" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
-                    <div class="flex flex-col"><span class="font-sans text-body-sm font-semibold text-ink">{{ q.get('title')?.value }}</span><span class="font-sans text-caption text-slate">{{ qualSub(q) }}</span></div>
-                  </div>
-                }
-              </div>
-            }
-            @if (certificationRows.length) {
-              <div class="flex flex-col gap-2">
-                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="award" [size]="18" class="text-cerulean" />Certifications</h3>
-                @for (c of certificationRows.controls; track $index) {
-                  <div class="flex items-start gap-2">
-                    <sd-icon name="award" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
-                    <div class="flex flex-col"><span class="font-sans text-body-sm font-semibold text-ink">{{ c.get('name')?.value }}</span><span class="font-sans text-caption text-slate">{{ certSub(c) }}</span></div>
-                  </div>
-                }
-              </div>
-            }
-          </div>
+        <div class="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-y-auto rounded-[20px] border border-[#cfe6fb] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)] sm:p-8">
+          <button type="button" class="absolute right-5 top-5 z-10 text-slate transition-colors hover:text-ink" aria-label="Close" (click)="publicOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
+          <sd-doctor-profile-card [data]="publicData()" [photoUrl]="photoSrc()" />
         </div>
       </div>
     }
@@ -488,6 +427,35 @@ export class DoctorProfile implements OnInit {
   protected readonly locationText = computed(
     () => this.profile()?.country || this.profile()?.location || '',
   );
+
+  /** The current profile shaped for the shared public-profile card (live preview). */
+  protected readonly publicData = computed<PublicDoctorProfileData>(() => {
+    const p = this.profile();
+    return {
+      name: p?.name ?? '',
+      specialty: p?.specialty ?? '',
+      verified: p?.verified,
+      rating: p?.rating,
+      reviews_count: p?.reviews_count,
+      bio: p?.bio,
+      languages: this.languages().join(', '),
+      years_experience: p?.years_experience ?? null,
+      country: p?.country ?? null,
+      location: p?.location ?? null,
+      gender: p?.gender ?? null,
+      expertise: this.expertise(),
+      qualification_entries: this.qualificationRows.controls.map((g) => ({
+        title: String(g.get('title')?.value ?? ''),
+        institution: String(g.get('institution')?.value ?? ''),
+        year: String(g.get('year')?.value ?? ''),
+      })),
+      certifications: this.certificationRows.controls.map((g) => ({
+        name: String(g.get('name')?.value ?? ''),
+        body: String(g.get('body')?.value ?? ''),
+        year: String(g.get('year')?.value ?? ''),
+      })),
+    };
+  });
 
   protected readonly form = this.fb.nonNullable.group({
     name: ['', [Validators.required]],
@@ -746,7 +714,7 @@ export class DoctorProfile implements OnInit {
           this.apply(res.data);
           this.saving.set(false);
           this.view.set('view');
-          this.showToast('Your profile has been successfully updated');
+          this.showToast('Your Profile has successfully updated');
         },
         error: (err) => {
           this.saving.set(false);

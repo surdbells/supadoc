@@ -36,7 +36,7 @@ const DURATIONS = [15, 30, 45, 60];
       <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="flex flex-col gap-1">
           <h1 class="font-heading text-h3 text-ink">Availability</h1>
-          <p class="font-sans text-body text-slate">Manage your consultation hours and availability.</p>
+          <p class="font-sans text-body text-slate">Manage your consultation hour and availability.</p>
         </div>
         <sd-button (click)="openAdd(selectedDate())">
           <sd-icon name="plus" [size]="18" />Add Availability
@@ -80,7 +80,7 @@ const DURATIONS = [15, 30, 45, 60];
                 </button>
               }
             </div>
-            <p class="text-center font-sans text-caption text-slate">Days with a <span class="text-sage">green underline</span> have open slots.</p>
+            <p class="text-center font-sans text-caption text-slate">Days with <span class="text-sage">green underline</span> have open slots.</p>
           </section>
 
           <!-- Day detail -->
@@ -309,7 +309,7 @@ export class DoctorAvailability implements OnInit {
   );
 
   protected readonly selectedLabel = computed(() =>
-    new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${this.selectedDate()}T00:00:00Z`)),
+    new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${this.selectedDate()}T00:00:00Z`)) + '.',
   );
 
   /** 42-cell (6-week) grid starting on the Monday on/before the 1st. */
