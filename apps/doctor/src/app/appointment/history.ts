@@ -65,6 +65,11 @@ const STATUS_CLASS: Record<string, string> = {
           <div class="sd-shimmer h-20 rounded-card"></div>
           <div class="sd-shimmer h-20 rounded-card"></div>
         </div>
+      } @else if (error() && items().length === 0) {
+        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+          <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+        </div>
       } @else if (items().length === 0) {
         <div class="flex flex-col items-center gap-3 py-16 text-center">
           <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="history" [size]="34" /></span>
@@ -114,6 +119,7 @@ export class DoctorAppointmentHistory implements OnInit {
   protected readonly items = signal<DoctorAppointmentDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly hasMore = signal(false);
+  protected readonly error = signal('');
   private page = 1;
 
   ngOnInit(): void {
@@ -145,6 +151,7 @@ export class DoctorAppointmentHistory implements OnInit {
 
   private fetch(): void {
     this.loading.set(true);
+    this.error.set('');
     const status = this.filters.find((f) => f.key === this.active())?.status || undefined;
     this.api
       .history({ page: this.page, per_page: 20, status })
@@ -155,7 +162,13 @@ export class DoctorAppointmentHistory implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          // Roll back a load-more page bump so the next click re-fetches this
+          // page instead of skipping it, and surface the failure.
+          if (this.page > 1) this.page -= 1;
+          this.error.set('Could not load your history. Please try again.');
+          this.loading.set(false);
+        },
       });
   }
 

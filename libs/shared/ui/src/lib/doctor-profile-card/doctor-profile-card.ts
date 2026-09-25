@@ -142,6 +142,9 @@ export class DoctorProfileCardComponent {
 
   protected readonly initials = computed(() =>
     (this.data()?.name ?? '')
+      // Strip an honorific first so "Dr. Jane Doe" → "JD" (matching the patient
+      // directory card), not "DJ".
+      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
       .split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)

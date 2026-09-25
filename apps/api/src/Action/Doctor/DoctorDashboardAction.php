@@ -73,15 +73,29 @@ final class DoctorDashboardAction
         $yesterdayCount = $this->appointments->countForSpecialist($specialistId, $active, $startYesterday, $startToday);
         $todayCompleted = $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startToday, $endToday);
 
+        // Compare like-for-like: cap each prior period to the SAME elapsed offset
+        // into its window, so an incomplete current period isn't measured against
+        // a complete previous one (which showed a large false drop at each
+        // month/week start).
+        $monthElapsed = $now->getTimestamp() - $startMonth->getTimestamp();
+        $lastMonthTo  = $startLastMonth->modify("+{$monthElapsed} seconds");
+        // Never let the baseline bleed past last month (a long current month
+        // following a shorter previous one could otherwise overshoot into it).
+        if ($lastMonthTo > $startMonth) {
+            $lastMonthTo = $startMonth;
+        }
+        $weekElapsed  = $now->getTimestamp() - $startWeek->getTimestamp();
+        $lastWeekTo   = $startLastWeek->modify("+{$weekElapsed} seconds");
+
         $completedMonth     = $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startMonth, $now);
-        $completedLastMonth = $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startLastMonth, $startMonth);
+        $completedLastMonth = $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startLastMonth, $lastMonthTo);
 
         $earningsMonth     = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startMonth, $now);
-        $earningsLastMonth = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startLastMonth, $startMonth);
+        $earningsLastMonth = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startLastMonth, $lastMonthTo);
 
         $patients         = $this->appointments->distinctPatientsForSpecialist($specialistId);
         $patientsThisWeek = $this->appointments->distinctPatientsForSpecialist($specialistId, $startWeek, $now);
-        $patientsLastWeek = $this->appointments->distinctPatientsForSpecialist($specialistId, $startLastWeek, $startWeek);
+        $patientsLastWeek = $this->appointments->distinctPatientsForSpecialist($specialistId, $startLastWeek, $lastWeekTo);
 
         $sp = $specialist->toArray();
 

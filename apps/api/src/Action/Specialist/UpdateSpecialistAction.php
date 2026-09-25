@@ -58,7 +58,13 @@ final class UpdateSpecialistAction
 
         if (array_key_exists('photo_url', $body)) {
             $photo = trim((string) $body['photo_url']);
-            if ($photo !== '' && !preg_match('#^(https?://|/uploads/)#', $photo)) {
+            // Accept a full URL or a safe /uploads path — never a traversal
+            // string ('..'), which would let the delete-avatar sink reach files
+            // outside the web root.
+            $validPhoto = $photo === ''
+                || preg_match('#^https?://#', $photo) === 1
+                || (str_starts_with($photo, '/uploads/') && !str_contains($photo, '..'));
+            if (!$validPhoto) {
                 $errors['photo_url'] = 'Enter a full URL or an /uploads path';
             } else {
                 $specialist->setPhotoUrl($photo !== '' ? $photo : null);

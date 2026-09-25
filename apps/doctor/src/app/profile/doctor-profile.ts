@@ -692,7 +692,11 @@ export class DoctorProfile implements OnInit {
         phone: v.phone.trim(),
         date_of_birth: v.dob || null,
         gender: (v.gender.toLowerCase() as 'male' | 'female' | ''),
+        // The single "Country / Location" field is authoritative for BOTH columns:
+        // the patient directory card and location filter read `location`, so send
+        // it too (else edits are invisible to patients and a legacy value lingers).
         country: v.country.trim(),
+        location: v.country.trim(),
         years_experience: v.years.trim() === '' ? null : v.years.trim(),
         bio: v.bio.trim(),
         languages: this.languages().join(', '),

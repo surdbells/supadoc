@@ -999,6 +999,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly referrals = signal<ReferralDto[]>([]);
   /** A prescription arrived during the call while the patient was on another tab. */
   protected readonly newRx = signal(false);
+  /** Guards the newRx badge so the first (baseline) fetch never flags pre-existing scripts. */
+  private rxInitialized = false;
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly consentBusy = signal<string>('');
   protected readonly recordingActive = signal(false);
@@ -1339,9 +1341,17 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     } catch {
       /* summary not finalized yet */
     }
-    if (this.issuedRx().length > prevRx && this.notesTab() !== 'prescriptions') {
+    // Only flag prescriptions that arrive AFTER the first fetch establishes a
+    // baseline — otherwise scripts issued before the patient joined (or present
+    // after a mid-call reload) would light the badge on entry.
+    if (
+      this.rxInitialized &&
+      this.issuedRx().length > prevRx &&
+      this.notesTab() !== 'prescriptions'
+    ) {
       this.newRx.set(true);
     }
+    this.rxInitialized = true;
   }
 
   protected consentGranted(type: ConsentDto['type']): boolean {

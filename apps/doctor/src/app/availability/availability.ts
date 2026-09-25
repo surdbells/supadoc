@@ -368,14 +368,36 @@ export class DoctorAvailability implements OnInit {
 
   protected readonly selectedSlots = computed(() =>
     this.slots()
-      .filter((s) => s.starts_at.slice(0, 10) === this.selectedDate() && s.status !== 'blocked')
+      .filter((s) => s.starts_at.slice(0, 10) === this.selectedDate())
+      // Keep open/booked slots and specific-time block rows (so they stay
+      // visible and removable); drop the full-day block (handled by
+      // selectedBlock) and overlapped-open rows re-tagged blocked.
+      .filter((s) => (s.kind === 'block' ? !this.isFullDayBlock(s) : s.status !== 'blocked'))
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
   );
 
-  /** The block on the selected day, if the doctor blocked it. */
-  protected readonly selectedBlock = computed(
-    () => this.slots().find((s) => s.starts_at.slice(0, 10) === this.selectedDate() && s.status === 'blocked') ?? null,
-  );
+  /**
+   * Only an ENTIRE-day block short-circuits the day panel. A specific-time block
+   * must not hide the day's still-open slots or the Add/Block controls, and must
+   * be matched by kind so "Remove block" never deletes an overlapped open slot.
+   */
+  protected readonly selectedBlock = computed(() => {
+    const day = this.selectedDate();
+    return (
+      this.slots().find(
+        (s) => s.starts_at.slice(0, 10) === day && s.kind === 'block' && this.isFullDayBlock(s),
+      ) ?? null
+    );
+  });
+
+  /** True for an entire-day block (00:00 → next-day 00:00), vs a specific-time one. */
+  private isFullDayBlock(s: AvailabilitySlotDto): boolean {
+    return (
+      s.kind === 'block' &&
+      s.starts_at.slice(11, 16) === '00:00' &&
+      new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime() >= 86_400_000
+    );
+  }
 
   /** The seven days (Mon–Sun) of the week containing the selected date — the list view. */
   protected readonly weekDays = computed(() => {
@@ -406,9 +428,11 @@ export class DoctorAvailability implements OnInit {
 
   private load(): void {
     this.loading.set(true);
-    const cursor = this.monthCursor();
-    const from = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1 - 7)).toISOString().slice(0, 10);
-    const to = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 7)).toISOString().slice(0, 10);
+    // Fetch every day the 42-cell grid actually renders (a month can trail up to
+    // ~14 days into the next one), so no visible cell is missing its slot data.
+    const cells = this.calendar();
+    const from = cells[0].date;
+    const to = cells[cells.length - 1].date;
     this.api
       .availability(from, to)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -443,11 +467,16 @@ export class DoctorAvailability implements OnInit {
     return { open: 'bg-sage', blocked: 'bg-alert', booked: 'bg-warning', none: '' }[this.dayState(date)];
   }
 
-  /** Left-border colour for a list-view day card. */
+  /**
+   * Left-border colour for a list-view day card. Precedence matches the calendar
+   * underline / legend (open > blocked > booked): green only when there are open
+   * slots, so a fully-booked day reads yellow ("Unavailable"), never green.
+   */
   protected weekBorderColor(d: { open: number; booked: number; blocked: boolean }): string {
+    if (d.open > 0) return 'border-l-sage';
     if (d.blocked) return 'border-l-alert';
-    if (d.open > 0 || d.booked > 0) return 'border-l-sage';
-    return 'border-l-warning';
+    if (d.booked > 0) return 'border-l-warning';
+    return 'border-l-cloud';
   }
 
   protected isSynthetic(s: AvailabilitySlotDto): boolean {

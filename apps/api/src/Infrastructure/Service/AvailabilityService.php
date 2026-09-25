@@ -62,7 +62,10 @@ final class AvailabilityService
 
         $slotRows = $this->slots->forSpecialistBetween($specialist->getId(), $from, $to);
         $blocks   = array_values(array_filter($slotRows, static fn (AvailabilitySlot $s): bool => $s->isBlock()));
-        $useExplicit = $this->slots->hasOpenSlotsSince($specialist->getId(), $now);
+        // Decide explicit-vs-weekly over the SAME [from, to) window we generate,
+        // so a far-future open slot outside this window can't switch the doctor
+        // to explicit mode and silently zero their near-term availability.
+        $useExplicit = $this->slots->hasOpenSlotsSince($specialist->getId(), $now, $to);
 
         return $useExplicit
             ? $this->daysFromExplicit($slotRows, $blocks, $booked, $lead, $tz, $maxDays)
@@ -81,23 +84,50 @@ final class AvailabilityService
         }
 
         $dayStart = $when->setTime(0, 0);
-        $slotRows = $this->slots->forSpecialistBetween($specialist->getId(), $dayStart, $dayStart->modify('+1 day'));
+        $dayEnd   = $dayStart->modify('+1 day');
+        $slotRows = $this->slots->forSpecialistBetween($specialist->getId(), $dayStart, $dayEnd);
         $blocks   = array_values(array_filter($slotRows, static fn (AvailabilitySlot $s): bool => $s->isBlock()));
-        if ($this->withinBlock($when, $blocks)) {
+
+        // Pick the layer over the same window the day listing scans, so the
+        // booking guard and the listing always agree on explicit-vs-weekly mode.
+        $scanFrom    = $now->setTime(0, 0);
+        $scanTo      = $scanFrom->modify('+' . (self::LOOKAHEAD_DAYS + 1) . ' days');
+        $useExplicit = $this->slots->hasOpenSlotsSince($specialist->getId(), $now, $scanTo);
+
+        // Resolve the requested slot's [start, end) span for the active layer so a
+        // block overlapping ANY part of it (not just its start) rejects it.
+        if ($useExplicit) {
+            $slotEnd = null;
+            foreach ($slotRows as $slot) {
+                if ($slot->isOpen()
+                    && $slot->getStartsAt()->setTimezone($tz)->format('Y-m-d H:i') === $when->format('Y-m-d H:i')
+                ) {
+                    $slotEnd = $slot->getEndsAt()->setTimezone($tz);
+                    break;
+                }
+            }
+            if ($slotEnd === null) {
+                return false;
+            }
+        } else {
+            if (!$this->onWeeklyGrid($specialist, $when)) {
+                return false;
+            }
+            $slotEnd = $when->modify('+' . self::SLOT_MINUTES . ' minutes');
+        }
+
+        if ($this->withinBlock($when, $slotEnd, $blocks)) {
             return false;
         }
 
-        $booked = $this->bookedKeys($specialist, $dayStart, $dayStart->modify('+1 day'), $tz);
-        if (isset($booked[$when->format('Y-m-d H:i')])) {
-            return false;
-        }
+        $booked = $this->bookedKeys($specialist, $dayStart, $dayEnd, $tz);
 
-        // Explicit layer: the time must match a published open slot.
-        if ($this->slots->hasOpenSlotsSince($specialist->getId(), $now)) {
-            return $this->slots->openSlotStartsAt($specialist->getId(), $when);
-        }
+        return !isset($booked[$when->format('Y-m-d H:i')]);
+    }
 
-        // Recurring layer: the time must land on the weekly grid.
+    /** Does $when land exactly on the specialist's recurring weekly grid? */
+    private function onWeeklyGrid(Specialist $specialist, DateTimeImmutable $when): bool
+    {
         $hours = $specialist->getWeeklyHours() ?? self::DEFAULT_HOURS;
         foreach ($hours[(string) ((int) $when->format('w'))] ?? [] as [$start, $end]) {
             $s = $this->at($when, $start);
@@ -134,9 +164,10 @@ final class AvailabilityService
                 continue;
             }
             $start = $slot->getStartsAt()->setTimezone($tz);
+            $end   = $slot->getEndsAt()->setTimezone($tz);
             if ($start < $lead
                 || isset($booked[$start->format('Y-m-d H:i')])
-                || $this->withinBlock($start, $blocks)
+                || $this->withinBlock($start, $end, $blocks)
             ) {
                 continue;
             }
@@ -190,9 +221,10 @@ final class AvailabilityService
                 $cursor = $this->at($date, $start);
                 $stop   = $this->at($date, $end);
                 while ($cursor < $stop) {
+                    $cursorEnd = $cursor->modify('+' . self::SLOT_MINUTES . ' minutes');
                     if ($cursor >= $lead
                         && !isset($booked[$cursor->format('Y-m-d H:i')])
-                        && !$this->withinBlock($cursor, $blocks)
+                        && !$this->withinBlock($cursor, $cursorEnd, $blocks)
                     ) {
                         $slots[] = [
                             'iso'   => $cursor->format(DATE_ATOM),
@@ -216,11 +248,16 @@ final class AvailabilityService
         return $days;
     }
 
-    /** @param list<AvailabilitySlot> $blocks */
-    private function withinBlock(DateTimeImmutable $when, array $blocks): bool
+    /**
+     * Does any block overlap the candidate slot [$start, $end)? Uses span-overlap
+     * (not point membership) so a block beginning mid-slot still rejects it.
+     *
+     * @param list<AvailabilitySlot> $blocks
+     */
+    private function withinBlock(DateTimeImmutable $start, DateTimeImmutable $end, array $blocks): bool
     {
         foreach ($blocks as $block) {
-            if ($block->covers($when)) {
+            if ($block->overlaps($start, $end)) {
                 return true;
             }
         }

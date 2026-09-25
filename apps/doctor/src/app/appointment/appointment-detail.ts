@@ -10,10 +10,11 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { firstValueFrom, type Observable } from 'rxjs';
+import { type Observable } from 'rxjs';
 import {
   apiErrorMessage,
   DoctorApi,
+  openBlobDocument,
   openClinicalDocument,
 } from '@supadoc/data-access';
 import type {
@@ -605,6 +606,8 @@ export class DoctorAppointmentDetail implements OnInit {
   private id = '';
   protected readonly appt = signal<DoctorAppointmentDto | null>(null);
   protected readonly apptError = signal('');
+  /** Ticks so time-derived state (Join button, Past Visits) re-evaluates. */
+  private readonly now = signal(Date.now());
 
   // Patient briefing
   protected readonly patientRecord = signal<DoctorPatientRecordDto | null>(null);
@@ -620,7 +623,9 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly pastHistory = computed(() => this.patientRecord()?.medical?.history ?? []);
   protected readonly vitals = computed<{ label: string; value: string }[]>(() => []);
   protected readonly pastVisits = computed(() =>
-    (this.patientRecord()?.appointments ?? []).filter((a) => a.id !== this.id),
+    (this.patientRecord()?.appointments ?? []).filter(
+      (a) => a.id !== this.id && new Date(a.scheduled_at).getTime() < this.now(),
+    ),
   );
   protected readonly filteredDocs = computed(() => {
     const q = this.docSearch().trim().toLowerCase();
@@ -633,7 +638,7 @@ export class DoctorAppointmentDetail implements OnInit {
     const a = this.appt();
     if (!a) return { label: 'Join Call', enabled: false };
     if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false };
-    const mins = Math.round((new Date(a.scheduled_at).getTime() - Date.now()) / 60000);
+    const mins = Math.round((new Date(a.scheduled_at).getTime() - this.now()) / 60000);
     if (mins > 5) return { label: `Join Call in ${mins}mins time`, enabled: false };
     return { label: 'Join Call Now', enabled: true };
   });
@@ -692,6 +697,12 @@ export class DoctorAppointmentDetail implements OnInit {
 
   ngOnInit(): void {
     this.id = this.route.snapshot.paramMap.get('id') ?? '';
+
+    // Keep time-derived UI (Join button countdown, Past Visits) fresh without a
+    // reload — a memoized computed only re-runs when a signal it reads changes.
+    const tick = setInterval(() => this.now.set(Date.now()), 30_000);
+    this.destroyRef.onDestroy(() => clearInterval(tick));
+
     this.api
       .schedule()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -725,15 +736,10 @@ export class DoctorAppointmentDetail implements OnInit {
       });
   }
 
-  protected async openPatientDoc(doc: MedicalDocumentDto): Promise<void> {
-    try {
-      const blob = await firstValueFrom(this.api.patientDocumentBlob(this.id, doc.id));
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch {
-      /* best-effort preview */
-    }
+  protected openPatientDoc(doc: MedicalDocumentDto): void {
+    // Popup-safe: open the tab synchronously on the click, then swap in the blob
+    // once the bytes arrive (a post-await window.open is blocked by Safari etc.).
+    openBlobDocument(this.api.patientDocumentBlob(this.id, doc.id));
   }
 
   protected select(tab: TabKey): void {

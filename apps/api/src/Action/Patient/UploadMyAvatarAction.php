@@ -81,15 +81,32 @@ final class UploadMyAvatarAction
         return dirname(__DIR__, 3) . '/public/uploads/avatars';
     }
 
-    /** Remove a previously-stored local avatar file (ignores external URLs). */
+    /**
+     * Remove a previously-stored local avatar file (ignores external URLs).
+     *
+     * Hardened against path traversal: a stored photo_url is attacker-influenced
+     * (a doctor can PATCH an arbitrary /uploads path), so we reject any '..'
+     * segment AND confirm the resolved path is still physically inside the
+     * avatar directory before unlinking — never deleting files elsewhere.
+     */
     public static function deleteLocalAvatar(?string $url): void
     {
-        if ($url === null || !str_starts_with($url, '/uploads/avatars/')) {
+        if ($url === null
+            || !str_starts_with($url, '/uploads/avatars/')
+            || str_contains($url, '..')
+        ) {
             return;
         }
         $path = dirname(__DIR__, 3) . '/public' . $url;
-        if (is_file($path)) {
-            @unlink($path);
+        $real = realpath($path);
+        $base = realpath(self::avatarDir());
+        if ($real === false || $base === false
+            || !str_starts_with($real, $base . DIRECTORY_SEPARATOR)
+        ) {
+            return;
+        }
+        if (is_file($real)) {
+            @unlink($real);
         }
     }
 }

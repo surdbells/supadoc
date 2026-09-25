@@ -51,13 +51,21 @@ final class AvailabilitySlotRepository extends BaseRepository
     }
 
     /**
-     * Does the specialist publish any OPEN slots at/after $from? When true, the
-     * explicit slots are the source of truth for availability (the recurring
-     * weekly grid is no longer used for that specialist).
+     * Does the specialist publish any OPEN slots in [$from, $to)? When true, the
+     * explicit slots are the source of truth for availability in that window (the
+     * recurring weekly grid is no longer used for that specialist).
+     *
+     * $to MUST match the window the caller actually generates/scans; leaving it
+     * open (null) risks switching a specialist to explicit mode on the strength
+     * of a far-future slot that the generation window never reaches — which would
+     * silently zero their near-term availability.
      */
-    public function hasOpenSlotsSince(string $specialistId, DateTimeImmutable $from): bool
-    {
-        return (int) $this->em->createQueryBuilder()
+    public function hasOpenSlotsSince(
+        string $specialistId,
+        DateTimeImmutable $from,
+        ?DateTimeImmutable $to = null,
+    ): bool {
+        $qb = $this->em->createQueryBuilder()
             ->select('COUNT(e.id)')
             ->from(AvailabilitySlot::class, 'e')
             ->andWhere('e.specialist = :specialist')
@@ -65,24 +73,12 @@ final class AvailabilitySlotRepository extends BaseRepository
             ->andWhere('e.startsAt >= :from')
             ->setParameter('specialist', $specialistId)
             ->setParameter('open', SlotKind::OPEN->value)
-            ->setParameter('from', $from)
-            ->getQuery()
-            ->getSingleScalarResult() > 0;
-    }
+            ->setParameter('from', $from);
 
-    /** True if an OPEN slot with this exact start exists for the specialist. */
-    public function openSlotStartsAt(string $specialistId, DateTimeImmutable $when): bool
-    {
-        return (int) $this->em->createQueryBuilder()
-            ->select('COUNT(e.id)')
-            ->from(AvailabilitySlot::class, 'e')
-            ->andWhere('e.specialist = :specialist')
-            ->andWhere('e.kind = :open')
-            ->andWhere('e.startsAt = :when')
-            ->setParameter('specialist', $specialistId)
-            ->setParameter('open', SlotKind::OPEN->value)
-            ->setParameter('when', $when)
-            ->getQuery()
-            ->getSingleScalarResult() > 0;
+        if ($to !== null) {
+            $qb->andWhere('e.startsAt < :to')->setParameter('to', $to);
+        }
+
+        return (int) $qb->getQuery()->getSingleScalarResult() > 0;
     }
 }

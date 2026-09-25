@@ -284,13 +284,15 @@ export class DoctorDashboard implements OnInit {
         deltaPeriod: 'vs last month',
       },
       {
+        // All-time distinct patients (a cumulative total), so no week-over-week
+        // delta is attached — that basis mismatch made a returning-patient week
+        // read as a drop. The subtext states patients SEEN this week, not added.
         label: 'Patients',
         value: d.patients,
         icon: 'users',
         tint: 'bg-cerulean/10 text-cerulean',
-        inlineSub: `+${d.patients_week} this week`,
-        delta: d.patients_delta,
-        deltaPeriod: 'vs last week',
+        inlineSub: `${d.patients_week} seen this week`,
+        delta: null,
       },
       {
         label: 'Earnings',

@@ -4,9 +4,11 @@ import {
   computed,
   DestroyRef,
   inject,
+  input,
   OnInit,
   signal,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import {
@@ -72,16 +74,24 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 ];
 
 /**
- * Homepage search & discovery (Figma) — a "Care that starts with the right
- * specialist" section: an animated-placeholder search with live autocomplete
- * (public specialists + specialties), a symptom→specialty hint, popular quick
- * links, and a "browse by department" grid with real counts. Selecting anything
- * takes a signed-in patient into the filtered directory; a visitor to register.
+ * Homepage search & discovery (Figma). Two layouts share one set of tested
+ * behaviours (live autocomplete over public specialists + specialties, a
+ * symptom→specialty hint, the "find a doctor for me" quiz, staged filter chips
+ * and popular quick links):
+ *
+ *  - `variant="hero"` (default): the compact search experience embedded in the
+ *    landing hero — search + filters + popular only, left-aligned and
+ *    background-neutral so it drops into the hero column (Figma 1939:34380).
+ *  - `variant="full"`: the standalone centred section with a heading and a
+ *    "browse care by department" grid, for use outside the hero.
+ *
+ * Selecting anything takes the visitor into the public directory with the
+ * search + staged chips applied.
  */
 @Component({
   selector: 'pat-home-discovery',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SearchSelectComponent, FindDoctorQuiz],
+  imports: [IconComponent, SearchSelectComponent, FindDoctorQuiz, NgTemplateOutlet],
   host: { class: 'block' },
   styles: [
     `
@@ -101,29 +111,98 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
     `,
   ],
   template: `
-    <section class="bg-gradient-to-b from-glacier to-white">
-      <div class="mx-auto w-[90%] max-w-[1800px] pb-16 pt-4">
-        <div class="flex flex-col items-center gap-3 text-center">
-          <span
-            class="inline-flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-          >
-            <sd-icon name="shield-check" [size]="18" />
-            Verified Specialist
-          </span>
-          <h2 class="font-heading text-h2 text-abyss">
-            Care that starts with the right specialist
-          </h2>
-          <p class="max-w-2xl font-sans text-body-lg text-slate">
-            Search by specialty, department, location or condition — then book a
-            secure online visit in minutes.
-          </p>
-        </div>
+    @if (hero()) {
+      <div class="flex w-full flex-col">
+        <ng-container [ngTemplateOutlet]="searchTools" />
+      </div>
+    } @else {
+      <section class="bg-gradient-to-b from-glacier to-white">
+        <div class="mx-auto w-[90%] max-w-[1800px] pb-16 pt-4">
+          <div class="flex flex-col items-center gap-3 text-center">
+            <span
+              class="inline-flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+            >
+              <sd-icon name="shield-check" [size]="18" />
+              Verified Specialist
+            </span>
+            <h2 class="font-heading text-h2 text-abyss">
+              Care that starts with the right specialist
+            </h2>
+            <p class="max-w-2xl font-sans text-body-lg text-slate">
+              Search by specialty, department, location or condition — then book
+              a secure online visit in minutes.
+            </p>
+          </div>
 
-        <!-- Search + "find me a doctor" (same width as the filter row below) -->
-        <div
-          class="mx-auto mt-6 flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-stretch"
-        >
-          <div class="relative min-w-0 flex-1">
+          <ng-container [ngTemplateOutlet]="searchTools" />
+
+          <!-- Departments -->
+          <div class="mt-14 flex items-end justify-between gap-4">
+            <div class="flex flex-col gap-1">
+              <span class="font-sans text-body font-semibold text-cerulean"
+                >Popular specialties</span
+              >
+              <h3 class="font-heading text-h4 text-abyss">
+                Browse care by department
+              </h3>
+            </div>
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold text-cerulean hover:underline"
+              (click)="viewAll()"
+            >
+              View all specialists <sd-icon name="arrow-right" [size]="16" />
+            </button>
+          </div>
+
+          @if (loadingDepts()) {
+            <div class="mt-6 grid grid-cols-2 gap-5 lg:grid-cols-4">
+              @for (n of [1, 2, 3, 4, 5, 6, 7, 8]; track n) {
+                <div class="sd-shimmer h-44 rounded-card"></div>
+              }
+            </div>
+          } @else {
+            <div class="mt-6 grid grid-cols-2 gap-5 lg:grid-cols-4">
+              @for (d of departments(); track d.name) {
+                <button
+                  type="button"
+                  class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white p-6 text-center transition-all hover:-translate-y-0.5 hover:border-cerulean/40 hover:shadow-md"
+                  (click)="selectSpecialty(d.name)"
+                >
+                  <span
+                    class="flex size-14 items-center justify-center rounded-full bg-frost/50 text-cerulean"
+                  >
+                    <sd-icon [name]="meta(d.name).icon" [size]="26" />
+                  </span>
+                  <span class="font-heading text-h5 text-ink">{{ d.name }}</span>
+                  <span class="font-sans text-caption text-slate">{{
+                    meta(d.name).tag
+                  }}</span>
+                  <span
+                    class="mt-1 inline-flex items-center gap-1 font-sans text-body-sm font-semibold text-cerulean"
+                  >
+                    {{ d.count }}
+                    {{ d.count === 1 ? 'Specialist' : 'Specialists' }}
+                    <sd-icon name="arrow-right" [size]="16" />
+                  </span>
+                </button>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <!-- Shared search experience (search + filters + hint + popular) -->
+    <ng-template #searchTools>
+      <!-- Search + "find me a doctor" -->
+      <div
+        class="flex flex-col gap-3 sm:flex-row sm:items-stretch"
+        [class.mt-6]="!hero()"
+        [class.mx-auto]="!hero()"
+        [class.max-w-5xl]="!hero()"
+      >
+        <div class="relative min-w-0 flex-1">
           <div
             class="flex h-full items-center gap-3 rounded-field border border-cloud bg-white px-5 py-4 shadow-[0_4px_24px_rgba(10,22,40,0.06)]"
           >
@@ -142,7 +221,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               @if (query() === '') {
                 @for (p of [placeholder()]; track p) {
                   <span
-                    class="ph-anim pointer-events-none absolute inset-y-0 left-0 flex items-center font-sans text-body text-slate/70"
+                    class="ph-anim pointer-events-none absolute inset-y-0 left-0 flex items-center truncate font-sans text-body text-slate/70"
                   >
                     {{ p }}
                   </span>
@@ -252,191 +331,156 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               }
             </div>
           }
-          </div>
-
-          <button
-            type="button"
-            class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-4 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean"
-            (click)="quizOpen.set(true)"
-          >
-            <sd-icon name="sparkles" [size]="20" />Find a doctor for me
-          </button>
         </div>
 
-        <pat-find-doctor-quiz [(open)]="quizOpen" />
-
-        <!-- Filter chips (single row on desktop) -->
-        <div
-          class="mx-auto mt-4 flex max-w-5xl flex-wrap items-center justify-center gap-3 lg:flex-nowrap"
+        <button
+          type="button"
+          class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-4 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean"
+          (click)="quizOpen.set(true)"
         >
-          <div
-            class="flex shrink-0 rounded-field border border-cloud bg-white p-1.5"
-          >
-            @for (t of consultTypes; track t.value) {
-              <button
-                type="button"
-                class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2.5 font-sans text-body transition-colors"
-                [class]="
-                  consultationType() === t.value
-                    ? 'bg-frost font-medium text-cerulean'
-                    : 'text-slate hover:text-ink'
-                "
-                (click)="consultationType.set(t.value)"
-              >
-                <sd-icon [name]="t.icon" [size]="18" />{{ t.label }}
-              </button>
-            }
-          </div>
+          <sd-icon name="sparkles" [size]="20" />Find a doctor for me
+        </button>
+      </div>
 
-          <sd-search-select
-            size="lg"
-            class="w-44 lg:min-w-0 lg:flex-1"
-            icon="stethoscope"
-            placeholder="Speciality"
-            [options]="specialtyNames()"
-            [value]="specialty()"
-            (valueChange)="specialty.set($event)"
-          />
-          <sd-search-select
-            size="lg"
-            class="w-44 lg:min-w-0 lg:flex-1"
-            icon="map-pin"
-            placeholder="Location"
-            [options]="locations()"
-            [value]="location()"
-            (valueChange)="location.set($event)"
-          />
-          <sd-search-select
-            size="lg"
-            class="w-44 lg:min-w-0 lg:flex-1"
-            icon="languages"
-            placeholder="Language"
-            [options]="languages()"
-            [value]="language()"
-            (valueChange)="language.set($event)"
-          />
-          <sd-search-select
-            size="lg"
-            class="w-44 lg:min-w-0 lg:flex-1"
-            icon="user-round"
-            placeholder="Gender"
-            [options]="genderOptions"
-            [value]="gender()"
-            (valueChange)="gender.set($event)"
-          />
+      <pat-find-doctor-quiz [(open)]="quizOpen" />
 
-          @if (hasFilters()) {
+      <!-- Filter chips -->
+      <div
+        class="mt-4 flex flex-wrap items-center gap-3"
+        [class.mx-auto]="!hero()"
+        [class.max-w-5xl]="!hero()"
+        [class.justify-center]="!hero()"
+        [class.lg:flex-nowrap]="!hero()"
+      >
+        <div
+          class="flex shrink-0 rounded-field border border-cloud bg-white p-1.5"
+        >
+          @for (t of consultTypes; track t.value) {
             <button
               type="button"
-              class="inline-flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
-              (click)="clearFilters()"
+              class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2.5 font-sans text-body transition-colors"
+              [class]="
+                consultationType() === t.value
+                  ? 'bg-frost font-medium text-cerulean'
+                  : 'text-slate hover:text-ink'
+              "
+              (click)="consultationType.set(t.value)"
             >
-              <sd-icon name="x" [size]="14" />Clear
+              <sd-icon [name]="t.icon" [size]="18" />{{ t.label }}
             </button>
           }
         </div>
 
-        <!-- Symptom hint -->
-        @if (recommendation(); as rec) {
-          <div class="mx-auto mt-4 max-w-3xl">
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 rounded-card border border-cerulean/20 bg-frost/40 px-5 py-3 text-left transition-colors hover:bg-frost/70"
-              (click)="selectSpecialty(rec)"
-            >
-              <sd-icon
-                name="heart-pulse"
-                [size]="20"
-                class="shrink-0 text-cerulean"
-              />
-              <span class="font-sans text-body-sm text-ink">
-                Based on “{{ query() }}”, we recommend
-                <span class="font-semibold text-cerulean">{{ rec }}</span
-                >.
-              </span>
-              <sd-icon
-                name="arrow-right"
-                [size]="18"
-                class="ml-auto shrink-0 text-cerulean"
-              />
-            </button>
-          </div>
-        }
+        <sd-search-select
+          size="lg"
+          [class]="selectClass()"
+          icon="stethoscope"
+          placeholder="Speciality"
+          [options]="specialtyNames()"
+          [value]="specialty()"
+          (valueChange)="specialty.set($event)"
+        />
+        <sd-search-select
+          size="lg"
+          [class]="selectClass()"
+          icon="map-pin"
+          placeholder="Location"
+          [options]="locations()"
+          [value]="location()"
+          (valueChange)="location.set($event)"
+        />
+        <sd-search-select
+          size="lg"
+          [class]="selectClass()"
+          icon="languages"
+          placeholder="Language"
+          [options]="languages()"
+          [value]="language()"
+          (valueChange)="language.set($event)"
+        />
+        <sd-search-select
+          size="lg"
+          [class]="selectClass()"
+          icon="user-round"
+          placeholder="Gender"
+          [options]="genderOptions"
+          [value]="gender()"
+          (valueChange)="gender.set($event)"
+        />
 
-        <!-- Popular -->
-        <p class="mt-4 text-center font-sans text-body-sm text-slate">
-          Popular right now:
-          @for (p of popular(); track p; let last = $last) {
-            <button
-              type="button"
-              class="font-semibold text-cerulean hover:underline"
-              (click)="selectSpecialty(p)"
-            >
-              {{ p }} </button
-            >{{ last ? '' : ' · ' }}
-          }
-        </p>
-
-        <!-- Departments -->
-        <div class="mt-14 flex items-end justify-between gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="font-sans text-body font-semibold text-cerulean"
-              >Popular specialties</span
-            >
-            <h3 class="font-heading text-h4 text-abyss">
-              Browse care by department
-            </h3>
-          </div>
+        @if (hasFilters()) {
           <button
             type="button"
-            class="inline-flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold text-cerulean hover:underline"
-            (click)="viewAll()"
+            class="inline-flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
+            (click)="clearFilters()"
           >
-            View all specialists <sd-icon name="arrow-right" [size]="16" />
+            <sd-icon name="x" [size]="14" />Clear
           </button>
-        </div>
-
-        @if (loadingDepts()) {
-          <div class="mt-6 grid grid-cols-2 gap-5 lg:grid-cols-4">
-            @for (n of [1, 2, 3, 4, 5, 6, 7, 8]; track n) {
-              <div class="sd-shimmer h-44 rounded-card"></div>
-            }
-          </div>
-        } @else {
-          <div class="mt-6 grid grid-cols-2 gap-5 lg:grid-cols-4">
-            @for (d of departments(); track d.name) {
-              <button
-                type="button"
-                class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white p-6 text-center transition-all hover:-translate-y-0.5 hover:border-cerulean/40 hover:shadow-md"
-                (click)="selectSpecialty(d.name)"
-              >
-                <span
-                  class="flex size-14 items-center justify-center rounded-full bg-frost/50 text-cerulean"
-                >
-                  <sd-icon [name]="meta(d.name).icon" [size]="26" />
-                </span>
-                <span class="font-heading text-h5 text-ink">{{ d.name }}</span>
-                <span class="font-sans text-caption text-slate">{{
-                  meta(d.name).tag
-                }}</span>
-                <span
-                  class="mt-1 inline-flex items-center gap-1 font-sans text-body-sm font-semibold text-cerulean"
-                >
-                  {{ d.count }} {{ d.count === 1 ? 'Specialist' : 'Specialists' }}
-                  <sd-icon name="arrow-right" [size]="16" />
-                </span>
-              </button>
-            }
-          </div>
         }
       </div>
-    </section>
+
+      <!-- Symptom hint -->
+      @if (recommendation(); as rec) {
+        <div class="mt-4" [class.mx-auto]="!hero()" [class.max-w-3xl]="!hero()">
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 rounded-card border border-cerulean/20 bg-frost/40 px-5 py-3 text-left transition-colors hover:bg-frost/70"
+            (click)="selectSpecialty(rec)"
+          >
+            <sd-icon
+              name="heart-pulse"
+              [size]="20"
+              class="shrink-0 text-cerulean"
+            />
+            <span class="font-sans text-body-sm text-ink">
+              Based on “{{ query() }}”, we recommend
+              <span class="font-semibold text-cerulean">{{ rec }}</span
+              >.
+            </span>
+            <sd-icon
+              name="arrow-right"
+              [size]="18"
+              class="ml-auto shrink-0 text-cerulean"
+            />
+          </button>
+        </div>
+      }
+
+      <!-- Popular -->
+      <p
+        class="mt-4 font-sans text-body-sm text-slate"
+        [class.text-center]="!hero()"
+      >
+        Popular right now:
+        @for (p of popular(); track p; let last = $last) {
+          <button
+            type="button"
+            class="font-semibold text-cerulean hover:underline"
+            (click)="selectSpecialty(p)"
+          >
+            {{ p }} </button
+          >{{ last ? '' : ' · ' }}
+        }
+      </p>
+    </ng-template>
   `,
 })
 export class HomeDiscovery implements OnInit {
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Layout: the compact hero search (default) or the standalone section. */
+  readonly variant = input<'hero' | 'full'>('hero');
+  protected readonly hero = computed(() => this.variant() === 'hero');
+  /**
+   * Filter dropdown width: in the hero the row keeps each control at a fixed
+   * width and wraps (so labels stay legible in the narrower column); the full
+   * section lets them flex to fill one wide row.
+   */
+  protected readonly selectClass = computed(() =>
+    this.hero() ? 'w-40 shrink-0' : 'w-44 lg:min-w-0 lg:flex-1',
+  );
 
   protected readonly query = signal('');
   protected readonly quizOpen = signal(false);

@@ -84,8 +84,8 @@ interface Doctor {
                 Go to Dashboard
               </sd-button>
             } @else {
-              <sd-button variant="ghost" size="sm" (click)="go('/auth/login')"
-                >Login</sd-button
+              <sd-button variant="outline" size="sm" (click)="go('/auth/login')"
+                >Sign in</sd-button
               >
               <sd-button size="sm" (click)="go('/auth/register')"
                 >Register</sd-button
@@ -138,7 +138,7 @@ interface Doctor {
                   size="sm"
                   [full]="true"
                   (click)="go('/auth/login')"
-                  >Login</sd-button
+                  >Sign in</sd-button
                 >
                 <sd-button size="sm" [full]="true" (click)="go('/auth/register')"
                   >Register</sd-button
@@ -150,11 +150,12 @@ interface Doctor {
       </header>
 
       <!-- ===== Hero ===== -->
-      <!-- The gradient sits on the whole section (fading in at the bottom); the
-           hero visual is a transparent PNG placed over it. -->
+      <!-- The search, filter chips and "popular right now" links live inside the
+           hero (Figma 1939:34380) via the compact <pat-home-discovery> variant;
+           the doctor photo sits to the right with the design's soft corners. -->
       <section class="bg-gradient-to-b from-white via-white to-glacier">
         <div
-          class="mx-auto grid w-[90%] max-w-[1800px] items-center gap-x-12 gap-y-4 py-6 lg:grid-cols-2 lg:py-5"
+          class="mx-auto grid w-[90%] max-w-[1800px] items-center gap-x-12 gap-y-8 py-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:py-12"
         >
           <div class="flex min-w-0 flex-col gap-5">
             <span
@@ -166,15 +167,18 @@ interface Doctor {
             <h1
               class="font-heading text-h1 leading-tight text-abyss break-words"
             >
-              Healthcare made <span class="text-cerulean">Simple,</span>
-              <span class="text-cerulean">Personal,</span>
-              <span class="text-teal">&amp; Accessible</span>
+              Healthcare made
+              <span class="text-cerulean">Simple, Personal, &amp; Accessible</span>
             </h1>
             <p class="max-w-xl font-sans text-body-lg text-slate">
               Experience modern healthcare with secure virtual consultations,
               easy appointment scheduling, digital prescriptions, and continuous
               support — all in one place.
             </p>
+
+            <!-- Search + filters + popular (compact hero variant) -->
+            <pat-home-discovery variant="hero" />
+
             <div class="flex flex-wrap gap-4">
               <sd-button (click)="book()">
                 <sd-icon name="calendar-days" [size]="18" />
@@ -185,7 +189,7 @@ interface Doctor {
                 How it Works
               </sd-button>
             </div>
-            <ul class="flex flex-wrap gap-x-8 gap-y-3 pt-2">
+            <ul class="flex flex-wrap gap-x-8 gap-y-3 pt-1">
               @for (t of heroTrust; track t.label) {
                 <li
                   class="flex items-center gap-2 font-sans text-body-sm text-slate"
@@ -197,23 +201,19 @@ interface Doctor {
             </ul>
           </div>
 
-          <!-- Visual: transparent PNG exported from the VideoMed design. Height
-               is capped so the near-square image doesn't drive the hero tall and
-               push the search/filters below the fold. -->
-          <div class="mx-auto w-full min-w-0 max-w-md lg:max-w-none">
+          <!-- Visual: licensed VideoMed hero photo with the design's soft,
+               asymmetric corners. -->
+          <div class="order-first mx-auto w-full min-w-0 max-w-md lg:order-none lg:max-w-none">
             <img
-              src="/home/hero.png"
-              alt="Doctor on a secure VideoMed video consultation, with patient rating and HIPAA-compliant badges"
-              width="1086"
-              height="1070"
-              class="mx-auto max-h-[240px] w-auto object-contain sm:max-h-[280px] lg:max-h-[320px] lg:w-full lg:object-right"
+              src="/home/hero-doctor.webp"
+              alt="A VideoMed doctor smiling during a secure online consultation on her laptop"
+              width="1160"
+              height="1200"
+              class="aspect-[29/30] w-full rounded-[28px] object-cover shadow-[0_24px_60px_rgba(10,22,40,0.14)] lg:rounded-[32px] lg:rounded-tl-[120px] lg:rounded-br-[120px]"
             />
           </div>
         </div>
       </section>
-
-      <!-- ===== Search & discovery ===== -->
-      <pat-home-discovery />
 
       <!-- ===== Trusted by ===== -->
       <section class="border-y border-cloud/60 bg-white">
@@ -234,7 +234,7 @@ interface Doctor {
       </section>
 
       <!-- ===== About ===== -->
-      <section id="about" class="overflow-hidden bg-frost/40">
+      <section id="about" class="scroll-mt-20 overflow-hidden bg-frost/40">
         <div
           class="relative mx-auto w-[90%] max-w-[1800px] py-16 lg:py-24"
         >
@@ -336,8 +336,8 @@ interface Doctor {
         </div>
       </section>
 
-      <!-- ===== Features ===== -->
-      <section class="bg-white">
+      <!-- ===== Features / Services ===== -->
+      <section id="services" class="scroll-mt-20 bg-white">
         <div class="mx-auto w-[90%] max-w-[1800px] py-16">
           <div class="mb-10 flex flex-col items-center gap-2 text-center">
             <h2 class="font-heading text-h3 text-abyss">
@@ -412,7 +412,7 @@ interface Doctor {
       </section>
 
       <!-- ===== How it works ===== -->
-      <section id="how" class="bg-glacier">
+      <section id="how" class="scroll-mt-20 bg-glacier">
         <div class="mx-auto w-[90%] max-w-[1800px] py-16">
           <div class="mb-12 flex flex-col items-center gap-2 text-center">
             <h2 class="font-heading text-h3 text-abyss">How VideoMed Works</h2>
@@ -623,7 +623,7 @@ interface Doctor {
       </section>
 
       <!-- ===== Footer ===== -->
-      <footer class="bg-abyss text-frost">
+      <footer id="contact" class="scroll-mt-20 bg-abyss text-frost">
         <div
           class="mx-auto grid w-[90%] max-w-[1800px] gap-10 py-14 md:grid-cols-4"
         >
@@ -690,9 +690,9 @@ export class Home {
 
   protected readonly navLinks = [
     { label: 'Home', href: '#' },
-    { label: 'Doctors', href: '#' },
-    { label: 'About', href: '#about' },
-    { label: 'Contact us', href: '#' },
+    { label: 'About Us', href: '#about' },
+    { label: 'Services', href: '#services' },
+    { label: 'Contact Us', href: '#contact' },
   ];
 
   protected readonly heroTrust = [

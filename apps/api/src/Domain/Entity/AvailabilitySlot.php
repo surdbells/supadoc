@@ -116,6 +116,16 @@ class AvailabilitySlot
         return $when >= $this->startsAt && $when < $this->endsAt;
     }
 
+    /**
+     * True if the half-open span [$start, $end) overlaps this slot at all — the
+     * correct test for whether a block collides with a candidate slot (a
+     * point-in-span `covers()` check misses a block that begins mid-slot).
+     */
+    public function overlaps(DateTimeImmutable $start, DateTimeImmutable $end): bool
+    {
+        return $start < $this->endsAt && $end > $this->startsAt;
+    }
+
     /** @return array<string,mixed> */
     public function toArray(): array
     {

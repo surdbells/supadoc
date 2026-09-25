@@ -92,7 +92,7 @@ final class ListAvailabilityAction
                 $row['status']        = 'booked';
                 $row['patient_name']  = $this->patientName($bookedAt[$key]);
                 $matchedApp[$key]     = true;
-            } elseif ($this->withinBlock($slot->getStartsAt(), $blocks)) {
+            } elseif ($this->overlapsBlock($slot, $blocks)) {
                 $row['status'] = 'blocked';
             } else {
                 $row['status'] = 'open';
@@ -136,11 +136,16 @@ final class ListAvailabilityAction
         return trim(((string) $p['first_name']) . ' ' . ((string) $p['last_name']));
     }
 
-    /** @param array<int,AvailabilitySlot> $blocks */
-    private function withinBlock(DateTimeImmutable $when, array $blocks): bool
+    /**
+     * Does any block overlap this open slot's [start, end) span? Span-overlap
+     * (not point membership) so a partial block still flags the open slot.
+     *
+     * @param array<int,AvailabilitySlot> $blocks
+     */
+    private function overlapsBlock(AvailabilitySlot $slot, array $blocks): bool
     {
         foreach ($blocks as $block) {
-            if ($block->covers($when)) {
+            if ($block->overlaps($slot->getStartsAt(), $slot->getEndsAt())) {
                 return true;
             }
         }
