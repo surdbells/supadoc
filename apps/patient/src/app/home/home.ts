@@ -466,13 +466,20 @@ interface Doctor {
               <article
                 class="flex flex-col overflow-hidden rounded-card border-[0.5px] border-ash"
               >
-                <img
-                  [src]="d.photo"
-                  [alt]="d.name + ', ' + d.specialty"
-                  width="230"
-                  height="176"
-                  class="aspect-[230/176] w-full object-cover"
-                />
+                <div class="relative">
+                  <img
+                    [src]="d.photo"
+                    [alt]="d.name + ', ' + d.specialty"
+                    width="230"
+                    height="176"
+                    class="aspect-[230/176] w-full object-cover"
+                  />
+                  <span
+                    class="absolute left-3 top-3 flex items-center gap-1 rounded-pill bg-white/95 px-2.5 py-1 font-sans text-[11px] font-semibold text-sage shadow-sm"
+                  >
+                    <span class="size-1.5 rounded-full bg-sage"></span>Available
+                  </span>
+                </div>
                 <div class="flex flex-col gap-1.5 p-4">
                   <h3
                     class="flex items-center gap-1 font-sans text-body font-semibold text-ink"
