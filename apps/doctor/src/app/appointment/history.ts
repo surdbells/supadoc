@@ -22,19 +22,17 @@ const FILTERS: Filter[] = [
   { key: 'all', label: 'All', status: '' },
   { key: 'completed', label: 'Completed', status: 'completed' },
   { key: 'cancelled', label: 'Cancelled', status: 'cancelled' },
-  { key: 'confirmed', label: 'Confirmed', status: 'confirmed' },
-  { key: 'pending', label: 'Pending', status: 'pending' },
 ];
 
 const STATUS_CLASS: Record<string, string> = {
   pending: 'bg-warning/15 text-warning',
   confirmed: 'bg-sage/15 text-sage',
   rescheduled: 'bg-cloud text-slate',
-  completed: 'bg-frost text-cerulean',
+  completed: 'bg-sage/15 text-sage',
   cancelled: 'bg-alert/10 text-alert',
 };
 
-/** Doctor appointment history (route `/appointments/history`) — filter + search. */
+/** Doctor appointment history (route `/appointments/history`) — All / Completed / Cancelled. */
 @Component({
   selector: 'doc-appointment-history',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,68 +41,66 @@ const STATUS_CLASS: Record<string, string> = {
   template: `
     <div class="flex flex-col gap-6 py-2">
       <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Appointment history</h1>
-        <p class="font-sans text-body text-slate">Your past and upcoming consultations.</p>
+        <h1 class="font-heading text-h3 text-ink">Appointment History</h1>
+        <p class="font-sans text-body text-slate">Review your past consultations.</p>
       </header>
 
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="flex flex-wrap gap-2">
+      <!-- Filter bar -->
+      <div class="flex items-center gap-4 rounded-pill border border-cloud bg-white px-2 py-1.5">
+        <div class="flex flex-1 gap-1">
           @for (f of filters; track f.key) {
-            <button
-              type="button"
-              class="rounded-field px-4 py-2 font-sans text-body-sm font-semibold transition-colors"
-              [class]="active() === f.key ? 'bg-cerulean/10 text-cerulean' : 'text-slate hover:bg-frost/40'"
-              (click)="select(f)"
-            >
+            <button type="button"
+              class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors"
+              [class]="active() === f.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+              (click)="select(f)">
               {{ f.label }}
             </button>
           }
         </div>
-        <div class="relative ml-auto min-w-[220px] flex-1 sm:max-w-xs">
-          <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-          <input
-            class="w-full rounded-field border border-cloud bg-white py-2 pl-9 pr-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none"
-            placeholder="Search patient…"
-            [value]="search()"
-            (input)="search.set($any($event.target).value)"
-            (keydown.enter)="apply()"
-          />
+        <button type="button" class="shrink-0 pr-3 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-40" [disabled]="active() === 'all'" (click)="clearAll()">Clear all</button>
+      </div>
+
+      @if (loading() && items().length === 0) {
+        <div class="flex flex-col gap-3">
+          <div class="sd-shimmer h-20 rounded-card"></div>
+          <div class="sd-shimmer h-20 rounded-card"></div>
         </div>
-      </div>
+      } @else if (items().length === 0) {
+        <div class="flex flex-col items-center gap-3 py-16 text-center">
+          <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="history" [size]="34" /></span>
+          <p class="font-sans text-body-sm text-slate">No past consultations{{ active() === 'all' ? '' : ' in this filter' }}.</p>
+        </div>
+      } @else {
+        <ul class="flex flex-col gap-4">
+          @for (a of items(); track a.id) {
+            <li>
+              <a [routerLink]="['/appointments', a.id]" class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 lg:flex-row lg:items-center lg:gap-6">
+                <div class="flex min-w-0 flex-1 items-center gap-3">
+                  <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean">{{ initialsFor(a.patient_name) }}</span>
+                  <div class="flex min-w-0 flex-col">
+                    <span class="truncate font-heading text-body-lg text-ink">{{ a.patient_name }}</span>
+                    <span class="truncate font-sans text-body-sm text-slate">{{ a.type_label }}</span>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-1 lg:w-44">
+                  <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(a.scheduled_at) }}</span>
+                  <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(a.scheduled_at) }}</span>
+                </div>
+                <div class="flex flex-col gap-1.5 lg:w-48">
+                  <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
+                  <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                </div>
+                <sd-icon name="chevron-right" [size]="22" class="shrink-0 self-center text-slate" />
+              </a>
+            </li>
+          }
+        </ul>
 
-      <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-        <table class="w-full min-w-[640px] text-left">
-          <thead class="border-b border-cloud font-sans text-caption text-slate">
-            <tr>
-              <th class="px-4 py-3">Patient</th>
-              <th class="px-4 py-3">Scheduled</th>
-              <th class="px-4 py-3">Type</th>
-              <th class="px-4 py-3">Status</th>
-              <th class="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (a of items(); track a.id) {
-              <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                <td class="px-4 py-3 font-medium">{{ a.patient_name }}</td>
-                <td class="px-4 py-3 text-slate">{{ when(a.scheduled_at) }}</td>
-                <td class="px-4 py-3 text-slate">{{ a.type_label }}</td>
-                <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(a.status)">{{ a.status_label }}</span></td>
-                <td class="px-4 py-3 text-right">
-                  <a [routerLink]="['/appointments', a.id]" class="font-sans text-caption font-semibold text-cerulean hover:underline">Open chart</a>
-                </td>
-              </tr>
-            } @empty {
-              <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No appointments.' }}</td></tr>
-            }
-          </tbody>
-        </table>
-      </div>
-
-      @if (hasMore()) {
-        <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">
-          {{ loading() ? 'Loading…' : 'Load more' }}
-        </button>
+        @if (hasMore()) {
+          <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">
+            {{ loading() ? 'Loading…' : 'Load more' }}
+          </button>
+        }
       }
     </div>
   `,
@@ -115,7 +111,6 @@ export class DoctorAppointmentHistory implements OnInit {
 
   protected readonly filters = FILTERS;
   protected readonly active = signal('all');
-  protected readonly search = signal('');
   protected readonly items = signal<DoctorAppointmentDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly hasMore = signal(false);
@@ -131,7 +126,13 @@ export class DoctorAppointmentHistory implements OnInit {
     this.apply();
   }
 
-  protected apply(): void {
+  protected clearAll(): void {
+    if (this.active() === 'all') return;
+    this.active.set('all');
+    this.apply();
+  }
+
+  private apply(): void {
     this.page = 1;
     this.items.set([]);
     this.fetch();
@@ -145,9 +146,8 @@ export class DoctorAppointmentHistory implements OnInit {
   private fetch(): void {
     this.loading.set(true);
     const status = this.filters.find((f) => f.key === this.active())?.status || undefined;
-    const search = this.search().trim() || undefined;
     this.api
-      .history({ page: this.page, per_page: 20, status, search })
+      .history({ page: this.page, per_page: 20, status })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -159,10 +159,16 @@ export class DoctorAppointmentHistory implements OnInit {
       });
   }
 
+  protected initialsFor(name: string): string {
+    return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  }
   protected statusClass(status: string): string {
     return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
   }
-  protected when(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+  protected dateLabel(iso: string): string {
+    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+  }
+  protected time(iso: string): string {
+    return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
   }
 }

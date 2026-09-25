@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -29,7 +30,7 @@ const DURATIONS = [15, 30, 45, 60];
 @Component({
   selector: 'doc-availability',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, IconComponent],
+  imports: [NgTemplateOutlet, ButtonComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -38,9 +39,14 @@ const DURATIONS = [15, 30, 45, 60];
           <h1 class="font-heading text-h3 text-ink">Availability</h1>
           <p class="font-sans text-body text-slate">Manage your consultation hour and availability.</p>
         </div>
-        <sd-button (click)="openAdd(selectedDate())">
-          <sd-icon name="plus" [size]="18" />Add Availability
-        </sd-button>
+        <div class="flex flex-wrap items-center gap-3">
+          <button type="button" class="flex items-center gap-2 rounded-field border border-cloud bg-white px-5 py-3 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
+            <sd-icon name="ban" [size]="18" />Block this day
+          </button>
+          <sd-button (click)="openAdd(selectedDate())">
+            <sd-icon name="plus" [size]="18" />Add Availability
+          </sd-button>
+        </div>
       </header>
 
       <!-- View toggle -->
@@ -74,97 +80,100 @@ const DURATIONS = [15, 30, 45, 60];
                   [class]="cellClass(cell)"
                   (click)="selectedDate.set(cell.date)">
                   {{ cell.day }}
-                  @if (hasOpen(cell.date) && selectedDate() !== cell.date) {
-                    <span class="absolute bottom-1 left-1/2 h-0.5 w-4 -translate-x-1/2 rounded-full bg-sage"></span>
+                  @if (dayState(cell.date) !== 'none' && selectedDate() !== cell.date) {
+                    <span class="absolute bottom-1 left-1/2 h-0.5 w-4 -translate-x-1/2 rounded-full" [class]="underlineColor(cell.date)"></span>
                   }
                 </button>
               }
             </div>
-            <p class="text-center font-sans text-caption text-slate">Days with <span class="text-sage">green underline</span> have open slots.</p>
+            <p class="text-center font-sans text-caption text-slate">
+              Days with <span class="text-sage">green underline</span> have open slots.
+              Day with <span class="text-alert">red underline</span> are blocked.
+              Day with <span class="text-warning">Yellow Underline</span> are Unavailable.
+            </p>
           </section>
 
-          <!-- Day detail -->
-          <section class="flex h-fit flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-            <h2 class="font-heading text-h5 text-ink">{{ selectedLabel() }}</h2>
-            @if (loading()) {
-              <div class="sd-shimmer h-40 rounded-field"></div>
-            } @else {
-              @if (selectedSlots().length === 0) {
-                <div class="flex flex-col items-center gap-2 py-10 text-center">
-                  <sd-icon name="calendar-off" [size]="28" class="text-slate" />
-                  <p class="font-sans text-body-sm text-slate">No availability set for this day.</p>
-                </div>
-              } @else {
-                <ul class="flex flex-col divide-y divide-cloud">
-                  @for (s of selectedSlots(); track s.id) {
-                    <li class="flex items-center justify-between gap-3 py-3">
-                      <div class="flex flex-col">
-                        <span class="font-sans text-body-sm font-medium text-ink">{{ slotRange(s) }}</span>
-                        @if (s.status === 'booked' && s.patient_name) {
-                          <span class="flex items-center gap-1 font-sans text-caption text-sage"><sd-icon name="user" [size]="13" />{{ s.patient_name }}</span>
-                        } @else if (s.status === 'blocked' && s.reason) {
-                          <span class="font-sans text-caption text-slate">{{ s.reason }}</span>
-                        }
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
-                        @if (s.status !== 'booked' && !isSynthetic(s)) {
-                          <button type="button" class="text-slate transition-colors hover:text-alert disabled:opacity-50" aria-label="Remove" [disabled]="busyId() === s.id" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
-                        }
-                      </div>
-                    </li>
-                  }
-                </ul>
-              }
-              <div class="mt-2 flex flex-col gap-3 sm:flex-row">
-                <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
-                  <sd-icon name="ban" [size]="18" />Block this day
-                </button>
-                <sd-button [full]="true" (click)="openAdd(selectedDate())"><sd-icon name="plus" [size]="18" />Add Availability</sd-button>
-              </div>
-            }
-          </section>
+          <ng-container [ngTemplateOutlet]="dayDetail" />
         </div>
       } @else {
-        <!-- List view -->
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-          @if (loading()) {
-            <div class="sd-shimmer h-48 rounded-field"></div>
-          } @else if (listGroups().length === 0) {
-            <div class="flex flex-col items-center gap-2 py-12 text-center">
-              <sd-icon name="calendar-off" [size]="28" class="text-slate" />
-              <p class="font-sans text-body-sm text-slate">No availability in this range.</p>
-            </div>
-          } @else {
-            @for (g of listGroups(); track g.date) {
-              <div class="flex flex-col gap-2">
-                <h3 class="font-heading text-body font-semibold text-ink">{{ g.label }}</h3>
-                <ul class="flex flex-col divide-y divide-cloud rounded-card border border-cloud">
-                  @for (s of g.slots; track s.id) {
-                    <li class="flex items-center justify-between gap-3 px-4 py-3">
-                      <div class="flex flex-col">
-                        <span class="font-sans text-body-sm font-medium text-ink">{{ slotRange(s) }}</span>
-                        @if (s.status === 'booked' && s.patient_name) {
-                          <span class="flex items-center gap-1 font-sans text-caption text-sage"><sd-icon name="user" [size]="13" />{{ s.patient_name }}</span>
-                        } @else if (s.status === 'blocked' && s.reason) {
-                          <span class="font-sans text-caption text-slate">{{ s.reason }}</span>
-                        }
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
-                        @if (s.status !== 'booked' && !isSynthetic(s)) {
-                          <button type="button" class="text-slate transition-colors hover:text-alert disabled:opacity-50" aria-label="Remove" [disabled]="busyId() === s.id" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
-                        }
-                      </div>
-                    </li>
-                  }
-                </ul>
-              </div>
+        <!-- List view: week days (left) + selected day detail (right) -->
+        <div class="grid gap-6 lg:grid-cols-2">
+          <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+            <h2 class="font-heading text-h5 text-ink">{{ weekLabel() }}</h2>
+            @if (loading()) {
+              <div class="sd-shimmer h-48 rounded-field"></div>
+            } @else {
+              <ul class="flex flex-col gap-3">
+                @for (d of weekDays(); track d.date) {
+                  <li>
+                    <button type="button"
+                      class="flex w-full flex-col gap-0.5 rounded-card border border-l-4 px-4 py-3 text-left transition-colors"
+                      [class]="(selectedDate() === d.date ? 'border-cerulean/30 bg-frost/40 ' : 'border-cloud bg-white hover:bg-glacier ') + weekBorderColor(d)"
+                      (click)="selectedDate.set(d.date)">
+                      <span class="font-heading text-body font-semibold text-ink">{{ d.label }}</span>
+                      <span class="font-sans text-caption text-slate">
+                        {{ d.blocked ? 'Blocked' : (d.open > 0 || d.booked > 0 ? d.open + ' open · ' + d.booked + ' Booked' : 'No availability') }}
+                      </span>
+                    </button>
+                  </li>
+                }
+              </ul>
             }
-          }
-        </section>
+          </section>
+
+          <ng-container [ngTemplateOutlet]="dayDetail" />
+        </div>
       }
     </div>
+
+    <!-- Shared day-detail panel (both views) -->
+    <ng-template #dayDetail>
+      <section class="flex h-fit flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+        <h2 class="font-heading text-h5 text-ink">{{ selectedLabel() }}</h2>
+        @if (loading()) {
+          <div class="sd-shimmer h-40 rounded-field"></div>
+        } @else if (selectedBlock(); as blk) {
+          <div class="flex items-center gap-2 rounded-card bg-alert/10 px-4 py-3.5 font-sans text-body-sm font-medium text-alert">
+            <sd-icon name="ban" [size]="18" class="shrink-0" />Blocked - {{ blk.reason || 'No reason given' }}
+          </div>
+          @if (!isSynthetic(blk)) {
+            <button type="button" class="w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-50" [disabled]="busyId() === blk.id" (click)="removeSlot(blk)">Remove block</button>
+          }
+        } @else {
+          @if (selectedSlots().length === 0) {
+            <div class="flex flex-col items-center gap-2 py-10 text-center">
+              <sd-icon name="calendar-off" [size]="28" class="text-slate" />
+              <p class="font-sans text-body-sm text-slate">No availability set for this day.</p>
+            </div>
+          } @else {
+            <ul class="flex flex-col divide-y divide-cloud">
+              @for (s of selectedSlots(); track s.id) {
+                <li class="flex items-center justify-between gap-3 py-3">
+                  <div class="flex flex-col">
+                    <span class="font-sans text-body-sm font-medium text-ink">{{ slotRange(s) }}</span>
+                    @if (s.status === 'booked' && s.patient_name) {
+                      <span class="flex items-center gap-1 font-sans text-caption text-sage"><sd-icon name="user" [size]="13" />{{ s.patient_name }}</span>
+                    }
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
+                    @if (s.status !== 'booked' && !isSynthetic(s)) {
+                      <button type="button" class="text-slate transition-colors hover:text-alert disabled:opacity-50" aria-label="Remove" [disabled]="busyId() === s.id" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+          <div class="mt-2 flex flex-col gap-3 sm:flex-row">
+            <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
+              <sd-icon name="ban" [size]="18" />Block this day
+            </button>
+            <sd-button [full]="true" (click)="openAdd(selectedDate())"><sd-icon name="plus" [size]="18" />Add Availability</sd-button>
+          </div>
+        }
+      </section>
+    </ng-template>
 
     <!-- Add Availability modal -->
     @if (addOpen()) {
@@ -333,33 +342,63 @@ export class DoctorAvailability implements OnInit {
     return cells;
   });
 
-  /** Dates (YYYY-MM-DD) that have at least one open slot. */
-  private readonly openDays = computed(() => {
-    const set = new Set<string>();
+  /** Per-day counts, keyed by YYYY-MM-DD — drives underlines, borders and labels. */
+  private readonly dayInfo = computed(() => {
+    const map = new Map<string, { open: number; booked: number; blocked: boolean }>();
     for (const s of this.slots()) {
-      if (s.status === 'open') set.add(s.starts_at.slice(0, 10));
+      const key = s.starts_at.slice(0, 10);
+      const info = map.get(key) ?? { open: 0, booked: 0, blocked: false };
+      if (s.status === 'open') info.open++;
+      else if (s.status === 'booked') info.booked++;
+      else if (s.status === 'blocked') info.blocked = true;
+      map.set(key, info);
     }
-    return set;
+    return map;
   });
+
+  /** One of 'open' (green) | 'blocked' (red) | 'booked' (yellow/unavailable) | 'none'. */
+  protected dayState(date: string): 'open' | 'blocked' | 'booked' | 'none' {
+    const i = this.dayInfo().get(date);
+    if (!i) return 'none';
+    if (i.open > 0) return 'open';
+    if (i.blocked) return 'blocked';
+    if (i.booked > 0) return 'booked';
+    return 'none';
+  }
 
   protected readonly selectedSlots = computed(() =>
     this.slots()
-      .filter((s) => s.starts_at.slice(0, 10) === this.selectedDate())
+      .filter((s) => s.starts_at.slice(0, 10) === this.selectedDate() && s.status !== 'blocked')
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
   );
 
-  protected readonly listGroups = computed(() => {
-    const byDate = new Map<string, AvailabilitySlotDto[]>();
-    for (const s of [...this.slots()].sort((a, b) => a.starts_at.localeCompare(b.starts_at))) {
-      const key = s.starts_at.slice(0, 10);
-      (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(s);
+  /** The block on the selected day, if the doctor blocked it. */
+  protected readonly selectedBlock = computed(
+    () => this.slots().find((s) => s.starts_at.slice(0, 10) === this.selectedDate() && s.status === 'blocked') ?? null,
+  );
+
+  /** The seven days (Mon–Sun) of the week containing the selected date — the list view. */
+  protected readonly weekDays = computed(() => {
+    const sel = new Date(`${this.selectedDate()}T00:00:00Z`);
+    const offset = (sel.getUTCDay() + 6) % 7; // Monday-first
+    const monday = new Date(sel.getTime() - offset * 86400000);
+    const out: { date: string; label: string; open: number; booked: number; blocked: boolean }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday.getTime() + i * 86400000);
+      const date = d.toISOString().slice(0, 10);
+      const info = this.dayInfo().get(date) ?? { open: 0, booked: 0, blocked: false };
+      out.push({
+        date,
+        label: new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(d),
+        ...info,
+      });
     }
-    return [...byDate.entries()].map(([date, slots]) => ({
-      date,
-      label: new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`)),
-      slots,
-    }));
+    return out;
   });
+
+  protected readonly weekLabel = computed(() =>
+    new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${this.selectedDate()}T00:00:00Z`)),
+  );
 
   ngOnInit(): void {
     this.load();
@@ -399,8 +438,16 @@ export class DoctorAvailability implements OnInit {
     return cell.date === this.today ? `${base} ring-1 ring-inset ring-cerulean/40` : base;
   }
 
-  protected hasOpen(date: string): boolean {
-    return this.openDays().has(date);
+  /** Underline colour for a calendar day by its state. */
+  protected underlineColor(date: string): string {
+    return { open: 'bg-sage', blocked: 'bg-alert', booked: 'bg-warning', none: '' }[this.dayState(date)];
+  }
+
+  /** Left-border colour for a list-view day card. */
+  protected weekBorderColor(d: { open: number; booked: number; blocked: boolean }): string {
+    if (d.blocked) return 'border-l-alert';
+    if (d.open > 0 || d.booked > 0) return 'border-l-sage';
+    return 'border-l-warning';
   }
 
   protected isSynthetic(s: AvailabilitySlotDto): boolean {
