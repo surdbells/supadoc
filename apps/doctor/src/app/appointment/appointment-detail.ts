@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,7 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import type { Observable } from 'rxjs';
+import { firstValueFrom, type Observable } from 'rxjs';
 import {
   apiErrorMessage,
   DoctorApi,
@@ -23,9 +24,11 @@ import type {
   ConsentDto,
   CopilotDraftDto,
   DoctorAppointmentDto,
+  DoctorPatientRecordDto,
   DoctorRecordingStateDto,
   LabOrderDto,
   MedicalCertificateDto,
+  MedicalDocumentDto,
   MessageDto,
   PrescriptionDto,
   PrescriptionItem,
@@ -35,6 +38,8 @@ import type {
   TranscriptSegmentDto,
 } from '@supadoc/models';
 import { IconComponent, MessageThreadComponent } from '@supadoc/ui';
+
+type PrimaryTab = 'overview' | 'history' | 'documents' | 'visits' | 'clinical';
 
 type TabKey =
   | 'notes'
@@ -79,445 +84,499 @@ const FIELD =
   'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
 /**
- * A consultation's clinical chart (route `/appointments/:id`) — review and edit
- * notes, prescriptions, labs, care plan, referrals, consents, recording and the
- * transcript/AI draft, all OUTSIDE the video call. Backed by `DoctorApi`; each
- * tab loads its data on first open.
+ * A consultation's Schedule Details (route `/appointments/:id`) — the design's
+ * pre-consultation patient briefing (Overview / Medical History / Documents /
+ * Past Visits) plus a "Clinical tools" tab that preserves all out-of-call
+ * authoring (notes, prescriptions, labs, referrals, certificates, recording, AI).
  */
 @Component({
   selector: 'doc-appointment-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, MessageThreadComponent],
+  imports: [NgTemplateOutlet, RouterLink, IconComponent, MessageThreadComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
-      <a
-        routerLink="/schedule"
-        class="flex w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean"
-      >
-        <sd-icon name="chevron-right" [size]="16" class="rotate-180" /> Schedule
-      </a>
+      <div class="flex items-center justify-between">
+        <h1 class="font-heading text-h3 text-ink">Schedule Details</h1>
+        <a routerLink="/schedule" class="flex items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
+          <sd-icon name="chevron-right" [size]="18" class="rotate-180" /> Back
+        </a>
+      </div>
 
       @if (apptError()) {
         <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
           <sd-icon name="calendar-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ apptError() }}</p>
         </div>
-      } @else {
-        <!-- Header -->
-        <header class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6 sm:flex-row sm:items-center sm:justify-between">
-          @if (appt(); as a) {
-            <div class="flex flex-col gap-1">
-              <span class="flex items-center gap-2 font-heading text-h5 text-ink">
-                <sd-icon name="user-round" [size]="20" class="text-cerulean" />
-                {{ a.patient_name }}
-                <span
-                  class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold"
-                  [class]="statusClass(a.status)"
-                  >{{ a.status_label }}</span
-                >
-              </span>
-              <span class="flex items-center gap-2 font-sans text-body-sm text-slate">
-                <sd-icon name="calendar-days" [size]="16" />{{ when(a.scheduled_at) }}
-                <span class="text-cloud">•</span>{{ a.type_label }}
-              </span>
+      } @else if (appt(); as a) {
+        <!-- Summary + Quick actions -->
+        <section class="grid gap-6 rounded-card border border-cloud bg-white p-6 lg:grid-cols-[1fr_auto]">
+          <div class="flex flex-col gap-4">
+            <div class="flex items-start gap-4">
+              <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-lg font-semibold text-cerulean">{{ initialsFor(a.patient_name) }}</span>
+              <div class="flex flex-col gap-1">
+                <div class="flex flex-wrap items-center gap-2.5">
+                  <span class="font-heading text-h4 text-cerulean">{{ a.patient_name }}</span>
+                  <span class="rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                </div>
+                @if (age() !== null) { <span class="font-sans text-body-sm text-slate">{{ age() }} years</span> }
+              </div>
             </div>
-            <div class="flex shrink-0 flex-wrap items-center gap-2">
-              @if (canConfirm(a.status)) {
-                <button type="button" class="flex items-center gap-2 rounded-field border border-sage px-4 py-2.5 font-sans text-body-sm font-semibold text-sage transition-colors hover:bg-sage/10 disabled:opacity-60" [disabled]="actionBusy()" (click)="confirm()">
-                  <sd-icon name="circle-check" [size]="18" />Confirm
-                </button>
+
+            <div class="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2">
+              <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(a.scheduled_at) }}</span>
+              <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />{{ a.type_label }}</span>
+              <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(a.scheduled_at) }}</span>
+              @if (patientRecord()?.patient?.phone) {
+                <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="phone" [size]="16" class="text-slate" />{{ patientRecord()?.patient?.phone }}</span>
               }
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="font-sans text-body-sm text-slate">Fee: <span class="font-semibold text-ink">{{ money(a.amount) }}</span></span>
+              <span class="rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="a.payment_status === 'paid' ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning'">{{ a.payment_status === 'paid' ? 'Paid' : 'Unpaid' }}</span>
+            </div>
+
+            @if (a.notes) {
+              <div class="flex flex-col gap-1 border-t border-cloud pt-3">
+                <span class="font-sans text-caption text-slate">Reason for Consultation:</span>
+                <span class="font-sans text-body-sm text-ink">{{ a.notes }}</span>
+              </div>
+            }
+          </div>
+
+          <div class="flex w-full flex-col gap-3 lg:w-64">
+            <span class="font-heading text-body-lg text-ink">Quick actions</span>
+            @if (a.status === 'pending' || a.status === 'rescheduled') {
+              <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="confirm()">
+                <sd-icon name="circle-check" [size]="18" />{{ actionBusy() ? 'Working…' : 'Confirm appointment' }}
+              </button>
+            } @else {
+              <button type="button" class="flex items-center justify-center gap-2 rounded-field px-5 py-3 font-sans text-body-sm font-semibold transition-colors"
+                [class]="joinState().enabled ? 'bg-cerulean text-white hover:bg-ocean' : 'bg-cerulean/40 text-white cursor-not-allowed'"
+                [disabled]="!joinState().enabled" (click)="join(a)">
+                <sd-icon name="video" [size]="18" />{{ joinState().label }}
+              </button>
+            }
+            <div class="flex gap-3">
               @if (canReschedule(a.status)) {
-                <button type="button" class="flex items-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="toggleReschedule()">
-                  <sd-icon name="calendar-clock" [size]="18" />Reschedule
+                <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean" (click)="toggleReschedule()">
+                  <sd-icon name="refresh-cw" [size]="16" />Reschedule
                 </button>
               }
               @if (canCancel(a.status)) {
-                <button type="button" class="flex items-center gap-2 rounded-field border border-alert px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="decline()">
-                  <sd-icon name="x" [size]="18" />Decline
+                <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-alert/50 px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="decline()">
+                  <sd-icon name="ban" [size]="16" />Cancel
                 </button>
               }
-              <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">
-                <sd-icon name="video" [size]="18" />Join call
-              </button>
             </div>
-          } @else {
-            <div class="sd-shimmer h-10 w-64 rounded-lg"></div>
-          }
-        </header>
-
-        @if (rescheduleOpen()) {
-          <div class="flex flex-wrap items-end gap-3 rounded-card border border-cloud bg-white p-4">
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
-              <input type="datetime-local" class="rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
-            </label>
-            <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
-            <button type="button" class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink" (click)="rescheduleOpen.set(false)">Cancel</button>
+            @if (rescheduleOpen()) {
+              <div class="flex flex-col gap-2 rounded-field border border-cloud p-3">
+                <input type="datetime-local" class="rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
+                <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
+              </div>
+            }
+            @if (actionError()) { <p class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert">{{ actionError() }}</p> }
           </div>
-        }
-        @if (actionError()) {
-          <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ actionError() }}</p>
-        }
+        </section>
 
-        <!-- Tabs -->
-        <div class="flex flex-wrap gap-2 border-b border-cloud pb-3">
-          @for (t of tabs; track t.key) {
-            <button
-              type="button"
-              class="flex items-center gap-2 rounded-field px-4 py-2 font-sans text-body-sm font-semibold transition-colors"
-              [class]="tab() === t.key ? 'bg-cerulean/10 text-cerulean' : 'text-slate hover:bg-frost/40'"
-              (click)="select(t.key)"
-            >
-              <sd-icon [name]="t.icon" [size]="16" />{{ t.label }}
-            </button>
+        <!-- Primary tabs -->
+        <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-1">
+          @for (t of primaryTabs; track t.key) {
+            <button type="button" class="whitespace-nowrap rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors"
+              [class]="primary() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+              (click)="primary.set(t.key)">{{ t.label }}</button>
           }
         </div>
 
-        <section class="rounded-card border border-cloud bg-white p-6">
-          @switch (tab()) {
-            @case ('notes') {
-              <div class="flex flex-col gap-4">
-                <div class="flex items-center justify-between">
-                  <h2 class="font-heading text-body-lg text-ink">SOAP note</h2>
-                  @if (note()) {
-                    <span
-                      class="rounded-pill px-3 py-1 font-sans text-caption font-semibold"
-                      [class]="finalized() ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning'"
-                      >{{ finalized() ? 'Finalized' : 'Draft' }}</span
-                    >
-                  }
-                </div>
-                @for (f of noteFields; track f.key) {
-                  <label class="flex flex-col gap-1.5">
-                    <span class="font-sans text-caption font-semibold text-slate">{{ f.label }}</span>
-                    <textarea
-                      rows="3"
-                      class="${FIELD}"
-                      [disabled]="finalized()"
-                      [value]="noteValue(f.key)"
-                      (input)="setNote(f.key, $any($event.target).value)"
-                    ></textarea>
-                  </label>
-                }
-                @if (!finalized()) {
-                  <div class="flex flex-wrap gap-3">
-                    <button type="button" class="rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="savingNote()" (click)="saveNote(false)">
-                      {{ savingNote() ? 'Saving…' : 'Save draft' }}
-                    </button>
-                    <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="savingNote()" (click)="saveNote(true)">
-                      Finalize &amp; sign
-                    </button>
-                  </div>
-                } @else {
-                  <p class="font-sans text-caption text-slate">
-                    Finalized by {{ note()?.author }} — the patient can now see the summary.
-                  </p>
-                }
-              </div>
-            }
-
-            @case ('messages') {
-              <div class="flex flex-col gap-3">
-                <div class="flex flex-col gap-1">
-                  <h2 class="font-heading text-body-lg text-ink">Secure messages</h2>
-                  <p class="font-sans text-caption text-slate">Async, non-urgent messages with the patient. Not for emergencies.</p>
-                </div>
-                <div class="h-[58vh]">
-                  <sd-message-thread
-                    viewerRole="doctor"
-                    [messages]="messages()"
-                    [loading]="messagesLoading()"
-                    [sending]="sendingMessage()"
-                    placeholder="Message the patient…"
-                    emptyText="No messages yet. Send the first message to your patient."
-                    (send)="sendMessage($event)"
-                  />
-                </div>
-                @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-              </div>
-            }
-
-            @case ('prescriptions') {
+        @switch (primary()) {
+          <!-- ===== Overview ===== -->
+          @case ('overview') {
+            @if (loadingRecord()) {
+              <div class="sd-shimmer h-40 rounded-card"></div>
+            } @else if (medications().length === 0 && vitals().length === 0) {
+              <ng-container [ngTemplateOutlet]="unavailable" />
+            } @else {
               <div class="flex flex-col gap-6">
-                <h2 class="font-heading text-body-lg text-ink">New prescription</h2>
-                <div class="flex flex-col gap-4">
-                  @for (item of rxItems(); track $index) {
-                    <div class="grid grid-cols-1 gap-2 rounded-field bg-glacier p-4 sm:grid-cols-2">
-                      <input class="${FIELD}" placeholder="Medication *" [value]="item.medication" (input)="setRx($index,'medication',$any($event.target).value)" />
-                      <input class="${FIELD}" placeholder="Strength (e.g. 500mg)" [value]="item.strength ?? ''" (input)="setRx($index,'strength',$any($event.target).value)" />
-                      <input class="${FIELD}" placeholder="Dosage (e.g. 1 tablet)" [value]="item.dosage ?? ''" (input)="setRx($index,'dosage',$any($event.target).value)" />
-                      <input class="${FIELD}" placeholder="Frequency (e.g. twice daily)" [value]="item.frequency ?? ''" (input)="setRx($index,'frequency',$any($event.target).value)" />
-                      <input class="${FIELD}" placeholder="Duration (e.g. 7 days)" [value]="item.duration ?? ''" (input)="setRx($index,'duration',$any($event.target).value)" />
-                      <input class="${FIELD}" placeholder="Quantity" [value]="item.quantity ?? ''" (input)="setRx($index,'quantity',$any($event.target).value)" />
-                      <input class="${FIELD} sm:col-span-2" placeholder="Instructions" [value]="item.instructions ?? ''" (input)="setRx($index,'instructions',$any($event.target).value)" />
-                      @if (rxItems().length > 1) {
-                        <button type="button" class="w-fit font-sans text-caption font-semibold text-alert hover:underline" (click)="removeRx($index)">Remove</button>
+                <section class="flex flex-col gap-3">
+                  <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="activity" [size]="20" class="text-cerulean" />Vitals</h2>
+                  @if (vitals().length) {
+                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      @for (v of vitals(); track v.label) {
+                        <div class="flex flex-col gap-1 rounded-card border border-cloud p-4">
+                          <span class="font-sans text-caption text-slate">{{ v.label }}</span>
+                          <span class="font-heading text-h5 text-ink">{{ v.value }}</span>
+                        </div>
                       }
-                    </div>
-                  }
-                  <button type="button" class="w-fit font-sans text-body-sm font-semibold text-cerulean hover:underline" (click)="addRx()">+ Add medication</button>
-                  <textarea rows="2" class="${FIELD}" placeholder="Notes to the patient (optional)" [value]="rxNotes()" (input)="rxNotes.set($any($event.target).value)"></textarea>
-                  @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                  <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="issuePrescription()">
-                    {{ sectionBusy() ? 'Issuing…' : 'Issue prescription' }}
-                  </button>
-                </div>
-                <div class="flex flex-col gap-3">
-                  <h3 class="font-heading text-body font-semibold text-slate">Issued</h3>
-                  @for (rx of prescriptions(); track rx.id) {
-                    <div class="rounded-field border border-cloud p-4">
-                      <div class="flex items-start justify-between gap-3">
-                        <p class="font-sans text-caption text-slate">{{ date(rx.created_at) }} • {{ rx.status }}</p>
-                        <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('prescription', rx.id)">
-                          <sd-icon name="file-text" [size]="15" />Open / print
-                        </button>
-                      </div>
-                      <ul class="mt-2 flex flex-col gap-1 font-sans text-body-sm text-ink">
-                        @for (it of rx.items; track $index) {
-                          <li>{{ it.medication }}<span class="text-slate"> {{ it.strength }} — {{ it.dosage }} {{ it.frequency }} {{ it.duration }}</span></li>
-                        }
-                      </ul>
-                    </div>
-                  } @empty { <p class="font-sans text-body-sm text-slate">No prescriptions issued.</p> }
-                </div>
-              </div>
-            }
-
-            @case ('labs') {
-              <div class="flex flex-col gap-6">
-                <h2 class="font-heading text-body-lg text-ink">New lab order</h2>
-                <div class="flex flex-col gap-3">
-                  <textarea rows="3" class="${FIELD}" placeholder="One test per line (e.g. Full blood count)" [value]="labTests()" (input)="labTests.set($any($event.target).value)"></textarea>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <select class="${FIELD} w-auto" [value]="labPriority()" (change)="labPriority.set($any($event.target).value)">
-                      <option value="routine">Routine</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
-                  </div>
-                  <input class="${FIELD}" placeholder="Instructions (optional)" [value]="labInstructions()" (input)="labInstructions.set($any($event.target).value)" />
-                  @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                  <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="orderLab()">
-                    {{ sectionBusy() ? 'Ordering…' : 'Place order' }}
-                  </button>
-                </div>
-                <div class="flex flex-col gap-3">
-                  <h3 class="font-heading text-body font-semibold text-slate">Ordered</h3>
-                  @for (lo of labOrders(); track lo.id) {
-                    <div class="rounded-field border border-cloud p-4">
-                      <p class="font-sans text-caption text-slate">{{ date(lo.created_at) }} • {{ lo.priority }}</p>
-                      <p class="mt-1 font-sans text-body-sm text-ink">{{ lo.tests.join(', ') }}</p>
-                    </div>
-                  } @empty { <p class="font-sans text-body-sm text-slate">No lab orders.</p> }
-                </div>
-              </div>
-            }
-
-            @case ('care') {
-              <div class="flex flex-col gap-4">
-                <h2 class="font-heading text-body-lg text-ink">Care plan</h2>
-                @for (item of careItems(); track $index) {
-                  <div class="flex items-center gap-2">
-                    <input class="${FIELD}" [value]="item" (input)="setCare($index,$any($event.target).value)" />
-                    <button type="button" class="shrink-0 text-slate hover:text-alert" (click)="removeCare($index)"><sd-icon name="x" [size]="18" /></button>
-                  </div>
-                }
-                <button type="button" class="w-fit font-sans text-body-sm font-semibold text-cerulean hover:underline" (click)="addCare()">+ Add step</button>
-                @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="saveCare()">
-                  {{ sectionBusy() ? 'Publishing…' : 'Publish to patient' }}
-                </button>
-              </div>
-            }
-
-            @case ('referrals') {
-              <div class="flex flex-col gap-6">
-                <h2 class="font-heading text-body-lg text-ink">New referral</h2>
-                <div class="flex flex-col gap-3">
-                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <select class="${FIELD}" [value]="refType()" (change)="refType.set($any($event.target).value)">
-                      <option value="specialist">Specialist</option>
-                      <option value="hospital">Hospital</option>
-                      <option value="laboratory">Laboratory</option>
-                      <option value="imaging">Imaging</option>
-                    </select>
-                    <select class="${FIELD}" [value]="refPriority()" (change)="refPriority.set($any($event.target).value)">
-                      <option value="routine">Routine</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
-                  </div>
-                  <input class="${FIELD}" placeholder="Refer to (name / facility)" [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
-                  <input class="${FIELD}" placeholder="Reason for referral" [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
-                  <textarea rows="2" class="${FIELD}" placeholder="Clinical summary (optional)" [value]="refSummary()" (input)="refSummary.set($any($event.target).value)"></textarea>
-                  @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                  <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="createReferral()">
-                    {{ sectionBusy() ? 'Creating…' : 'Create referral' }}
-                  </button>
-                </div>
-                <div class="flex flex-col gap-3">
-                  <h3 class="font-heading text-body font-semibold text-slate">Raised</h3>
-                  @for (r of referrals(); track r.id) {
-                    <div class="rounded-field border border-cloud p-4">
-                      <div class="flex items-start justify-between gap-3">
-                        <p class="font-sans text-body-sm font-semibold text-ink">{{ r.referral_type }} → {{ r.target }}</p>
-                        <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('referral', r.id)">
-                          <sd-icon name="file-text" [size]="15" />Open / print
-                        </button>
-                      </div>
-                      <p class="font-sans text-caption text-slate">{{ r.reason }} • {{ r.priority }}</p>
-                    </div>
-                  } @empty { <p class="font-sans text-body-sm text-slate">No referrals.</p> }
-                </div>
-              </div>
-            }
-
-            @case ('certificates') {
-              <div class="flex flex-col gap-6">
-                <h2 class="font-heading text-body-lg text-ink">New certificate</h2>
-                <div class="flex flex-col gap-3">
-                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <select class="${FIELD}" [value]="certType()" (change)="certType.set($any($event.target).value)">
-                      <option value="sick_leave">Sick leave</option>
-                      <option value="fitness">Fitness / return to work</option>
-                      <option value="general">General</option>
-                    </select>
-                    <input class="${FIELD}" placeholder="Diagnosis (optional)" [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
-                  </div>
-                  @if (certType() === 'sick_leave') {
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <label class="flex flex-col gap-1.5">
-                        <span class="font-sans text-caption font-semibold text-slate">From</span>
-                        <input type="date" class="${FIELD}" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" />
-                      </label>
-                      <label class="flex flex-col gap-1.5">
-                        <span class="font-sans text-caption font-semibold text-slate">To</span>
-                        <input type="date" class="${FIELD}" [value]="certTo()" (input)="certTo.set($any($event.target).value)" />
-                      </label>
-                    </div>
-                  }
-                  <textarea rows="3" class="${FIELD}" placeholder="Certifying statement (e.g. the patient is unfit for work and requires rest)" [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
-                  @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                  <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="issueCertificate()">
-                    {{ sectionBusy() ? 'Issuing…' : 'Issue certificate' }}
-                  </button>
-                </div>
-                <div class="flex flex-col gap-3">
-                  <h3 class="font-heading text-body font-semibold text-slate">Issued</h3>
-                  @for (c of certificates(); track c.id) {
-                    <div class="rounded-field border border-cloud p-4">
-                      <div class="flex items-start justify-between gap-3">
-                        <p class="font-sans text-body-sm font-semibold text-ink">{{ c.type_label }}</p>
-                        <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('certificate', c.id)">
-                          <sd-icon name="file-text" [size]="15" />Open / print
-                        </button>
-                      </div>
-                      @if (c.from_date && c.to_date) {
-                        <p class="font-sans text-caption text-slate">{{ c.from_date }} → {{ c.to_date }}@if (c.days) { • {{ c.days }} day{{ c.days === 1 ? '' : 's' }} }</p>
-                      }
-                      <p class="mt-1 font-sans text-body-sm text-ink">{{ c.statement }}</p>
-                    </div>
-                  } @empty { <p class="font-sans text-body-sm text-slate">No certificates issued.</p> }
-                </div>
-              </div>
-            }
-
-            @case ('consents') {
-              <div class="flex flex-col gap-3">
-                <h2 class="font-heading text-body-lg text-ink">Patient consents</h2>
-                @for (c of consents(); track c.type) {
-                  <div class="flex items-center justify-between rounded-field border border-cloud p-4">
-                    <span class="font-sans text-body-sm text-ink">{{ consentLabel(c.type) }}</span>
-                    <span class="flex items-center gap-1.5 font-sans text-caption font-semibold" [class]="c.granted ? 'text-sage' : 'text-slate'">
-                      <sd-icon [name]="c.granted ? 'circle-check' : 'x'" [size]="16" />{{ c.granted ? 'Granted' : 'Not granted' }}
-                    </span>
-                  </div>
-                } @empty { <p class="font-sans text-body-sm text-slate">No consent decisions yet.</p> }
-              </div>
-            }
-
-            @case ('recording') {
-              <div class="flex flex-col gap-4">
-                <h2 class="font-heading text-body-lg text-ink">Cloud recording</h2>
-                @if (recording(); as rec) {
-                  @if (!rec.configured) {
-                    <p class="rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-slate">Recording isn't configured on this environment.</p>
-                  } @else {
-                    <div class="flex items-center gap-2 font-sans text-body-sm">
-                      <span class="size-2.5 rounded-full" [class]="rec.active ? 'bg-alert' : 'bg-slate/40'"></span>
-                      {{ rec.active ? 'Recording in progress' : 'Not recording' }}
-                    </div>
-                    @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                    @if (rec.active) {
-                      <button type="button" class="w-fit rounded-field border border-alert px-5 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="sectionBusy()" (click)="stopRecording()">Stop recording</button>
-                    } @else {
-                      <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="startRecording()">Start recording</button>
-                      <p class="font-sans text-caption text-slate">Requires the patient's recording consent (see the Consents tab).</p>
-                    }
-                  }
-                } @else {
-                  <div class="sd-shimmer h-16 rounded-field"></div>
-                }
-
-                <div class="flex flex-col gap-2 border-t border-cloud pt-4">
-                  <h3 class="font-heading text-body font-semibold text-slate">Recorded files</h3>
-                  @for (f of recordingFiles(); track f.key) {
-                    <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-2.5">
-                      <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
-                        <sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" />
-                        <span class="truncate">{{ f.name }}</span>
-                      </span>
-                      @if (f.url) {
-                        <a [href]="f.url" target="_blank" rel="noopener" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline">
-                          <sd-icon name="download" [size]="16" />Download
-                        </a>
-                      } @else {
-                        <span class="shrink-0 font-sans text-caption text-slate">Storage not configured</span>
-                      }
-                    </div>
-                  } @empty {
-                    <p class="font-sans text-body-sm text-slate">No recorded files yet.</p>
-                  }
-                </div>
-              </div>
-            }
-
-            @case ('ai') {
-              <div class="flex flex-col gap-6">
-                <div class="flex flex-col gap-3">
-                  <h2 class="font-heading text-body-lg text-ink">Transcript</h2>
-                  @for (seg of transcript(); track seg.id) {
-                    <div class="rounded-field bg-glacier px-4 py-2 font-sans text-body-sm">
-                      <span class="font-semibold" [class]="seg.role === 'doctor' ? 'text-cerulean' : 'text-sage'">{{ seg.role }}:</span>
-                      <span class="text-ink"> {{ seg.text }}</span>
-                    </div>
-                  } @empty { <p class="font-sans text-body-sm text-slate">No transcript captured. Live transcription runs inside the call.</p> }
-                </div>
-                <div class="flex flex-col gap-3">
-                  <div class="flex items-center justify-between">
-                    <h2 class="font-heading text-body-lg text-ink">AI copilot draft</h2>
-                    <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="sectionBusy()" (click)="generateCopilot()">
-                      {{ sectionBusy() ? 'Generating…' : 'Generate' }}
-                    </button>
-                  </div>
-                  @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
-                  @if (copilot(); as d) {
-                    <div class="flex flex-col gap-2 rounded-field bg-glacier p-4 font-sans text-body-sm text-ink">
-                      @if (d.summary) { <p><span class="font-semibold text-slate">Summary:</span> {{ d.summary }}</p> }
-                      @if (d.assessment) { <p><span class="font-semibold text-slate">Assessment:</span> {{ d.assessment }}</p> }
-                      @if (d.plan) { <p><span class="font-semibold text-slate">Plan:</span> {{ d.plan }}</p> }
-                      <p class="font-sans text-caption text-slate">AI-generated — review before use. {{ date(d.generated_at) }}</p>
                     </div>
                   } @else {
-                    <p class="font-sans text-body-sm text-slate">No draft yet.</p>
+                    <p class="rounded-card bg-glacier px-4 py-3 font-sans text-body-sm text-slate">No vitals recorded for this visit yet.</p>
                   }
-                </div>
+                </section>
+                <section class="flex flex-col gap-3">
+                  <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="20" class="text-cerulean" />Current Medication</h2>
+                  @if (medications().length) {
+                    <ul class="flex flex-col divide-y divide-cloud rounded-card border border-cloud">
+                      @for (m of medications(); track $index) {
+                        <li class="flex items-center justify-between gap-3 px-4 py-3">
+                          <div class="flex items-center gap-3">
+                            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="pill" [size]="16" /></span>
+                            <div class="flex flex-col">
+                              <span class="font-sans text-body-sm font-semibold text-ink">{{ m.name }}</span>
+                              <span class="font-sans text-caption text-slate">{{ medLine(m) }}</span>
+                            </div>
+                          </div>
+                          <span class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-sage">Active</span>
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <p class="rounded-card bg-glacier px-4 py-3 font-sans text-body-sm text-slate">No medications recorded.</p>
+                  }
+                </section>
               </div>
             }
           }
-        </section>
+
+          <!-- ===== Medical History ===== -->
+          @case ('history') {
+            @if (loadingRecord()) {
+              <div class="sd-shimmer h-40 rounded-card"></div>
+            } @else if (conditions().length === 0 && allergies().length === 0 && pastHistory().length === 0) {
+              <ng-container [ngTemplateOutlet]="unavailable" />
+            } @else {
+              <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="18" class="text-cerulean" />Chronic Conditions</h3>
+                  @if (conditions().length) {
+                    <div class="flex flex-wrap gap-2">
+                      @for (c of conditions(); track $index) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ c.condition }}</span> }
+                    </div>
+                  } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
+                </section>
+                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="triangle-alert" [size]="18" class="text-alert" />Allergies</h3>
+                  @if (allergies().length) {
+                    <div class="flex flex-wrap gap-2">
+                      @for (al of allergies(); track $index) { <span class="rounded-pill bg-alert/10 px-3 py-1 font-sans text-caption font-medium text-alert">{{ al.allergen }}</span> }
+                    </div>
+                  } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
+                </section>
+                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="clipboard-list" [size]="18" class="text-cerulean" />Past Medical History</h3>
+                  @if (pastHistory().length) {
+                    <ul class="flex flex-col gap-2">
+                      @for (h of pastHistory(); track $index) {
+                        <li class="flex items-start gap-2 font-sans text-body-sm text-ink"><sd-icon name="check" [size]="16" class="mt-0.5 shrink-0 text-cerulean" /><span>{{ h.year ? h.year + ' - ' : '' }}{{ h.condition }}{{ h.note ? ' (' + h.note + ')' : '' }}</span></li>
+                      }
+                    </ul>
+                  } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
+                </section>
+                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="triangle-alert" [size]="18" class="text-cerulean" />Family Medical History</h3>
+                  <p class="font-sans text-body-sm text-slate">Not recorded.</p>
+                </section>
+              </div>
+            }
+          }
+
+          <!-- ===== Documents ===== -->
+          @case ('documents') {
+            <div class="flex flex-col gap-4">
+              @if (patientDocs().length > 0) {
+                <div class="flex flex-wrap items-center gap-3">
+                  <div class="relative min-w-[220px] flex-1">
+                    <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
+                    <input class="w-full rounded-field border border-cloud bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none" placeholder="Search Document" [value]="docSearch()" (input)="docSearch.set($any($event.target).value)" />
+                  </div>
+                </div>
+              }
+              @if (loadingDocs()) {
+                <div class="sd-shimmer h-24 rounded-card"></div>
+              } @else if (filteredDocs().length === 0) {
+                <div class="flex flex-col items-center gap-3 py-16 text-center">
+                  <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="34" /></span>
+                  <p class="font-sans text-body-sm text-slate">{{ docSearch() ? 'No documents match your search.' : 'No document yet' }}</p>
+                </div>
+              } @else {
+                <ul class="flex flex-col gap-3">
+                  @for (d of filteredDocs(); track d.id) {
+                    <li>
+                      <button type="button" class="flex w-full items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left transition-colors hover:border-cerulean/40" (click)="openPatientDoc(d)">
+                        <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="20" /></span>
+                        <div class="flex min-w-0 flex-1 flex-col">
+                          <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
+                          <span class="font-sans text-caption text-slate">{{ d.extension || d.mime_type }} · {{ d.size_label }}</span>
+                        </div>
+                        <span class="hidden font-sans text-body-sm text-slate sm:block">{{ d.type_label }}</span>
+                        <span class="hidden font-sans text-caption text-slate md:block">{{ shortDate(d.created_at) }}</span>
+                        <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
+                        <sd-icon name="chevron-right" [size]="20" class="shrink-0 text-slate" />
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          }
+
+          <!-- ===== Past Visits ===== -->
+          @case ('visits') {
+            @if (loadingRecord()) {
+              <div class="sd-shimmer h-32 rounded-card"></div>
+            } @else if (pastVisits().length === 0) {
+              <div class="flex flex-col items-center gap-3 py-16 text-center">
+                <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="calendar-off" [size]="34" /></span>
+                <p class="font-sans text-body-sm text-slate">No past visit</p>
+              </div>
+            } @else {
+              <ul class="flex flex-col gap-4">
+                @for (v of pastVisits(); track v.id) {
+                  <li class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-3">
+                      <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="stethoscope" [size]="18" /></span>
+                      <div class="flex flex-col">
+                        <span class="font-heading text-body font-semibold text-ink">{{ v.specialist.name }}</span>
+                        <span class="font-sans text-caption text-slate">{{ v.specialist.specialty }}</span>
+                      </div>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                      <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(v.scheduled_at) }}</span>
+                      <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(v.scheduled_at) }}</span>
+                    </div>
+                    <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(v.status)">{{ v.status_label }}</span>
+                  </li>
+                }
+              </ul>
+            }
+          }
+
+          <!-- ===== Clinical tools (preserved authoring) ===== -->
+          @case ('clinical') {
+            <div class="flex flex-wrap gap-2 border-b border-cloud pb-3">
+              @for (t of tabs; track t.key) {
+                <button type="button" class="flex items-center gap-2 rounded-field px-4 py-2 font-sans text-body-sm font-semibold transition-colors"
+                  [class]="tab() === t.key ? 'bg-cerulean/10 text-cerulean' : 'text-slate hover:bg-frost/40'"
+                  (click)="select(t.key)"><sd-icon [name]="t.icon" [size]="16" />{{ t.label }}</button>
+              }
+            </div>
+
+            <section class="rounded-card border border-cloud bg-white p-6">
+              @switch (tab()) {
+                @case ('notes') {
+                  <div class="flex flex-col gap-4">
+                    <div class="flex items-center justify-between">
+                      <h2 class="font-heading text-body-lg text-ink">SOAP note</h2>
+                      @if (note()) {
+                        <span class="rounded-pill px-3 py-1 font-sans text-caption font-semibold" [class]="finalized() ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning'">{{ finalized() ? 'Finalized' : 'Draft' }}</span>
+                      }
+                    </div>
+                    @for (f of noteFields; track f.key) {
+                      <label class="flex flex-col gap-1.5">
+                        <span class="font-sans text-caption font-semibold text-slate">{{ f.label }}</span>
+                        <textarea rows="3" class="${FIELD}" [disabled]="finalized()" [value]="noteValue(f.key)" (input)="setNote(f.key, $any($event.target).value)"></textarea>
+                      </label>
+                    }
+                    @if (!finalized()) {
+                      <div class="flex flex-wrap gap-3">
+                        <button type="button" class="rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="savingNote()" (click)="saveNote(false)">{{ savingNote() ? 'Saving…' : 'Save draft' }}</button>
+                        <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="savingNote()" (click)="saveNote(true)">Finalize &amp; sign</button>
+                      </div>
+                    } @else {
+                      <p class="font-sans text-caption text-slate">Finalized by {{ note()?.author }} — the patient can now see the summary.</p>
+                    }
+                  </div>
+                }
+                @case ('messages') {
+                  <div class="flex flex-col gap-3">
+                    <div class="flex flex-col gap-1">
+                      <h2 class="font-heading text-body-lg text-ink">Secure messages</h2>
+                      <p class="font-sans text-caption text-slate">Async, non-urgent messages with the patient. Not for emergencies.</p>
+                    </div>
+                    <div class="h-[58vh]">
+                      <sd-message-thread viewerRole="doctor" [messages]="messages()" [loading]="messagesLoading()" [sending]="sendingMessage()" placeholder="Message the patient…" emptyText="No messages yet. Send the first message to your patient." (send)="sendMessage($event)" />
+                    </div>
+                    @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                  </div>
+                }
+                @case ('prescriptions') {
+                  <div class="flex flex-col gap-6">
+                    <h2 class="font-heading text-body-lg text-ink">New prescription</h2>
+                    <div class="flex flex-col gap-4">
+                      @for (item of rxItems(); track $index) {
+                        <div class="grid grid-cols-1 gap-2 rounded-field bg-glacier p-4 sm:grid-cols-2">
+                          <input class="${FIELD}" placeholder="Medication *" [value]="item.medication" (input)="setRx($index,'medication',$any($event.target).value)" />
+                          <input class="${FIELD}" placeholder="Strength (e.g. 500mg)" [value]="item.strength ?? ''" (input)="setRx($index,'strength',$any($event.target).value)" />
+                          <input class="${FIELD}" placeholder="Dosage (e.g. 1 tablet)" [value]="item.dosage ?? ''" (input)="setRx($index,'dosage',$any($event.target).value)" />
+                          <input class="${FIELD}" placeholder="Frequency (e.g. twice daily)" [value]="item.frequency ?? ''" (input)="setRx($index,'frequency',$any($event.target).value)" />
+                          <input class="${FIELD}" placeholder="Duration (e.g. 7 days)" [value]="item.duration ?? ''" (input)="setRx($index,'duration',$any($event.target).value)" />
+                          <input class="${FIELD}" placeholder="Quantity" [value]="item.quantity ?? ''" (input)="setRx($index,'quantity',$any($event.target).value)" />
+                          <input class="${FIELD} sm:col-span-2" placeholder="Instructions" [value]="item.instructions ?? ''" (input)="setRx($index,'instructions',$any($event.target).value)" />
+                          @if (rxItems().length > 1) { <button type="button" class="w-fit font-sans text-caption font-semibold text-alert hover:underline" (click)="removeRx($index)">Remove</button> }
+                        </div>
+                      }
+                      <button type="button" class="w-fit font-sans text-body-sm font-semibold text-cerulean hover:underline" (click)="addRx()">+ Add medication</button>
+                      <textarea rows="2" class="${FIELD}" placeholder="Notes to the patient (optional)" [value]="rxNotes()" (input)="rxNotes.set($any($event.target).value)"></textarea>
+                      @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                      <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="issuePrescription()">{{ sectionBusy() ? 'Issuing…' : 'Issue prescription' }}</button>
+                    </div>
+                    <div class="flex flex-col gap-3">
+                      <h3 class="font-heading text-body font-semibold text-slate">Issued</h3>
+                      @for (rx of prescriptions(); track rx.id) {
+                        <div class="rounded-field border border-cloud p-4">
+                          <div class="flex items-start justify-between gap-3">
+                            <p class="font-sans text-caption text-slate">{{ date(rx.created_at) }} • {{ rx.status }}</p>
+                            <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('prescription', rx.id)"><sd-icon name="file-text" [size]="15" />Open / print</button>
+                          </div>
+                          <ul class="mt-2 flex flex-col gap-1 font-sans text-body-sm text-ink">
+                            @for (it of rx.items; track $index) { <li>{{ it.medication }}<span class="text-slate"> {{ it.strength }} — {{ it.dosage }} {{ it.frequency }} {{ it.duration }}</span></li> }
+                          </ul>
+                        </div>
+                      } @empty { <p class="font-sans text-body-sm text-slate">No prescriptions issued.</p> }
+                    </div>
+                  </div>
+                }
+                @case ('labs') {
+                  <div class="flex flex-col gap-6">
+                    <h2 class="font-heading text-body-lg text-ink">New lab order</h2>
+                    <div class="flex flex-col gap-3">
+                      <textarea rows="3" class="${FIELD}" placeholder="One test per line (e.g. Full blood count)" [value]="labTests()" (input)="labTests.set($any($event.target).value)"></textarea>
+                      <select class="${FIELD} w-auto" [value]="labPriority()" (change)="labPriority.set($any($event.target).value)"><option value="routine">Routine</option><option value="urgent">Urgent</option></select>
+                      <input class="${FIELD}" placeholder="Instructions (optional)" [value]="labInstructions()" (input)="labInstructions.set($any($event.target).value)" />
+                      @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                      <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="orderLab()">{{ sectionBusy() ? 'Ordering…' : 'Place order' }}</button>
+                    </div>
+                    <div class="flex flex-col gap-3">
+                      <h3 class="font-heading text-body font-semibold text-slate">Ordered</h3>
+                      @for (lo of labOrders(); track lo.id) {
+                        <div class="rounded-field border border-cloud p-4"><p class="font-sans text-caption text-slate">{{ date(lo.created_at) }} • {{ lo.priority }}</p><p class="mt-1 font-sans text-body-sm text-ink">{{ lo.tests.join(', ') }}</p></div>
+                      } @empty { <p class="font-sans text-body-sm text-slate">No lab orders.</p> }
+                    </div>
+                  </div>
+                }
+                @case ('care') {
+                  <div class="flex flex-col gap-4">
+                    <h2 class="font-heading text-body-lg text-ink">Care plan</h2>
+                    @for (item of careItems(); track $index) {
+                      <div class="flex items-center gap-2"><input class="${FIELD}" [value]="item" (input)="setCare($index,$any($event.target).value)" /><button type="button" class="shrink-0 text-slate hover:text-alert" (click)="removeCare($index)"><sd-icon name="x" [size]="18" /></button></div>
+                    }
+                    <button type="button" class="w-fit font-sans text-body-sm font-semibold text-cerulean hover:underline" (click)="addCare()">+ Add step</button>
+                    @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                    <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="saveCare()">{{ sectionBusy() ? 'Publishing…' : 'Publish to patient' }}</button>
+                  </div>
+                }
+                @case ('referrals') {
+                  <div class="flex flex-col gap-6">
+                    <h2 class="font-heading text-body-lg text-ink">New referral</h2>
+                    <div class="flex flex-col gap-3">
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <select class="${FIELD}" [value]="refType()" (change)="refType.set($any($event.target).value)"><option value="specialist">Specialist</option><option value="hospital">Hospital</option><option value="laboratory">Laboratory</option><option value="imaging">Imaging</option></select>
+                        <select class="${FIELD}" [value]="refPriority()" (change)="refPriority.set($any($event.target).value)"><option value="routine">Routine</option><option value="urgent">Urgent</option></select>
+                      </div>
+                      <input class="${FIELD}" placeholder="Refer to (name / facility)" [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
+                      <input class="${FIELD}" placeholder="Reason for referral" [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
+                      <textarea rows="2" class="${FIELD}" placeholder="Clinical summary (optional)" [value]="refSummary()" (input)="refSummary.set($any($event.target).value)"></textarea>
+                      @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                      <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="createReferral()">{{ sectionBusy() ? 'Creating…' : 'Create referral' }}</button>
+                    </div>
+                    <div class="flex flex-col gap-3">
+                      <h3 class="font-heading text-body font-semibold text-slate">Raised</h3>
+                      @for (r of referrals(); track r.id) {
+                        <div class="rounded-field border border-cloud p-4"><div class="flex items-start justify-between gap-3"><p class="font-sans text-body-sm font-semibold text-ink">{{ r.referral_type }} → {{ r.target }}</p><button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('referral', r.id)"><sd-icon name="file-text" [size]="15" />Open / print</button></div><p class="font-sans text-caption text-slate">{{ r.reason }} • {{ r.priority }}</p></div>
+                      } @empty { <p class="font-sans text-body-sm text-slate">No referrals.</p> }
+                    </div>
+                  </div>
+                }
+                @case ('certificates') {
+                  <div class="flex flex-col gap-6">
+                    <h2 class="font-heading text-body-lg text-ink">New certificate</h2>
+                    <div class="flex flex-col gap-3">
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <select class="${FIELD}" [value]="certType()" (change)="certType.set($any($event.target).value)"><option value="sick_leave">Sick leave</option><option value="fitness">Fitness / return to work</option><option value="general">General</option></select>
+                        <input class="${FIELD}" placeholder="Diagnosis (optional)" [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
+                      </div>
+                      @if (certType() === 'sick_leave') {
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label class="flex flex-col gap-1.5"><span class="font-sans text-caption font-semibold text-slate">From</span><input type="date" class="${FIELD}" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
+                          <label class="flex flex-col gap-1.5"><span class="font-sans text-caption font-semibold text-slate">To</span><input type="date" class="${FIELD}" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
+                        </div>
+                      }
+                      <textarea rows="3" class="${FIELD}" placeholder="Certifying statement" [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
+                      @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                      <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="issueCertificate()">{{ sectionBusy() ? 'Issuing…' : 'Issue certificate' }}</button>
+                    </div>
+                    <div class="flex flex-col gap-3">
+                      <h3 class="font-heading text-body font-semibold text-slate">Issued</h3>
+                      @for (c of certificates(); track c.id) {
+                        <div class="rounded-field border border-cloud p-4"><div class="flex items-start justify-between gap-3"><p class="font-sans text-body-sm font-semibold text-ink">{{ c.type_label }}</p><button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc('certificate', c.id)"><sd-icon name="file-text" [size]="15" />Open / print</button></div><p class="mt-1 font-sans text-body-sm text-ink">{{ c.statement }}</p></div>
+                      } @empty { <p class="font-sans text-body-sm text-slate">No certificates issued.</p> }
+                    </div>
+                  </div>
+                }
+                @case ('consents') {
+                  <div class="flex flex-col gap-3">
+                    <h2 class="font-heading text-body-lg text-ink">Patient consents</h2>
+                    @for (c of consents(); track c.type) {
+                      <div class="flex items-center justify-between rounded-field border border-cloud p-4"><span class="font-sans text-body-sm text-ink">{{ consentLabel(c.type) }}</span><span class="flex items-center gap-1.5 font-sans text-caption font-semibold" [class]="c.granted ? 'text-sage' : 'text-slate'"><sd-icon [name]="c.granted ? 'circle-check' : 'x'" [size]="16" />{{ c.granted ? 'Granted' : 'Not granted' }}</span></div>
+                    } @empty { <p class="font-sans text-body-sm text-slate">No consent decisions yet.</p> }
+                  </div>
+                }
+                @case ('recording') {
+                  <div class="flex flex-col gap-4">
+                    <h2 class="font-heading text-body-lg text-ink">Cloud recording</h2>
+                    @if (recording(); as rec) {
+                      @if (!rec.configured) {
+                        <p class="rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-slate">Recording isn't configured on this environment.</p>
+                      } @else {
+                        <div class="flex items-center gap-2 font-sans text-body-sm"><span class="size-2.5 rounded-full" [class]="rec.active ? 'bg-alert' : 'bg-slate/40'"></span>{{ rec.active ? 'Recording in progress' : 'Not recording' }}</div>
+                        @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                        @if (rec.active) {
+                          <button type="button" class="w-fit rounded-field border border-alert px-5 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="sectionBusy()" (click)="stopRecording()">Stop recording</button>
+                        } @else {
+                          <button type="button" class="w-fit rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="sectionBusy()" (click)="startRecording()">Start recording</button>
+                        }
+                      }
+                    } @else { <div class="sd-shimmer h-16 rounded-field"></div> }
+                    <div class="flex flex-col gap-2 border-t border-cloud pt-4">
+                      <h3 class="font-heading text-body font-semibold text-slate">Recorded files</h3>
+                      @for (f of recordingFiles(); track f.key) {
+                        <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-2.5"><span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" /><span class="truncate">{{ f.name }}</span></span>@if (f.url) { <a [href]="f.url" target="_blank" rel="noopener" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline"><sd-icon name="download" [size]="16" />Download</a> } @else { <span class="shrink-0 font-sans text-caption text-slate">Storage not configured</span> }</div>
+                      } @empty { <p class="font-sans text-body-sm text-slate">No recorded files yet.</p> }
+                    </div>
+                  </div>
+                }
+                @case ('ai') {
+                  <div class="flex flex-col gap-6">
+                    <div class="flex flex-col gap-3">
+                      <h2 class="font-heading text-body-lg text-ink">Transcript</h2>
+                      @for (seg of transcript(); track seg.id) {
+                        <div class="rounded-field bg-glacier px-4 py-2 font-sans text-body-sm"><span class="font-semibold" [class]="seg.role === 'doctor' ? 'text-cerulean' : 'text-sage'">{{ seg.role }}:</span><span class="text-ink"> {{ seg.text }}</span></div>
+                      } @empty { <p class="font-sans text-body-sm text-slate">No transcript captured. Live transcription runs inside the call.</p> }
+                    </div>
+                    <div class="flex flex-col gap-3">
+                      <div class="flex items-center justify-between"><h2 class="font-heading text-body-lg text-ink">AI copilot draft</h2><button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="sectionBusy()" (click)="generateCopilot()">{{ sectionBusy() ? 'Generating…' : 'Generate' }}</button></div>
+                      @if (sectionError()) { <p class="font-sans text-caption text-alert">{{ sectionError() }}</p> }
+                      @if (copilot(); as d) {
+                        <div class="flex flex-col gap-2 rounded-field bg-glacier p-4 font-sans text-body-sm text-ink">@if (d.summary) { <p><span class="font-semibold text-slate">Summary:</span> {{ d.summary }}</p> }@if (d.assessment) { <p><span class="font-semibold text-slate">Assessment:</span> {{ d.assessment }}</p> }@if (d.plan) { <p><span class="font-semibold text-slate">Plan:</span> {{ d.plan }}</p> }<p class="font-sans text-caption text-slate">AI-generated — review before use. {{ date(d.generated_at) }}</p></div>
+                      } @else { <p class="font-sans text-body-sm text-slate">No draft yet.</p> }
+                    </div>
+                  </div>
+                }
+              }
+            </section>
+          }
+        }
+      } @else {
+        <div class="sd-shimmer h-40 rounded-card"></div>
       }
     </div>
+
+    <ng-template #unavailable>
+      <div class="flex flex-col items-center gap-3 py-16 text-center">
+        <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="34" /></span>
+        <p class="font-sans text-body-sm text-slate">Information unavailable</p>
+      </div>
+    </ng-template>
   `,
 })
 export class DoctorAppointmentDetail implements OnInit {
@@ -527,6 +586,15 @@ export class DoctorAppointmentDetail implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly tabs = TABS;
+  protected readonly primaryTabs: ReadonlyArray<{ key: PrimaryTab; label: string }> = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'history', label: 'Medical History' },
+    { key: 'documents', label: 'Documents' },
+    { key: 'visits', label: 'Past Visits' },
+    { key: 'clinical', label: 'Clinical tools' },
+  ];
+  protected readonly primary = signal<PrimaryTab>('overview');
+
   protected readonly noteFields = [
     { key: 'subjective', label: 'Subjective' },
     { key: 'objective', label: 'Objective' },
@@ -538,49 +606,70 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly appt = signal<DoctorAppointmentDto | null>(null);
   protected readonly apptError = signal('');
 
-  // Lifecycle actions (confirm / decline / reschedule)
+  // Patient briefing
+  protected readonly patientRecord = signal<DoctorPatientRecordDto | null>(null);
+  protected readonly loadingRecord = signal(true);
+  protected readonly patientDocs = signal<MedicalDocumentDto[]>([]);
+  protected readonly loadingDocs = signal(true);
+  protected readonly docSearch = signal('');
+
+  protected readonly age = computed(() => this.ageFrom(this.patientRecord()?.patient?.date_of_birth));
+  protected readonly medications = computed(() => this.patientRecord()?.medical?.medications ?? []);
+  protected readonly conditions = computed(() => this.patientRecord()?.medical?.conditions ?? []);
+  protected readonly allergies = computed(() => this.patientRecord()?.medical?.allergies ?? []);
+  protected readonly pastHistory = computed(() => this.patientRecord()?.medical?.history ?? []);
+  protected readonly vitals = computed<{ label: string; value: string }[]>(() => []);
+  protected readonly pastVisits = computed(() =>
+    (this.patientRecord()?.appointments ?? []).filter((a) => a.id !== this.id),
+  );
+  protected readonly filteredDocs = computed(() => {
+    const q = this.docSearch().trim().toLowerCase();
+    const docs = this.patientDocs();
+    return q ? docs.filter((d) => d.title.toLowerCase().includes(q) || d.type_label.toLowerCase().includes(q)) : docs;
+  });
+
+  /** The Join-call button's label + enabled state, from time-to-start. */
+  protected readonly joinState = computed<{ label: string; enabled: boolean }>(() => {
+    const a = this.appt();
+    if (!a) return { label: 'Join Call', enabled: false };
+    if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false };
+    const mins = Math.round((new Date(a.scheduled_at).getTime() - Date.now()) / 60000);
+    if (mins > 5) return { label: `Join Call in ${mins}mins time`, enabled: false };
+    return { label: 'Join Call Now', enabled: true };
+  });
+
+  // Lifecycle actions
   protected readonly actionBusy = signal(false);
   protected readonly actionError = signal('');
   protected readonly rescheduleOpen = signal(false);
   protected readonly rescheduleAt = signal('');
 
+  // Clinical tools (nested)
   protected readonly tab = signal<TabKey>('notes');
   private readonly loaded = new Set<TabKey>();
-
   protected readonly sectionBusy = signal(false);
   protected readonly sectionError = signal('');
 
-  // Notes
   protected readonly note = signal<ClinicalNoteDto | null>(null);
-  private readonly noteDraft = signal<Record<string, string>>({
-    subjective: '',
-    objective: '',
-    assessment: '',
-    plan: '',
-  });
+  private readonly noteDraft = signal<Record<string, string>>({ subjective: '', objective: '', assessment: '', plan: '' });
   protected readonly savingNote = signal(false);
   protected readonly finalized = computed(() => this.note()?.status === 'finalized');
 
-  // Messages
   protected readonly messages = signal<MessageDto[]>([]);
   protected readonly messagesLoading = signal(false);
   protected readonly sendingMessage = signal(false);
 
-  // Prescriptions
   protected readonly prescriptions = signal<PrescriptionDto[]>([]);
   protected readonly rxItems = signal<PrescriptionItem[]>([{ medication: '' }]);
   protected readonly rxNotes = signal('');
 
-  // Labs
   protected readonly labOrders = signal<LabOrderDto[]>([]);
   protected readonly labTests = signal('');
   protected readonly labPriority = signal<'routine' | 'urgent'>('routine');
   protected readonly labInstructions = signal('');
 
-  // Care plan
   protected readonly careItems = signal<string[]>([]);
 
-  // Referrals
   protected readonly referrals = signal<ReferralDto[]>([]);
   protected readonly refType = signal<ReferralDto['referral_type']>('specialist');
   protected readonly refTarget = signal('');
@@ -588,7 +677,6 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly refSummary = signal('');
   protected readonly refPriority = signal<'routine' | 'urgent'>('routine');
 
-  // Certificates
   protected readonly certificates = signal<MedicalCertificateDto[]>([]);
   protected readonly certType = signal<MedicalCertificateDto['type']>('sick_leave');
   protected readonly certStatement = signal('');
@@ -596,7 +684,6 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly certFrom = signal('');
   protected readonly certTo = signal('');
 
-  // Consents / recording / AI
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly recording = signal<DoctorRecordingStateDto | null>(null);
   protected readonly recordingFiles = signal<RecordingFileDto[]>([]);
@@ -605,19 +692,48 @@ export class DoctorAppointmentDetail implements OnInit {
 
   ngOnInit(): void {
     this.id = this.route.snapshot.paramMap.get('id') ?? '';
-    // The header comes from the schedule list (there is no single-appointment GET).
     this.api
       .schedule()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           const found = res.data.appointments.find((a) => a.id === this.id) ?? null;
-          if (found) this.appt.set(found);
-          else this.apptError.set('Appointment not found.');
+          if (found) {
+            this.appt.set(found);
+            this.loadRecord(found.patient_id);
+          } else this.apptError.set('Appointment not found.');
         },
         error: () => this.apptError.set('Could not load the appointment.'),
       });
-    this.select('notes');
+
+    this.api
+      .patientDocuments(this.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.patientDocs.set(r.data); this.loadingDocs.set(false); },
+        error: () => this.loadingDocs.set(false),
+      });
+  }
+
+  private loadRecord(patientId: string): void {
+    this.api
+      .patient(patientId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.patientRecord.set(r.data); this.loadingRecord.set(false); },
+        error: () => this.loadingRecord.set(false),
+      });
+  }
+
+  protected async openPatientDoc(doc: MedicalDocumentDto): Promise<void> {
+    try {
+      const blob = await firstValueFrom(this.api.patientDocumentBlob(this.id, doc.id));
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      /* best-effort preview */
+    }
   }
 
   protected select(tab: TabKey): void {
@@ -631,28 +747,11 @@ export class DoctorAppointmentDetail implements OnInit {
   private loadTab(tab: TabKey): void {
     switch (tab) {
       case 'notes':
-        this.api.getNote(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-          next: (r) => {
-            this.note.set(r.data);
-            this.noteDraft.set({
-              subjective: r.data.subjective ?? '',
-              objective: r.data.objective ?? '',
-              assessment: r.data.assessment ?? '',
-              plan: r.data.plan ?? '',
-            });
-          },
-          error: () => undefined,
-        });
+        this.api.getNote(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.note.set(r.data); this.noteDraft.set({ subjective: r.data.subjective ?? '', objective: r.data.objective ?? '', assessment: r.data.assessment ?? '', plan: r.data.plan ?? '' }); }, error: () => undefined });
         break;
       case 'messages':
         this.messagesLoading.set(true);
-        this.api.messages(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-          next: (r) => {
-            this.messages.set(r.data);
-            this.messagesLoading.set(false);
-          },
-          error: () => this.messagesLoading.set(false),
-        });
+        this.api.messages(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.messages.set(r.data); this.messagesLoading.set(false); }, error: () => this.messagesLoading.set(false) });
         break;
       case 'prescriptions':
         this.api.listPrescriptions(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.prescriptions.set(r.data), error: () => undefined });
@@ -684,65 +783,31 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   // ----- Notes -----
-  protected noteValue(key: string): string {
-    return this.noteDraft()[key] ?? '';
-  }
-  protected setNote(key: string, value: string): void {
-    this.noteDraft.update((d) => ({ ...d, [key]: value }));
-  }
+  protected noteValue(key: string): string { return this.noteDraft()[key] ?? ''; }
+  protected setNote(key: string, value: string): void { this.noteDraft.update((d) => ({ ...d, [key]: value })); }
   protected saveNote(finalize: boolean): void {
-    this.savingNote.set(true);
-    this.sectionError.set('');
+    this.savingNote.set(true); this.sectionError.set('');
     const d = this.noteDraft();
     const input = { subjective: d['subjective'], objective: d['objective'], assessment: d['assessment'], plan: d['plan'] };
     const call = finalize ? this.api.finalizeNote(this.id, input) : this.api.saveNote(this.id, input);
-    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.note.set(r.data);
-        this.savingNote.set(false);
-      },
-      error: () => {
-        this.sectionError.set('Could not save the note.');
-        this.savingNote.set(false);
-      },
-    });
+    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.note.set(r.data); this.savingNote.set(false); }, error: () => { this.sectionError.set('Could not save the note.'); this.savingNote.set(false); } });
   }
 
   // ----- Messages -----
   protected sendMessage(body: string): void {
-    this.sendingMessage.set(true);
-    this.sectionError.set('');
-    this.api.sendMessage(this.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.messages.update((list) => [...list, r.data]);
-        this.sendingMessage.set(false);
-      },
-      error: (err) => {
-        this.sectionError.set(apiErrorMessage(err, 'Could not send the message.'));
-        this.sendingMessage.set(false);
-      },
-    });
+    this.sendingMessage.set(true); this.sectionError.set('');
+    this.api.sendMessage(this.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.messages.update((list) => [...list, r.data]); this.sendingMessage.set(false); }, error: (err) => { this.sectionError.set(apiErrorMessage(err, 'Could not send the message.')); this.sendingMessage.set(false); } });
   }
 
   // ----- Prescriptions -----
-  protected addRx(): void {
-    this.rxItems.update((list) => [...list, { medication: '' }]);
-  }
-  protected removeRx(i: number): void {
-    this.rxItems.update((list) => list.filter((_, idx) => idx !== i));
-  }
-  protected setRx(i: number, field: keyof PrescriptionItem, value: string): void {
-    this.rxItems.update((list) => list.map((it, idx) => (idx === i ? { ...it, [field]: value } : it)));
-  }
+  protected addRx(): void { this.rxItems.update((list) => [...list, { medication: '' }]); }
+  protected removeRx(i: number): void { this.rxItems.update((list) => list.filter((_, idx) => idx !== i)); }
+  protected setRx(i: number, field: keyof PrescriptionItem, value: string): void { this.rxItems.update((list) => list.map((it, idx) => (idx === i ? { ...it, [field]: value } : it))); }
   protected issuePrescription(): void {
     const items = this.rxItems().filter((it) => it.medication.trim() !== '');
-    if (items.length === 0) {
-      this.sectionError.set('Add at least one medication.');
-      return;
-    }
+    if (items.length === 0) { this.sectionError.set('Add at least one medication.'); return; }
     this.runSection(this.api.createPrescription(this.id, { items, notes: this.rxNotes() || null }), () => {
-      this.rxItems.set([{ medication: '' }]);
-      this.rxNotes.set('');
+      this.rxItems.set([{ medication: '' }]); this.rxNotes.set('');
       this.api.listPrescriptions(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.prescriptions.set(r.data), error: () => undefined });
     });
   }
@@ -750,27 +815,17 @@ export class DoctorAppointmentDetail implements OnInit {
   // ----- Labs -----
   protected orderLab(): void {
     const tests = this.labTests().split('\n').map((t) => t.trim()).filter(Boolean);
-    if (tests.length === 0) {
-      this.sectionError.set('Add at least one test.');
-      return;
-    }
+    if (tests.length === 0) { this.sectionError.set('Add at least one test.'); return; }
     this.runSection(this.api.createLabOrder(this.id, { tests, priority: this.labPriority(), instructions: this.labInstructions() || null }), () => {
-      this.labTests.set('');
-      this.labInstructions.set('');
+      this.labTests.set(''); this.labInstructions.set('');
       this.api.listLabOrders(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.labOrders.set(r.data), error: () => undefined });
     });
   }
 
   // ----- Care plan -----
-  protected addCare(): void {
-    this.careItems.update((list) => [...list, '']);
-  }
-  protected removeCare(i: number): void {
-    this.careItems.update((list) => list.filter((_, idx) => idx !== i));
-  }
-  protected setCare(i: number, value: string): void {
-    this.careItems.update((list) => list.map((v, idx) => (idx === i ? value : v)));
-  }
+  protected addCare(): void { this.careItems.update((list) => [...list, '']); }
+  protected removeCare(i: number): void { this.careItems.update((list) => list.filter((_, idx) => idx !== i)); }
+  protected setCare(i: number, value: string): void { this.careItems.update((list) => list.map((v, idx) => (idx === i ? value : v))); }
   protected saveCare(): void {
     const items = this.careItems().map((v) => v.trim()).filter(Boolean);
     this.runSection(this.api.saveCarePlan(this.id, items), (r) => this.careItems.set((r.data as CarePlanDto).items ?? items));
@@ -778,53 +833,21 @@ export class DoctorAppointmentDetail implements OnInit {
 
   // ----- Referrals -----
   protected createReferral(): void {
-    if (this.refTarget().trim() === '' || this.refReason().trim() === '') {
-      this.sectionError.set('Please complete the referral.');
-      return;
-    }
-    this.runSection(
-      this.api.createReferral(this.id, {
-        referral_type: this.refType(),
-        target: this.refTarget(),
-        reason: this.refReason(),
-        clinical_summary: this.refSummary() || null,
-        priority: this.refPriority(),
-      }),
-      () => {
-        this.refTarget.set('');
-        this.refReason.set('');
-        this.refSummary.set('');
-        this.api.listReferrals(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.referrals.set(r.data), error: () => undefined });
-      },
-    );
+    if (this.refTarget().trim() === '' || this.refReason().trim() === '') { this.sectionError.set('Please complete the referral.'); return; }
+    this.runSection(this.api.createReferral(this.id, { referral_type: this.refType(), target: this.refTarget(), reason: this.refReason(), clinical_summary: this.refSummary() || null, priority: this.refPriority() }), () => {
+      this.refTarget.set(''); this.refReason.set(''); this.refSummary.set('');
+      this.api.listReferrals(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.referrals.set(r.data), error: () => undefined });
+    });
   }
 
   // ----- Certificates + documents -----
   protected issueCertificate(): void {
-    if (this.certStatement().trim() === '') {
-      this.sectionError.set('Add a certifying statement.');
-      return;
-    }
-    if (this.certType() === 'sick_leave' && (this.certFrom() === '' || this.certTo() === '')) {
-      this.sectionError.set('Set the leave period.');
-      return;
-    }
-    this.runSection(
-      this.api.createCertificate(this.id, {
-        type: this.certType(),
-        statement: this.certStatement(),
-        diagnosis: this.certDiagnosis() || null,
-        from_date: this.certType() === 'sick_leave' ? this.certFrom() : null,
-        to_date: this.certType() === 'sick_leave' ? this.certTo() : null,
-      }),
-      () => {
-        this.certStatement.set('');
-        this.certDiagnosis.set('');
-        this.certFrom.set('');
-        this.certTo.set('');
-        this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.certificates.set(r.data), error: () => undefined });
-      },
-    );
+    if (this.certStatement().trim() === '') { this.sectionError.set('Add a certifying statement.'); return; }
+    if (this.certType() === 'sick_leave' && (this.certFrom() === '' || this.certTo() === '')) { this.sectionError.set('Set the leave period.'); return; }
+    this.runSection(this.api.createCertificate(this.id, { type: this.certType(), statement: this.certStatement(), diagnosis: this.certDiagnosis() || null, from_date: this.certType() === 'sick_leave' ? this.certFrom() : null, to_date: this.certType() === 'sick_leave' ? this.certTo() : null }), () => {
+      this.certStatement.set(''); this.certDiagnosis.set(''); this.certFrom.set(''); this.certTo.set('');
+      this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.certificates.set(r.data), error: () => undefined });
+    });
   }
 
   protected openDoc(kind: ClinicalDocumentKind, docId: string): void {
@@ -847,24 +870,9 @@ export class DoctorAppointmentDetail implements OnInit {
     this.runSection(this.api.generateCopilot(this.id), (r) => this.copilot.set(r.data as CopilotDraftDto), 'Could not generate a draft — AI or transcription consent may be unavailable.');
   }
 
-  /** Run a section mutation with shared busy/error handling. */
-  private runSection<T>(
-    call: Observable<T>,
-    onSuccess: (res: T) => void,
-    errorMessage = 'Something went wrong. Please try again.',
-  ): void {
-    this.sectionBusy.set(true);
-    this.sectionError.set('');
-    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => {
-        onSuccess(res);
-        this.sectionBusy.set(false);
-      },
-      error: () => {
-        this.sectionError.set(errorMessage);
-        this.sectionBusy.set(false);
-      },
-    });
+  private runSection<T>(call: Observable<T>, onSuccess: (res: T) => void, errorMessage = 'Something went wrong. Please try again.'): void {
+    this.sectionBusy.set(true); this.sectionError.set('');
+    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (res) => { onSuccess(res); this.sectionBusy.set(false); }, error: () => { this.sectionError.set(errorMessage); this.sectionBusy.set(false); } });
   }
 
   protected join(a: DoctorAppointmentDto): void {
@@ -876,64 +884,44 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   // ----- Lifecycle actions -----
-  protected canConfirm(s: string): boolean {
-    return s === 'pending' || s === 'rescheduled';
-  }
-  protected canReschedule(s: string): boolean {
-    return ['pending', 'confirmed', 'rescheduled'].includes(s);
-  }
-  protected canCancel(s: string): boolean {
-    return ['pending', 'confirmed', 'rescheduled'].includes(s);
-  }
-  protected toggleReschedule(): void {
-    this.rescheduleOpen.update((v) => !v);
-    this.actionError.set('');
-  }
-  protected confirm(): void {
-    this.runAction(this.api.confirm(this.id));
-  }
+  protected canReschedule(s: string): boolean { return ['pending', 'confirmed', 'rescheduled'].includes(s); }
+  protected canCancel(s: string): boolean { return ['pending', 'confirmed', 'rescheduled'].includes(s); }
+  protected toggleReschedule(): void { this.rescheduleOpen.update((v) => !v); this.actionError.set(''); }
+  protected confirm(): void { this.runAction(this.api.confirm(this.id)); }
   protected decline(): void {
-    if (!window.confirm('Decline this appointment? Any payment will be refunded to the patient.')) return;
+    if (!window.confirm('Cancel this appointment? Any payment will be refunded to the patient.')) return;
     this.runAction(this.api.decline(this.id));
   }
   protected submitReschedule(): void {
-    if (this.rescheduleAt().trim() === '') {
-      this.actionError.set('Choose a new date and time.');
-      return;
-    }
-    this.runAction(
-      this.api.reschedule(this.id, new Date(this.rescheduleAt()).toISOString()),
-      () => this.rescheduleOpen.set(false),
-    );
+    if (this.rescheduleAt().trim() === '') { this.actionError.set('Choose a new date and time.'); return; }
+    this.runAction(this.api.reschedule(this.id, new Date(this.rescheduleAt()).toISOString()), () => this.rescheduleOpen.set(false));
   }
   private runAction(call: Observable<SuccessResponse<AppointmentDto>>, onOk?: () => void): void {
-    this.actionBusy.set(true);
-    this.actionError.set('');
+    this.actionBusy.set(true); this.actionError.set('');
     call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => {
-        this.appt.update((a) =>
-          a ? { ...a, status: res.data.status, status_label: res.data.status_label, scheduled_at: res.data.scheduled_at } : a,
-        );
-        this.actionBusy.set(false);
-        onOk?.();
-      },
-      error: (err) => {
-        this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.'));
-        this.actionBusy.set(false);
-      },
+      next: (res) => { this.appt.update((a) => (a ? { ...a, status: res.data.status, status_label: res.data.status_label, scheduled_at: res.data.scheduled_at } : a)); this.actionBusy.set(false); onOk?.(); },
+      error: (err) => { this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.')); this.actionBusy.set(false); },
     });
   }
 
-  protected statusClass(status: string): string {
-    return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
-  }
-  protected consentLabel(type: string): string {
-    return type === 'ai_transcription' ? 'AI transcription' : type === 'data_sharing' ? 'Data sharing' : 'Recording';
-  }
-  protected when(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
-  }
-  protected date(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+  // ----- Helpers -----
+  protected statusClass(status: string): string { return STATUS_CLASS[status] ?? 'bg-cloud text-slate'; }
+  protected consentLabel(type: string): string { return type === 'ai_transcription' ? 'AI transcription' : type === 'data_sharing' ? 'Data sharing' : 'Recording'; }
+  protected initialsFor(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase(); }
+  protected medLine(m: { dosage: string; frequency: string }): string { return [m.dosage, m.frequency].filter(Boolean).join(', '); }
+  protected money(amount: string): string { const n = Number(amount); return '₦' + (isNaN(n) ? '0' : n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }
+  protected dateLabel(iso: string): string { return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)); }
+  protected time(iso: string): string { return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso)); }
+  protected shortDate(iso: string): string { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso)); }
+  protected date(iso: string): string { return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)); }
+  private ageFrom(dob: string | null | undefined): number | null {
+    if (!dob) return null;
+    const d = new Date(dob);
+    if (isNaN(d.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+    return age >= 0 && age < 130 ? age : null;
   }
 }

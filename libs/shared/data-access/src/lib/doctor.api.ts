@@ -23,6 +23,7 @@ import type {
   DoctorProfileDto,
   DoctorProfileUpdate,
   DoctorRecordingStateDto,
+  MedicalDocumentDto,
   DoctorScheduleDto,
   EarningsSummaryDto,
   EarningsTxnDto,
@@ -138,6 +139,20 @@ export class DoctorApi {
   patient(id: string): Observable<SuccessResponse<DoctorPatientRecordDto>> {
     return this.api.get<SuccessResponse<DoctorPatientRecordDto>>(
       `api/doctor/patients/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** GET .../patient-documents — the patient's uploaded files for this consultation. */
+  patientDocuments(id: string): Observable<SuccessResponse<MedicalDocumentDto[]>> {
+    return this.api.get<SuccessResponse<MedicalDocumentDto[]>>(
+      `${this.base(id)}/patient-documents`,
+    );
+  }
+
+  /** GET a patient document's bytes (authenticated) for preview/download. */
+  patientDocumentBlob(id: string, docId: string): Observable<Blob> {
+    return this.api.getBlob(
+      `${this.base(id)}/patient-documents/${encodeURIComponent(docId)}/file`,
     );
   }
 
