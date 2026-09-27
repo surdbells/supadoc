@@ -288,13 +288,10 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
-    try {
-      await firstValueFrom(this.authApi.logout());
-    } catch {
-      /* clear the local session regardless of the network result */
-    } finally {
-      this.clear();
-    }
+    // There is no server logout endpoint on apps/api (tokens are stateless and
+    // expire on their own), so clear the local session directly instead of firing
+    // a request that 404s and blocks the sign-out on a failed round-trip.
+    this.clear();
   }
 
   private clear(): void {

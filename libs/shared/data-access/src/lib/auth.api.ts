@@ -202,8 +202,4 @@ export class AuthApi {
       { refresh_token: refreshToken },
     );
   }
-
-  logout(): Observable<unknown> {
-    return this.api.post('api/Auth/logout', {});
-  }
 }

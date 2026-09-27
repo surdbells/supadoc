@@ -30,6 +30,12 @@ import { IconComponent } from '@supadoc/ui';
         <input class="w-full rounded-field border border-cloud bg-white py-2 pl-9 pr-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none" placeholder="Search by name or email…" [value]="search()" (input)="search.set($any($event.target).value)" (keydown.enter)="apply()" />
       </div>
 
+      @if (error() && items().length === 0) {
+        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+          <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+        </div>
+      } @else {
       <div class="overflow-x-auto rounded-card border border-cloud bg-white">
         <table class="w-full min-w-[560px] text-left">
           <thead class="border-b border-cloud font-sans text-caption text-slate">
@@ -60,6 +66,7 @@ import { IconComponent } from '@supadoc/ui';
       @if (hasMore()) {
         <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
       }
+      }
     </div>
   `,
 })
@@ -70,6 +77,7 @@ export class DoctorPatients implements OnInit {
   protected readonly items = signal<DoctorPatientListItemDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly hasMore = signal(false);
+  protected readonly error = signal('');
   protected readonly search = signal('');
   private page = 1;
 
@@ -89,6 +97,7 @@ export class DoctorPatients implements OnInit {
 
   private fetch(): void {
     this.loading.set(true);
+    this.error.set('');
     this.api
       .patients({ page: this.page, per_page: 20, search: this.search().trim() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -98,7 +107,11 @@ export class DoctorPatients implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          if (this.page > 1) this.page -= 1;
+          this.error.set('Could not load your patients. Please try again.');
+          this.loading.set(false);
+        },
       });
   }
 

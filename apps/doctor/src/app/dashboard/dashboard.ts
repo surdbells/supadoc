@@ -317,7 +317,7 @@ export class DoctorDashboard implements OnInit {
     { label: 'Patients', subtitle: 'View and manage your patient roster', icon: 'users', tint: 'bg-cerulean/10 text-cerulean', link: '/patients' },
     { label: 'Consultation History', subtitle: 'Review your past consultations', icon: 'calendar-clock', tint: 'bg-sage/15 text-sage', link: '/appointments/history' },
     { label: 'My Appointments', subtitle: 'View and manage your appointments', icon: 'calendar-days', tint: 'bg-cerulean/10 text-cerulean', link: '/schedule' },
-    { label: 'History', subtitle: 'Review your past consultation', icon: 'history', tint: 'bg-sage/15 text-sage', link: '/appointments/history' },
+    { label: 'Reviews', subtitle: 'See what your patients are saying', icon: 'star', tint: 'bg-warning/15 text-warning', link: '/reviews' },
   ];
 
   ngOnInit(): void {

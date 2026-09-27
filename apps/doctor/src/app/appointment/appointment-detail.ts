@@ -195,25 +195,10 @@ const FIELD =
           @case ('overview') {
             @if (loadingRecord()) {
               <div class="sd-shimmer h-40 rounded-card"></div>
-            } @else if (medications().length === 0 && vitals().length === 0) {
+            } @else if (medications().length === 0) {
               <ng-container [ngTemplateOutlet]="unavailable" />
             } @else {
               <div class="flex flex-col gap-6">
-                <section class="flex flex-col gap-3">
-                  <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="activity" [size]="20" class="text-cerulean" />Vitals</h2>
-                  @if (vitals().length) {
-                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      @for (v of vitals(); track v.label) {
-                        <div class="flex flex-col gap-1 rounded-card border border-cloud p-4">
-                          <span class="font-sans text-caption text-slate">{{ v.label }}</span>
-                          <span class="font-heading text-h5 text-ink">{{ v.value }}</span>
-                        </div>
-                      }
-                    </div>
-                  } @else {
-                    <p class="rounded-card bg-glacier px-4 py-3 font-sans text-body-sm text-slate">No vitals recorded for this visit yet.</p>
-                  }
-                </section>
                 <section class="flex flex-col gap-3">
                   <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="20" class="text-cerulean" />Current Medication</h2>
                   @if (medications().length) {
@@ -272,10 +257,6 @@ const FIELD =
                       }
                     </ul>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
-                </section>
-                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
-                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="triangle-alert" [size]="18" class="text-cerulean" />Family Medical History</h3>
-                  <p class="font-sans text-body-sm text-slate">Not recorded.</p>
                 </section>
               </div>
             }
@@ -621,7 +602,6 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly conditions = computed(() => this.patientRecord()?.medical?.conditions ?? []);
   protected readonly allergies = computed(() => this.patientRecord()?.medical?.allergies ?? []);
   protected readonly pastHistory = computed(() => this.patientRecord()?.medical?.history ?? []);
-  protected readonly vitals = computed<{ label: string; value: string }[]>(() => []);
   protected readonly pastVisits = computed(() =>
     (this.patientRecord()?.appointments ?? []).filter(
       (a) => a.id !== this.id && new Date(a.scheduled_at).getTime() < this.now(),

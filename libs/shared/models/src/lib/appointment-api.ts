@@ -243,6 +243,8 @@ export interface CallTokenDto {
  * present when `you.role === 'doctor'` — a guest's join link never carries it.
  */
 export interface JoinPatientSummary {
+  /** Present on the doctor-gated payload — lets the doctor open the full record. */
+  id?: string;
   name: string;
   date_of_birth: string | null;
   gender: string | null;

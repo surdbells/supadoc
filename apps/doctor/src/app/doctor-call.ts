@@ -251,13 +251,15 @@ type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
             }
           </div>
 
-          <button
-            type="button"
-            class="flex items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
-            (click)="leave()"
-          >
-            <sd-icon name="file-text" [size]="16" /> View Full EMR
-          </button>
+          @if (info()?.patient?.id) {
+            <button
+              type="button"
+              class="flex items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
+              (click)="openRecord()"
+            >
+              <sd-icon name="file-text" [size]="16" /> View Full EMR
+            </button>
+          }
         </aside>
 
         <!-- ===================== STAGE ===================== -->
@@ -1845,6 +1847,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected async leave(): Promise<void> {
     await this.teardown();
     void this.router.navigate(['/']);
+  }
+
+  /** Open the patient's full record in a NEW tab — without leaving the live call. */
+  protected openRecord(): void {
+    const id = this.info()?.patient?.id;
+    if (id) window.open('/patients/' + encodeURIComponent(id), '_blank', 'noopener');
   }
 
   /** Report an RTC quality sample every 15s for back-office monitoring. */

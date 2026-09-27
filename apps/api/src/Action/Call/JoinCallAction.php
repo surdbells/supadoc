@@ -67,6 +67,7 @@ final class JoinCallAction
             $pa      = $patient->toArray();
             $medical = $patient->getMedical();
             $meeting['patient'] = [
+                'id'            => (string) $pa['id'],
                 'name'          => trim(((string) $pa['first_name']) . ' ' . ((string) $pa['last_name'])),
                 'date_of_birth' => $pa['date_of_birth'],
                 'gender'        => $pa['gender'],
