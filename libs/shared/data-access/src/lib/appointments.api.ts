@@ -70,6 +70,17 @@ export class AppointmentsApi {
     );
   }
 
+  /** POST /api/portal/appointments/{id}/reschedule — move the booking to a new time. */
+  reschedule(
+    id: string,
+    scheduledAt: string,
+  ): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/reschedule`,
+      { scheduled_at: scheduledAt },
+    );
+  }
+
   /** POST /api/portal/appointments/{id}/review — rate a completed consultation. */
   review(
     id: string,

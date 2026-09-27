@@ -1745,6 +1745,25 @@ return [
                 ],
             ],
         ],
+        '/api/portal/appointments/{id}/reschedule' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Reschedule one of the patient\'s own appointments',
+                'description' => 'Moves the booking to a new, still-open slot and notifies both parties.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['scheduled_at'],
+                    'properties' => ['scheduled_at' => ['type' => 'string', 'format' => 'date-time']],
+                ])],
+                'responses'   => [
+                    '200' => ['description' => 'Rescheduled', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/appointments/{id}/review' => [
             'post' => [
                 'tags'        => ['Portal'],

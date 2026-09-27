@@ -22,10 +22,12 @@ import {
   apiErrorMessage,
   AppointmentsApi,
   openClinicalDocument,
+  SpecialistsApi,
 } from '@supadoc/data-access';
 import type {
   AppointmentDto,
   ClinicalDocumentKind,
+  DayAvailability,
   MessageDto,
 } from '@supadoc/models';
 import { ButtonComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
@@ -44,6 +46,7 @@ interface SharedDoc {
 
 interface DetailsVm {
   readonly id: string;
+  readonly specialistId: string;
   readonly name: string;
   readonly specialty: string;
   readonly date: string;
@@ -82,6 +85,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
   const when = new Date(a.scheduled_at);
   return {
     id: a.id,
+    specialistId: a.specialist.id,
     name: a.specialist.name,
     specialty: a.specialist.specialty ?? '',
     date: new Intl.DateTimeFormat('en-GB', {
@@ -244,9 +248,11 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   <sd-icon name="video" [size]="18" />
                   Join Consultation
                 </sd-button>
-                <sd-button variant="outline" [full]="true"
-                  >Reschedule Appointment</sd-button
-                >
+                @if (v.canCancel) {
+                  <sd-button variant="outline" [full]="true" (click)="openReschedule(v)"
+                    >Reschedule Appointment</sd-button
+                  >
+                }
                 @if (v.canCancel) {
                   <button
                     type="button"
@@ -405,12 +411,53 @@ function toDetails(a: AppointmentDto): DetailsVm {
         </div>
       </div>
     }
+
+    @if (rescheduleOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="rescheduleOpen.set(false)"></button>
+        <div class="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
+          <div class="flex items-center justify-between">
+            <h3 class="font-heading text-h5 text-ink">Reschedule appointment</h3>
+            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="rescheduleOpen.set(false)"><sd-icon name="x" [size]="24" /></button>
+          </div>
+
+          @if (rescheduleLoading()) {
+            <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
+          } @else if (rescheduleDays().length === 0) {
+            <p class="font-sans text-body-sm text-slate">This specialist has no open slots in the next couple of weeks. Please try again later.</p>
+          } @else {
+            <div class="flex flex-wrap gap-2">
+              @for (d of rescheduleDays(); track d.date) {
+                <button type="button" class="rounded-field border px-3 py-2 font-sans text-caption font-semibold transition-colors" [class]="selectedDay()?.date === d.date ? 'border-cerulean bg-frost text-cerulean' : 'border-cloud text-slate hover:border-cerulean/40'" (click)="selectDay(d)">
+                  {{ d.weekday }} {{ d.day }}
+                </button>
+              }
+            </div>
+            @if (selectedDay(); as d) {
+              <div class="grid grid-cols-3 gap-2">
+                @for (s of d.slots; track s.iso) {
+                  <button type="button" class="rounded-field border px-2 py-2 font-sans text-caption font-medium transition-colors" [class]="selectedIso() === s.iso ? 'border-cerulean bg-frost text-cerulean' : 'border-cloud text-ink hover:border-cerulean/40'" (click)="selectedIso.set(s.iso)">
+                    {{ s.label }}
+                  </button>
+                }
+              </div>
+            }
+          }
+
+          @if (rescheduleError()) { <p class="font-sans text-caption text-alert">{{ rescheduleError() }}</p> }
+          <sd-button [full]="true" [disabled]="rescheduling() || !selectedIso()" (click)="submitReschedule()">
+            {{ rescheduling() ? 'Rescheduling…' : 'Confirm new time' }}
+          </sd-button>
+        </div>
+      </div>
+    }
   `,
 })
 export class AppointmentDetails {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly appointments = inject(AppointmentsApi);
+  private readonly specialists = inject(SpecialistsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly cancelling = signal(false);
@@ -530,6 +577,66 @@ export class AppointmentDetails {
 
   protected joinCall(id: string): void {
     void this.router.navigate(['/dashboard/call', id]);
+  }
+
+  // Reschedule
+  protected readonly rescheduleOpen = signal(false);
+  protected readonly rescheduleLoading = signal(false);
+  protected readonly rescheduleDays = signal<DayAvailability[]>([]);
+  protected readonly selectedDay = signal<DayAvailability | null>(null);
+  protected readonly selectedIso = signal('');
+  protected readonly rescheduling = signal(false);
+  protected readonly rescheduleError = signal('');
+
+  protected openReschedule(v: DetailsVm): void {
+    this.rescheduleOpen.set(true);
+    this.rescheduleError.set('');
+    this.selectedDay.set(null);
+    this.selectedIso.set('');
+    this.rescheduleDays.set([]);
+    this.rescheduleLoading.set(true);
+    this.specialists
+      .slots(v.specialistId, 14)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.rescheduleDays.set(res.data);
+          this.selectedDay.set(res.data[0] ?? null);
+          this.rescheduleLoading.set(false);
+        },
+        error: () => {
+          this.rescheduleError.set('Could not load available times. Please try again.');
+          this.rescheduleLoading.set(false);
+        },
+      });
+  }
+
+  protected selectDay(d: DayAvailability): void {
+    this.selectedDay.set(d);
+    this.selectedIso.set('');
+  }
+
+  protected submitReschedule(): void {
+    const id = this.vm()?.id;
+    const iso = this.selectedIso();
+    if (!id || !iso || this.rescheduling()) return;
+    this.rescheduling.set(true);
+    this.rescheduleError.set('');
+    this.appointments
+      .reschedule(id, iso)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.override.set(res.data);
+          this.rescheduling.set(false);
+          this.rescheduleOpen.set(false);
+          this.notice.set({ ok: true, text: 'Appointment rescheduled to your new time.' });
+        },
+        error: (err) => {
+          this.rescheduling.set(false);
+          this.rescheduleError.set(apiErrorMessage(err, 'Could not reschedule. Please pick another slot.'));
+        },
+      });
   }
 
   protected submitReview(): void {

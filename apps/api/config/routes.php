@@ -304,6 +304,7 @@ return static function (App $app): void {
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->post('/appointments/{id}/cancel', Action\Appointment\CancelMyAppointmentAction::class);
+            $group->post('/appointments/{id}/reschedule', Action\Appointment\ReschedulePortalAppointmentAction::class);
             $group->post('/appointments/{id}/review', Action\Patient\SubmitReviewAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
