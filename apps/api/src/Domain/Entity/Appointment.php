@@ -214,4 +214,25 @@ class Appointment
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }
+
+    /**
+     * Admin serialisation — the base shape plus the patient's identity, so the
+     * back-office can show WHO booked each appointment. Kept separate from
+     * toArray() so the patient-facing /portal responses don't leak other data.
+     *
+     * @return array<string,mixed>
+     */
+    public function toAdminArray(): array
+    {
+        $p = $this->patient->toArray();
+
+        return $this->toArray() + [
+            'patient' => [
+                'id'    => $this->patient->getId(),
+                'name'  => trim(((string) ($p['first_name'] ?? '')) . ' ' . ((string) ($p['last_name'] ?? ''))),
+                'email' => $p['email'] ?? null,
+                'phone' => $p['phone'] ?? null,
+            ],
+        ];
+    }
 }

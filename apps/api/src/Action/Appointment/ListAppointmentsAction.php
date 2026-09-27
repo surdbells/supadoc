@@ -37,7 +37,7 @@ final class ListAppointmentsAction
 
         return $this->paginated(
             $response,
-            array_map(static fn ($a) => $a->toArray(), $result['items']),
+            array_map(static fn ($a) => $a->toAdminArray(), $result['items']),
             $result['total'],
             $p['page'],
             $p['per_page'],

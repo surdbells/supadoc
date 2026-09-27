@@ -24,10 +24,20 @@ export interface GuestInvite {
   email: string;
 }
 
+/** Patient identity on the admin appointment payload (Appointment::toAdminArray). */
+export interface AppointmentPatientRef {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+}
+
 /** One appointment as serialised by `Appointment::toArray()`. */
 export interface AppointmentDto {
   id: string;
   patient_id: string;
+  /** Present on admin endpoints (toAdminArray) — who booked the appointment. */
+  patient?: AppointmentPatientRef;
   specialist: ApiSpecialistRef;
   scheduled_at: string;
   type: string;
@@ -118,6 +128,22 @@ export interface UpdateSpecialistParams {
   email?: string | null;
   consultation_fee?: string;
   photo_url?: string | null;
+  available?: boolean;
+  verified?: boolean;
+}
+
+/** Body for POST /api/specialists — onboard a new specialist (back office). */
+export interface CreateSpecialistParams {
+  name: string;
+  specialty: string;
+  email?: string;
+  consultation_fee?: string;
+  bio?: string;
+  languages?: string;
+  location?: string;
+  years_experience?: number | string;
+  gender?: 'male' | 'female' | '';
+  photo_url?: string;
   available?: boolean;
   verified?: boolean;
 }

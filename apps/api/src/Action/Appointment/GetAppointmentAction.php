@@ -25,6 +25,6 @@ final class GetAppointmentAction
     ): ResponseInterface {
         $appointment = $this->repo->findOrFail((string) $args['id']);
 
-        return $this->success($response, $appointment->toArray());
+        return $this->success($response, $appointment->toAdminArray());
     }
 }

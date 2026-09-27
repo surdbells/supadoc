@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  CreateSpecialistParams,
   DayAvailability,
   ListAppointmentsQuery,
   PaginatedResponse,
@@ -104,6 +105,19 @@ export class SpecialistsApi {
    */
   listAdmin(): Observable<SuccessResponse<SpecialistAdminDto[]>> {
     return this.api.get<SuccessResponse<SpecialistAdminDto[]>>('api/specialists');
+  }
+
+  /**
+   * POST /api/specialists — onboard a new specialist from the back office.
+   * Staff-scoped (needs `specialists.manage`).
+   */
+  createAdmin(
+    params: CreateSpecialistParams,
+  ): Observable<SuccessResponse<SpecialistAdminDto>> {
+    return this.api.post<SuccessResponse<SpecialistAdminDto>>(
+      'api/specialists',
+      params,
+    );
   }
 
   /**

@@ -65,6 +65,7 @@ const FILTERS: Filter[] = [
         <table class="w-full min-w-[720px] text-left">
           <thead class="border-b border-cloud font-sans text-caption text-slate">
             <tr>
+              <th class="px-4 py-3">Patient</th>
               <th class="px-4 py-3">Specialist</th>
               <th class="px-4 py-3">Scheduled</th>
               <th class="px-4 py-3">Type</th>
@@ -77,6 +78,10 @@ const FILTERS: Filter[] = [
           <tbody>
             @for (a of items(); track a.id) {
               <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
+                <td class="px-4 py-3">
+                  <span class="font-medium">{{ a.patient?.name || '—' }}</span>
+                  <span class="block text-caption text-slate">{{ a.patient?.email }}</span>
+                </td>
                 <td class="px-4 py-3">
                   <span class="font-medium">{{ a.specialist.name }}</span>
                   <span class="block text-caption text-slate">{{ a.specialist.specialty }}</span>
@@ -91,7 +96,7 @@ const FILTERS: Filter[] = [
                 </td>
               </tr>
             } @empty {
-              <tr><td colspan="7" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No appointments.' }}</td></tr>
+              <tr><td colspan="8" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No appointments.' }}</td></tr>
             }
           </tbody>
         </table>

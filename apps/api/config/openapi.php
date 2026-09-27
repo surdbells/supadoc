@@ -1554,6 +1554,35 @@ return [
                     '403' => ['description' => 'Missing specialists.manage'],
                 ],
             ],
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Onboard a new specialist (back office)',
+                'description' => 'Requires specialists.manage. Name + specialty required; other fields optional.',
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['name', 'specialty'],
+                    'properties' => [
+                        'name'             => ['type' => 'string'],
+                        'specialty'        => ['type' => 'string'],
+                        'email'            => ['type' => 'string', 'format' => 'email', 'nullable' => true],
+                        'consultation_fee' => ['type' => 'string', 'example' => '15000.00'],
+                        'bio'              => ['type' => 'string'],
+                        'languages'        => ['type' => 'string'],
+                        'location'         => ['type' => 'string'],
+                        'years_experience' => ['type' => 'integer'],
+                        'gender'           => ['type' => 'string', 'enum' => ['male', 'female']],
+                        'photo_url'        => ['type' => 'string', 'nullable' => true],
+                        'available'        => ['type' => 'boolean'],
+                        'verified'         => ['type' => 'boolean'],
+                    ],
+                ])],
+                'responses'   => [
+                    '201' => ['description' => 'Created'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing specialists.manage'],
+                ],
+            ],
         ],
         '/api/specialists/{id}' => [
             'patch' => [

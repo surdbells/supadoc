@@ -149,8 +149,10 @@ return static function (App $app): void {
             $group->patch('/settings/pricing', Action\Settings\UpdatePricingAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
 
-            // Back-office: list + edit specialists (incl. their contact email).
+            // Back-office: list + create + edit specialists (incl. their contact email).
             $group->get('/specialists', Action\Specialist\ListSpecialistsAdminAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists', Action\Specialist\CreateSpecialistAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
             $group->patch('/specialists/{id}', Action\Specialist\UpdateSpecialistAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));

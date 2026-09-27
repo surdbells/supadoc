@@ -62,6 +62,8 @@ const STATUS_LABEL: Record<string, string> = {
           </div>
 
           <dl class="grid grid-cols-1 gap-x-8 gap-y-2 font-sans text-body-sm sm:grid-cols-2">
+            <div class="flex justify-between gap-4"><dt class="text-slate">Patient</dt><dd class="text-ink">{{ a.patient?.name || '—' }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-slate">Patient email</dt><dd class="text-ink">{{ a.patient?.email || '—' }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Scheduled</dt><dd class="text-ink">{{ when(a.scheduled_at) }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Type</dt><dd class="text-ink">{{ a.type_label }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Payment</dt><dd class="capitalize text-ink">{{ a.payment_status || '—' }}</dd></div>

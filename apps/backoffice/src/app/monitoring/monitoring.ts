@@ -77,6 +77,11 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
               </tbody>
             </table>
           </div>
+          @if (consultationsHasMore()) {
+            <button type="button" class="mx-auto mt-4 block rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loadingMore()" (click)="loadMoreConsultations()">
+              {{ loadingMore() ? 'Loading…' : 'Load more' }}
+            </button>
+          }
         }
         @case ('quality') {
           <div class="flex flex-col gap-3">
@@ -199,6 +204,9 @@ export class AdminMonitoring implements OnInit {
   private readonly loaded = new Set<TabKey>();
 
   protected readonly consultations = signal<MonitoringConsultationRow[]>([]);
+  protected readonly consultationsPage = signal(1);
+  protected readonly consultationsHasMore = signal(false);
+  protected readonly loadingMore = signal(false);
   protected readonly quality = signal<MonitoringQualityDto | null>(null);
   protected readonly recordings = signal<RecordingDto[]>([]);
 
@@ -234,12 +242,31 @@ export class AdminMonitoring implements OnInit {
     this.loading.set(true);
     const done = () => this.loading.set(false);
     if (tab === 'consultations') {
-      this.api.consultations({ per_page: 25 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.consultations.set(r.data); done(); }, error: done });
+      this.consultationsPage.set(1);
+      this.api.consultations({ page: 1, per_page: 25 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.consultations.set(r.data); this.consultationsHasMore.set(r.meta.page < r.meta.total_pages); done(); },
+        error: done,
+      });
     } else if (tab === 'quality') {
       this.api.quality().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.quality.set(r.data); done(); }, error: done });
     } else {
       this.api.recordings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.recordings.set(r.data); done(); }, error: done });
     }
+  }
+
+  protected loadMoreConsultations(): void {
+    if (this.loadingMore()) return;
+    this.loadingMore.set(true);
+    const next = this.consultationsPage() + 1;
+    this.api.consultations({ page: next, per_page: 25 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.consultations.update((list) => [...list, ...r.data]);
+        this.consultationsPage.set(r.meta.page);
+        this.consultationsHasMore.set(r.meta.page < r.meta.total_pages);
+        this.loadingMore.set(false);
+      },
+      error: () => this.loadingMore.set(false),
+    });
   }
 
   protected qualityLabel(q: number | undefined): { text: string; cls: string } {
