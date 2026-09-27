@@ -12,6 +12,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -30,6 +31,7 @@ final class DeclineDoctorAppointmentAction
         private readonly AppointmentRepository $appointments,
         private readonly AppointmentPaymentService $payments,
         private readonly MailService $mail,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -58,6 +60,7 @@ final class DeclineDoctorAppointmentAction
         $this->appointments->save($appointment);
 
         $this->notify($appointment);
+        $this->patientNotifier->appointment($appointment, 'Appointment declined', 'Unfortunately your appointment was declined and any payment refunded.');
 
         return $this->success($response, $appointment->toArray(), 'Appointment declined');
     }

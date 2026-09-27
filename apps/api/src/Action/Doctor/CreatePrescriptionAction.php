@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Entity\Prescription;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -28,6 +30,7 @@ final class CreatePrescriptionAction
         private readonly AppointmentRepository $appointments,
         private readonly PrescriptionRepository $prescriptions,
         private readonly AuditLogger $audit,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -64,6 +67,13 @@ final class CreatePrescriptionAction
             'prescription',
             $prescription->getId(),
             ['items' => count($prescription->getItems())],
+        );
+
+        $this->patientNotifier->notify(
+            $appointment->getPatient(),
+            NotificationType::PRESCRIPTION,
+            'New prescription',
+            'A new prescription from ' . $author . ' is now available in your documents.',
         );
 
         return $this->success($response, $prescription->toArray(), 'Prescription issued', 201)

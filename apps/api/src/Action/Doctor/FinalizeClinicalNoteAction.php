@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Entity\ClinicalNote;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\ClinicalNoteRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -28,6 +30,7 @@ final class FinalizeClinicalNoteAction
         private readonly AppointmentRepository $appointments,
         private readonly ClinicalNoteRepository $notes,
         private readonly AuditLogger $audit,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -71,6 +74,16 @@ final class FinalizeClinicalNoteAction
             'clinical_note',
             $note->getId(),
         );
+
+        // Tell the patient their summary is ready on first finalize only (not on amends).
+        if (!$wasFinalized) {
+            $this->patientNotifier->notify(
+                $appointment->getPatient(),
+                NotificationType::APPOINTMENT,
+                'Consultation summary ready',
+                'Your consultation summary from ' . $author . ' is now available.',
+            );
+        }
 
         return $this->success($response, $note->toArray(), 'Consultation finalized')
             ->withHeader('Cache-Control', 'no-store');

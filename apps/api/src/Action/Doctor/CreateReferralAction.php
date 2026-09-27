@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Entity\Referral;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -27,6 +29,7 @@ final class CreateReferralAction
         private readonly AppointmentRepository $appointments,
         private readonly ReferralRepository $referrals,
         private readonly AuditLogger $audit,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -73,6 +76,13 @@ final class CreateReferralAction
             'referral',
             $referral->getId(),
             ['target' => $referral->getTarget()],
+        );
+
+        $this->patientNotifier->notify(
+            $appointment->getPatient(),
+            NotificationType::SYSTEM,
+            'New referral',
+            'You have been referred to ' . $referral->getTarget() . '.',
         );
 
         return $this->success($response, $referral->toArray(), 'Referral created', 201)

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Entity\LabOrder;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -28,6 +30,7 @@ final class CreateLabOrderAction
         private readonly AppointmentRepository $appointments,
         private readonly LabOrderRepository $orders,
         private readonly AuditLogger $audit,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -64,6 +67,13 @@ final class CreateLabOrderAction
             'lab_order',
             $order->getId(),
             ['tests' => count($order->getTests())],
+        );
+
+        $this->patientNotifier->notify(
+            $appointment->getPatient(),
+            NotificationType::SYSTEM,
+            'New lab order',
+            $author . ' ordered ' . count($order->getTests()) . ' test(s) for you.',
         );
 
         return $this->success($response, $order->toArray(), 'Lab order created', 201)

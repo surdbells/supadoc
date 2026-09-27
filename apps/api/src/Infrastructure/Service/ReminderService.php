@@ -44,6 +44,7 @@ final class ReminderService
         private readonly NotificationRepository $notifications,
         private readonly MailService $mail,
         private readonly JwtService $jwt,
+        private readonly StaffNotifier $staff,
         array $offsets,
     ) {
         $clean = array_values(array_unique(array_filter(
@@ -138,6 +139,15 @@ final class ReminderService
         } catch (\Throwable) {
             // non-fatal.
         }
+
+        // In-app companion notification for the doctor (best-effort).
+        $this->staff->notifyDoctor(
+            $specialist->getId(),
+            'appointment',
+            'Consultation reminder',
+            sprintf('Your %s with %s is %s.', $appt['type_label'], $patientName !== '' ? $patientName : 'a patient', $whenLabel),
+            '/schedule',
+        );
 
         return $count;
     }

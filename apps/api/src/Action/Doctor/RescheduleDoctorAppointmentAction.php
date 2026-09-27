@@ -11,6 +11,7 @@ use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\PatientNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -29,6 +30,7 @@ final class RescheduleDoctorAppointmentAction
         private readonly UserRepository $users,
         private readonly AppointmentRepository $appointments,
         private readonly MailService $mail,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -67,6 +69,7 @@ final class RescheduleDoctorAppointmentAction
         $this->appointments->save($appointment);
 
         $this->notify($appointment);
+        $this->patientNotifier->appointment($appointment, 'Appointment rescheduled', 'Your appointment has been moved to a new time.');
 
         return $this->success($response, $appointment->toArray(), 'Appointment rescheduled');
     }

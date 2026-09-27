@@ -11,6 +11,7 @@ use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -28,6 +29,7 @@ final class ConfirmDoctorAppointmentAction
         private readonly UserRepository $users,
         private readonly AppointmentRepository $appointments,
         private readonly MailService $mail,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -55,6 +57,7 @@ final class ConfirmDoctorAppointmentAction
         $this->appointments->save($appointment);
 
         $this->notifyConfirmed($appointment);
+        $this->patientNotifier->appointment($appointment, 'Appointment confirmed', 'Your appointment is confirmed.');
 
         return $this->success($response, $appointment->toArray(), 'Appointment confirmed');
     }

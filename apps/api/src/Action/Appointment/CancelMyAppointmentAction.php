@@ -11,6 +11,8 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\PatientNotifier;
+use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -27,6 +29,8 @@ final class CancelMyAppointmentAction
         private readonly AppointmentRepository $appointments,
         private readonly AppointmentPaymentService $payments,
         private readonly MailService $mail,
+        private readonly PatientNotifier $patientNotifier,
+        private readonly StaffNotifier $staffNotifier,
     ) {
     }
 
@@ -57,8 +61,25 @@ final class CancelMyAppointmentAction
         $this->appointments->save($appointment);
 
         $this->notifyCancelled($appointment);
+        $this->patientNotifier->appointment($appointment, 'Appointment cancelled', 'Your appointment was cancelled and any wallet payment refunded.');
+        $this->notifyDoctor($appointment);
 
         return $this->success($response, $appointment->toArray(), 'Appointment cancelled');
+    }
+
+    /** Tell the assigned doctor their slot reopened (in-app; best-effort). */
+    private function notifyDoctor(Appointment $appointment): void
+    {
+        $appt        = $appointment->toArray();
+        $p           = $appointment->getPatient()->toArray();
+        $patientName = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? ''));
+        $this->staffNotifier->notifyDoctor(
+            $appointment->getSpecialist()->getId(),
+            'appointment',
+            'Booking cancelled',
+            ($patientName !== '' ? $patientName : 'A patient') . ' cancelled their ' . (string) $appt['type_label'] . '.',
+            '/schedule',
+        );
     }
 
     /** Fire-and-forget cancellation email to the patient. */

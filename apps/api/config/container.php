@@ -46,6 +46,7 @@ use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\CopilotService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\EarningsService;
+use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\ReminderService;
 use App\Infrastructure\Service\StaffNotifier;
 use App\Infrastructure\Service\FirebaseIdTokenVerifier;
@@ -149,6 +150,7 @@ return [
         $c->get(NotificationRepository::class),
         $c->get(MailService::class),
         $c->get(JwtService::class),
+        $c->get(StaffNotifier::class),
         // Minutes-before offsets for join reminders (largest first); default 24h + 1h.
         array_values(array_filter(array_map(
             static fn (string $x): int => (int) trim($x),
@@ -312,6 +314,9 @@ return [
         $c->get(StaffNotificationRepository::class),
         $c->get(UserRepository::class),
     ),
+
+    PatientNotifier::class => static fn (ContainerInterface $c): PatientNotifier =>
+        new PatientNotifier($c->get(NotificationRepository::class)),
 
     ClinicalNoteRepository::class => static fn (ContainerInterface $c): ClinicalNoteRepository =>
         new ClinicalNoteRepository($c->get(EntityManagerInterface::class)),

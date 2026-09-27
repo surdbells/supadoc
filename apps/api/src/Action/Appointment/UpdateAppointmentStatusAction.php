@@ -10,6 +10,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -30,6 +31,7 @@ final class UpdateAppointmentStatusAction
     public function __construct(
         private readonly AppointmentRepository $repo,
         private readonly MailService $mail,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -82,6 +84,11 @@ final class UpdateAppointmentStatusAction
         $this->repo->save($appointment);
 
         $this->notifyPatient($appointment);
+        $this->patientNotifier->appointment(
+            $appointment,
+            'Appointment ' . $appointment->getStatus()->label(),
+            'The status of your appointment changed to ' . $appointment->getStatus()->label() . '.',
+        );
 
         return $this->success($response, $appointment->toArray(), 'Status updated');
     }

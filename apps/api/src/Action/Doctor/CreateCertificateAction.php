@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Entity\MedicalCertificate;
+use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -28,6 +30,7 @@ final class CreateCertificateAction
         private readonly AppointmentRepository $appointments,
         private readonly MedicalCertificateRepository $certificates,
         private readonly AuditLogger $audit,
+        private readonly PatientNotifier $patientNotifier,
     ) {
     }
 
@@ -74,6 +77,13 @@ final class CreateCertificateAction
             'certificate',
             $certificate->getId(),
             ['type' => $type],
+        );
+
+        $this->patientNotifier->notify(
+            $appointment->getPatient(),
+            NotificationType::SYSTEM,
+            'New medical certificate',
+            $author . ' issued a medical certificate for you.',
         );
 
         return $this->success($response, $certificate->toArray(), 'Certificate issued', 201)
