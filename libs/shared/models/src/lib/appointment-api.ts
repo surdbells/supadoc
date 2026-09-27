@@ -52,6 +52,29 @@ export interface AppointmentDto {
   created_at: string;
 }
 
+/** A patient account as serialised by `Patient::toArray()` (admin console). */
+export interface PatientAccountDto {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  phone_verified: boolean;
+  date_of_birth: string | null;
+  gender: string | null;
+  address: string | null;
+  avatar_url: string | null;
+  two_factor_enabled: boolean;
+  created_at: string;
+}
+
+/** GET /api/admin/patients/{id} payload — the account plus recent appointments. */
+export interface PatientDetailDto {
+  patient: PatientAccountDto;
+  appointments: AppointmentDto[];
+  appointments_total: number;
+}
+
 /** Back-office-configurable consultation pricing (GET /public/pricing). */
 export interface PricingDto {
   currency: string;

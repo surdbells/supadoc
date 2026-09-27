@@ -56,6 +56,18 @@ export const appRoutes: Route[] = [
           ),
       },
       {
+        path: 'patients',
+        canActivate: [permissionGuard('monitoring.view')],
+        loadComponent: () =>
+          import('./patients/patients').then((m) => m.AdminPatients),
+      },
+      {
+        path: 'patients/:id',
+        canActivate: [permissionGuard('monitoring.view')],
+        loadComponent: () =>
+          import('./patients/patient-detail').then((m) => m.AdminPatientDetail),
+      },
+      {
         path: 'specialists',
         canActivate: [permissionGuard('specialists.manage')],
         loadComponent: () =>

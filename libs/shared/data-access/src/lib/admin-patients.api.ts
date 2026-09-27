@@ -1,9 +1,15 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { PatientSummaryDto, SuccessResponse } from '@supadoc/models';
-import { ApiService } from './api.service';
+import type {
+  PaginatedResponse,
+  PatientAccountDto,
+  PatientDetailDto,
+  PatientSummaryDto,
+  SuccessResponse,
+} from '@supadoc/models';
+import { ApiService, QueryParams } from './api.service';
 
-/** Staff patient lookup (for booking on a patient's behalf). */
+/** Staff patient lookup + admin patient administration. */
 @Injectable({ providedIn: 'root' })
 export class AdminPatientsApi {
   private readonly api = inject(ApiService);
@@ -14,5 +20,24 @@ export class AdminPatientsApi {
       search: term,
       limit,
     });
+  }
+
+  /** GET /api/admin/patients — paginated roster (?search=). */
+  list(query?: {
+    page?: number;
+    per_page?: number;
+    search?: string;
+  }): Observable<PaginatedResponse<PatientAccountDto>> {
+    return this.api.get<PaginatedResponse<PatientAccountDto>>(
+      'api/admin/patients',
+      query as QueryParams | undefined,
+    );
+  }
+
+  /** GET /api/admin/patients/{id} — account record + recent appointments. */
+  get(id: string): Observable<SuccessResponse<PatientDetailDto>> {
+    return this.api.get<SuccessResponse<PatientDetailDto>>(
+      `api/admin/patients/${encodeURIComponent(id)}`,
+    );
   }
 }

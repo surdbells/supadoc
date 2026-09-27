@@ -463,6 +463,12 @@ return [
         '/api/admin/analytics' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'Booking + revenue analytics (?range=7d|30d|90d|12m)', 'responses' => ['200' => ['description' => 'OK']]],
         ],
+        '/api/admin/patients' => [
+            'get' => ['tags' => ['Staff'], 'summary' => 'Patient roster (paginated, ?search=)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/admin/patients/{id}' => [
+            'get' => ['tags' => ['Staff'], 'summary' => 'A patient record + recent appointments', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
         '/api/admin/support/tickets' => [
             'get' => ['tags' => ['Support'], 'summary' => 'Support ticket queue (?status=)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],

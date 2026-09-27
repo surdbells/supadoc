@@ -254,6 +254,12 @@ return static function (App $app): void {
             $group->get('/admin/analytics', Action\Admin\AnalyticsAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
 
+            // Patient administration (browse the patient base + open a record).
+            $group->get('/admin/patients', Action\Admin\ListPatientsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->get('/admin/patients/{id}', Action\Admin\GetPatientAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+
             // Support desk (back office).
             $group->get('/admin/support/tickets', Action\Admin\ListSupportTicketsAction::class)
                 ->add(new RbacMiddleware('support.manage'));

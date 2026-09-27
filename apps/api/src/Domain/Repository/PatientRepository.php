@@ -34,6 +34,28 @@ final class PatientRepository extends BaseRepository
     }
 
     /**
+     * Paginated patient roster for the admin console, newest first, with an
+     * optional name/email/phone search.
+     *
+     * @return array{items: list<Patient>, total: int}
+     */
+    public function paginatedList(int $offset, int $perPage, ?string $search = null): array
+    {
+        $qb = $this->qb()->andWhere('e.deletedAt IS NULL');
+
+        if ($search !== null && trim($search) !== '') {
+            $like = '%' . strtolower(trim($search)) . '%';
+            $qb->andWhere(
+                '(LOWER(e.firstName) LIKE :q OR LOWER(e.lastName) LIKE :q '
+                . "OR LOWER(CONCAT(e.firstName, ' ', e.lastName)) LIKE :q "
+                . 'OR LOWER(e.email) LIKE :q OR e.phone LIKE :q)',
+            )->setParameter('q', $like);
+        }
+
+        return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, 'createdAt', 'desc');
+    }
+
+    /**
      * Staff lookup by name / email / phone (case-insensitive substring), for the
      * back-office appointment-creation flow.
      *
