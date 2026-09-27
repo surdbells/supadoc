@@ -24,6 +24,21 @@ require __DIR__ . '/../vendor/autoload.php';
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
+// Fail fast in production if the JWT signing secret is missing, left at the
+// insecure default, or too short — otherwise access/refresh tokens could be
+// forged with a well-known key (full account takeover). Dev/test may run with a
+// weaker secret; production must not.
+if (($_ENV['APP_ENV'] ?? 'production') === 'production') {
+    $jwtSecret = (string) ($_ENV['JWT_SECRET'] ?? '');
+    if ($jwtSecret === '' || $jwtSecret === 'change-me' || strlen($jwtSecret) < 32) {
+        error_log('FATAL: JWT_SECRET is unset, the insecure default, or shorter than 32 bytes in production. Refusing to boot.');
+        http_response_code(500);
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'error', 'message' => 'Server misconfigured']);
+        exit(1);
+    }
+}
+
 // Sentry (no-op without SENTRY_DSN).
 (require __DIR__ . '/../config/sentry.php')();
 

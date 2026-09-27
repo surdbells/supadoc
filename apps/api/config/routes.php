@@ -8,6 +8,8 @@ use App\Infrastructure\Middleware\CustomerAuthMiddleware;
 use App\Infrastructure\Middleware\RbacMiddleware;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\SessionService;
+use Doctrine\ORM\EntityManagerInterface;
+use Predis\Client as RedisClient;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\App;
@@ -31,6 +33,37 @@ return static function (App $app): void {
         $response->getBody()->write(json_encode(['status' => 'ok']));
 
         return $response->withHeader('Content-Type', 'application/json');
+    });
+
+    // Readiness probe: verify the critical dependencies (Postgres + Redis) are
+    // actually reachable, so an orchestrator stops routing to a box whose DB or
+    // cache is down instead of turning every request into a 500.
+    $app->get('/health/ready', function (
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+    ) use ($container): ResponseInterface {
+        $checks = ['database' => false, 'redis' => false];
+        try {
+            $container->get(EntityManagerInterface::class)->getConnection()->executeQuery('SELECT 1');
+            $checks['database'] = true;
+        } catch (\Throwable) {
+            // stays false
+        }
+        try {
+            $container->get(RedisClient::class)->ping();
+            $checks['redis'] = true;
+        } catch (\Throwable) {
+            // stays false
+        }
+        $ready = $checks['database'] && $checks['redis'];
+        $response->getBody()->write(json_encode([
+            'status' => $ready ? 'ready' : 'degraded',
+            'checks' => $checks,
+        ]));
+
+        return $response
+            ->withHeader('Content-Type', 'application/json')
+            ->withStatus($ready ? 200 : 503);
     });
 
     // API docs (public): Swagger UI + the raw OpenAPI document.

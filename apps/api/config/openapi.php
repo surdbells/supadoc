@@ -482,6 +482,17 @@ return [
                 'responses' => ['200' => ['description' => 'OK', ...$json(['type' => 'object', 'properties' => ['status' => ['type' => 'string', 'example' => 'ok']]])]],
             ],
         ],
+        '/health/ready' => [
+            'get' => [
+                'tags'      => ['System'],
+                'summary'   => 'Readiness probe (checks Postgres + Redis)',
+                'security'  => [],
+                'responses' => [
+                    '200' => ['description' => 'Ready', ...$json(['type' => 'object', 'properties' => ['status' => ['type' => 'string', 'example' => 'ready'], 'checks' => ['type' => 'object']]])],
+                    '503' => ['description' => 'A dependency is unavailable'],
+                ],
+            ],
+        ],
         '/api/auth/login' => [
             'post' => [
                 'tags'        => ['Auth'],

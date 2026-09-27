@@ -75,16 +75,30 @@ final class UpdateStaffAction
             }
         }
 
+        $isSelf = $user->getId() === $actor;
+
         if (array_key_exists('roles', $body)) {
             $roles = $this->cleanRoles($body['roles']);
-            if (in_array('super_admin', $roles, true) && !$isSuper) {
-                return $this->error($response, 'Only a super admin can grant the super_admin role', 403);
+            if (!$isSuper && $isSelf) {
+                return $this->error($response, 'You cannot change your own roles', 403);
+            }
+            $violation = $this->grantViolation($request, $roles, [], $user->getRoles());
+            if ($violation !== null) {
+                return $this->error($response, $violation, 403);
             }
             $user->setRoles($roles);
         }
 
         if (array_key_exists('permissions', $body)) {
-            $user->setPermissions($this->cleanPermissions($body['permissions']));
+            $permissions = $this->cleanPermissions($body['permissions']);
+            if (!$isSuper && $isSelf) {
+                return $this->error($response, 'You cannot change your own permissions', 403);
+            }
+            $violation = $this->grantViolation($request, [], $permissions, [], $user->getPermissions());
+            if ($violation !== null) {
+                return $this->error($response, $violation, 403);
+            }
+            $user->setPermissions($permissions);
         }
 
         if (array_key_exists('active', $body)) {

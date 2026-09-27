@@ -161,8 +161,20 @@ chmod -R 775 var public/uploads
 
 ## 7. Create the schema + (optionally) seed
 
+> ⚠️ **Always review the DDL first.** `schema-tool:update --force` diffs the
+> entity mappings against the live DB and executes the result unreviewed — a
+> renamed/removed mapped field would DROP the column (data loss). Run the
+> non-destructive preview and read it before applying:
+>
+> ```bash
+> php bin/doctrine.php orm:schema-tool:update --dump-sql   # == composer schema:preview
+> ```
+>
+> Proceed to `--force` only when the printed statements are the additive changes
+> you expect (no unexpected DROP TABLE / DROP COLUMN).
+
 ```bash
-php bin/doctrine.php orm:schema-tool:update --force   # == composer schema:apply
+php bin/doctrine.php orm:schema-tool:update --force   # == composer schema:apply (after reviewing schema:preview)
 php bin/doctrine.php orm:generate-proxies             # REQUIRED in prod — proxy auto-gen is off
 chown -R www:www var                                  # www must read proxies + write var/cache
 php bin/seed.php                                       # demo specialists + patient (skip in real prod)
@@ -263,6 +275,7 @@ parent), so `cd` into `supadoc` — that's where `.git` is.
 ```bash
 cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main
 cd apps/api && composer install --no-dev --optimize-autoloader
+php bin/doctrine.php orm:schema-tool:update --dump-sql   # review DDL first (composer schema:preview)
 php bin/doctrine.php orm:schema-tool:update --force
 php bin/doctrine.php orm:generate-proxies
 chown -R www:www var

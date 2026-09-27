@@ -132,6 +132,13 @@ final class AuthService
         if ($email === '') {
             throw new AuthenticationException('Google account has no email address');
         }
+        // Only a verified email may match or provision a patient. The Firebase
+        // verifier accepts any ID token from the project (not just Google), so an
+        // unverified, attacker-set email must never be trusted to log into an
+        // existing account — that would be account takeover of medical records.
+        if (($identity['email_verified'] ?? false) !== true) {
+            throw new AuthenticationException('Your Google email address is not verified');
+        }
 
         $patient = $this->patients->findByEmail($email);
         if ($patient === null) {

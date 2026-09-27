@@ -62,10 +62,11 @@ final class ErrorHandler
         $response = $this->error($this->responseFactory->createResponse(), $message, $status, $errors);
 
         // Re-apply CORS so the error is readable by the browser, not opaque.
-        return (new CorsMiddleware(array_filter(array_map(
+        // Same fail-closed default as the global middleware.
+        return (new CorsMiddleware(array_values(array_filter(array_map(
             'trim',
-            explode(',', $_ENV['CORS_ALLOWED_ORIGINS'] ?? '*'),
-        ))))->decorate($request, $response);
+            explode(',', $_ENV['CORS_ALLOWED_ORIGINS'] ?? ''),
+        )))))->decorate($request, $response);
     }
 
     /** @return array{0:int, 1:string, 2:array} */

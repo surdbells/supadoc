@@ -15,6 +15,7 @@ use Predis\Client as RedisClient;
 final class EmailOtpService
 {
     private const TTL = 600; // 10 minutes
+    private const MAX_ATTEMPTS = 5; // guesses allowed per issued code
 
     public function __construct(
         private readonly RedisClient $redis,
@@ -35,17 +36,36 @@ final class EmailOtpService
         return $this->exposeCode ? $code : null;
     }
 
-    /** Check a code (single-use — deleted on success). */
+    /**
+     * Check a code (single-use — deleted on success). A per-code attempt counter
+     * caps guesses so the 6-digit space can't be brute-forced within the TTL: after
+     * MAX_ATTEMPTS wrong tries the code is burned and a fresh one must be requested.
+     */
     public function verify(string $email, string $otp, string $purpose): bool
     {
-        $key    = $this->key($email, $purpose);
-        $stored = $this->redis->get($key);
+        $key         = $this->key($email, $purpose);
+        $attemptsKey = 'otp:attempts:' . $purpose . ':' . strtolower(trim($email));
+        $stored      = $this->redis->get($key);
 
-        if (!is_string($stored) || $stored === '' || !hash_equals($stored, $otp)) {
+        if (!is_string($stored) || $stored === '') {
             return false;
         }
 
-        $this->redis->del([$key]);
+        $attempts = (int) $this->redis->incr($attemptsKey);
+        if ($attempts === 1) {
+            $this->redis->expire($attemptsKey, self::TTL);
+        }
+        if ($attempts > self::MAX_ATTEMPTS) {
+            $this->redis->del([$key, $attemptsKey]);
+
+            return false;
+        }
+
+        if (!hash_equals($stored, $otp)) {
+            return false;
+        }
+
+        $this->redis->del([$key, $attemptsKey]);
 
         return true;
     }

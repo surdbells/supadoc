@@ -52,8 +52,9 @@ final class CreateStaffAction
         $roles       = $this->cleanRoles($body['roles'] ?? []);
         $permissions = $this->cleanPermissions($body['permissions'] ?? []);
 
-        if (in_array('super_admin', $roles, true) && !$this->actorIsSuperAdmin($request)) {
-            return $this->error($response, 'Only a super admin can grant the super_admin role', 403);
+        $violation = $this->grantViolation($request, $roles, $permissions);
+        if ($violation !== null) {
+            return $this->error($response, $violation, 403);
         }
 
         $user = new User($email, $firstName, $lastName);

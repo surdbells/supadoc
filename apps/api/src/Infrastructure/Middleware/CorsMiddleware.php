@@ -37,25 +37,43 @@ final class CorsMiddleware implements MiddlewareInterface
         ResponseInterface $response,
     ): ResponseInterface {
         $origin = $request->getHeaderLine('Origin');
-        $allow  = $this->resolveOrigin($origin);
+        [$allow, $withCredentials] = $this->resolveOrigin($origin);
 
-        return $response
+        $response = $response
             ->withHeader('Access-Control-Allow-Origin', $allow)
             ->withHeader('Vary', 'Origin')
             ->withHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With')
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-            ->withHeader('Access-Control-Allow-Credentials', 'true')
             ->withHeader('Access-Control-Max-Age', '86400');
-    }
 
-    private function resolveOrigin(string $origin): string
-    {
-        if (in_array('*', $this->allowedOrigins, true)) {
-            return $origin !== '' ? $origin : '*';
+        // Credentials may only be combined with a specific, allow-listed origin —
+        // never with a reflected/wildcard origin (that would defeat the same-origin
+        // policy for authenticated requests).
+        if ($withCredentials) {
+            $response = $response->withHeader('Access-Control-Allow-Credentials', 'true');
         }
 
-        return in_array($origin, $this->allowedOrigins, true)
-            ? $origin
-            : ($this->allowedOrigins[0] ?? '*');
+        return $response;
+    }
+
+    /**
+     * @return array{0:string,1:bool} the Access-Control-Allow-Origin value and
+     *   whether credentials may be allowed for it
+     */
+    private function resolveOrigin(string $origin): array
+    {
+        // Exact allow-list match → echo it and permit credentials.
+        if ($origin !== '' && in_array($origin, $this->allowedOrigins, true)) {
+            return [$origin, true];
+        }
+
+        // Wildcard (dev convenience only) → allow any origin but WITHOUT credentials.
+        if (in_array('*', $this->allowedOrigins, true)) {
+            return ['*', false];
+        }
+
+        // Fail closed: no allow-list match. Return a non-matching placeholder so the
+        // browser blocks the cross-origin read, and never allow credentials.
+        return [$this->allowedOrigins[0] ?? 'null', false];
     }
 }

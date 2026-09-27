@@ -20,6 +20,8 @@ use Ramsey\Uuid\Uuid;
 #[ORM\Table(name: 'appointments')]
 #[ORM\Index(name: 'idx_appointments_patient', columns: ['patient_id'])]
 #[ORM\Index(name: 'idx_appointments_status', columns: ['status'])]
+#[ORM\Index(name: 'idx_appointments_specialist_scheduled', columns: ['specialist_id', 'scheduled_at'])]
+#[ORM\Index(name: 'idx_appointments_scheduled', columns: ['scheduled_at'])]
 #[ORM\HasLifecycleCallbacks]
 class Appointment
 {

@@ -38,11 +38,12 @@ return static function (App $app): void {
         new ErrorHandler($app->getResponseFactory(), $logger, $debug),
     );
 
-    // Added LAST → runs FIRST.
+    // Added LAST → runs FIRST. Fail closed: with CORS_ALLOWED_ORIGINS unset, no
+    // cross-origin access is granted (secure by default). Set it explicitly per env.
     $app->add(new CorsMiddleware(
-        array_filter(array_map(
+        array_values(array_filter(array_map(
             'trim',
-            explode(',', $_ENV['CORS_ALLOWED_ORIGINS'] ?? '*'),
-        )),
+            explode(',', $_ENV['CORS_ALLOWED_ORIGINS'] ?? ''),
+        ))),
     ));
 };
