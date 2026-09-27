@@ -12,6 +12,8 @@ use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Email\EmailTemplates;
+use App\Infrastructure\Email\MailService;
 
 /**
  * Authentication behaviour. Keeps password verification and token issuance out
@@ -26,7 +28,32 @@ final class AuthService
         private readonly SessionService $sessions,
         private readonly TotpService $totp,
         private readonly NotificationRepository $notifications,
+        private readonly MailService $mail,
     ) {
+    }
+
+    /** Fire-and-forget welcome email for a newly created patient account. */
+    private function sendWelcome(Patient $patient): void
+    {
+        try {
+            $p     = $patient->toArray();
+            $email = (string) ($p['email'] ?? '');
+            if ($email === '') {
+                return;
+            }
+            $mail = EmailTemplates::welcome(
+                (string) ($p['first_name'] ?? ''),
+                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+            );
+            $this->mail->send(
+                $email,
+                trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? '')),
+                $mail['subject'],
+                $mail['html'],
+            );
+        } catch (\Throwable) {
+            // non-fatal — registration already succeeded.
+        }
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */
@@ -145,6 +172,7 @@ final class AuthService
             [$firstName, $lastName] = $this->splitName((string) ($identity['name'] ?? ''), $email);
             $patient = new Patient($email, $firstName, $lastName);
             $this->patients->save($patient);
+            $this->sendWelcome($patient);
         }
 
         return $this->issueCustomerTokens($patient, $userAgent, $ip);
@@ -190,6 +218,7 @@ final class AuthService
             $patient->setPassword($password);
         }
         $this->patients->save($patient);
+        $this->sendWelcome($patient);
 
         return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }

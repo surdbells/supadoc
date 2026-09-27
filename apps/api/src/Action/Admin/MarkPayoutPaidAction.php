@@ -6,7 +6,9 @@ namespace App\Action\Admin;
 
 use App\Domain\Entity\Payout;
 use App\Domain\Repository\PayoutRepository;
+use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
@@ -16,11 +18,14 @@ use Psr\Http\Message\ServerRequestInterface;
 final class MarkPayoutPaidAction
 {
     use ApiResponse;
+    use NotifiesPayout;
 
     public function __construct(
         private readonly PayoutRepository $payouts,
         private readonly UserRepository $users,
         private readonly StaffNotifier $notifier,
+        private readonly SpecialistRepository $specialists,
+        private readonly MailService $mail,
     ) {
     }
 
@@ -43,6 +48,7 @@ final class MarkPayoutPaidAction
         $this->payouts->save($payout);
 
         $this->notifier->notifyDoctor($payout->getSpecialistId(), 'payout', 'Payout paid', 'Your payout has been sent.', '/payouts');
+        $this->emailPayoutUpdate($this->specialists, $this->mail, $payout, 'paid');
 
         return $this->success($response, $payout->toArray(), 'Payout marked paid');
     }

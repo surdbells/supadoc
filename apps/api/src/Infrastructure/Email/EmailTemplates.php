@@ -247,6 +247,98 @@ final class EmailTemplates
         ];
     }
 
+    /** Welcome email sent once when a patient account is created. */
+    public static function welcome(string $firstName, string $webUrl): array
+    {
+        $body = self::heading('Welcome to VideoMed')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there')
+                . ', your account is ready. You can now find a specialist, book a secure video '
+                . 'consultation, and get prescriptions and follow-up care — all in one place.')
+            . self::button('Find a specialist', $webUrl . '/dashboard/specialists')
+            . self::note('Need help getting started? Just reply to this email or visit the help centre in your dashboard.');
+
+        return [
+            'subject' => 'Welcome to VideoMed',
+            'html'    => self::layout('Welcome to VideoMed', 'Your VideoMed account is ready.', $body),
+        ];
+    }
+
+    /**
+     * Notify a patient that support replied to their ticket.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function supportReply(string $firstName, string $ticketSubject, string $preview, string $webUrl): array
+    {
+        $body = self::heading('We replied to your request')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there')
+                . ', our support team replied to your request'
+                . ($ticketSubject !== '' ? ' "<strong style="color:' . self::INK . ';">' . self::e($ticketSubject) . '</strong>"' : '') . '.')
+            . ($preview !== '' ? self::infoCard(['Reply' => $preview]) : '')
+            . self::button('View the conversation', $webUrl . '/dashboard/settings/help/support')
+            . self::note('Reply from your support conversation in the app to keep everything in one thread.');
+
+        return [
+            'subject' => 'Re: ' . ($ticketSubject !== '' ? $ticketSubject : 'your VideoMed support request'),
+            'html'    => self::layout('Support reply', 'Support replied to your VideoMed request.', $body),
+        ];
+    }
+
+    /**
+     * Notify a doctor of a payout status change (approved / paid / rejected).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function payoutUpdate(string $doctorName, string $status, string $amountLabel, string $reference, string $webUrl, string $reason = ''): array
+    {
+        [$title, $intro] = match ($status) {
+            'approved' => ['Payout approved', 'your payout request has been approved and is queued for payment.'],
+            'paid'     => ['Payout paid', 'your payout has been paid out.'],
+            'rejected' => ['Payout rejected', 'unfortunately your payout request was not approved.'],
+            default    => ['Payout update', 'there is an update on your payout request.'],
+        };
+
+        $rows = ['Amount' => $amountLabel, 'Reference' => $reference, 'Status' => ucfirst($status)];
+        if ($reason !== '') {
+            $rows['Note'] = $reason;
+        }
+
+        $body = self::heading($title)
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor') . ', ' . $intro)
+            . self::infoCard($rows)
+            . self::button('View payouts', $webUrl . '/payouts')
+            . self::note('Payments are processed to your registered payout account. Questions? Contact the finance team.');
+
+        return [
+            'subject' => 'VideoMed payout ' . $status,
+            'html'    => self::layout($title, $intro, $body),
+        ];
+    }
+
+    /**
+     * Notify a doctor that a patient left a review.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function reviewReceived(string $doctorName, int $rating, string $comment, string $webUrl): array
+    {
+        $stars = str_repeat('★', max(0, min(5, $rating))) . str_repeat('☆', max(0, 5 - $rating));
+        $rows  = ['Rating' => $stars . '  (' . $rating . '/5)'];
+        if ($comment !== '') {
+            $rows['Comment'] = $comment;
+        }
+
+        $body = self::heading('You received a new review')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor') . ', a patient just reviewed a recent consultation.')
+            . self::infoCard($rows)
+            . self::button('View your reviews', $webUrl . '/reviews');
+
+        return [
+            'subject' => 'New patient review on VideoMed',
+            'html'    => self::layout('New review', 'A patient reviewed your consultation.', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body): string

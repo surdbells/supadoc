@@ -247,6 +247,7 @@ return [
         $c->get(SessionService::class),
         $c->get(TotpService::class),
         $c->get(NotificationRepository::class),
+        $c->get(MailService::class),
     ),
 
     TotpService::class => static fn (): TotpService => new TotpService(),

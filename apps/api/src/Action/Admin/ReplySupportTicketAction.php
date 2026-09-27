@@ -13,6 +13,8 @@ use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SupportMessageRepository;
 use App\Domain\Repository\SupportTicketRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Email\EmailTemplates;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -32,6 +34,7 @@ final class ReplySupportTicketAction
         private readonly SupportTicketRepository $tickets,
         private readonly SupportMessageRepository $messages,
         private readonly NotificationRepository $notifications,
+        private readonly MailService $mail,
     ) {
     }
 
@@ -75,7 +78,7 @@ final class ReplySupportTicketAction
         return $name !== '' ? $name : 'Support';
     }
 
-    /** Fire-and-forget in-app notification so the patient sees the reply. */
+    /** Fire-and-forget in-app + email notification so the patient sees the reply. */
     private function notifyPatient(SupportTicket $ticket, string $body): void
     {
         try {
@@ -90,6 +93,25 @@ final class ReplySupportTicketAction
                 'Support replied to your ticket',
                 $preview,
             ));
+
+            // Also email, so a patient not currently in the app learns of the reply.
+            $p       = $patient->toArray();
+            $email   = (string) ($p['email'] ?? '');
+            $subject = (string) ($ticket->toArray()['subject'] ?? '');
+            if ($email !== '') {
+                $mail = EmailTemplates::supportReply(
+                    (string) ($p['first_name'] ?? ''),
+                    $subject,
+                    $preview,
+                    $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+                );
+                $this->mail->send(
+                    $email,
+                    trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? '')),
+                    $mail['subject'],
+                    $mail['html'],
+                );
+            }
         } catch (\Throwable) {
             // non-fatal — the reply was already saved.
         }

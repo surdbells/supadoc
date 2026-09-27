@@ -13,11 +13,21 @@ use App\Domain\Repository\SpecialistRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AvailabilityService;
+use App\Infrastructure\Service\PatientNotifier;
+use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
-/** POST /api/appointments — book a consultation. */
+/**
+ * POST /api/appointments — a staff member books a consultation on a patient's
+ * behalf. Unlike the self-service patient path this does NOT take payment (the
+ * booking is created at the correct fee but unpaid, to be settled separately),
+ * but it is otherwise held to the same rules: the specialist must be available,
+ * the slot must be open (no double-booking), the fee is recorded, and the
+ * patient + doctor are notified.
+ */
 final class CreateAppointmentAction
 {
     use ApiResponse;
@@ -27,6 +37,9 @@ final class CreateAppointmentAction
         private readonly SpecialistRepository $specialists,
         private readonly AppointmentRepository $appointments,
         private readonly MailService $mail,
+        private readonly AvailabilityService $availability,
+        private readonly PatientNotifier $patientNotifier,
+        private readonly StaffNotifier $staffNotifier,
     ) {
     }
 
@@ -54,10 +67,17 @@ final class CreateAppointmentAction
         }
 
         $scheduledAt = null;
-        try {
-            $scheduledAt = new DateTimeImmutable($scheduledRaw ?: 'now');
-        } catch (\Throwable) {
-            $errors['scheduled_at'] = 'Invalid date/time';
+        if ($scheduledRaw === '') {
+            $errors['scheduled_at'] = 'A date and time is required';
+        } else {
+            try {
+                $scheduledAt = new DateTimeImmutable($scheduledRaw);
+            } catch (\Throwable) {
+                $errors['scheduled_at'] = 'Invalid date/time';
+            }
+        }
+        if ($scheduledAt !== null && $scheduledAt <= new DateTimeImmutable()) {
+            $errors['scheduled_at'] = 'Choose a time in the future';
         }
 
         if ($errors !== []) {
@@ -67,12 +87,35 @@ final class CreateAppointmentAction
         $patient    = $this->patients->findOrFail($patientId);
         $specialist = $this->specialists->findOrFail($specialistId);
 
+        if (!$specialist->isAvailable()) {
+            return $this->error($response, 'Validation failed', 422, [
+                'specialist_id' => 'This specialist is not currently available',
+            ]);
+        }
+        if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
+            return $this->error($response, 'Validation failed', 422, [
+                'scheduled_at' => 'That time is not available — please pick another slot',
+            ]);
+        }
+
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
+        $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
+        // Record the correct fee even though staff bookings aren't paid here.
+        $appointment->setAmount($specialist->getConsultationFee());
         $this->appointments->save($appointment);
 
         $this->sendConfirmation($appointment, $patient);
+        $this->patientNotifier->appointment($appointment, 'Appointment booked', 'An appointment was booked for you.');
+        $a = $appointment->toArray();
+        $this->staffNotifier->notifyDoctor(
+            $specialist->getId(),
+            'appointment',
+            'New booking',
+            'A ' . (string) $a['type_label'] . ' was booked for a patient.',
+            '/schedule',
+        );
 
-        return $this->created($response, $appointment->toArray(), 'Appointment booked');
+        return $this->created($response, $a, 'Appointment booked');
     }
 
     /** Fire-and-forget confirmation email — never let it break the booking. */

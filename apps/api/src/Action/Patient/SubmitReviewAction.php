@@ -9,6 +9,8 @@ use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\ReviewRepository;
 use App\Domain\Repository\SpecialistRepository;
+use App\Infrastructure\Email\EmailTemplates;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
@@ -28,6 +30,7 @@ final class SubmitReviewAction
         private readonly ReviewRepository $reviews,
         private readonly SpecialistRepository $specialists,
         private readonly StaffNotifier $notifier,
+        private readonly MailService $mail,
     ) {
     }
 
@@ -84,6 +87,22 @@ final class SubmitReviewAction
             'You received a ' . $rating . '-star review.',
             '/reviews',
         );
+
+        // Also email the doctor (best-effort) so feedback reaches them off-portal.
+        try {
+            $docEmail = $specialist->getEmail();
+            if ($docEmail !== null && $docEmail !== '') {
+                $tpl = EmailTemplates::reviewReceived(
+                    $specialist->getName(),
+                    $rating,
+                    isset($body['comment']) ? (string) $body['comment'] : '',
+                    rtrim((string) ($_ENV['STAFF_WEB_URL'] ?? $_ENV['APP_WEB_URL'] ?? 'http://localhost:4204'), '/'),
+                );
+                $this->mail->send($docEmail, $specialist->getName(), $tpl['subject'], $tpl['html']);
+            }
+        } catch (\Throwable) {
+            // non-fatal — the review was already saved.
+        }
 
         return $this->created($response, $review->toArray(), 'Thanks for your review');
     }
