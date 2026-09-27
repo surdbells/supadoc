@@ -180,13 +180,10 @@ function toDetails(a: AppointmentDto): DetailsVm {
               class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 md:flex-row md:items-center md:justify-between"
             >
               <div class="flex items-center gap-4">
-                <img
-                  src="/dashboard/avatar-james.png"
-                  alt=""
-                  width="64"
-                  height="64"
-                  class="size-16 shrink-0 rounded-full object-cover"
-                />
+                <span
+                  class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean"
+                  >{{ initials(v.name) }}</span
+                >
                 <div class="flex flex-col gap-1">
                   <p class="font-sans text-body-lg font-semibold text-ink">
                     {{ v.name }}
@@ -588,6 +585,17 @@ export class AppointmentDetails {
   /** Booking starts at the specialist directory (same as the dashboard CTA). */
   protected book(): void {
     void this.router.navigate(['/dashboard/specialists']);
+  }
+
+  protected initials(name: string): string {
+    return (name ?? '')
+      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || '?';
   }
 
   // Document sharing isn't modelled by the backend yet — show an empty state

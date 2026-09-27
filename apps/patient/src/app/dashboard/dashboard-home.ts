@@ -192,13 +192,6 @@ const UPCOMING_BADGE: Record<string, string> = {
           <article
             class="relative flex flex-col gap-6 rounded-card border-[0.5px] border-ash px-6 py-4"
           >
-            <button
-              type="button"
-              class="absolute right-4 top-4 text-slate transition-colors hover:text-ink"
-              aria-label="Dismiss upcoming appointment"
-            >
-              <sd-icon name="x" [size]="16" />
-            </button>
             <header class="flex items-center gap-2">
               <sd-icon name="calendar-days" [size]="20" class="text-ink" />
               <h3 class="font-sans text-body font-semibold text-ink">
@@ -213,13 +206,10 @@ const UPCOMING_BADGE: Record<string, string> = {
             } @else if (upcoming(); as u) {
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <img
-                    src="/dashboard/avatar-james.png"
-                    alt=""
-                    width="40"
-                    height="40"
-                    class="size-10 shrink-0 rounded-full object-cover"
-                  />
+                  <span
+                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                    >{{ docInitials(u.name) }}</span
+                  >
                   <div class="flex flex-col">
                     <p class="font-sans text-body font-semibold text-ink">
                       {{ u.name }}
@@ -416,13 +406,24 @@ const UPCOMING_BADGE: Record<string, string> = {
             </p>
           </div>
         </div>
-        <sd-button size="sm" class="shrink-0">Learn more</sd-button>
       </section>
     </div>
   `,
 })
 export class DashboardHome {
   private readonly appointments = inject(AppointmentsApi);
+
+  /** Initials for a specialist name (the logged-in user's own initials use the `initials` signal). */
+  protected docInitials(name: string): string {
+    return (name ?? '')
+      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || '?';
+  }
   private readonly patient = inject(PatientApi);
   private readonly notificationsApi = inject(NotificationsApi);
   private readonly walletApi = inject(WalletApi);

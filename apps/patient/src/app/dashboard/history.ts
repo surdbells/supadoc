@@ -13,12 +13,11 @@ import { AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
-type Status = 'completed' | 'cancelled' | 'followup';
-type Tab = 'all' | 'completed' | 'cancelled' | 'followup';
+type Status = 'completed' | 'cancelled';
+type Tab = 'all' | 'completed' | 'cancelled';
 
 interface Consultation {
   readonly id: string;
-  readonly photo: string;
   readonly name: string;
   readonly specialty: string;
   readonly date: string;
@@ -29,10 +28,6 @@ interface Consultation {
 const STATUS: Record<Status, { label: string; class: string }> = {
   completed: { label: 'Completed', class: 'bg-sage/15 text-sage' },
   cancelled: { label: 'Cancelled', class: 'bg-alert/10 text-alert' },
-  followup: {
-    label: 'Follow-up Required',
-    class: 'bg-warning/15 text-warning',
-  },
 };
 
 /** History is the terminal appointments — the ones that have already happened. */
@@ -41,7 +36,6 @@ function toConsultation(a: AppointmentDto): Consultation | null {
   const when = new Date(a.scheduled_at);
   return {
     id: a.id,
-    photo: '/dashboard/avatar-james.png',
     name: a.specialist.name,
     specialty: a.specialist.specialty ?? '',
     date: new Intl.DateTimeFormat('en-GB', {
@@ -97,7 +91,7 @@ function toConsultation(a: AppointmentDto): Consultation | null {
           class="ml-auto shrink-0 px-3 font-sans text-body-sm text-cerulean hover:underline"
           (click)="activeTab.set('all')"
         >
-          Clear all
+          Show all
         </button>
       </div>
 
@@ -149,13 +143,10 @@ function toConsultation(a: AppointmentDto): Consultation | null {
                 class="sd-card-hover flex items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/50"
                 (click)="open(c)"
               >
-                <img
-                  [src]="c.photo"
-                  alt=""
-                  width="56"
-                  height="56"
-                  class="size-14 shrink-0 rounded-full object-cover"
-                />
+                <span
+                  class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg font-semibold text-cerulean"
+                  >{{ initials(c.name) }}</span
+                >
                 <div class="flex min-w-0 flex-1 flex-col">
                   <p class="truncate font-sans text-body font-semibold text-ink">
                     {{ c.name }}
@@ -225,7 +216,6 @@ export class History {
     { key: 'all', label: 'All' },
     { key: 'completed', label: 'Completed' },
     { key: 'cancelled', label: 'Cancelled' },
-    { key: 'followup', label: 'Follow - up Required' },
   ];
 
   private readonly all = signal<Consultation[]>([]);
@@ -247,6 +237,17 @@ export class History {
 
   protected open(c: Consultation): void {
     void this.router.navigate(['/dashboard/history', c.id]);
+  }
+
+  protected initials(name: string): string {
+    return (name ?? '')
+      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || '?';
   }
 
   /** Booking starts at the specialist directory (same as the dashboard CTA). */

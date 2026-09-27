@@ -2,13 +2,9 @@ import { Route } from '@angular/router';
 import { authGuard } from '@supadoc/auth';
 import { DashboardShell } from './dashboard-shell';
 
-const placeholder = () =>
-  import('./placeholder-page').then((m) => m.DashboardPlaceholder);
-
 /**
- * Signed-in patient area. The shell (side nav + header) wraps every section.
- * Only the dashboard home is built out; the remaining nav destinations render a
- * shared "coming soon" placeholder driven by their route `data`.
+ * Signed-in patient area. The shell (side nav + header) wraps every section;
+ * every destination below is a real, fully-wired page.
  */
 export const dashboardRoutes: Route[] = [
   {

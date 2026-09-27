@@ -19,7 +19,6 @@ type Tab = 'all' | 'upcoming' | 'completed' | 'cancelled' | 'rescheduled';
 
 interface Appointment {
   readonly id: string;
-  readonly photo: string;
   readonly name: string;
   readonly specialty: string;
   readonly date: string;
@@ -57,8 +56,6 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
   const when = new Date(a.scheduled_at);
   return {
     id: a.id,
-    // The API has no avatar yet — use the placeholder portrait.
-    photo: '/dashboard/avatar-james.png',
     name: a.specialist.name,
     specialty: a.specialist.specialty ?? '',
     date: new Intl.DateTimeFormat('en-GB', {
@@ -176,13 +173,10 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
                 class="sd-card-hover flex items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/50"
                 (click)="open(a)"
               >
-                <img
-                  [src]="a.photo"
-                  alt=""
-                  width="56"
-                  height="56"
-                  class="size-14 shrink-0 rounded-full object-cover"
-                />
+                <span
+                  class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg font-semibold text-cerulean"
+                  >{{ initials(a.name) }}</span
+                >
                 <div class="flex min-w-0 flex-1 flex-col">
                   <p
                     class="truncate font-sans text-body font-semibold text-ink"
@@ -277,6 +271,17 @@ export class Appointments {
 
   protected open(a: Appointment): void {
     void this.router.navigate(['/dashboard/appointments', a.id]);
+  }
+
+  protected initials(name: string): string {
+    return (name ?? '')
+      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || '?';
   }
 
   /** Booking starts at the specialist directory (same as the dashboard CTA). */
