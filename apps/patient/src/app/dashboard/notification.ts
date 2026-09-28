@@ -195,6 +195,7 @@ export class Notification {
     { key: 'appointment', label: 'Appointments' },
     { key: 'prescription', label: 'Prescriptions' },
     { key: 'payment', label: 'Payments' },
+    { key: 'message', label: 'Messages' },
     { key: 'system', label: 'System' },
   ];
 

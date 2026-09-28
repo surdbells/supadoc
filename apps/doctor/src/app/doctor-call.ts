@@ -48,7 +48,7 @@ interface SpeechRec {
   abort(): void;
 }
 type SpeechRecCtor = new () => SpeechRec;
-type RecordsTab = 'timeline' | 'documents' | 'imaging' | 'labs';
+type RecordsTab = 'documents' | 'imaging' | 'labs';
 
 /**
  * Doctor consultation cockpit (route `/call/:token`). The signed call-access JWT
@@ -1007,7 +1007,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly elapsed = signal(0);
 
   protected readonly notesTab = signal<NotesTab>('notes');
-  protected readonly recordsTab = signal<RecordsTab>('timeline');
+  protected readonly recordsTab = signal<RecordsTab>('documents');
   protected readonly subjective = signal('');
   protected readonly objective = signal('');
   protected readonly assessment = signal('');
@@ -1119,7 +1119,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     { key: 'copilot', label: 'Transcript & AI' },
   ];
   protected readonly recordsTabs: ReadonlyArray<{ key: RecordsTab; label: string }> = [
-    { key: 'timeline', label: 'Timeline' },
     { key: 'documents', label: 'Documents' },
     { key: 'imaging', label: 'Imaging' },
     { key: 'labs', label: 'Labs' },
