@@ -15,9 +15,9 @@ use DateTimeImmutable;
  */
 final class EmailTemplates
 {
-    private const CERULEAN = '#1565c0';
-    private const TEAL     = '#00897b';
-    private const OCEAN    = '#0d3b6e';
+    private const CERULEAN = '#0b62e4';
+    private const TEAL     = '#00796c';
+    private const OCEAN    = '#0a3d80';
     private const INK      = '#1c2b3a';
     private const SLATE    = '#546e7a';
     private const CLOUD    = '#eceff1';

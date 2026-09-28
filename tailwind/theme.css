@@ -11,20 +11,25 @@
  * @fontsource; SF Pro resolves from the system font stack.
  */
 @theme {
-  /* ===== Brand ===== */
-  --color-cerulean: #1565c0; /* primary */
-  --color-cerulean-dark: #0f52a0; /* primary hover/pressed */
+  /* ===== Brand =====
+   * Vibrancy pass (2026-09): the brand blues are pushed brighter/more saturated
+   * while staying WCAG AA for white text on the primary. Contrast on white:
+   * cerulean #0b62e4 ≈ 4.8:1 (AA), teal #00796c ≈ 5.3:1 (AA), ocean ≈ 8:1.
+   * Sky/mist stay accent-only (not for white body text). */
+  --color-cerulean: #0b62e4; /* primary — electric blue */
+  --color-cerulean-dark: #0a4fbf; /* primary hover/pressed */
   --color-active: #0068a3; /* denotative active */
-  --color-teal: #00897b; /* secondary ("Med") */
+  --color-teal: #00796c; /* secondary ("Med") — richer, AA for white text */
+  --color-teal-bright: #00b39a; /* vivid teal accent — icons/borders/large text only */
   --color-sage: #43a047; /* green */
 
   /* ===== Blues (accents + surfaces) ===== */
-  --color-sky: #2196f3;
-  --color-mist: #64b5f6;
+  --color-sky: #0091ff; /* vivid azure accent (not white-text buttons) */
+  --color-mist: #4fa8f7;
   --color-frost: #bbdefb;
   --color-glacier: #f1f9ff; /* page background */
 
-  --color-ocean: #0d3b6e; /* deep brand blue — dashboard headings, avatar fill */
+  --color-ocean: #0a3d80; /* deep brand blue — dashboard headings, avatar fill */
 
   /* ===== Neutrals ===== */
   --color-abyss: #0a1628; /* darkest heading */
@@ -40,8 +45,8 @@
   --color-warning: #f2a900;
 
   /* ===== Semantic aliases (read nicely in components) ===== */
-  --color-primary: #1565c0;
-  --color-secondary: #00897b;
+  --color-primary: #0b62e4;
+  --color-secondary: #00796c;
   --color-danger: #e53935;
   --color-surface: #f1f9ff;
 
@@ -226,7 +231,7 @@
 }
 /* Frost reads too pale on white */
 .sd-call[data-theme='light'] .text-frost {
-  color: #1565c0;
+  color: #0b62e4;
 }
 
 /* Re-assert dark inside the video stage (always dark, both themes) */

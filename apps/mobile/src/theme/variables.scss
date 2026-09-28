@@ -4,29 +4,29 @@
  * See https://ionicframework.com/docs/theming/color-generator
  */
 :root {
-  /* Cerulean -> primary */
-  --ion-color-primary: #1565c0;
-  --ion-color-primary-rgb: 21, 101, 192;
+  /* Cerulean -> primary (vibrancy pass — mirrors tailwind/theme.css) */
+  --ion-color-primary: #0b62e4;
+  --ion-color-primary-rgb: 11, 98, 228;
   --ion-color-primary-contrast: #ffffff;
   --ion-color-primary-contrast-rgb: 255, 255, 255;
-  --ion-color-primary-shade: #1259a9;
-  --ion-color-primary-tint: #2c74c6;
+  --ion-color-primary-shade: #0a56c9;
+  --ion-color-primary-tint: #2372e7;
 
   /* Teal -> secondary ("Med") */
-  --ion-color-secondary: #00897b;
-  --ion-color-secondary-rgb: 0, 137, 123;
+  --ion-color-secondary: #00796c;
+  --ion-color-secondary-rgb: 0, 121, 108;
   --ion-color-secondary-contrast: #ffffff;
   --ion-color-secondary-contrast-rgb: 255, 255, 255;
-  --ion-color-secondary-shade: #00796c;
-  --ion-color-secondary-tint: #1a9588;
+  --ion-color-secondary-shade: #006a5f;
+  --ion-color-secondary-tint: #1a867a;
 
-  /* Sky -> tertiary */
-  --ion-color-tertiary: #2196f3;
-  --ion-color-tertiary-rgb: 33, 150, 243;
+  /* Sky -> tertiary (accent) */
+  --ion-color-tertiary: #0091ff;
+  --ion-color-tertiary-rgb: 0, 145, 255;
   --ion-color-tertiary-contrast: #ffffff;
   --ion-color-tertiary-contrast-rgb: 255, 255, 255;
-  --ion-color-tertiary-shade: #1d84d6;
-  --ion-color-tertiary-tint: #37a1f4;
+  --ion-color-tertiary-shade: #0080e1;
+  --ion-color-tertiary-tint: #1aa2ff;
 
   /* Success */
   --ion-color-success: #00a328;
