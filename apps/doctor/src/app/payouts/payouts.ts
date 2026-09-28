@@ -41,6 +41,11 @@ const STATUS_CLASS: Record<string, string> = {
 
       @if (loading()) {
         <div class="sd-shimmer h-28 rounded-card"></div>
+      } @else if (loadError()) {
+        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+          <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
+        </div>
       } @else {
         <!-- Balance + request -->
         <section class="flex flex-col gap-4 rounded-card border border-cerulean/30 bg-frost/20 p-6">
@@ -132,6 +137,7 @@ export class DoctorPayouts implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal(true);
+  protected readonly loadError = signal('');
   protected readonly summary = signal<EarningsSummaryDto | null>(null);
   protected readonly account = signal<PayoutAccountDto | null>(null);
   protected readonly history = signal<PayoutDto[]>([]);
@@ -173,7 +179,10 @@ export class DoctorPayouts implements OnInit {
         if (res.data) this.f.set({ ...res.data });
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: () => {
+        this.loadError.set('Could not load your payout details. Please try again.');
+        this.loading.set(false);
+      },
     });
     this.reloadHistory();
   }

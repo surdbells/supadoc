@@ -35,6 +35,11 @@ import { IconComponent } from '@supadoc/ui';
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           @for (i of [1,2,3,4]; track i) { <div class="sd-shimmer h-28 rounded-card"></div> }
         </div>
+      } @else if (error()) {
+        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+          <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+        </div>
       } @else if (summary(); as s) {
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div class="rounded-card border border-cerulean/30 bg-frost/20 p-5">
@@ -104,6 +109,7 @@ export class DoctorEarnings implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal(true);
+  protected readonly error = signal('');
   protected readonly summary = signal<EarningsSummaryDto | null>(null);
   protected readonly txns = signal<EarningsTxnDto[]>([]);
   protected readonly loadingTxns = signal(true);
@@ -121,7 +127,10 @@ export class DoctorEarnings implements OnInit {
           this.summary.set(res.data);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.error.set('Could not load your earnings. Please try again.');
+          this.loading.set(false);
+        },
       });
     this.fetchTxns();
   }

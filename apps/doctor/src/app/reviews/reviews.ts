@@ -51,6 +51,12 @@ import { IconComponent } from '@supadoc/ui';
       }
 
       <section class="flex flex-col gap-3">
+        @if (error() && reviews().length === 0) {
+          <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+            <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+            <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+          </div>
+        } @else {
         <ul class="flex flex-col gap-3">
           @for (r of reviews(); track r.id) {
             <li class="flex flex-col gap-2 rounded-card border border-cloud bg-white p-5">
@@ -90,6 +96,7 @@ import { IconComponent } from '@supadoc/ui';
         @if (hasMore()) {
           <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
         }
+        }
       </section>
     </div>
   `,
@@ -102,6 +109,7 @@ export class DoctorReviews implements OnInit {
   protected readonly reviews = signal<ReviewDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly hasMore = signal(false);
+  protected readonly error = signal('');
   private page = 1;
 
   protected readonly replyingId = signal<string | null>(null);
@@ -121,6 +129,7 @@ export class DoctorReviews implements OnInit {
 
   private fetch(): void {
     this.loading.set(true);
+    this.error.set('');
     this.api
       .reviews({ page: this.page, per_page: 20 })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -130,7 +139,11 @@ export class DoctorReviews implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          if (this.page > 1) this.page -= 1;
+          this.error.set('Could not load your reviews. Please try again.');
+          this.loading.set(false);
+        },
       });
   }
 
