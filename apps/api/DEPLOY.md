@@ -152,10 +152,15 @@ uploaded avatars on disk:
 
 ```bash
 cd /www/wwwroot/api.dosthq.com/apps/api
-mkdir -p var/logs public/uploads/avatars
+mkdir -p var/logs public/uploads/avatars public/uploads/appointment-docs
 chown -R www:www var public/uploads
 chmod -R 775 var public/uploads
 ```
+
+> **All of `public/uploads` must be writable by `www`, not just `avatars`.** New
+> upload subfolders (e.g. `appointment-docs`) ship empty in git and arrive via
+> `git pull` owned by the deploy user — if they aren't re-chowned, saving a file
+> there fails with a 500. The redeploy step below re-chowns the whole folder.
 
 ---
 
@@ -278,7 +283,7 @@ cd apps/api && composer install --no-dev --optimize-autoloader
 php bin/doctrine.php orm:schema-tool:update --dump-sql   # review DDL first (composer schema:preview)
 php bin/doctrine.php orm:schema-tool:update --force
 php bin/doctrine.php orm:generate-proxies
-chown -R www:www var
+chown -R www:www var public/uploads   # incl. any new upload subdirs pulled this deploy
 /etc/init.d/php-fpm-82 reload   # clears OPcache — match your PHP version (or aaPanel → PHP → Reload)
 ```
 

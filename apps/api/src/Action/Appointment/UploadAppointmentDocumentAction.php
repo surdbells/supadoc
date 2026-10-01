@@ -54,8 +54,17 @@ final class UploadAppointmentDocumentAction
 
         try {
             $dir = dirname(__DIR__, 3) . '/public/uploads/appointment-docs';
-            if (!is_dir($dir) && !@mkdir($dir, 0o775, true) && !is_dir($dir)) {
-                throw new \RuntimeException('upload directory is not writable');
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0o775, true);
+            }
+            // The directory ships empty in git and can arrive owned by the deploy
+            // user, not php-fpm's `www`; a non-writable dir is the usual cause of a
+            // save failure, so fail with a precise, actionable log (see DEPLOY.md).
+            if (!is_dir($dir) || !is_writable($dir)) {
+                throw new \RuntimeException(sprintf(
+                    'upload directory not writable by the web user: %s (chown -R www:www public/uploads)',
+                    $dir,
+                ));
             }
 
             $filename = $customerId . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
