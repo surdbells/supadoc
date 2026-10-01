@@ -10,13 +10,16 @@ declare(strict_types=1);
  */
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Entity\AvailabilitySlot;
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
+use App\Domain\Entity\Review;
 use App\Domain\Entity\Specialist;
 use App\Domain\Entity\User;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Enum\ConsultationType;
 use App\Domain\Enum\NotificationType;
+use App\Domain\Enum\SlotKind;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -127,8 +130,24 @@ $specialistSeeds = [
     ['Dr. Ibrahim Sani', 'Dentistry', '8000.00', 'Kaduna, NG', '4.40', 51, false, 6, 'English, Hausa', false, $schedWeekday, 'male', false, 'ibrahim.sani@videomed.test'],
     ['Dr. Zainab Yusuf', 'Ophthalmology', '10000.00', 'Lagos, NG', '4.60', 73, true, 10, 'English', true, $schedSplit, 'female', false, 'zainab.yusuf@videomed.test'],
 ];
+// Per-specialty profile content so each doctor's My Profile screen (bio,
+// expertise chips, qualifications + certifications) is fully populated, not blank.
+$specialtyMeta = [
+    'Cardiology'       => ['exp' => ['Hypertension', 'Heart failure', 'Arrhythmia', 'Echocardiography', 'Preventive cardiology'], 'degree' => 'MBBS, FWACP (Cardiology)', 'college' => 'West African College of Physicians'],
+    'Dermatology'      => ['exp' => ['Acne & rosacea', 'Eczema', 'Skin-cancer screening', 'Cosmetic dermatology', 'Paediatric skin care'], 'degree' => 'MBBS, FMCP (Dermatology)', 'college' => 'National Postgraduate Medical College of Nigeria'],
+    'Pediatrics'       => ['exp' => ['Newborn care', 'Childhood immunisation', 'Growth & nutrition', 'Childhood asthma', 'Developmental assessment'], 'degree' => 'MBBS, FWACP (Paediatrics)', 'college' => 'West African College of Physicians'],
+    'Neurology'        => ['exp' => ['Epilepsy', 'Migraine', 'Stroke care', 'Movement disorders', 'Neuropathy'], 'degree' => 'MBBS, FMCP (Neurology)', 'college' => 'National Postgraduate Medical College of Nigeria'],
+    'General Practice' => ['exp' => ['Preventive care', 'Chronic-disease management', 'Minor procedures', 'Travel medicine', 'Health screening'], 'degree' => 'MBBS, MWACP (Family Medicine)', 'college' => 'West African College of Physicians'],
+    'Psychiatry'       => ['exp' => ['Anxiety & depression', 'Bipolar disorder', 'Addiction medicine', 'CBT', 'Sleep disorders'], 'degree' => 'MBBS, FWACP (Psychiatry)', 'college' => 'West African College of Physicians'],
+    'Orthopedics'      => ['exp' => ['Sports injuries', 'Joint replacement', 'Fracture care', 'Arthroscopy', 'Spine disorders'], 'degree' => 'MBBS, FMCS (Orthopaedics)', 'college' => 'National Postgraduate Medical College of Nigeria'],
+    'Gynecology'       => ['exp' => ['Prenatal care', 'Fertility', 'Menstrual disorders', 'Minimally-invasive surgery', 'Menopause care'], 'degree' => 'MBBS, FWACS (Obstetrics & Gynaecology)', 'college' => 'West African College of Surgeons'],
+    'Dentistry'        => ['exp' => ['Restorative dentistry', 'Root-canal therapy', 'Teeth whitening', 'Orthodontics', 'Oral surgery'], 'degree' => 'BDS, FWACS (Dental Surgery)', 'college' => 'West African College of Surgeons'],
+    'Ophthalmology'    => ['exp' => ['Cataract surgery', 'Glaucoma', 'Refractive errors', 'Diabetic retinopathy', 'Paediatric eye care'], 'degree' => 'MBBS, FWACS (Ophthalmology)', 'college' => 'West African College of Surgeons'],
+];
+
 $specialist = null; // first one, referenced by the appointments below
 // Upsert so re-running the seed also backfills the newer columns.
+$docIndex = 0;
 foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $reviews, $available, $years, $langs, $verified, $hours, $gender, $inPerson, $email]) {
     $s = $em->getRepository(Specialist::class)->findOneBy(['name' => $name])
         ?? new Specialist($name, $specialty);
@@ -144,8 +163,39 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
     $s->setGender($gender);
     $s->setOffersInPerson($inPerson);
     $s->setEmail($email);
+
+    // ----- Rich profile content (bio, contact, expertise, qualifications, certs) -----
+    $meta    = $specialtyMeta[$specialty] ?? ['exp' => ['General consultation'], 'degree' => 'MBBS', 'college' => 'National Postgraduate Medical College of Nigeria'];
+    $pronoun = $gender === 'male' ? 'He' : 'She';
+    $gradYear   = (int) date('Y') - $years;      // finished training ~ years ago
+    $boardYear  = $gradYear + 4;
+    $s->setCountry('Nigeria');
+    $s->setPhone(sprintf('+234 80%d 000 %04d', ($docIndex % 9) + 1, 1000 + $docIndex));
+    $s->setDateOfBirth(new DateTimeImmutable(sprintf('%d-0%d-1%d', 1960 + ($docIndex % 25), ($docIndex % 9) + 1, $docIndex % 9)));
+    $s->setSlotMinutes(30);
+    $s->setBio(sprintf(
+        "%s is a %s specialist with %d years' experience caring for patients across %s. %s focuses on %s, and is committed to clear, compassionate, evidence-based care over secure video consultations.",
+        $name,
+        strtolower($specialty),
+        $years,
+        $location,
+        $pronoun,
+        implode(', ', array_slice($meta['exp'], 0, 3)),
+    ));
+    $s->setQualifications($meta['degree']);
+    $s->setExpertise($meta['exp']);
+    $s->setQualificationEntries([
+        ['title' => $meta['degree'], 'institution' => 'College of Medicine, University of Lagos', 'year' => (string) ($gradYear - 2)],
+        ['title' => 'Residency, ' . $specialty, 'institution' => 'Lagos University Teaching Hospital (LUTH)', 'year' => (string) $gradYear],
+    ]);
+    $s->setCertifications([
+        ['name' => 'Fellowship — ' . $specialty, 'body' => $meta['college'], 'year' => (string) $boardYear],
+        ['name' => 'Basic & Advanced Life Support (BLS/ACLS)', 'body' => 'Resuscitation Council', 'year' => (string) ((int) date('Y') - 1)],
+    ]);
+
     $em->persist($s);
     $specialist ??= $s;
+    $docIndex++;
 
     // A doctor login per specialist (their chosen option 1). They can also join
     // via the emailed preauth link without logging in.
@@ -197,6 +247,123 @@ if (count($em->getRepository(Notification::class)->findBy(['patient' => $patient
     $notify(NotificationType::PRESCRIPTION, 'Prescription ready', 'Your prescription from Dr. Grace Bell is ready for pickup.', false);
     $notify(NotificationType::PAYMENT, 'Payment received', 'We received your ₦15,000.00 payment for a video consultation.', true);
     $notify(NotificationType::SYSTEM, 'Welcome to VideoMed', 'Complete your profile to get the most out of VideoMed.', true);
+}
+
+// ---------------------------------------------------------------------------
+// Doctor-facing content: a patient roster + a realistic, RELATIVE-date
+// appointment spread so the demo doctor's dashboard (today's agenda, upcoming,
+// pending, completed-this-month, earnings, distinct patients + week/month
+// deltas), Patients roster, Reviews and Availability screens all render with
+// real data no matter when the seed runs. ($specialist is the first doctor.)
+// ---------------------------------------------------------------------------
+$roster = [
+    ['grace.patient1@videomed.test', 'Amara',  'Johnson',  'female', '+2348030000101'],
+    ['grace.patient2@videomed.test', 'David',  'Okafor',   'male',   '+2348030000102'],
+    ['grace.patient3@videomed.test', 'Zainab', 'Abubakar', 'female', '+2348030000103'],
+    ['grace.patient4@videomed.test', 'Samuel', 'Adeyemi',  'male',   '+2348030000104'],
+    ['grace.patient5@videomed.test', 'Ngozi',  'Umeh',     'female', '+2348030000105'],
+    ['grace.patient6@videomed.test', 'Daniel', 'Musa',     'male',   '+2348030000106'],
+];
+$rosterPatients    = [];
+$seedDoctorContent = false;
+foreach ($roster as $r => [$pemail, $pfirst, $plast, $pgender, $pphone]) {
+    $p = $em->getRepository(Patient::class)->findOneBy(['email' => $pemail]);
+    if ($p === null) {
+        $p = new Patient($pemail, $pfirst, $plast);
+        $p->setPassword($password);
+        $p->setPhone($pphone);
+        $p->setGender(ucfirst($pgender));
+        $em->persist($p);
+        if ($r === 0) {
+            $seedDoctorContent = true; // first run → populate the doctor's content once
+        }
+    }
+    $rosterPatients[] = $p;
+}
+
+if ($seedDoctorContent) {
+    $fee = $specialist->getConsultationFee();
+    $now = new DateTimeImmutable('now');
+    /** @var array<int,array{0:Appointment,1:Patient,2:int,3:string}> $reviewSeeds */
+    $reviewSeeds = [];
+
+    $bookDoc = static function (Patient $p, string $when, ConsultationType $type, array $advance, bool $paid)
+    use ($specialist, $fee, $now, $em): Appointment {
+        $appt = new Appointment($p, $specialist, $now->modify($when), $type);
+        $appt->setAmount($fee);
+        foreach ($advance as $st) {
+            $appt->transitionTo($st);
+        }
+        if ($paid) {
+            $appt->setPaymentStatus('paid');
+        }
+        $em->persist($appt);
+
+        return $appt;
+    };
+
+    [$P0, $P1, $P2, $P3, $P4, $P5] = $rosterPatients;
+    $C = AppointmentStatus::CONFIRMED;
+    $K = AppointmentStatus::COMPLETED;
+    $X = AppointmentStatus::CANCELLED;
+
+    // Today's agenda (completed earlier + upcoming today + a pending request)
+    $a = $bookDoc($P0, 'today 09:30', ConsultationType::VIDEO, [$C, $K], true);
+    $reviewSeeds[] = [$a, $P0, 5, 'Very thorough and reassuring — explained everything clearly.'];
+    $bookDoc($P1, 'today 14:00', ConsultationType::VIDEO, [$C], true);
+    $bookDoc($P2, 'today 16:30', ConsultationType::FOLLOW_UP, [], false); // pending
+
+    // Upcoming
+    $bookDoc($P3, '+2 days 10:00', ConsultationType::VIDEO, [$C], true);
+    $bookDoc($P4, '+3 days 11:00', ConsultationType::ROUTINE, [], false); // pending
+    $bookDoc($P0, '+6 days 15:00', ConsultationType::VIDEO, [$C], true);
+
+    // Completed earlier this month → earnings + this-period patients + reviews
+    $a = $bookDoc($P1, '-3 days 10:00', ConsultationType::VIDEO, [$C, $K], true);
+    $reviewSeeds[] = [$a, $P1, 4, 'Helpful consultation, would book again.'];
+    $a = $bookDoc($P2, '-9 days 13:00', ConsultationType::ROUTINE, [$C, $K], true);
+    $reviewSeeds[] = [$a, $P2, 5, 'Excellent care and clear follow-up advice.'];
+    $a = $bookDoc($P3, '-14 days 09:00', ConsultationType::URGENT, [$C, $K], true);
+    $reviewSeeds[] = [$a, $P3, 5, 'Seen quickly and treated with great professionalism.'];
+
+    // Cancelled
+    $bookDoc($P4, '-22 days 16:00', ConsultationType::VIDEO, [$X], false);
+
+    // Completed last month → the month/week delta baseline
+    $a = $bookDoc($P5, '-34 days 10:00', ConsultationType::VIDEO, [$C, $K], true);
+    $reviewSeeds[] = [$a, $P5, 4, 'Good experience overall.'];
+    $a = $bookDoc($P0, '-41 days 14:00', ConsultationType::FOLLOW_UP, [$C, $K], true);
+    $reviewSeeds[] = [$a, $P0, 5, 'Kind, attentive and knowledgeable.'];
+
+    // Reviews for the completed consultations (populate the doctor Reviews screen).
+    foreach ($reviewSeeds as [$appt, $p, $rating, $comment]) {
+        $pa = $p->toArray();
+        $em->persist(new Review(
+            $specialist->getId(),
+            $p->getId(),
+            trim(((string) ($pa['first_name'] ?? '')) . ' ' . ((string) ($pa['last_name'] ?? ''))),
+            $rating,
+            $comment,
+            $appt->getId(),
+        ));
+    }
+
+    // Published open slots for the next few weekdays so the Availability calendar
+    // shows real green slots on top of the recurring weekly hours.
+    $midnight = $now->setTime(0, 0);
+    $daysMade = 0;
+    for ($d = 1; $d <= 9 && $daysMade < 4; $d++) {
+        $day = $midnight->modify("+{$d} days");
+        if ((int) $day->format('N') >= 6) {
+            continue; // weekdays only
+        }
+        foreach (['09:00', '09:30', '10:00', '11:00'] as $t) {
+            [$h, $m] = array_map('intval', explode(':', $t));
+            $start   = $day->setTime($h, $m);
+            $em->persist(new AvailabilitySlot($specialist, $start, $start->modify('+30 minutes'), SlotKind::OPEN));
+        }
+        $daysMade++;
+    }
 }
 
 $em->flush();
