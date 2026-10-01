@@ -195,14 +195,14 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 
     <!-- Shared search experience (search + filters + hint + popular) -->
     <ng-template #searchTools>
-      <!-- Search + "find me a doctor" -->
+      <!-- Search + actions ("find me a doctor" + mobile Filters toggle) -->
       <div
-        class="flex flex-col gap-3 sm:flex-row sm:items-stretch"
+        class="flex flex-col gap-3"
         [class.mt-6]="!hero()"
         [class.mx-auto]="!hero()"
         [class.max-w-5xl]="!hero()"
       >
-        <div class="relative min-w-0 flex-1">
+        <div class="relative min-w-0">
           <div
             class="flex h-full items-center gap-3 rounded-field border border-cloud bg-white px-5 py-4 shadow-[0_4px_24px_rgba(10,22,40,0.06)]"
           >
@@ -333,32 +333,52 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
           }
         </div>
 
-        <button
-          type="button"
-          class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-4 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean"
-          (click)="quizOpen.set(true)"
-        >
-          <sd-icon name="sparkles" [size]="20" />Find a doctor for me
-        </button>
+        <!-- Actions: find-a-doctor (+ a Filters toggle on mobile, since the
+             filter row collapses on small screens). -->
+        <div class="flex gap-3">
+          <button
+            type="button"
+            class="flex flex-1 items-center justify-center gap-2 rounded-field bg-cerulean px-6 py-4 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean lg:flex-none"
+            (click)="quizOpen.set(true)"
+          >
+            <sd-icon name="sparkles" [size]="20" />Find a doctor for me
+          </button>
+          @if (hero()) {
+            <button
+              type="button"
+              class="flex shrink-0 items-center justify-center gap-2 rounded-field border border-cloud bg-white px-5 py-4 font-sans text-body font-semibold text-ink transition-colors hover:border-cerulean lg:hidden"
+              [attr.aria-expanded]="filtersOpen()"
+              (click)="filtersOpen.set(!filtersOpen())"
+            >
+              <sd-icon name="filter" [size]="18" />Filters
+              @if (hasFilters()) {
+                <span class="size-2 rounded-full bg-cerulean"></span>
+              }
+            </button>
+          }
+        </div>
       </div>
 
       <pat-find-doctor-quiz [(open)]="quizOpen" />
 
-      <!-- Filter chips -->
+      <!-- Filter chips — collapses behind the Filters toggle on mobile, always
+           inline from lg up. -->
       <div
-        class="mt-4 flex flex-wrap items-center gap-3"
+        class="mt-4 flex-col gap-3 lg:flex lg:flex-row lg:flex-wrap lg:items-center"
+        [class.flex]="!hero() || filtersOpen()"
+        [class.hidden]="hero() && !filtersOpen()"
         [class.mx-auto]="!hero()"
         [class.max-w-5xl]="!hero()"
         [class.justify-center]="!hero()"
         [class.lg:flex-nowrap]="!hero()"
       >
         <div
-          class="flex shrink-0 rounded-field border border-cloud bg-white p-1.5"
+          class="flex w-full shrink-0 rounded-field border border-cloud bg-white p-1.5 lg:w-auto"
         >
           @for (t of consultTypes; track t.value) {
             <button
               type="button"
-              class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2.5 font-sans text-body transition-colors"
+              class="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2.5 font-sans text-body transition-colors lg:flex-none"
               [class]="
                 consultationType() === t.value
                   ? 'bg-frost font-medium text-cerulean'
@@ -479,8 +499,12 @@ export class HomeDiscovery implements OnInit {
    * section lets them flex to fill one wide row.
    */
   protected readonly selectClass = computed(() =>
-    this.hero() ? 'w-40 shrink-0' : 'w-44 lg:min-w-0 lg:flex-1',
+    this.hero()
+      ? 'w-full lg:w-44'
+      : 'w-44 lg:min-w-0 lg:flex-1',
   );
+  /** Mobile-only: the filter row is collapsed behind a Filters toggle. */
+  protected readonly filtersOpen = signal(false);
 
   protected readonly query = signal('');
   protected readonly quizOpen = signal(false);

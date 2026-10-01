@@ -159,27 +159,39 @@ interface Doctor {
         >
           <div class="flex min-w-0 flex-col gap-5">
             <span
-              class="inline-flex w-fit items-center gap-2 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-medium text-cerulean"
+              class="mx-auto inline-flex w-fit items-center gap-2 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-medium text-cerulean lg:mx-0"
             >
               <sd-icon name="shield-check" [size]="14" />
               Trusted by thousands of clients
             </span>
             <h1
-              class="font-heading text-h1 leading-tight text-abyss break-words"
+              class="font-heading text-h1 leading-tight text-abyss break-words text-center lg:text-left"
             >
               Healthcare made
               <span class="text-cerulean">Simple, Personal, &amp; Accessible</span>
             </h1>
-            <p class="max-w-xl font-sans text-body-lg text-slate">
+            <p class="mx-auto max-w-xl font-sans text-body-lg text-slate text-center lg:mx-0 lg:text-left">
               Experience modern healthcare with secure virtual consultations,
               easy appointment scheduling, digital prescriptions, and continuous
               support — all in one place.
             </p>
 
+            <!-- Hero photo on mobile sits between the copy and the search (Figma);
+                 on desktop it moves to the right column below (lg:hidden here). -->
+            <img
+              src="/home/hero-doctor.webp"
+              alt="A VideoMed doctor smiling during a secure online consultation on her laptop"
+              width="1160"
+              height="1200"
+              class="mx-auto mt-1 w-full max-w-md rounded-[28px] object-cover shadow-[0_24px_60px_rgba(10,22,40,0.14)] lg:hidden"
+            />
+
             <!-- Search + filters + popular (compact hero variant) -->
             <pat-home-discovery variant="hero" />
 
-            <div class="flex flex-wrap gap-4">
+            <div
+              class="flex flex-col gap-3 pt-1 sm:flex-row sm:flex-wrap sm:gap-4 [&_button]:w-full sm:[&_button]:w-auto"
+            >
               <sd-button (click)="book()">
                 <sd-icon name="calendar-days" [size]="18" />
                 Book a Consultation
@@ -189,7 +201,7 @@ interface Doctor {
                 How it Works
               </sd-button>
             </div>
-            <ul class="flex flex-wrap gap-x-8 gap-y-3 pt-1">
+            <ul class="grid grid-cols-2 gap-x-4 gap-y-3 pt-1 sm:flex sm:flex-wrap sm:gap-x-8">
               @for (t of heroTrust; track t.label) {
                 <li
                   class="flex items-center gap-2 font-sans text-body-sm text-slate"
@@ -201,15 +213,16 @@ interface Doctor {
             </ul>
           </div>
 
-          <!-- Visual: licensed VideoMed hero photo with the design's soft,
-               asymmetric corners. -->
-          <div class="order-first mx-auto w-full min-w-0 max-w-md lg:order-none lg:max-w-none">
+          <!-- Desktop visual: licensed VideoMed hero photo with the design's
+               soft, asymmetric corners (hidden on mobile — shown inline above). -->
+          <div class="hidden w-full min-w-0 lg:block">
             <img
               src="/home/hero-doctor.webp"
-              alt="A VideoMed doctor smiling during a secure online consultation on her laptop"
+              alt=""
+              aria-hidden="true"
               width="1160"
               height="1200"
-              class="aspect-[29/30] w-full rounded-[28px] object-cover shadow-[0_24px_60px_rgba(10,22,40,0.14)] lg:rounded-[32px] lg:rounded-tl-[120px] lg:rounded-br-[120px]"
+              class="aspect-[29/30] w-full rounded-[32px] rounded-tl-[120px] rounded-br-[120px] object-cover shadow-[0_24px_60px_rgba(10,22,40,0.14)]"
             />
           </div>
         </div>
