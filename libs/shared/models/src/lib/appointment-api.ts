@@ -577,9 +577,17 @@ export interface SessionDto {
 }
 
 /** One notification, from `Notification::toArray()`. */
+export type NotificationType = 'appointment' | 'prescription' | 'payment' | 'message' | 'system';
+
+/** How many notifications of one type the patient has, and how many are unread. */
+export interface NotificationTypeCount {
+  total: number;
+  unread: number;
+}
+
 export interface NotificationDto {
   id: string;
-  type: 'appointment' | 'prescription' | 'payment' | 'message' | 'system';
+  type: NotificationType;
   type_label: string;
   title: string;
   body: string;
@@ -589,12 +597,15 @@ export interface NotificationDto {
   created_at: string;
 }
 
-/** Notifications list — the page meta also carries the total unread count. */
+/**
+ * Notifications list — the page meta also carries the total unread count and
+ * (newer APIs) the total / unread per type for the filter tabs.
+ */
 export interface NotificationsResponse {
   status: string;
   message: string;
   data: NotificationDto[];
-  meta: PageMeta & { unread: number };
+  meta: PageMeta & { unread: number; counts?: Record<NotificationType, NotificationTypeCount> };
 }
 
 /** Query params accepted by the portal appointments list endpoint. */

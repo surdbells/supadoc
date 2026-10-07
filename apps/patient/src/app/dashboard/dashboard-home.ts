@@ -395,11 +395,12 @@ const UPCOMING_BADGE: Record<string, string> = {
         <!-- Quick Actions -->
         <div class="flex min-w-0 flex-1 flex-col gap-4">
           <h2 class="font-sans text-h5 text-ink">Quick Actions</h2>
-          <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <!-- Fills the row on xl so the cards end level with the Notifications card. -->
+          <div class="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:flex-1">
             @for (a of quickActions; track a.title) {
               <button
                 type="button"
-                class="sd-card-hover flex flex-col items-center gap-4 rounded-card border-[0.5px] border-ash bg-glacier px-2 py-4 text-center hover:border-cerulean"
+                class="sd-card-hover flex flex-col items-center justify-center gap-4 rounded-card border-[0.5px] border-ash bg-glacier px-2 py-4 text-center hover:border-cerulean"
                 (click)="go(a.link)"
               >
                 <span

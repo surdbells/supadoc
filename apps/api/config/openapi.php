@@ -1895,11 +1895,13 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => "The patient's notifications",
-                'description' => 'Newest first; `meta.unread` is the unread count. `?unread=true` filters to unread.',
+                'description' => 'Newest first; `meta.unread` is the unread count and `meta.counts` is `{total, unread}` for every type (appointment, prescription, payment, message, system) across the whole account, for the filter tabs. `?unread=true` filters to unread, `?type=` to one type (an unknown type is ignored), and `?before=` (a `created_at`) lists only that moment and older — for "load more" that does not shift as notifications arrive or are read.',
                 'operationId' => 'portalNotifications',
                 'parameters'  => [
                     ...$paginationParams,
                     ['name' => 'unread', 'in' => 'query', 'schema' => ['type' => 'boolean']],
+                    ['name' => 'type', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['appointment', 'prescription', 'payment', 'message', 'system']]],
+                    ['name' => 'before', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date-time']],
                 ],
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Notification'))],

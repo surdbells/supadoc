@@ -105,8 +105,15 @@ abstract class BaseRepository
         string $sortBy = 'createdAt',
         string $sortDir = 'desc',
     ): array {
-        $qb->orderBy("$alias.$sortBy", strtoupper($sortDir) === 'ASC' ? 'ASC' : 'DESC')
-            ->setFirstResult(max(0, $offset))
+        $dir = strtoupper($sortDir) === 'ASC' ? 'ASC' : 'DESC';
+        $qb->orderBy("$alias.$sortBy", $dir);
+        // Rows that tie on the sort column (timestamps are to the second) must
+        // come back in the same order on every page, or LIMIT/OFFSET can repeat
+        // one row and never return another.
+        if ($sortBy !== 'id') {
+            $qb->addOrderBy("$alias.id", $dir);
+        }
+        $qb->setFirstResult(max(0, $offset))
             ->setMaxResults(max(1, $perPage));
 
         $paginator = new Paginator($qb, fetchJoinCollection: false);

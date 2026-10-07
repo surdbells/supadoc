@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Repository\NotificationRepository;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaValidator;
@@ -48,5 +49,14 @@ final class DoctrineOfflineTest extends TestCase
 
         $this->assertStringContainsStringIgnoringCase('appointments', $sql);
         $this->assertStringContainsStringIgnoringCase('created_at', $sql);
+    }
+
+    public function testNotificationCountsByTypeCompiles(): void
+    {
+        $sql = (new NotificationRepository($this->em()))->countsByTypeQuery('00000000-0000-0000-0000-000000000000')->getSQL();
+
+        $this->assertStringContainsStringIgnoringCase('notifications', $sql);
+        $this->assertStringContainsStringIgnoringCase('read_at IS NULL', $sql);
+        $this->assertStringContainsStringIgnoringCase('GROUP BY', $sql);
     }
 }
