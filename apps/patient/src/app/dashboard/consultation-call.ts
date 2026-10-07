@@ -355,16 +355,18 @@ interface RecordItem {
           <!-- Video stage — pinned to the top while the notes below are read or
                tabs are switched, so the consultation never scrolls out of view. -->
           <div
-            class="sd-stage sticky top-2 z-20 aspect-[4/3] max-h-[50vh] w-full overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video lg:aspect-[16/10]"
+            class="sd-stage sticky top-2 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[50vh] w-full overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video lg:aspect-[16/10]"
           >
             <!-- Remote (doctor) main stage -->
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
             <!-- Local (patient) picture-in-picture. Kept in the DOM (hidden until
                  in-call) so the camera can attach before status flips — otherwise
-                 the element doesn't exist yet and the local tile stays black. -->
+                 the element doesn't exist yet and the local tile stays black.
+                 Top-right on a small stage; above the controls on a roomy one — never
+                 over them. -->
             <div
-              class="absolute bottom-24 right-4 z-10 h-32 w-24 overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:h-40 sm:w-28"
+              class="absolute right-3 top-3 z-10 h-24 w-[4.5rem] overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg roomy:top-auto roomy:right-4 roomy:bottom-32 roomy:h-32 roomy:w-24"
               [class.hidden]="status() !== 'in-call'"
             >
               <div #localVideo class="h-full w-full"></div>
@@ -380,41 +382,32 @@ interface RecordItem {
               </span>
             </div>
 
-            @if (recordingActive() && status() === 'in-call') {
-              <div
-                class="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1.5 font-sans text-caption font-medium text-white shadow-lg"
-              >
-                <span class="size-2 animate-pulse rounded-full bg-white"></span>
-                This consultation is being recorded
-              </div>
-            }
-
             <!-- No video from the doctor: not here yet, camera off, or gone -->
             @if (!remoteJoined() && status() === 'in-call') {
               <div
-                class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/75"
+                class="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-16 pl-6 pr-[5.5rem] pt-12 text-center text-white/75 roomy:pt-24 roomy:pb-32 roomy:pr-36"
               >
                 @if (remoteLeft()) {
-                  <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
                     <sd-icon name="user-x" [size]="30" />
                   </span>
-                  <p class="font-sans text-body">{{ doctorName() }} has left the call</p>
-                  <p class="max-w-sm font-sans text-caption text-white/50">
+                  <p class="font-sans text-body-sm roomy:text-body">{{ doctorName() }} has left the call</p>
+                  <p class="hidden max-w-sm font-sans text-caption text-white/50 roomy:block">
                     If your consultation is finished, press End to leave.
                   </p>
                 } @else if (remotePresent()) {
-                  <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
                     <sd-icon name="video-off" [size]="30" />
                   </span>
-                  <p class="font-sans text-body">{{ doctorName() }}’s camera is off</p>
+                  <p class="font-sans text-body-sm roomy:text-body">{{ doctorName() }}’s camera is off</p>
                 } @else {
-                  <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
                     <sd-icon name="user-round" [size]="30" />
                   </span>
-                  <p class="font-sans text-body">
+                  <p class="font-sans text-body-sm roomy:text-body">
                     Waiting for {{ doctorName() }} to join…
                   </p>
-                  <p class="font-sans text-caption text-white/50">
+                  <p class="hidden font-sans text-caption text-white/50 roomy:block">
                     {{ doctorSpecialty() }}
                   </p>
                 }
@@ -495,27 +488,42 @@ interface RecordItem {
 
             <!-- Doctor name tag -->
             @if (status() === 'in-call') {
+              <!-- …with the recording notice beside it (small stage) or under it -->
               <div
-                class="absolute left-4 top-4 flex items-center gap-2 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur"
+                class="absolute left-4 top-4 z-10 flex max-w-[calc(100%-7rem)] items-center gap-2 roomy:max-w-[calc(100%-8rem)] roomy:flex-col roomy:items-start"
               >
-                <span class="font-sans text-body-sm font-medium text-white">
-                  {{ doctorName() }}
-                </span>
+                <div class="flex min-w-0 max-w-full items-center rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
+                  <span class="truncate font-sans text-body-sm font-medium text-white">
+                    {{ doctorName() }}
+                  </span>
+                </div>
+                @if (recordingActive()) {
+                  <div
+                    class="flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1.5 font-sans text-caption font-medium text-white shadow-lg roomy:max-w-full roomy:shrink"
+                    role="status"
+                    aria-label="This consultation is being recorded"
+                  >
+                    <span class="size-2 shrink-0 animate-pulse rounded-full bg-white"></span>
+                    <span class="roomy:hidden">Rec</span>
+                    <span class="hidden min-w-0 truncate roomy:inline">This consultation is being recorded</span>
+                  </div>
+                }
               </div>
 
-              <!-- HD badge -->
+              <!-- HD badge (small stage: the PiP has this corner) -->
               <div
-                class="absolute right-4 top-4 flex items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur"
+                class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex"
               >
                 <span class="font-label text-caption font-semibold text-white">HD</span>
                 <span class="size-2 rounded-full bg-success"></span>
               </div>
 
-              <!-- Live captions -->
+              <!-- Live captions, always clear of the controls and the PiP (on small
+                   stages just the newest line, right above the controls) -->
               @if (captionsOn() && latestCaptions().length) {
-                <div class="absolute inset-x-6 bottom-28 mx-auto max-w-xl rounded-2xl bg-abyss/80 px-4 py-2 text-center backdrop-blur">
+                <div class="absolute bottom-[4.5rem] left-6 right-[5.5rem] z-20 mx-auto flex max-h-8 max-w-xl flex-col justify-end overflow-hidden rounded-2xl bg-abyss/80 px-4 py-2 text-center backdrop-blur roomy:right-36 roomy:bottom-32 roomy:max-h-20">
                   @for (seg of latestCaptions(); track seg.id) {
-                    <p class="font-sans text-body-sm text-white/90">
+                    <p class="font-sans text-caption text-white/90 roomy:text-body-sm">
                       <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-sage'">{{ seg.role }}:</span>
                       {{ seg.text }}
                     </p>
@@ -523,9 +531,9 @@ interface RecordItem {
                 </div>
               }
 
-              <!-- Controls -->
+              <!-- Controls (icon-only and a little smaller on a small stage, so all of them fit) -->
               <div
-                class="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-pill bg-abyss/75 px-3 py-2.5 backdrop-blur sm:gap-3 sm:px-4"
+                class="absolute bottom-3 left-1/2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-pill bg-abyss/75 px-2 py-2 backdrop-blur roomy:bottom-5 roomy:gap-3 roomy:px-4 roomy:py-2.5"
               >
                 <button
                   type="button"
@@ -534,12 +542,12 @@ interface RecordItem {
                   (click)="toggleMic()"
                 >
                   <span
-                    class="flex size-11 items-center justify-center rounded-full transition-colors"
+                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
                     [class]="micOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
                   >
                     <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">
                     {{ micOn() ? 'Mute' : 'Unmute' }}
                   </span>
                 </button>
@@ -551,12 +559,12 @@ interface RecordItem {
                   (click)="toggleCam()"
                 >
                   <span
-                    class="flex size-11 items-center justify-center rounded-full transition-colors"
+                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
                     [class]="camOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
                   >
                     <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">
                     {{ camOn() ? 'Stop Video' : 'Start Video' }}
                   </span>
                 </button>
@@ -568,12 +576,12 @@ interface RecordItem {
                   (click)="toggleScreen()"
                 >
                   <span
-                    class="flex size-11 items-center justify-center rounded-full transition-colors"
+                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
                     [class]="screenOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
                   >
                     <sd-icon name="monitor-smartphone" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">Share</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Share</span>
                 </button>
 
                 <button
@@ -583,7 +591,7 @@ interface RecordItem {
                   (click)="chatOpen.set(!chatOpen())"
                 >
                   <span
-                    class="relative flex size-11 items-center justify-center rounded-full transition-colors"
+                    class="relative flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
                     [class]="chatOpen() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
                   >
                     <sd-icon name="message-square" [size]="20" />
@@ -591,7 +599,7 @@ interface RecordItem {
                       <span class="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-alert"></span>
                     }
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">Chat</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Chat</span>
                 </button>
 
                 <button
@@ -603,13 +611,13 @@ interface RecordItem {
                   (click)="toggleCaptions()"
                 >
                   <span
-                    class="flex size-11 items-center justify-center rounded-full font-label text-caption font-bold text-white transition-colors"
+                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 font-label text-caption font-bold text-white transition-colors"
                     [class]="captionsOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
                     [class.opacity-40]="!aiConsentGranted()"
                   >
                     CC
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">Captions</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Captions</span>
                 </button>
 
                 <button
@@ -619,17 +627,17 @@ interface RecordItem {
                   (click)="leave()"
                 >
                   <span
-                    class="flex size-11 items-center justify-center rounded-full bg-alert transition-colors hover:bg-alert/80"
+                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 bg-alert transition-colors hover:bg-alert/80"
                   >
                     <sd-icon name="phone-off" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">End</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">End</span>
                 </button>
               </div>
 
               <!-- Elapsed timer -->
               <div
-                class="absolute bottom-6 right-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur sm:flex"
+                class="absolute bottom-6 right-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur @min-[36rem]/stage:flex"
               >
                 <span class="size-1.5 rounded-full bg-alert"></span>
                 <span class="font-label text-caption tabular-nums text-white/85">

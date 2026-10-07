@@ -90,6 +90,30 @@ const SUB_TAB =
   'flex shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 lg:rounded-field lg:py-2.5';
 
+/** Time until a start, e.g. short "9d 4h 38m" / long "Starts in 9 days, 4 hours and 38 minutes". */
+interface TimeLeft {
+  short: string;
+  long: string;
+}
+
+/** Days, hours and minutes left (`ms` from now), or null once under a minute. */
+function timeLeft(ms: number): TimeLeft | null {
+  const total = Math.floor(ms / 60000);
+  if (total < 1) return null;
+  const d = Math.floor(total / 1440);
+  const h = Math.floor((total % 1440) / 60);
+  const m = total % 60;
+  const short = d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const words = [
+    d > 0 ? unit(d, 'day') : '',
+    h > 0 ? unit(h, 'hour') : '',
+    m > 0 ? unit(m, 'minute') : '',
+  ].filter(Boolean);
+  const long = words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0];
+  return { short, long: `Starts in ${long}` };
+}
+
 /**
  * A consultation's Schedule Details (route `/appointments/:id`) — the design's
  * pre-consultation patient briefing (Overview / Medical History / Documents /
@@ -185,8 +209,16 @@ const SUB_TAB =
             } @else {
               <button type="button" class="flex items-center justify-center gap-2 rounded-field px-5 py-3 font-sans text-body-sm font-semibold transition-colors"
                 [class]="joinState().enabled ? 'bg-cerulean text-white hover:bg-ocean' : 'bg-cerulean/40 text-white cursor-not-allowed'"
-                [disabled]="!joinState().enabled" (click)="join(a)">
-                <sd-icon name="video" [size]="18" />{{ joinState().label }}
+                [disabled]="!joinState().enabled" [attr.title]="joinState().startsIn?.long ?? null" (click)="join(a)">
+                <sd-icon name="video" [size]="18" class="shrink-0" />
+                @if (joinState().startsIn; as left) {
+                  <span class="flex flex-col items-start leading-tight">
+                    <span>{{ joinState().label }}</span>
+                    <span class="font-sans text-caption font-normal text-white/85">Starts in {{ left.short }}</span>
+                  </span>
+                } @else {
+                  {{ joinState().label }}
+                }
               </button>
             }
             <div class="flex gap-3">
@@ -560,14 +592,16 @@ export class DoctorAppointmentDetail implements OnInit {
     return q ? docs.filter((d) => d.title.toLowerCase().includes(q) || d.type_label.toLowerCase().includes(q)) : docs;
   });
 
-  /** The Join-call button's label + enabled state, from time-to-start. */
-  protected readonly joinState = computed<{ label: string; enabled: boolean }>(() => {
+  /**
+   * The Join-call button. The doctor can join at any time before the visit is
+   * completed or cancelled; until the start it also says how long is left.
+   */
+  protected readonly joinState = computed<{ label: string; enabled: boolean; startsIn: TimeLeft | null }>(() => {
     const a = this.appt();
-    if (!a) return { label: 'Join Call', enabled: false };
-    if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false };
-    const mins = Math.round((new Date(a.scheduled_at).getTime() - this.now()) / 60000);
-    if (mins > 5) return { label: `Join Call in ${mins}mins time`, enabled: false };
-    return { label: 'Join Call Now', enabled: true };
+    if (!a) return { label: 'Join Call', enabled: false, startsIn: null };
+    if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false, startsIn: null };
+    const startsIn = timeLeft(new Date(a.scheduled_at).getTime() - this.now());
+    return { label: startsIn ? 'Join Call' : 'Join Call Now', enabled: true, startsIn };
   });
 
   // Lifecycle actions

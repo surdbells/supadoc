@@ -10,6 +10,15 @@
  * Fonts (Lexend, Poppins) are loaded via each app's build `styles` array from
  * @fontsource; SF Pro resolves from the system font stack.
  */
+
+/* The call stages are size containers named `stage`; `roomy:` applies their
+   full overlay layout (labelled controls, larger PiP) only when the stage itself
+   is big enough — a phone, a phone held sideways or a narrow column get the
+   compact one. */
+@custom-variant roomy (@container stage (min-width: 30rem) and (min-height: 21rem));
+/* …and `tall:` when it also has the height for decorative extras. */
+@custom-variant tall (@container stage (min-width: 30rem) and (min-height: 23rem));
+
 @theme {
   /* ===== Brand =====
    * Vibrancy pass (2026-09): the brand blues are pushed brighter/more saturated

@@ -308,15 +308,18 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         <!-- ===================== STAGE ===================== -->
         <!-- The consultation stays in view while notes, prescriptions and tools are used:
              on desktop the video has a steady height and the tools scroll in their own
-             panel below it; on smaller screens the video is first and pinned to the top. -->
+             panel below it; on smaller screens the video is first and pinned to the top.
+             The stage must stay positioned (sticky, or relative on desktop): the video,
+             name tag, self-view and call controls are placed absolutely inside it. -->
         <section class="contents xl:flex xl:min-h-0 xl:min-w-0 xl:flex-col xl:gap-4">
-          <div class="sd-stage order-1 sticky top-0 z-20 aspect-[4/3] max-h-[45vh] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video xl:static xl:order-none xl:aspect-auto xl:h-[clamp(280px,46vh,600px)] xl:max-h-none xl:shadow-none">
+          <div class="sd-stage order-1 sticky top-0 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[45vh] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video xl:relative xl:order-none xl:aspect-auto xl:h-[clamp(280px,46vh,600px)] xl:max-h-none xl:shadow-none">
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
             <!-- Doctor PiP. Kept in the DOM (hidden until in-call) so the camera
-                 can attach before status flips — otherwise the local tile is black. -->
+                 can attach before status flips — otherwise the local tile is black.
+                 Top-right on a small stage, where the bottom corner would cover the controls. -->
             <div
-              class="absolute bottom-24 right-3 z-10 h-24 w-[4.5rem] overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:right-4 sm:h-40 sm:w-28"
+              class="absolute right-3 top-3 z-10 h-24 w-[4.5rem] overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg roomy:top-auto roomy:right-4 roomy:bottom-28 roomy:h-40 roomy:w-28"
               [class.hidden]="status() !== 'in-call'"
             >
               <div #localVideo class="h-full w-full"></div>
@@ -331,11 +334,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             </div>
 
             @if (!remoteJoined() && status() === 'in-call') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/75">
-                <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+              <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-16 pl-6 pr-[5.5rem] pt-12 text-center text-white/75 roomy:pb-28 roomy:pr-36">
+                <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 roomy:flex">
                   <sd-icon name="user-round" [size]="30" />
                 </span>
-                <p class="font-sans text-body">Waiting for {{ patientName() }} to join…</p>
+                <p class="font-sans text-body-sm roomy:text-body">Waiting for {{ patientName() }} to join…</p>
               </div>
             }
 
@@ -364,40 +367,40 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 
             @if (status() === 'in-call') {
               <!-- Patient name tag -->
-              <div class="absolute left-4 top-4 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
-                <span class="font-sans text-body-sm font-medium text-white">{{ patientName() }}</span>
+              <div class="absolute left-4 top-4 max-w-[calc(100%-7rem)] rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:max-w-[calc(100%-8rem)]">
+                <span class="block truncate font-sans text-body-sm font-medium text-white">{{ patientName() }}</span>
               </div>
-              <!-- Connection quality -->
-              <div class="absolute right-4 top-4 flex items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
+              <!-- Connection quality (small stage: the PiP has this corner; the bar below says HD) -->
+              <div class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex">
                 <span class="font-label text-caption font-semibold text-white">HD</span>
                 <span class="size-2 rounded-full bg-success"></span>
               </div>
 
-              <!-- Controls -->
-              <div class="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-pill bg-abyss/75 px-3 py-2.5 backdrop-blur sm:gap-3 sm:px-4">
+              <!-- Controls (icon-only and a little smaller on a small stage, so they always fit) -->
+              <div class="absolute bottom-3 left-1/2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 rounded-pill bg-abyss/75 px-2 py-2 backdrop-blur roomy:bottom-5 roomy:gap-3 roomy:px-4 roomy:py-2.5">
                 <button type="button" class="flex flex-col items-center gap-1" [attr.aria-label]="micOn() ? 'Mute' : 'Unmute'" (click)="toggleMic()">
-                  <span class="flex size-11 items-center justify-center rounded-full transition-colors" [class]="micOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'">
+                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors" [class]="micOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'">
                     <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">{{ micOn() ? 'Mute' : 'Unmute' }}</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">{{ micOn() ? 'Mute' : 'Unmute' }}</span>
                 </button>
                 <button type="button" class="flex flex-col items-center gap-1" [attr.aria-label]="camOn() ? 'Stop video' : 'Start video'" (click)="toggleCam()">
-                  <span class="flex size-11 items-center justify-center rounded-full transition-colors" [class]="camOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'">
+                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors" [class]="camOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'">
                     <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">{{ camOn() ? 'Stop Video' : 'Start' }}</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">{{ camOn() ? 'Stop Video' : 'Start' }}</span>
                 </button>
                 <button type="button" class="flex flex-col items-center gap-1" aria-label="Share screen" (click)="toggleScreen()">
-                  <span class="flex size-11 items-center justify-center rounded-full transition-colors" [class]="screenOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'">
+                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors" [class]="screenOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'">
                     <sd-icon name="monitor-smartphone" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">Share</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Share</span>
                 </button>
                 <button type="button" class="flex flex-col items-center gap-1" aria-label="Leave call" (click)="leave()">
-                  <span class="flex size-11 items-center justify-center rounded-full bg-alert transition-colors hover:bg-alert/80">
+                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 bg-alert transition-colors hover:bg-alert/80">
                     <sd-icon name="phone-off" [size]="20" />
                   </span>
-                  <span class="font-sans text-[10px] text-white/70">End</span>
+                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">End</span>
                 </button>
               </div>
             }
