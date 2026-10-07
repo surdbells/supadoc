@@ -13,6 +13,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\PatientNotifier;
 use DateTimeImmutable;
+use App\Domain\Settings\WebUrls;
 
 /**
  * Nightly prescription housekeeping, run from the reminders cron
@@ -33,7 +34,6 @@ final class PrescriptionExpiryService
         private readonly PrescriptionSettings $settings,
         private readonly PatientNotifier $notifier,
         private readonly MailService $mail,
-        private readonly string $webUrl,
     ) {
     }
 
@@ -76,7 +76,7 @@ final class PrescriptionExpiryService
                         $patient->getFirstName(),
                         $rx->getNumber(),
                         $expiresOn,
-                        $this->webUrl . '/dashboard/specialists',
+                        WebUrls::forPatient($patient) . '/dashboard/specialists',
                     );
                     $this->mail->send($patient->getEmail(), $patient->getFullName(), $tpl['subject'], $tpl['html']);
                 }

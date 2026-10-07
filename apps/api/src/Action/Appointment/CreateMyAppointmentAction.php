@@ -27,6 +27,7 @@ use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/portal/appointments — the signed-in patient books a consultation.
@@ -316,7 +317,9 @@ final class CreateMyAppointmentAction
         array $guests,
     ): void {
         try {
-            $webUrl   = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
+            // Each party's join link opens on their own site (see WebUrls).
+            $patientBase = WebUrls::forPatient($patient);
+            $doctorBase  = WebUrls::patientAppForSpecialist($specialist);
             $currency = $this->pricing->currency() === 'NGN' ? '₦' : $this->pricing->currency();
             $appt     = $appointment->toArray();
             $p        = $patient->toArray();
@@ -328,9 +331,9 @@ final class CreateMyAppointmentAction
             );
 
             // uid must be unique per party in the shared Agora channel.
-            $send = function (string $email, string $name, string $role, int $uid) use ($appt, $attendees, $webUrl, $currency): void {
+            $send = function (string $email, string $name, string $role, int $uid) use ($appt, $attendees, $patientBase, $doctorBase, $currency): void {
                 $token = $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
-                $mail  = EmailTemplates::sessionInvite($appt, $name, $role, $webUrl . '/call/join/' . $token, $attendees, $currency);
+                $mail  = EmailTemplates::sessionInvite($appt, $name, $role, ($role === 'doctor' ? $doctorBase : $patientBase) . '/call/join/' . $token, $attendees, $currency);
                 $this->mail->send($email, $name, $mail['subject'], $mail['html']);
             };
 

@@ -15,6 +15,7 @@ use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/portal/appointments/{id}/cancel — the signed-in patient cancels their
@@ -90,7 +91,7 @@ final class CancelMyAppointmentAction
             $mail = EmailTemplates::appointmentStatusUpdate(
                 $appointment->toArray(),
                 (string) ($p['first_name'] ?? ''),
-                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+                WebUrls::forPatient($appointment->getPatient()),
             );
             $this->mail->send(
                 (string) ($p['email'] ?? ''),

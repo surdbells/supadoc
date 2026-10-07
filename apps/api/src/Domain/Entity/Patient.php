@@ -52,6 +52,13 @@ class Patient
     #[ORM\Column(name: 'avatar_url', type: 'string', length: 300, nullable: true)]
     private ?string $avatarUrl = null;
 
+    /**
+     * The web app this person last signed in from (one of the configured
+     * sites — see WebUrls), so emailed and printed links send them back there.
+     */
+    #[ORM\Column(name: 'web_origin', type: 'string', length: 255, nullable: true)]
+    private ?string $webOrigin = null;
+
     #[ORM\Column(name: 'phone_verified_at', type: 'datetime_immutable', nullable: true)]
     private ?DateTimeImmutable $phoneVerifiedAt = null;
 
@@ -296,6 +303,16 @@ class Patient
     public function getAvatarUrl(): ?string
     {
         return $this->avatarUrl;
+    }
+
+    public function getWebOrigin(): ?string
+    {
+        return $this->webOrigin;
+    }
+
+    public function setWebOrigin(?string $origin): void
+    {
+        $this->webOrigin = $origin !== null && $origin !== '' ? $origin : null;
     }
 
     public function setAvatarUrl(?string $avatarUrl): void

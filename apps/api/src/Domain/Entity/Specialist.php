@@ -137,6 +137,13 @@ class Specialist
     #[ORM\Column(name: 'signature_key', type: 'string', length: 120, nullable: true)]
     private ?string $signatureKey = null;
 
+    /**
+     * The doctor-portal site this doctor last signed in from (see WebUrls), so
+     * emailed links send them back there. Never part of the public payload.
+     */
+    #[ORM\Column(name: 'web_origin', type: 'string', length: 255, nullable: true)]
+    private ?string $webOrigin = null;
+
     /** Default consultation length in minutes for generated slots (15/30/45/60). */
     #[ORM\Column(name: 'slot_minutes', type: 'integer', options: ['default' => 30])]
     private int $slotMinutes = 30;
@@ -350,6 +357,16 @@ class Specialist
     {
         $number           = $number !== null ? strtoupper(trim($number)) : null;
         $this->mdcnNumber = $number !== '' ? $number : null;
+    }
+
+    public function getWebOrigin(): ?string
+    {
+        return $this->webOrigin;
+    }
+
+    public function setWebOrigin(?string $origin): void
+    {
+        $this->webOrigin = $origin !== null && $origin !== '' ? $origin : null;
     }
 
     public function getSignatureKey(): ?string

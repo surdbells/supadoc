@@ -334,12 +334,19 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
    JWT_REFRESH_TTL=43200                            # absolute session lifetime: 12h
    APP_WEB_URL=https://patient.dosthq.com           # the PATIENT app: patient email links + the check page printed on PDFs
    STAFF_WEB_URL=https://doctor.dosthq.com          # the DOCTOR portal: links in doctor/staff emails
+   PATIENT_WEB_URLS=https://patient.dosthq.com,https://patient.betacrest.com   # every patient site (first = default)
+   STAFF_WEB_URLS=https://doctor.dosthq.com,https://doctor.betacrest.com       # every doctor site, same order
    CLINIC_NAME / CLINIC_TAGLINE / CLINIC_CONTACT    # branding printed on the PDF
    ```
 
    Without `FILE_ENCRYPTION_KEY` (or with a malformed one) doctors cannot save or
    use signatures — the API logs the reason and tells the doctor to contact
    support; everything else keeps working.
+
+   Several deployments share this API (the dosthq and betacrest test groups):
+   each user's site is remembered at sign-in and their links follow it, so list
+   every site in PATIENT_WEB_URLS / STAFF_WEB_URLS (paired by position) and keep
+   all of them in CORS_ALLOWED_ORIGINS.
 
    If your `.env` still has `JWT_REFRESH_TTL=1209600` (14 days) from the old
    template, change it — the portals' idle timeout is 15 min (patient) / 30 min

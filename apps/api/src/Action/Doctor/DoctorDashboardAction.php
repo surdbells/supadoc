@@ -15,6 +15,7 @@ use App\Infrastructure\Service\JwtService;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * GET /api/doctor/dashboard — headline metrics + today's agenda for the signed-in
@@ -53,7 +54,7 @@ final class DoctorDashboardAction
         $startWeek    = $now->modify('monday this week')->setTime(0, 0, 0);
         $startLastWeek = $startWeek->modify('-7 days');
         $specialistId = $specialist->getId();
-        $webUrl       = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
+        $webUrl       = WebUrls::patientAppForStaffOrigin(WebUrls::requestStaffOrigin() ?? $specialist->getWebOrigin());
 
         // "not cancelled" — what the agenda and the Today's Appointments count show.
         $active = [

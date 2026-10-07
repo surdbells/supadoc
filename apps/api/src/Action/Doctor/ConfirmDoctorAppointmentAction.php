@@ -14,6 +14,7 @@ use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/doctor/appointments/{id}/confirm — the assigned doctor confirms a
@@ -70,7 +71,7 @@ final class ConfirmDoctorAppointmentAction
             $mail = EmailTemplates::appointmentStatusUpdate(
                 $appointment->toArray(),
                 (string) ($p['first_name'] ?? ''),
-                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+                WebUrls::forPatient($appointment->getPatient()),
             );
             $this->mail->send(
                 (string) ($p['email'] ?? ''),

@@ -12,6 +12,7 @@ use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\WalletService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/portal/wallet/fund — start a wallet top-up. Creates a pending ledger
@@ -70,7 +71,7 @@ final class FundWalletAction
         $reference = 'vmw_' . bin2hex(random_bytes(12));
         $this->wallets->beginTopup($customerId, $currency, $amount, $reference);
 
-        $base        = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
+        $base        = WebUrls::requestPatientOrigin() ?? WebUrls::patientDefault();
         $callbackUrl = $base . '/dashboard/wallet';
 
         try {

@@ -6,6 +6,7 @@ namespace App\Infrastructure\Email;
 
 use App\Domain\Entity\WalletTransaction;
 use App\Domain\Repository\PatientRepository;
+use App\Domain\Settings\WebUrls;
 
 /**
  * Emails a receipt for a wallet posting (funding / consultation debit / refund).
@@ -35,7 +36,7 @@ final class WalletMailer
             }
             $name   = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? ''));
             $symbol = $txn->getCurrency() === 'NGN' ? '₦' : $txn->getCurrency() . ' ';
-            $webUrl = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
+            $webUrl = WebUrls::forPatient($patient);
 
             $mail = EmailTemplates::walletReceipt($txn->toArray(), (string) ($p['first_name'] ?? ''), $symbol, $webUrl);
             $this->mail->send($email, $name, $mail['subject'], $mail['html']);

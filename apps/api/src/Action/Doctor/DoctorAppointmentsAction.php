@@ -12,6 +12,7 @@ use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\JwtService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * GET /api/doctor/appointments — the signed-in doctor's own consultations.
@@ -47,7 +48,7 @@ final class DoctorAppointmentsAction
             return $this->error($response, 'Doctor profile not found', 404);
         }
 
-        $webUrl = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
+        $webUrl = WebUrls::patientAppForStaffOrigin(WebUrls::requestStaffOrigin() ?? $specialist->getWebOrigin());
         $rows   = array_map(function (Appointment $appt) use ($specialist, $webUrl): array {
             $patient = $appt->getPatient()->toArray();
             $token   = $this->jwt->issueCallAccess(

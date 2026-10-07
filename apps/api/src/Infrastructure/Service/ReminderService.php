@@ -13,6 +13,7 @@ use App\Domain\Repository\NotificationRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
+use App\Domain\Settings\WebUrls;
 
 /**
  * Sends "your consultation is coming up" reminders with each party's personal,
@@ -69,7 +70,6 @@ final class ReminderService
     public function run(?DateTimeImmutable $now = null): array
     {
         $now    = $now ?? new DateTimeImmutable();
-        $webUrl = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
 
         $sent       = 0;
         $recipients = 0;
@@ -82,7 +82,7 @@ final class ReminderService
                 if ($this->reminders->wasSent($appointment->getId(), $offset)) {
                     continue;
                 }
-                $recipients += $this->sendFor($appointment, $offset, $webUrl);
+                $recipients += $this->sendFor($appointment, $offset);
                 $this->reminders->markSent($appointment->getId(), $offset);
                 $sent++;
             }
@@ -94,7 +94,7 @@ final class ReminderService
     /**
      * Email the join link to every party. Returns how many recipients were mailed.
      */
-    private function sendFor(Appointment $appointment, int $offset, string $webUrl): int
+    private function sendFor(Appointment $appointment, int $offset): int
     {
         $appt        = $appointment->toArray();
         $whenLabel   = $this->humanize($offset);
@@ -102,15 +102,18 @@ final class ReminderService
         $specialist  = $appointment->getSpecialist();
         $p           = $patient->toArray();
         $patientName = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? ''));
+        // Each party's join link opens on their own site (see WebUrls).
+        $patientBase = WebUrls::forPatient($patient);
+        $doctorBase  = WebUrls::patientAppForSpecialist($specialist);
 
         $count = 0;
         // uid must be unique per party in the shared Agora channel (matches booking).
-        $send = function (string $email, string $name, string $role, int $uid) use ($appt, $whenLabel, $webUrl, &$count): void {
+        $send = function (string $email, string $name, string $role, int $uid) use ($appt, $whenLabel, $patientBase, $doctorBase, &$count): void {
             if ($email === '') {
                 return;
             }
             $token = $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
-            $mail  = EmailTemplates::joinReminder($appt, $name, $whenLabel, $webUrl . '/call/join/' . $token);
+            $mail  = EmailTemplates::joinReminder($appt, $name, $whenLabel, ($role === 'doctor' ? $doctorBase : $patientBase) . '/call/join/' . $token);
             $this->mail->send($email, $name, $mail['subject'], $mail['html']);
             $count++;
         };

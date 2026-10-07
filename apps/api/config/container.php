@@ -95,6 +95,10 @@ use Psr\Log\LoggerInterface;
 // expiry / the date in the number). The process timezone is left untouched.
 \App\Domain\Settings\ClinicTime::configure(trim((string) ($_ENV['APP_TIMEZONE'] ?? '')));
 
+// Patient / doctor sites this API serves (several deployments share one API):
+// links in emails, notifications and printed prescriptions follow each user.
+\App\Domain\Settings\WebUrls::configureFromEnv($_ENV);
+
 return [
     // ----- Core -----
     EntityManagerInterface::class => static fn (): EntityManagerInterface =>
@@ -265,6 +269,7 @@ return [
         $c->get(TotpService::class),
         $c->get(NotificationRepository::class),
         $c->get(MailService::class),
+        $c->get(SpecialistRepository::class),
     ),
 
     TotpService::class => static fn (): TotpService => new TotpService(),
@@ -442,7 +447,6 @@ return [
         $c->get(PatientNotifier::class),
         $c->get(MailService::class),
         $c->get(AuditLogger::class),
-        rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/'),
         $c->get(DrugCatalogueImporter::class),
     ),
 
@@ -468,7 +472,6 @@ return [
         $c->get(PrescriptionSettings::class),
         $c->get(PatientNotifier::class),
         $c->get(MailService::class),
-        rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/'),
     ),
 
     DrugRepository::class => static fn (ContainerInterface $c): DrugRepository =>

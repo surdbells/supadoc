@@ -8,6 +8,7 @@ use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Enum\SessionState;
+use App\Domain\Settings\WebUrls;
 use App\Domain\Exception\AuthenticationException;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\NotificationRepository;
@@ -30,6 +31,7 @@ final class AuthService
         private readonly TotpService $totp,
         private readonly NotificationRepository $notifications,
         private readonly MailService $mail,
+        private readonly ?\App\Domain\Repository\SpecialistRepository $specialists = null,
     ) {
     }
 
@@ -44,7 +46,8 @@ final class AuthService
             }
             $mail = EmailTemplates::welcome(
                 (string) ($p['first_name'] ?? ''),
-                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+                // The site they are registering on (a new account has no remembered site yet).
+                WebUrls::requestPatientOrigin() ?? WebUrls::forPatient($patient),
             );
             $this->mail->send(
                 $email,
@@ -64,6 +67,8 @@ final class AuthService
         if ($user === null || !$user->verifyPassword($password)) {
             throw new AuthenticationException('Invalid email or password');
         }
+
+        $this->rememberStaffSite($user);
 
         // A revocable, time-boxed server session; its id becomes the token jti.
         $jti = $this->sessions->startStaff(
@@ -283,6 +288,7 @@ final class AuthService
             if ($user === null) {
                 throw new AuthenticationException('Account no longer exists');
             }
+            $this->rememberStaffSite($user);
             $access = $this->jwt->issueAccessToken(
                 $user->getId(),
                 'staff',
@@ -303,6 +309,7 @@ final class AuthService
                     throw new AuthenticationException($state->message());
                 }
             }
+            $this->rememberPatientSite($patient);
             $access = $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti);
         }
 
@@ -332,8 +339,39 @@ final class AuthService
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */
+    /** Remember the patient site this request came from (links follow it). */
+    private function rememberPatientSite(Patient $patient): void
+    {
+        $site = WebUrls::requestPatientOrigin();
+        if ($site !== null && $site !== $patient->getWebOrigin()) {
+            $patient->setWebOrigin($site);
+            $this->patients->save($patient);
+        }
+    }
+
+    /** Remember the staff site (doctor portal / back office) this request came from. */
+    private function rememberStaffSite(\App\Domain\Entity\User $user): void
+    {
+        $site = WebUrls::requestStaffOrigin();
+        if ($site === null) {
+            return;
+        }
+        if ($site !== $user->getWebOrigin()) {
+            $user->setWebOrigin($site);
+            $this->users->save($user);
+        }
+        // A doctor's emails (payouts, reviews, call invites) follow their site too.
+        $doctor = $user->getSpecialistId() !== null ? $this->specialists?->find($user->getSpecialistId()) : null;
+        if ($doctor instanceof \App\Domain\Entity\Specialist && $site !== $doctor->getWebOrigin()) {
+            $doctor->setWebOrigin($site);
+            $this->specialists?->save($doctor);
+        }
+    }
+
     private function issueCustomerTokens(Patient $patient, string $userAgent = '', string $ip = ''): array
     {
+        $this->rememberPatientSite($patient);
+
         // Register a revocable session; its id becomes the token's jti.
         $jti = $this->sessions->start(
             $patient,

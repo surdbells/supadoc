@@ -18,6 +18,7 @@ use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/admin/support/tickets/{id}/messages — a staff reply. Moves the
@@ -103,7 +104,7 @@ final class ReplySupportTicketAction
                     (string) ($p['first_name'] ?? ''),
                     $subject,
                     $preview,
-                    $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+                    WebUrls::forPatient($patient),
                 );
                 $this->mail->send(
                     $email,

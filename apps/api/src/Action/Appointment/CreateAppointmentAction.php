@@ -19,6 +19,7 @@ use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/appointments — a staff member books a consultation on a patient's
@@ -126,7 +127,7 @@ final class CreateAppointmentAction
             $mail = EmailTemplates::appointmentConfirmation(
                 $appointment->toArray(),
                 (string) $p['first_name'],
-                $_ENV['APP_WEB_URL'] ?? 'http://localhost:4201',
+                WebUrls::forPatient($patient),
             );
             $this->mail->send(
                 (string) $p['email'],

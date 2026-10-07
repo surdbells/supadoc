@@ -15,6 +15,7 @@ use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/portal/appointments/{id}/review — the patient rates a completed
@@ -96,7 +97,7 @@ final class SubmitReviewAction
                     $specialist->getName(),
                     $rating,
                     isset($body['comment']) ? (string) $body['comment'] : '',
-                    rtrim((string) ($_ENV['STAFF_WEB_URL'] ?? $_ENV['APP_WEB_URL'] ?? 'http://localhost:4204'), '/'),
+                    WebUrls::forSpecialist($specialist),
                 );
                 $this->mail->send($docEmail, $specialist->getName(), $tpl['subject'], $tpl['html']);
             }

@@ -29,6 +29,7 @@ use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PatientNotifier;
 use DateTimeImmutable;
 use DomainException;
+use App\Domain\Settings\WebUrls;
 
 /**
  * The e-prescribing workflow (GVM-RX-01/02): draft → send (locked, numbered,
@@ -56,7 +57,6 @@ final class PrescriptionService
         private readonly PatientNotifier $notifier,
         private readonly MailService $mail,
         private readonly AuditLogger $audit,
-        private readonly string $webUrl,
         private readonly ?DrugCatalogueImporter $catalogue = null,
     ) {
     }
@@ -319,7 +319,7 @@ final class PrescriptionService
                 $doctorName,
                 $rx->getNumber(),
                 $replace,
-                $this->webUrl . '/dashboard/prescriptions',
+                WebUrls::forPatient($patient) . '/dashboard/prescriptions',
             ));
         }
 
@@ -386,9 +386,18 @@ final class PrescriptionService
             $signature  = $this->signatures->read($rx->getSignatureKey());
         }
 
+        $owner = $this->patients->find($rx->getPatientId());
+
         return [
             'filename' => $rx->getNumber() . '.pdf',
-            'bytes'    => $this->renderer->render($rx, $patientArr, $doctorArr, $signature, $this->verifyUrl(), $watermark),
+            'bytes'    => $this->renderer->render(
+                $rx,
+                $patientArr,
+                $doctorArr,
+                $signature,
+                $this->verifyUrl($owner instanceof Patient ? $owner : null),
+                $watermark,
+            ),
         ];
     }
 
@@ -443,9 +452,10 @@ final class PrescriptionService
         return $ok ? ['rx' => $rx, 'viewer_type' => $type, 'viewer_id' => $id, 'download' => (bool) ($claims['dl'] ?? false)] : null;
     }
 
-    public function verifyUrl(): string
+    /** The pharmacist check page printed on the PDF — on the patient's own site. */
+    public function verifyUrl(?Patient $patient = null): string
     {
-        return $this->webUrl . '/check-prescription';
+        return WebUrls::forPatient($patient) . '/check-prescription';
     }
 
     // ----- side panel -----
@@ -725,7 +735,7 @@ final class PrescriptionService
             $doctorName,
             $rx->getNumber(),
             $rx->getValidUntil()?->format('j M Y') ?? '',
-            $this->webUrl . '/dashboard/prescriptions/' . $rx->getId(),
+            WebUrls::forPatient($patient) . '/dashboard/prescriptions/' . $rx->getId(),
         ));
     }
 

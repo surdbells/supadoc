@@ -8,6 +8,7 @@ use App\Domain\Entity\Payout;
 use App\Domain\Repository\SpecialistRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
+use App\Domain\Settings\WebUrls;
 
 /**
  * Shared "email the doctor about a payout decision" helper for the approve / paid
@@ -33,7 +34,7 @@ trait NotifiesPayout
             $amountLabel  = '₦' . number_format((float) ($data['amount'] ?? $payout->getAmount()), 2);
             $reference   = (string) ($data['reference'] ?? $payout->getId());
             $reason      = (string) ($data['admin_note'] ?? ($data['reason'] ?? ''));
-            $webUrl      = rtrim((string) ($_ENV['STAFF_WEB_URL'] ?? $_ENV['APP_WEB_URL'] ?? 'http://localhost:4204'), '/');
+            $webUrl      = WebUrls::forSpecialist($specialist);
 
             $tpl = EmailTemplates::payoutUpdate($specialist->getName(), $status, $amountLabel, $reference, $webUrl, $reason);
             $mail->send($email, $specialist->getName(), $tpl['subject'], $tpl['html']);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Infrastructure\Middleware\CorsMiddleware;
 use App\Infrastructure\Middleware\JsonBodyParserMiddleware;
 use App\Infrastructure\Middleware\RateLimitMiddleware;
+use App\Infrastructure\Middleware\RequestOriginMiddleware;
 use App\Infrastructure\Middleware\ErrorHandler;
 use Predis\Client as RedisClient;
 use Psr\Log\LoggerInterface;
@@ -29,6 +30,9 @@ return static function (App $app): void {
     ));
 
     $app->add(new JsonBodyParserMiddleware());
+
+    // Which web app (patient / doctor site) the request came from — see WebUrls.
+    $app->add(new RequestOriginMiddleware());
 
     $app->addRoutingMiddleware();
 

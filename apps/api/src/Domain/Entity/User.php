@@ -55,6 +55,13 @@ class User
     #[ORM\Column(name: 'specialist_id', type: 'uuid', nullable: true)]
     private ?string $specialistId = null;
 
+    /**
+     * The web app this person last signed in from (one of the configured
+     * sites — see WebUrls), so emailed and printed links send them back there.
+     */
+    #[ORM\Column(name: 'web_origin', type: 'string', length: 255, nullable: true)]
+    private ?string $webOrigin = null;
+
     public function __construct(string $email, string $firstName, string $lastName)
     {
         $this->id        = Uuid::uuid4()->toString();
@@ -130,6 +137,16 @@ class User
     public function isActive(): bool
     {
         return $this->active;
+    }
+
+    public function getWebOrigin(): ?string
+    {
+        return $this->webOrigin;
+    }
+
+    public function setWebOrigin(?string $origin): void
+    {
+        $this->webOrigin = $origin !== null && $origin !== '' ? $origin : null;
     }
 
     public function getSpecialistId(): ?string

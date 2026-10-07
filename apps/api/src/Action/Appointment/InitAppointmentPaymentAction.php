@@ -13,6 +13,7 @@ use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\PricingService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/portal/appointments/pay-init — start a direct card payment for a
@@ -74,7 +75,7 @@ final class InitAppointmentPaymentAction
         }
 
         $reference = 'vma_' . bin2hex(random_bytes(12));
-        $base      = rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/');
+        $base      = WebUrls::requestPatientOrigin() ?? WebUrls::patientDefault();
 
         try {
             $init = $this->paystack->initialize(
