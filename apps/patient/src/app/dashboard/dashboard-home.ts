@@ -370,14 +370,14 @@ const UPCOMING_BADGE: Record<string, string> = {
                   </span>
                   <div class="flex min-w-0 flex-1 flex-col gap-1">
                     <div class="flex items-center justify-between gap-2">
-                      <p class="font-sans text-body-sm font-medium text-ink">
+                      <p class="min-w-0 truncate font-sans text-body-sm font-medium text-ink">
                         {{ n.title }}
                       </p>
                       <span class="shrink-0 font-sans text-caption text-slate">{{
                         n.time
                       }}</span>
                     </div>
-                    <p class="font-sans text-caption text-slate">{{ n.body }}</p>
+                    <p class="line-clamp-2 font-sans text-caption text-slate">{{ n.body }}</p>
                   </div>
                   @if (n.unread) {
                     <span
@@ -489,7 +489,7 @@ export class DashboardHome {
   protected readonly loadingUpcoming = signal(true);
   protected readonly upcomingError = signal('');
 
-  // Notifications widget — the most recent few from GET /api/portal/notifications.
+  // Notifications widget — the two most recent from GET /api/portal/notifications.
   protected readonly notifications = signal<Notice[]>([]);
   protected readonly notificationsError = signal('');
 
@@ -517,8 +517,9 @@ export class DashboardHome {
   }
 
   constructor() {
+    // Two at most, so the card lines up with the Quick Actions row beside it.
     this.notificationsApi
-      .list({ per_page: 4 })
+      .list({ per_page: 2 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) =>
