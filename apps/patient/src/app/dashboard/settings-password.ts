@@ -7,7 +7,7 @@ import {
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { PatientApi } from '@supadoc/data-access';
+import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 
 /** Settings › Change Password (standard pattern; Figma 894:25038). */
@@ -138,8 +138,7 @@ export class SettingsPassword {
       this.saved.set(true);
     } catch (err) {
       this.errorMessage.set(
-        (err as { message?: string })?.message ??
-          'Could not update your password.',
+        apiErrorMessage(err, 'Could not update your password.'),
       );
     } finally {
       this.saving.set(false);

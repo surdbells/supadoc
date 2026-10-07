@@ -31,6 +31,7 @@ use App\Domain\Repository\WalletTransactionRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SessionRepository;
+use App\Domain\Repository\StaffSessionRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Agora\AgoraRecordingService;
@@ -60,6 +61,16 @@ use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\TermiiService;
 use App\Infrastructure\Service\TotpService;
 use App\Infrastructure\Service\WalletService;
+use App\Domain\Repository\DrugRepository;
+use App\Domain\Repository\PrescriptionCheckThrottleRepository;
+use App\Infrastructure\Prescription\PrescriptionCheckService;
+use App\Infrastructure\Prescription\PrescriptionExpiryService;
+use App\Infrastructure\Prescription\PrescriptionNumberGenerator;
+use App\Infrastructure\Prescription\PrescriptionPdfRenderer;
+use App\Infrastructure\Prescription\PrescriptionService;
+use App\Infrastructure\Prescription\PrescriptionSettings;
+use App\Infrastructure\Prescription\SignatureStore;
+use App\Infrastructure\Storage\FileVault;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -78,6 +89,11 @@ use Psr\Log\LoggerInterface;
  * This array is intentionally the single wiring surface; split per-domain and
  * merge with several addDefinitions() files once it grows past a screen or two.
  */
+
+// The clinic calendar for date-only prescription rules (today / valid-until /
+// expiry / the date in the number). The process timezone is left untouched.
+\App\Domain\Settings\ClinicTime::configure(trim((string) ($_ENV['APP_TIMEZONE'] ?? '')));
+
 return [
     // ----- Core -----
     EntityManagerInterface::class => static fn (): EntityManagerInterface =>
@@ -107,7 +123,7 @@ return [
     JwtService::class => static fn (): JwtService => new JwtService(
         secret:     $_ENV['JWT_SECRET'] ?? 'change-me',
         accessTtl:  (int) ($_ENV['JWT_ACCESS_TTL'] ?? 900),
-        refreshTtl: (int) ($_ENV['JWT_REFRESH_TTL'] ?? 1209600),
+        refreshTtl: (int) ($_ENV['JWT_REFRESH_TTL'] ?? 43200),
     ),
 
     SettingsCacheService::class => static fn (ContainerInterface $c): SettingsCacheService =>
@@ -252,8 +268,15 @@ return [
 
     TotpService::class => static fn (): TotpService => new TotpService(),
 
-    SessionService::class => static fn (ContainerInterface $c): SessionService =>
-        new SessionService($c->get(SessionRepository::class)),
+    // Sessions die after SESSION_IDLE_TIMEOUT seconds without an authenticated
+    // request, and JWT_REFRESH_TTL after sign-in regardless (absolute lifetime).
+    // Keep the idle window at least the portals' client idle timeout + 5 min.
+    SessionService::class => static fn (ContainerInterface $c): SessionService => new SessionService(
+        $c->get(SessionRepository::class),
+        $c->get(StaffSessionRepository::class),
+        idleTimeout:     (int) ($_ENV['SESSION_IDLE_TIMEOUT'] ?? 3600),
+        absoluteTimeout: (int) ($_ENV['JWT_REFRESH_TTL'] ?? 43200),
+    ),
 
     PricingService::class => static fn (ContainerInterface $c): PricingService =>
         new PricingService($c->get(AppSettingRepository::class)),
@@ -367,6 +390,80 @@ return [
     SessionRepository::class => static fn (ContainerInterface $c): SessionRepository =>
         new SessionRepository($c->get(EntityManagerInterface::class)),
 
+    StaffSessionRepository::class => static fn (ContainerInterface $c): StaffSessionRepository =>
+        new StaffSessionRepository($c->get(EntityManagerInterface::class)),
+
     AppSettingRepository::class => static fn (ContainerInterface $c): AppSettingRepository =>
         new AppSettingRepository($c->get(EntityManagerInterface::class)),
+
+    // ----- E-prescribing -----
+    // Encrypted-at-rest files (signatures) live outside the web root in var/vault.
+    FileVault::class => static fn (): FileVault => new FileVault(
+        dirname(__DIR__) . '/var/vault',
+        FileVault::keyFrom(
+            (string) ($_ENV['FILE_ENCRYPTION_KEY'] ?? ''),
+            (string) ($_ENV['JWT_SECRET'] ?? 'change-me'),
+            ($_ENV['APP_ENV'] ?? 'development') === 'production',
+        ),
+    ),
+
+    // The vault is resolved lazily so a missing FILE_ENCRYPTION_KEY only blocks
+    // signature operations (clearly logged), not the whole module.
+    SignatureStore::class => static fn (ContainerInterface $c): SignatureStore => new SignatureStore(
+        static fn (): FileVault => $c->get(FileVault::class),
+        $c->get(LoggerInterface::class),
+    ),
+
+    PrescriptionNumberGenerator::class => static fn (ContainerInterface $c): PrescriptionNumberGenerator =>
+        new PrescriptionNumberGenerator($c->get(EntityManagerInterface::class)->getConnection()),
+
+    PrescriptionSettings::class => static fn (ContainerInterface $c): PrescriptionSettings =>
+        new PrescriptionSettings($c->get(AppSettingRepository::class)),
+
+    PrescriptionPdfRenderer::class => static fn (): PrescriptionPdfRenderer => new PrescriptionPdfRenderer(
+        clinicName:    trim($_ENV['CLINIC_NAME'] ?? '') !== '' ? trim($_ENV['CLINIC_NAME']) : 'VideoMed',
+        clinicTagline: trim($_ENV['CLINIC_TAGLINE'] ?? '') !== '' ? trim($_ENV['CLINIC_TAGLINE']) : 'Telehealth Consultations',
+        clinicContact: trim($_ENV['CLINIC_CONTACT'] ?? ''),
+        timezone:      trim($_ENV['APP_TIMEZONE'] ?? '') !== '' ? trim($_ENV['APP_TIMEZONE']) : 'Africa/Lagos',
+    ),
+
+    PrescriptionService::class => static fn (ContainerInterface $c): PrescriptionService => new PrescriptionService(
+        $c->get(PrescriptionRepository::class),
+        $c->get(DrugRepository::class),
+        $c->get(PatientRepository::class),
+        $c->get(SpecialistRepository::class),
+        $c->get(AppointmentRepository::class),
+        $c->get(PrescriptionNumberGenerator::class),
+        $c->get(PrescriptionSettings::class),
+        $c->get(SignatureStore::class),
+        $c->get(PrescriptionPdfRenderer::class),
+        $c->get(JwtService::class),
+        $c->get(PatientNotifier::class),
+        $c->get(MailService::class),
+        $c->get(AuditLogger::class),
+        rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/'),
+    ),
+
+    PrescriptionCheckService::class => static fn (ContainerInterface $c): PrescriptionCheckService => new PrescriptionCheckService(
+        $c->get(PrescriptionRepository::class),
+        $c->get(PatientRepository::class),
+        $c->get(PrescriptionCheckThrottleRepository::class),
+        $c->get(PrescriptionSettings::class),
+        $c->get(AuditLogger::class),
+    ),
+
+    PrescriptionExpiryService::class => static fn (ContainerInterface $c): PrescriptionExpiryService => new PrescriptionExpiryService(
+        $c->get(PrescriptionRepository::class),
+        $c->get(PatientRepository::class),
+        $c->get(PrescriptionSettings::class),
+        $c->get(PatientNotifier::class),
+        $c->get(MailService::class),
+        rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/'),
+    ),
+
+    DrugRepository::class => static fn (ContainerInterface $c): DrugRepository =>
+        new DrugRepository($c->get(EntityManagerInterface::class)),
+
+    PrescriptionCheckThrottleRepository::class => static fn (ContainerInterface $c): PrescriptionCheckThrottleRepository =>
+        new PrescriptionCheckThrottleRepository($c->get(EntityManagerInterface::class)),
 ];

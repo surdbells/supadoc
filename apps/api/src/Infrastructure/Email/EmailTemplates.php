@@ -339,6 +339,61 @@ final class EmailTemplates
         ];
     }
 
+    /**
+     * "Dr [name] has sent your prescription [number]." Deliberately never names
+     * the medicines or the reason (GVM-RX-02 AC22) — the details sit behind
+     * sign-in.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function prescriptionSent(string $firstName, string $doctorName, string $number, string $validUntil, string $url): array
+    {
+        $body = self::heading('Your prescription is ready')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', '
+                . self::e($doctorName) . ' has sent your prescription <strong style="color:' . self::INK . ';">' . self::e($number) . '</strong>.')
+            . self::infoCard(['Prescription number' => $number, 'Valid until' => $validUntil])
+            . self::button('View your prescription', $url)
+            . self::note('Sign in to view, download or print it. Show it at any pharmacy — GVM does not track when your medicines are given out.');
+
+        return [
+            'subject' => $doctorName . ' has sent your prescription ' . $number,
+            'html'    => self::layout('Your prescription is ready', $doctorName . ' has sent your prescription ' . $number . '.', $body),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function prescriptionCancelled(string $firstName, string $doctorName, string $number, bool $replaced, string $url): array
+    {
+        $body = self::heading('A prescription was cancelled')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', '
+                . self::e($doctorName) . ' has cancelled prescription <strong style="color:' . self::INK . ';">' . self::e($number) . '</strong>. '
+                . 'Please do not use it at a pharmacy.'
+                . ($replaced ? ' A replacement will be sent to you shortly.' : ''))
+            . self::button('View your prescriptions', $url)
+            . self::note('If you have questions, message your doctor from the consultation in the app.');
+
+        return [
+            'subject' => 'Prescription ' . $number . ' was cancelled',
+            'html'    => self::layout('Prescription cancelled', 'Prescription ' . $number . ' was cancelled.', $body),
+        ];
+    }
+
+    /** "Your prescription [number] expires on [date]. Book a consultation if you need more." */
+    public static function prescriptionExpiring(string $firstName, string $number, string $expiresOn, string $url): array
+    {
+        $body = self::heading('Your prescription expires soon')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', your prescription '
+                . '<strong style="color:' . self::INK . ';">' . self::e($number) . '</strong> expires on '
+                . self::e($expiresOn) . '. Book a consultation if you need more.')
+            . self::button('Book a consultation', $url)
+            . self::note('After it expires a pharmacy can no longer accept it.');
+
+        return [
+            'subject' => 'Your prescription ' . $number . ' expires on ' . $expiresOn,
+            'html'    => self::layout('Prescription expiring', 'Your prescription ' . $number . ' expires on ' . $expiresOn . '.', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body): string

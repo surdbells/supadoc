@@ -93,6 +93,7 @@ import { IconComponent } from '@supadoc/ui';
             <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No reviews yet.' }}</li>
           }
         </ul>
+        @if (error()) { <p class="text-center font-sans text-caption text-alert">{{ error() }}</p> }
         @if (hasMore()) {
           <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
         }
@@ -139,9 +140,9 @@ export class DoctorReviews implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => {
+        error: (err: unknown) => {
           if (this.page > 1) this.page -= 1;
-          this.error.set('Could not load your reviews. Please try again.');
+          this.error.set(apiErrorMessage(err, 'Could not load your reviews. Please try again.'));
           this.loading.set(false);
         },
       });

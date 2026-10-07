@@ -16,12 +16,17 @@ import AgoraRTC, {
   ICameraVideoTrack,
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
+  UID,
 } from 'agora-rtc-sdk-ng';
+import { SessionTimeoutService } from '@supadoc/auth';
 import {
+  apiErrorMessage,
   AppointmentsApi,
   DocumentsApi,
   openBlobDocument,
+  openPendingTab,
   PatientApi,
+  PrescriptionsApi,
 } from '@supadoc/data-access';
 import type {
   AllergyRow,
@@ -36,6 +41,7 @@ import type {
   PatientCarePlanDto,
   PatientProfileDto,
   PrescriptionDto,
+  PrescriptionStatus,
   ReferralDto,
   TranscriptSegmentDto,
 } from '@supadoc/models';
@@ -43,6 +49,45 @@ import { IconComponent } from '@supadoc/ui';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
 type DocsTab = 'all' | 'labs' | 'imaging' | 'reports';
+
+/** Idle-timer hold key while a consultation is actually going on. */
+const CALL_HOLD = 'call';
+/**
+ * How long a patient alone in the channel keeps the idle timer paused while
+ * waiting for the doctor to first arrive (ms). After that the normal idle
+ * warning runs again (the hold comes back the moment someone joins).
+ */
+const FIRST_JOIN_WAIT_MS = 30 * 60_000;
+/**
+ * Agora retries a lost connection on its own (RECONNECTING) without a time
+ * limit; give up after this long (ms) so a dead connection can't keep the idle
+ * timer paused. The patient can rejoin.
+ */
+const RECONNECT_GIVE_UP_MS = 2 * 60_000;
+/** How long the "new prescription" toast stays up (ms). */
+const RX_TOAST_MS = 10_000;
+/** How long an "Open the prescription" fallback link stays up when the link has no expiry (ms). */
+const RX_FALLBACK_MS = 5 * 60_000;
+
+/** Why the call ended without the patient pressing End. */
+type CallEndReason = 'completed' | 'dropped';
+
+/**
+ * Every prescription status reads as an icon AND a word — never colour alone.
+ * Classes are the cockpit's dark-surface tones (remapped by the light theme).
+ */
+const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-success/15 text-success' },
+  expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-white/10 text-white/70' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/15 text-alert' },
+};
+
+/** In-call notice for a newly sent prescription — never names medicines. */
+interface RxToast {
+  readonly text: string;
+  readonly rx: PrescriptionDto;
+}
 
 /** Minimal Web Speech API surface (not in lib.dom types). */
 interface SpeechRec {
@@ -93,6 +138,45 @@ interface RecordItem {
   imports: [IconComponent],
   host: { class: 'block' },
   template: `
+    <!-- New prescription notice (says who sent it and its number — never the medicines) -->
+    @if (rxToast(); as t) {
+      <div
+        class="sd-toast-in fixed inset-x-4 top-4 z-50 flex items-start gap-3 rounded-card border border-cerulean/30 bg-white px-4 py-3 shadow-lg sm:left-auto sm:right-6 sm:top-6 sm:w-full sm:max-w-sm"
+        role="status"
+      >
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal">
+          <sd-icon name="pill" [size]="18" />
+        </span>
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
+          <p class="font-sans text-body-sm font-medium text-ink">{{ t.text }}</p>
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <button
+              type="button"
+              class="font-sans text-caption font-semibold text-cerulean hover:underline"
+              (click)="viewRxFromToast(t.rx)"
+            >
+              View prescription
+            </button>
+            <button
+              type="button"
+              class="font-sans text-caption font-semibold text-slate hover:text-ink"
+              (click)="showRxTab()"
+            >
+              Show in call notes
+            </button>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 text-slate transition-colors hover:text-ink"
+          aria-label="Dismiss notice"
+          (click)="dismissRxToast()"
+        >
+          <sd-icon name="x" [size]="18" />
+        </button>
+      </div>
+    }
+
     <div class="sd-call rounded-card bg-abyss p-3 text-white sm:p-4 lg:p-5" [attr.data-theme]="theme()">
       @if (phase() === 'waiting') {
         <!-- ============================ WAITING ROOM ============================ -->
@@ -177,6 +261,9 @@ interface RecordItem {
                   ></span>
                 </button>
               </div>
+            }
+            @if (consentError()) {
+              <p class="mt-1 font-sans text-caption text-alert" role="alert">{{ consentError() }}</p>
             }
           </div>
 
@@ -286,20 +373,76 @@ interface RecordItem {
               </div>
             }
 
-            <!-- Waiting for doctor -->
+            <!-- No video from the doctor: not here yet, camera off, or gone -->
             @if (!remoteJoined() && status() === 'in-call') {
               <div
-                class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/75"
+                class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/75"
+              >
+                @if (remoteLeft()) {
+                  <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+                    <sd-icon name="user-x" [size]="30" />
+                  </span>
+                  <p class="font-sans text-body">{{ doctorName() }} has left the call</p>
+                  <p class="max-w-sm font-sans text-caption text-white/50">
+                    If your consultation is finished, press End to leave.
+                  </p>
+                } @else if (remotePresent()) {
+                  <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+                    <sd-icon name="video-off" [size]="30" />
+                  </span>
+                  <p class="font-sans text-body">{{ doctorName() }}’s camera is off</p>
+                } @else {
+                  <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+                    <sd-icon name="user-round" [size]="30" />
+                  </span>
+                  <p class="font-sans text-body">
+                    Waiting for {{ doctorName() }} to join…
+                  </p>
+                  <p class="font-sans text-caption text-white/50">
+                    {{ doctorSpecialty() }}
+                  </p>
+                }
+              </div>
+            }
+
+            <!-- The call ended without the patient pressing End -->
+            @if (status() === 'ended') {
+              <div
+                class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center text-white/85"
+                role="status"
               >
                 <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
-                  <sd-icon name="user-round" [size]="30" />
+                  <sd-icon [name]="endedReason() === 'completed' ? 'circle-check' : 'wifi-off'" [size]="28" />
                 </span>
-                <p class="font-sans text-body">
-                  Waiting for {{ doctorName() }} to join…
-                </p>
-                <p class="font-sans text-caption text-white/50">
-                  {{ doctorSpecialty() }}
-                </p>
+                @if (endedReason() === 'completed') {
+                  <p class="max-w-sm font-sans text-body">Your consultation has ended.</p>
+                  <p class="max-w-sm font-sans text-caption text-white/60">
+                    Anything your doctor shares appears in Prescriptions and your consultation history.
+                  </p>
+                } @else {
+                  <p class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
+                  <p class="max-w-sm font-sans text-caption text-white/60">
+                    Check your internet connection, then rejoin.
+                  </p>
+                }
+                <div class="flex flex-wrap items-center justify-center gap-3">
+                  @if (endedReason() === 'dropped') {
+                    <button
+                      type="button"
+                      class="flex items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                      (click)="rejoin()"
+                    >
+                      <sd-icon name="refresh-cw" [size]="16" /> Rejoin call
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+                    (click)="leave()"
+                  >
+                    Back to appointments
+                  </button>
+                </div>
               </div>
             }
 
@@ -630,51 +773,108 @@ interface RecordItem {
                   @if (issuedRx().length) {
                     <div class="flex flex-col gap-3">
                       @for (p of issuedRx(); track p.id) {
-                        <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-                          <div class="mb-2 flex items-center justify-between">
-                            <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-sky">
-                              <sd-icon name="pill" [size]="14" /> New prescription
+                        <div
+                          class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div class="flex min-w-0 items-start gap-3">
+                            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
+                              <sd-icon name="pill" [size]="18" />
                             </span>
-                            <span class="font-sans text-[10px] text-white/40">{{ rxDate(p.signed_at) }}</span>
-                          </div>
-                          <ul class="flex flex-col gap-2">
-                            @for (it of p.items; track $index) {
-                              <li class="flex flex-col">
-                                <span class="font-sans text-body-sm font-medium text-white">
-                                  {{ it.medication }}@if (it.strength) { {{ it.strength }} }
+                            <div class="flex min-w-0 flex-col gap-1">
+                              <div class="flex flex-wrap items-center gap-2">
+                                <span class="font-sans text-body-sm font-semibold text-white">{{ p.number }}</span>
+                                <span
+                                  class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
+                                  [class]="rxStatus(p.status).cls"
+                                >
+                                  <sd-icon [name]="rxStatus(p.status).icon" [size]="12" />{{ rxStatus(p.status).label }}
                                 </span>
-                                @if (rxLine(it)) {
-                                  <span class="font-sans text-caption text-white/50">{{ rxLine(it) }}</span>
-                                }
-                              </li>
+                              </div>
+                              <span class="font-sans text-caption text-white/60">
+                                {{ doctorLabel(p) }}@if (p.valid_until) { · Valid until {{ shortDate(p.valid_until) }} }
+                              </span>
+                              <span class="font-sans text-[11px] text-white/40">
+                                {{ itemsLabel(p) }}@if (p.sent_at) { · Sent {{ rxDate(p.sent_at) }} }
+                              </span>
+                            </div>
+                          </div>
+                          <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                            <button
+                              type="button"
+                              class="inline-flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:opacity-60"
+                              [disabled]="openingRx() === p.id"
+                              [attr.aria-label]="'View prescription ' + p.number"
+                              (click)="viewRx(p)"
+                            >
+                              <sd-icon
+                                [name]="openingRx() === p.id ? 'loader-circle' : 'eye'"
+                                [size]="14"
+                                [class.animate-spin]="openingRx() === p.id"
+                              />View
+                            </button>
+                            <!-- The browser blocked the new tab: a direct link (never this tab — it would end the call). -->
+                            @if (rxFallback(); as fb) {
+                              @if (fb.id === p.id) {
+                                <a
+                                  [href]="fb.url"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-sky underline transition-colors hover:text-frost"
+                                  [attr.aria-label]="'Open prescription ' + p.number + ' (opens in a new tab)'"
+                                >
+                                  Open the prescription<sd-icon name="external-link" [size]="13" />
+                                </a>
+                              }
                             }
-                          </ul>
-                          @if (p.author) {
-                            <p class="mt-2 font-sans text-caption text-white/40">{{ p.author }}</p>
-                          }
+                          </div>
                         </div>
                       }
-                    </div>
-                  } @else if (medications().length) {
-                    <ul class="flex flex-col divide-y divide-white/10">
-                      @for (m of medications(); track m.name) {
-                        <li class="flex items-center gap-3 py-3">
-                          <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
-                            <sd-icon name="pill" [size]="18" />
-                          </span>
-                          <span class="flex min-w-0 flex-col">
-                            <span class="font-sans text-body-sm font-medium text-white">{{ m.name }}</span>
-                            <span class="font-sans text-caption text-white/50">
-                              {{ m.dosage }}@if (m.frequency) { · {{ m.frequency }} }
-                            </span>
-                          </span>
-                        </li>
+                      @if (rxFallback()) {
+                        <p class="flex items-start gap-2 font-sans text-caption text-white/70" role="status">
+                          <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                          Your browser didn’t open a new tab. Use “Open the prescription” — your call keeps running here.
+                        </p>
                       }
-                    </ul>
-                  } @else {
-                    <p class="py-6 text-center font-sans text-body-sm text-white/40">
-                      No prescriptions issued yet.
+                      @if (rxError()) {
+                        <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                          <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ rxError() }}
+                        </p>
+                      }
+                      <!-- The details page needs the portal session, which a new tab may not have
+                           (sessionStorage sign-ins), and opening it here would end the call. -->
+                      <p class="flex items-start gap-2 font-sans text-caption text-white/50">
+                        <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                        Full details are in Prescriptions after your call.
+                      </p>
+                    </div>
+                  } @else if (rxLoadError()) {
+                    <p class="flex items-start justify-center gap-2 py-6 text-center font-sans text-body-sm text-alert" role="alert">
+                      <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxLoadError() }}
                     </p>
+                  } @else {
+                    <p class="py-5 text-center font-sans text-body-sm text-white/40">
+                      No prescriptions yet. If your doctor sends one during this consultation, it will appear here.
+                    </p>
+                    @if (medications().length) {
+                      <h4 class="mt-1 font-sans text-caption font-semibold uppercase tracking-wide text-white/50">
+                        Medicines you told us you take
+                      </h4>
+                      <ul class="flex flex-col divide-y divide-white/10">
+                        @for (m of medications(); track $index) {
+                          <li class="flex items-center gap-3 py-3">
+                            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
+                              <sd-icon [name]="isHerbal(m.herbal) ? 'leaf' : 'pill'" [size]="18" />
+                            </span>
+                            <span class="flex min-w-0 flex-col">
+                              <span class="font-sans text-body-sm font-medium text-white">{{ m.name }}</span>
+                              <span class="font-sans text-caption text-white/50">
+                                {{ m.dosage }}@if (m.frequency) { · {{ m.frequency }} }@if (m.reason) { · for {{ m.reason }} }
+                              </span>
+                            </span>
+                          </li>
+                        }
+                      </ul>
+                    }
                   }
                 }
                 @case ('labs') {
@@ -883,6 +1083,9 @@ interface RecordItem {
                 </button>
               </div>
             }
+            @if (consentError()) {
+              <p class="mt-1 font-sans text-caption text-alert" role="alert">{{ consentError() }}</p>
+            }
           </div>
 
           <!-- Feedback -->
@@ -920,18 +1123,28 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly appointments = inject(AppointmentsApi);
   private readonly patientApi = inject(PatientApi);
   private readonly documentsApi = inject(DocumentsApi);
+  private readonly prescriptionsApi = inject(PrescriptionsApi);
+  /** Paused while connected so the idle timeout never signs a patient out mid-call. */
+  private readonly session = inject(SessionTimeoutService);
 
   private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
   private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
   private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
 
   // ---- Call state ----
-  protected readonly status = signal<'loading' | 'in-call' | 'error'>('loading');
+  protected readonly status = signal<'loading' | 'in-call' | 'ended' | 'error'>('loading');
   protected readonly errorMessage = signal('');
+  /** Why the call ended on its own (set with status 'ended'). */
+  protected readonly endedReason = signal<CallEndReason>('dropped');
   protected readonly micOn = signal(true);
   protected readonly camOn = signal(true);
   protected readonly screenOn = signal(false);
+  /** The doctor's video is on the main stage. */
   protected readonly remoteJoined = signal(false);
+  /** Someone else (the doctor, a guest) is in the channel, camera on or off. */
+  protected readonly remotePresent = signal(false);
+  /** Everyone else who was in the call has left it. */
+  protected readonly remoteLeft = signal(false);
   protected readonly moreOpen = signal(false);
   protected readonly elapsed = signal(0);
 
@@ -1001,8 +1214,23 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly newRx = signal(false);
   /** Guards the newRx badge so the first (baseline) fetch never flags pre-existing scripts. */
   private rxInitialized = false;
+  /** Prescription ids already seen, so only genuinely new ones are announced. */
+  private readonly knownRx = new Set<string>();
+  /** The first prescriptions fetch failed (so "none yet" isn't shown for a failure). */
+  protected readonly rxLoadError = signal('');
+  /** Opening a prescription PDF failed. */
+  protected readonly rxError = signal('');
+  /** Id of the prescription whose PDF link is being fetched. */
+  protected readonly openingRx = signal('');
+  /** The browser blocked the PDF tab: offer this signed link instead (never this tab). */
+  protected readonly rxFallback = signal<{ id: string; url: string } | null>(null);
+  private rxFallbackTimer?: ReturnType<typeof setTimeout>;
+  /** "Dr X sent you prescription GVM-RX-…" notice. */
+  protected readonly rxToast = signal<RxToast | null>(null);
+  private rxToastTimer?: ReturnType<typeof setTimeout>;
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly consentBusy = signal<string>('');
+  protected readonly consentError = signal('');
   protected readonly recordingActive = signal(false);
   // Live captions / patient-side transcription.
   protected readonly captionsOn = signal(false);
@@ -1192,7 +1420,24 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private netUplink = 0;
   private netDownlink = 0;
   private appointmentId = '';
+  /** The patient pressed End / left the page — final. */
   private left = false;
+
+  // ---- Is a consultation actually going on? (drives the idle-timer hold) ----
+  /** Joined to the Agora channel (false again once the call ends or drops). */
+  private connected = false;
+  /** Whether this page currently holds the idle timer. */
+  private holding = false;
+  /** Everyone else in the channel right now. */
+  private readonly remoteUids = new Set<UID>();
+  /** Someone else has been in the channel during this connection. */
+  private remoteSeen = false;
+  /** The bounded wait for the doctor to first arrive ran out. */
+  private firstWaitOver = false;
+  private firstWaitTimer?: ReturnType<typeof setTimeout>;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  /** The doctor closed the appointment (completed / cancelled). */
+  private consultationClosed = false;
 
   ngAfterViewInit(): void {
     this.appointmentId = this.route.snapshot.paramMap.get('id') ?? '';
@@ -1212,14 +1457,28 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   private async joinCall(): Promise<void> {
+    // A fresh connection (first join, or a rejoin after a drop).
+    this.remoteUids.clear();
+    this.remoteSeen = false;
+    this.firstWaitOver = false;
+    this.remotePresent.set(false);
+    this.remoteLeft.set(false);
+    this.remoteJoined.set(false);
+    let client: IAgoraRTCClient | undefined;
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
+      if (this.left) return; // left while the token was on its way
 
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-      this.client = client;
+      client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      const self = client;
+      this.client = self;
 
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
+      // Presence, not just video: the doctor may join with the camera off.
+      self.on('user-joined', (user) => this.onRemoteJoined(self, user.uid));
+      self.on('user-left', (user) => this.onRemoteLeft(self, user.uid));
+      self.on('user-published', async (user, mediaType) => {
+        this.onRemoteJoined(self, user.uid);
+        await self.subscribe(user, mediaType);
         if (mediaType === 'video') {
           const el = this.remoteVideo()?.nativeElement;
           if (el) user.videoTrack?.play(el);
@@ -1228,43 +1487,229 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
           user.audioTrack?.play();
         }
       });
-      client.on('user-unpublished', (_user, mediaType) => {
+      self.on('user-unpublished', (_user, mediaType) => {
         if (mediaType === 'video') this.remoteJoined.set(false);
       });
       // Long consultations outlive a single token — re-mint and renew in place.
-      client.on('token-privilege-will-expire', () => void this.renewToken());
-      client.on('network-quality', (s) => {
+      self.on('token-privilege-will-expire', () => void this.renewToken());
+      // Renewal didn't land in time, or Agora dropped us for good (it retries
+      // network blips itself, as RECONNECTING): the call is over on this side.
+      self.on('token-privilege-did-expire', () => this.callEnded(self, 'dropped'));
+      self.on('connection-state-change', (state) => {
+        if (state === 'DISCONNECTED') this.callEnded(self, 'dropped');
+        else if (state === 'RECONNECTING') this.watchReconnect(self);
+        else if (state === 'CONNECTED') this.clearReconnectWatch();
+      });
+      self.on('network-quality', (s) => {
         this.netUplink = s.uplinkNetworkQuality ?? 0;
         this.netDownlink = s.downlinkNetworkQuality ?? 0;
       });
 
       // uid 0 from the backend means "wildcard token" → join with null so Agora
       // assigns the uid; any non-zero uid is honoured as-is.
-      await client.join(
+      await self.join(
         data.app_id,
         data.channel,
         data.token ?? null,
         data.uid === 0 ? null : data.uid,
       );
-      if (this.left) return; // component destroyed mid-join
+      if (this.left || this.client !== self) return; // left / dropped mid-join
+      // Connected: a consultation has long stretches without input, so pause the
+      // idle timeout while it is actually going on (see syncHold).
+      this.connected = true;
+      if (this.remoteUids.size === 0) this.startFirstWait();
+      this.syncHold();
 
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      if (this.left || this.client !== self) {
+        // The call ended while the browser asked for the camera — don't leave it on.
+        mic.close();
+        cam.close();
+        return;
+      }
       this.micTrack = mic;
       this.camTrack = cam;
 
       const localEl = this.localVideo()?.nativeElement;
       if (localEl) cam.play(localEl);
-      await client.publish([mic, cam]);
+      await self.publish([mic, cam]);
+      if (this.left || this.client !== self) return;
 
       this.status.set('in-call');
       this.startTimer();
-      this.startRecordingPoll();
-      this.startMetricsReport();
-      this.startClinicalPoll();
+      if (this.holding) this.startLivePolls();
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'We couldn’t start the call. Please try again.');
+      if (this.left || (client && this.client !== client)) return; // already handled
+      // Not in a working call — let the idle timeout run again.
+      this.connected = false;
+      this.syncHold();
+      this.session.release(CALL_HOLD);
+      this.clearFirstWait();
+      this.clearReconnectWatch();
+      const failed = this.client;
+      this.client = undefined;
+      void this.releaseMedia(failed);
+      this.errorMessage.set(apiErrorMessage(err, 'We couldn’t start the call. Please try again.'));
       this.status.set('error');
+    }
+  }
+
+  // ---- Is the consultation still going on? ----
+
+  /**
+   * Hold the idle timer only while a consultation is actually going on: joined
+   * and someone else is in the call, or (for a bounded time) waiting for the
+   * doctor to first arrive. The moment the others leave, the call drops or the
+   * patient leaves, the hold is released and the normal idle warning runs again
+   * — an ended call left open on a shared computer must still time out. The
+   * in-call polling follows the hold, so it doesn't keep the server session warm
+   * either.
+   */
+  private syncHold(): void {
+    const want =
+      this.connected &&
+      !this.left &&
+      (this.remoteUids.size > 0 || (!this.remoteSeen && !this.firstWaitOver));
+    if (want === this.holding) return;
+    this.holding = want;
+    if (want) {
+      this.session.hold(CALL_HOLD);
+      if (this.status() === 'in-call') this.startLivePolls();
+    } else {
+      this.session.release(CALL_HOLD);
+      this.stopLivePolls();
+    }
+  }
+
+  private onRemoteJoined(client: IAgoraRTCClient, uid: UID): void {
+    if (client !== this.client || !this.connectedOrJoining()) return;
+    this.remoteUids.add(uid);
+    this.remoteSeen = true;
+    this.remotePresent.set(true);
+    this.remoteLeft.set(false);
+    this.clearFirstWait();
+    this.syncHold();
+  }
+
+  private onRemoteLeft(client: IAgoraRTCClient, uid: UID): void {
+    if (client !== this.client || !this.remoteUids.delete(uid)) return;
+    if (this.remoteUids.size > 0) return;
+    // Everyone else has gone: the consultation is over unless they come back.
+    this.remotePresent.set(false);
+    this.remoteJoined.set(false);
+    this.remoteLeft.set(true);
+    this.syncHold();
+    if (this.consultationClosed) {
+      this.callEnded(client, 'completed');
+      return;
+    }
+    // Pick up anything issued at the end, and whether the doctor closed the visit.
+    void this.refreshClinical();
+    void this.checkConsultationClosed();
+  }
+
+  /** Before `connected` flips, Agora already reports who is in the channel. */
+  private connectedOrJoining(): boolean {
+    return !this.left && this.status() !== 'ended';
+  }
+
+  private startFirstWait(): void {
+    this.clearFirstWait();
+    this.firstWaitTimer = setTimeout(() => {
+      this.firstWaitTimer = undefined;
+      this.firstWaitOver = true;
+      this.syncHold();
+    }, FIRST_JOIN_WAIT_MS);
+  }
+
+  private clearFirstWait(): void {
+    clearTimeout(this.firstWaitTimer);
+    this.firstWaitTimer = undefined;
+  }
+
+  /** Agora is retrying a lost connection: end the call if it doesn't come back. */
+  private watchReconnect(client: IAgoraRTCClient): void {
+    if (client !== this.client || this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.callEnded(client, 'dropped');
+    }, RECONNECT_GIVE_UP_MS);
+  }
+
+  private clearReconnectWatch(): void {
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+  }
+
+  /**
+   * Has the doctor closed the appointment? Then the call is over as soon as
+   * nobody else is in it (a doctor still in the channel may be saying goodbye).
+   */
+  private async checkConsultationClosed(): Promise<void> {
+    try {
+      const res = await firstValueFrom(this.appointments.getMine(this.appointmentId));
+      this.appointment.set(res.data);
+      if (res.data.status !== 'completed' && res.data.status !== 'cancelled') return;
+      this.consultationClosed = true;
+      if (this.connected && this.remoteUids.size === 0 && this.client) {
+        this.callEnded(this.client, 'completed');
+      }
+    } catch {
+      /* try again on the next poll */
+    }
+  }
+
+  /**
+   * The call ended without the patient pressing End: Agora dropped the
+   * connection (or the token lapsed), or the consultation was closed and nobody
+   * else is left. Release the hold and stop the in-call polling right away, free
+   * the camera and microphone, and keep the page (and its notes) readable.
+   */
+  private callEnded(client: IAgoraRTCClient, reason: CallEndReason): void {
+    if (client !== this.client || this.left || !this.connected) return;
+    this.connected = false;
+    this.syncHold();
+    this.clearFirstWait();
+    this.clearReconnectWatch();
+    this.stopLivePolls();
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    this.stopCaptions();
+    this.client = undefined;
+    void this.releaseMedia(client);
+    this.remoteUids.clear();
+    this.remotePresent.set(false);
+    this.remoteLeft.set(false);
+    this.remoteJoined.set(false);
+    this.screenOn.set(false);
+    this.recordingActive.set(false);
+    this.endedReason.set(reason);
+    this.status.set('ended');
+    // One last look, so the notes show everything issued during the visit.
+    void this.refreshClinical();
+  }
+
+  /** "Rejoin call" after a dropped connection. */
+  protected rejoin(): void {
+    if (this.left || this.status() !== 'ended' || this.endedReason() !== 'dropped') return;
+    this.micOn.set(true);
+    this.camOn.set(true);
+    this.errorMessage.set('');
+    this.status.set('loading');
+    void this.joinCall();
+  }
+
+  /** Close the local tracks and leave the channel (best-effort). */
+  private async releaseMedia(client: IAgoraRTCClient | undefined): Promise<void> {
+    const tracks = [this.micTrack, this.camTrack, this.screenTrack];
+    this.micTrack = undefined;
+    this.camTrack = undefined;
+    this.screenTrack = undefined;
+    try {
+      for (const t of tracks) t?.close();
+      await client?.leave();
+    } catch {
+      /* releasing devices — nothing actionable on failure */
     }
   }
 
@@ -1310,12 +1755,23 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * tab when a new script arrives and the patient isn't already looking at it.
    */
   private async refreshClinical(): Promise<void> {
-    const prevRx = this.issuedRx().length;
     try {
       const rx = await firstValueFrom(this.appointments.prescriptions(this.appointmentId));
-      this.issuedRx.set(rx.data ?? []);
-    } catch {
-      /* none issued yet */
+      const list = rx.data ?? [];
+      const fresh = list.filter((p) => !this.knownRx.has(p.id));
+      for (const p of list) this.knownRx.add(p.id);
+      this.issuedRx.set(list);
+      this.rxLoadError.set('');
+      // Only announce prescriptions that arrive AFTER the first successful fetch
+      // establishes a baseline — scripts sent before the patient joined (or
+      // present after a mid-call reload) never light the badge or the toast.
+      if (this.rxInitialized && fresh.length > 0) this.announceRx(fresh);
+      this.rxInitialized = true;
+    } catch (err) {
+      // A failed poll keeps the list already shown; with nothing shown yet, say why.
+      if (this.issuedRx().length === 0) {
+        this.rxLoadError.set(apiErrorMessage(err, 'Could not load your prescriptions.'));
+      }
     }
     try {
       const lo = await firstValueFrom(this.appointments.labOrders(this.appointmentId));
@@ -1341,17 +1797,118 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     } catch {
       /* summary not finalized yet */
     }
-    // Only flag prescriptions that arrive AFTER the first fetch establishes a
-    // baseline — otherwise scripts issued before the patient joined (or present
-    // after a mid-call reload) would light the badge on entry.
-    if (
-      this.rxInitialized &&
-      this.issuedRx().length > prevRx &&
-      this.notesTab() !== 'prescriptions'
-    ) {
-      this.newRx.set(true);
-    }
-    this.rxInitialized = true;
+  }
+
+  /**
+   * Flag the Prescriptions tab and show a notice for newly sent prescriptions.
+   * The notice names the doctor and the prescription number only — never the
+   * medicines or the reason.
+   */
+  private announceRx(fresh: PrescriptionDto[]): void {
+    if (this.notesTab() !== 'prescriptions') this.newRx.set(true);
+    // The most recently sent one (patients only ever see sent prescriptions).
+    const newest = fresh.reduce((a, b) => ((b.sent_at ?? '') > (a.sent_at ?? '') ? b : a));
+    const text =
+      fresh.length === 1
+        ? `${this.doctorLabel(newest)} sent you prescription ${newest.number}`
+        : `${this.doctorLabel(newest)} sent you ${fresh.length} new prescriptions`;
+    this.rxToast.set({ text, rx: newest });
+    clearTimeout(this.rxToastTimer);
+    this.rxToastTimer = setTimeout(() => this.rxToast.set(null), RX_TOAST_MS);
+  }
+
+  protected dismissRxToast(): void {
+    clearTimeout(this.rxToastTimer);
+    this.rxToast.set(null);
+  }
+
+  /** Toast "Show in call notes": open the Prescriptions tab. */
+  protected showRxTab(): void {
+    this.dismissRxToast();
+    this.openNotesTab('prescriptions');
+  }
+
+  /** Toast "View prescription": open the PDF (errors surface on the Prescriptions tab). */
+  protected viewRxFromToast(rx: PrescriptionDto): void {
+    this.viewRx(rx);
+    this.dismissRxToast();
+    this.openNotesTab('prescriptions');
+  }
+
+  /**
+   * Open the prescription PDF in a new tab (the call keeps running here). The
+   * tab is opened synchronously on the click so popup blockers allow it, then
+   * pointed at the short-lived signed link. This tab is never navigated — that
+   * would end the call — so if the new tab was blocked or closed, the row offers
+   * a direct "Open the prescription" link instead.
+   */
+  protected viewRx(rx: PrescriptionDto): void {
+    if (this.openingRx()) return;
+    const pending = openPendingTab({ allowSameTab: false });
+    this.openingRx.set(rx.id);
+    this.rxError.set('');
+    this.clearRxFallback();
+    this.prescriptionsApi.link(rx.id, false).subscribe({
+      next: (res) => {
+        const url = this.prescriptionsApi.fileUrl(res.data);
+        if (!pending.go(url)) this.showRxFallback(rx.id, url, res.data.expires_at);
+        this.openingRx.set('');
+      },
+      error: (err: unknown) => {
+        pending.fail();
+        this.openingRx.set('');
+        this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
+      },
+    });
+  }
+
+  /** Offer the signed link until it expires (it is useless after that). */
+  private showRxFallback(id: string, url: string, expiresAt: string | undefined): void {
+    this.rxFallback.set({ id, url });
+    const left = expiresAt ? Date.parse(expiresAt) - Date.now() : NaN;
+    const ms = Number.isFinite(left) && left > 0 ? Math.min(left, RX_FALLBACK_MS) : RX_FALLBACK_MS;
+    clearTimeout(this.rxFallbackTimer);
+    this.rxFallbackTimer = setTimeout(() => this.rxFallback.set(null), ms);
+  }
+
+  private clearRxFallback(): void {
+    clearTimeout(this.rxFallbackTimer);
+    this.rxFallback.set(null);
+  }
+
+  protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
+    return RX_STATUS[status] ?? RX_STATUS.active;
+  }
+
+  /** "Dr Ada Obi" — the prescriber, with the title added when it isn't already there. */
+  protected doctorLabel(rx: PrescriptionDto): string {
+    const name = (
+      rx.prescriber ||
+      rx.prescriber_details?.name ||
+      this.appointment()?.specialist?.name ||
+      ''
+    ).trim();
+    if (!name) return 'Your doctor';
+    return /^(dr|prof)\b/i.test(name) ? name : `Dr ${name}`;
+  }
+
+  /** "2 medicines" — a count only; medicine names stay on the prescription itself. */
+  protected itemsLabel(rx: PrescriptionDto): string {
+    const n = rx.items_count ?? rx.items?.length ?? 0;
+    return `${n} ${n === 1 ? 'medicine' : 'medicines'}`;
+  }
+
+  /** `YYYY-MM-DD` → "12 Oct 2026". */
+  protected shortDate(ymd: string): string {
+    const d = new Date(`${ymd.slice(0, 10)}T00:00:00`);
+    return isNaN(d.getTime())
+      ? ymd
+      : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+  }
+
+  /** Profile medication rows store herbal as a string flag. */
+  protected isHerbal(flag: string | undefined): boolean {
+    return /^(1|yes|true)$/i.test((flag ?? '').trim());
   }
 
   protected consentGranted(type: ConsentDto['type']): boolean {
@@ -1361,13 +1918,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected async toggleConsent(type: ConsentDto['type']): Promise<void> {
     if (this.consentBusy()) return;
     this.consentBusy.set(type);
+    this.consentError.set('');
     try {
       const res = await firstValueFrom(
         this.appointments.setConsent(this.appointmentId, type, !this.consentGranted(type)),
       );
       this.consents.set(res.data ?? []);
-    } catch {
-      /* keep prior state */
+    } catch (err) {
+      // Keep the prior state, but say why the change didn't stick.
+      this.consentError.set(apiErrorMessage(err, 'Could not update your consent.'));
     } finally {
       this.consentBusy.set('');
     }
@@ -1383,11 +1942,29 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   private startTimer(): void {
+    if (this.timer) return;
     this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
+  }
+
+  /** In-call polling — runs only while the consultation holds the idle timer. */
+  private startLivePolls(): void {
+    this.startRecordingPoll();
+    this.startMetricsReport();
+    this.startClinicalPoll();
+  }
+
+  private stopLivePolls(): void {
+    if (this.recordingPoll) clearInterval(this.recordingPoll);
+    if (this.metricsTimer) clearInterval(this.metricsTimer);
+    if (this.clinicalPoll) clearInterval(this.clinicalPoll);
+    this.recordingPoll = undefined;
+    this.metricsTimer = undefined;
+    this.clinicalPoll = undefined;
   }
 
   /** Poll whether the doctor has started recording so the patient always knows. */
   private startRecordingPoll(): void {
+    if (this.recordingPoll) return;
     const check = async (): Promise<void> => {
       try {
         const res = await firstValueFrom(this.appointments.recordings(this.appointmentId));
@@ -1402,11 +1979,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /**
    * Poll the doctor-issued clinical artefacts every 15s so a prescription (or lab
-   * order, care plan, referral) issued mid-call appears without a page reload.
+   * order, care plan, referral) issued mid-call appears without a page reload —
+   * and whether the doctor has closed the appointment.
    */
   private startClinicalPoll(): void {
     if (this.clinicalPoll) return;
-    this.clinicalPoll = setInterval(() => void this.refreshClinical(), 15000);
+    this.clinicalPoll = setInterval(() => {
+      void this.refreshClinical();
+      void this.checkConsultationClosed();
+    }, 15000);
   }
 
   /** Open a Notes-panel tab, clearing the "new prescription" badge when relevant. */
@@ -1417,6 +1998,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /** Report an RTC quality sample every 15s so the back-office can monitor calls. */
   private startMetricsReport(): void {
+    if (this.metricsTimer) return;
     const report = (): void => {
       if (!this.client) return;
       let rtt: number | null = null;
@@ -1445,12 +2027,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   protected toggleCaptions(): void {
     if (this.captionsOn()) {
-      this.captionsOn.set(false);
-      this.stopCaptionRecognition();
-      if (this.captionsPoll) {
-        clearInterval(this.captionsPoll);
-        this.captionsPoll = undefined;
-      }
+      this.stopCaptions();
       return;
     }
     if (!this.aiConsentGranted()) return;
@@ -1512,6 +2089,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     } catch {
       /* ignore double-start */
     }
+  }
+
+  private stopCaptions(): void {
+    this.captionsOn.set(false);
+    this.stopCaptionRecognition();
+    if (this.captionsPoll) clearInterval(this.captionsPoll);
+    this.captionsPoll = undefined;
   }
 
   private stopCaptionRecognition(): void {
@@ -1607,11 +2191,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
   }
 
-  protected rxLine(item: { dosage?: string; frequency?: string; duration?: string; instructions?: string }): string {
-    const core = [item.dosage, item.frequency, item.duration].filter(Boolean).join(' · ');
-    return item.instructions ? `${core}${core ? ' — ' : ''}${item.instructions}` : core;
-  }
-
   protected goProfile(): void {
     void this.router.navigate(['/dashboard/profile']);
   }
@@ -1705,29 +2284,29 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private async teardown(): Promise<void> {
     this.left = true;
+    this.connected = false;
+    // Out of the call: the idle timeout runs again.
+    this.holding = false;
+    this.session.release(CALL_HOLD);
+    clearTimeout(this.rxToastTimer);
+    clearTimeout(this.rxFallbackTimer);
+    this.clearFirstWait();
+    this.clearReconnectWatch();
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     this.stopDeviceTest();
     if (this.timer) clearInterval(this.timer);
-    if (this.recordingPoll) clearInterval(this.recordingPoll);
-    if (this.metricsTimer) clearInterval(this.metricsTimer);
-    if (this.captionsPoll) clearInterval(this.captionsPoll);
-    if (this.clinicalPoll) clearInterval(this.clinicalPoll);
-    this.stopCaptionRecognition();
-    try {
-      this.micTrack?.close();
-      this.camTrack?.close();
-      this.screenTrack?.close();
-      await this.client?.leave();
-    } catch {
-      /* releasing devices — nothing actionable on failure */
-    }
+    this.timer = undefined;
+    this.stopLivePolls();
+    this.stopCaptions();
+    // Forget the client first, so its own DISCONNECTED event is ignored.
+    const client = this.client;
     this.client = undefined;
-    this.micTrack = undefined;
-    this.camTrack = undefined;
-    this.screenTrack = undefined;
+    await this.releaseMedia(client);
   }
 
   ngOnDestroy(): void {
+    // Safety net: always drop the idle-timer hold, however the page is left.
+    this.session.release(CALL_HOLD);
     void this.teardown();
   }
 }

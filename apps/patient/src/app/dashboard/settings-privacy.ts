@@ -189,6 +189,7 @@ export class SettingsPrivacy {
 
   private async load(): Promise<void> {
     this.loading.set(true);
+    this.error.set('');
     try {
       const [me, settings] = await Promise.all([
         firstValueFrom(this.patients.me()),
@@ -196,8 +197,8 @@ export class SettingsPrivacy {
       ]);
       this.twoFaEnabled.set(!!me.data.two_factor_enabled);
       this.biometrics.set(!!settings.data.privacy.biometrics);
-    } catch {
-      this.error.set("We couldn't load your security settings.");
+    } catch (err) {
+      this.error.set(apiErrorMessage(err, "We couldn't load your security settings."));
     } finally {
       this.loading.set(false);
     }

@@ -7,9 +7,9 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
-import { AppointmentsApi } from '@supadoc/data-access';
+import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
@@ -57,7 +57,7 @@ function toConsultation(a: AppointmentDto): Consultation | null {
 @Component({
   selector: 'pat-history',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, EmptyStateComponent, IconComponent],
+  imports: [RouterLink, ButtonComponent, EmptyStateComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -67,6 +67,28 @@ function toConsultation(a: AppointmentDto): Consultation | null {
           View your consultation in one place.
         </p>
       </div>
+
+      <!-- Consultation History › Consultations | Prescriptions -->
+      <nav
+        aria-label="Consultation history sections"
+        class="flex w-full items-center gap-1 rounded-pill border border-cloud bg-white p-1 sm:w-fit"
+      >
+        <a
+          routerLink="/dashboard/history"
+          aria-current="page"
+          class="flex flex-1 items-center justify-center gap-2 rounded-pill bg-cerulean px-4 py-2 font-sans text-body-sm font-medium text-white sm:flex-none"
+        >
+          <sd-icon name="history" [size]="16" />
+          Consultations
+        </a>
+        <a
+          routerLink="/dashboard/prescriptions"
+          class="flex flex-1 items-center justify-center gap-2 rounded-pill px-4 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none"
+        >
+          <sd-icon name="pill" [size]="16" />
+          Prescriptions
+        </a>
+      </nav>
 
       <!-- Tabs -->
       <div
@@ -118,7 +140,7 @@ function toConsultation(a: AppointmentDto): Consultation | null {
             tone="error"
             icon="wifi-off"
             title="Unable to load history"
-            message="We couldn't retrieve your consultation history. Check your connection and try again."
+            [message]="loadError() || loadErrorFallback"
           >
             <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
           </sd-empty-state>
@@ -220,7 +242,10 @@ export class History {
 
   private readonly all = signal<Consultation[]>([]);
   private readonly loading = signal(true);
-  private readonly loadError = signal(false);
+  /** The API's reason the list failed to load ('' when it hasn't). */
+  protected readonly loadError = signal('');
+  protected readonly loadErrorFallback =
+    "We couldn't retrieve your consultation history. Check your connection and try again.";
 
   private readonly view = toSignal(
     this.route.queryParamMap.pipe(map((p) => p.get('view'))),
@@ -277,7 +302,7 @@ export class History {
 
   private load(): void {
     this.loading.set(true);
-    this.loadError.set(false);
+    this.loadError.set('');
     this.appointments
       .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'desc' })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -290,8 +315,8 @@ export class History {
           );
           this.loading.set(false);
         },
-        error: () => {
-          this.loadError.set(true);
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, this.loadErrorFallback));
           this.loading.set(false);
         },
       });

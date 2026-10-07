@@ -155,6 +155,56 @@ foreach ($em->getRepository(Specialist::class)->findAll() as $specialist) {
 
 $em->flush();
 
+// 3) E-prescribing release: bring prescriptions issued on the old free-text form
+//    into the numbered, statused model — a GVM-RX number (dated by when it was
+//    written), the prescriber, `active` instead of `signed`, and a valid-until
+//    30 days after issue. Only fills what is missing; safe to re-run.
+$conn = $em->getConnection();
+$report['prescriptions_backfilled'] = 0;
+$legacy = $conn->fetchAllAssociative(
+    "SELECT p.id, p.appointment_id, p.created_at, p.signed_at, p.status, p.valid_until, p.number, p.specialist_id, a.specialist_id AS appt_specialist
+       FROM prescriptions p LEFT JOIN appointments a ON a.id = p.appointment_id
+      WHERE p.number IS NULL OR p.status = 'signed' OR p.valid_until IS NULL OR p.specialist_id IS NULL
+      ORDER BY p.created_at ASC",
+);
+foreach ($legacy as $row) {
+    $issued  = new DateTimeImmutable((string) ($row['signed_at'] ?? $row['created_at']));
+    $updates = [];
+    if ($row['number'] === null) {
+        $updates['number'] = (new App\Infrastructure\Prescription\PrescriptionNumberGenerator($conn))->next($issued);
+    }
+    if ($row['status'] === 'signed') {
+        $updates['status'] = 'active';
+    }
+    if ($row['valid_until'] === null) {
+        $updates['valid_until'] = $issued->modify('+30 days')->format('Y-m-d');
+    }
+    if ($row['specialist_id'] === null && $row['appt_specialist'] !== null) {
+        $updates['specialist_id'] = $row['appt_specialist'];
+    }
+    if ($updates !== []) {
+        $conn->update('prescriptions', $updates, ['id' => $row['id']]);
+        $report['prescriptions_backfilled']++;
+    }
+}
+
+// 4) Canonical allergy severities: the old patient form saved Low / Medium /
+//    High; the doctor's prescribing panel ranks life-threatening > severe >
+//    moderate > mild > unknown. Re-normalising maps the legacy wording (and
+//    leaves anything unrecognised exactly as the patient typed it). Idempotent.
+$report['allergy_severities_normalised'] = 0;
+foreach ($em->getRepository(App\Domain\Entity\Patient::class)->findAll() as $patient) {
+    $before = $patient->getMedical();
+    if (($before['allergies'] ?? []) === []) {
+        continue;
+    }
+    $patient->setMedical($before);
+    if ($patient->getMedical() !== $before) {
+        $report['allergy_severities_normalised']++;
+    }
+}
+$em->flush();
+
 fwrite(STDOUT, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 fwrite(STDOUT, "\nDone. Reminder: the doctor emails above are placeholders — update each\n");
 fwrite(STDOUT, "specialist's email to the doctor's real inbox so invites + join links land there.\n");

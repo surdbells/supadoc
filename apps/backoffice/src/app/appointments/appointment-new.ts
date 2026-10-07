@@ -98,7 +98,9 @@ const TYPES = [
             <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
             <input class="${FIELD} pl-9" placeholder="Search specialist by name or specialty…" [value]="specialistTerm()" (input)="specialistTerm.set($any($event.target).value)" />
           </div>
-          @if (filteredSpecialists().length > 0) {
+          @if (specialistsError()) {
+            <p class="font-sans text-caption text-alert">{{ specialistsError() }}</p>
+          } @else if (filteredSpecialists().length > 0) {
             <ul class="flex flex-col divide-y divide-cloud overflow-hidden rounded-field border border-cloud">
               @for (s of filteredSpecialists(); track s.id) {
                 <li>
@@ -165,6 +167,7 @@ export class AdminAppointmentNew implements OnInit {
 
   // Specialist
   private readonly specialists = signal<SpecialistAdminDto[]>([]);
+  protected readonly specialistsError = signal('');
   protected readonly specialistTerm = signal('');
   protected readonly specialist = signal<SpecialistAdminDto | null>(null);
   protected readonly filteredSpecialists = computed(() => {
@@ -190,7 +193,12 @@ export class AdminAppointmentNew implements OnInit {
     this.specialistsApi
       .listAdmin()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (res) => this.specialists.set(res.data), error: () => undefined });
+      .subscribe({
+        next: (res) => this.specialists.set(res.data),
+        // Without this list every search would read "No specialists match".
+        error: (err: unknown) =>
+          this.specialistsError.set(apiErrorMessage(err, 'Could not load specialists.')),
+      });
   }
 
   protected onPatientInput(value: string): void {
@@ -251,7 +259,7 @@ export class AdminAppointmentNew implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => void this.router.navigate(['/appointments', res.data.id]),
-        error: (err) => {
+        error: (err: unknown) => {
           this.error.set(apiErrorMessage(err, 'Could not book the appointment.'));
           this.creating.set(false);
         },

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
-use App\Domain\Entity\Prescription;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Prescription\PrescriptionService;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -25,6 +25,7 @@ final class ListPrescriptionsAction
         private readonly UserRepository $users,
         private readonly AppointmentRepository $appointments,
         private readonly PrescriptionRepository $prescriptions,
+        private readonly PrescriptionService $service,
     ) {
     }
 
@@ -38,10 +39,7 @@ final class ListPrescriptionsAction
             return $this->error($response, 'Consultation not found', 403);
         }
 
-        $rows = array_map(
-            static fn (Prescription $p): array => $p->toArray(),
-            $this->prescriptions->forAppointment($id),
-        );
+        $rows = $this->service->rowsFor($this->prescriptions->forAppointment($id), full: true);
 
         return $this->success($response, $rows);
     }

@@ -19,16 +19,19 @@ import {
 } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
-import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
-import type { DoctorProfileDto } from '@supadoc/models';
+import { apiErrorFields, apiErrorMessage, DoctorApi } from '@supadoc/data-access';
+import type { DoctorProfileDto, DoctorSignatureDto } from '@supadoc/models';
 import {
+  AlertComponent,
   ButtonComponent,
+  ConfirmDialogComponent,
   DoctorProfileCardComponent,
   IconComponent,
   InputComponent,
   type PublicDoctorProfileData,
   SearchSelectComponent,
 } from '@supadoc/ui';
+import { SignaturePad } from '../prescriptions/signature-pad';
 
 /** Date must be a valid, non-future day. */
 function pastDateValidator(c: AbstractControl): ValidationErrors | null {
@@ -38,6 +41,12 @@ function pastDateValidator(c: AbstractControl): ValidationErrors | null {
   if (isNaN(d.getTime())) return { invalid: true };
   return d > new Date() ? { future: true } : null;
 }
+
+/** MDCN registration number: letters, numbers, / or - (mirrors the API check). */
+const MDCN_PATTERN = /^[A-Za-z0-9/ -]{3,40}$/;
+
+/** Signature pictures must be under 500 KB (the API's limit, 512,000 bytes). */
+const SIGNATURE_MAX_BYTES = 512_000;
 
 const ROW_INPUT =
   'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
@@ -52,11 +61,14 @@ const ROW_INPUT =
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ReactiveFormsModule,
+    AlertComponent,
     ButtonComponent,
+    ConfirmDialogComponent,
     DoctorProfileCardComponent,
     IconComponent,
     InputComponent,
     SearchSelectComponent,
+    SignaturePad,
   ],
   host: { class: 'block' },
   template: `
@@ -146,58 +158,136 @@ const ROW_INPUT =
                 </section>
               </div>
 
-              <!-- Professional Information -->
-              <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
-                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
-                  <sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information
-                </h3>
-                <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                  <span class="font-sans text-caption text-slate">Medical Speciality</span>
-                  <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.specialty }}</span>
-                </div>
-                <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                  <span class="font-sans text-caption text-slate">Years of experience</span>
-                  <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.years_experience ?? '—' }} {{ profile()?.years_experience ? 'years' : '' }}</span>
-                </div>
-                @if (expertise().length) {
-                  <div class="flex flex-col gap-2 border-b border-cloud pb-4">
-                    <span class="font-sans text-caption text-slate">Area of Expertise</span>
-                    <div class="flex flex-wrap gap-2">
-                      @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ x }}</span> }
-                    </div>
-                  </div>
-                }
-                @if (profile()?.bio) {
+              <div class="flex flex-col gap-6">
+                <!-- Professional Information -->
+                <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                    <sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information
+                  </h3>
                   <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                    <span class="font-sans text-caption text-slate">Professional biography</span>
-                    <p class="font-sans text-body-sm leading-relaxed text-ink">{{ profile()?.bio }}</p>
+                    <span class="font-sans text-caption text-slate">Medical Speciality</span>
+                    <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.specialty }}</span>
                   </div>
-                }
-                @if (qualificationRows.length) {
-                  <div class="flex flex-col gap-2 border-b border-cloud pb-4">
-                    <span class="font-sans text-caption text-slate">Qualifications</span>
-                    @for (q of qualificationRows.controls; track $index) {
-                      <span class="font-sans text-body-sm text-ink">{{ qualLine(q) }}</span>
+                  <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                    <span class="font-sans text-caption text-slate">MDCN registration number</span>
+                    @if (profile()?.mdcn_number) {
+                      <span class="break-all font-sans text-body-sm font-medium text-ink">{{ profile()?.mdcn_number }}</span>
+                    } @else {
+                      <span class="flex items-start gap-1.5 font-sans text-body-sm text-warning">
+                        <sd-icon name="circle-alert" [size]="16" class="mt-0.5 shrink-0" />
+                        Not added yet. It is printed on your prescriptions — add it with Edit Profile.
+                      </span>
                     }
                   </div>
-                }
-                @if (certificationRows.length) {
-                  <div class="flex flex-col gap-2 border-b border-cloud pb-4">
-                    <span class="font-sans text-caption text-slate">Certifications</span>
-                    @for (c of certificationRows.controls; track $index) {
-                      <span class="font-sans text-body-sm text-ink">{{ certLine(c) }}</span>
-                    }
+                  <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                    <span class="font-sans text-caption text-slate">Years of experience</span>
+                    <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.years_experience ?? '—' }} {{ profile()?.years_experience ? 'years' : '' }}</span>
                   </div>
-                }
-                @if (languages().length) {
-                  <div class="flex flex-col gap-2">
-                    <span class="font-sans text-caption text-slate">Languages</span>
-                    <div class="flex flex-wrap gap-2">
-                      @for (l of languages(); track l) { <span class="rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">{{ l }}</span> }
+                  @if (expertise().length) {
+                    <div class="flex flex-col gap-2 border-b border-cloud pb-4">
+                      <span class="font-sans text-caption text-slate">Area of Expertise</span>
+                      <div class="flex flex-wrap gap-2">
+                        @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ x }}</span> }
+                      </div>
                     </div>
+                  }
+                  @if (profile()?.bio) {
+                    <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                      <span class="font-sans text-caption text-slate">Professional biography</span>
+                      <p class="font-sans text-body-sm leading-relaxed text-ink">{{ profile()?.bio }}</p>
+                    </div>
+                  }
+                  @if (qualificationRows.length) {
+                    <div class="flex flex-col gap-2 border-b border-cloud pb-4">
+                      <span class="font-sans text-caption text-slate">Qualifications</span>
+                      @for (q of qualificationRows.controls; track $index) {
+                        <span class="font-sans text-body-sm text-ink">{{ qualLine(q) }}</span>
+                      }
+                    </div>
+                  }
+                  @if (certificationRows.length) {
+                    <div class="flex flex-col gap-2 border-b border-cloud pb-4">
+                      <span class="font-sans text-caption text-slate">Certifications</span>
+                      @for (c of certificationRows.controls; track $index) {
+                        <span class="font-sans text-body-sm text-ink">{{ certLine(c) }}</span>
+                      }
+                    </div>
+                  }
+                  @if (languages().length) {
+                    <div class="flex flex-col gap-2">
+                      <span class="font-sans text-caption text-slate">Languages</span>
+                      <div class="flex flex-wrap gap-2">
+                        @for (l of languages(); track l) { <span class="rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">{{ l }}</span> }
+                      </div>
+                    </div>
+                  }
+                </section>
+
+                <!-- Signature for prescriptions -->
+                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="sig-heading">
+                  <div class="flex flex-col gap-1">
+                    <h3 id="sig-heading" class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                      <sd-icon name="signature" [size]="20" class="text-cerulean" />Signature for prescriptions
+                    </h3>
+                    <p class="font-sans text-caption text-slate">
+                      Only you can add or change your signature. Each time it is used on a prescription, it is recorded.
+                    </p>
                   </div>
-                }
-              </section>
+
+                  @if (sigLoading()) {
+                    <div class="sd-shimmer h-28 rounded-field" aria-busy="true"><span class="sr-only">Loading your signature…</span></div>
+                  } @else if (sigLoadError()) {
+                    <div class="flex flex-col items-center gap-3 rounded-field border border-cloud px-4 py-8 text-center">
+                      <sd-icon name="wifi-off" [size]="26" class="text-alert" />
+                      <p class="font-sans text-body-sm text-slate">{{ sigLoadError() }}</p>
+                      <sd-button variant="secondary" size="sm" (click)="loadSignature()">
+                        <sd-icon name="refresh-cw" [size]="16" />Try again
+                      </sd-button>
+                    </div>
+                  } @else if (drawing()) {
+                    <div class="flex flex-col gap-3">
+                      <p class="font-sans text-body-sm text-ink">Draw your signature in the box with a mouse, finger or pen.</p>
+                      <doc-signature-pad label="Draw your signature for prescriptions" [height]="180" (changed)="drawn.set($event)" />
+                      <div class="flex flex-wrap gap-3">
+                        <sd-button size="sm" [disabled]="!drawn() || sigBusy() !== ''" (click)="saveDrawn()">
+                          <sd-icon name="save" [size]="16" />{{ sigBusy() === 'draw' ? 'Saving…' : 'Save signature' }}
+                        </sd-button>
+                        <sd-button variant="outline" size="sm" [disabled]="sigBusy() !== ''" (click)="cancelDrawing()">Cancel</sd-button>
+                      </div>
+                    </div>
+                  } @else {
+                    @if (signature()?.has_signature && signature()?.image) {
+                      <!-- The API's data:image URL; Angular's URL sanitiser allows data:image/*. -->
+                      <div class="flex items-center justify-center rounded-field border border-cloud bg-white p-4">
+                        <img [src]="signature()?.image" alt="Your saved signature" class="max-h-28 w-auto max-w-full object-contain" />
+                      </div>
+                    } @else {
+                      <div class="flex flex-col items-center gap-2 rounded-field border border-dashed border-ash bg-glacier/40 px-4 py-8 text-center">
+                        <sd-icon name="signature" [size]="26" class="text-slate" />
+                        <p class="font-sans text-body-sm text-slate">No signature saved yet</p>
+                      </div>
+                    }
+                    <div class="flex flex-wrap gap-2">
+                      <sd-button variant="outline" size="sm" [disabled]="sigBusy() !== ''" (click)="chooseSignatureFile(sigInput)">
+                        <sd-icon name="upload" [size]="16" />{{ sigBusy() === 'upload' ? 'Uploading…' : 'Upload picture' }}
+                      </sd-button>
+                      <sd-button variant="outline" size="sm" [disabled]="sigBusy() !== ''" (click)="startDrawing()">
+                        <sd-icon name="pen-line" [size]="16" />Draw signature
+                      </sd-button>
+                      @if (signature()?.has_signature) {
+                        <sd-button variant="ghost" size="sm" [disabled]="sigBusy() !== ''" (click)="askRemoveSignature()">
+                          <sd-icon name="trash-2" [size]="16" />{{ sigBusy() === 'remove' ? 'Removing…' : 'Remove' }}
+                        </sd-button>
+                      }
+                    </div>
+                    <p class="font-sans text-caption text-slate">Upload a PNG or JPG picture smaller than 500 KB. A dark signature on a white background works best.</p>
+                    <input #sigInput type="file" accept="image/png,image/jpeg" class="hidden" (change)="onSignatureFile($event)" />
+                  }
+                  @if (sigError()) {
+                    <sd-alert tone="error">{{ sigError() }}</sd-alert>
+                  }
+                </section>
+              </div>
             </div>
           }
 
@@ -252,6 +342,12 @@ const ROW_INPUT =
               <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-6">
                 <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information</h3>
                 <sd-input label="Medical Speciality" [required]="true" formControlName="specialty" [error]="fieldError('specialty')" />
+                <div class="flex w-full flex-col gap-1.5">
+                  <sd-input label="MDCN registration number" placeholder="e.g. MDCN/12345" formControlName="mdcn" autocomplete="off" [error]="mdcnError()" />
+                  @if (!mdcnError()) {
+                    <span class="font-sans text-caption text-slate">Printed on your prescriptions. Letters, numbers, / or -.</span>
+                  }
+                </div>
                 <sd-input label="Years of experience" type="number" formControlName="years" />
 
                 <!-- Area of expertise (chips) -->
@@ -372,6 +468,18 @@ const ROW_INPUT =
       </div>
     }
 
+    <sd-confirm-dialog
+      [open]="confirmRemoveSig()"
+      title="Remove your signature?"
+      message="You will need to draw your signature each time you send a prescription, until you save a new one."
+      confirmLabel="Remove signature"
+      cancelLabel="Keep it"
+      icon="trash-2"
+      [danger]="true"
+      (confirm)="removeSignature()"
+      (cancel)="confirmRemoveSig.set(false)"
+    />
+
     <!-- Public profile popup -->
     @if (publicOpen()) {
       <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -396,7 +504,19 @@ export class DoctorProfile implements OnInit {
   protected readonly loadError = signal('');
   protected readonly saving = signal(false);
   protected readonly saveError = signal('');
+  /** Field errors from the last failed save (e.g. `mdcn_number`), shown inline. */
+  protected readonly serverErrors = signal<Record<string, string>>({});
   protected readonly toast = signal('');
+
+  // Signature for prescriptions (saved separately from the profile form).
+  protected readonly signature = signal<DoctorSignatureDto | null>(null);
+  protected readonly sigLoading = signal(true);
+  protected readonly sigLoadError = signal('');
+  protected readonly sigBusy = signal<'' | 'upload' | 'draw' | 'remove'>('');
+  protected readonly sigError = signal('');
+  protected readonly drawing = signal(false);
+  protected readonly drawn = signal<string | null>(null);
+  protected readonly confirmRemoveSig = signal(false);
 
   protected readonly profile = signal<DoctorProfileDto | null>(null);
   protected readonly photoPath = signal<string | null>(null);
@@ -460,6 +580,7 @@ export class DoctorProfile implements OnInit {
   protected readonly form = this.fb.nonNullable.group({
     name: ['', [Validators.required]],
     specialty: ['', [Validators.required]],
+    mdcn: ['', [Validators.pattern(MDCN_PATTERN)]],
     email: ['', [Validators.email]],
     phone: [''],
     dob: ['', [pastDateValidator]],
@@ -480,6 +601,25 @@ export class DoctorProfile implements OnInit {
 
   ngOnInit(): void {
     this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
+    // A server field error goes away once that field is edited.
+    const clearOnEdit: [AbstractControl, string][] = [
+      [this.form.controls.name, 'name'],
+      [this.form.controls.specialty, 'specialty'],
+      [this.form.controls.email, 'email'],
+      [this.form.controls.dob, 'date_of_birth'],
+      [this.form.controls.mdcn, 'mdcn_number'],
+    ];
+    for (const [control, key] of clearOnEdit) {
+      control.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+        if (!(key in this.serverErrors())) return;
+        this.serverErrors.update((errs) => {
+          const next = { ...errs };
+          delete next[key];
+          return next;
+        });
+      });
+    }
+    this.loadSignature();
     this.api
       .getProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -488,8 +628,8 @@ export class DoctorProfile implements OnInit {
           this.apply(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.loadError.set('Could not load your profile.');
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, 'Could not load your profile.'));
           this.loading.set(false);
         },
       });
@@ -530,6 +670,7 @@ export class DoctorProfile implements OnInit {
     this.form.patchValue({
       name: p.name ?? '',
       specialty: p.specialty ?? '',
+      mdcn: p.mdcn_number ?? '',
       email: p.email ?? '',
       phone: p.phone ?? '',
       dob: p.date_of_birth ?? '',
@@ -544,26 +685,36 @@ export class DoctorProfile implements OnInit {
     const p = this.profile();
     if (p) this.apply(p);
     this.saveError.set('');
+    this.serverErrors.set({});
     this.view.set('edit');
   }
 
   protected cancelEdit(): void {
     const p = this.profile();
     if (p) this.apply(p);
+    this.serverErrors.set({});
     this.view.set('view');
   }
 
   protected fieldError(name: 'name' | 'specialty' | 'email'): string {
     const c = this.form.controls[name];
-    if (!c.errors || (!c.touched && !c.dirty)) return '';
+    if (!c.errors || (!c.touched && !c.dirty)) return this.serverErrors()[name] ?? '';
     if (c.errors['required']) return 'This field is required';
     if (c.errors['email']) return 'Enter a valid email address';
-    return '';
+    return this.serverErrors()[name] ?? '';
+  }
+
+  protected mdcnError(): string {
+    const c = this.form.controls.mdcn;
+    if (c.errors?.['pattern'] && (c.touched || c.dirty)) {
+      return 'Enter your MDCN registration number (3–40 letters, numbers, / or -)';
+    }
+    return this.serverErrors()['mdcn_number'] ?? '';
   }
 
   protected dobError(): string {
     const c = this.form.controls.dob;
-    if (!c.errors || (!c.touched && !c.dirty)) return '';
+    if (!c.errors || (!c.touched && !c.dirty)) return this.serverErrors()['date_of_birth'] ?? '';
     if (c.errors['future']) return 'Date of birth cannot be in the future.';
     if (c.errors['invalid']) return 'Enter a valid date.';
     return '';
@@ -682,12 +833,15 @@ export class DoctorProfile implements OnInit {
     if (this.form.invalid) return;
     this.saving.set(true);
     this.saveError.set('');
+    this.serverErrors.set({});
 
     const v = this.form.getRawValue();
     this.api
       .updateProfile({
         name: v.name.trim(),
         specialty: v.specialty.trim(),
+        // Printed on prescriptions; an empty value clears it (the API upper-cases).
+        mdcn_number: v.mdcn.trim(),
         email: v.email.trim(),
         phone: v.phone.trim(),
         date_of_birth: v.dob || null,
@@ -720,11 +874,130 @@ export class DoctorProfile implements OnInit {
           this.view.set('view');
           this.showToast('Your Profile has successfully updated');
         },
-        error: (err) => {
+        error: (err: unknown) => {
           this.saving.set(false);
+          this.serverErrors.set(apiErrorFields(err));
           this.saveError.set(apiErrorMessage(err, 'Could not save your profile.'));
         },
       });
+  }
+
+  // ----- Signature for prescriptions -----
+  protected loadSignature(): void {
+    this.sigLoading.set(true);
+    this.sigLoadError.set('');
+    this.api
+      .getSignature()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.signature.set(res.data);
+          this.sigLoading.set(false);
+        },
+        error: (err: unknown) => {
+          this.sigLoadError.set(apiErrorMessage(err, 'Could not load your saved signature.'));
+          this.sigLoading.set(false);
+        },
+      });
+  }
+
+  protected chooseSignatureFile(input: HTMLInputElement): void {
+    if (this.sigBusy()) return;
+    this.sigError.set('');
+    input.click();
+  }
+
+  protected onSignatureFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.sigBusy()) return;
+    this.sigError.set('');
+    // Some systems leave `type` empty — fall back to the file extension.
+    const isPicture = file.type
+      ? /^image\/(png|jpe?g)$/.test(file.type)
+      : /\.(png|jpe?g)$/i.test(file.name);
+    if (!isPicture) {
+      this.sigError.set('Choose a PNG or JPG picture of your signature.');
+      return;
+    }
+    if (file.size > SIGNATURE_MAX_BYTES) {
+      this.sigError.set(`This picture is ${Math.ceil(file.size / 1024)} KB. The limit is 500 KB.`);
+      return;
+    }
+    this.storeSignature(file, 'upload');
+  }
+
+  protected startDrawing(): void {
+    if (this.sigBusy()) return;
+    this.sigError.set('');
+    this.drawn.set(null);
+    this.drawing.set(true);
+  }
+
+  protected cancelDrawing(): void {
+    if (this.sigBusy()) return;
+    this.drawing.set(false);
+    this.drawn.set(null);
+    this.sigError.set('');
+  }
+
+  protected saveDrawn(): void {
+    const dataUrl = this.drawn();
+    if (!dataUrl || this.sigBusy()) return;
+    this.storeSignature(dataUrl, 'draw');
+  }
+
+  protected askRemoveSignature(): void {
+    if (this.sigBusy()) return;
+    this.sigError.set('');
+    this.confirmRemoveSig.set(true);
+  }
+
+  protected removeSignature(): void {
+    this.confirmRemoveSig.set(false);
+    if (this.sigBusy()) return;
+    this.sigBusy.set('remove');
+    this.api
+      .deleteSignature()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.applySignature(res.data);
+          this.sigBusy.set('');
+          this.showToast('Your signature was removed');
+        },
+        error: (err: unknown) => {
+          this.sigBusy.set('');
+          this.sigError.set(apiErrorMessage(err, 'Could not remove your signature. Please try again.'));
+        },
+      });
+  }
+
+  private storeSignature(source: File | string, mode: 'upload' | 'draw'): void {
+    this.sigBusy.set(mode);
+    this.sigError.set('');
+    this.api
+      .saveSignature(source)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.applySignature(res.data);
+          this.sigBusy.set('');
+          this.drawing.set(false);
+          this.drawn.set(null);
+          this.showToast('Your signature was saved');
+        },
+        error: (err: unknown) => {
+          this.sigBusy.set('');
+          this.sigError.set(apiErrorMessage(err, 'Could not save your signature. Please try again.'));
+        },
+      });
+  }
+
+  private applySignature(sig: DoctorSignatureDto): void {
+    this.signature.set(sig);
+    this.profile.update((p) => (p ? { ...p, has_signature: sig.has_signature } : p));
   }
 
   private showToast(message: string): void {

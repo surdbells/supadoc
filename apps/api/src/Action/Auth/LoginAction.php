@@ -6,6 +6,7 @@ namespace App\Action\Auth;
 
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuthService;
+use App\Infrastructure\Service\RequestClientTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -16,6 +17,7 @@ use Psr\Http\Message\ServerRequestInterface;
 final class LoginAction
 {
     use ApiResponse;
+    use RequestClientTrait;
 
     public function __construct(private readonly AuthService $auth)
     {
@@ -42,7 +44,12 @@ final class LoginAction
 
         return $this->success(
             $response,
-            $this->auth->loginStaff($email, $password),
+            $this->auth->loginStaff(
+                $email,
+                $password,
+                $this->clientUserAgent($request),
+                $this->clientIp($request),
+            ),
             'Signed in',
         );
     }

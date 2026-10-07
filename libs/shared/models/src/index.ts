@@ -8,3 +8,4 @@ export * from './lib/message';
 export * from './lib/support';
 export * from './lib/wallet';
 export * from './lib/auth-dto';
+export * from './lib/prescription';

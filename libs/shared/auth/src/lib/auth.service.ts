@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { AuthApi } from '@supadoc/data-access';
+import { apiErrorMessage, AuthApi } from '@supadoc/data-access';
 import type {
   LoginParams,
   LoginResponse,
@@ -8,23 +8,50 @@ import type {
   ResetPasswordParams,
   TwoFactorChallenge,
 } from '@supadoc/models';
+import type { SessionAuth, SessionEndReason } from './session/session-auth';
+import {
+  consumeSessionNotice,
+  SESSION_END_MESSAGES,
+  setSessionNotice,
+} from './session/session-notice';
+import {
+  isDefinitiveAuthFailure,
+  clockOffsetFrom,
+  localExpiryMs,
+  readEndedMarker,
+  writeEndedMarker,
+} from './session/session-utils';
 
 const TOKEN_KEY = 'videomed.token';
 const REFRESH_KEY = 'videomed.refresh';
 const REDIRECT_KEY = 'videomed.redirect';
+const ENDED_KEY = 'videomed.session.ended';
+/** Device-clock minus server-clock (ms), measured when a token was issued. */
+const CLOCK_KEY = 'videomed.clock-offset';
 
 /**
  * Central auth state for every app, backed by the VideoMed API (via `AuthApi`).
  * The bearer token is exposed as a signal so guards/interceptors react to
- * sign-in/out without extra plumbing.
+ * sign-in/out without extra plumbing. Implements {@link SessionAuth} so the
+ * shared idle-timeout watcher can end the session, and mirrors sign-in/out
+ * made in other tabs (via the `storage` event) so every tab agrees.
  */
 @Injectable({ providedIn: 'root' })
-export class AuthService {
+export class AuthService implements SessionAuth {
   private readonly authApi = inject(AuthApi);
 
   private readonly _token = signal<string | null>(this.readToken());
   readonly token = this._token.asReadonly();
   readonly isAuthenticated = computed(() => this._token() !== null);
+
+  /** Shared (cross-tab) last-activity timestamp for the idle timeout. */
+  readonly activityKey = 'videomed.activity';
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => this.onStorage(e));
+    }
+  }
 
   /**
    * A destination to return to after signing in — set when a visitor is gated
@@ -276,22 +303,86 @@ export class AuthService {
       const res = await firstValueFrom(this.authApi.refresh(refresh));
       const access = res?.data?.access_token;
       if (!access) {
-        this.clear();
+        this.expire('expired');
         return false;
       }
       this.updateAccessToken(access);
       return true;
-    } catch {
-      this.clear();
+    } catch (err) {
+      // Only a definitive rejection (expired, idle, signed out elsewhere) ends
+      // the session — being offline or a 5xx must not sign anyone out.
+      if (isDefinitiveAuthFailure(err)) {
+        this.expire('expired', apiErrorMessage(err, SESSION_END_MESSAGES.expired));
+      }
       return false;
     }
   }
 
+  /**
+   * Sign out on purpose: clear the session here (and in other tabs) at once,
+   * then revoke it server-side in the background so a copied token dies too.
+   */
   async logout(): Promise<void> {
-    // There is no server logout endpoint on apps/api (tokens are stateless and
-    // expire on their own), so clear the local session directly instead of firing
-    // a request that 404s and blocks the sign-out on a failed round-trip.
+    const refresh = this.readStored(REFRESH_KEY);
+    writeEndedMarker(ENDED_KEY, { reason: 'signed-out' });
     this.clear();
+    this.revokeOnServer(refresh);
+  }
+
+  /** {@inheritDoc SessionAuth.expire} */
+  expire(reason: SessionEndReason, message?: string): void {
+    if (this._token() === null && !this.hasRefreshToken()) return;
+    const refresh = this.readStored(REFRESH_KEY);
+    setSessionNotice(reason, message);
+    writeEndedMarker(ENDED_KEY, { reason, message });
+    this.clear();
+    this.revokeOnServer(refresh);
+  }
+
+  /** {@inheritDoc SessionAuth.keepAlive} */
+  async keepAlive(): Promise<void> {
+    if (!this.isAuthenticated()) return;
+    try {
+      // Any authed call restarts the server idle clock; a 401 here goes through
+      // the refresh interceptor, which ends the session if it is truly over.
+      await firstValueFrom(this.authApi.keepAlive());
+    } catch {
+      /* transient failures are ignored; definitive ones were handled above */
+    }
+  }
+
+  /** {@inheritDoc SessionAuth.sessionDeadline} */
+  sessionDeadline(): number | null {
+    // Token expiries are server time; translate to this device's clock so a
+    // device with a wrong date/time is not signed out early (or never).
+    const offset = Number(this.readStored(CLOCK_KEY) ?? 0) || 0;
+    return localExpiryMs(this.readStored(REFRESH_KEY), offset) ?? localExpiryMs(this._token(), offset);
+  }
+
+  private revokeOnServer(refresh: string | null): void {
+    if (!refresh) return;
+    this.authApi.logout(refresh).subscribe({ error: () => undefined });
+  }
+
+  /** Mirror a sign-in, token refresh or sign-out made in another tab. */
+  private onStorage(e: StorageEvent): void {
+    if (e.key !== null && e.key !== TOKEN_KEY) return;
+    try {
+      if (e.storageArea !== localStorage) return;
+    } catch {
+      return;
+    }
+    const next = e.key === null ? null : e.newValue;
+    if (next === this._token()) return;
+    if (next === null && this._token() !== null) {
+      const marker = readEndedMarker(ENDED_KEY);
+      // A deliberate sign-out elsewhere still deserves a word on this tab.
+      setSessionNotice(
+        marker && marker.reason !== 'signed-out' ? marker.reason : 'elsewhere',
+        marker?.message,
+      );
+    }
+    this._token.set(next);
   }
 
   private clear(): void {
@@ -300,6 +391,7 @@ export class AuthService {
       try {
         s.removeItem(TOKEN_KEY);
         s.removeItem(REFRESH_KEY);
+        s.removeItem(CLOCK_KEY);
       } catch {
         /* no-op */
       }
@@ -312,12 +404,16 @@ export class AuthService {
     refresh: string | null,
     remember: boolean,
   ): void {
+    // A fresh sign-in supersedes any "you were signed out" note still pending.
+    consumeSessionNotice();
     this._token.set(access);
     try {
       const primary = remember ? localStorage : sessionStorage;
       const secondary = remember ? sessionStorage : localStorage;
       primary.setItem(TOKEN_KEY, access);
       secondary.removeItem(TOKEN_KEY);
+      primary.setItem(CLOCK_KEY, String(clockOffsetFrom(access)));
+      secondary.removeItem(CLOCK_KEY);
       if (refresh !== null) {
         primary.setItem(REFRESH_KEY, refresh);
         secondary.removeItem(REFRESH_KEY);
@@ -336,6 +432,7 @@ export class AuthService {
         : sessionStorage;
     try {
       store.setItem(TOKEN_KEY, access);
+      store.setItem(CLOCK_KEY, String(clockOffsetFrom(access)));
     } catch {
       /* keep the in-memory session */
     }

@@ -9,7 +9,12 @@ import {
   httpErrorInterceptor,
   provideSupadocDataAccess,
 } from '@supadoc/data-access';
-import { provideStaffAuth, staffAuthInterceptor } from '@supadoc/auth';
+import {
+  provideSessionTimeout,
+  provideStaffAuth,
+  StaffAuthService,
+  staffAuthInterceptor,
+} from '@supadoc/auth';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { appRoutes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -25,6 +30,8 @@ export const appConfig: ApplicationConfig = {
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Back-office silo: its own token key; nav/routes gate on RBAC permissions.
     provideStaffAuth({ storageKey: 'videomed.admin.token' }),
+    // Idle timeout + session-expiry sign-out (warning dialog: <sd-session-timeout />).
+    provideSessionTimeout(StaffAuthService, environment.session),
     provideSupadocIcons(),
   ],
 };

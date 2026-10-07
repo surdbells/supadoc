@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Middleware;
 
+use App\Domain\Enum\SessionState;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\SessionService;
@@ -50,10 +51,15 @@ final class CustomerAuthMiddleware implements MiddlewareInterface
             );
         }
 
-        // Tokens carry a jti tied to a revocable session; reject revoked ones.
+        // Tokens carry a jti tied to a revocable, time-boxed session: reject
+        // signed-out / idle / expired ones, and record activity on live ones
+        // (throttled) so the server-side idle clock tracks real use.
         $jti = (string) ($payload->jti ?? '');
-        if ($jti !== '' && !$this->sessions->isActive($jti)) {
-            return $this->error(new Response(), 'This session has been signed out', 401);
+        if ($jti !== '') {
+            $state = $this->sessions->customerState($jti, touch: true);
+            if ($state !== SessionState::ACTIVE) {
+                return $this->error(new Response(), $state->message(), 401);
+            }
         }
 
         $request = $request

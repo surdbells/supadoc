@@ -10,7 +10,9 @@ import {
   provideSupadocDataAccess,
 } from '@supadoc/data-access';
 import {
+  AuthService,
   authInterceptor,
+  provideSessionTimeout,
   provideSupadocAuth,
   refreshInterceptor,
 } from '@supadoc/auth';
@@ -37,6 +39,8 @@ export const appConfig: ApplicationConfig = {
       loginPath: environment.loginPath,
     }),
     provideSupadocAuth(),
+    // Idle timeout + session-expiry sign-out (warning dialog: <sd-session-timeout />).
+    provideSessionTimeout(AuthService, environment.session),
     provideSupadocIcons(),
   ],
 };

@@ -9,6 +9,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import {
+  apiErrorMessage,
   AppointmentsApi,
   NotificationsApi,
   PatientApi,
@@ -33,6 +34,15 @@ interface Notice {
   readonly body: string;
   readonly time: string;
   readonly unread: boolean;
+  /** Safe in-app deep link (e.g. /dashboard/prescriptions/{id}), or null. */
+  readonly link: string | null;
+}
+
+/** Only in-app paths are followed — never absolute, external or "//host" URLs. */
+function safeAppLink(link: string | null | undefined): string | null {
+  if (typeof link !== 'string') return null;
+  const l = link.trim();
+  return /^\/(?![/\\])/.test(l) ? l : null;
 }
 
 const NOTIF_STYLE: Record<string, { icon: string; tint: string }> = {
@@ -146,6 +156,9 @@ const UPCOMING_BADGE: Record<string, string> = {
                 </p>
               </div>
             </div>
+            @if (profileError()) {
+              <p class="font-sans text-caption text-alert">{{ profileError() }}</p>
+            }
             @if (profileComplete() < 100) {
               <div class="flex flex-col gap-1">
                 <div
@@ -202,6 +215,13 @@ const UPCOMING_BADGE: Record<string, string> = {
               <div class="flex flex-col gap-3">
                 <div class="h-10 animate-pulse rounded bg-cloud"></div>
                 <div class="h-3 w-2/3 animate-pulse rounded bg-cloud"></div>
+              </div>
+            } @else if (upcomingError()) {
+              <div
+                class="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center"
+              >
+                <sd-icon name="triangle-alert" [size]="28" class="text-alert" />
+                <p class="font-sans text-caption text-alert">{{ upcomingError() }}</p>
               </div>
             } @else if (upcoming(); as u) {
               <div class="flex items-center justify-between gap-2">
@@ -293,6 +313,8 @@ const UPCOMING_BADGE: Record<string, string> = {
               <span class="font-sans text-caption text-slate">Current Balance</span>
               @if (walletLoading()) {
                 <div class="sd-shimmer h-8 w-32 rounded-lg"></div>
+              } @else if (walletError()) {
+                <p class="font-sans text-caption text-alert">{{ walletError() }}</p>
               } @else {
                 <p class="font-heading text-h4 tracking-tight text-ocean">{{ walletLabel() }}</p>
               }
@@ -323,37 +345,47 @@ const UPCOMING_BADGE: Record<string, string> = {
               View all
             </button>
           </header>
-          @if (notifications().length === 0) {
+          @if (notificationsError()) {
+            <p class="py-6 text-center font-sans text-body-sm text-alert">
+              {{ notificationsError() }}
+            </p>
+          } @else if (notifications().length === 0) {
             <p class="py-6 text-center font-sans text-body-sm text-slate">
               You're all caught up.
             </p>
           } @else {
-          <ul class="flex flex-col gap-6">
+          <ul class="flex flex-col gap-2">
             @for (n of notifications(); track n.id) {
-              <li class="flex items-start gap-2">
-                <span
-                  class="flex size-8 shrink-0 items-center justify-center rounded-full"
-                  [class]="n.tint"
+              <li>
+                <button
+                  type="button"
+                  class="-mx-2 flex w-[calc(100%+1rem)] items-start gap-2 rounded-lg p-2 text-left transition-colors hover:bg-frost/30"
+                  (click)="openNotification(n)"
                 >
-                  <sd-icon [name]="n.icon" [size]="16" />
-                </span>
-                <div class="flex min-w-0 flex-1 flex-col gap-1">
-                  <div class="flex items-center justify-between gap-2">
-                    <p class="font-sans text-body-sm font-medium text-ink">
-                      {{ n.title }}
-                    </p>
-                    <span class="shrink-0 font-sans text-caption text-slate">{{
-                      n.time
-                    }}</span>
-                  </div>
-                  <p class="font-sans text-caption text-slate">{{ n.body }}</p>
-                </div>
-                @if (n.unread) {
                   <span
-                    class="mt-1.5 size-2 shrink-0 rounded-full bg-cerulean"
-                    aria-label="Unread"
-                  ></span>
-                }
+                    class="flex size-8 shrink-0 items-center justify-center rounded-full"
+                    [class]="n.tint"
+                  >
+                    <sd-icon [name]="n.icon" [size]="16" />
+                  </span>
+                  <div class="flex min-w-0 flex-1 flex-col gap-1">
+                    <div class="flex items-center justify-between gap-2">
+                      <p class="font-sans text-body-sm font-medium text-ink">
+                        {{ n.title }}
+                      </p>
+                      <span class="shrink-0 font-sans text-caption text-slate">{{
+                        n.time
+                      }}</span>
+                    </div>
+                    <p class="font-sans text-caption text-slate">{{ n.body }}</p>
+                  </div>
+                  @if (n.unread) {
+                    <span
+                      class="mt-1.5 size-2 shrink-0 rounded-full bg-cerulean"
+                      aria-label="Unread"
+                    ></span>
+                  }
+                </button>
               </li>
             }
           </ul>
@@ -450,16 +482,20 @@ export class DashboardHome {
   );
   // Profile completeness from the fields the backend actually stores.
   protected readonly profileComplete = signal(0);
+  protected readonly profileError = signal('');
 
   // Upcoming Appointment widget — wired to GET /api/portal/appointments.
   protected readonly upcoming = signal<UpcomingVm | null>(null);
   protected readonly loadingUpcoming = signal(true);
+  protected readonly upcomingError = signal('');
 
   // Notifications widget — the most recent few from GET /api/portal/notifications.
   protected readonly notifications = signal<Notice[]>([]);
+  protected readonly notificationsError = signal('');
 
   // Wallet widget — balance from GET /api/portal/wallet.
   protected readonly walletLoading = signal(true);
+  protected readonly walletError = signal('');
   protected readonly walletBalance = signal<string | null>(null);
   protected readonly walletCurrency = signal('NGN');
   protected readonly walletLabel = computed(() => {
@@ -495,11 +531,13 @@ export class DashboardHome {
               body: n.body,
               time: this.relative(n.created_at),
               unread: !n.read,
+              link: safeAppLink(n.link),
             })),
           ),
-        error: () => {
-          /* leave the widget empty on failure */
-        },
+        error: (err: unknown) =>
+          this.notificationsError.set(
+            apiErrorMessage(err, 'Could not load your notifications.'),
+          ),
       });
 
     this.appointments
@@ -510,7 +548,10 @@ export class DashboardHome {
           this.upcoming.set(this.pickUpcoming(res.data));
           this.loadingUpcoming.set(false);
         },
-        error: () => this.loadingUpcoming.set(false),
+        error: (err: unknown) => {
+          this.upcomingError.set(apiErrorMessage(err, 'Could not load your appointments.'));
+          this.loadingUpcoming.set(false);
+        },
       });
 
     this.walletApi
@@ -522,7 +563,10 @@ export class DashboardHome {
           this.walletCurrency.set(res.data.currency);
           this.walletLoading.set(false);
         },
-        error: () => this.walletLoading.set(false),
+        error: (err: unknown) => {
+          this.walletError.set(apiErrorMessage(err, 'Could not load your wallet balance.'));
+          this.walletLoading.set(false);
+        },
       });
 
     this.patient
@@ -544,9 +588,8 @@ export class DashboardHome {
             (p.date_of_birth ? 1 : 0);
           this.profileComplete.set(Math.round((filled / 4) * 100));
         },
-        error: () => {
-          /* keep placeholders on failure */
-        },
+        error: (err: unknown) =>
+          this.profileError.set(apiErrorMessage(err, 'Could not load your profile.')),
       });
   }
 
@@ -592,6 +635,26 @@ export class DashboardHome {
 
   protected viewNotifications(): void {
     void this.router.navigate(['/dashboard/notifications']);
+  }
+
+  /**
+   * Tap a notification: mark it read, then follow its in-app deep link (or open
+   * the full list when it has none). The mark-read request isn't tied to this
+   * page's lifetime, so navigating away doesn't cancel it.
+   */
+  protected openNotification(n: Notice): void {
+    if (n.unread) {
+      this.notifications.update((list) =>
+        list.map((x) => (x.id === n.id ? { ...x, unread: false } : x)),
+      );
+      this.notificationsApi.markRead(n.id).subscribe({
+        error: () => {
+          /* best-effort — the full list resyncs on its own load */
+        },
+      });
+    }
+    const link = safeAppLink(n.link);
+    void this.router.navigateByUrl(link ?? '/dashboard/notifications');
   }
 
   private relative(iso: string): string {

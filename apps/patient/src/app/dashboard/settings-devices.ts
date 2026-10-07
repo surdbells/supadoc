@@ -10,7 +10,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { PatientApi } from '@supadoc/data-access';
+import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type { SessionDto } from '@supadoc/models';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
 
@@ -52,11 +52,14 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
         <div class="flex flex-col items-center gap-4 py-16 text-center">
           <sd-icon name="wifi-off" [size]="36" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">
-            Could not load your devices.
+            {{ error() }}
           </p>
           <sd-button size="sm" (click)="load()">Try Again</sd-button>
         </div>
       } @else {
+        @if (revokeError()) {
+          <p class="font-sans text-body-sm text-alert" role="alert">{{ revokeError() }}</p>
+        }
         <div class="flex flex-col gap-4">
           @for (d of sessions(); track d.id) {
             <div
@@ -106,8 +109,10 @@ export class SettingsDevices implements OnInit {
 
   protected readonly sessions = signal<SessionDto[]>([]);
   protected readonly loading = signal(true);
-  protected readonly error = signal(false);
+  /** Why the device list failed to load ('' when it didn't). */
+  protected readonly error = signal('');
   protected readonly revokingId = signal('');
+  protected readonly revokeError = signal('');
 
   protected readonly subtitle = computed(() => {
     const n = this.sessions().length;
@@ -120,7 +125,7 @@ export class SettingsDevices implements OnInit {
 
   protected load(): void {
     this.loading.set(true);
-    this.error.set(false);
+    this.error.set('');
     this.patient
       .sessions()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -129,8 +134,8 @@ export class SettingsDevices implements OnInit {
           this.sessions.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set(true);
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load your devices.'));
           this.loading.set(false);
         },
       });
@@ -138,11 +143,13 @@ export class SettingsDevices implements OnInit {
 
   protected async revoke(id: string): Promise<void> {
     this.revokingId.set(id);
+    this.revokeError.set('');
     try {
       await firstValueFrom(this.patient.revokeSession(id));
       this.sessions.update((list) => list.filter((s) => s.id !== id));
-    } catch {
-      /* leave the device listed on failure */
+    } catch (err) {
+      // Leave the device listed, but say why it couldn't be removed.
+      this.revokeError.set(apiErrorMessage(err, 'Could not remove that device.'));
     } finally {
       this.revokingId.set('');
     }

@@ -342,6 +342,10 @@ export interface MedicationRow {
   name: string;
   dosage: string;
   frequency: string;
+  /** What it is for (groups the doctor's side panel). */
+  reason?: string;
+  /** "1" when herbal / traditional; "" otherwise. */
+  herbal?: string;
 }
 export interface ConditionRow {
   condition: string;
@@ -410,36 +414,7 @@ export interface ConsultationSummaryDto {
   author?: string | null;
 }
 
-/** One medication line on an e-prescription. */
-export interface PrescriptionItem {
-  medication: string;
-  strength?: string;
-  dosage?: string;
-  frequency?: string;
-  route?: string;
-  duration?: string;
-  quantity?: string;
-  instructions?: string;
-  refills?: string;
-}
-
-/** An issued (or draft) e-prescription for a consultation. */
-export interface PrescriptionDto {
-  id: string;
-  appointment_id: string;
-  items: PrescriptionItem[];
-  notes: string | null;
-  status: 'draft' | 'signed';
-  signed_at: string | null;
-  author: string | null;
-  created_at: string;
-}
-
-/** Body for issuing a prescription (POST .../prescriptions). */
-export interface CreatePrescriptionParams {
-  items: PrescriptionItem[];
-  notes?: string | null;
-}
+// Prescription models live in ./prescription.ts.
 
 /** A lab / investigation order placed during a consultation. */
 export interface LabOrderDto {
@@ -524,7 +499,8 @@ export interface CreateCertificateParams {
 }
 
 /** A printable clinical document kind, addressable via .../documents/{kind}/{id}. */
-export type ClinicalDocumentKind = 'prescription' | 'referral' | 'certificate';
+/** HTML-rendered clinical documents. Prescriptions are PDF-only (signed links). */
+export type ClinicalDocumentKind = 'referral' | 'certificate';
 
 /** One consent decision for a consultation. */
 export interface ConsentDto {
@@ -607,6 +583,8 @@ export interface NotificationDto {
   type_label: string;
   title: string;
   body: string;
+  /** In-app deep link opened when tapped (e.g. /dashboard/prescriptions/{id}). */
+  link?: string | null;
   read: boolean;
   created_at: string;
 }

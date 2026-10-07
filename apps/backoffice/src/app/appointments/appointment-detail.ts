@@ -129,7 +129,7 @@ export class AdminAppointmentDetail implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.appt.set(res.data),
-        error: () => this.error.set('Appointment not found.'),
+        error: (err: unknown) => this.error.set(apiErrorMessage(err, 'Appointment not found.')),
       });
   }
 

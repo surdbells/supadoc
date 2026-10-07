@@ -6,15 +6,26 @@ import {
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
-import { StaffAuthService } from '@supadoc/auth';
+import { StaffAuthService, consumeSessionNotice } from '@supadoc/auth';
 import { apiErrorMessage } from '@supadoc/data-access';
-import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
+import {
+  AlertComponent,
+  ButtonComponent,
+  IconComponent,
+  InputComponent,
+} from '@supadoc/ui';
 
 /** Doctor sign-in. Only accounts with the `doctor` role are accepted. */
 @Component({
   selector: 'doc-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ReactiveFormsModule, ButtonComponent, IconComponent, InputComponent],
+  imports: [
+    ReactiveFormsModule,
+    AlertComponent,
+    ButtonComponent,
+    IconComponent,
+    InputComponent,
+  ],
   host: { class: 'block min-h-screen bg-glacier' },
   template: `
     <div class="flex min-h-screen items-center justify-center px-4 py-10">
@@ -34,6 +45,23 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
         <p class="mt-1 font-sans text-body-sm text-slate">
           Sign in to see your consultations and manage clinical records.
         </p>
+
+        @if (notice(); as message) {
+          <!-- Why the previous session ended (idle, expired, another tab). -->
+          <sd-alert tone="info" class="mt-5">
+            <span class="flex items-start gap-3">
+              <span class="min-w-0 flex-1">{{ message }}</span>
+              <button
+                type="button"
+                class="-my-0.5 -mr-1 shrink-0 rounded-field p-0.5 text-cerulean/70 transition-colors hover:text-cerulean focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cerulean"
+                aria-label="Dismiss message"
+                (click)="dismissNotice()"
+              >
+                <sd-icon name="x" [size]="18" />
+              </button>
+            </span>
+          </sd-alert>
+        }
 
         <form class="mt-6 flex flex-col gap-4" [formGroup]="form" (ngSubmit)="submit()">
           <sd-input
@@ -71,17 +99,28 @@ export class DoctorLogin {
 
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  /**
+   * Why the last session ended (idle timeout, expiry, sign-out in another tab),
+   * read once on arrival — the library clears it so a refresh won't repeat it.
+   */
+  protected readonly notice = signal<string | null>(consumeSessionNotice());
 
   protected readonly form = this.fb.nonNullable.group({
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required]],
   });
 
+  protected dismissNotice(): void {
+    this.notice.set(null);
+  }
+
   protected async submit(): Promise<void> {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
     }
+    // The explanation has done its job; any sign-in error now stands alone.
+    this.notice.set(null);
     this.busy.set(true);
     this.error.set('');
     const { email, password } = this.form.getRawValue();

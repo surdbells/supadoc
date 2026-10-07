@@ -15,7 +15,7 @@ import {
   tap,
 } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { SpecialistsApi } from '@supadoc/data-access';
+import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import {
   ButtonComponent,
@@ -260,7 +260,7 @@ interface Criteria {
             tone="error"
             icon="wifi-off"
             title="Unable to load specialists"
-            message="Check your connection and try again."
+            [message]="loadError() || 'Check your connection and try again.'"
           >
             <sd-button (click)="reload()">Try Again</sd-button>
           </sd-empty-state>
@@ -318,7 +318,8 @@ export class FindSpecialist {
 
   protected readonly all = signal<SpecialistDto[]>([]);
   private readonly loading = signal(true);
-  private readonly loadError = signal(false);
+  /** Why the search failed ('' when it didn't). */
+  protected readonly loadError = signal('');
   private readonly reloadTick = signal(0);
 
   private readonly criteria = computed<Criteria>(() => ({
@@ -370,7 +371,7 @@ export class FindSpecialist {
         distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
         tap(() => {
           this.loading.set(true);
-          this.loadError.set(false);
+          this.loadError.set('');
         }),
         switchMap((c) =>
           this.specialists
@@ -387,8 +388,10 @@ export class FindSpecialist {
               mode: c.mode === 'any' ? undefined : c.mode,
             })
             .pipe(
-              catchError(() => {
-                this.loadError.set(true);
+              catchError((err: unknown) => {
+                this.loadError.set(
+                  apiErrorMessage(err, 'Check your connection and try again.'),
+                );
                 return of(null);
               }),
             ),

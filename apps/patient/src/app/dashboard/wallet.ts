@@ -100,7 +100,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
             @if (loading()) {
               <div class="sd-shimmer h-10 w-48 rounded-lg"></div>
             } @else {
-              <p class="font-heading text-h2 tracking-tight text-ink">{{ balanceLabel() }}</p>
+              <p class="font-heading text-h2 tracking-tight text-ink">{{ loadError() ? '—' : balanceLabel() }}</p>
             }
           </div>
           <div class="relative">
@@ -159,6 +159,17 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
           <div class="flex flex-col gap-3">
             <div class="sd-shimmer h-20 rounded-card"></div>
             <div class="sd-shimmer h-20 rounded-card"></div>
+          </div>
+        } @else if (loadError()) {
+          <div class="flex flex-col items-center gap-3 py-12 text-center">
+            <p class="max-w-md font-sans text-body-sm text-alert">{{ loadError() }}</p>
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 py-1 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean"
+              (click)="load()"
+            >
+              Try again
+            </button>
           </div>
         } @else if (recent().length === 0) {
           <div class="flex flex-col items-center gap-3 py-12 text-center">
@@ -219,10 +230,11 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
           <div class="flex flex-col gap-8">
             <div class="flex flex-col gap-4">
               <div class="flex flex-col gap-2">
-                <label class="font-sans text-body text-ink">Enter Amount</label>
+                <label for="wallet-amount" class="font-sans text-body text-ink">Enter Amount</label>
                 <div class="flex items-center justify-center gap-1 rounded-[16px] border-[0.5px] border-slate px-4 py-2.5">
                   <span class="font-sans text-body-lg text-ink">{{ symbol() }}</span>
                   <input
+                    id="wallet-amount"
                     inputmode="numeric"
                     placeholder="0"
                     class="w-full min-w-0 bg-transparent text-center font-sans text-body-lg text-ink placeholder:text-slate/50 focus:outline-none"
@@ -282,6 +294,8 @@ export class Wallet implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal(true);
+  /** Why the wallet failed to load ('' when it didn't). */
+  protected readonly loadError = signal('');
   protected readonly verifying = signal(false);
   protected readonly wallet = signal<WalletDto | null>(null);
   protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
@@ -333,9 +347,12 @@ export class Wallet implements OnInit {
             void this.router.navigate([], { queryParams: {}, replaceUrl: true });
             this.load();
           },
-          error: () => {
+          error: (err: unknown) => {
             this.verifying.set(false);
-            this.notice.set({ ok: false, text: 'We could not confirm the payment.' });
+            this.notice.set({
+              ok: false,
+              text: apiErrorMessage(err, 'We could not confirm the payment.'),
+            });
             this.load();
           },
         });
@@ -343,8 +360,9 @@ export class Wallet implements OnInit {
     this.load();
   }
 
-  private load(): void {
+  protected load(): void {
     this.loading.set(true);
+    this.loadError.set('');
     this.api
       .wallet(this.currency())
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -354,7 +372,10 @@ export class Wallet implements OnInit {
           this.currency.set(res.data.currency);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, 'Could not load your wallet.'));
+          this.loading.set(false);
+        },
       });
   }
 

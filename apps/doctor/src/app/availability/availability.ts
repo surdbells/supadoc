@@ -428,6 +428,7 @@ export class DoctorAvailability implements OnInit {
 
   private load(): void {
     this.loading.set(true);
+    this.notice.set('');
     // Fetch every day the 42-cell grid actually renders (a month can trail up to
     // ~14 days into the next one), so no visible cell is missing its slot data.
     const cells = this.calendar();
@@ -443,8 +444,8 @@ export class DoctorAvailability implements OnInit {
           this.addDuration.set(res.data.slot_minutes);
           this.loading.set(false);
         },
-        error: () => {
-          this.notice.set('Could not load your availability.');
+        error: (err: unknown) => {
+          this.notice.set(apiErrorMessage(err, 'Could not load your availability.'));
           this.loading.set(false);
         },
       });

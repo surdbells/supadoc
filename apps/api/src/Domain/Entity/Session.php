@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
-use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
  * A signed-in device/session for a patient. The id is the token's `jti`, so the
- * customer middleware can reject a token whose session was revoked. `toArray()`
+ * customer middleware can reject a token whose session was revoked or has run
+ * out (idle / absolute lifetime — see SessionLifecycleTrait). `toArray()`
  * is the serialisation boundary and derives a friendly device label from the
  * stored user agent.
  */
@@ -20,6 +20,7 @@ use Doctrine\ORM\Mapping as ORM;
 class Session
 {
     use TimestampsTrait;
+    use SessionLifecycleTrait;
 
     #[ORM\Id]
     #[ORM\Column(type: 'string', length: 64)]
@@ -34,9 +35,6 @@ class Session
 
     #[ORM\Column(name: 'ip_address', type: 'string', length: 64, nullable: true)]
     private ?string $ip = null;
-
-    #[ORM\Column(name: 'revoked_at', type: 'datetime_immutable', nullable: true)]
-    private ?DateTimeImmutable $revokedAt = null;
 
     public function __construct(
         string $id,
@@ -55,14 +53,9 @@ class Session
         return $this->id;
     }
 
-    public function isRevoked(): bool
+    public function getPatient(): Patient
     {
-        return $this->revokedAt !== null;
-    }
-
-    public function revoke(): void
-    {
-        $this->revokedAt ??= new DateTimeImmutable();
+        return $this->patient;
     }
 
     public function toArray(string $currentId = ''): array
@@ -75,6 +68,7 @@ class Session
             'icon'       => $icon,
             'ip'         => $this->ip,
             'created_at' => $this->createdAt->format(DATE_ATOM),
+            'last_active_at' => $this->getLastActiveAt()->format(DATE_ATOM),
             'current'    => $this->id === $currentId && $currentId !== '',
         ];
     }

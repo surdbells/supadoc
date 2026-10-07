@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { SpecialistsApi } from '@supadoc/data-access';
+import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import { IconComponent, StepperComponent } from '@supadoc/ui';
 import { SpecialistCard } from '../dashboard/specialist-card';
@@ -162,7 +162,9 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
     @if (open()) {
       <div
         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-abyss/40 p-4 backdrop-blur-sm sm:items-center"
+        tabindex="-1"
         (click)="onBackdrop($event)"
+        (keydown.escape)="close()"
       >
         <div
           class="my-auto w-full max-w-2xl rounded-card border border-frost bg-white p-6 shadow-2xl sm:p-8"
@@ -459,10 +461,16 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
                     [ngTemplateOutlet]="hero"
                     [ngTemplateOutletContext]="{ icon: 'search', size: 44 }"
                   />
-                  <h2 class="font-heading text-h3 text-cerulean">No matches found</h2>
-                  <p class="max-w-md font-sans text-body text-slate">
-                    Try adjust your answers or retake the quiz
-                  </p>
+                  <h2 class="font-heading text-h3 text-cerulean">
+                    {{ resultError() ? "We couldn't load specialists" : 'No matches found' }}
+                  </h2>
+                  @if (resultError()) {
+                    <p class="max-w-md font-sans text-body text-alert">{{ resultError() }}</p>
+                  } @else {
+                    <p class="max-w-md font-sans text-body text-slate">
+                      Try adjust your answers or retake the quiz
+                    </p>
+                  }
                   <div class="mt-2 flex w-full flex-col gap-3 sm:flex-row">
                     <button
                       type="button"
@@ -512,6 +520,8 @@ export class FindDoctorQuiz {
   protected readonly resultState = signal<'loading' | 'results' | 'weak' | 'none'>(
     'loading',
   );
+  /** Why the specialist lookup failed ('' when it didn't) — shown in the 'none' state. */
+  protected readonly resultError = signal('');
   protected readonly top = signal<ScoredSpecialist[]>([]);
   protected readonly showReasoning = signal(false);
   /** Falls back to a brand icon until public/find-doctor.png exists. */
@@ -668,12 +678,16 @@ export class FindDoctorQuiz {
   private finish(): void {
     this.phase.set('results');
     this.resultState.set('loading');
+    this.resultError.set('');
     this.specialistsApi
       .publicSearch({ limit: 24 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.computeResults(res.data ?? []),
-        error: () => this.resultState.set('none'),
+        error: (err: unknown) => {
+          this.resultError.set(apiErrorMessage(err, 'Could not load specialists. Please try again.'));
+          this.resultState.set('none');
+        },
       });
   }
 

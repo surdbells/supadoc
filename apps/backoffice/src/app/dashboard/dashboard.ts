@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { MonitoringApi } from '@supadoc/data-access';
+import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type { MonitoringOverviewDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -138,8 +138,8 @@ export class AdminDashboard implements OnInit {
           this.overview.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load the overview.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load the overview.'));
           this.loading.set(false);
         },
       });

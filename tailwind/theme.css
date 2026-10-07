@@ -265,3 +265,37 @@
 .sd-call[data-theme='light'] .sd-stage .text-white\/60 {
   color: rgb(255 255 255 / 0.6);
 }
+
+/* ===== No visible scrollbars =====
+ * Product rule (2026-10): no horizontal or vertical scrollbar is ever shown in
+ * the web apps. Every scroll container still scrolls with the wheel, trackpad,
+ * touch and keyboard; only the bars are hidden, in every browser (Firefox via
+ * scrollbar-width, Chromium/Safari via ::-webkit-scrollbar, legacy Edge via
+ * -ms-overflow-style). The !important declarations live in the base layer, so
+ * they also win over component-level scrollbar styling (layered !important
+ * beats unlayered rules).
+ *
+ * Page-level sideways overflow is clipped as well, so a stray wide element can
+ * never add a horizontal scrollbar. `clip` (not `hidden`) creates no scroll
+ * container, so position: sticky keeps working. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  ::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
+  html,
+  body {
+    overflow-x: clip;
+  }
+}

@@ -17,10 +17,16 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, type Subscription } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
 import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
-import type { HealthProfileDto, MedicalDto } from '@supadoc/models';
+import type {
+  AllergyRow,
+  AllergySeverity,
+  HealthProfileDto,
+  MedicalDto,
+  MedicationRow,
+} from '@supadoc/models';
 import {
   ButtonComponent,
   IconComponent,
@@ -29,6 +35,76 @@ import {
   PhoneInputComponent,
   SearchSelectComponent,
 } from '@supadoc/ui';
+
+/** Allergy severity choices — the stored value is the lower-case key. */
+const SEVERITY_OPTIONS: readonly { value: AllergySeverity; label: string }[] = [
+  { value: 'mild', label: 'Mild' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'severe', label: 'Severe' },
+  { value: 'life-threatening', label: 'Life-threatening' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+const SEVERITY_LABEL: Record<AllergySeverity, string> = {
+  mild: 'Mild',
+  moderate: 'Moderate',
+  severe: 'Severe',
+  'life-threatening': 'Life-threatening',
+  unknown: 'Unknown',
+};
+
+const SEVERITY_TONE: Record<AllergySeverity, { cls: string; icon: string }> = {
+  mild: { cls: 'bg-sage/15 text-sage', icon: 'info' },
+  moderate: { cls: 'bg-warning/15 text-warning', icon: 'circle-alert' },
+  severe: { cls: 'bg-alert/10 text-alert', icon: 'triangle-alert' },
+  'life-threatening': { cls: 'bg-alert text-white', icon: 'shield-alert' },
+  unknown: { cls: 'bg-cloud text-slate', icon: 'circle-help' },
+};
+
+/** Free-text severities from older saves (Low / Medium / High …) → the fixed list. */
+const SEVERITY_ALIASES: Record<string, AllergySeverity> = {
+  mild: 'mild',
+  low: 'mild',
+  minor: 'mild',
+  moderate: 'moderate',
+  medium: 'moderate',
+  severe: 'severe',
+  high: 'severe',
+  serious: 'severe',
+  'life-threatening': 'life-threatening',
+  'life threatening': 'life-threatening',
+  lifethreatening: 'life-threatening',
+  unknown: 'unknown',
+  'not sure': 'unknown',
+};
+
+/** One of the canonical stored severities (own keys only — never `toString` & co.). */
+function isCanonicalSeverity(value: unknown): value is AllergySeverity {
+  return typeof value === 'string' && Object.hasOwn(SEVERITY_LABEL, value);
+}
+
+function severityAlias(key: string): AllergySeverity | undefined {
+  return Object.hasOwn(SEVERITY_ALIASES, key) ? SEVERITY_ALIASES[key] : undefined;
+}
+
+/**
+ * Map a stored severity onto the canonical lower-case list (case-insensitively;
+ * legacy Low / Medium / High → mild / moderate / severe), so a save always
+ * sends canonical values. Text that matches nothing is kept as-is (offered as
+ * an extra choice) so it isn't silently lost.
+ */
+function normalizeSeverity(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '') return '';
+  const key = text.toLowerCase().replace(/[\s_]+/g, ' ');
+  return severityAlias(key) ?? severityAlias(key.replace(/ /g, '-')) ?? text;
+}
+
+/** The API stores herbal as a string flag ('1' when herbal / traditional). */
+function isHerbalFlag(flag: string | boolean | undefined | null): boolean {
+  if (typeof flag === 'boolean') return flag;
+  return /^(1|yes|true)$/i.test((flag ?? '').trim());
+}
 
 type View =
   | 'home'
@@ -82,6 +158,30 @@ interface SectionCard {
     }
 
     <div class="flex flex-col gap-6 py-2">
+      @if (loadError()) {
+        <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert" role="alert">
+          {{ loadError() }}
+        </p>
+      }
+      @if (view() === 'home' && healthState() === 'error') {
+        <div
+          class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-field bg-alert/10 px-4 py-3"
+          role="alert"
+        >
+          <p class="flex items-start gap-2 font-label text-caption text-alert">
+            <sd-icon name="triangle-alert" [size]="16" class="mt-px shrink-0" />
+            {{ healthError() }}
+          </p>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean"
+            (click)="loadHealthProfile()"
+          >
+            <sd-icon name="refresh-cw" [size]="14" />
+            Try again
+          </button>
+        </div>
+      }
       @switch (view()) {
         @case ('home') {
           <div class="flex flex-col gap-1">
@@ -357,7 +457,9 @@ interface SectionCard {
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
-          @if (hasMedical()) {
+          @if (!healthLoaded()) {
+            <ng-container [ngTemplateOutlet]="healthUnavailable" />
+          } @else if (hasMedical()) {
             <div class="flex flex-col gap-6">
               <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 @if (medical().history.length) {
@@ -396,11 +498,19 @@ interface SectionCard {
                       <sd-icon name="triangle-alert" [size]="20" />Allergies
                     </h3>
                     @for (row of medical().allergies; track $index) {
-                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
-                        <span class="font-sans text-body-sm font-medium text-ink"
+                      <div class="flex flex-col gap-1 rounded-field bg-glacier px-4 py-3">
+                        <span
+                          class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-medium text-ink"
                           >{{ row.allergen }}
                           @if (row.severity) {
-                            <span class="text-slate">· {{ row.severity }}</span>
+                            <span
+                              class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
+                              [class]="severityTone(row.severity).cls"
+                            >
+                              <sd-icon [name]="severityTone(row.severity).icon" [size]="12" />{{
+                                severityLabel(row.severity)
+                              }}
+                            </span>
                           }</span
                         >
                         @if (row.reaction) {
@@ -422,17 +532,30 @@ interface SectionCard {
                       <sd-icon name="pill" [size]="20" />Current Medications
                     </h3>
                     @for (row of medical().medications; track $index) {
-                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
-                        <span class="font-sans text-body-sm font-medium text-ink"
+                      <div class="flex flex-col gap-1 rounded-field bg-glacier px-4 py-3">
+                        <span
+                          class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-medium text-ink"
                           >{{ row.name }}
                           @if (row.dosage) {
                             <span class="text-slate">· {{ row.dosage }}</span>
+                          }
+                          @if (isHerbal(row.herbal)) {
+                            <span
+                              class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2 py-0.5 font-sans text-caption font-medium text-sage"
+                            >
+                              <sd-icon name="leaf" [size]="12" />Herbal
+                            </span>
                           }</span
                         >
                         @if (row.frequency) {
                           <span class="font-sans text-caption text-slate">{{
                             row.frequency
                           }}</span>
+                        }
+                        @if (row.reason) {
+                          <span class="font-sans text-caption text-slate"
+                            >For: {{ row.reason }}</span
+                          >
                         }
                       </div>
                     }
@@ -506,6 +629,9 @@ interface SectionCard {
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
+          @if (!healthLoaded()) {
+            <ng-container [ngTemplateOutlet]="healthUnavailable" />
+          } @else {
           <div
             [formGroup]="medicalForm"
             class="grid grid-cols-1 gap-6 lg:grid-cols-2"
@@ -584,6 +710,14 @@ interface SectionCard {
                   <sd-icon name="plus" [size]="16" />Add Another
                 </sd-button>
               </div>
+              <p
+                id="allergies-hint"
+                class="-mt-1 flex items-start gap-2 font-sans text-caption text-slate"
+              >
+                <sd-icon name="info" [size]="16" class="mt-px shrink-0 text-cerulean" />
+                Your doctor sees this before prescribing. If you have no allergies,
+                leave this empty.
+              </p>
               @for (row of allergyRows.controls; track $index) {
                 <div
                   [formGroupName]="$index"
@@ -597,20 +731,36 @@ interface SectionCard {
                       <input
                         formControlName="allergen"
                         placeholder="e.g Penicillin"
+                        aria-describedby="allergies-hint"
                         [class]="rowInput"
                       />
                     </label>
-                    <div class="flex w-full flex-col gap-2">
+                    <label class="flex w-full flex-col gap-2">
                       <span class="font-sans text-caption text-slate"
                         >Severity</span
                       >
-                      <sd-search-select
-                        placeholder="Select"
-                        [options]="severityOptions"
-                        [value]="row.get('severity')?.value"
-                        (valueChange)="row.get('severity')?.setValue($event)"
-                      />
-                    </div>
+                      <span class="relative flex">
+                        <select
+                          formControlName="severity"
+                          [class]="rowInput + ' w-full cursor-pointer appearance-none pr-10'"
+                        >
+                          <option value="">Select</option>
+                          @for (opt of severityOptions; track opt.value) {
+                            <option [value]="opt.value">{{ opt.label }}</option>
+                          }
+                          @if (isLegacySeverity(row.get('severity')?.value)) {
+                            <option [value]="row.get('severity')?.value">
+                              {{ row.get('severity')?.value }}
+                            </option>
+                          }
+                        </select>
+                        <sd-icon
+                          name="chevron-down"
+                          [size]="18"
+                          class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate"
+                        />
+                      </span>
+                    </label>
                   </div>
                   <label class="flex w-full flex-col gap-2">
                     <span class="font-sans text-caption text-slate">Reaction</span>
@@ -683,6 +833,29 @@ interface SectionCard {
                       />
                     </label>
                   </div>
+                  <label class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-caption text-slate"
+                      >What it’s for</span
+                    >
+                    <input
+                      formControlName="reason"
+                      placeholder="e.g Diabetes"
+                      [class]="rowInput"
+                    />
+                  </label>
+                  <label class="flex w-fit cursor-pointer items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      formControlName="herbal"
+                      class="size-4 shrink-0 cursor-pointer rounded border-ash accent-cerulean"
+                    />
+                    <span
+                      class="flex items-center gap-1.5 font-sans text-body-sm text-ink"
+                    >
+                      <sd-icon name="leaf" [size]="16" class="text-sage" />
+                      Herbal or traditional medicine
+                    </span>
+                  </label>
                   @if (medicationRows.length > 1) {
                     <button
                       type="button"
@@ -769,6 +942,7 @@ interface SectionCard {
               {{ savingSection() === 'medical' ? 'Saving…' : 'Save' }}
             </sd-button>
           </div>
+          }
         }
 
         @case ('insurance') {
@@ -783,6 +957,9 @@ interface SectionCard {
             [ngTemplateOutlet]="tipsBanner"
             [ngTemplateOutletContext]="{ tips: insuranceTips }"
           />
+          @if (!healthLoaded()) {
+            <ng-container [ngTemplateOutlet]="healthUnavailable" />
+          } @else {
           <form
             [formGroup]="insuranceForm"
             (ngSubmit)="saveInsurance()"
@@ -874,6 +1051,7 @@ interface SectionCard {
               </sd-button>
             </div>
           </form>
+          }
         }
 
         @case ('emergency') {
@@ -888,6 +1066,9 @@ interface SectionCard {
             [ngTemplateOutlet]="tipsBanner"
             [ngTemplateOutletContext]="{ tips: emergencyTips }"
           />
+          @if (!healthLoaded()) {
+            <ng-container [ngTemplateOutlet]="healthUnavailable" />
+          } @else {
           <form
             [formGroup]="emergencyForm"
             (ngSubmit)="saveEmergency()"
@@ -950,9 +1131,48 @@ interface SectionCard {
               </sd-button>
             </div>
           </form>
+          }
         }
       }
     </div>
+
+    <!-- Health profile not loaded (yet): no editor, so nothing stored can be overwritten -->
+    <ng-template #healthUnavailable>
+      @if (healthState() === 'error') {
+        <div
+          class="flex flex-col items-center gap-4 rounded-card border border-cloud bg-white px-6 py-14 text-center"
+          role="alert"
+        >
+          <span
+            class="flex size-16 items-center justify-center rounded-full bg-alert/10 text-alert"
+          >
+            <sd-icon name="wifi-off" [size]="28" />
+          </span>
+          <div class="flex max-w-md flex-col gap-1">
+            <h2 class="font-heading text-h5 text-ink">
+              Couldn't load your health information
+            </h2>
+            <p class="font-sans text-body-sm text-slate">{{ healthError() }}</p>
+            <p class="font-sans text-body-sm text-slate">
+              Your saved details haven't changed. Try again to view or edit them.
+            </p>
+          </div>
+          <sd-button variant="outline" (click)="loadHealthProfile()">
+            <sd-icon name="refresh-cw" [size]="18" />
+            Try again
+          </sd-button>
+        </div>
+      } @else {
+        <div
+          class="flex flex-col gap-4"
+          aria-busy="true"
+          aria-label="Loading your health information"
+        >
+          <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
+          <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
+        </div>
+      }
+    </ng-template>
 
     <!-- ===== Shared templates ===== -->
     <ng-template #subHeader let-title="title" let-subtitle="subtitle">
@@ -1302,6 +1522,8 @@ export class MyProfile {
 
   protected readonly view = signal<View>('home');
   protected readonly toast = signal('');
+  /** Why the profile failed to load ('' when it didn't). */
+  protected readonly loadError = signal('');
 
   // Profile display — filled from GET /api/portal/me (blank until it resolves).
   protected readonly fullName = signal('');
@@ -1427,6 +1649,19 @@ export class MyProfile {
   });
   protected readonly savingSection = signal<'' | 'medical' | 'insurance' | 'emergency'>('');
 
+  /**
+   * Whether the stored health profile has loaded. A save replaces a whole
+   * section (all allergies, medicines, history and conditions; the whole
+   * contact; the whole policy), so editing is only offered once the stored
+   * values are in the forms — never on top of an empty editor after a failed
+   * or pending load.
+   */
+  protected readonly healthState = signal<'loading' | 'ready' | 'error'>('loading');
+  protected readonly healthLoaded = computed(() => this.healthState() === 'ready');
+  /** Why the health profile failed to load ('' when it didn't). */
+  protected readonly healthError = signal('');
+  private healthSub?: Subscription;
+
   constructor() {
     this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
 
@@ -1435,18 +1670,28 @@ export class MyProfile {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.applyProfile(res.data),
-        error: () => {
-          /* keep the form empty on failure */
-        },
+        error: (err: unknown) =>
+          this.loadError.set(apiErrorMessage(err, 'Could not load your profile.')),
       });
 
-    this.patient
+    this.loadHealthProfile();
+  }
+
+  /** GET the health profile; until it arrives those sections stay read-only. */
+  protected loadHealthProfile(): void {
+    this.healthSub?.unsubscribe();
+    this.healthState.set('loading');
+    this.healthError.set('');
+    this.healthSub = this.patient
       .healthProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.applyHealthProfile(res.data),
-        error: () => {
-          /* leave the sections empty on failure */
+        error: (err: unknown) => {
+          this.healthError.set(
+            apiErrorMessage(err, "We couldn't load your health information."),
+          );
+          this.healthState.set('error');
         },
       });
   }
@@ -1456,6 +1701,7 @@ export class MyProfile {
     this.insuranceForm.patchValue(h.insurance);
     this.medical.set(h.medical);
     this.loadMedicalForm(h.medical);
+    this.healthState.set('ready');
   }
 
   private applyProfile(p: {
@@ -1538,7 +1784,8 @@ export class MyProfile {
     'Friend',
   ];
   protected readonly coverageOptions = ['Active', 'Inactive', 'Expired'];
-  protected readonly severityOptions = ['Low', 'Medium', 'High'];
+  /** Allergy severities, stored lower-case (the doctor's panel sorts by these). */
+  protected readonly severityOptions = SEVERITY_OPTIONS;
   protected readonly statusOptions = ['Active', 'Managed', 'Resolved'];
 
   protected readonly medicalTips = [
@@ -1598,8 +1845,7 @@ export class MyProfile {
       this.showToast('Profile photo updated successfully');
     } catch (err) {
       this.showToast(
-        (err as { message?: string })?.message ??
-          'Could not upload your photo.',
+        apiErrorMessage(err, 'Could not upload your photo.'),
       );
     } finally {
       this.uploadingAvatar.set(false);
@@ -1614,8 +1860,7 @@ export class MyProfile {
       this.showToast('Profile photo removed');
     } catch (err) {
       this.showToast(
-        (err as { message?: string })?.message ??
-          'Could not remove your photo.',
+        apiErrorMessage(err, 'Could not remove your photo.'),
       );
     } finally {
       this.uploadingAvatar.set(false);
@@ -1644,8 +1889,7 @@ export class MyProfile {
       this.view.set('personal');
       this.showToast('Profile information updated successfully');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.showToast(message ?? 'Could not update your profile.');
+      this.showToast(apiErrorMessage(err, 'Could not update your profile.'));
     }
   }
 
@@ -1680,18 +1924,32 @@ export class MyProfile {
     }
   }
 
+  /** An allergy row; free-text severities from older saves map onto the fixed list. */
+  private allergyGroup(v: Partial<AllergyRow> = {}): FormGroup {
+    return this.fb.nonNullable.group({
+      allergen: [v.allergen ?? ''],
+      severity: [normalizeSeverity(v.severity ?? '')],
+      reaction: [v.reaction ?? ''],
+    });
+  }
+
+  /** A medication row; `herbal` is a checkbox here and a '1'/'' string in the API. */
+  private medicationGroup(v: Partial<MedicationRow> = {}): FormGroup {
+    return this.fb.nonNullable.group({
+      name: [v.name ?? ''],
+      dosage: [v.dosage ?? ''],
+      frequency: [v.frequency ?? ''],
+      reason: [v.reason ?? ''],
+      herbal: [isHerbalFlag(v.herbal)],
+    });
+  }
+
   private loadMedicalForm(m: MedicalDto): void {
     this.setRows(this.historyRows, ['condition', 'year', 'note'], m.history);
-    this.setRows(
-      this.allergyRows,
-      ['allergen', 'severity', 'reaction'],
-      m.allergies,
-    );
-    this.setRows(
-      this.medicationRows,
-      ['name', 'dosage', 'frequency'],
-      m.medications,
-    );
+    this.allergyRows.clear();
+    for (const a of m.allergies) this.allergyRows.push(this.allergyGroup(a));
+    this.medicationRows.clear();
+    for (const r of m.medications) this.medicationRows.push(this.medicationGroup(r));
     this.setRows(
       this.conditionRows,
       ['condition', 'status', 'since'],
@@ -1703,16 +1961,37 @@ export class MyProfile {
     this.historyRows.push(this.rowGroup(['condition', 'year', 'note']));
   }
   protected addAllergy(): void {
-    this.allergyRows.push(this.rowGroup(['allergen', 'severity', 'reaction']));
+    this.allergyRows.push(this.allergyGroup());
   }
   protected addMedication(): void {
-    this.medicationRows.push(this.rowGroup(['name', 'dosage', 'frequency']));
+    this.medicationRows.push(this.medicationGroup());
   }
   protected addCondition(): void {
     this.conditionRows.push(this.rowGroup(['condition', 'status', 'since']));
   }
   protected removeRow(arr: FormArray<FormGroup>, i: number): void {
     arr.removeAt(i);
+  }
+
+  // ----- Medical display helpers -----
+  protected isHerbal(flag: string | undefined): boolean {
+    return isHerbalFlag(flag);
+  }
+
+  /** A saved value outside the fixed list (kept selectable so it isn't lost). */
+  protected isLegacySeverity(value: unknown): boolean {
+    return typeof value === 'string' && value !== '' && !isCanonicalSeverity(value);
+  }
+
+  protected severityLabel(value: string): string {
+    const key = normalizeSeverity(value);
+    return isCanonicalSeverity(key) ? SEVERITY_LABEL[key] : value;
+  }
+
+  /** Severity reads as text first; the tone and icon only supplement it. */
+  protected severityTone(value: string): { cls: string; icon: string } {
+    const key = normalizeSeverity(value);
+    return isCanonicalSeverity(key) ? SEVERITY_TONE[key] : SEVERITY_TONE.unknown;
   }
 
   protected readonly hasMedical = computed(() => {
@@ -1728,6 +2007,7 @@ export class MyProfile {
 
   /** Open the medical editor, seeding a blank row for any empty section. */
   protected openMedicalAdd(): void {
+    if (!this.healthLoaded()) return;
     if (this.historyRows.length === 0) this.addHistory();
     if (this.allergyRows.length === 0) this.addAllergy();
     if (this.medicationRows.length === 0) this.addMedication();
@@ -1735,12 +2015,41 @@ export class MyProfile {
     this.view.set('medical-add');
   }
 
+  /** The form's rows as the API stores them (herbal checkbox → '1' / ''). */
+  private medicalPayload(): MedicalDto {
+    const raw = this.medicalForm.getRawValue() as {
+      history: MedicalDto['history'];
+      allergies: AllergyRow[];
+      medications: (Omit<MedicationRow, 'herbal'> & { herbal: boolean })[];
+      conditions: MedicalDto['conditions'];
+    };
+    return {
+      history: raw.history,
+      allergies: raw.allergies.map((a) => ({
+        allergen: a.allergen,
+        // Canonical lower-case ('mild' … 'life-threatening', 'unknown').
+        severity: normalizeSeverity(a.severity),
+        reaction: a.reaction,
+      })),
+      medications: raw.medications.map((m) => ({
+        name: m.name,
+        dosage: m.dosage,
+        frequency: m.frequency,
+        reason: m.reason ?? '',
+        herbal: m.herbal ? '1' : '',
+      })),
+      conditions: raw.conditions,
+    };
+  }
+
   protected async saveMedical(): Promise<void> {
+    // The section is replaced wholesale — never save over records we never loaded.
+    if (!this.healthLoaded() || this.savingSection()) return;
     this.savingSection.set('medical');
     try {
       const res = await firstValueFrom(
         this.patient.updateHealthProfile({
-          medical: this.medicalForm.getRawValue() as MedicalDto,
+          medical: this.medicalPayload(),
         }),
       );
       this.applyHealthProfile(res.data);
@@ -1748,8 +2057,7 @@ export class MyProfile {
       this.showToast('Medical information saved successfully');
     } catch (err) {
       this.showToast(
-        (err as { message?: string })?.message ??
-          'Could not save your medical information.',
+        apiErrorMessage(err, 'Could not save your medical information.'),
       );
     } finally {
       this.savingSection.set('');
@@ -1757,6 +2065,7 @@ export class MyProfile {
   }
 
   protected async saveInsurance(): Promise<void> {
+    if (!this.healthLoaded() || this.savingSection()) return;
     this.savingSection.set('insurance');
     try {
       const res = await firstValueFrom(
@@ -1769,8 +2078,7 @@ export class MyProfile {
       this.showToast('Insurance information saved successfully');
     } catch (err) {
       this.showToast(
-        (err as { message?: string })?.message ??
-          'Could not save your insurance information.',
+        apiErrorMessage(err, 'Could not save your insurance information.'),
       );
     } finally {
       this.savingSection.set('');
@@ -1778,6 +2086,7 @@ export class MyProfile {
   }
 
   protected async saveEmergency(): Promise<void> {
+    if (!this.healthLoaded() || this.savingSection()) return;
     if (this.emergencyForm.invalid) {
       this.emergencyForm.markAllAsTouched();
       return;
@@ -1794,8 +2103,7 @@ export class MyProfile {
       this.showToast('Emergency contact saved successfully');
     } catch (err) {
       this.showToast(
-        (err as { message?: string })?.message ??
-          'Could not save your emergency contact.',
+        apiErrorMessage(err, 'Could not save your emergency contact.'),
       );
     } finally {
       this.savingSection.set('');
@@ -1814,8 +2122,7 @@ export class MyProfile {
       this.pinId = await this.auth.requestPhoneOtp(phone);
       this.phoneVerifyState.set('sent');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.phoneVerifyError.set(message ?? 'Could not send the code.');
+      this.phoneVerifyError.set(apiErrorMessage(err, 'Could not send the code.'));
     } finally {
       this.phoneBusy.set(false);
     }
@@ -1833,8 +2140,7 @@ export class MyProfile {
       this.otpCode.set('');
       this.showToast('Phone number verified');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.phoneVerifyError.set(message ?? 'That code is invalid or expired.');
+      this.phoneVerifyError.set(apiErrorMessage(err, 'That code is invalid or expired.'));
     } finally {
       this.phoneBusy.set(false);
     }

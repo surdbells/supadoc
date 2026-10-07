@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { DoctorApi } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorAppointmentDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -175,8 +175,8 @@ export class DoctorSchedule implements OnInit {
           this.appointments.set(res.data.appointments ?? []);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load your consultations.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load your consultations.'));
           this.loading.set(false);
         },
       });
@@ -196,8 +196,8 @@ export class DoctorSchedule implements OnInit {
           );
           this.busyId.set(null);
         },
-        error: () => {
-          this.notice.set('Could not confirm the appointment.');
+        error: (err: unknown) => {
+          this.notice.set(apiErrorMessage(err, 'Could not confirm the appointment.'));
           this.busyId.set(null);
         },
       });

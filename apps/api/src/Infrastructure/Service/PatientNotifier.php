@@ -24,10 +24,10 @@ final class PatientNotifier
     {
     }
 
-    public function notify(Patient $patient, NotificationType $type, string $title, string $body = ''): void
+    public function notify(Patient $patient, NotificationType $type, string $title, string $body = '', ?string $link = null): void
     {
         try {
-            $this->notifications->save(new Notification($patient, $type, $title, $body));
+            $this->notifications->save(new Notification($patient, $type, $title, $body, $link));
         } catch (\Throwable) {
             // non-fatal
         }

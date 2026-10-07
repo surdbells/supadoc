@@ -62,6 +62,8 @@ export interface DoctorProfileUpdate {
   weekly_hours?: Record<string, [string, string][]> | null;
   bio?: string;
   qualifications?: string;
+  /** MDCN registration number (printed on prescriptions). */
+  mdcn_number?: string;
   expertise?: string[];
   qualification_entries?: QualificationEntry[];
   certifications?: CertificationEntry[];
@@ -108,6 +110,10 @@ export interface DoctorProfileDto extends SpecialistAdminDto {
   phone?: string | null;
   date_of_birth?: string | null;
   weekly_hours?: WeeklyHours | null;
+  /** MDCN registration number — printed on prescriptions. */
+  mdcn_number?: string | null;
+  /** Whether a signature picture is saved for prescriptions. */
+  has_signature?: boolean;
 }
 
 // ----- Doctor availability (date-specific slots) -----

@@ -7,6 +7,7 @@ namespace App\Infrastructure\Service;
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
 use App\Domain\Enum\NotificationType;
+use App\Domain\Enum\SessionState;
 use App\Domain\Exception\AuthenticationException;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\NotificationRepository;
@@ -57,12 +58,19 @@ final class AuthService
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */
-    public function loginStaff(string $email, string $password): array
+    public function loginStaff(string $email, string $password, string $userAgent = '', string $ip = ''): array
     {
         $user = $this->users->findByEmail(strtolower(trim($email)));
         if ($user === null || !$user->verifyPassword($password)) {
             throw new AuthenticationException('Invalid email or password');
         }
+
+        // A revocable, time-boxed server session; its id becomes the token jti.
+        $jti = $this->sessions->startStaff(
+            $user,
+            $userAgent !== '' ? $userAgent : null,
+            $ip !== '' ? $ip : null,
+        );
 
         return [
             'access_token'  => $this->jwt->issueAccessToken(
@@ -70,8 +78,9 @@ final class AuthService
                 'staff',
                 $user->getRoles(),
                 $user->getPermissions(),
+                $jti,
             ),
-            'refresh_token' => $this->jwt->issueRefreshToken($user->getId(), 'staff'),
+            'refresh_token' => $this->jwt->issueRefreshToken($user->getId(), 'staff', $jti),
             'token_type'    => 'Bearer',
             'expires_in'    => $this->jwt->accessTtl(),
             'user'          => $user->toArray(),
@@ -258,11 +267,18 @@ final class AuthService
         try {
             $payload = $this->jwt->validateRefreshToken($refreshToken);
         } catch (\Throwable) {
-            throw new AuthenticationException('Invalid refresh token');
+            throw new AuthenticationException('Your session has expired. Please sign in again.');
         }
 
         $scope = $payload->scope ?? 'staff';
+        $jti   = isset($payload->jti) ? (string) $payload->jti : null;
         if ($scope === 'staff') {
+            // Staff refresh tokens must be bound to a live server session — a
+            // pre-session (jti-less) token simply forces one fresh sign-in.
+            $state = $jti === null ? SessionState::UNKNOWN : $this->sessions->staffState($jti, touch: true);
+            if ($state !== SessionState::ACTIVE) {
+                throw new AuthenticationException($state->message());
+            }
             $user = $this->users->find($payload->sub);
             if ($user === null) {
                 throw new AuthenticationException('Account no longer exists');
@@ -272,6 +288,7 @@ final class AuthService
                 'staff',
                 $user->getRoles(),
                 $user->getPermissions(),
+                $jti,
             );
         } else {
             $patient = $this->patients->find($payload->sub);
@@ -279,10 +296,12 @@ final class AuthService
                 throw new AuthenticationException('Account no longer exists');
             }
             // Reuse the session the refresh token is bound to; if it was signed
-            // out (revoked), the refresh must fail too.
-            $jti = isset($payload->jti) ? (string) $payload->jti : null;
-            if ($jti !== null && !$this->sessions->isActive($jti)) {
-                throw new AuthenticationException('This session has been signed out');
+            // out, or has been idle / alive too long, the refresh must fail too.
+            if ($jti !== null) {
+                $state = $this->sessions->customerState($jti, touch: true);
+                if ($state !== SessionState::ACTIVE) {
+                    throw new AuthenticationException($state->message());
+                }
             }
             $access = $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti);
         }
@@ -292,6 +311,24 @@ final class AuthService
             'token_type'   => 'Bearer',
             'expires_in'   => $this->jwt->accessTtl(),
         ];
+    }
+
+    /**
+     * Sign out the session a refresh token is bound to (patient or staff), so
+     * neither its access nor its refresh token works again. Idempotent and
+     * silent: an unreadable, expired or already-revoked token is a no-op —
+     * signing out must never fail from the user's point of view.
+     */
+    public function logout(string $refreshToken): void
+    {
+        try {
+            $payload = $this->jwt->validateRefreshToken($refreshToken);
+        } catch (\Throwable) {
+            return;
+        }
+        if (isset($payload->jti)) {
+            $this->sessions->revokeById((string) $payload->jti);
+        }
     }
 
     /** @return array{access_token:string, refresh_token:string, user:array} */

@@ -6,6 +6,7 @@
 
 /* Also scan the shared UI library so its utility classes are generated. */
 @source '../../../libs/shared/ui/src';
+@source '../../../libs/shared/auth/src';
 
 html,
 body {

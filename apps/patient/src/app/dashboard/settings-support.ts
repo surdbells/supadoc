@@ -84,7 +84,9 @@ const STATUS_LABEL: Record<string, string> = {
                   </button>
                 </li>
               } @empty {
-                <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">No tickets yet. Open one and we'll help you out.</li>
+                @if (!error()) {
+                  <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">No tickets yet. Open one and we'll help you out.</li>
+                }
               }
             </ul>
           }
@@ -189,8 +191,8 @@ export class SettingsSupport implements OnInit {
           this.tickets.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load your tickets.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load your tickets.'));
           this.loading.set(false);
         },
       });
@@ -247,8 +249,8 @@ export class SettingsSupport implements OnInit {
           this.messages.set(res.data.messages);
           this.threadLoading.set(false);
         },
-        error: () => {
-          this.error.set('Could not open that ticket.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not open that ticket.'));
           this.threadLoading.set(false);
         },
       });

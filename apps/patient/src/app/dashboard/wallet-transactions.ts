@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { WalletApi } from '@supadoc/data-access';
+import { apiErrorMessage, WalletApi } from '@supadoc/data-access';
 import type { WalletTransactionDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { WalletTransactionRow } from './wallet-transaction-row';
@@ -77,6 +77,17 @@ const FILTERS: Filter[] = [
           <div class="sd-shimmer h-20 rounded-card"></div>
           <div class="sd-shimmer h-20 rounded-card"></div>
         </div>
+      } @else if (loadError() && txns().length === 0) {
+        <div class="flex flex-col items-center gap-3 py-20 text-center">
+          <p class="max-w-md font-sans text-body-sm text-alert">{{ loadError() }}</p>
+          <button
+            type="button"
+            class="rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+            (click)="reload()"
+          >
+            Try again
+          </button>
+        </div>
       } @else if (txns().length === 0) {
         <div class="flex flex-col items-center gap-3 py-20 text-center">
           <span class="flex size-16 items-center justify-center rounded-full bg-glacier text-slate">
@@ -91,6 +102,9 @@ const FILTERS: Filter[] = [
             <li><pat-wallet-transaction-row [txn]="t" /></li>
           }
         </ul>
+        @if (loadError()) {
+          <p class="text-center font-sans text-body-sm text-alert">{{ loadError() }}</p>
+        }
         @if (hasMore()) {
           <button
             type="button"
@@ -113,6 +127,8 @@ export class WalletTransactions implements OnInit {
   protected readonly active = signal('all');
   protected readonly txns = signal<WalletTransactionDto[]>([]);
   protected readonly loading = signal(true);
+  /** Why the last page failed to load ('' when it didn't). */
+  protected readonly loadError = signal('');
   protected readonly hasMore = signal(false);
 
   private page = 1;
@@ -127,7 +143,7 @@ export class WalletTransactions implements OnInit {
     this.reload();
   }
 
-  private reload(): void {
+  protected reload(): void {
     this.page = 1;
     this.txns.set([]);
     this.fetch();
@@ -140,6 +156,7 @@ export class WalletTransactions implements OnInit {
 
   private fetch(): void {
     this.loading.set(true);
+    this.loadError.set('');
     const type = this.filters.find((f) => f.key === this.active())?.type || undefined;
     this.api
       .transactions({ type, page: this.page, per_page: 15 })
@@ -150,7 +167,10 @@ export class WalletTransactions implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, 'Could not load your transactions.'));
+          this.loading.set(false);
+        },
       });
   }
 }

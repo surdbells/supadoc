@@ -38,12 +38,18 @@ class Notification
     #[ORM\Column(name: 'read_at', type: 'datetime_immutable', nullable: true)]
     private ?DateTimeImmutable $readAt = null;
 
+    /** In-app deep link (e.g. /dashboard/prescriptions/{id}) opened when tapped. */
+    #[ORM\Column(type: 'string', length: 255, nullable: true)]
+    private ?string $link = null;
+
     public function __construct(
         Patient $patient,
         NotificationType $type,
         string $title,
         string $body,
+        ?string $link = null,
     ) {
+        $this->link    = $link !== null && str_starts_with($link, '/') ? $link : null;
         $this->id      = Uuid::uuid4()->toString();
         $this->patient = $patient;
         $this->type    = $type;
@@ -74,6 +80,7 @@ class Notification
             'type_label' => $this->type->label(),
             'title'      => $this->title,
             'body'       => $this->body,
+            'link'       => $this->link,
             'read'       => $this->readAt !== null,
             'created_at' => $this->createdAt->format(DATE_ATOM),
         ];

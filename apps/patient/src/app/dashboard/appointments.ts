@@ -9,7 +9,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
-import { AppointmentsApi } from '@supadoc/data-access';
+import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
@@ -148,7 +148,7 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
             tone="error"
             icon="wifi-off"
             title="Unable to load appointments"
-            message="We couldn't retrieve your appointments. Check your connection and try again."
+            [message]="loadError() || loadErrorFallback"
           >
             <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
           </sd-empty-state>
@@ -254,7 +254,10 @@ export class Appointments {
 
   private readonly all = signal<Appointment[]>([]);
   private readonly loading = signal(true);
-  private readonly loadError = signal(false);
+  /** The API's reason the list failed to load ('' when it hasn't). */
+  protected readonly loadError = signal('');
+  protected readonly loadErrorFallback =
+    "We couldn't retrieve your appointments. Check your connection and try again.";
 
   private readonly view = toSignal(
     this.route.queryParamMap.pipe(map((p) => p.get('view'))),
@@ -315,7 +318,7 @@ export class Appointments {
 
   private load(): void {
     this.loading.set(true);
-    this.loadError.set(false);
+    this.loadError.set('');
     this.appointments
       .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'asc' })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -324,8 +327,8 @@ export class Appointments {
           this.all.set(res.data.map(toAppointmentRow));
           this.loading.set(false);
         },
-        error: () => {
-          this.loadError.set(true);
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, this.loadErrorFallback));
           this.loading.set(false);
         },
       });

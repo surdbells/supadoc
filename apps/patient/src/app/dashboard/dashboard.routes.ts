@@ -57,6 +57,16 @@ export const dashboardRoutes: Route[] = [
           import('./history-details').then((m) => m.HistoryDetails),
       },
       {
+        path: 'prescriptions',
+        loadComponent: () =>
+          import('./prescriptions').then((m) => m.Prescriptions),
+      },
+      {
+        path: 'prescriptions/:id',
+        loadComponent: () =>
+          import('./prescription-details').then((m) => m.PrescriptionDetails),
+      },
+      {
         path: 'notifications',
         loadComponent: () =>
           import('./notification').then((m) => m.Notification),

@@ -2,6 +2,7 @@ import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import {
   AlertComponent,
   ButtonComponent,
@@ -154,8 +155,7 @@ export class VerifyOtp {
           await this.router.navigateByUrl('/auth/register/setup');
         }
       } catch (err) {
-        const message = (err as { message?: string })?.message;
-        this.errorMessage.set(message ?? 'That code is invalid or expired.');
+        this.errorMessage.set(apiErrorMessage(err, 'That code is invalid or expired.'));
       } finally {
         this.submitting.set(false);
       }
@@ -175,8 +175,7 @@ export class VerifyOtp {
       this.flow.verificationToken.set(token);
       await this.router.navigateByUrl(this.next);
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'That code is invalid or expired.');
+      this.errorMessage.set(apiErrorMessage(err, 'That code is invalid or expired.'));
     } finally {
       this.submitting.set(false);
     }
@@ -195,8 +194,7 @@ export class VerifyOtp {
         this.flow.pinId.set(await this.auth.requestPhoneOtp(phone));
         this.seconds.set(299);
       } catch (err) {
-        const message = (err as { message?: string })?.message;
-        this.errorMessage.set(message ?? 'Could not resend the code.');
+        this.errorMessage.set(apiErrorMessage(err, 'Could not resend the code.'));
       }
       return;
     }
@@ -213,8 +211,7 @@ export class VerifyOtp {
       );
       this.seconds.set(299);
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Could not resend the code.');
+      this.errorMessage.set(apiErrorMessage(err, 'Could not resend the code.'));
     }
   }
 }

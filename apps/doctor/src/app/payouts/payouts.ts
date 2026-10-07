@@ -58,6 +58,9 @@ const STATUS_CLASS: Record<string, string> = {
               <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!canRequest()" (click)="openRequest()">Request payout</button>
             }
           </div>
+          @if (summaryError()) {
+            <p class="font-sans text-caption text-alert">{{ summaryError() }}</p>
+          }
           @if (summary()?.has_open_payout) {
             <p class="font-sans text-caption text-slate">You have a payout in progress — you can request again once it's settled.</p>
           } @else if (!account()) {
@@ -122,7 +125,18 @@ const STATUS_CLASS: Record<string, string> = {
                     <td class="px-4 py-3 text-slate">{{ p.reference || (p.admin_note || '—') }}</td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="4" class="px-4 py-10 text-center font-sans text-body-sm text-slate">No payouts yet.</td></tr>
+                  @if (historyError()) {
+                    <tr>
+                      <td colspan="4" class="px-4 py-10">
+                        <div class="flex flex-col items-center gap-3 text-center">
+                          <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                          <p class="font-sans text-body-sm text-slate">{{ historyError() }}</p>
+                        </div>
+                      </td>
+                    </tr>
+                  } @else {
+                    <tr><td colspan="4" class="px-4 py-10 text-center font-sans text-body-sm text-slate">No payouts yet.</td></tr>
+                  }
                 }
               </tbody>
             </table>
@@ -141,6 +155,8 @@ export class DoctorPayouts implements OnInit {
   protected readonly summary = signal<EarningsSummaryDto | null>(null);
   protected readonly account = signal<PayoutAccountDto | null>(null);
   protected readonly history = signal<PayoutDto[]>([]);
+  protected readonly summaryError = signal('');
+  protected readonly historyError = signal('');
 
   protected readonly currency = computed(() => this.summary()?.currency ?? '₦');
   protected readonly available = computed(() => this.summary()?.available_balance ?? '0');
@@ -179,8 +195,8 @@ export class DoctorPayouts implements OnInit {
         if (res.data) this.f.set({ ...res.data });
         this.loading.set(false);
       },
-      error: () => {
-        this.loadError.set('Could not load your payout details. Please try again.');
+      error: (err: unknown) => {
+        this.loadError.set(apiErrorMessage(err, 'Could not load your payout details. Please try again.'));
         this.loading.set(false);
       },
     });
@@ -188,10 +204,18 @@ export class DoctorPayouts implements OnInit {
   }
 
   private reloadSummary(): void {
-    this.api.earnings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.summary.set(r.data), error: () => undefined });
+    this.summaryError.set('');
+    this.api.earnings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.summary.set(r.data),
+      error: (err: unknown) => this.summaryError.set(apiErrorMessage(err, 'Could not load your available balance.')),
+    });
   }
   private reloadHistory(): void {
-    this.api.payouts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.history.set(r.data), error: () => undefined });
+    this.historyError.set('');
+    this.api.payouts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.history.set(r.data),
+      error: (err: unknown) => this.historyError.set(apiErrorMessage(err, 'Could not load your payout history.')),
+    });
   }
 
   protected setField(key: keyof PayoutAccountDto, value: string): void {

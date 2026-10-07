@@ -202,4 +202,14 @@ export class AuthApi {
       { refresh_token: refreshToken },
     );
   }
+
+  /** Revoke the server session a refresh token belongs to (POST /api/auth/logout). */
+  logout(refreshToken: string): Observable<unknown> {
+    return this.api.post('api/auth/logout', { refresh_token: refreshToken });
+  }
+
+  /** A cheap authed call that restarts the server-side idle clock. */
+  keepAlive(): Observable<unknown> {
+    return this.api.get('api/portal/me');
+  }
 }

@@ -85,9 +85,20 @@ type Filter = 'all' | SupportStatus;
                 </button>
               </li>
             } @empty {
-              <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">No tickets{{ filter() === 'all' ? '' : ' in this state' }}.</li>
+              @if (listError()) {
+                <li class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-16 text-center">
+                  <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+                  <p class="font-sans text-body-sm text-slate">{{ listError() }}</p>
+                  <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="loadList()">Retry</button>
+                </li>
+              } @else {
+                <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">No tickets{{ filter() === 'all' ? '' : ' in this state' }}.</li>
+              }
             }
           </ul>
+          @if (listError() && tickets().length > 0) {
+            <p class="text-center font-sans text-caption text-alert">{{ listError() }}</p>
+          }
           @if (hasMore()) {
             <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">Load more</button>
           }
@@ -147,6 +158,8 @@ export class AdminSupport implements OnInit {
   protected readonly filter = signal<Filter>('all');
   protected readonly loading = signal(true);
   protected readonly error = signal('');
+  /** Queue-load failure, shown in place of the list's empty state. */
+  protected readonly listError = signal('');
   protected readonly sending = signal(false);
   protected readonly updating = signal(false);
   protected readonly hasMore = signal(false);
@@ -183,8 +196,9 @@ export class AdminSupport implements OnInit {
     this.loadList(true);
   }
 
-  private loadList(append = false): void {
+  protected loadList(append = false): void {
     this.loading.set(true);
+    this.listError.set('');
     const status = this.filter() === 'all' ? undefined : (this.filter() as SupportStatus);
     this.api
       .list({ page: this.page, per_page: 20, status })
@@ -195,8 +209,11 @@ export class AdminSupport implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load the support queue.');
+        error: (err: unknown) => {
+          if (append && this.page > 1) this.page -= 1;
+          // A failed first page must not read as "No tickets".
+          if (!append) this.tickets.set([]);
+          this.listError.set(apiErrorMessage(err, 'Could not load the support queue.'));
           this.loading.set(false);
         },
       });
@@ -223,8 +240,8 @@ export class AdminSupport implements OnInit {
           this.messages.set(res.data.messages);
           this.threadLoading.set(false);
         },
-        error: () => {
-          this.error.set('Could not open that ticket.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not open that ticket.'));
           this.threadLoading.set(false);
         },
       });
@@ -243,7 +260,7 @@ export class AdminSupport implements OnInit {
           this.current.update((c) => (c ? { ...c, status: 'pending' } : c));
           this.sending.set(false);
         },
-        error: (err) => {
+        error: (err: unknown) => {
           this.error.set(apiErrorMessage(err, 'Could not send your reply.'));
           this.sending.set(false);
         },
@@ -262,7 +279,7 @@ export class AdminSupport implements OnInit {
           this.current.set(res.data);
           this.updating.set(false);
         },
-        error: (err) => {
+        error: (err: unknown) => {
           this.error.set(apiErrorMessage(err, 'Could not update the ticket.'));
           this.updating.set(false);
         },

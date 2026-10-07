@@ -8,6 +8,7 @@ import {
   IonInputPasswordToggle,
 } from '@ionic/angular/standalone';
 import { AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import { LogoComponent } from '@supadoc/ui';
 
 @Component({
@@ -130,10 +131,9 @@ export class SignupPage {
         loginType: 'username',
       });
       await this.router.navigateByUrl('/');
-    } catch (err) {
-      const message = (err as { message?: string })?.message;
+    } catch (err: unknown) {
       this.errorMessage.set(
-        message ?? 'Unable to create your account. Please try again.',
+        apiErrorMessage(err, 'Unable to create your account. Please try again.'),
       );
     } finally {
       this.submitting.set(false);

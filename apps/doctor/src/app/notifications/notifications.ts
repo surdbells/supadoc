@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { StaffNotificationsApi } from '@supadoc/data-access';
+import { apiErrorMessage, StaffNotificationsApi } from '@supadoc/data-access';
 import type { StaffNotificationDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -56,10 +56,18 @@ const ICON: Record<string, string> = {
             </button>
           </li>
         } @empty {
-          <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : "You're all caught up." }}</li>
+          @if (error() && !loading()) {
+            <li class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+              <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+              <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+            </li>
+          } @else {
+            <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : "You're all caught up." }}</li>
+          }
         }
       </ul>
 
+      @if (error() && items().length > 0) { <p class="text-center font-sans text-caption text-alert">{{ error() }}</p> }
       @if (hasMore()) {
         <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
       }
@@ -74,6 +82,7 @@ export class DoctorNotifications implements OnInit {
   protected readonly items = signal<StaffNotificationDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly hasMore = signal(false);
+  protected readonly error = signal('');
   private page = 1;
 
   ngOnInit(): void {
@@ -87,6 +96,7 @@ export class DoctorNotifications implements OnInit {
 
   private fetch(): void {
     this.loading.set(true);
+    this.error.set('');
     this.api
       .list({ page: this.page, per_page: 20 })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -96,7 +106,11 @@ export class DoctorNotifications implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: (err: unknown) => {
+          if (this.page > 1) this.page -= 1;
+          this.error.set(apiErrorMessage(err, 'Could not load your notifications. Please try again.'));
+          this.loading.set(false);
+        },
       });
   }
 

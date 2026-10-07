@@ -3,6 +3,9 @@ export const environment = {
   // Deployed VideoMed backend (apps/api) — Debian/aaPanel host.
   apiBaseUrl: 'https://api.dosthq.com',
   loginPath: 'api/portal/auth/login',
+  // Idle timeout: sign out after this many minutes without activity (with a
+  // 60s warning first). Keep below the API's SESSION_IDLE_TIMEOUT.
+  session: { idleMinutes: 15 },
   firebase: {
     apiKey: 'AIzaSyC4mLDFRU4ZrKWQxo6H37VM4hoIN34KP60',
     authDomain: 'videomed-e45eb.firebaseapp.com',

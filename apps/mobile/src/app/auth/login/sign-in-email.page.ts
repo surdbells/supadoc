@@ -8,6 +8,7 @@ import {
   IonInputPasswordToggle,
 } from '@ionic/angular/standalone';
 import { AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import { LogoComponent } from '@supadoc/ui';
 
 /** Mobile sign in with email. */
@@ -105,9 +106,8 @@ export class SignInEmailPage {
         loginType: 'username',
       });
       await this.router.navigateByUrl('/');
-    } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Unable to log in. Please try again.');
+    } catch (err: unknown) {
+      this.errorMessage.set(apiErrorMessage(err, 'Unable to log in. Please try again.'));
     } finally {
       this.submitting.set(false);
     }

@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MonitoringApi } from '@supadoc/data-access';
+import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type { AnalyticsDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -400,8 +400,8 @@ export class AdminAnalytics implements OnInit {
           this.data.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load analytics.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load analytics.'));
           this.loading.set(false);
         },
       });

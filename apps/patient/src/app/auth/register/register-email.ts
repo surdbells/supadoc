@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 
 /** Sign up with email (Figma 262:4224): capture email, continue to OTP verify. */
@@ -106,8 +107,7 @@ export class RegisterEmail {
         queryParams: { target: email },
       });
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Could not send the code. Try again.');
+      this.errorMessage.set(apiErrorMessage(err, 'Could not send the code. Try again.'));
     } finally {
       this.submitting.set(false);
     }

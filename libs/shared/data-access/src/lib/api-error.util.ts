@@ -97,10 +97,19 @@ export function apiErrorMessage(err: unknown, fallback: string = GENERIC_ERROR_M
   const firstField = Object.values(apiErrorFields(err))[0];
   if (firstField) return firstField;
 
-  // A real message from the API body — never Angular's transport noise, and never
-  // the opaque "Internal server error" (we say something friendlier for that).
+  // A real message from the API body — never Angular's transport noise, never
+  // the opaque "Internal server error" (we say something friendlier for that),
+  // and never our own generic default: an error the interceptor already
+  // normalised without usable text must still yield the caller's contextual
+  // fallback ("Could not load your appointments.") rather than a bland
+  // "Something went wrong".
   const top = topMessage(err);
-  if (top && !TRANSPORT_NOISE.test(top) && !GENERIC_SERVER_TEXT.test(top)) {
+  if (
+    top &&
+    top !== GENERIC_ERROR_MESSAGE &&
+    !TRANSPORT_NOISE.test(top) &&
+    !GENERIC_SERVER_TEXT.test(top)
+  ) {
     return top;
   }
 

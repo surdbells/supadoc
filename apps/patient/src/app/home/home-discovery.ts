@@ -19,7 +19,7 @@ import {
   switchMap,
   tap,
 } from 'rxjs';
-import { SpecialistsApi } from '@supadoc/data-access';
+import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto, SpecialtyCount } from '@supadoc/models';
 import { IconComponent, SearchSelectComponent } from '@supadoc/ui';
 import { FindDoctorQuiz } from './find-doctor-quiz';
@@ -161,6 +161,8 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                 <div class="sd-shimmer h-44 rounded-card"></div>
               }
             </div>
+          } @else if (deptError()) {
+            <p class="mt-6 font-sans text-body-sm text-alert">{{ deptError() }}</p>
           } @else {
             <div class="mt-6 grid grid-cols-2 gap-5 lg:grid-cols-4">
               @for (d of departments(); track d.name) {
@@ -220,10 +222,12 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               />
               @if (query() === '') {
                 @for (p of [placeholder()]; track p) {
+                  <!-- Bounded by the field (inset-x-0) so a long hint ends in an
+                       ellipsis inside the box instead of spilling past it. -->
                   <span
-                    class="ph-anim pointer-events-none absolute inset-y-0 left-0 flex items-center truncate font-sans text-body text-slate/70"
+                    class="ph-anim pointer-events-none absolute inset-y-0 inset-x-0 flex min-w-0 items-center font-sans text-body text-slate/70"
                   >
-                    {{ p }}
+                    <span class="min-w-0 truncate">{{ p }}</span>
                   </span>
                 }
               }
@@ -253,6 +257,10 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                     class="size-4 animate-spin rounded-full border-2 border-cloud border-t-cerulean"
                   ></span>
                   Searching…
+                </div>
+              } @else if (searchError()) {
+                <div class="px-5 py-4 font-sans text-body-sm text-alert">
+                  {{ searchError() }}
                 </div>
               } @else if (doctors().length === 0 && specialties().length === 0) {
                 <div
@@ -510,11 +518,13 @@ export class HomeDiscovery implements OnInit {
   protected readonly quizOpen = signal(false);
   protected readonly focused = signal(false);
   protected readonly searching = signal(false);
+  protected readonly searchError = signal('');
   protected readonly doctors = signal<SpecialistDto[]>([]);
   protected readonly departments = signal<SpecialtyCount[]>([]);
   protected readonly locations = signal<string[]>([]);
   protected readonly languages = signal<string[]>([]);
   protected readonly loadingDepts = signal(true);
+  protected readonly deptError = signal('');
 
   // Staged filter chips — applied on the next search/browse action.
   protected readonly consultationType = signal<'any' | 'online' | 'in_person'>(
@@ -559,13 +569,23 @@ export class HomeDiscovery implements OnInit {
       .pipe(
         debounceTime(220),
         distinctUntilChanged(),
-        tap((q) => this.searching.set(q.trim() !== '')),
+        tap((q) => {
+          this.searching.set(q.trim() !== '');
+          this.searchError.set('');
+        }),
         switchMap((q) =>
           q.trim() === ''
             ? of(null)
             : this.specialistsApi
                 .publicSearch({ search: q.trim(), limit: 5 })
-                .pipe(catchError(() => of(null))),
+                .pipe(
+                  catchError((err: unknown) => {
+                    this.searchError.set(
+                      apiErrorMessage(err, 'Search is unavailable right now. Please try again.'),
+                    );
+                    return of(null);
+                  }),
+                ),
         ),
         takeUntilDestroyed(),
       )
@@ -586,7 +606,10 @@ export class HomeDiscovery implements OnInit {
           this.languages.set(res.data.languages);
           this.loadingDepts.set(false);
         },
-        error: () => this.loadingDepts.set(false),
+        error: (err: unknown) => {
+          this.deptError.set(apiErrorMessage(err, 'Could not load specialties.'));
+          this.loadingDepts.set(false);
+        },
       });
   }
 

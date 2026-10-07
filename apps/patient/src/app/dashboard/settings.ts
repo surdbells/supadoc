@@ -9,7 +9,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
-import { PatientApi } from '@supadoc/data-access';
+import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
 
 interface SettingRow {
@@ -62,6 +62,9 @@ interface SettingRow {
           <p class="truncate font-sans text-body-sm text-slate">
             {{ email() }}
           </p>
+          @if (profileError()) {
+            <p class="font-sans text-caption text-alert">{{ profileError() }}</p>
+          }
         </div>
       </div>
 
@@ -111,6 +114,7 @@ export class Settings {
 
   protected readonly name = signal('');
   protected readonly email = signal('');
+  protected readonly profileError = signal('');
   protected readonly avatarPath = signal<string | null>(null);
   protected readonly avatarSrc = computed(() =>
     this.patient.assetUrl(this.avatarPath()),
@@ -137,9 +141,8 @@ export class Settings {
           this.email.set(res.data.email);
           this.avatarPath.set(res.data.avatar_url ?? null);
         },
-        error: () => {
-          /* leave the header blank on failure */
-        },
+        error: (err: unknown) =>
+          this.profileError.set(apiErrorMessage(err, 'Could not load your profile.')),
       });
   }
 

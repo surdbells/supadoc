@@ -94,6 +94,15 @@ export const appRoutes: Route[] = [
         loadComponent: () => import('./pricing/pricing').then((m) => m.AdminPricing),
       },
       {
+        // GVM-RX-02 ground rules the Platform Admin can change without a release.
+        path: 'prescription-rules',
+        canActivate: [permissionGuard('settings.manage')],
+        loadComponent: () =>
+          import('./prescription-rules/prescription-rules').then(
+            (m) => m.AdminPrescriptionRules,
+          ),
+      },
+      {
         // Account settings — any signed-in staff user (no extra permission).
         path: 'settings',
         loadComponent: () => import('./settings/settings').then((m) => m.AdminSettings),

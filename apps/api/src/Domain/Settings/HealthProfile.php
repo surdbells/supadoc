@@ -51,12 +51,52 @@ final class HealthProfile
         ];
     }
 
+    /** Allergy severities, most serious first (what the doctor's side panel sorts by). */
+    public const SEVERITIES = ['life-threatening', 'severe', 'moderate', 'mild', 'unknown'];
+
+    /** Earlier form wording → canonical severity. */
+    private const SEVERITY_ALIASES = [
+        'life threatening' => 'life-threatening',
+        'lifethreatening'  => 'life-threatening',
+        'life-threatening' => 'life-threatening',
+        'anaphylaxis'      => 'life-threatening',
+        'critical'         => 'life-threatening',
+        'severe'           => 'severe',
+        'high'             => 'severe',
+        'serious'          => 'severe',
+        'moderate'         => 'moderate',
+        'medium'           => 'moderate',
+        'mild'             => 'mild',
+        'low'              => 'mild',
+        'minor'            => 'mild',
+        'unknown'          => 'unknown',
+        'not sure'         => 'unknown',
+        'unsure'           => 'unknown',
+    ];
+
+    /**
+     * The canonical severity for any wording the patient forms have used
+     * (legacy Low / Medium / High included). Blank stays blank; unrecognised
+     * free text is returned as typed so nothing the patient wrote is lost.
+     */
+    public static function canonicalSeverity(string $severity): string
+    {
+        $key = strtolower(trim(preg_replace('/\s+/', ' ', $severity) ?? ''));
+
+        return self::SEVERITY_ALIASES[$key] ?? trim($severity);
+    }
+
     public static function normalizeMedical(array $in): array
     {
+        $allergies = self::rows($in['allergies'] ?? [], ['allergen', 'severity', 'reaction']);
+        foreach ($allergies as $i => $row) {
+            $allergies[$i]['severity'] = self::canonicalSeverity($row['severity']);
+        }
+
         return [
             'history'     => self::rows($in['history'] ?? [], ['condition', 'year', 'note']),
-            'allergies'   => self::rows($in['allergies'] ?? [], ['allergen', 'severity', 'reaction']),
-            'medications' => self::rows($in['medications'] ?? [], ['name', 'dosage', 'frequency']),
+            'allergies'   => $allergies,
+            'medications' => self::rows($in['medications'] ?? [], ['name', 'dosage', 'frequency', 'reason', 'herbal']),
             'conditions'  => self::rows($in['conditions'] ?? [], ['condition', 'status', 'since']),
         ];
     }

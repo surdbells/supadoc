@@ -264,6 +264,32 @@ final class AppointmentRepository extends BaseRepository
         return $count > 0;
     }
 
+    /**
+     * Whether the specialist has actually consulted (or is about to consult)
+     * the patient: a completed appointment, or a non-cancelled one that has
+     * started or starts within `$leadMinutes` (a doctor may join a call a little
+     * early). A cancelled or future booking is not a consultation.
+     */
+    public function hasConsultedWith(string $specialistId, string $patientId, DateTimeImmutable $now, int $leadMinutes = 120): bool
+    {
+        $count = (int) $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.patient = :patient')
+            ->andWhere('e.deletedAt IS NULL')
+            ->andWhere('e.status = :completed OR (e.status <> :cancelled AND e.scheduledAt <= :cutoff)')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('patient', $patientId)
+            ->setParameter('completed', AppointmentStatus::COMPLETED)
+            ->setParameter('cancelled', AppointmentStatus::CANCELLED)
+            ->setParameter('cutoff', $now->modify("+{$leadMinutes} minutes"))
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return $count > 0;
+    }
+
     /** A specialist's appointments with one patient, newest first. @return list<Appointment> */
     public function forSpecialistAndPatient(string $specialistId, string $patientId): array
     {

@@ -17,7 +17,7 @@ import {
   switchMap,
   tap,
 } from 'rxjs';
-import { SpecialistsApi } from '@supadoc/data-access';
+import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import {
   ButtonComponent,
@@ -349,7 +349,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             <div class="flex flex-col items-center gap-5 py-20 text-center">
               <sd-icon name="wifi-off" [size]="40" class="text-alert" />
               <p class="font-sans text-body-sm text-slate">
-                Unable to load specialists.
+                {{ loadError() }}
               </p>
               <sd-button (click)="reload()">Try Again</sd-button>
             </div>
@@ -409,7 +409,8 @@ export class PublicSpecialists implements OnInit {
 
   private readonly all = signal<SpecialistDto[]>([]);
   protected readonly loading = signal(true);
-  protected readonly loadError = signal(false);
+  /** Why the search failed ('' when it didn't). */
+  protected readonly loadError = signal('');
   private readonly reloadTick = signal(0);
 
   protected readonly consultTypes = [
@@ -456,7 +457,7 @@ export class PublicSpecialists implements OnInit {
         distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
         tap(() => {
           this.loading.set(true);
-          this.loadError.set(false);
+          this.loadError.set('');
         }),
         switchMap((c) =>
           this.specialistsApi
@@ -470,8 +471,8 @@ export class PublicSpecialists implements OnInit {
               limit: 24,
             })
             .pipe(
-              catchError(() => {
-                this.loadError.set(true);
+              catchError((err: unknown) => {
+                this.loadError.set(apiErrorMessage(err, 'Unable to load specialists.'));
                 return of(null);
               }),
             ),

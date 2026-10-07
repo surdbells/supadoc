@@ -66,6 +66,15 @@ class Patient
     #[ORM\Column(name: 'two_factor_backup_codes', type: 'json', nullable: true)]
     private ?array $twoFactorBackupCodes = null;
 
+    /**
+     * Latest health reading per type — {type: {value, unit, taken_at, source}} —
+     * from readings recorded on prescriptions. Feeds the doctor's side panel.
+     *
+     * @var array<string,array<string,string>>|null
+     */
+    #[ORM\Column(name: 'latest_vitals', type: 'json', nullable: true)]
+    private ?array $latestVitals = null;
+
     /** Sparse override map of app preferences; see {@see PatientSettings}. */
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $settings = null;
@@ -194,6 +203,50 @@ class Patient
     public function getPhone(): ?string
     {
         return $this->phone;
+    }
+
+    public function getFirstName(): string
+    {
+        return $this->firstName;
+    }
+
+    public function getLastName(): string
+    {
+        return $this->lastName;
+    }
+
+    public function getFullName(): string
+    {
+        return trim($this->firstName . ' ' . $this->lastName);
+    }
+
+    public function getDateOfBirth(): ?DateTimeImmutable
+    {
+        return $this->dateOfBirth;
+    }
+
+    /** @return array<string,array<string,string>> */
+    public function getLatestVitals(): array
+    {
+        return $this->latestVitals ?? [];
+    }
+
+    /**
+     * Merge newer readings into the latest-per-type map; an older reading never
+     * replaces a newer one.
+     *
+     * @param array<string,array{value:string,unit:string,taken_at:string,source:string}> $entries
+     */
+    public function recordVitals(array $entries): void
+    {
+        $current = $this->latestVitals ?? [];
+        foreach ($entries as $type => $entry) {
+            $existing = $current[$type]['taken_at'] ?? '';
+            if ($existing === '' || strtotime($entry['taken_at']) >= strtotime($existing)) {
+                $current[$type] = $entry;
+            }
+        }
+        $this->latestVitals = $current !== [] ? $current : null;
     }
 
     public function setFirstName(string $firstName): void

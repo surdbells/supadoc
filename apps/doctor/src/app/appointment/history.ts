@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { DoctorApi } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorAppointmentDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -101,6 +101,7 @@ const STATUS_CLASS: Record<string, string> = {
           }
         </ul>
 
+        @if (error()) { <p class="text-center font-sans text-caption text-alert">{{ error() }}</p> }
         @if (hasMore()) {
           <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">
             {{ loading() ? 'Loading…' : 'Load more' }}
@@ -162,11 +163,11 @@ export class DoctorAppointmentHistory implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => {
+        error: (err: unknown) => {
           // Roll back a load-more page bump so the next click re-fetches this
           // page instead of skipping it, and surface the failure.
           if (this.page > 1) this.page -= 1;
-          this.error.set('Could not load your history. Please try again.');
+          this.error.set(apiErrorMessage(err, 'Could not load your history. Please try again.'));
           this.loading.set(false);
         },
       });

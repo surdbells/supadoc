@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import { ButtonComponent } from '@supadoc/ui';
 
 /** Sign in with phone (Figma 361:4760) — SMS OTP via Termii. */
@@ -120,8 +121,7 @@ export class SignInPhone {
         queryParams: { target: `+234 ${local}` },
       });
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Could not send the code. Please try again.');
+      this.errorMessage.set(apiErrorMessage(err, 'Could not send the code. Please try again.'));
     } finally {
       this.submitting.set(false);
     }

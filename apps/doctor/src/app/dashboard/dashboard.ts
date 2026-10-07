@@ -10,7 +10,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
-import { DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
 import type {
   DoctorAppointmentDto,
   DoctorDashboardDto,
@@ -329,8 +329,8 @@ export class DoctorDashboard implements OnInit {
           this.data.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load your dashboard.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load your dashboard.'));
           this.loading.set(false);
         },
       });

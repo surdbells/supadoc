@@ -2,6 +2,7 @@ import { HttpEventType } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   ElementRef,
   inject,
@@ -10,13 +11,32 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { RouterLink } from '@angular/router';
 import {
   apiErrorMessage,
   DocumentsApi,
   openBlobDocument,
+  openPendingTab,
+  PrescriptionsApi,
 } from '@supadoc/data-access';
-import type { DocumentTypeOption, MedicalDocumentDto } from '@supadoc/models';
+import type {
+  DocumentTypeOption,
+  MedicalDocumentDto,
+  PrescriptionStatus,
+  PrescriptionSummaryDto,
+} from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+
+/** How many recent prescriptions the documents page previews. */
+const RX_PREVIEW = 3;
+
+/** Every prescription status reads as an icon AND a word — never colour alone. */
+const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+};
 
 type Step = '' | 'source' | 'type' | 'preview' | 'uploading' | 'success';
 
@@ -34,7 +54,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
 @Component({
   selector: 'pat-documents',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, RouterLink],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -50,9 +70,92 @@ const MAX_BYTES = 10 * 1024 * 1024;
         }
       </header>
 
+      <!-- Prescriptions sent by your doctors (the PDF opens in a new tab) -->
+      @if (rxLoading()) {
+        <div class="sd-shimmer h-24 rounded-card"></div>
+      } @else if (rxLoadError()) {
+        <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-5">
+          <span class="flex items-center gap-2 font-sans text-body font-semibold text-ink">
+            <sd-icon name="pill" [size]="20" class="text-slate" />Prescriptions
+          </span>
+          <p class="flex items-start gap-2 font-sans text-body-sm text-alert" role="alert">
+            <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ rxLoadError() }}
+          </p>
+          <button type="button" class="w-fit rounded-field border border-cloud bg-white px-5 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="loadPrescriptions()">
+            Try again
+          </button>
+        </section>
+      } @else if (prescriptions().length > 0) {
+        <section class="flex flex-col gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="flex items-center gap-2 font-sans text-body font-semibold text-ink">
+              <sd-icon name="pill" [size]="20" class="text-slate" />Prescriptions
+            </span>
+            <a routerLink="/dashboard/prescriptions" class="flex items-center gap-1 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean">
+              See all prescriptions<sd-icon name="chevron-right" [size]="16" />
+            </a>
+          </div>
+          <ul class="flex flex-col gap-3">
+            @for (rx of recentRx(); track rx.id) {
+              <li class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
+                <div class="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
+                  <span class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal">
+                    <sd-icon name="pill" [size]="20" />
+                  </span>
+                  <span class="flex min-w-0 flex-col gap-1">
+                    <span class="flex flex-wrap items-center gap-2">
+                      <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
+                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="rxStatus(rx.status).cls">
+                        <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
+                      </span>
+                    </span>
+                    <span class="font-sans text-caption text-slate">
+                      {{ rx.prescriber || 'Your doctor' }}@if (rx.valid_until) { · Valid until {{ shortDate(rx.valid_until) }} }
+                    </span>
+                  </span>
+                </div>
+                @if (rx.sent_at) {
+                  <span class="hidden font-sans text-body-sm text-slate md:block">{{ date(rx.sent_at) }}</span>
+                }
+                <div class="flex shrink-0 items-center gap-2 pl-[60px] sm:pl-0">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                    [disabled]="openingRx() === rx.id"
+                    [attr.aria-label]="'View prescription ' + rx.number"
+                    (click)="viewRx(rx)"
+                  >
+                    <sd-icon [name]="openingRx() === rx.id ? 'loader-circle' : 'eye'" [size]="14" [class.animate-spin]="openingRx() === rx.id" />View
+                  </button>
+                  <a
+                    [routerLink]="['/dashboard/prescriptions', rx.id]"
+                    class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:text-cerulean"
+                    [attr.aria-label]="'Details for prescription ' + rx.number"
+                  >
+                    Details<sd-icon name="chevron-right" [size]="14" />
+                  </a>
+                </div>
+              </li>
+            }
+          </ul>
+          @if (rxError()) {
+            <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxError() }}
+            </p>
+          }
+        </section>
+      }
+
       @if (loading() && docs().length === 0) {
         <div class="flex flex-col gap-3">
           @for (i of [1,2,3]; track i) { <div class="sd-shimmer h-20 rounded-card"></div> }
+        </div>
+      } @else if (loadError() && !hasAny()) {
+        <div class="flex flex-col items-center gap-4 py-20 text-center">
+          <p class="font-sans text-body-sm text-alert">{{ loadError() }}</p>
+          <button type="button" class="rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="reload()">
+            Try again
+          </button>
         </div>
       } @else if (!hasAny()) {
         <!-- Empty state -->
@@ -105,6 +208,10 @@ const MAX_BYTES = 10 * 1024 * 1024;
             Sort: <span class="font-semibold">{{ sortDir() === 'desc' ? 'Newest' : 'Oldest' }}</span>
           </button>
         </div>
+
+        @if (loadError()) {
+          <p class="font-sans text-body-sm text-alert">{{ loadError() }}</p>
+        }
 
         <!-- List -->
         <ul class="flex flex-col gap-3">
@@ -202,6 +309,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
                   <sd-icon name="chevron-down" [size]="18" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate" />
                 </div>
               </label>
+              @if (typesError()) { <p class="font-sans text-caption text-alert">{{ typesError() }}</p> }
               @if (selectedType() === 'other') {
                 <label class="flex flex-col gap-1.5">
                   <span class="font-sans text-body-sm text-slate">Others (Specify)</span>
@@ -289,15 +397,28 @@ const MAX_BYTES = 10 * 1024 * 1024;
 })
 export class PatientDocuments implements OnInit {
   private readonly api = inject(DocumentsApi);
+  private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly accept = ACCEPT;
+
+  // Prescriptions preview (newest first, from GET /api/portal/prescriptions)
+  protected readonly prescriptions = signal<PrescriptionSummaryDto[]>([]);
+  protected readonly recentRx = computed(() => this.prescriptions().slice(0, RX_PREVIEW));
+  protected readonly rxLoading = signal(true);
+  /** Loading the list failed — shown instead of hiding the section. */
+  protected readonly rxLoadError = signal('');
+  /** Opening one prescription's PDF failed. */
+  protected readonly rxError = signal('');
+  /** Id of the prescription whose PDF link is being fetched. */
+  protected readonly openingRx = signal('');
   protected readonly fileInput = viewChild.required<ElementRef<HTMLInputElement>>('fileInputEl');
   protected readonly cameraInput = viewChild.required<ElementRef<HTMLInputElement>>('cameraInputEl');
 
   // List state
   protected readonly docs = signal<MedicalDocumentDto[]>([]);
   protected readonly loading = signal(true);
+  protected readonly loadError = signal('');
   protected readonly hasMore = signal(false);
   /** True once we know the patient has at least one document (drives empty state). */
   protected readonly hasAny = signal(false);
@@ -309,6 +430,7 @@ export class PatientDocuments implements OnInit {
 
   // Types
   protected readonly types = signal<DocumentTypeOption[]>([]);
+  protected readonly typesError = signal('');
 
   // Upload modal state
   protected readonly step = signal<Step>('');
@@ -322,14 +444,73 @@ export class PatientDocuments implements OnInit {
   ngOnInit(): void {
     this.api.types().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => this.types.set(res.data),
-      error: () => undefined,
+      error: (err: unknown) =>
+        this.typesError.set(apiErrorMessage(err, 'Could not load document types.')),
     });
     this.reload();
+    this.loadPrescriptions();
+  }
+
+  // ----- Prescriptions -----
+  protected loadPrescriptions(): void {
+    this.rxLoading.set(true);
+    this.rxLoadError.set('');
+    this.prescriptionsApi
+      .mine()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.prescriptions.set(res.data ?? []);
+          this.rxLoading.set(false);
+        },
+        error: (err: unknown) => {
+          this.rxLoadError.set(apiErrorMessage(err, 'Could not load your prescriptions.'));
+          this.rxLoading.set(false);
+        },
+      });
+  }
+
+  /**
+   * Open the prescription PDF in a new tab. The tab is opened synchronously on
+   * the click (so popup blockers allow it), then pointed at the signed link.
+   */
+  protected viewRx(rx: PrescriptionSummaryDto): void {
+    if (this.openingRx()) return;
+    const pending = openPendingTab();
+    this.openingRx.set(rx.id);
+    this.rxError.set('');
+    this.prescriptionsApi
+      .link(rx.id, false)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          pending.go(this.prescriptionsApi.fileUrl(res.data));
+          this.openingRx.set('');
+        },
+        error: (err: unknown) => {
+          pending.fail();
+          this.openingRx.set('');
+          this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
+        },
+      });
+  }
+
+  protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
+    return RX_STATUS[status] ?? RX_STATUS.active;
+  }
+
+  /** `YYYY-MM-DD` → "12 Oct 2026". */
+  protected shortDate(ymd: string): string {
+    const d = new Date(`${ymd.slice(0, 10)}T00:00:00`);
+    return isNaN(d.getTime())
+      ? ymd
+      : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
   }
 
   // ----- List -----
-  private reload(): void {
+  protected reload(): void {
     this.loading.set(true);
+    this.loadError.set('');
     this.api
       .list({ page: this.page, per_page: 20, search: this.search() || undefined, type: this.typeFilter() || undefined, sort_dir: this.sortDir() })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -345,7 +526,10 @@ export class PatientDocuments implements OnInit {
           }
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, 'Could not load your documents.'));
+          this.loading.set(false);
+        },
       });
   }
 

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { PatientApi } from '@supadoc/data-access';
+import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type {
   PatientSettingsDto,
   PatientSettingsPatch,
@@ -53,7 +53,7 @@ interface PrefRow {
         >
           <sd-icon name="triangle-alert" [size]="28" class="text-alert" />
           <p class="font-sans text-body text-slate">
-            We couldn't load your preferences.
+            {{ loadError() }}
           </p>
           <sd-button variant="outline" (click)="load()">Try again</sd-button>
         </div>
@@ -149,7 +149,8 @@ export class SettingsNotifications {
   private readonly patients = inject(PatientApi);
 
   protected readonly loading = signal(true);
-  protected readonly loadError = signal(false);
+  /** Why the preferences failed to load ('' when they didn't). */
+  protected readonly loadError = signal('');
   protected readonly saving = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal('');
@@ -177,7 +178,7 @@ export class SettingsNotifications {
 
   protected async load(): Promise<void> {
     this.loading.set(true);
-    this.loadError.set(false);
+    this.loadError.set('');
     this.saveError.set('');
     this.saved.set(false);
     this.dirty.set(false);
@@ -198,8 +199,8 @@ export class SettingsNotifications {
       const emailRow = delivery.find((r) => r.key === 'email');
       if (emailRow && meRes.data.email) emailRow.sub = meRes.data.email;
       this.delivery.set(delivery);
-    } catch {
-      this.loadError.set(true);
+    } catch (err) {
+      this.loadError.set(apiErrorMessage(err, "We couldn't load your preferences."));
     } finally {
       this.loading.set(false);
     }
@@ -240,8 +241,7 @@ export class SettingsNotifications {
       this.dirty.set(false);
       this.saved.set(true);
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.saveError.set(message ?? 'Could not save your preferences.');
+      this.saveError.set(apiErrorMessage(err, 'Could not save your preferences.'));
     } finally {
       this.saving.set(false);
     }

@@ -244,6 +244,7 @@ export class AdminStaff implements OnInit {
 
   private load(): void {
     this.loading.set(true);
+    this.listError.set('');
     this.api
       .list()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -252,8 +253,8 @@ export class AdminStaff implements OnInit {
           this.users.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.listError.set('Could not load staff accounts.');
+        error: (err: unknown) => {
+          this.listError.set(apiErrorMessage(err, 'Could not load staff accounts.'));
           this.loading.set(false);
         },
       });

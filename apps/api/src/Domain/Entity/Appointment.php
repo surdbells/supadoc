@@ -183,9 +183,9 @@ class Appointment
         }
         if (!$this->status->canTransitionTo($target)) {
             throw new DomainException(sprintf(
-                'Cannot move appointment from %s to %s',
-                $this->status->value,
-                $target->value,
+                'This appointment is %s and can no longer be marked %s.',
+                str_replace('_', ' ', $this->status->value),
+                str_replace('_', ' ', $target->value),
             ));
         }
         $this->status = $target;

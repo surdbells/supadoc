@@ -8,6 +8,7 @@ import {
 } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
 
 function passwordsMatch(group: AbstractControl): ValidationErrors | null {
@@ -157,8 +158,7 @@ export class NewPassword {
       this.flow.reset();
       await this.router.navigateByUrl('/auth/recover/success');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Could not reset your password.');
+      this.errorMessage.set(apiErrorMessage(err, 'Could not reset your password.'));
     } finally {
       this.submitting.set(false);
     }

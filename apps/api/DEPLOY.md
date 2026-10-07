@@ -14,7 +14,7 @@ document root) are the same on any host.
 ## Requirements
 
 - **PHP ≥ 8.2** with extensions: `pdo_pgsql` (+`pgsql`), `curl`, `mbstring`,
-  `openssl`, `json`, `zlib`, `fileinfo`, `opcache`
+  `openssl`, `json`, `zlib`, `fileinfo`, `gd`, `opcache`
 - **PostgreSQL 16**
 - **Redis** (the app uses the pure-PHP `predis` client, so the `redis` PHP
   extension is **not** required)
@@ -314,6 +314,65 @@ missing email/setting, and never re-passwords or clobbers an existing account �
 so it's safe to re-run. The doctor emails it derives are **placeholders**; update
 each specialist's email to the doctor's real inbox so invites + join links land
 there. Doctors can also join from the emailed link without logging in.
+
+### One-time: the e-prescribing + session-security release
+
+This release adds the RxNorm drug catalogue, the structured e-prescription
+(GVM-F-RX-01, branded PDF, pharmacist check page), server-enforced session idle
+and absolute timeouts, and revocable staff sessions. After `git pull` and
+`composer install` (it adds `setasign/fpdf`):
+
+1. **PHP extensions**: `gd` (signature pictures are re-encoded) and `openssl`
+   (encrypted file vault) must be enabled — aaPanel → PHP 8.x → Install
+   extensions. Check with `php -m | grep -E 'gd|openssl'`.
+2. **`.env`** — add / review:
+
+   ```ini
+   FILE_ENCRYPTION_KEY=<openssl rand -base64 32>   # REQUIRED in production; set once, never change
+   APP_TIMEZONE=Africa/Lagos                        # times printed on prescriptions
+   SESSION_IDLE_TIMEOUT=3600                        # server-side idle limit (seconds)
+   JWT_REFRESH_TTL=43200                            # absolute session lifetime: 12h
+   APP_WEB_URL=https://app.dosthq.com               # printed check page: <APP_WEB_URL>/check-prescription
+   CLINIC_NAME / CLINIC_TAGLINE / CLINIC_CONTACT    # branding printed on the PDF
+   ```
+
+   Without `FILE_ENCRYPTION_KEY` (or with a malformed one) doctors cannot save or
+   use signatures — the API logs the reason and tells the doctor to contact
+   support; everything else keeps working.
+
+   If your `.env` still has `JWT_REFRESH_TTL=1209600` (14 days) from the old
+   template, change it — the portals' idle timeout is 15 min (patient) / 30 min
+   (doctor, back office), and the server idle limit must stay ≥ that + 5 min.
+3. **Schema** — review then apply (new tables `drugs`, `staff_sessions`,
+   `prescription_counters`, `prescription_check_throttles`; new nullable columns
+   on `prescriptions`, `sessions.last_active_at`, `patients.latest_vitals`,
+   `notifications.link`, `specialists.mdcn_number` / `signature_key`;
+   `prescriptions.appointment_id` becomes nullable):
+
+   ```bash
+   php bin/doctrine.php orm:schema-tool:update --dump-sql   # review
+   php bin/doctrine.php orm:schema-tool:update --force
+   php bin/doctrine.php orm:generate-proxies
+   ```
+4. **Load the drug catalogue** (21,514 prescribable RxNorm products, shipped in
+   `resources/rxnorm/`; re-run after refreshing it from a newer release with
+   `php bin/build-rxnorm-dataset.php /path/to/RxNorm_full_prescribe_MMDDYYYY.zip`):
+
+   ```bash
+   php bin/import-rxnorm.php
+   ```
+5. **Backfill old prescriptions + canonical allergy severities** (numbers,
+   `active` status, valid-until, prescriber; legacy Low/Medium/High allergy
+   severities → mild/moderate/severe so the prescribing panel ranks them) — part
+   of the idempotent migration: `php bin/prod-migrate.php --run`.
+6. **Permissions** — the vault lives in `var/vault`: `mkdir -p var/vault && chown -R www:www var`.
+7. **Cron** — no new job: `bin/send-reminders.php` (every 5 min) now also stores
+   prescription expiries and sends the "expires in N days" reminders.
+8. Doctors and back-office staff are asked to **sign in once** after the deploy
+   (their old refresh tokens are not bound to a server session).
+
+The prescription rules (default validity, reminder lead time, check-page lock-out,
+download-link lifetime) are editable in the back office → Pricing & settings.
 
 ---
 

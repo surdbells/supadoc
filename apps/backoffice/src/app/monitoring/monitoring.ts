@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MonitoringApi } from '@supadoc/data-access';
+import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type {
   MonitoringConsultationRow,
   MonitoringQualityDto,
@@ -72,11 +72,28 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
                     </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No consultations.' }}</td></tr>
+                  <tr>
+                    <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                      @if (loading()) {
+                        Loading…
+                      } @else if (tabErrors().consultations; as err) {
+                        <div class="flex flex-col items-center gap-3">
+                          <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                          <p>{{ err }}</p>
+                          <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="select('consultations')">Retry</button>
+                        </div>
+                      } @else {
+                        No consultations.
+                      }
+                    </td>
+                  </tr>
                 }
               </tbody>
             </table>
           </div>
+          @if (moreError()) {
+            <p class="mt-4 text-center font-sans text-caption text-alert">{{ moreError() }}</p>
+          }
           @if (consultationsHasMore()) {
             <button type="button" class="mx-auto mt-4 block rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loadingMore()" (click)="loadMoreConsultations()">
               {{ loadingMore() ? 'Loading…' : 'Load more' }}
@@ -114,7 +131,19 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
                       <td class="px-4 py-3 text-slate">{{ c.doctor?.rtt ? c.doctor?.rtt + ' ms' : '—' }}</td>
                     </tr>
                   } @empty {
-                    <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">No quality samples yet — they appear once calls are in progress.</td></tr>
+                    <tr>
+                      <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                        @if (tabErrors().quality && !loading()) {
+                          <div class="flex flex-col items-center gap-3">
+                            <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                            <p>{{ tabErrors().quality }}</p>
+                            <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="select('quality')">Retry</button>
+                          </div>
+                        } @else {
+                          No quality samples yet — they appear once calls are in progress.
+                        }
+                      </td>
+                    </tr>
                   }
                 </tbody>
               </table>
@@ -147,7 +176,21 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
                     </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No recordings.' }}</td></tr>
+                  <tr>
+                    <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                      @if (loading()) {
+                        Loading…
+                      } @else if (tabErrors().recordings; as err) {
+                        <div class="flex flex-col items-center gap-3">
+                          <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                          <p>{{ err }}</p>
+                          <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="select('recordings')">Retry</button>
+                        </div>
+                      } @else {
+                        No recordings.
+                      }
+                    </td>
+                  </tr>
                 }
               </tbody>
             </table>
@@ -182,7 +225,11 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
                 }
               </div>
             } @empty {
-              <p class="font-sans text-body-sm text-slate">No files.</p>
+              @if (filesError()) {
+                <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ filesError() }}</p>
+              } @else {
+                <p class="font-sans text-body-sm text-slate">No files.</p>
+              }
             }
           }
         </div>
@@ -202,17 +249,21 @@ export class AdminMonitoring implements OnInit {
   protected readonly tab = signal<TabKey>('consultations');
   protected readonly loading = signal(false);
   private readonly loaded = new Set<TabKey>();
+  /** Per-tab load failure, shown in place of that tab's empty state. */
+  protected readonly tabErrors = signal<Partial<Record<TabKey, string>>>({});
 
   protected readonly consultations = signal<MonitoringConsultationRow[]>([]);
   protected readonly consultationsPage = signal(1);
   protected readonly consultationsHasMore = signal(false);
   protected readonly loadingMore = signal(false);
+  protected readonly moreError = signal('');
   protected readonly quality = signal<MonitoringQualityDto | null>(null);
   protected readonly recordings = signal<RecordingDto[]>([]);
 
   // Files modal
   protected readonly filesOpen = signal(false);
   protected readonly filesLoading = signal(false);
+  protected readonly filesError = signal('');
   protected readonly files = signal<RecordingFileDto[]>([]);
 
   ngOnInit(): void {
@@ -222,6 +273,7 @@ export class AdminMonitoring implements OnInit {
   protected openFiles(r: RecordingDto): void {
     this.filesOpen.set(true);
     this.filesLoading.set(true);
+    this.filesError.set('');
     this.files.set([]);
     this.api
       .recordingFiles(r.id)
@@ -231,7 +283,10 @@ export class AdminMonitoring implements OnInit {
           this.files.set(res.data.files);
           this.filesLoading.set(false);
         },
-        error: () => this.filesLoading.set(false),
+        error: (err: unknown) => {
+          this.filesError.set(apiErrorMessage(err, 'Could not load the recording files.'));
+          this.filesLoading.set(false);
+        },
       });
   }
 
@@ -240,23 +295,36 @@ export class AdminMonitoring implements OnInit {
     if (this.loaded.has(tab)) return;
     this.loaded.add(tab);
     this.loading.set(true);
+    this.setTabError(tab, '');
     const done = () => this.loading.set(false);
+    const fail = (fallback: string) => (err: unknown) => {
+      // Forget the tab so re-selecting it (or Retry) fetches again.
+      this.loaded.delete(tab);
+      this.setTabError(tab, apiErrorMessage(err, fallback));
+      done();
+    };
     if (tab === 'consultations') {
       this.consultationsPage.set(1);
+      this.moreError.set('');
       this.api.consultations({ page: 1, per_page: 25 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => { this.consultations.set(r.data); this.consultationsHasMore.set(r.meta.page < r.meta.total_pages); done(); },
-        error: done,
+        error: fail('Could not load consultations.'),
       });
     } else if (tab === 'quality') {
-      this.api.quality().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.quality.set(r.data); done(); }, error: done });
+      this.api.quality().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.quality.set(r.data); done(); }, error: fail('Could not load call-quality data.') });
     } else {
-      this.api.recordings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.recordings.set(r.data); done(); }, error: done });
+      this.api.recordings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.recordings.set(r.data); done(); }, error: fail('Could not load recordings.') });
     }
+  }
+
+  private setTabError(tab: TabKey, message: string): void {
+    this.tabErrors.update((errs) => ({ ...errs, [tab]: message }));
   }
 
   protected loadMoreConsultations(): void {
     if (this.loadingMore()) return;
     this.loadingMore.set(true);
+    this.moreError.set('');
     const next = this.consultationsPage() + 1;
     this.api.consultations({ page: next, per_page: 25 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
@@ -265,7 +333,10 @@ export class AdminMonitoring implements OnInit {
         this.consultationsHasMore.set(r.meta.page < r.meta.total_pages);
         this.loadingMore.set(false);
       },
-      error: () => this.loadingMore.set(false),
+      error: (err: unknown) => {
+        this.moreError.set(apiErrorMessage(err, 'Could not load more consultations.'));
+        this.loadingMore.set(false);
+      },
     });
   }
 

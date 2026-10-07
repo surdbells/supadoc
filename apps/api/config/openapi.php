@@ -339,8 +339,55 @@ return [
             'get' => ['tags' => ['Doctor'], 'summary' => "Stream one of the patient's documents", 'responses' => ['200' => ['description' => 'File'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/doctor/appointments/{id}/prescriptions' => [
-            'get'  => ['tags' => ['Doctor'], 'summary' => 'List issued prescriptions', 'responses' => ['200' => ['description' => 'OK']]],
-            'post' => ['tags' => ['Doctor'], 'summary' => 'Issue an e-prescription', 'responses' => ['201' => ['description' => 'Created']]],
+            'get'  => ['tags' => ['Doctor'], 'summary' => "This consultation's prescriptions (drafts included)", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/drugs' => [
+            'get' => [
+                'tags' => ['Prescriptions'],
+                'summary' => 'Search the RxNorm prescribable catalogue (?q=&limit=)',
+                'description' => 'Generic products first. INN/British names (paracetamol, salbutamol, adrenaline…) map to their RxNorm names. Source: RxNorm, U.S. National Library of Medicine.',
+                'parameters' => [['name' => 'q', 'in' => 'query', 'required' => true, 'schema' => ['type' => 'string']], ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'maximum' => 50]]],
+                'responses' => ['200' => ['description' => 'Matching products'], '403' => ['$ref' => '#/components/responses/Forbidden']],
+            ],
+        ],
+        '/api/doctor/prescriptions/options' => [
+            'get' => ['tags' => ['Prescriptions'], 'summary' => 'Form defaults + option lists (default validity, routes, reading boxes, limits, has_signature, mdcn_number)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/doctor/prescriptions' => [
+            'get'  => ['tags' => ['Prescriptions'], 'summary' => "The doctor's prescriptions (?status=draft|active|expired|cancelled&patient_id=&page=&per_page=)", 'responses' => ['200' => ['description' => 'Paginated summaries'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'post' => [
+                'tags' => ['Prescriptions'],
+                'summary' => 'Start a draft prescription',
+                'description' => 'With appointment_id it belongs to that consultation (during or after the call); otherwise patient_id must be a patient the doctor has consulted. The rest of the body is the (possibly partial) GVM-F-RX-01 form: readings, reason, icd_code, current_medications, pregnancy_status, items[{rxcui, dose, route, frequency, duration, quantity, repeats, no_substitute, instructions}], advice, follow_up_date, follow_up_mode, tests_referrals, valid_until, allows_repeats.',
+                'responses' => ['201' => ['description' => 'Draft created (numbered GVM-RX-YYYYMMDD-NNNNN)'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/doctor/prescriptions/{rxId}' => [
+            'get'    => ['tags' => ['Prescriptions'], 'summary' => 'One of my prescriptions', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'put'    => ['tags' => ['Prescriptions'], 'summary' => 'Save the whole form of a draft (409 once sent)', 'responses' => ['200' => ['description' => 'Saved'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => 'Sent prescriptions are locked'], '422' => ['$ref' => '#/components/responses/Validation']]],
+            'delete' => ['tags' => ['Prescriptions'], 'summary' => 'Delete a draft (409 once sent)', 'responses' => ['200' => ['description' => 'Deleted'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => 'Sent prescriptions can only be cancelled']]],
+        ],
+        '/api/doctor/prescriptions/{rxId}/send' => [
+            'post' => [
+                'tags' => ['Prescriptions'],
+                'summary' => 'Sign, lock and send to the patient',
+                'description' => 'Body: optional form (final edits), confirm {allergies, doses, patient} (all true), signature {mode: saved|drawn, image?: data URL, save?: bool}. The patient is notified in-app and by email naming only the doctor and the number.',
+                'responses' => ['200' => ['description' => 'Sent (Active)'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => 'Already sent'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/doctor/prescriptions/{rxId}/cancel' => [
+            'post' => ['tags' => ['Prescriptions'], 'summary' => 'Cancel an active prescription {reason, replace?}; replace returns a pre-filled draft', 'responses' => ['200' => ['description' => 'Cancelled'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => 'Not active'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/doctor/prescriptions/{rxId}/link' => [
+            'post' => ['tags' => ['Prescriptions'], 'summary' => 'Signed short-lived URL to the PDF {download?} (drafts carry a DRAFT watermark)', 'responses' => ['200' => ['description' => '{url, expires_at, filename}'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/doctor/patients/{id}/clinical-summary' => [
+            'get' => ['tags' => ['Prescriptions'], 'summary' => 'Read-only side panel: allergies (most serious first), latest readings, current medicines, pregnancy question flag', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/doctor/signature' => [
+            'get'    => ['tags' => ['Prescriptions'], 'summary' => 'My saved signature {has_signature, image}', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'post'   => ['tags' => ['Prescriptions'], 'summary' => 'Save my signature (multipart `signature` PNG/JPG < 500 KB, or JSON {image: data URL})', 'responses' => ['200' => ['description' => 'Saved'], '422' => ['$ref' => '#/components/responses/Validation']]],
+            'delete' => ['tags' => ['Prescriptions'], 'summary' => 'Remove my saved signature', 'responses' => ['200' => ['description' => 'Removed']]],
         ],
         '/api/doctor/appointments/{id}/lab-orders' => [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'List lab orders', 'responses' => ['200' => ['description' => 'OK']]],
@@ -409,7 +456,16 @@ return [
             'get' => ['tags' => ['Documents'], 'summary' => 'Stream one of my documents', 'responses' => ['200' => ['description' => 'File'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/portal/appointments/{id}/prescriptions' => [
-            'get' => ['tags' => ['Consultation'], 'summary' => 'My prescriptions', 'responses' => ['200' => ['description' => 'OK']]],
+            'get' => ['tags' => ['Consultation'], 'summary' => 'My prescriptions for this consultation (sent only)', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/portal/prescriptions' => [
+            'get' => ['tags' => ['Prescriptions'], 'summary' => 'My prescriptions (number, doctor, date sent, valid until, status), newest first', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+        ],
+        '/api/portal/prescriptions/{id}' => [
+            'get' => ['tags' => ['Prescriptions'], 'summary' => 'One of my sent prescriptions (opening is audited)', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/prescriptions/{id}/link' => [
+            'post' => ['tags' => ['Prescriptions'], 'summary' => 'Signed short-lived URL to view/download/print the PDF {download?}', 'responses' => ['200' => ['description' => '{url, expires_at, filename}'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/portal/appointments/{id}/lab-orders' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My lab orders', 'responses' => ['200' => ['description' => 'OK']]],
@@ -468,6 +524,16 @@ return [
         ],
         '/api/admin/patients/{id}' => [
             'get' => ['tags' => ['Staff'], 'summary' => 'A patient record + recent appointments', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/admin/patients/{id}/prescriptions' => [
+            'get' => ['tags' => ['Staff'], 'summary' => "A patient's sent prescriptions (monitoring.view)", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+        ],
+        '/api/admin/prescriptions/{rxId}/link' => [
+            'post' => ['tags' => ['Staff'], 'summary' => 'Signed short-lived URL to a sent prescription PDF (monitoring.view; audited on open)', 'responses' => ['200' => ['description' => '{url, expires_at, filename}'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/settings/prescriptions' => [
+            'get'   => ['tags' => ['Staff'], 'summary' => 'Prescription rules: valid_days, reminder_days, check_max_attempts, check_lock_minutes, link_minutes (settings.manage)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'patch' => ['tags' => ['Staff'], 'summary' => 'Update prescription rules (settings.manage)', 'responses' => ['200' => ['description' => 'Updated'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
         ],
         '/api/admin/support/tickets' => [
             'get' => ['tags' => ['Support'], 'summary' => 'Support ticket queue (?status=)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
@@ -691,6 +757,19 @@ return [
                 'responses'   => [
                     '200' => ['description' => 'New access token', ...$json($envelope(['$ref' => '#/components/schemas/AccessToken']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+        ],
+        '/api/auth/logout' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Sign out the session a refresh token belongs to (staff or customer)',
+                'description' => 'Revokes the server session bound to the refresh token so neither of its tokens works again. Always 200 — unreadable or already-revoked tokens are a no-op.',
+                'operationId' => 'logout',
+                'security'    => [],
+                'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => ['refresh_token' => ['type' => 'string']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Signed out'],
                 ],
             ],
         ],
@@ -1511,6 +1590,25 @@ return [
                 'responses' => [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Pricing']))],
                 ],
+            ],
+        ],
+        '/api/public/prescriptions/file' => [
+            'get' => [
+                'tags' => ['Public'],
+                'summary' => 'Stream a prescription PDF through a signed link',
+                'description' => 'The short-lived signed token (issued to the prescriber, the patient or authorised staff) IS the credential. Every view/download is audited; expired/cancelled prescriptions are stamped.',
+                'security' => [],
+                'parameters' => [['name' => 'token', 'in' => 'query', 'required' => true, 'schema' => ['type' => 'string']]],
+                'responses' => ['200' => ['description' => 'application/pdf'], '410' => ['description' => 'Link expired']],
+            ],
+        ],
+        '/api/public/prescriptions/check' => [
+            'post' => [
+                'tags' => ['Public'],
+                'summary' => 'Pharmacist check: is this prescription real?',
+                'description' => 'Body {number, date_of_birth (YYYY-MM-DD), device_id}. No sign-in. Match → status, date sent, doctor and MDCN number (never medicines or other patient details). Always 200 with data.result: match | no_match (generic, never says which field was wrong) | locked (retry_at; repeated misses lock the device).',
+                'security' => [],
+                'responses' => ['200' => ['description' => 'Check result'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
         ],
         '/api/public/call/{token}' => [

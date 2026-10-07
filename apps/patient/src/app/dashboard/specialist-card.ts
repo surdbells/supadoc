@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { SpecialistsApi } from '@supadoc/data-access';
+import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { DayAvailability, SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@supadoc/ui';
 
@@ -113,6 +113,13 @@ import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@sup
         <div
           class="sd-shimmer h-28 rounded-card"
         ></div>
+      } @else if (slotsError()) {
+        <div
+          class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-alert"
+        >
+          <sd-icon name="triangle-alert" [size]="16" class="shrink-0" />
+          {{ slotsError() }}
+        </div>
       } @else if (days().length === 0) {
         <div
           class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
@@ -273,6 +280,7 @@ export class SpecialistCard implements OnInit {
 
   protected readonly days = signal<DayAvailability[]>([]);
   protected readonly loadingSlots = signal(true);
+  protected readonly slotsError = signal('');
   protected readonly calendarOpen = signal(false);
   protected readonly selectedDate = signal('');
   protected readonly selectedTime = signal('');
@@ -295,7 +303,10 @@ export class SpecialistCard implements OnInit {
           }
           this.loadingSlots.set(false);
         },
-        error: () => this.loadingSlots.set(false),
+        error: (err: unknown) => {
+          this.slotsError.set(apiErrorMessage(err, 'Could not load available times.'));
+          this.loadingSlots.set(false);
+        },
       });
   }
 

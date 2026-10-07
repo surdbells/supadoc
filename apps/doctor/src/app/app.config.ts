@@ -9,7 +9,12 @@ import {
   httpErrorInterceptor,
   provideSupadocDataAccess,
 } from '@supadoc/data-access';
-import { provideStaffAuth, staffAuthInterceptor } from '@supadoc/auth';
+import {
+  provideSessionTimeout,
+  provideStaffAuth,
+  StaffAuthService,
+  staffAuthInterceptor,
+} from '@supadoc/auth';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { appRoutes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -28,6 +33,8 @@ export const appConfig: ApplicationConfig = {
       storageKey: 'videomed.doctor.token',
       requiredRole: 'doctor',
     }),
+    // Idle timeout + session-expiry sign-out (warning dialog: <sd-session-timeout />).
+    provideSessionTimeout(StaffAuthService, environment.session),
     provideSupadocIcons(),
   ],
 };

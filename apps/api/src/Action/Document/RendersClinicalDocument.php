@@ -6,7 +6,6 @@ namespace App\Action\Document;
 
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\MedicalCertificate;
-use App\Domain\Entity\Prescription;
 use App\Domain\Entity\Referral;
 use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\PrescriptionRepository;
@@ -15,15 +14,19 @@ use App\Infrastructure\Document\ClinicalDocumentRenderer;
 use Psr\Http\Message\ResponseInterface;
 
 /**
- * Loads a clinical document record (prescription / referral / certificate),
- * checks it belongs to the appointment, and renders it as a printable HTML
- * document. Shared by the doctor and patient document endpoints.
+ * Loads a clinical document record (referral / certificate), checks it belongs
+ * to the appointment, and renders it as a printable HTML document. Shared by
+ * the doctor and patient document endpoints. Prescriptions are not served here
+ * (PDF only, through signed links).
  */
 trait RendersClinicalDocument
 {
     use BuildsDocumentContext;
 
-    private const DOCUMENT_KINDS = ['prescription', 'referral', 'certificate'];
+    // Prescriptions are deliberately absent: they are served only as the
+    // branded PDF through signed, audited links (PrescriptionFileAction), which
+    // stamps DRAFT / EXPIRED / CANCELLED.
+    private const DOCUMENT_KINDS = ['referral', 'certificate'];
 
     /**
      * Fetch the record for `$kind`/`$docId` scoped to `$appointmentId`.
@@ -40,17 +43,10 @@ trait RendersClinicalDocument
         ReferralRepository $referrals,
         MedicalCertificateRepository $certificates,
     ): ?object {
+        if (!in_array($kind, self::DOCUMENT_KINDS, true)) {
+            return null; // includes 'prescription' — PDF only (see DOCUMENT_KINDS)
+        }
         switch ($kind) {
-            case 'prescription':
-                $r = $prescriptions->find($docId);
-                if (!$r instanceof Prescription || $r->getAppointmentId() !== $appointmentId) {
-                    return null;
-                }
-                if ($patientView && !$r->isSigned()) {
-                    return null;
-                }
-
-                return $r;
             case 'referral':
                 $r = $referrals->find($docId);
 

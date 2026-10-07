@@ -53,18 +53,18 @@ final class ClinicalDocumentRenderer
         $rows  = '';
         foreach ($items as $i => $it) {
             $sub = array_filter([
-                $this->line('Dose', (string) ($it['dosage'] ?? '')),
+                $this->line('Dose', (string) ($it['dose'] ?? $it['dosage'] ?? '')),
                 $this->line('Frequency', (string) ($it['frequency'] ?? '')),
                 $this->line('Route', (string) ($it['route'] ?? '')),
                 $this->line('Duration', (string) ($it['duration'] ?? '')),
                 $this->line('Quantity', (string) ($it['quantity'] ?? '')),
-                $this->line('Refills', (string) ($it['refills'] ?? '')),
+                $this->line('Repeats', (string) ($it['repeats'] ?? $it['refills'] ?? '')),
             ]);
             $instr = trim((string) ($it['instructions'] ?? ''));
             $rows .= '<tr>'
                 . '<td style="padding:12px 10px;border-bottom:1px solid ' . self::CLOUD . ';vertical-align:top;font-weight:700;color:' . self::SLATE . ';width:28px;">' . ($i + 1) . '.</td>'
                 . '<td style="padding:12px 10px;border-bottom:1px solid ' . self::CLOUD . ';vertical-align:top;">'
-                . '<div style="font-size:15px;font-weight:700;color:' . self::INK . ';">' . $this->e(trim((string) ($it['medication'] ?? '')) . ' ' . (string) ($it['strength'] ?? '')) . '</div>'
+                . '<div style="font-size:15px;font-weight:700;color:' . self::INK . ';">' . $this->e(trim((string) ($it['name'] ?? (($it['medication'] ?? '') . ' ' . ($it['strength'] ?? ''))))) . '</div>'
                 . ($sub !== [] ? '<div style="margin-top:4px;color:' . self::SLATE . ';font-size:13px;">' . implode(' &nbsp;•&nbsp; ', $sub) . '</div>' : '')
                 . ($instr !== '' ? '<div style="margin-top:4px;color:' . self::INK . ';font-size:13px;font-style:italic;">' . $this->e($instr) . '</div>' : '')
                 . '</td></tr>';

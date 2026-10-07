@@ -3,12 +3,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
+  effect,
   ElementRef,
   inject,
   OnDestroy,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import AgoraRTC, {
   IAgoraRTCClient,
@@ -16,6 +20,8 @@ import AgoraRTC, {
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
+import { SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
+import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type {
   ConsentDto,
   CopilotDraftDto,
@@ -23,13 +29,16 @@ import type {
   LabOrderDto,
   MedicalCertificateDto,
   MedicalDocumentDto,
-  PrescriptionDto,
-  PrescriptionItem,
   ReferralDto,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
 import { environment } from '../environments/environment';
+import { RxPanel } from './prescriptions/rx-panel';
+import { CanLeave, LeavePrompt } from './prescriptions/unsaved-changes.guard';
+
+/** Load state of something the editor must not overwrite before it has loaded. */
+type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot';
 
@@ -51,6 +60,27 @@ type SpeechRecCtor = new () => SpeechRec;
 type RecordsTab = 'documents' | 'imaging' | 'labs';
 
 /**
+ * A failed raw-`fetch()` call shaped like an API error (HTTP status + the parsed
+ * body's `message` / `errors`), so `apiErrorMessage` can pick the real reason.
+ */
+function fetchError(status: number, body: unknown): Error {
+  const b = (body && typeof body === 'object' ? body : {}) as { message?: unknown; errors?: unknown };
+  return Object.assign(new Error(typeof b.message === 'string' ? b.message : ''), {
+    status,
+    errors: b.errors,
+  });
+}
+
+/** `fetch()` whose network failure (offline, DNS, CORS) rejects as status 0. */
+async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw fetchError(0, null);
+  }
+}
+
+/**
  * Doctor consultation cockpit (route `/call/:token`). The signed call-access JWT
  * from the schedule is the credential — it resolves via the public join endpoint
  * to the Agora room plus the patient's clinical summary. Left: the patient chart.
@@ -60,8 +90,13 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
 @Component({
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
-  host: { class: 'sd-call block min-h-screen bg-abyss text-white', '[attr.data-theme]': 'theme()' },
+  imports: [ConfirmDialogComponent, IconComponent, RxPanel],
+  host: {
+    class: 'sd-call block min-h-screen bg-abyss text-white',
+    '[attr.data-theme]': 'theme()',
+    // Signing in to the portal happens in another tab — re-check on return.
+    '(window:focus)': 'recheckPortalSignIn()',
+  },
   styles: [
     `
       /* Subtle, near-invisible scrollbars — the cockpit scrolls its panels
@@ -71,6 +106,11 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
       :host ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 999px; }
       :host ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
       :host * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent; }
+
+      /* The prescribing panel is a light "paper" surface in both cockpit
+         themes. The light theme's global .sd-call .text-white override would
+         turn its white-on-colour button text dark — keep it white there. */
+      :host([data-theme='light']) ::ng-deep .sd-rx-zone .text-white { color: #ffffff; }
     `,
   ],
   template: `
@@ -129,7 +169,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
               class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-sans text-caption transition-colors disabled:opacity-50"
               [class]="recordingActive() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-white/5 text-white/70 hover:bg-white/10'"
               [disabled]="recordingBusy() || (!recordingActive() && !recordingConsent())"
-              [attr.title]="!recordingActive() && !recordingConsent() ? 'Patient recording consent required' : null"
+              [attr.title]="!recordingActive() && !recordingConsent() ? (consentsError() || 'Patient recording consent required') : null"
               (click)="toggleRecording()"
             >
               <span class="size-2 rounded-full" [class]="recordingActive() ? 'animate-pulse bg-alert' : 'bg-white/40'"></span>
@@ -405,7 +445,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                         <button
                           type="button"
                           class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                          [disabled]="finalizing()"
+                          [disabled]="finalizing() || noteLoad() !== 'ready'"
                           (click)="finalizeNote()"
                         >
                           {{ finalizing() ? 'Finalizing…' : 'Finalize & sign' }}
@@ -419,6 +459,29 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                       Sign in to the doctor portal to document this consultation.
                     </p>
                   }
+                  @if (noteLoad() === 'loading') {
+                    <p class="mb-3 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
+                      <span class="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70"></span>
+                      Loading the saved note…
+                    </p>
+                  } @else if (noteLoad() === 'error') {
+                    <!-- Editing stays locked: a blank editor would auto-save over the real note. -->
+                    <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
+                      <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
+                        <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                        <span>{{ noteError() }} Editing is paused so the saved note is not overwritten.</span>
+                      </span>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
+                        (click)="retryLoadNote()"
+                      >
+                        <sd-icon name="refresh-cw" [size]="13" /> Try again
+                      </button>
+                    </div>
+                  } @else if (noteError()) {
+                    <p class="mb-3 font-sans text-caption text-alert">{{ noteError() }}</p>
+                  }
 
                   <div class="grid gap-4 lg:grid-cols-2">
                     <label class="flex flex-col gap-1.5">
@@ -428,7 +491,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                         placeholder="Patient-reported symptoms and history…"
                         class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                         [value]="subjective()"
-                        [readOnly]="noteFinalized() || !canDocument()"
+                        [readOnly]="!noteEditable()"
                         (input)="subjective.set($any($event.target).value); scheduleSave()"
                       ></textarea>
                     </label>
@@ -439,7 +502,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                         placeholder="Examination findings, vitals…"
                         class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                         [value]="objective()"
-                        [readOnly]="noteFinalized() || !canDocument()"
+                        [readOnly]="!noteEditable()"
                         (input)="objective.set($any($event.target).value); scheduleSave()"
                       ></textarea>
                     </label>
@@ -450,7 +513,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                         placeholder="Diagnosis, differential…"
                         class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                         [value]="assessment()"
-                        [readOnly]="noteFinalized() || !canDocument()"
+                        [readOnly]="!noteEditable()"
                         (input)="assessment.set($any($event.target).value); scheduleSave()"
                       ></textarea>
                     </label>
@@ -461,7 +524,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                         placeholder="Treatment, investigations, follow-up…"
                         class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                         [value]="plan()"
-                        [readOnly]="noteFinalized() || !canDocument()"
+                        [readOnly]="!noteEditable()"
                         (input)="plan.set($any($event.target).value); scheduleSave()"
                       ></textarea>
                     </label>
@@ -487,73 +550,51 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                   </div>
                 }
                 @case ('prescriptions') {
-                  @if (!canDocument()) {
-                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
-                      Sign in to the doctor portal to prescribe.
-                    </p>
-                  }
-                  <div class="flex flex-col gap-3">
-                    @for (row of rxItems(); track $index) {
-                      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                          <input placeholder="Medication"
-                            class="col-span-2 min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none sm:col-span-1"
-                            [value]="row.medication" (input)="updateRx($index,'medication',$any($event.target).value)" />
-                          <input placeholder="Strength (e.g. 50mg)"
-                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                            [value]="row.strength" (input)="updateRx($index,'strength',$any($event.target).value)" />
-                          <input placeholder="Dosage (e.g. 1 tablet)"
-                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                            [value]="row.dosage" (input)="updateRx($index,'dosage',$any($event.target).value)" />
-                          <input placeholder="Frequency (e.g. daily)"
-                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                            [value]="row.frequency" (input)="updateRx($index,'frequency',$any($event.target).value)" />
-                          <input placeholder="Duration (e.g. 30 days)"
-                            class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                            [value]="row.duration" (input)="updateRx($index,'duration',$any($event.target).value)" />
-                          <input placeholder="Instructions"
-                            class="col-span-2 min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none sm:col-span-3"
-                            [value]="row.instructions" (input)="updateRx($index,'instructions',$any($event.target).value)" />
-                        </div>
-                        @if (rxItems().length > 1) {
-                          <button type="button"
-                            class="mt-2 flex items-center gap-1 font-sans text-caption text-white/50 transition-colors hover:text-alert"
-                            (click)="removeRxRow($index)">
-                            <sd-icon name="trash-2" [size]="13" /> Remove
-                          </button>
-                        }
-                      </div>
-                    }
-                    <div class="flex flex-wrap items-center gap-2">
-                      <button type="button"
+                  <!-- Once mounted, the prescribing panel lives outside this @switch (below). -->
+                  @if (!rxMounted()) {
+                  @if (!portalSignedIn()) {
+                    <!-- Opened from an emailed join link without a portal session. -->
+                    <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
+                      <span class="flex size-14 items-center justify-center rounded-full bg-white/[0.06] text-frost">
+                        <sd-icon name="lock" [size]="24" />
+                      </span>
+                      <p class="max-w-sm font-sans text-body-sm font-semibold text-white">
+                        Sign in to the doctor portal to write prescriptions
+                      </p>
+                      <p class="max-w-sm font-sans text-caption text-white/50">
+                        The sign-in page opens in a new tab, so this call keeps going. Come back to this tab when you have signed in.
+                      </p>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                        (click)="openPortalSignIn()"
+                      >
+                        <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
+                      </button>
+                    </div>
+                  } @else if (rxPatientError()) {
+                    <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
+                      <sd-icon name="circle-alert" [size]="26" class="text-alert" />
+                      <p class="max-w-sm font-sans text-body-sm text-alert">{{ rxPatientError() }}</p>
+                      <button
+                        type="button"
                         class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
-                        (click)="addRxRow()">
-                        <sd-icon name="plus" [size]="14" /> Add medication
-                      </button>
-                      <button type="button"
-                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                        [disabled]="rxBusy() || !canDocument()" (click)="issueRx()">
-                        <sd-icon name="check" [size]="14" /> {{ rxBusy() ? 'Issuing…' : 'Sign & issue' }}
+                        (click)="retryRxPatient()"
+                      >
+                        <sd-icon name="refresh-cw" [size]="14" /> Try again
                       </button>
                     </div>
-                    @if (rxError()) {
-                      <p class="font-sans text-caption text-alert">{{ rxError() }}</p>
-                    }
-                  </div>
-
-                  @if (issuedRx().length) {
-                    <div class="mt-4 border-t border-white/10 pt-3">
-                      <p class="mb-2 font-sans text-caption font-semibold text-white/60">Issued this consultation</p>
-                      <ul class="flex flex-col gap-2">
-                        @for (p of issuedRx(); track p.id) {
-                          <li class="flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2">
-                            <sd-icon name="pill" [size]="16" class="text-sky" />
-                            <span class="flex-1 font-sans text-body-sm text-white/85">{{ rxSummary(p) }}</span>
-                            <span class="rounded-pill bg-success/15 px-2 py-0.5 font-sans text-[10px] text-success">Signed</span>
-                          </li>
-                        }
-                      </ul>
+                  } @else if (status() === 'error' && !info()) {
+                    <p class="py-6 text-center font-sans text-body-sm text-white/50">
+                      Prescriptions are available once this consultation's details have loaded.
+                    </p>
+                  } @else {
+                    <div class="flex flex-col gap-2" aria-busy="true">
+                      <span class="sr-only">Loading prescriptions…</span>
+                      <div class="sd-shimmer h-14 rounded-2xl bg-white/[0.04]"></div>
+                      <div class="sd-shimmer h-14 rounded-2xl bg-white/[0.04]"></div>
                     </div>
+                  }
                   }
                 }
                 @case ('labs') {
@@ -637,17 +678,39 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                       <span class="font-sans text-caption text-white/45">{{ carePlanSaved() }}</span>
                     }
                   </div>
+                  @if (carePlanLoad() === 'loading') {
+                    <p class="mb-2 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
+                      <span class="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70"></span>
+                      Loading the care plan…
+                    </p>
+                  } @else if (carePlanLoad() === 'error') {
+                    <!-- Publishing stays locked: an empty editor would replace the real plan. -->
+                    <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
+                      <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
+                        <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                        <span>{{ carePlanError() }} Editing is paused so the published plan is not overwritten.</span>
+                      </span>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
+                        (click)="retryLoadCarePlan()"
+                      >
+                        <sd-icon name="refresh-cw" [size]="13" /> Try again
+                      </button>
+                    </div>
+                  }
                   <div class="flex flex-col gap-2">
                     @for (item of carePlanItems(); track $index) {
                       <div class="flex items-center gap-2">
                         <sd-icon name="circle-check" [size]="16" class="shrink-0 text-sage" />
                         <input
                           placeholder="e.g. Monitor blood pressure daily"
-                          class="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                          class="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
                           [value]="item"
+                          [readOnly]="!carePlanEditable()"
                           (input)="updateCareItem($index, $any($event.target).value)"
                         />
-                        @if (carePlanItems().length > 1) {
+                        @if (carePlanItems().length > 1 && carePlanEditable()) {
                           <button
                             type="button"
                             class="shrink-0 text-white/40 transition-colors hover:text-alert"
@@ -662,7 +725,8 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                     <div class="mt-1 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
+                        [disabled]="!carePlanEditable()"
                         (click)="addCareItem()"
                       >
                         <sd-icon name="plus" [size]="14" /> Add item
@@ -670,12 +734,15 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                       <button
                         type="button"
                         class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                        [disabled]="carePlanBusy() || !canDocument()"
+                        [disabled]="carePlanBusy() || !carePlanEditable()"
                         (click)="saveCarePlan()"
                       >
                         <sd-icon name="check" [size]="14" /> Save &amp; publish
                       </button>
                     </div>
+                    @if (carePlanError() && carePlanLoad() !== 'error') {
+                      <p class="font-sans text-caption text-alert">{{ carePlanError() }}</p>
+                    }
                   </div>
 
                   <!-- Referral -->
@@ -799,7 +866,9 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                       {{ transcribing() ? 'Stop' : 'Start' }} transcription
                     </button>
                   </div>
-                  @if (!aiConsent()) {
+                  @if (consentsError()) {
+                    <p class="mb-3 font-sans text-caption text-alert">{{ consentsError() }}</p>
+                  } @else if (!aiConsent()) {
                     <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
                       Live transcription needs the patient's AI‑transcription consent.
                     </p>
@@ -882,7 +951,7 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                         <button
                           type="button"
                           class="mt-3 flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/85 transition-colors hover:bg-white/10 disabled:opacity-50"
-                          [disabled]="noteFinalized()"
+                          [disabled]="!noteEditable()"
                           (click)="useDraftInNote()"
                         >
                           <sd-icon name="arrow-right" [size]="14" /> Use in SOAP note
@@ -891,6 +960,43 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                     }
                   </div>
                 }
+              }
+
+              <!-- Prescribing panel. Once opened it stays mounted for the rest of
+                   the call — hidden on the other tabs, kept while the portal
+                   session is signed out — so a half-written prescription is
+                   never thrown away by a tab switch or a re-sign-in. -->
+              @if (rxMounted() && rxPatientId(); as pid) {
+                <div [class.hidden]="notesTab() !== 'prescriptions'">
+                  @if (!portalSignedIn()) {
+                    <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                      <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                        <span>
+                          You are signed out of the doctor portal. Your prescription is kept here —
+                          sign in again in a new tab (this call keeps going), then come back to save or send it.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                        (click)="openPortalSignIn()"
+                      >
+                        <sd-icon name="external-link" [size]="14" /> Sign in again
+                      </button>
+                    </div>
+                  }
+                  <!-- Light "paper" surface: the prescribing components use the portal palette. -->
+                  <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4">
+                    <doc-rx-panel
+                      [patientId]="pid"
+                      [appointmentId]="rxAppointmentId()"
+                      [compact]="true"
+                      [inCall]="true"
+                      [disabled]="!portalSignedIn()"
+                    />
+                  </div>
+                </div>
               }
             </div>
           </div>
@@ -915,6 +1021,11 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
             @if (docsLoading()) {
               <div class="flex flex-col gap-2">
                 @for (i of [1, 2]; track i) { <div class="sd-shimmer h-12 rounded-2xl bg-white/[0.04]"></div> }
+              </div>
+            } @else if (docsError()) {
+              <div class="flex flex-col items-center gap-2 py-6 text-center">
+                <sd-icon name="wifi-off" [size]="26" class="text-alert" />
+                <p class="font-sans text-caption text-alert">{{ docsError() }}</p>
               </div>
             } @else if (visibleDocs().length) {
               <ul class="flex flex-col gap-2">
@@ -943,6 +1054,24 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
                 <sd-icon name="clipboard-list" [size]="26" class="text-white/30" />
                 <p class="font-sans text-caption text-white/40">{{ docsEmptyLabel() }}</p>
               </div>
+            }
+            @if (docOpenError()) {
+              <p class="mt-3 flex items-start gap-1.5 font-sans text-caption text-alert" role="alert">
+                <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" /> {{ docOpenError() }}
+              </p>
+            }
+            @if (docLink(); as l) {
+              <!-- The browser blocked the new tab; never open it here (that would end the call). -->
+              <p class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl bg-white/[0.04] px-3 py-2 font-sans text-caption text-white/70" role="status">
+                <span>Your browser blocked the new tab.</span>
+                <a
+                  class="inline-flex items-center gap-1 font-semibold text-frost underline"
+                  [href]="l.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  (click)="clearDocLinkSoon()"
+                >Open {{ l.title }} <sd-icon name="external-link" [size]="12" /></a>
+              </p>
             }
           </div>
 
@@ -979,21 +1108,45 @@ type RecordsTab = 'documents' | 'imaging' | 'labs';
               </li>
             </ul>
             <div class="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
-              <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/40'" />
-              <span class="font-sans text-caption text-white/60">
-                Recording consent:
-                <span [class]="recordingConsent() ? 'text-success' : 'text-white/50'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
-              </span>
+              @if (consentsError()) {
+                <sd-icon name="shield-check" [size]="15" class="shrink-0 text-alert" />
+                <span class="font-sans text-caption text-alert">{{ consentsError() }}</span>
+              } @else {
+                <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/40'" />
+                <span class="font-sans text-caption text-white/60">
+                  Recording consent:
+                  <span [class]="recordingConsent() ? 'text-success' : 'text-white/50'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
+                </span>
+              }
             </div>
           </div>
         </aside>
       </div>
     </div>
+
+    <!-- In .sd-rx-zone so the light theme keeps the dialog's white button text. -->
+    <div class="sd-rx-zone">
+      <sd-confirm-dialog
+        [open]="leavePrompt.open()"
+        title="Leave with an unsaved prescription?"
+        message="Your latest changes to the prescription have not been saved. Leaving now loses them."
+        confirmLabel="Leave without saving"
+        cancelLabel="Keep editing"
+        icon="triangle-alert"
+        [danger]="true"
+        (confirm)="leavePrompt.answer(true)"
+        (cancel)="leavePrompt.answer(false)"
+      />
+    </div>
   `,
 })
-export class DoctorCall implements AfterViewInit, OnDestroy {
+export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly auth = inject(StaffAuthService);
+  private readonly doctorApi = inject(DoctorApi);
+  private readonly session = inject(SessionTimeoutService);
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
   private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
@@ -1017,16 +1170,58 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   // Clinical-note persistence state.
   protected readonly noteStatus = signal<'draft' | 'finalized'>('draft');
   protected readonly noteSaved = signal('');
+  /** The real reason a note load/save/finalize failed (shown under the header). */
+  protected readonly noteError = signal('');
   protected readonly finalizing = signal(false);
+  /**
+   * Whether the saved note has loaded. Until it has, the editor is read-only
+   * and nothing is saved: a blank editor would auto-save (or finalize) over
+   * the real note — e.g. after a rejoin whose first load hit a network blip.
+   */
+  protected readonly noteLoad = signal<LoadState>('idle');
   protected readonly noteFinalized = computed(() => this.noteStatus() === 'finalized');
   protected readonly canDocument = computed(() => this.doctorToken() !== null);
+  protected readonly noteEditable = computed(
+    () => this.noteLoad() === 'ready' && !this.noteFinalized() && this.canDocument(),
+  );
 
-  // ePrescription builder + issued list.
-  protected readonly rxItems = signal<PrescriptionItem[]>([this.emptyRx()]);
-  protected readonly rxNotes = signal('');
-  protected readonly rxBusy = signal(false);
-  protected readonly rxError = signal('');
-  protected readonly issuedRx = signal<PrescriptionDto[]>([]);
+  // ePrescribing (GVM-RX-02) — the shared <doc-rx-panel>, over the portal
+  // session (DoctorApi + staffAuthInterceptor, which refreshes tokens).
+  /** Bumped when the window regains focus, so the portal sign-in is re-checked. */
+  private readonly authCheck = signal(0);
+  /**
+   * Signed in to the doctor portal in this browser? The cockpit can be opened
+   * from an emailed join link without one. StaffAuthService mirrors a sign-in
+   * made in another tab; the focus tick re-evaluates on return to this tab.
+   */
+  protected readonly portalSignedIn = computed(() => {
+    this.authCheck();
+    return this.auth.isAuthenticated();
+  });
+  /** Patient id looked up via the portal when the join payload lacks one. */
+  private readonly lookedUpPatientId = signal<string | null>(null);
+  private patientLookup: 'idle' | 'loading' | 'done' = 'idle';
+  protected readonly rxPatientError = signal('');
+  protected readonly rxPatientId = computed(
+    () => this.info()?.patient?.id || this.lookedUpPatientId(),
+  );
+  protected readonly rxAppointmentId = computed(() => this.info()?.appointment_id ?? null);
+  /** Latches true once the prescribing panel has been shown (see `rxMounted`). */
+  private readonly rxKeep = signal(false);
+  /**
+   * The prescribing panel is mounted: from the first time the doctor opens the
+   * Prescriptions tab while signed in, until the call ends. It is then only
+   * hidden — never destroyed — by tab switches or a portal sign-out, so a
+   * half-written prescription survives both.
+   */
+  protected readonly rxMounted = computed(
+    () =>
+      this.rxKeep() ||
+      (this.notesTab() === 'prescriptions' && this.portalSignedIn() && !!this.rxPatientId()),
+  );
+  private readonly rxPanel = viewChild(RxPanel);
+  /** "Leave with an unsaved prescription?" (End call, Back, browser Back). */
+  protected readonly leavePrompt = new LeavePrompt();
 
   // Lab orders builder + list.
   protected readonly labTests = signal('');
@@ -1040,6 +1235,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   protected readonly carePlanItems = signal<string[]>(['']);
   protected readonly carePlanBusy = signal(false);
   protected readonly carePlanSaved = signal('');
+  protected readonly carePlanError = signal('');
+  /** Until the published plan has loaded, "Save & publish" could replace it — stay read-only. */
+  protected readonly carePlanLoad = signal<LoadState>('idle');
+  protected readonly carePlanEditable = computed(
+    () => this.carePlanLoad() === 'ready' && this.canDocument(),
+  );
 
   // Referral form + list.
   protected readonly refType = signal<ReferralDto['referral_type']>('specialist');
@@ -1063,9 +1264,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   // The patient's uploaded medical documents (reviewed in-call, right panel).
   protected readonly patientDocs = signal<MedicalDocumentDto[]>([]);
   protected readonly docsLoading = signal(false);
+  protected readonly docsError = signal('');
+  /** Why the last document could not be opened (when there is no tab to say it in). */
+  protected readonly docOpenError = signal('');
+  /** A document whose new tab was blocked — offered as a link, never opened in this tab. */
+  protected readonly docLink = signal<{ url: string; title: string } | null>(null);
+  private docLinkTimer?: ReturnType<typeof setTimeout>;
 
   // Patient consent decisions (read-only for the doctor).
   protected readonly consents = signal<ConsentDto[]>([]);
+  protected readonly consentsError = signal('');
   protected readonly recordingConsent = computed(
     () => this.consents().find((c) => c.type === 'recording')?.granted ?? false,
   );
@@ -1231,9 +1439,69 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
     'laboratory_test_report', 'blood_test_report', 'urine_test_report', 'pathology_report', 'histopathology_report', 'biopsy_report', 'genetic_test_report',
   ]);
 
+  constructor() {
+    // The idle timeout is paused while in the call; always resume it on exit.
+    this.destroyRef.onDestroy(() => {
+      this.session.release('call');
+      this.leavePrompt.answer(false);
+      this.clearDocLink();
+    });
+
+    // Keep the prescribing panel mounted once it has been shown.
+    effect(() => {
+      if (this.rxMounted() && !untracked(this.rxKeep)) untracked(() => this.rxKeep.set(true));
+    });
+
+    // The doctor-role join payload carries the patient id; if it ever doesn't,
+    // find it from the portal schedule once the doctor is signed in.
+    effect(() => {
+      const info = this.info();
+      if (!info || info.patient?.id || !this.portalSignedIn()) return;
+      untracked(() => this.lookUpPatient(info.appointment_id));
+    });
+  }
+
   ngAfterViewInit(): void {
     window.addEventListener('beforeunload', this.onBeforeUnload);
     void this.start();
+  }
+
+  /** Window regained focus — the doctor may have just signed in in another tab. */
+  protected recheckPortalSignIn(): void {
+    this.authCheck.update((n) => n + 1);
+  }
+
+  /** Open the portal sign-in in a NEW tab, so the live call is not interrupted. */
+  protected openPortalSignIn(): void {
+    window.open('/auth/login', '_blank', 'noopener');
+  }
+
+  protected retryRxPatient(): void {
+    const info = this.info();
+    if (!info) return;
+    this.patientLookup = 'idle';
+    this.lookUpPatient(info.appointment_id);
+  }
+
+  private lookUpPatient(appointmentId: string): void {
+    if (this.patientLookup !== 'idle') return;
+    this.patientLookup = 'loading';
+    this.rxPatientError.set('');
+    this.doctorApi
+      .schedule()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.patientLookup = 'done';
+          const found = res.data.appointments.find((a) => a.id === appointmentId);
+          if (found?.patient_id) this.lookedUpPatientId.set(found.patient_id);
+          else this.rxPatientError.set('Could not find the patient for this consultation in your schedule.');
+        },
+        error: (err: unknown) => {
+          this.patientLookup = 'done';
+          this.rxPatientError.set(apiErrorMessage(err, 'Could not load the patient for this consultation.'));
+        },
+      });
   }
 
   private async start(): Promise<void> {
@@ -1243,7 +1511,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.info.set(data);
       this.appointmentId = data.appointment_id;
       void this.loadNote();
-      void this.loadPrescriptions();
       void this.loadLabOrders();
       void this.loadCarePlan();
       void this.loadReferrals();
@@ -1297,20 +1564,22 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       await client.publish([mic, cam]);
 
       this.status.set('in-call');
+      // Nobody touches the keyboard for long stretches in a consultation —
+      // pause the portal idle timeout until the doctor leaves (see teardown).
+      if (!this.left) this.session.hold('call');
       this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
       this.startMetricsReport();
-    } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'This join link is invalid or has expired.');
+    } catch (err: unknown) {
+      this.errorMessage.set(apiErrorMessage(err, 'This join link is invalid or has expired.'));
       this.status.set('error');
     }
   }
 
   /** The join endpoint is public — the signed token in the path is the credential. */
   private async resolveJoin(): Promise<JoinInfoDto> {
-    const res = await fetch(`${this.base}/api/public/call/${encodeURIComponent(this.token)}`);
+    const res = await rawFetch(`${this.base}/api/public/call/${encodeURIComponent(this.token)}`);
     const body = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(body?.message ?? 'This join link is invalid or has expired.');
+    if (!res.ok) throw fetchError(res.status, body);
     return body.data as JoinInfoDto;
   }
 
@@ -1395,47 +1664,96 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   private async loadPatientDocuments(): Promise<void> {
     if (!this.appointmentId || !this.doctorToken()) return;
     this.docsLoading.set(true);
+    this.docsError.set('');
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/patient-documents`,
         { method: 'GET' },
       );
       this.patientDocs.set(Array.isArray(body.data) ? body.data : []);
-    } catch {
-      /* leave empty */
+    } catch (err: unknown) {
+      this.docsError.set(apiErrorMessage(err, "Could not load the patient's documents."));
     } finally {
       this.docsLoading.set(false);
     }
   }
 
-  /** Open a patient document in a new tab (authenticated blob — no public URL). */
+  /**
+   * Open a patient document in a new tab (authenticated blob — no public URL).
+   * Never opens it in THIS tab: leaving the cockpit would end the call. If the
+   * browser blocks (or the doctor closes) the new tab, a link is offered here.
+   */
   protected openPatientDoc(doc: MedicalDocumentDto): void {
-    const tab = window.open('', '_blank');
+    this.docOpenError.set('');
+    this.clearDocLink();
+    let tab: Window | null = null;
+    try {
+      tab = window.open('', '_blank');
+    } catch {
+      tab = null;
+    }
     if (tab) {
+      tab.opener = null;
       tab.document.write(
         '<!doctype html><meta charset="utf-8"><title>Opening…</title>' +
           '<body style="margin:0;font-family:sans-serif;color:#546e7a;display:flex;align-items:center;justify-content:center;height:100vh">Opening document…</body>',
       );
     }
     const token = this.doctorToken();
-    fetch(
+    rawFetch(
       `${this.base}/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/patient-documents/${encodeURIComponent(doc.id)}/file`,
       { headers: token ? { Authorization: `Bearer ${token}` } : {} },
     )
-      .then((res) => {
-        if (!res.ok) throw new Error('Could not open the document');
+      .then(async (res) => {
+        if (!res.ok) throw fetchError(res.status, await res.json().catch(() => null));
         return res.blob();
       })
       .then((blob) => {
         const url = URL.createObjectURL(blob);
-        if (tab) tab.location.href = url;
-        else window.location.href = url;
-        setTimeout(() => URL.revokeObjectURL(url), 120_000);
+        if (tab && !tab.closed) {
+          tab.location.href = url;
+          setTimeout(() => URL.revokeObjectURL(url), 120_000);
+        } else {
+          this.showDocLink(url, doc.title);
+        }
       })
-      .catch(() => {
-        if (tab) tab.document.body.innerHTML =
-          '<div style="padding:24px;font-family:sans-serif;color:#c62828">Could not open the document.</div>';
+      .catch((err: unknown) => {
+        const msg = apiErrorMessage(err, 'Could not open the document.');
+        if (!tab || tab.closed) {
+          this.docOpenError.set(msg);
+          return;
+        }
+        // textContent (never innerHTML): the message comes from the API response.
+        const box = tab.document.createElement('div');
+        box.setAttribute('style', 'padding:24px;font-family:sans-serif;color:#c62828');
+        box.textContent = msg;
+        tab.document.body.replaceChildren(box);
       });
+  }
+
+  /** Offer a blocked document as a link for two minutes (then the blob URL is freed). */
+  private showDocLink(url: string, title: string): void {
+    this.clearDocLink();
+    this.docLink.set({ url, title });
+    this.docLinkTimer = setTimeout(() => this.clearDocLink(), 120_000);
+  }
+
+  /** The doctor opened the link: free it shortly after the new tab has loaded it. */
+  protected clearDocLinkSoon(): void {
+    const link = this.docLink();
+    if (!link) return;
+    if (this.docLinkTimer) clearTimeout(this.docLinkTimer);
+    this.docLinkTimer = setTimeout(() => this.clearDocLink(), 30_000);
+  }
+
+  private clearDocLink(): void {
+    if (this.docLinkTimer) clearTimeout(this.docLinkTimer);
+    this.docLinkTimer = undefined;
+    const link = this.docLink();
+    if (link) {
+      URL.revokeObjectURL(link.url);
+      this.docLink.set(null);
+    }
   }
 
   // ---- Medical certificate ----
@@ -1483,8 +1801,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.certFrom.set('');
       this.certTo.set('');
       await this.loadCertificates();
-    } catch (err) {
-      this.certError.set((err as { message?: string })?.message ?? 'Could not issue certificate.');
+    } catch (err: unknown) {
+      this.certError.set(apiErrorMessage(err, 'Could not issue certificate.'));
     } finally {
       this.certBusy.set(false);
     }
@@ -1501,7 +1819,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
 
   private async noteFetch(path: string, init: RequestInit): Promise<any> {
     const token = this.doctorToken();
-    const res = await fetch(`${this.base}${path}`, {
+    const res = await rawFetch(`${this.base}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
@@ -1509,7 +1827,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       },
     });
     const body = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(body?.message ?? 'Request failed');
+    // Carries the status + the API body's message/errors for `apiErrorMessage`.
+    if (!res.ok) throw fetchError(res.status, body);
     return body;
   }
 
@@ -1523,47 +1842,61 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   }
 
   private async loadNote(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.doctorToken() || this.noteLoad() === 'loading') return;
+    this.noteLoad.set('loading');
+    this.noteError.set('');
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note`,
         { method: 'GET' },
       );
-      const n = body.data;
+      const n = body?.data ?? {};
       this.subjective.set(n.subjective ?? '');
       this.objective.set(n.objective ?? '');
       this.assessment.set(n.assessment ?? '');
       this.plan.set(n.plan ?? '');
       this.noteStatus.set(n.status === 'finalized' ? 'finalized' : 'draft');
       if (n.updated_at) this.noteSaved.set('Saved');
-    } catch {
-      /* fresh editor on failure */
+      this.noteLoad.set('ready');
+    } catch (err: unknown) {
+      // The editor stays read-only (and nothing is saved) until a retry
+      // succeeds — otherwise auto-save would overwrite the real note.
+      this.noteError.set(apiErrorMessage(err, 'Could not load the saved note.'));
+      this.noteLoad.set('error');
     }
   }
 
-  /** Debounced auto-save while the note is still a draft. */
+  protected retryLoadNote(): void {
+    void this.loadNote();
+  }
+
+  /** Debounced auto-save while the note is still a draft (only once it has loaded). */
   protected scheduleSave(): void {
-    if (this.noteFinalized() || !this.doctorToken()) return;
+    if (!this.noteEditable() || !this.doctorToken()) return;
     this.noteSaved.set('Saving…');
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     this.noteSaveTimer = setTimeout(() => void this.saveNote(), 1200);
   }
 
   private async saveNote(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.doctorToken() || this.noteLoad() !== 'ready') return;
     try {
       await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note`,
         { method: 'PUT', body: JSON.stringify(this.notePayload()) },
       );
       this.noteSaved.set('Saved');
-    } catch {
+      this.noteError.set('');
+    } catch (err: unknown) {
       this.noteSaved.set('Save failed — retry');
+      this.noteError.set(apiErrorMessage(err, 'Could not save the note.'));
     }
   }
 
   protected async finalizeNote(): Promise<void> {
     if (!this.appointmentId || !this.doctorToken() || this.finalizing()) return;
+    // Never lock in a note that may be blank only because it failed to load.
+    if (this.noteLoad() !== 'ready') return;
     this.finalizing.set(true);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     try {
@@ -1573,84 +1906,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       );
       this.noteStatus.set(body.data?.status === 'finalized' ? 'finalized' : 'draft');
       this.noteSaved.set('Finalized & locked');
-    } catch {
+      this.noteError.set('');
+    } catch (err: unknown) {
       this.noteSaved.set('Could not finalize — retry');
+      this.noteError.set(apiErrorMessage(err, 'Could not finalize the note.'));
     } finally {
       this.finalizing.set(false);
     }
-  }
-
-  // ---- ePrescription ----
-  private emptyRx(): PrescriptionItem {
-    return {
-      medication: '',
-      strength: '',
-      dosage: '',
-      frequency: '',
-      duration: '',
-      quantity: '',
-      instructions: '',
-    };
-  }
-
-  protected addRxRow(): void {
-    this.rxItems.update((rows) => [...rows, this.emptyRx()]);
-  }
-
-  protected removeRxRow(index: number): void {
-    this.rxItems.update((rows) =>
-      rows.length <= 1 ? [this.emptyRx()] : rows.filter((_, i) => i !== index),
-    );
-  }
-
-  protected updateRx(index: number, field: keyof PrescriptionItem, value: string): void {
-    this.rxItems.update((rows) =>
-      rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
-    );
-  }
-
-  private async loadPrescriptions(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
-    try {
-      const body = await this.noteFetch(
-        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/prescriptions`,
-        { method: 'GET' },
-      );
-      this.issuedRx.set(Array.isArray(body.data) ? body.data : []);
-    } catch {
-      /* leave empty */
-    }
-  }
-
-  protected async issueRx(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.rxBusy()) return;
-    const items = this.rxItems().filter((r) => r.medication.trim() !== '');
-    if (items.length === 0) {
-      this.rxError.set('Add at least one medication.');
-      return;
-    }
-    this.rxError.set('');
-    this.rxBusy.set(true);
-    try {
-      await this.noteFetch(
-        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/prescriptions`,
-        { method: 'POST', body: JSON.stringify({ items, notes: this.rxNotes() }) },
-      );
-      this.rxItems.set([this.emptyRx()]);
-      this.rxNotes.set('');
-      await this.loadPrescriptions();
-      this.notesTab.set('prescriptions');
-    } catch (err) {
-      this.rxError.set((err as { message?: string })?.message ?? 'Could not issue prescription.');
-    } finally {
-      this.rxBusy.set(false);
-    }
-  }
-
-  protected rxSummary(p: PrescriptionDto): string {
-    return p.items
-      .map((i) => [i.medication, i.strength, i.dosage].filter(Boolean).join(' '))
-      .join(', ');
   }
 
   // ---- Lab orders ----
@@ -1695,8 +1957,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.labInstructions.set('');
       this.labPriority.set('routine');
       await this.loadLabOrders();
-    } catch (err) {
-      this.labError.set((err as { message?: string })?.message ?? 'Could not create order.');
+    } catch (err: unknown) {
+      this.labError.set(apiErrorMessage(err, 'Could not create order.'));
     } finally {
       this.labBusy.set(false);
     }
@@ -1704,47 +1966,63 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
 
   // ---- Care plan ----
   private async loadCarePlan(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.doctorToken() || this.carePlanLoad() === 'loading') return;
+    this.carePlanLoad.set('loading');
+    this.carePlanError.set('');
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/care-plan`,
         { method: 'GET' },
       );
-      const items: string[] = Array.isArray(body.data?.items) ? body.data.items : [];
+      const items: string[] = Array.isArray(body?.data?.items) ? body.data.items : [];
       this.carePlanItems.set(items.length ? items : ['']);
-      if (body.data?.published) this.carePlanSaved.set('Published');
-    } catch {
-      /* leave empty */
+      if (body?.data?.published) this.carePlanSaved.set('Published');
+      this.carePlanLoad.set('ready');
+    } catch (err: unknown) {
+      // Not silent, and read-only until a retry succeeds: an empty editor here
+      // would let "Save & publish" overwrite the real plan.
+      this.carePlanError.set(apiErrorMessage(err, 'Could not load the care plan.'));
+      this.carePlanLoad.set('error');
     }
   }
 
+  protected retryLoadCarePlan(): void {
+    void this.loadCarePlan();
+  }
+
   protected addCareItem(): void {
+    if (!this.carePlanEditable()) return;
     this.carePlanItems.update((rows) => [...rows, '']);
   }
 
   protected removeCareItem(index: number): void {
+    if (!this.carePlanEditable()) return;
     this.carePlanItems.update((rows) =>
       rows.length <= 1 ? [''] : rows.filter((_, i) => i !== index),
     );
   }
 
   protected updateCareItem(index: number, value: string): void {
+    if (!this.carePlanEditable()) return;
     this.carePlanItems.update((rows) => rows.map((r, i) => (i === index ? value : r)));
   }
 
   protected async saveCarePlan(): Promise<void> {
     if (!this.appointmentId || !this.doctorToken() || this.carePlanBusy()) return;
+    if (this.carePlanLoad() !== 'ready') return;
     const items = this.carePlanItems().map((s) => s.trim()).filter(Boolean);
     this.carePlanBusy.set(true);
     this.carePlanSaved.set('Saving…');
+    this.carePlanError.set('');
     try {
       await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/care-plan`,
         { method: 'PUT', body: JSON.stringify({ items }) },
       );
       this.carePlanSaved.set('Published to patient');
-    } catch {
+    } catch (err: unknown) {
       this.carePlanSaved.set('Could not save — retry');
+      this.carePlanError.set(apiErrorMessage(err, 'Could not publish the care plan.'));
     } finally {
       this.carePlanBusy.set(false);
     }
@@ -1789,8 +2067,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       this.refReason.set('');
       this.refPriority.set('routine');
       await this.loadReferrals();
-    } catch (err) {
-      this.refError.set((err as { message?: string })?.message ?? 'Could not create referral.');
+    } catch (err: unknown) {
+      this.refError.set(apiErrorMessage(err, 'Could not create referral.'));
     } finally {
       this.refBusy.set(false);
     }
@@ -1805,8 +2083,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
         { method: 'GET' },
       );
       this.consents.set(Array.isArray(body.data) ? body.data : []);
-    } catch {
-      /* leave empty */
+    } catch (err: unknown) {
+      // Not silent: an empty list would read as "consent not granted" and gate recording/AI.
+      this.consentsError.set(apiErrorMessage(err, "Could not load the patient's consent decisions."));
     }
   }
 
@@ -1836,16 +2115,32 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
         { method: 'POST' },
       );
       this.recordingActive.set(!this.recordingActive());
-    } catch (err) {
-      this.recordingError.set((err as { message?: string })?.message ?? 'Recording failed.');
+    } catch (err: unknown) {
+      this.recordingError.set(apiErrorMessage(err, 'Recording failed.'));
     } finally {
       this.recordingBusy.set(false);
     }
   }
 
+  /** End call / Back to schedule — asks first if a prescription is half-written. */
   protected async leave(): Promise<void> {
+    if (!this.left && !(await this.confirmDiscardPrescription())) return;
     await this.teardown();
     void this.router.navigate(['/']);
+  }
+
+  /** Route guard hook (e.g. the browser Back button) — same question as leave(). */
+  canLeave(): boolean | Promise<boolean> {
+    return this.left ? true : this.confirmDiscardPrescription();
+  }
+
+  /**
+   * True when it is fine to destroy the prescribing panel: nothing unsaved, or
+   * the doctor chose to leave anyway. Asked with the cockpit's own dialog, as
+   * the panel itself may be hidden behind another tab.
+   */
+  private confirmDiscardPrescription(): boolean | Promise<boolean> {
+    return this.rxPanel()?.hasUnsavedChanges() ? this.leavePrompt.ask() : true;
   }
 
   /** Open the patient's full record in a NEW tab — without leaving the live call. */
@@ -1923,7 +2218,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
       return;
     }
     if (!this.aiConsent()) {
-      this.copilotError.set('The patient has not granted AI-transcription consent.');
+      this.copilotError.set(this.consentsError() || 'The patient has not granted AI-transcription consent.');
       return;
     }
     if (!this.speechSupported()) {
@@ -2001,8 +2296,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
         { method: 'POST' },
       );
       this.copilotDraft.set(body.data);
-    } catch (err) {
-      this.copilotError.set((err as { message?: string })?.message ?? 'Could not generate a draft.');
+    } catch (err: unknown) {
+      this.copilotError.set(apiErrorMessage(err, 'Could not generate a draft.'));
     } finally {
       this.copilotBusy.set(false);
     }
@@ -2011,7 +2306,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
   /** Carry the AI draft into the SOAP editor for the clinician to review + finalize. */
   protected useDraftInNote(): void {
     const d = this.copilotDraft();
-    if (!d || this.noteFinalized()) return;
+    // Only into a loaded, editable note — never over one that failed to load.
+    if (!d || !this.noteEditable()) return;
     if (d.subjective) this.subjective.set(d.subjective);
     if (d.objective) this.objective.set(d.objective);
     if (d.assessment) this.assessment.set(d.assessment);
@@ -2022,6 +2318,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy {
 
   private async teardown(): Promise<void> {
     this.left = true;
+    this.session.release('call');
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     if (this.timer) clearInterval(this.timer);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);

@@ -1,6 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AuthService } from '@supadoc/auth';
+import { AuthService, consumeSessionNotice } from '@supadoc/auth';
 import { IconComponent } from '@supadoc/ui';
 
 /** Login entry (Figma 345:4922): choose Google / Email / Phone to sign in. */
@@ -12,18 +17,49 @@ import { IconComponent } from '@supadoc/ui';
     <div class="flex flex-col gap-14">
       <h1 class="font-heading text-h1 text-abyss">👋 Welcome back</h1>
 
-      @if (pending) {
-        <div
-          class="flex items-center gap-3 rounded-card border border-cerulean/20 bg-frost/40 px-5 py-3"
-        >
-          <sd-icon name="info" [size]="20" class="shrink-0 text-cerulean" />
-          <p class="font-sans text-body-sm text-ink">
-            {{
-              bookingPending
-                ? 'Sign in or create an account to continue booking your consultation — your selection is saved.'
-                : 'Sign in to continue where you left off.'
-            }}
-          </p>
+      @if (notice() || pending) {
+        <div class="flex flex-col gap-3">
+          @if (notice(); as message) {
+            <!-- Why the previous session ended (idle, expired, another tab). -->
+            <div
+              role="status"
+              class="flex items-start gap-3 rounded-card border border-cerulean/20 bg-frost/40 py-3 pl-5 pr-3"
+            >
+              <sd-icon
+                name="lock"
+                [size]="20"
+                class="mt-0.5 shrink-0 text-cerulean"
+              />
+              <p class="min-w-0 flex-1 font-sans text-body-sm text-ink">
+                {{ message }}
+              </p>
+              <button
+                type="button"
+                class="shrink-0 rounded-field p-1 text-slate transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cerulean"
+                aria-label="Dismiss message"
+                (click)="dismissNotice()"
+              >
+                <sd-icon name="x" [size]="18" />
+              </button>
+            </div>
+          }
+
+          @if (pending) {
+            <div
+              class="flex items-center gap-3 rounded-card border border-cerulean/20 bg-frost/40 px-5 py-3"
+            >
+              <sd-icon name="info" [size]="20" class="shrink-0 text-cerulean" />
+              <p class="font-sans text-body-sm text-ink">
+                {{
+                  bookingPending
+                    ? 'Sign in or create an account to continue booking your consultation — your selection is saved.'
+                    : notice()
+                      ? 'We’ll take you back to where you left off once you sign in.'
+                      : 'Sign in to continue where you left off.'
+                }}
+              </p>
+            </div>
+          }
         </div>
       }
 
@@ -85,6 +121,18 @@ export class LoginMethod {
   protected readonly pending = this.redirect !== null;
   protected readonly bookingPending =
     this.redirect?.includes('/appointments/book') ?? false;
+
+  /**
+   * Why the last session ended (idle timeout, expiry, sign-out in another tab).
+   * Read once here — `/auth/login` is where every sign-out lands — and cleared
+   * by the library, so moving on to the email/phone step or refreshing won't
+   * repeat it.
+   */
+  protected readonly notice = signal<string | null>(consumeSessionNotice());
+
+  protected dismissNotice(): void {
+    this.notice.set(null);
+  }
 
   protected readonly methodClass =
     'flex w-full items-center justify-center gap-4 rounded-lg border border-ash bg-white px-6 py-2.5 text-body-lg text-abyss transition-colors hover:bg-glacier';

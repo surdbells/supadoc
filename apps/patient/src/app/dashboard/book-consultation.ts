@@ -75,7 +75,7 @@ import {
         <div class="flex flex-col items-center gap-4 py-16 text-center">
           <sd-icon name="wifi-off" [size]="36" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">
-            Could not load this specialist.
+            {{ loadError() }}
           </p>
           <a routerLink="/dashboard/specialists"
             ><sd-button size="sm">Back to specialists</sd-button></a
@@ -163,6 +163,8 @@ import {
               <div
                 class="sd-shimmer h-28 rounded-card"
               ></div>
+            } @else if (slotsError()) {
+              <sd-alert tone="error">{{ slotsError() }}</sd-alert>
             } @else if (days().length === 0) {
               <div
                 class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
@@ -654,7 +656,11 @@ import {
                 <span class="flex min-w-0 flex-col">
                   <span class="font-sans text-body-sm font-semibold text-ink">Pay from wallet</span>
                   <span class="font-sans text-caption text-slate">{{
-                    walletLoaded() ? 'Balance ' + fmt(walletBalance() ?? 0) : 'Balance …'
+                    walletError()
+                      ? 'Balance unavailable'
+                      : walletLoaded()
+                        ? 'Balance ' + fmt(walletBalance() ?? 0)
+                        : 'Balance …'
                   }}</span>
                 </span>
                 @if (payMethod() === 'wallet') {
@@ -672,7 +678,10 @@ import {
                 <sd-alert tone="error" class="mt-2 block">{{ fundError() }}</sd-alert>
               }
             } @else {
-              @if (walletLoaded() && !walletSufficient()) {
+              @if (walletError()) {
+                <sd-alert tone="error" class="mt-4 block">{{ walletError() }}</sd-alert>
+              }
+              @if (walletLoaded() && !walletError() && !walletSufficient()) {
                 <p class="mt-4 flex items-start gap-2 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert">
                   <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
                   Your wallet is short by {{ fmt(walletShortfall()) }}. Add funds
@@ -724,7 +733,7 @@ import {
                 {{ funding() || submitting() ? 'Processing…' : 'Pay ' + fmt(amount()) + ' with card' }}
                 @if (!funding() && !submitting()) { <sd-icon name="arrow-right" [size]="18" /> }
               </sd-button>
-            } @else if (walletLoaded() && !walletSufficient()) {
+            } @else if (walletLoaded() && !walletError() && !walletSufficient()) {
               <sd-button [disabled]="funding()" (click)="topUpAndBook()">
                 {{ funding() ? 'Processing…' : 'Fund ' + fmt(topUpValue()) + ' & book' }}
                 @if (!funding()) { <sd-icon name="arrow-right" [size]="18" /> }
@@ -770,12 +779,16 @@ export class BookConsultation implements OnInit {
   // Wallet — the consultation is paid from the patient's wallet balance.
   protected readonly walletBalance = signal<number | null>(null);
   protected readonly walletLoaded = signal(false);
+  /** Why the balance couldn't be loaded ('' when it loaded fine). */
+  protected readonly walletError = signal('');
 
   protected readonly specialist = signal<SpecialistDto | null>(null);
   protected readonly pricing = signal<PricingDto | null>(null);
-  protected readonly loadError = signal(false);
+  /** Why the specialist couldn't be loaded ('' when it loaded fine). */
+  protected readonly loadError = signal('');
   protected readonly days = signal<DayAvailability[]>([]);
   protected readonly loadingSlots = signal(true);
+  protected readonly slotsError = signal('');
   protected readonly selectedDate = signal('');
   protected readonly selectedTime = signal('');
 
@@ -815,7 +828,8 @@ export class BookConsultation implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => this.specialist.set(res.data),
-        error: () => this.loadError.set(true),
+        error: (err: unknown) =>
+          this.loadError.set(apiErrorMessage(err, 'Could not load this specialist.')),
       });
 
     this.specialistsApi
@@ -831,7 +845,10 @@ export class BookConsultation implements OnInit {
           this.walletBalance.set(Number(res.data.balance));
           this.walletLoaded.set(true);
         },
-        error: () => this.walletLoaded.set(true),
+        error: (err: unknown) => {
+          this.walletError.set(apiErrorMessage(err, 'Could not load your wallet balance.'));
+          this.walletLoaded.set(true);
+        },
       });
 
     this.specialistsApi
@@ -854,7 +871,10 @@ export class BookConsultation implements OnInit {
           }
           this.loadingSlots.set(false);
         },
-        error: () => this.loadingSlots.set(false),
+        error: (err: unknown) => {
+          this.slotsError.set(apiErrorMessage(err, 'Could not load available times.'));
+          this.loadingSlots.set(false);
+        },
       });
   }
 
@@ -1082,6 +1102,7 @@ export class BookConsultation implements OnInit {
       if (fields?.['wallet'] === 'insufficient_funds') {
         this.walletBalance.set(Math.max(0, this.amount() - 1));
         this.walletLoaded.set(true);
+        this.walletError.set('');
       }
       this.submitError.set(
         apiErrorMessage(err, 'Could not complete your booking. Please try again.'),
@@ -1172,6 +1193,7 @@ export class BookConsultation implements OnInit {
       const res = await firstValueFrom(this.wallet.wallet());
       this.walletBalance.set(Number(res.data.balance));
       this.walletLoaded.set(true);
+      this.walletError.set('');
       this.topUpAmount.set('');
       if (this.walletSufficient()) {
         this.funding.set(false);
@@ -1180,9 +1202,14 @@ export class BookConsultation implements OnInit {
         this.funding.set(false);
         this.fundError.set('Your wallet was funded but is still short for this booking. Add a little more.');
       }
-    } catch {
+    } catch (err) {
       this.funding.set(false);
-      this.fundError.set('We could not confirm the payment yet. If you were charged, your wallet will update shortly.');
+      this.fundError.set(
+        apiErrorMessage(
+          err,
+          'We could not confirm the payment yet. If you were charged, your wallet will update shortly.',
+        ),
+      );
     }
   }
 

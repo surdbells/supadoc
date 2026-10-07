@@ -77,6 +77,9 @@ final class ErrorHandler
             $e instanceof AuthenticationException       => [401, $e->getMessage(), []],
             $e instanceof EntityNotFoundException       => [404, $e->getMessage(), []],
             $e instanceof HttpNotFoundException         => [404, 'Not found', []],
+            // A business-rule violation (e.g. an illegal appointment transition):
+            // the message is written for people, so surface it instead of a 500.
+            $e instanceof \DomainException              => [409, $e->getMessage(), []],
             $e instanceof HttpMethodNotAllowedException => [405, 'Method not allowed', []],
             default                                     => [500, $e->getMessage(), []],
         };

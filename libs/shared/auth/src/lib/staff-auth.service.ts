@@ -1,8 +1,21 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { ApiService } from '@supadoc/data-access';
+import { ApiService, apiErrorMessage } from '@supadoc/data-access';
 import type { StaffLoginData, StaffUserDto } from '@supadoc/models';
 import { STAFF_AUTH_CONFIG } from './provide-staff-auth';
+import type { SessionAuth, SessionEndReason } from './session/session-auth';
+import {
+  consumeSessionNotice,
+  SESSION_END_MESSAGES,
+  setSessionNotice,
+} from './session/session-notice';
+import {
+  isDefinitiveAuthFailure,
+  clockOffsetFrom,
+  localExpiryMs,
+  readEndedMarker,
+  writeEndedMarker,
+} from './session/session-utils';
 
 const REDIRECT_KEY = 'videomed.staff.redirect';
 
@@ -11,9 +24,11 @@ const REDIRECT_KEY = 'videomed.staff.redirect';
  * (`POST /api/auth/login`, `GET /api/me`, `POST /api/auth/refresh`). Unlike the
  * customer `AuthService`, it captures the `user` payload so the app can gate nav
  * on roles/permissions. Token + user persist under the app's configured key.
+ * Implements {@link SessionAuth} for the shared idle-timeout watcher, and
+ * mirrors sign-in/out made in other tabs so every tab agrees.
  */
 @Injectable({ providedIn: 'root' })
-export class StaffAuthService {
+export class StaffAuthService implements SessionAuth {
   private readonly api = inject(ApiService);
   private readonly config = inject(STAFF_AUTH_CONFIG);
 
@@ -29,6 +44,17 @@ export class StaffAuthService {
     const u = this._user();
     return u ? `${u.first_name} ${u.last_name}`.trim() : '';
   });
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => this.onStorage(e));
+    }
+  }
+
+  /** Shared (cross-tab) last-activity timestamp for the idle timeout. */
+  get activityKey(): string {
+    return `${this.config.storageKey}.activity`;
+  }
 
   /** super_admin bypasses every permission check (mirrors the API RBAC). */
   hasPermission(permission: string): boolean {
@@ -118,21 +144,80 @@ export class StaffAuthService {
       );
       const access = res?.data?.access_token;
       if (!access) {
-        this.clear();
+        this.expire('expired');
         return false;
       }
       this._token.set(access);
       this.write(this.tokenKey, access);
+      this.write(this.clockKey, String(clockOffsetFrom(access)));
       return true;
-    } catch {
-      this.clear();
+    } catch (err) {
+      // Only a definitive rejection ends the session — offline / 5xx must not.
+      if (isDefinitiveAuthFailure(err)) {
+        this.expire('expired', apiErrorMessage(err, SESSION_END_MESSAGES.expired));
+      }
       return false;
     }
   }
 
-  /** No server logout endpoint exists; clear the local session. */
+  /**
+   * Sign out on purpose: clear the session here (and in other tabs) at once,
+   * then revoke it server-side in the background so a copied token dies too.
+   */
   logout(): void {
+    const refresh = this.read(this.refreshKey);
+    writeEndedMarker(this.endedKey, { reason: 'signed-out' });
     this.clear();
+    this.revokeOnServer(refresh);
+  }
+
+  /** {@inheritDoc SessionAuth.expire} */
+  expire(reason: SessionEndReason, message?: string): void {
+    if (this._token() === null && !this.hasRefreshToken()) return;
+    const refresh = this.read(this.refreshKey);
+    setSessionNotice(reason, message);
+    writeEndedMarker(this.endedKey, { reason, message });
+    this.clear();
+    this.revokeOnServer(refresh);
+  }
+
+  /** {@inheritDoc SessionAuth.keepAlive} — also refreshes roles/permissions. */
+  async keepAlive(): Promise<void> {
+    if (this.isAuthenticated()) await this.loadMe();
+  }
+
+  /** {@inheritDoc SessionAuth.sessionDeadline} */
+  sessionDeadline(): number | null {
+    // Token expiries are server time; translate to this device's clock.
+    const offset = Number(this.read(this.clockKey) ?? 0) || 0;
+    return localExpiryMs(this.read(this.refreshKey), offset) ?? localExpiryMs(this._token(), offset);
+  }
+
+  private revokeOnServer(refresh: string | null): void {
+    if (!refresh) return;
+    this.api
+      .post('api/auth/logout', { refresh_token: refresh })
+      .subscribe({ error: () => undefined });
+  }
+
+  /** Mirror a sign-in, token refresh or sign-out made in another tab. */
+  private onStorage(e: StorageEvent): void {
+    if (e.key !== null && e.key !== this.tokenKey) return;
+    const next = e.key === null ? null : e.newValue;
+    if (next === this._token()) return;
+    if (next === null) {
+      if (this._token() !== null) {
+        const marker = readEndedMarker(this.endedKey);
+        setSessionNotice(
+          marker && marker.reason !== 'signed-out' ? marker.reason : 'elsewhere',
+          marker?.message,
+        );
+      }
+      this._user.set(null);
+    } else {
+      this._user.set(this.readUser());
+    }
+    this._token.set(next);
   }
 
   // ----- redirect memory (shared across staff apps via sessionStorage) -----
@@ -167,11 +252,21 @@ export class StaffAuthService {
   private get userKey(): string {
     return `${this.config.storageKey}.user`;
   }
+  /** Device-clock minus server-clock (ms), measured when a token was issued. */
+  private get clockKey(): string {
+    return `${this.config.storageKey}.clock-offset`;
+  }
+  private get endedKey(): string {
+    return `${this.config.storageKey}.ended`;
+  }
 
   private store(access: string, refresh: string | null, user: StaffUserDto): void {
+    // A fresh sign-in supersedes any "you were signed out" note still pending.
+    consumeSessionNotice();
     this._token.set(access);
     this._user.set(user);
     this.write(this.tokenKey, access);
+    this.write(this.clockKey, String(clockOffsetFrom(access)));
     this.write(this.userKey, JSON.stringify(user));
     if (refresh !== null) this.write(this.refreshKey, refresh);
   }
@@ -179,7 +274,7 @@ export class StaffAuthService {
   private clear(): void {
     this._token.set(null);
     this._user.set(null);
-    for (const key of [this.tokenKey, this.refreshKey, this.userKey]) {
+    for (const key of [this.tokenKey, this.refreshKey, this.userKey, this.clockKey]) {
       try {
         localStorage.removeItem(key);
       } catch {

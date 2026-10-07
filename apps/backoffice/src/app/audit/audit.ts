@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MonitoringApi } from '@supadoc/data-access';
+import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type { AuditEventDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -59,11 +59,29 @@ import { IconComponent } from '@supadoc/ui';
                 <td class="px-4 py-3 text-slate">{{ when(a.created_at) }}</td>
               </tr>
             } @empty {
-              <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No audit events.' }}</td></tr>
+              <tr>
+                <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                  @if (loading()) {
+                    Loading…
+                  } @else if (loadError()) {
+                    <div class="flex flex-col items-center gap-3">
+                      <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                      <p>{{ loadError() }}</p>
+                      <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="apply()">Retry</button>
+                    </div>
+                  } @else {
+                    No audit events.
+                  }
+                </td>
+              </tr>
             }
           </tbody>
         </table>
       </div>
+
+      @if (loadError() && events().length > 0) {
+        <p class="text-center font-sans text-caption text-alert">{{ loadError() }}</p>
+      }
 
       @if (hasMore()) {
         <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">
@@ -79,6 +97,7 @@ export class AdminAudit implements OnInit {
 
   protected readonly events = signal<AuditEventDto[]>([]);
   protected readonly loading = signal(true);
+  protected readonly loadError = signal('');
   protected readonly hasMore = signal(false);
   protected readonly actionFilter = signal('');
   private page = 1;
@@ -100,6 +119,7 @@ export class AdminAudit implements OnInit {
 
   private fetch(): void {
     this.loading.set(true);
+    this.loadError.set('');
     const action = this.actionFilter().trim() || undefined;
     this.api
       .audit({ page: this.page, per_page: 40, action })
@@ -110,7 +130,11 @@ export class AdminAudit implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: (err: unknown) => {
+          if (this.page > 1) this.page -= 1;
+          this.loadError.set(apiErrorMessage(err, 'Could not load the audit log.'));
+          this.loading.set(false);
+        },
       });
   }
 

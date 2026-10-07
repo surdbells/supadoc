@@ -224,8 +224,8 @@ export class AdminSpecialists implements OnInit {
           this.specialists.set(res.data.map((s) => this.toRow(s)));
           this.loading.set(false);
         },
-        error: () => {
-          this.listError.set('Could not load specialists.');
+        error: (err: unknown) => {
+          this.listError.set(apiErrorMessage(err, 'Could not load specialists.'));
           this.loading.set(false);
         },
       });
@@ -279,7 +279,7 @@ export class AdminSpecialists implements OnInit {
             photo_url: d.photo_url ?? row.photo_url,
           });
         },
-        error: (err) => this.patch(id, { saving: false, error: apiErrorMessage(err, 'Could not save.') }),
+        error: (err: unknown) => this.patch(id, { saving: false, error: apiErrorMessage(err, 'Could not save.') }),
       });
   }
 
@@ -321,7 +321,7 @@ export class AdminSpecialists implements OnInit {
           this.creating.set(false);
           this.createOpen.set(false);
         },
-        error: (err) => {
+        error: (err: unknown) => {
           this.creating.set(false);
           this.createError.set(apiErrorMessage(err, 'Could not create the specialist.'));
         },

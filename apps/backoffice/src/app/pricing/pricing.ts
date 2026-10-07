@@ -25,6 +25,11 @@ import { IconComponent } from '@supadoc/ui';
 
       @if (loading()) {
         <div class="sd-shimmer h-48 rounded-card"></div>
+      } @else if (loadError()) {
+        <div class="flex max-w-md flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
+          <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
+        </div>
       } @else {
         <div class="flex max-w-md flex-col gap-4 rounded-card border border-cloud bg-white p-6">
           <label class="flex flex-col gap-1.5">
@@ -57,6 +62,7 @@ export class AdminPricing implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal(true);
+  protected readonly loadError = signal('');
   protected readonly saving = signal(false);
   protected readonly notice = signal('');
   protected readonly noticeOk = signal(false);
@@ -76,7 +82,12 @@ export class AdminPricing implements OnInit {
           this.platformFee.set(String(res.data.platform_fee ?? 0));
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: (err: unknown) => {
+          // Don't fall through to a form pre-filled with defaults — saving that
+          // would silently overwrite the real pricing.
+          this.loadError.set(apiErrorMessage(err, 'Could not load pricing settings.'));
+          this.loading.set(false);
+        },
       });
   }
 
@@ -99,7 +110,7 @@ export class AdminPricing implements OnInit {
           this.notice.set('Pricing updated.');
           this.saving.set(false);
         },
-        error: (err) => {
+        error: (err: unknown) => {
           this.noticeOk.set(false);
           this.notice.set(apiErrorMessage(err, 'Could not update pricing.'));
           this.saving.set(false);

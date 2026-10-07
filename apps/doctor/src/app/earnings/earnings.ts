@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { DoctorApi } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { EarningsSummaryDto, EarningsTxnDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -89,11 +89,23 @@ import { IconComponent } from '@supadoc/ui';
                     <td class="px-4 py-3 text-right font-semibold">{{ money(t.net) }}</td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loadingTxns() ? 'Loading…' : 'No completed consultations yet.' }}</td></tr>
+                  @if (txnError() && !loadingTxns()) {
+                    <tr>
+                      <td colspan="5" class="px-4 py-10">
+                        <div class="flex flex-col items-center gap-3 text-center">
+                          <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                          <p class="font-sans text-body-sm text-slate">{{ txnError() }}</p>
+                        </div>
+                      </td>
+                    </tr>
+                  } @else {
+                    <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loadingTxns() ? 'Loading…' : 'No completed consultations yet.' }}</td></tr>
+                  }
                 }
               </tbody>
             </table>
           </div>
+          @if (txnError() && txns().length > 0) { <p class="text-center font-sans text-caption text-alert">{{ txnError() }}</p> }
           @if (hasMore()) {
             <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loadingTxns()" (click)="loadMore()">
               {{ loadingTxns() ? 'Loading…' : 'Load more' }}
@@ -113,6 +125,7 @@ export class DoctorEarnings implements OnInit {
   protected readonly summary = signal<EarningsSummaryDto | null>(null);
   protected readonly txns = signal<EarningsTxnDto[]>([]);
   protected readonly loadingTxns = signal(true);
+  protected readonly txnError = signal('');
   protected readonly hasMore = signal(false);
   private page = 1;
 
@@ -127,8 +140,8 @@ export class DoctorEarnings implements OnInit {
           this.summary.set(res.data);
           this.loading.set(false);
         },
-        error: () => {
-          this.error.set('Could not load your earnings. Please try again.');
+        error: (err: unknown) => {
+          this.error.set(apiErrorMessage(err, 'Could not load your earnings. Please try again.'));
           this.loading.set(false);
         },
       });
@@ -142,6 +155,7 @@ export class DoctorEarnings implements OnInit {
 
   private fetchTxns(): void {
     this.loadingTxns.set(true);
+    this.txnError.set('');
     this.api
       .earningsTransactions({ page: this.page, per_page: 20 })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -151,7 +165,11 @@ export class DoctorEarnings implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loadingTxns.set(false);
         },
-        error: () => this.loadingTxns.set(false),
+        error: (err: unknown) => {
+          if (this.page > 1) this.page -= 1;
+          this.txnError.set(apiErrorMessage(err, 'Could not load your consultation earnings. Please try again.'));
+          this.loadingTxns.set(false);
+        },
       });
   }
 

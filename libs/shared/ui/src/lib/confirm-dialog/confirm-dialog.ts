@@ -77,5 +77,8 @@ export class ConfirmDialogComponent {
   readonly danger = input(false);
 
   readonly confirm = output<void>();
+  // `cancel` mirrors `confirm` and is the public API every caller binds to;
+  // it is a component output, never re-dispatched as a DOM event.
+  // eslint-disable-next-line @angular-eslint/no-output-native
   readonly cancel = output<void>();
 }

@@ -123,6 +123,20 @@ class Specialist
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $certifications = null;
 
+    /**
+     * Registration number with the Medical and Dental Council of Nigeria. Printed
+     * on prescriptions and shown on the public prescription check page.
+     */
+    #[ORM\Column(name: 'mdcn_number', type: 'string', length: 40, nullable: true)]
+    private ?string $mdcnNumber = null;
+
+    /**
+     * Storage key of the doctor's saved signature picture (encrypted at rest,
+     * outside the web root — see SignatureStore). Null when none is saved.
+     */
+    #[ORM\Column(name: 'signature_key', type: 'string', length: 120, nullable: true)]
+    private ?string $signatureKey = null;
+
     /** Default consultation length in minutes for generated slots (15/30/45/60). */
     #[ORM\Column(name: 'slot_minutes', type: 'integer', options: ['default' => 30])]
     private int $slotMinutes = 30;
@@ -327,6 +341,32 @@ class Specialist
         $this->certifications = $entries !== [] ? array_values($entries) : null;
     }
 
+    public function getMdcnNumber(): ?string
+    {
+        return $this->mdcnNumber;
+    }
+
+    public function setMdcnNumber(?string $number): void
+    {
+        $number           = $number !== null ? strtoupper(trim($number)) : null;
+        $this->mdcnNumber = $number !== '' ? $number : null;
+    }
+
+    public function getSignatureKey(): ?string
+    {
+        return $this->signatureKey;
+    }
+
+    public function setSignatureKey(?string $key): void
+    {
+        $this->signatureKey = $key;
+    }
+
+    public function getQualifications(): ?string
+    {
+        return $this->qualifications;
+    }
+
     public function getSlotMinutes(): int
     {
         return $this->slotMinutes > 0 ? $this->slotMinutes : 30;
@@ -378,6 +418,8 @@ class Specialist
             'phone'         => $this->phone,
             'date_of_birth' => $this->dateOfBirth?->format('Y-m-d'),
             'weekly_hours'  => $this->weeklyHours,
+            'mdcn_number'   => $this->mdcnNumber,
+            'has_signature' => $this->signatureKey !== null,
         ];
     }
 }

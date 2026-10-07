@@ -9,21 +9,38 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of, startWith, switchMap } from 'rxjs';
-import { AppointmentsApi, openClinicalDocument } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  AppointmentsApi,
+  openClinicalDocument,
+  openPendingTab,
+  PrescriptionsApi,
+} from '@supadoc/data-access';
 import type {
   AppointmentDto,
   ClinicalDocumentKind,
   ConsultationSummaryDto,
   LabOrderDto,
+  PrescriptionDto,
+  PrescriptionStatus,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
+/** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
 interface DocItem {
-  readonly kind: ClinicalDocumentKind;
+  readonly kind: Exclude<ClinicalDocumentKind, 'prescription'>;
   readonly id: string;
   readonly title: string;
   readonly meta: string;
 }
+
+/** Every prescription status reads as an icon AND a word — never colour alone. */
+const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+};
 
 const NAIRA = new Intl.NumberFormat('en-NG', {
   minimumFractionDigits: 2,
@@ -69,7 +86,7 @@ const STATUS_CLASS: Record<string, string> = {
             <span class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert"><sd-icon name="calendar-off" [size]="36" /></span>
             <div class="flex max-w-sm flex-col gap-2">
               <h2 class="font-heading text-h5 text-ink">Consultation not found</h2>
-              <p class="font-sans text-body-sm text-slate">This consultation doesn't exist or is no longer available.</p>
+              <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
             </div>
             <a routerLink="/dashboard/history" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white">Back to history</a>
           </div>
@@ -123,8 +140,49 @@ const STATUS_CLASS: Record<string, string> = {
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
                 <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="file-text" [size]="20" />Documents</h2>
-                @if (docs().length > 0 || labs().length > 0) {
+                @if (docsLoading()) {
+                  <div class="flex flex-col gap-2.5">
+                    <div class="h-14 animate-pulse rounded-field bg-cloud"></div>
+                    <div class="h-14 animate-pulse rounded-field bg-cloud"></div>
+                  </div>
+                } @else if (prescriptions().length > 0 || docs().length > 0 || labs().length > 0) {
                   <ul class="flex flex-col gap-2.5">
+                    @for (rx of prescriptions(); track rx.id) {
+                      <li class="flex flex-col gap-3 rounded-field border border-cloud p-3 sm:flex-row sm:items-center">
+                        <div class="flex min-w-0 flex-1 items-start gap-3">
+                          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal"><sd-icon name="pill" [size]="18" /></span>
+                          <span class="flex min-w-0 flex-col gap-1">
+                            <span class="flex flex-wrap items-center gap-2">
+                              <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
+                              <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="rxStatus(rx.status).cls">
+                                <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
+                              </span>
+                            </span>
+                            <span class="font-sans text-caption text-slate">
+                              {{ prescriberName(rx) }}@if (rx.valid_until) { · Valid until {{ shortDate(rx.valid_until) }} }
+                            </span>
+                          </span>
+                        </div>
+                        <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                            [disabled]="openingRx() === rx.id"
+                            [attr.aria-label]="'View prescription ' + rx.number"
+                            (click)="viewRx(rx)"
+                          >
+                            <sd-icon [name]="openingRx() === rx.id ? 'loader-circle' : 'eye'" [size]="14" [class.animate-spin]="openingRx() === rx.id" />View
+                          </button>
+                          <a
+                            [routerLink]="['/dashboard/prescriptions', rx.id]"
+                            class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:text-cerulean"
+                            [attr.aria-label]="'Details for prescription ' + rx.number"
+                          >
+                            Details<sd-icon name="chevron-right" [size]="14" />
+                          </a>
+                        </div>
+                      </li>
+                    }
                     @for (doc of docs(); track doc.kind + doc.id) {
                       <li class="flex items-center gap-3">
                         <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
@@ -144,8 +202,18 @@ const STATUS_CLASS: Record<string, string> = {
                       </li>
                     }
                   </ul>
-                } @else {
+                } @else if (!docsError()) {
                   <p class="font-sans text-body-sm text-slate">No documents were shared for this consultation.</p>
+                }
+                @if (docsError()) {
+                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ docsError() }}
+                  </p>
+                }
+                @if (rxError()) {
+                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxError() }}
+                  </p>
                 }
               </section>
 
@@ -169,11 +237,20 @@ const STATUS_CLASS: Record<string, string> = {
 export class HistoryDetails {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(AppointmentsApi);
+  private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly summary = signal<ConsultationSummaryDto | null>(null);
+  protected readonly prescriptions = signal<PrescriptionDto[]>([]);
   protected readonly docs = signal<DocItem[]>([]);
   protected readonly labs = signal<LabOrderDto[]>([]);
+  protected readonly docsLoading = signal(true);
+  /** A documents request failed — shown so a failure never reads as "no documents". */
+  protected readonly docsError = signal('');
+  /** Opening a prescription PDF failed. */
+  protected readonly rxError = signal('');
+  /** Id of the prescription whose PDF link is being fetched. */
+  protected readonly openingRx = signal('');
 
   private readonly result = toSignal(
     this.route.paramMap.pipe(
@@ -181,17 +258,27 @@ export class HistoryDetails {
       switchMap((id) => {
         if (id !== '') this.loadExtras(id);
         return this.api.getMine(id).pipe(
-          map((res) => ({ state: 'loaded' as const, appt: res.data })),
-          catchError(() => of({ state: 'error' as const, appt: null })),
-          startWith({ state: 'loading' as const, appt: null }),
+          map((res) => ({ state: 'loaded' as const, appt: res.data, error: '' })),
+          catchError((err: unknown) =>
+            of({
+              state: 'error' as const,
+              appt: null,
+              error: apiErrorMessage(
+                err,
+                "This consultation doesn't exist or is no longer available.",
+              ),
+            }),
+          ),
+          startWith({ state: 'loading' as const, appt: null, error: '' }),
         );
       }),
     ),
-    { initialValue: { state: 'loading' as const, appt: null } },
+    { initialValue: { state: 'loading' as const, appt: null, error: '' } },
   );
 
   protected readonly viewState = computed(() => this.result().state);
   protected readonly appt = computed<AppointmentDto | null>(() => this.result().appt);
+  protected readonly loadError = computed(() => this.result().error);
 
   private loadExtras(id: string): void {
     this.api
@@ -199,28 +286,27 @@ export class HistoryDetails {
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((res) => this.summary.set(res?.data ?? null));
 
+    this.docsLoading.set(true);
+    this.docsError.set('');
+    this.rxError.set('');
     forkJoin({
-      prescriptions: this.api.prescriptions(id).pipe(catchError(() => of(null))),
-      referrals: this.api.referrals(id).pipe(catchError(() => of(null))),
-      certificates: this.api.certificates(id).pipe(catchError(() => of(null))),
-      labOrders: this.api.labOrders(id).pipe(catchError(() => of(null))),
+      prescriptions: this.api.prescriptions(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your prescriptions')))),
+      referrals: this.api.referrals(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your referrals')))),
+      certificates: this.api.certificates(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your certificates')))),
+      labOrders: this.api.labOrders(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your lab orders')))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(({ prescriptions, referrals, certificates, labOrders }) => {
+        const failure = [prescriptions, referrals, certificates, labOrders].find(
+          (r): r is { failed: string } => 'failed' in r,
+        );
+        this.docsError.set(failure?.failed ?? '');
+        this.prescriptions.set('data' in prescriptions ? (prescriptions.data ?? []) : []);
         const docs: DocItem[] = [];
-        for (const rx of prescriptions?.data ?? []) {
-          const names = rx.items.map((i) => i.medication).filter(Boolean);
-          docs.push({
-            kind: 'prescription',
-            id: rx.id,
-            title: 'Prescription',
-            meta: names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : ''),
-          });
-        }
-        for (const r of referrals?.data ?? []) {
+        for (const r of 'data' in referrals ? (referrals.data ?? []) : []) {
           docs.push({ kind: 'referral', id: r.id, title: `Referral · ${r.target}`, meta: r.reason });
         }
-        for (const c of certificates?.data ?? []) {
+        for (const c of 'data' in certificates ? (certificates.data ?? []) : []) {
           docs.push({
             kind: 'certificate',
             id: c.id,
@@ -229,12 +315,59 @@ export class HistoryDetails {
           });
         }
         this.docs.set(docs);
-        this.labs.set(labOrders?.data ?? []);
+        this.labs.set('data' in labOrders ? (labOrders.data ?? []) : []);
+        this.docsLoading.set(false);
       });
+  }
+
+  /** A failed documents request, carrying the API's message. */
+  private failed(err: unknown, what: string): { failed: string } {
+    return { failed: apiErrorMessage(err, `Could not load ${what}. Please try again.`) };
   }
 
   protected openDoc(id: string, doc: DocItem): void {
     openClinicalDocument(this.api.document(id, doc.kind, doc.id));
+  }
+
+  /**
+   * Open the prescription PDF in a new tab. The tab is opened synchronously on
+   * the click (so popup blockers allow it), then pointed at the signed link.
+   */
+  protected viewRx(rx: PrescriptionDto): void {
+    if (this.openingRx()) return;
+    const pending = openPendingTab();
+    this.openingRx.set(rx.id);
+    this.rxError.set('');
+    this.prescriptionsApi
+      .link(rx.id, false)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          pending.go(this.prescriptionsApi.fileUrl(res.data));
+          this.openingRx.set('');
+        },
+        error: (err: unknown) => {
+          pending.fail();
+          this.openingRx.set('');
+          this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
+        },
+      });
+  }
+
+  protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
+    return RX_STATUS[status] ?? RX_STATUS.active;
+  }
+
+  protected prescriberName(rx: PrescriptionDto): string {
+    return rx.prescriber || rx.prescriber_details?.name || this.appt()?.specialist.name || 'Your doctor';
+  }
+
+  /** `YYYY-MM-DD` → "12 Oct 2026". */
+  protected shortDate(ymd: string): string {
+    const d = new Date(`${ymd.slice(0, 10)}T00:00:00`);
+    return isNaN(d.getTime())
+      ? ymd
+      : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
   }
 
   protected initials(name: string): string {

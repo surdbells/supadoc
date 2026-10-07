@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import type { TwoFactorChallenge } from '@supadoc/models';
 import { AlertComponent, ButtonComponent, InputComponent } from '@supadoc/ui';
 
@@ -186,8 +187,7 @@ export class SignInEmail {
       }
       await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Unable to log in. Please try again.');
+      this.errorMessage.set(apiErrorMessage(err, 'Unable to log in. Please try again.'));
     } finally {
       this.submitting.set(false);
     }
@@ -209,8 +209,7 @@ export class SignInEmail {
       );
       await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'That code is incorrect. Please try again.');
+      this.errorMessage.set(apiErrorMessage(err, 'That code is incorrect. Please try again.'));
     } finally {
       this.submitting.set(false);
     }

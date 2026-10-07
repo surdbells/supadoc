@@ -12,7 +12,11 @@ import type {
   CopilotDraftDto,
   CreateCertificateParams,
   CreateLabOrderParams,
-  CreatePrescriptionParams,
+  CancelPrescriptionResult,
+  ClinicalSummaryDto,
+  CreatePrescriptionInput,
+  DoctorSignatureDto,
+  DrugDto,
   CreateReferralParams,
   DoctorAppointmentDto,
   DoctorAvailabilityDto,
@@ -35,6 +39,12 @@ import type {
   PayoutAccountInput,
   PayoutDto,
   PrescriptionDto,
+  PrescriptionFormInput,
+  PrescriptionLinkDto,
+  PrescriptionOptionsDto,
+  PrescriptionStatus,
+  PrescriptionSummaryDto,
+  SendPrescriptionInput,
   ReviewDto,
   ReviewSummaryDto,
   RecordingDto,
@@ -326,22 +336,101 @@ export class DoctorApi {
     );
   }
 
-  // ----- Prescriptions -----
+  // ----- Prescriptions (GVM-RX-01/02) -----
 
+  /** GET .../appointments/{id}/prescriptions — this consultation's prescriptions (drafts included). */
   listPrescriptions(id: string): Observable<SuccessResponse<PrescriptionDto[]>> {
     return this.api.get<SuccessResponse<PrescriptionDto[]>>(
       `${this.base(id)}/prescriptions`,
     );
   }
 
-  createPrescription(
-    id: string,
-    params: CreatePrescriptionParams,
-  ): Observable<SuccessResponse<PrescriptionDto>> {
-    return this.api.post<SuccessResponse<PrescriptionDto>>(
-      `${this.base(id)}/prescriptions`,
-      params,
+  /** GET /api/doctor/drugs — search the RxNorm prescribable catalogue. */
+  searchDrugs(q: string, limit = 20): Observable<SuccessResponse<DrugDto[]>> {
+    return this.api.get<SuccessResponse<DrugDto[]>>('api/doctor/drugs', { q, limit });
+  }
+
+  /** GET /api/doctor/prescriptions/options — defaults, option lists, signature/MDCN status. */
+  prescriptionOptions(): Observable<SuccessResponse<PrescriptionOptionsDto>> {
+    return this.api.get<SuccessResponse<PrescriptionOptionsDto>>('api/doctor/prescriptions/options');
+  }
+
+  /** GET /api/doctor/prescriptions — all my prescriptions (paginated, filterable). */
+  allPrescriptions(params: {
+    status?: PrescriptionStatus;
+    patient_id?: string;
+    page?: number;
+    per_page?: number;
+  } = {}): Observable<PaginatedResponse<PrescriptionSummaryDto>> {
+    return this.api.get<PaginatedResponse<PrescriptionSummaryDto>>('api/doctor/prescriptions', params);
+  }
+
+  /** GET /api/doctor/prescriptions/{rxId} */
+  getPrescription(rxId: string): Observable<SuccessResponse<PrescriptionDto>> {
+    return this.api.get<SuccessResponse<PrescriptionDto>>(`api/doctor/prescriptions/${encodeURIComponent(rxId)}`);
+  }
+
+  /** POST /api/doctor/prescriptions — start a draft (consultation or standalone). */
+  createPrescription(input: CreatePrescriptionInput): Observable<SuccessResponse<PrescriptionDto>> {
+    return this.api.post<SuccessResponse<PrescriptionDto>>('api/doctor/prescriptions', input);
+  }
+
+  /** PUT /api/doctor/prescriptions/{rxId} — save the whole draft form. */
+  updatePrescription(rxId: string, form: PrescriptionFormInput): Observable<SuccessResponse<PrescriptionDto>> {
+    return this.api.put<SuccessResponse<PrescriptionDto>>(`api/doctor/prescriptions/${encodeURIComponent(rxId)}`, form);
+  }
+
+  /** DELETE /api/doctor/prescriptions/{rxId} — discard a draft. */
+  deletePrescription(rxId: string): Observable<SuccessResponse<null>> {
+    return this.api.delete<SuccessResponse<null>>(`api/doctor/prescriptions/${encodeURIComponent(rxId)}`);
+  }
+
+  /** POST .../{rxId}/send — checklist + signature; locks and sends to the patient. */
+  sendPrescription(rxId: string, input: SendPrescriptionInput): Observable<SuccessResponse<PrescriptionDto>> {
+    return this.api.post<SuccessResponse<PrescriptionDto>>(`api/doctor/prescriptions/${encodeURIComponent(rxId)}/send`, input);
+  }
+
+  /** POST .../{rxId}/cancel — cancel an active prescription, optionally starting a replacement draft. */
+  cancelPrescription(rxId: string, reason: string, replace: boolean): Observable<SuccessResponse<CancelPrescriptionResult>> {
+    return this.api.post<SuccessResponse<CancelPrescriptionResult>>(
+      `api/doctor/prescriptions/${encodeURIComponent(rxId)}/cancel`,
+      { reason, replace },
     );
+  }
+
+  /** POST .../{rxId}/link — a signed short-lived PDF link (resolve with `apiFileUrl`). */
+  prescriptionLink(rxId: string, download = false): Observable<SuccessResponse<PrescriptionLinkDto>> {
+    return this.api.post<SuccessResponse<PrescriptionLinkDto>>(
+      `api/doctor/prescriptions/${encodeURIComponent(rxId)}/link`,
+      { download },
+    );
+  }
+
+  /** GET /api/doctor/patients/{id}/clinical-summary — the read-only prescribing side panel. */
+  clinicalSummary(patientId: string): Observable<SuccessResponse<ClinicalSummaryDto>> {
+    return this.api.get<SuccessResponse<ClinicalSummaryDto>>(
+      `api/doctor/patients/${encodeURIComponent(patientId)}/clinical-summary`,
+    );
+  }
+
+  /** GET /api/doctor/signature */
+  getSignature(): Observable<SuccessResponse<DoctorSignatureDto>> {
+    return this.api.get<SuccessResponse<DoctorSignatureDto>>('api/doctor/signature');
+  }
+
+  /** POST /api/doctor/signature — a PNG/JPG file (< 500 KB) or a drawn `data:` URL. */
+  saveSignature(source: File | string): Observable<SuccessResponse<DoctorSignatureDto>> {
+    if (typeof source === 'string') {
+      return this.api.post<SuccessResponse<DoctorSignatureDto>>('api/doctor/signature', { image: source });
+    }
+    const form = new FormData();
+    form.append('signature', source);
+    return this.api.post<SuccessResponse<DoctorSignatureDto>>('api/doctor/signature', form);
+  }
+
+  /** DELETE /api/doctor/signature */
+  deleteSignature(): Observable<SuccessResponse<DoctorSignatureDto>> {
+    return this.api.delete<SuccessResponse<DoctorSignatureDto>>('api/doctor/signature');
   }
 
   // ----- Lab orders -----

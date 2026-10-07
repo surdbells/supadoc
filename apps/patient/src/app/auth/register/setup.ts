@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthFlowService, AuthService } from '@supadoc/auth';
+import { apiErrorMessage } from '@supadoc/data-access';
 import {
   AlertComponent,
   ButtonComponent,
@@ -221,8 +222,7 @@ export class RegisterSetup {
         this.flow.reset();
         await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
       } catch (err) {
-        const message = (err as { message?: string })?.message;
-        this.errorMessage.set(message ?? 'Could not create your account.');
+        this.errorMessage.set(apiErrorMessage(err, 'Could not create your account.'));
       } finally {
         this.submitting.set(false);
       }
@@ -242,8 +242,7 @@ export class RegisterSetup {
       this.flow.reset();
       await this.router.navigateByUrl(this.auth.consumeRedirect() ?? '/dashboard');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
-      this.errorMessage.set(message ?? 'Could not create your account.');
+      this.errorMessage.set(apiErrorMessage(err, 'Could not create your account.'));
     } finally {
       this.submitting.set(false);
     }

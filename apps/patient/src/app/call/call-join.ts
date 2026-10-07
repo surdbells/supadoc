@@ -14,10 +14,26 @@ import AgoraRTC, {
   IAgoraRTCClient,
   ICameraVideoTrack,
   IMicrophoneAudioTrack,
+  UID,
 } from 'agora-rtc-sdk-ng';
-import { AppointmentsApi } from '@supadoc/data-access';
+import { SessionTimeoutService } from '@supadoc/auth';
+import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
 import type { JoinInfoDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+
+/** Idle-timer hold key while a consultation is actually going on. */
+const CALL_HOLD = 'call';
+/**
+ * How long someone alone in the channel keeps the idle timer paused while
+ * waiting for the other side to first arrive (ms).
+ */
+const FIRST_JOIN_WAIT_MS = 30 * 60_000;
+/**
+ * Agora retries a lost connection on its own (RECONNECTING) without a time
+ * limit; give up after this long (ms) so a dead connection can't keep the idle
+ * timer paused. The user can rejoin.
+ */
+const RECONNECT_GIVE_UP_MS = 2 * 60_000;
 
 /**
  * Preauthenticated call join (Agora RTC). Public route `/call/join/:token` — the
@@ -52,21 +68,69 @@ import { IconComponent } from '@supadoc/ui';
 
         @if (!remoteJoined() && status() === 'in-call') {
           <div
-            class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/80"
+            class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/80"
+          >
+            @if (remoteLeft()) {
+              <span
+                class="flex size-16 items-center justify-center rounded-full bg-white/10"
+              >
+                <sd-icon name="user-x" [size]="30" />
+              </span>
+              <p class="font-sans text-body">The other participant has left the call.</p>
+              <p class="max-w-sm font-sans text-caption text-white/60">
+                If your consultation is finished, press the red button to leave.
+              </p>
+            } @else if (remotePresent()) {
+              <span
+                class="flex size-16 items-center justify-center rounded-full bg-white/10"
+              >
+                <sd-icon name="video-off" [size]="30" />
+              </span>
+              <p class="font-sans text-body">The other participant’s camera is off.</p>
+            } @else {
+              <span
+                class="flex size-16 items-center justify-center rounded-full bg-white/10"
+              >
+                <sd-icon name="user-round" [size]="30" />
+              </span>
+              <p class="font-sans text-body">
+                Waiting for the other participant to join…
+              </p>
+              @if (info(); as i) {
+                <p class="font-sans text-caption text-white/60">
+                  {{ i.specialist.name }} · {{ i.specialist.specialty }}
+                </p>
+              }
+            }
+          </div>
+        }
+
+        <!-- Left / dropped -->
+        @if (status() === 'ended') {
+          <div
+            class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center text-white/85"
+            role="status"
           >
             <span
               class="flex size-16 items-center justify-center rounded-full bg-white/10"
             >
-              <sd-icon name="user-round" [size]="30" />
+              <sd-icon [name]="endedReason() === 'left' ? 'phone-off' : 'wifi-off'" [size]="28" />
             </span>
-            <p class="font-sans text-body">
-              Waiting for the other participant to join…
-            </p>
-            @if (info(); as i) {
-              <p class="font-sans text-caption text-white/60">
-                {{ i.specialist.name }} · {{ i.specialist.specialty }}
+            @if (endedReason() === 'left') {
+              <p class="max-w-sm font-sans text-body">You left the call.</p>
+            } @else {
+              <p class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
+              <p class="max-w-sm font-sans text-caption text-white/60">
+                Check your internet connection, then rejoin.
               </p>
             }
+            <button
+              type="button"
+              class="flex items-center gap-2 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+              (click)="rejoin()"
+            >
+              <sd-icon name="refresh-cw" [size]="16" /> Rejoin call
+            </button>
           </div>
         }
 
@@ -184,23 +248,46 @@ import { IconComponent } from '@supadoc/ui';
 export class CallJoin implements AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly appointments = inject(AppointmentsApi);
+  /**
+   * Provided app-wide. A patient signed in to the portal in this browser must
+   * not get the idle warning (or be signed out) over a live call; a no-op for
+   * a guest who isn't signed in.
+   */
+  private readonly session = inject(SessionTimeoutService);
 
   private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
   private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
 
   protected readonly status = signal<
-    'loading' | 'in-call' | 'not-configured' | 'error'
+    'loading' | 'in-call' | 'ended' | 'not-configured' | 'error'
   >('loading');
   protected readonly errorMessage = signal('');
+  /** How the call ended (set with status 'ended'). */
+  protected readonly endedReason = signal<'left' | 'dropped'>('left');
   protected readonly micOn = signal(true);
   protected readonly camOn = signal(true);
+  /** The other side's video is on the main stage. */
   protected readonly remoteJoined = signal(false);
+  /** Someone else is in the channel, camera on or off. */
+  protected readonly remotePresent = signal(false);
+  /** Everyone else who was in the call has left it. */
+  protected readonly remoteLeft = signal(false);
   protected readonly info = signal<JoinInfoDto | null>(null);
 
   private client?: IAgoraRTCClient;
   private micTrack?: IMicrophoneAudioTrack;
   private camTrack?: ICameraVideoTrack;
-  private left = false;
+  /** This page is going away — final. */
+  private destroyed = false;
+  /** Joined to the channel (false again once the call is left or drops). */
+  private connected = false;
+  /** Whether this page currently holds the idle timer. */
+  private holding = false;
+  private readonly remoteUids = new Set<UID>();
+  private remoteSeen = false;
+  private firstWaitOver = false;
+  private firstWaitTimer?: ReturnType<typeof setTimeout>;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
 
   ngAfterViewInit(): void {
     void this.start();
@@ -221,8 +308,11 @@ export class CallJoin implements AfterViewInit, OnDestroy {
 
   private async start(): Promise<void> {
     const token = this.route.snapshot.paramMap.get('token') ?? '';
+    this.resetPresence();
+    let client: IAgoraRTCClient | undefined;
     try {
       const { data } = await firstValueFrom(this.appointments.joinInfo(token));
+      if (this.destroyed) return; // page left while the link was checked
       this.info.set(data);
 
       // token may be null in App-ID-only mode — that's a valid token-less join.
@@ -231,11 +321,16 @@ export class CallJoin implements AfterViewInit, OnDestroy {
         return;
       }
 
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-      this.client = client;
+      client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      const self = client;
+      this.client = self;
 
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
+      // Presence, not just video: the other side may join with the camera off.
+      self.on('user-joined', (user) => this.onRemoteJoined(self, user.uid));
+      self.on('user-left', (user) => this.onRemoteLeft(self, user.uid));
+      self.on('user-published', async (user, mediaType) => {
+        this.onRemoteJoined(self, user.uid);
+        await self.subscribe(user, mediaType);
         if (mediaType === 'video') {
           const el = this.remoteVideo()?.nativeElement;
           if (el) user.videoTrack?.play(el);
@@ -244,35 +339,173 @@ export class CallJoin implements AfterViewInit, OnDestroy {
           user.audioTrack?.play();
         }
       });
-      client.on('user-unpublished', (_user, mediaType) => {
+      self.on('user-unpublished', (_user, mediaType) => {
         if (mediaType === 'video') this.remoteJoined.set(false);
+      });
+      // The token lapsed, or Agora dropped us for good (network blips it
+      // retries itself, as RECONNECTING): the call is over on this side.
+      self.on('token-privilege-did-expire', () => this.dropped(self));
+      self.on('connection-state-change', (state) => {
+        if (state === 'DISCONNECTED') this.dropped(self);
+        else if (state === 'RECONNECTING') this.watchReconnect(self);
+        else if (state === 'CONNECTED') this.clearReconnectWatch();
       });
 
       // uid 0 → wildcard token, join with null; any non-zero uid is honoured.
-      const joinedUid = await client.join(
+      const joinedUid = await self.join(
         data.app_id,
         data.channel,
         data.token ?? null,
         data.uid === 0 ? null : data.uid,
       );
       console.info('[videomed:call] joined', { joinedUid });
-      if (this.left) return; // component destroyed mid-join
+      if (this.destroyed || this.client !== self) return; // left / dropped mid-join
+      // Connected: pause the idle timeout while the consultation is going on.
+      this.connected = true;
+      if (this.remoteUids.size === 0) this.startFirstWait();
+      this.syncHold();
 
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      if (this.destroyed || this.client !== self) {
+        // The call ended while the browser asked for the camera — don't leave it on.
+        mic.close();
+        cam.close();
+        return;
+      }
       this.micTrack = mic;
       this.camTrack = cam;
 
       const localEl = this.localVideo()?.nativeElement;
       if (localEl) cam.play(localEl);
-      await client.publish([mic, cam]);
+      await self.publish([mic, cam]);
+      if (this.destroyed || this.client !== self) return;
 
       this.status.set('in-call');
     } catch (err) {
-      const message = (err as { message?: string })?.message;
+      if (this.destroyed || (client && this.client !== client)) return; // already handled
+      // Not in a working call — let the idle timeout run again.
+      this.connected = false;
+      this.syncHold();
+      this.session.release(CALL_HOLD);
+      this.clearFirstWait();
+      this.clearReconnectWatch();
+      const failed = this.client;
+      this.client = undefined;
+      void this.releaseMedia(failed);
       this.errorMessage.set(
-        message ?? 'This join link is invalid or has expired.',
+        apiErrorMessage(err, 'This join link is invalid or has expired.'),
       );
       this.status.set('error');
+    }
+  }
+
+  // ---- Is the consultation still going on? ----
+
+  /**
+   * Hold the idle timer only while a consultation is actually going on: joined
+   * and someone else is in the call, or (for a bounded time) waiting for them
+   * to first arrive. Released the moment the others leave, the call drops, the
+   * user leaves or the page goes away.
+   */
+  private syncHold(): void {
+    const want =
+      this.connected &&
+      !this.destroyed &&
+      (this.remoteUids.size > 0 || (!this.remoteSeen && !this.firstWaitOver));
+    if (want === this.holding) return;
+    this.holding = want;
+    if (want) this.session.hold(CALL_HOLD);
+    else this.session.release(CALL_HOLD);
+  }
+
+  private onRemoteJoined(client: IAgoraRTCClient, uid: UID): void {
+    if (client !== this.client || this.destroyed) return;
+    this.remoteUids.add(uid);
+    this.remoteSeen = true;
+    this.remotePresent.set(true);
+    this.remoteLeft.set(false);
+    this.clearFirstWait();
+    this.syncHold();
+  }
+
+  private onRemoteLeft(client: IAgoraRTCClient, uid: UID): void {
+    if (client !== this.client || !this.remoteUids.delete(uid)) return;
+    if (this.remoteUids.size > 0) return;
+    // Everyone else has gone: the consultation is over unless they come back.
+    this.remotePresent.set(false);
+    this.remoteJoined.set(false);
+    this.remoteLeft.set(true);
+    this.syncHold();
+  }
+
+  private resetPresence(): void {
+    this.remoteUids.clear();
+    this.remoteSeen = false;
+    this.firstWaitOver = false;
+    this.remotePresent.set(false);
+    this.remoteLeft.set(false);
+    this.remoteJoined.set(false);
+  }
+
+  private startFirstWait(): void {
+    this.clearFirstWait();
+    this.firstWaitTimer = setTimeout(() => {
+      this.firstWaitTimer = undefined;
+      this.firstWaitOver = true;
+      this.syncHold();
+    }, FIRST_JOIN_WAIT_MS);
+  }
+
+  private clearFirstWait(): void {
+    clearTimeout(this.firstWaitTimer);
+    this.firstWaitTimer = undefined;
+  }
+
+  /** Agora is retrying a lost connection: end the call if it doesn't come back. */
+  private watchReconnect(client: IAgoraRTCClient): void {
+    if (client !== this.client || this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.dropped(client);
+    }, RECONNECT_GIVE_UP_MS);
+  }
+
+  private clearReconnectWatch(): void {
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+  }
+
+  /** Agora dropped this client (or its token lapsed) while in the call. */
+  private dropped(client: IAgoraRTCClient): void {
+    if (client !== this.client || this.destroyed || !this.connected) return;
+    this.endCall('dropped');
+  }
+
+  /** Out of the call: release the hold at once, free the devices, offer Rejoin. */
+  private endCall(reason: 'left' | 'dropped'): void {
+    this.connected = false;
+    this.syncHold();
+    this.clearFirstWait();
+    this.clearReconnectWatch();
+    // Forget the client first, so its own DISCONNECTED event is ignored.
+    const client = this.client;
+    this.client = undefined;
+    void this.releaseMedia(client);
+    this.resetPresence();
+    this.endedReason.set(reason);
+    this.status.set('ended');
+  }
+
+  /** Close the local tracks and leave the channel (best-effort). */
+  private async releaseMedia(client: IAgoraRTCClient | undefined): Promise<void> {
+    const tracks = [this.micTrack, this.camTrack];
+    this.micTrack = undefined;
+    this.camTrack = undefined;
+    try {
+      for (const t of tracks) t?.close();
+      await client?.leave();
+    } catch {
+      /* releasing devices — nothing actionable on failure */
     }
   }
 
@@ -290,27 +523,31 @@ export class CallJoin implements AfterViewInit, OnDestroy {
     this.camOn.set(on);
   }
 
-  protected async leave(): Promise<void> {
-    await this.teardown();
-    this.status.set('not-configured');
-    this.remoteJoined.set(false);
+  protected leave(): void {
+    if (this.status() !== 'in-call') return;
+    this.endCall('left');
   }
 
-  private async teardown(): Promise<void> {
-    this.left = true;
-    try {
-      this.micTrack?.close();
-      this.camTrack?.close();
-      await this.client?.leave();
-    } catch {
-      /* releasing devices — nothing actionable on failure */
-    }
-    this.client = undefined;
-    this.micTrack = undefined;
-    this.camTrack = undefined;
+  /** "Rejoin call" after leaving or a dropped connection (the link stays valid). */
+  protected rejoin(): void {
+    if (this.destroyed || this.status() !== 'ended') return;
+    this.micOn.set(true);
+    this.camOn.set(true);
+    this.errorMessage.set('');
+    this.status.set('loading');
+    void this.start();
   }
 
   ngOnDestroy(): void {
-    void this.teardown();
+    this.destroyed = true;
+    this.connected = false;
+    // Always drop the idle-timer hold, however the page is left.
+    this.holding = false;
+    this.session.release(CALL_HOLD);
+    this.clearFirstWait();
+    this.clearReconnectWatch();
+    const client = this.client;
+    this.client = undefined;
+    void this.releaseMedia(client);
   }
 }

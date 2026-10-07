@@ -85,6 +85,7 @@ return static function (App $app): void {
         $group->post('/portal/auth/phone/register', Action\Auth\RegisterByPhoneAction::class);
         $group->post('/portal/auth/phone/login', Action\Auth\LoginByPhoneAction::class);
         $group->post('/auth/refresh', Action\Auth\RefreshAction::class);
+        $group->post('/auth/logout', Action\Auth\LogoutAction::class);   // staff + customer
 
         // ----- Public marketing data (no auth) -----
         $group->get('/public/specialties', Action\Public\PublicSpecialtiesAction::class);
@@ -93,6 +94,10 @@ return static function (App $app): void {
         $group->get('/public/specialists/{id}/slots', Action\Specialist\GetSpecialistSlotsAction::class);
         $group->get('/public/specialists/{id}', Action\Public\GetPublicSpecialistAction::class);
         $group->get('/public/pricing', Action\Public\PublicPricingAction::class);
+        // Prescriptions: the signed, short-lived token IS the credential for the
+        // PDF; the pharmacist check needs no sign-in (throttled per device/IP).
+        $group->get('/public/prescriptions/file', Action\Prescription\PrescriptionFileAction::class);
+        $group->post('/public/prescriptions/check', Action\Prescription\CheckPrescriptionAction::class);
         // Preauthenticated join — the signed token in the path IS the credential.
         $group->get('/public/call/{token}', Action\Call\JoinCallAction::class);
 
@@ -201,9 +206,25 @@ return static function (App $app): void {
             $group->put('/doctor/appointments/{id}/note', Action\Doctor\SaveClinicalNoteAction::class);
             $group->post('/doctor/appointments/{id}/note/finalize', Action\Doctor\FinalizeClinicalNoteAction::class);
 
-            // ePrescription — build + issue, list issued.
+            // E-prescribing (GVM-RX-01/02): RxNorm catalogue, drafts, send, cancel
+            // and replace, branded PDF via signed links, side panel, signature.
+            // In-consultation, after it, and standalone — each action checks the
+            // doctor wrote the prescription / consulted the patient.
             $group->get('/doctor/appointments/{id}/prescriptions', Action\Doctor\ListPrescriptionsAction::class);
-            $group->post('/doctor/appointments/{id}/prescriptions', Action\Doctor\CreatePrescriptionAction::class);
+            $group->get('/doctor/drugs', Action\Prescription\SearchDrugsAction::class);
+            $group->get('/doctor/prescriptions/options', Action\Prescription\PrescriptionOptionsAction::class);
+            $group->get('/doctor/prescriptions', Action\Prescription\ListDoctorPrescriptionsAction::class);
+            $group->post('/doctor/prescriptions', Action\Prescription\CreatePrescriptionAction::class);
+            $group->get('/doctor/prescriptions/{rxId}', Action\Prescription\GetDoctorPrescriptionAction::class);
+            $group->put('/doctor/prescriptions/{rxId}', Action\Prescription\UpdatePrescriptionAction::class);
+            $group->delete('/doctor/prescriptions/{rxId}', Action\Prescription\DeletePrescriptionAction::class);
+            $group->post('/doctor/prescriptions/{rxId}/send', Action\Prescription\SendPrescriptionAction::class);
+            $group->post('/doctor/prescriptions/{rxId}/cancel', Action\Prescription\CancelPrescriptionAction::class);
+            $group->post('/doctor/prescriptions/{rxId}/link', Action\Prescription\DoctorPrescriptionLinkAction::class);
+            $group->get('/doctor/patients/{id}/clinical-summary', Action\Prescription\PatientClinicalSummaryAction::class);
+            $group->get('/doctor/signature', Action\Prescription\DoctorSignatureAction::class);
+            $group->post('/doctor/signature', Action\Prescription\DoctorSignatureAction::class);
+            $group->delete('/doctor/signature', Action\Prescription\DoctorSignatureAction::class);
 
             // Lab orders + care plan.
             $group->get('/doctor/appointments/{id}/lab-orders', Action\Doctor\ListLabOrdersAction::class);
@@ -259,6 +280,16 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('monitoring.view'));
             $group->get('/admin/patients/{id}', Action\Admin\GetPatientAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
+            // Authorised staff may open a patient's sent prescriptions (audited).
+            $group->get('/admin/patients/{id}/prescriptions', Action\Prescription\AdminPatientPrescriptionsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->post('/admin/prescriptions/{rxId}/link', Action\Prescription\AdminPrescriptionLinkAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            // Prescription rules the Platform Admin can change without a release.
+            $group->get('/settings/prescriptions', Action\Prescription\PrescriptionSettingsAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
+            $group->patch('/settings/prescriptions', Action\Prescription\PrescriptionSettingsAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
 
             // Support desk (back office).
             $group->get('/admin/support/tickets', Action\Admin\ListSupportTicketsAction::class)
@@ -269,7 +300,7 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('support.manage'));
             $group->patch('/admin/support/tickets/{id}', Action\Admin\UpdateSupportTicketAction::class)
                 ->add(new RbacMiddleware('support.manage'));
-        })->add(new AuthMiddleware($jwt));
+        })->add(new AuthMiddleware($jwt, $sessions));
 
         // ----- Customer portal (customer audience) -----
         $group->group('/portal', function (RouteCollectorProxy $group): void {
@@ -311,6 +342,10 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/messages', Action\Appointment\MyMessagesAction::class);
             $group->post('/appointments/{id}/messages', Action\Appointment\PostMyMessageAction::class);
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);
+            // My prescriptions (Consultation History › Prescriptions) + signed PDF links.
+            $group->get('/prescriptions', Action\Prescription\MyPrescriptionListAction::class);
+            $group->get('/prescriptions/{id}', Action\Prescription\MyPrescriptionAction::class);
+            $group->post('/prescriptions/{id}/link', Action\Prescription\MyPrescriptionLinkAction::class);
             $group->get('/appointments/{id}/lab-orders', Action\Appointment\MyLabOrdersAction::class);
             $group->get('/appointments/{id}/care-plan', Action\Appointment\MyCarePlanAction::class);
             $group->get('/appointments/{id}/referrals', Action\Appointment\MyReferralsAction::class);

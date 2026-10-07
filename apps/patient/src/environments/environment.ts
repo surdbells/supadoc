@@ -6,6 +6,9 @@ export const environment = {
   apiBaseUrl: 'http://localhost:8080',
   // Customer (patient) sign-in route on the local backend.
   loginPath: 'api/portal/auth/login',
+  // Idle timeout: sign out after this many minutes without activity (with a
+  // 60s warning first). Keep below the API's SESSION_IDLE_TIMEOUT.
+  session: { idleMinutes: 15 },
   // Firebase Web config for Google sign-in — fill from the Firebase console
   // (Project settings → General → Your apps). `projectId` must match the
   // backend's FIREBASE_PROJECT_ID. Left blank => the Google button is disabled.

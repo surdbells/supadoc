@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Send due appointment join reminders. Meant to be run by cron every few minutes
+ * Send due appointment join reminders (and prescription expiry housekeeping). Meant to be run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
  *   * / 5 * * * *  cd /path/to/apps/api && php bin/send-reminders.php >> var/log/reminders.log 2>&1
@@ -38,3 +38,12 @@ printf(
     $result['reminders_sent'],
     $result['recipients'],
 );
+
+// Prescription housekeeping: store expiries + send "expires in N days" reminders
+// (each prescription is reminded once, so running every 5 minutes is safe).
+try {
+    $rx = $container->get(App\Infrastructure\Prescription\PrescriptionExpiryService::class)->run();
+    printf("[%s] prescriptions: expired=%d expiry_reminders=%d\n", gmdate('Y-m-d H:i:s'), $rx['expired'], $rx['reminded']);
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] prescriptions: ' . $e->getMessage() . "\n");
+}

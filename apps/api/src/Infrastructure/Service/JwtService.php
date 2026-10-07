@@ -223,6 +223,37 @@ final class JwtService
         ];
     }
 
+    /**
+     * A short-lived signed link credential for a protected file (e.g. a
+     * prescription PDF): the token in the URL IS the authorisation, so the link
+     * can be opened in a new tab, downloaded or printed without a bearer header,
+     * and stops working after `$ttl` seconds.
+     *
+     * @param array<string,scalar> $claims
+     */
+    public function issueFileLink(array $claims, int $ttl): string
+    {
+        $now = time();
+
+        return JWT::encode($claims + [
+            'type' => 'file_link',
+            'iat'  => $now,
+            'exp'  => $now + max(30, $ttl),
+        ], $this->secret, self::ALGO);
+    }
+
+    /** @return array<string,mixed>|null the claims of a valid, unexpired file link */
+    public function verifyFileLink(string $token): ?array
+    {
+        try {
+            $payload = JWT::decode($token, new Key($this->secret, self::ALGO));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return ($payload->type ?? null) === 'file_link' ? (array) $payload : null;
+    }
+
     /** The verified email from a valid, unexpired proof token, or null. */
     public function verifyEmailProof(string $token): ?string
     {

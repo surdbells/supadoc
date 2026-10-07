@@ -180,6 +180,17 @@ final class UpdateDoctorProfileAction
             $specialist->setQualifications(trim((string) $body['qualifications']));
         }
 
+        // MDCN registration number — printed on prescriptions and shown to
+        // pharmacists on the public check page, so keep it to a sane shape.
+        if (array_key_exists('mdcn_number', $body)) {
+            $mdcn = strtoupper(trim((string) $body['mdcn_number']));
+            if ($mdcn !== '' && preg_match('/^[A-Z0-9\/\- ]{3,40}$/', $mdcn) !== 1) {
+                $errors['mdcn_number'] = 'Enter your MDCN registration number (letters, numbers, / or -)';
+            } else {
+                $specialist->setMdcnNumber($mdcn);
+            }
+        }
+
         if ($errors !== []) {
             return $this->error($response, 'Validation failed', 422, $errors);
         }

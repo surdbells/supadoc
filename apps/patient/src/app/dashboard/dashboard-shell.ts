@@ -340,6 +340,7 @@ export class DashboardShell {
       link: '/dashboard/appointments',
     },
     { label: 'History', icon: 'history', link: '/dashboard/history' },
+    { label: 'Prescriptions', icon: 'pill', link: '/dashboard/prescriptions' },
     { label: 'Notification', icon: 'bell', link: '/dashboard/notifications' },
     { label: 'Wallet', icon: 'wallet', link: '/dashboard/wallet' },
     {

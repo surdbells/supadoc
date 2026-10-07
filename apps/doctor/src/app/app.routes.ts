@@ -1,5 +1,6 @@
 import { Route } from '@angular/router';
 import { staffAuthGuard } from '@supadoc/auth';
+import { unsavedChangesGuard } from './prescriptions/unsaved-changes.guard';
 
 export const appRoutes: Route[] = [
   {
@@ -9,6 +10,8 @@ export const appRoutes: Route[] = [
   {
     // In-call cockpit — reached via a preauthenticated join token, outside the shell.
     path: 'call/:token',
+    // Asks before leaving with a half-written prescription (e.g. browser Back).
+    canDeactivate: [unsavedChangesGuard],
     loadComponent: () => import('./doctor-call').then((m) => m.DoctorCall),
   },
   {
@@ -34,6 +37,8 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'appointments/:id',
+        // Hosts <doc-rx-panel>: a no-op until the page implements canLeave().
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () =>
           import('./appointment/appointment-detail').then(
             (m) => m.DoctorAppointmentDetail,
@@ -46,8 +51,28 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'patients/:id',
+        // Hosts <doc-rx-panel>: a no-op until the page implements canLeave().
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () =>
           import('./patients/patient-detail').then((m) => m.DoctorPatientDetail),
+      },
+      {
+        path: 'prescriptions',
+        loadComponent: () =>
+          import('./prescriptions/prescriptions-page').then((m) => m.PrescriptionsPage),
+      },
+      {
+        // Must stay before 'prescriptions/:id'.
+        path: 'prescriptions/new',
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./prescriptions/new-prescription-page').then((m) => m.NewPrescriptionPage),
+      },
+      {
+        path: 'prescriptions/:id',
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./prescriptions/prescription-page').then((m) => m.PrescriptionPage),
       },
       {
         path: 'availability',

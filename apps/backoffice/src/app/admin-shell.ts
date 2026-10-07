@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
   { label: 'Payouts', icon: 'wallet', link: '/payouts', permission: 'payouts.manage' },
   { label: 'Support', icon: 'headphones', link: '/support', permission: 'support.manage' },
   { label: 'Pricing', icon: 'banknote', link: '/pricing', permission: 'settings.manage' },
+  { label: 'Prescription rules', icon: 'scroll-text', link: '/prescription-rules', permission: 'settings.manage' },
   { label: 'Audit log', icon: 'history', link: '/audit', permission: 'monitoring.view' },
 ];
 

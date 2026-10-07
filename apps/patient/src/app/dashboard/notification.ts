@@ -7,7 +7,8 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NotificationsApi } from '@supadoc/data-access';
+import { Router } from '@angular/router';
+import { apiErrorMessage, NotificationsApi } from '@supadoc/data-access';
 import type { NotificationDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 
@@ -21,6 +22,18 @@ interface Notice {
   body: string;
   time: string;
   read: boolean;
+  /** Safe in-app deep link (e.g. /dashboard/prescriptions/{id}), or null. */
+  link: string | null;
+}
+
+/**
+ * Only in-app paths are followed ("/dashboard/…"): never absolute, external or
+ * protocol-relative ("//host") URLs.
+ */
+function safeAppLink(link: string | null | undefined): string | null {
+  if (typeof link !== 'string') return null;
+  const l = link.trim();
+  return /^\/(?![/\\])/.test(l) ? l : null;
 }
 
 const TYPE: Record<Type, { label: string; icon: string; tint: string }> = {
@@ -43,7 +56,15 @@ function relativeTime(iso: string): string {
 }
 
 function toNotice(n: NotificationDto): Notice {
-  return { id: n.id, type: n.type, title: n.title, body: n.body, time: relativeTime(n.created_at), read: n.read };
+  return {
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    body: n.body,
+    time: relativeTime(n.created_at),
+    read: n.read,
+    link: safeAppLink(n.link),
+  };
 }
 
 /** Notification (Figma 824:14190) — wired to GET /api/portal/notifications. */
@@ -126,7 +147,7 @@ function toNotice(n: NotificationDto): Notice {
             tone="error"
             icon="wifi-off"
             title="Couldn't load notifications"
-            message="Check your connection and try again."
+            [message]="loadError() || 'Check your connection and try again.'"
           >
             <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
           </sd-empty-state>
@@ -165,6 +186,12 @@ function toNotice(n: NotificationDto): Notice {
                   </div>
                   <p class="font-sans text-body font-semibold text-ink">{{ n.title }}</p>
                   <p class="font-sans text-caption text-slate">{{ n.body }}</p>
+                  @if (n.link) {
+                    <span class="flex items-center gap-1 font-sans text-caption font-semibold text-cerulean">
+                      Open
+                      <sd-icon name="chevron-right" [size]="14" />
+                    </span>
+                  }
                 </div>
                 @if (!n.read) {
                   <span class="mt-1 size-2 shrink-0 rounded-full bg-cerulean" aria-label="Unread"></span>
@@ -179,7 +206,9 @@ function toNotice(n: NotificationDto): Notice {
 })
 export class Notification {
   private readonly api = inject(NotificationsApi);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private destroyed = false;
 
   protected readonly query = signal('');
   protected readonly activeTab = signal<Tab>('all');
@@ -187,7 +216,8 @@ export class Notification {
 
   private readonly all = signal<Notice[]>([]);
   private readonly loading = signal(true);
-  private readonly loadError = signal(false);
+  /** The API's reason the list failed to load ('' when it hasn't). */
+  protected readonly loadError = signal('');
 
   protected readonly tabs: { key: Tab; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -200,6 +230,7 @@ export class Notification {
   ];
 
   constructor() {
+    this.destroyRef.onDestroy(() => (this.destroyed = true));
     this.load();
   }
 
@@ -228,13 +259,21 @@ export class Notification {
     return this.filtered().length === 0 ? 'empty' : 'list';
   });
 
+  /** Tap: mark it read, then follow its in-app deep link (if any). */
   protected open(n: Notice): void {
-    if (n.read) return;
-    this.all.update((list) => list.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
-    this.unread.update((u) => Math.max(0, u - 1));
-    this.api.markRead(n.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      error: () => this.load(), // resync on failure
-    });
+    if (!n.read) {
+      this.all.update((list) => list.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      this.unread.update((u) => Math.max(0, u - 1));
+      // Not tied to this page's lifetime: navigating away must not cancel the
+      // mark-read request.
+      this.api.markRead(n.id).subscribe({
+        error: () => {
+          if (!this.destroyed) this.load(); // resync on failure
+        },
+      });
+    }
+    const link = safeAppLink(n.link);
+    if (link) void this.router.navigateByUrl(link);
   }
 
   protected markAll(): void {
@@ -247,7 +286,7 @@ export class Notification {
 
   private load(): void {
     this.loading.set(true);
-    this.loadError.set(false);
+    this.loadError.set('');
     this.api
       .list({ per_page: 100 })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -257,8 +296,8 @@ export class Notification {
           this.unread.set(res.meta.unread);
           this.loading.set(false);
         },
-        error: () => {
-          this.loadError.set(true);
+        error: (err: unknown) => {
+          this.loadError.set(apiErrorMessage(err, 'Check your connection and try again.'));
           this.loading.set(false);
         },
       });

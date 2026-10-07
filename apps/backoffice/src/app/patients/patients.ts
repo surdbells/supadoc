@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { AdminPatientsApi } from '@supadoc/data-access';
+import { AdminPatientsApi, apiErrorMessage } from '@supadoc/data-access';
 import type { PatientAccountDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -126,9 +126,9 @@ export class AdminPatients implements OnInit {
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
         },
-        error: () => {
+        error: (err: unknown) => {
           if (this.page > 1) this.page -= 1;
-          this.error.set('Could not load patients. Please try again.');
+          this.error.set(apiErrorMessage(err, 'Could not load patients. Please try again.'));
           this.loading.set(false);
         },
       });
