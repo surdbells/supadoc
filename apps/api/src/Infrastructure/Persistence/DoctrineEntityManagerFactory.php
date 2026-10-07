@@ -29,16 +29,17 @@ final class DoctrineEntityManagerFactory
             return self::$instance;
         }
 
-        $isDev    = ($_ENV['APP_ENV'] ?? 'development') !== 'production';
-        $cacheDir = __DIR__ . '/../../../var/cache';
+        $isDev     = ($_ENV['APP_ENV'] ?? 'development') !== 'production';
+        $cacheDir  = __DIR__ . '/../../../var/cache';
+        $entityDir = __DIR__ . '/../../Domain/Entity';
 
         $config = ORMSetup::createAttributeMetadataConfiguration(
-            paths:     [__DIR__ . '/../../Domain/Entity'],
+            paths:     [$entityDir],
             isDevMode: $isDev,
             proxyDir:  __DIR__ . '/../../../var/proxies',
             cache:     $isDev
                 ? new ArrayAdapter()
-                : new FilesystemAdapter('doctrine', 0, $cacheDir),
+                : new FilesystemAdapter(self::cacheNamespace($entityDir), 0, $cacheDir),
         );
         $config->setNamingStrategy(new UnderscoreNamingStrategy(CASE_LOWER));
         if (!$isDev) {
@@ -66,6 +67,23 @@ final class DoctrineEntityManagerFactory
         $connection = DriverManager::getConnection($params, $config);
 
         return self::$instance = new EntityManager($connection, $config);
+    }
+
+    /**
+     * The production metadata cache never expires, so it is namespaced by a
+     * fingerprint of the entity files (names + modification times): a deploy
+     * that changes any entity starts a fresh cache automatically, instead of
+     * the app and the schema tool silently using the previous mappings.
+     */
+    private static function cacheNamespace(string $entityDir): string
+    {
+        $parts = [];
+        foreach (glob($entityDir . '/*.php') ?: [] as $file) {
+            $parts[] = basename($file) . ':' . (int) @filemtime($file);
+        }
+        sort($parts);
+
+        return 'doctrine_' . substr(hash('sha256', implode('|', $parts)), 0, 12);
     }
 
     /** Reset the cached instance — for tests that build their own EM. */

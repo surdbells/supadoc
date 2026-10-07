@@ -161,6 +161,15 @@ $em->flush();
 //    30 days after issue. Only fills what is missing; safe to re-run.
 $conn = $em->getConnection();
 $report['prescriptions_backfilled'] = 0;
+$columns = array_map('strtolower', array_keys($conn->createSchemaManager()->listTableColumns('prescriptions')));
+if (!in_array('valid_until', $columns, true)) {
+    fwrite(STDERR, "The prescriptions table is missing this release's columns, so the schema update has not been applied.\n"
+        . "Clear the Doctrine cache, then apply the schema and re-run this script:\n"
+        . "  rm -rf var/cache/doctrine*\n"
+        . "  php bin/doctrine.php orm:schema-tool:update --dump-sql   # review\n"
+        . "  php bin/doctrine.php orm:schema-tool:update --force\n");
+    exit(1);
+}
 $legacy = $conn->fetchAllAssociative(
     "SELECT p.id, p.appointment_id, p.created_at, p.signed_at, p.status, p.valid_until, p.number, p.specialist_id, a.specialist_id AS appt_specialist
        FROM prescriptions p LEFT JOIN appointments a ON a.id = p.appointment_id

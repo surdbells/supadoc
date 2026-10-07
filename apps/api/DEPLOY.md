@@ -284,7 +284,7 @@ php bin/doctrine.php orm:schema-tool:update --dump-sql   # review DDL first (com
 php bin/doctrine.php orm:schema-tool:update --force
 php bin/doctrine.php orm:generate-proxies
 chown -R www:www var public/uploads   # incl. any new upload subdirs pulled this deploy
-/etc/init.d/php-fpm-82 reload   # clears OPcache — match your PHP version (or aaPanel → PHP → Reload)
+/etc/init.d/php-fpm-84 reload   # clears OPcache — match your PHP version, e.g. php-fpm-84 on api.dosthq.com (or aaPanel → PHP → Reload)
 ```
 
 > The `git pull` + PHP reload is what makes new code take effect — without the
@@ -332,7 +332,8 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
    APP_TIMEZONE=Africa/Lagos                        # times printed on prescriptions
    SESSION_IDLE_TIMEOUT=3600                        # server-side idle limit (seconds)
    JWT_REFRESH_TTL=43200                            # absolute session lifetime: 12h
-   APP_WEB_URL=https://app.dosthq.com               # printed check page: <APP_WEB_URL>/check-prescription
+   APP_WEB_URL=https://patient.dosthq.com           # the PATIENT app: patient email links + the check page printed on PDFs
+   STAFF_WEB_URL=https://doctor.dosthq.com          # the DOCTOR portal: links in doctor/staff emails
    CLINIC_NAME / CLINIC_TAGLINE / CLINIC_CONTACT    # branding printed on the PDF
    ```
 
@@ -343,13 +344,15 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
    If your `.env` still has `JWT_REFRESH_TTL=1209600` (14 days) from the old
    template, change it — the portals' idle timeout is 15 min (patient) / 30 min
    (doctor, back office), and the server idle limit must stay ≥ that + 5 min.
-3. **Schema** — review then apply (new tables `drugs`, `staff_sessions`,
+3. **Schema** — clear the cached entity mappings once (deploys from this
+   release on refresh them automatically), then review and apply (new tables `drugs`, `staff_sessions`,
    `prescription_counters`, `prescription_check_throttles`; new nullable columns
    on `prescriptions`, `sessions.last_active_at`, `patients.latest_vitals`,
    `notifications.link`, `specialists.mdcn_number` / `signature_key`;
    `prescriptions.appointment_id` becomes nullable):
 
    ```bash
+   rm -rf var/cache/doctrine*                                # stale mappings hide new columns
    php bin/doctrine.php orm:schema-tool:update --dump-sql   # review
    php bin/doctrine.php orm:schema-tool:update --force
    php bin/doctrine.php orm:generate-proxies
