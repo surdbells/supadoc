@@ -62,6 +62,7 @@ use App\Infrastructure\Service\TermiiService;
 use App\Infrastructure\Service\TotpService;
 use App\Infrastructure\Service\WalletService;
 use App\Domain\Repository\DrugRepository;
+use App\Infrastructure\Drug\DrugCatalogueImporter;
 use App\Domain\Repository\PrescriptionCheckThrottleRepository;
 use App\Infrastructure\Prescription\PrescriptionCheckService;
 use App\Infrastructure\Prescription\PrescriptionExpiryService;
@@ -442,6 +443,15 @@ return [
         $c->get(MailService::class),
         $c->get(AuditLogger::class),
         rtrim((string) ($_ENV['APP_WEB_URL'] ?? 'http://localhost:4201'), '/'),
+        $c->get(DrugCatalogueImporter::class),
+    ),
+
+    // Loads resources/rxnorm into `drugs` (bin/import-rxnorm.php, or lazily on
+    // the first medicine search if that deploy step was skipped).
+    DrugCatalogueImporter::class => static fn (ContainerInterface $c): DrugCatalogueImporter => new DrugCatalogueImporter(
+        $c->get(EntityManagerInterface::class)->getConnection(),
+        dirname(__DIR__) . '/resources/rxnorm/rxnorm-prescribable.tsv.gz',
+        $c->get(LoggerInterface::class),
     ),
 
     PrescriptionCheckService::class => static fn (ContainerInterface $c): PrescriptionCheckService => new PrescriptionCheckService(

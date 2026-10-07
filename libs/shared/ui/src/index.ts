@@ -14,3 +14,4 @@ export * from './lib/search-select/search-select';
 export * from './lib/stepper/stepper';
 export * from './lib/icon/icon';
 export * from './lib/icons/icons';
+export * from './lib/smooth-height/smooth-height';

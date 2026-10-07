@@ -56,6 +56,24 @@ final class DrugSearchTerms
         'suxamethonium'           => 'succinylcholine',
         'artemether-lumefantrine' => 'artemether lumefantrine',
         'coartem'                 => 'artemether lumefantrine',
+        // Brands sold in Nigeria that the US catalogue doesn't carry → generic.
+        'amoxil'                  => 'amoxicillin',
+        'augmentin'               => 'amoxicillin clavulanate',
+        'flagyl'                  => 'metronidazole',
+        'lonart'                  => 'artemether lumefantrine',
+        'ciprotab'                => 'ciprofloxacin',
+        'ampiclox'                => 'ampicillin',
+        // Prescribing shorthand → RxNorm wording.
+        'tabs'                    => 'tab',
+        'tablets'                 => 'tablet',
+        'caps'                    => 'cap',
+        'capsules'                => 'capsule',
+        'syr'                     => 'solution',
+        'syrup'                   => 'solution',
+        'susp'                    => 'suspension',
+        'inj'                     => 'inject',
+        'iu'                      => 'unt',
+        'units'                   => 'unt',
         // Multi-word names (matched as phrases before splitting into words).
         'ferrous sulphate'        => 'ferrous sulfate',
         'glyceryl trinitrate'     => 'nitroglycerin',
@@ -83,6 +101,8 @@ final class DrugSearchTerms
                 $q = str_replace($from, $to, $q);
             }
         }
+        // "500mg" / "5ml" → "500 mg" / "5 ml" (RxNorm writes "500 MG").
+        $q = preg_replace('/(\d)([a-z])/', '$1 $2', $q) ?? $q;
         $terms = [];
         foreach (preg_split('/[\s,\/+]+/', $q) ?: [] as $word) {
             $word = trim($word, ' -.');
@@ -97,6 +117,24 @@ final class DrugSearchTerms
         }
 
         return array_slice($terms, 0, 6);
+    }
+
+    /**
+     * The single most telling word of a query — the longest alphabetic term —
+     * used as a fallback when an all-words search finds nothing (e.g. a strength
+     * or brand that isn't in the catalogue).
+     *
+     * @param list<string> $terms
+     */
+    public static function fallback(array $terms): ?string
+    {
+        $words = array_values(array_filter($terms, static fn (string $t): bool => preg_match('/^[a-z][a-z\-]{2,}$/', $t) === 1));
+        if ($words === []) {
+            return null;
+        }
+        usort($words, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        return $words[0];
     }
 
     /** Lower-cased search blob for a catalogue row. */

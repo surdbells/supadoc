@@ -19,6 +19,7 @@ use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Settings\ClinicTime;
 use App\Domain\Settings\HealthProfile;
+use App\Infrastructure\Drug\DrugCatalogueImporter;
 use App\Infrastructure\Drug\DrugRoute;
 use App\Infrastructure\Drug\DrugSearchTerms;
 use App\Infrastructure\Email\EmailTemplates;
@@ -56,6 +57,7 @@ final class PrescriptionService
         private readonly MailService $mail,
         private readonly AuditLogger $audit,
         private readonly string $webUrl,
+        private readonly ?DrugCatalogueImporter $catalogue = null,
     ) {
     }
 
@@ -64,10 +66,18 @@ final class PrescriptionService
     /** @return list<array<string,mixed>> */
     public function searchDrugs(string $query, int $limit = 20): array
     {
-        return array_map(
-            static fn (Drug $d): array => $d->toArray(),
-            $this->drugs->search(DrugSearchTerms::from($query), $limit),
-        );
+        // Self-heal a skipped deploy step: load the bundled catalogue on first use.
+        $this->catalogue?->ensureLoaded();
+
+        $terms = DrugSearchTerms::from($query);
+        $found = $this->drugs->search($terms, $limit);
+        // Nothing for every word (an unknown strength or brand)? Show the
+        // closest candidates for the medicine name rather than an empty list.
+        if ($found === [] && count($terms) > 1 && ($word = DrugSearchTerms::fallback($terms)) !== null) {
+            $found = $this->drugs->search([$word], $limit);
+        }
+
+        return array_map(static fn (Drug $d): array => $d->toArray(), $found);
     }
 
     // ----- authoring -----

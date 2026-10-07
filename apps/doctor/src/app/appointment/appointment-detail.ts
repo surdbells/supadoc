@@ -9,6 +9,7 @@ import {
   OnInit,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -215,7 +216,7 @@ const SUB_TAB =
           @for (t of primaryTabs; track t.key) {
             <button type="button" class="whitespace-nowrap rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
               [class]="primary() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
-              (click)="primary.set(t.key)">{{ t.label }}</button>
+              (click)="setPrimary(t.key)">{{ t.label }}</button>
           }
         </div>
 
@@ -524,6 +525,8 @@ export class DoctorAppointmentDetail implements OnInit {
     { key: 'clinical', label: 'Clinical tools' },
   ];
   protected readonly primary = signal<PrimaryTab>('overview');
+  /** The prescribing panel (Clinical tools → Prescriptions), when it is on screen. */
+  private readonly rxPanel = viewChild(RxPanel);
 
   /** The appointment id (route param) — also the consultation the prescriptions belong to. */
   protected id = '';
@@ -691,7 +694,19 @@ export class DoctorAppointmentDetail implements OnInit {
     openBlobDocument(this.api.patientDocumentBlob(this.id, doc.id));
   }
 
-  protected select(tab: TabKey): void {
+  /** Route guard hook: never drop an unsaved prescription when leaving the page. */
+  canLeave(): boolean | Promise<boolean> {
+    return this.rxPanel()?.canLeave() ?? true;
+  }
+
+  /** Switching primary tabs unmounts Clinical tools — confirm unsaved prescription edits first. */
+  protected async setPrimary(key: PrimaryTab): Promise<void> {
+    if (this.primary() === 'clinical' && key !== 'clinical' && !(await (this.rxPanel()?.canLeave() ?? true))) return;
+    this.primary.set(key);
+  }
+
+  protected async select(tab: TabKey): Promise<void> {
+    if (this.tab() === 'prescriptions' && tab !== 'prescriptions' && !(await (this.rxPanel()?.canLeave() ?? true))) return;
     this.tab.set(tab);
     this.sectionError.set('');
     // Re-clicking the open tab retries a failed load (the effect only sees changes).

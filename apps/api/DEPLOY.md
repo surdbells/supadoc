@@ -361,6 +361,10 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
    ```bash
    php bin/import-rxnorm.php
    ```
+
+   If this step is skipped, the first medicine search loads the catalogue
+   automatically (a few seconds, once); running it at deploy time avoids that
+   first-search wait.
 5. **Backfill old prescriptions + canonical allergy severities** (numbers,
    `active` status, valid-until, prescriber; legacy Low/Medium/High allergy
    severities → mild/moderate/severe so the prescribing panel ranks them) — part

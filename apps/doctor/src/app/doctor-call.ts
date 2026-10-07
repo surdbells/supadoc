@@ -32,7 +32,7 @@ import type {
   ReferralDto,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { ConfirmDialogComponent, IconComponent, SmoothHeightDirective } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 import { RxPanel } from './prescriptions/rx-panel';
 import { CanLeave, LeavePrompt } from './prescriptions/unsaved-changes.guard';
@@ -90,7 +90,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 @Component({
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ConfirmDialogComponent, IconComponent, RxPanel],
+  imports: [ConfirmDialogComponent, IconComponent, RxPanel, SmoothHeightDirective],
   host: {
     class: 'sd-call block min-h-screen bg-abyss text-white',
     '[attr.data-theme]': 'theme()',
@@ -99,13 +99,16 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
   },
   styles: [
     `
-      /* Subtle, near-invisible scrollbars — the cockpit scrolls its panels
-         internally without heavy browser scroll chrome. */
-      :host ::-webkit-scrollbar { width: 6px; height: 6px; }
-      :host ::-webkit-scrollbar-track { background: transparent; }
-      :host ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 999px; }
-      :host ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
-      :host * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent; }
+      /* Tab panels fade in softly when switched (the animation replays when a
+         panel is re-rendered or un-hidden), so changing tabs never "snaps". */
+      .sd-tab-panel { animation: sdTabIn 200ms cubic-bezier(0.2, 0, 0, 1); }
+      @keyframes sdTabIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sd-tab-panel { animation: none; }
+      }
 
       /* The prescribing panel is a light "paper" surface in both cockpit
          themes. The light theme's global .sd-call .text-white override would
@@ -186,10 +189,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 
       <!-- Cockpit -->
       <div
-        class="grid flex-1 gap-4 p-4 xl:min-h-0 xl:grid-cols-[300px_minmax(0,1fr)_320px] xl:overflow-hidden"
+        class="flex flex-1 flex-col gap-4 p-4 xl:grid xl:min-h-0 xl:grid-cols-[300px_minmax(0,1fr)_320px] xl:overflow-hidden"
       >
         <!-- ===================== PATIENT CHART ===================== -->
-        <aside class="flex flex-col gap-4 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+        <aside class="order-4 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
             <div class="flex items-center gap-3">
               <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-cerulean/20 font-heading text-body font-semibold text-frost">
@@ -303,14 +306,17 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </aside>
 
         <!-- ===================== STAGE ===================== -->
-        <section class="flex min-w-0 flex-col gap-4 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <div class="sd-stage relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink xl:aspect-auto xl:min-h-[420px] xl:flex-1">
+        <!-- The consultation stays in view while notes, prescriptions and tools are used:
+             on desktop the video has a steady height and the tools scroll in their own
+             panel below it; on smaller screens the video is first and pinned to the top. -->
+        <section class="contents xl:flex xl:min-h-0 xl:min-w-0 xl:flex-col xl:gap-4">
+          <div class="sd-stage order-1 sticky top-0 z-20 aspect-[4/3] max-h-[45vh] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video xl:static xl:order-none xl:aspect-auto xl:h-[clamp(280px,46vh,600px)] xl:max-h-none xl:shadow-none">
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
             <!-- Doctor PiP. Kept in the DOM (hidden until in-call) so the camera
                  can attach before status flips — otherwise the local tile is black. -->
             <div
-              class="absolute bottom-24 right-4 z-10 h-32 w-24 overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:h-40 sm:w-28"
+              class="absolute bottom-24 right-3 z-10 h-24 w-[4.5rem] overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg sm:right-4 sm:h-40 sm:w-28"
               [class.hidden]="status() !== 'in-call'"
             >
               <div #localVideo class="h-full w-full"></div>
@@ -398,15 +404,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </div>
 
           <!-- Agora status bar -->
-          <div class="flex items-center gap-3 rounded-pill bg-white/[0.03] px-4 py-2 font-sans text-caption text-white/50">
+          <div class="order-2 flex shrink-0 items-center gap-3 rounded-pill bg-white/[0.03] px-4 py-2 font-sans text-caption text-white/50 xl:order-none">
             <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-success">HD</span>
             <span>Adaptive</span>
             <span class="flex items-center gap-1"><span class="size-1.5 rounded-full bg-success"></span> Noise Cancellation</span>
           </div>
 
           <!-- Notes -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03]">
-            <div class="flex gap-1 overflow-x-auto border-b border-white/10 px-2">
+          <div class="order-3 flex flex-col rounded-card border border-white/10 bg-white/[0.03] xl:order-none xl:min-h-0 xl:flex-1">
+            <div class="flex shrink-0 gap-1 overflow-x-auto border-b border-white/10 px-2">
               @for (t of notesTabs; track t.key) {
                 <button
                   type="button"
@@ -422,7 +428,13 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               }
             </div>
 
-            <div class="p-4">
+            <!-- Desktop: scrolls inside the panel. Everywhere: height changes ease
+                 (sdSmoothHeight) and each tab fades in, instead of jumping. -->
+            <div class="p-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+              <div sdSmoothHeight>
+              <div>
+              @for (shown of [notesTab()]; track shown) {
+              <div class="sd-tab-panel">
               @switch (notesTab()) {
                 @case ('notes') {
                   <!-- Documentation header: status + auto-save + finalize -->
@@ -961,13 +973,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
                 }
               }
+              </div>
+              }
 
               <!-- Prescribing panel. Once opened it stays mounted for the rest of
                    the call — hidden on the other tabs, kept while the portal
                    session is signed out — so a half-written prescription is
                    never thrown away by a tab switch or a re-sign-in. -->
               @if (rxMounted() && rxPatientId(); as pid) {
-                <div [class.hidden]="notesTab() !== 'prescriptions'">
+                <div class="sd-tab-panel" [class.hidden]="notesTab() !== 'prescriptions'">
                   @if (!portalSignedIn()) {
                     <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
                       <span class="flex items-start gap-2 font-sans text-caption text-warning">
@@ -998,12 +1012,14 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
                 </div>
               }
+              </div>
+              </div>
             </div>
           </div>
         </section>
 
         <!-- ===================== RECORDS + PARTICIPANTS ===================== -->
-        <aside class="flex flex-col gap-4 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+        <aside class="order-5 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
             <h3 class="mb-3 font-sans text-body font-semibold text-white">Medical Records</h3>
             <div class="mb-3 flex gap-1 overflow-x-auto">

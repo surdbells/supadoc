@@ -45,7 +45,7 @@ import type {
   ReferralDto,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { IconComponent, SmoothHeightDirective } from '@supadoc/ui';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
 type DocsTab = 'all' | 'labs' | 'imaging' | 'reports';
@@ -135,8 +135,21 @@ interface RecordItem {
 @Component({
   selector: 'pat-consultation-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, SmoothHeightDirective],
   host: { class: 'block' },
+  styles: [
+    `
+      /* Tab panels fade in softly when switched (replays when re-rendered). */
+      .sd-tab-panel { animation: sdTabIn 200ms cubic-bezier(0.2, 0, 0, 1); }
+      @keyframes sdTabIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sd-tab-panel { animation: none; }
+      }
+    `,
+  ],
   template: `
     <!-- New prescription notice (says who sent it and its number — never the medicines) -->
     @if (rxToast(); as t) {
@@ -283,9 +296,11 @@ interface RecordItem {
           </button>
         </div>
       } @else {
-      <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
+      <!-- One flex column below lg (the main column is display:contents there) so the
+           pinned video stays in view down the whole page, not just its own column. -->
+      <div class="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
         <!-- ============================ MAIN ============================ -->
-        <div class="flex min-w-0 flex-col gap-4">
+        <div class="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
           <!-- Action bar -->
           <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <button
@@ -337,9 +352,10 @@ interface RecordItem {
             </div>
           </div>
 
-          <!-- Video stage -->
+          <!-- Video stage — pinned to the top while the notes below are read or
+               tabs are switched, so the consultation never scrolls out of view. -->
           <div
-            class="sd-stage relative aspect-[16/10] w-full overflow-hidden rounded-card bg-ink"
+            class="sd-stage sticky top-2 z-20 aspect-[4/3] max-h-[50vh] w-full overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video lg:aspect-[16/10]"
           >
             <!-- Remote (doctor) main stage -->
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
@@ -699,7 +715,11 @@ interface RecordItem {
               }
             </div>
 
-            <div class="p-4">
+            <!-- Height changes ease and each tab fades in, instead of jumping. -->
+            <div class="p-4" sdSmoothHeight>
+              <div>
+              @for (shown of [notesTab()]; track shown) {
+              <div class="sd-tab-panel">
               @switch (notesTab()) {
                 @case ('notes') {
                   <div class="grid gap-5 sm:grid-cols-2">
@@ -943,6 +963,9 @@ interface RecordItem {
                   }
                 }
               }
+              </div>
+              }
+              </div>
             </div>
           </div>
         </div>

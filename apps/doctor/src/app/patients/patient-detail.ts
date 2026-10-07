@@ -7,6 +7,7 @@ import {
   inject,
   OnInit,
   signal,
+  viewChild,
   viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -237,13 +238,24 @@ export class DoctorPatientDetail implements OnInit {
       });
   }
 
-  protected selectTab(key: PatientRecordTab): void {
+  /** The prescribing panel on the Prescriptions tab, when it is on screen. */
+  private readonly rxPanel = viewChild(RxPanel);
+
+  /** Route guard hook: never drop an unsaved prescription when leaving the page. */
+  canLeave(): boolean | Promise<boolean> {
+    return this.rxPanel()?.canLeave() ?? true;
+  }
+
+  /** Leaving the Prescriptions tab unmounts the composer — confirm unsaved edits first. */
+  protected async selectTab(key: PatientRecordTab): Promise<void> {
+    if (this.tab() === 'prescriptions' && key !== 'prescriptions' && !(await (this.rxPanel()?.canLeave() ?? true))) return;
     this.tab.set(key);
   }
 
   /** A link inside a tab opened another tab: switch and move focus to it. */
-  protected openTab(key: PatientRecordTab): void {
-    this.selectTab(key);
+  protected async openTab(key: PatientRecordTab): Promise<void> {
+    await this.selectTab(key);
+    if (this.tab() !== key) return; // the doctor chose to stay
     this.focusTab(this.tabs.findIndex((t) => t.key === key));
   }
 
@@ -258,7 +270,7 @@ export class DoctorPatientDetail implements OnInit {
       : -1;
     if (next < 0) return;
     event.preventDefault();
-    this.selectTab(this.tabs[next].key);
+    void this.selectTab(this.tabs[next].key);
     this.focusTab(next);
   }
 

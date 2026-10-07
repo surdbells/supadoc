@@ -7,6 +7,7 @@ namespace App\Tests\Unit;
 use App\Domain\Entity\Prescription;
 use App\Domain\Settings\ClinicTime;
 use App\Domain\Settings\HealthProfile;
+use App\Infrastructure\Drug\DrugSearchTerms;
 use App\Infrastructure\Prescription\PrescriptionCheckService;
 use App\Infrastructure\Prescription\SignatureStore;
 use App\Infrastructure\Storage\FileVault;
@@ -45,6 +46,15 @@ final class PrescriptionHardeningTest extends TestCase
         $this->assertSame(['severe', 'mild'], array_column($medical['allergies'], 'severity'));
         // Idempotent: normalising again changes nothing.
         $this->assertSame($medical, HealthProfile::normalizeMedical($medical));
+    }
+
+    public function testSearchUnderstandsPrescriberShorthand(): void
+    {
+        $this->assertSame(['amoxicillin', '500', 'mg', 'cap'], DrugSearchTerms::from('Amoxil 500mg caps'));
+        $this->assertSame(['acetaminophen', '500', 'mg', 'tab'], DrugSearchTerms::from('Paracetamol 500mg tabs'));
+        $this->assertSame(['amoxicillin', 'clavulanate'], DrugSearchTerms::from('Augmentin'));
+        $this->assertSame('metronidazole', DrugSearchTerms::fallback(DrugSearchTerms::from('flagyl 400')));
+        $this->assertNull(DrugSearchTerms::fallback(['500', 'mg']));
     }
 
     public function testIpv6IsThrottledPerSlash64(): void
