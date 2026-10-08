@@ -290,6 +290,20 @@ chown -R www:www var public/uploads   # incl. any new upload subdirs pulled this
 /etc/init.d/php-fpm-84 reload   # clears OPcache — match your PHP version, e.g. php-fpm-84 on api.dosthq.com (or aaPanel → PHP → Reload)
 ```
 
+**The same as one command** (every step is safe to re-run; the schema step
+prints the DDL it applies — releases only ever add tables / nullable columns):
+
+```bash
+cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && composer install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql && php bin/doctrine.php orm:schema-tool:update --force && php bin/doctrine.php orm:generate-proxies && php bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload
+```
+
+Check the new code is live (expect `401` and "This join link is invalid or has
+expired"; a `404` means the old code is still being served — reload PHP again):
+
+```bash
+curl -s -w "\n%{http_code}\n" -X POST https://api.dosthq.com/api/public/call/check/presence
+```
+
 > The `git pull` + PHP reload is what makes new code take effect — without the
 > reload, OPcache keeps serving the old bytecode. If `git pull` (run as root)
 > refuses with **"detected dubious ownership"**, run once:
