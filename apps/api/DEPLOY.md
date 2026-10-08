@@ -294,15 +294,13 @@ chown -R www:www var public/uploads   # incl. any new upload subdirs pulled this
 prints the DDL it applies — releases only ever add tables / nullable columns):
 
 ```bash
-cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && composer install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql && php bin/doctrine.php orm:schema-tool:update --force && php bin/doctrine.php orm:generate-proxies && php bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload
+cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && composer install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql && php bin/doctrine.php orm:schema-tool:update --force && php bin/doctrine.php orm:generate-proxies && php bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload && sleep 2 && echo "--- API check (expect 401):" && curl -s -w " [%{http_code}]\n" -X POST https://api.dosthq.com/api/public/call/check/presence && echo "--- Redis check (expect PONG):" && php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $r = new Predis\Client(["host" => $_ENV["REDIS_HOST"] ?? "127.0.0.1", "port" => (int) ($_ENV["REDIS_PORT"] ?? 6379), "password" => ($_ENV["REDIS_PASSWORD"] ?? "") ?: null]); echo $r->ping(), PHP_EOL;'
 ```
 
-Check the new code is live (expect `401` and "This join link is invalid or has
-expired"; a `404` means the old code is still being served — reload PHP again):
-
-```bash
-curl -s -w "\n%{http_code}\n" -X POST https://api.dosthq.com/api/public/call/check/presence
-```
+It ends with two checks: the API answers `401` ("This join link is invalid or
+has expired") — a `404` means the old code is still served, reload PHP again —
+and Redis answers `PONG` (otherwise fix the `REDIS_*` values in `.env`; calls
+still work, the "in the call" indicators just stay hidden).
 
 > The `git pull` + PHP reload is what makes new code take effect — without the
 > reload, OPcache keeps serving the old bytecode. If `git pull` (run as root)
