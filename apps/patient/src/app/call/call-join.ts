@@ -17,7 +17,12 @@ import AgoraRTC, {
   UID,
 } from 'agora-rtc-sdk-ng';
 import { SessionTimeoutService } from '@supadoc/auth';
-import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  AppointmentsApi,
+  sendCallPresence,
+  startCallPresence,
+} from '@supadoc/data-access';
 import type { JoinInfoDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
@@ -288,6 +293,8 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   private firstWaitOver = false;
   private firstWaitTimer?: ReturnType<typeof setTimeout>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
+  /** Stops the "in the call" heartbeat; set only while one is running. */
+  private heartbeatStop?: () => void;
 
   ngAfterViewInit(): void {
     void this.start();
@@ -381,10 +388,12 @@ export class CallJoin implements AfterViewInit, OnDestroy {
       if (this.destroyed || this.client !== self) return;
 
       this.status.set('in-call');
+      this.startHeartbeat(token);
     } catch (err) {
       if (this.destroyed || (client && this.client !== client)) return; // already handled
       // Not in a working call — let the idle timeout run again.
       this.connected = false;
+      this.stopHeartbeat();
       this.syncHold();
       this.session.release(CALL_HOLD);
       this.clearFirstWait();
@@ -475,6 +484,22 @@ export class CallJoin implements AfterViewInit, OnDestroy {
     this.reconnectTimer = undefined;
   }
 
+  /**
+   * Tell the API this participant is in the call, so appointment lists can show
+   * it (the server ignores guests). Restarted after a rejoin; never two at once.
+   */
+  private startHeartbeat(token: string): void {
+    if (this.heartbeatStop) return;
+    const url = this.appointments.joinPresenceUrl(token);
+    this.heartbeatStop = startCallPresence((s) => sendCallPresence(url, s));
+  }
+
+  /** Stop the heartbeat, saying "out" (a no-op when none is running). */
+  private stopHeartbeat(): void {
+    this.heartbeatStop?.();
+    this.heartbeatStop = undefined;
+  }
+
   /** Agora dropped this client (or its token lapsed) while in the call. */
   private dropped(client: IAgoraRTCClient): void {
     if (client !== this.client || this.destroyed || !this.connected) return;
@@ -484,6 +509,7 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   /** Out of the call: release the hold at once, free the devices, offer Rejoin. */
   private endCall(reason: 'left' | 'dropped'): void {
     this.connected = false;
+    this.stopHeartbeat();
     this.syncHold();
     this.clearFirstWait();
     this.clearReconnectWatch();
@@ -541,6 +567,7 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.connected = false;
+    this.stopHeartbeat();
     // Always drop the idle-timer hold, however the page is left.
     this.holding = false;
     this.session.release(CALL_HOLD);

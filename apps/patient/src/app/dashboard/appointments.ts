@@ -9,9 +9,18 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
-import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  AppointmentsApi,
+  injectCallPresence,
+} from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
-import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  CallPresenceComponent,
+  EmptyStateComponent,
+  IconComponent,
+} from '@supadoc/ui';
 
 type Status =
   'confirmed' | 'pending' | 'completed' | 'cancelled' | 'rescheduled';
@@ -83,7 +92,12 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
 @Component({
   selector: 'pat-appointments',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, EmptyStateComponent, IconComponent],
+  imports: [
+    ButtonComponent,
+    CallPresenceComponent,
+    EmptyStateComponent,
+    IconComponent,
+  ],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -186,7 +200,7 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
                   <p class="truncate font-sans text-caption text-slate">
                     {{ a.specialty }}
                   </p>
-                  <!-- Compact meta for mobile (date + status) -->
+                  <!-- Compact meta for mobile (date + status + who's in the call) -->
                   <div
                     class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 sm:hidden"
                   >
@@ -200,6 +214,10 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
                       [class]="status(a).class"
                       >{{ status(a).label }}</span
                     >
+                    <sd-call-presence
+                      [presence]="presence()[a.id]"
+                      viewer="patient"
+                    />
                   </div>
                 </div>
                 <div
@@ -223,6 +241,10 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
                     [class]="status(a).class"
                     >{{ status(a).label }}</span
                   >
+                  <sd-call-presence
+                    [presence]="presence()[a.id]"
+                    viewer="patient"
+                  />
                 </div>
                 <sd-icon
                   name="chevron-right"
@@ -242,6 +264,11 @@ export class Appointments {
   private readonly route = inject(ActivatedRoute);
   private readonly appointments = inject(AppointmentsApi);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Who is in each appointment's call right now — polled while the page is open. */
+  protected readonly presence = injectCallPresence(() =>
+    this.appointments.presence(),
+  );
 
   protected readonly activeTab = signal<Tab>('all');
   protected readonly tabs: { key: Tab; label: string }[] = [

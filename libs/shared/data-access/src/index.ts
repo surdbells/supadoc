@@ -2,6 +2,7 @@ export * from './lib/api-config';
 export * from './lib/api.service';
 export * from './lib/auth.api';
 export * from './lib/appointments.api';
+export * from './lib/call-presence';
 export * from './lib/admin-appointments.api';
 export * from './lib/admin-patients.api';
 export * from './lib/admin-payouts.api';

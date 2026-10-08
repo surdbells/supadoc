@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  CallPresenceMap,
   AddAvailabilityInput,
   AppointmentDto,
   BlockAvailabilityInput,
@@ -85,6 +86,11 @@ export class DoctorApi {
   }
 
   /** GET /api/doctor/appointments — the signed-in doctor's schedule. */
+  /** GET /api/doctor/appointments/presence — who is in each of my consultations' calls now. */
+  presence(): Observable<SuccessResponse<CallPresenceMap>> {
+    return this.api.get<SuccessResponse<CallPresenceMap>>('api/doctor/appointments/presence');
+  }
+
   schedule(): Observable<SuccessResponse<DoctorScheduleDto>> {
     return this.api.get<SuccessResponse<DoctorScheduleDto>>(
       'api/doctor/appointments',

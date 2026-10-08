@@ -4,6 +4,7 @@ import type {
   AppointmentDto,
   AppointmentPayInitDto,
   BookAppointmentParams,
+  CallPresenceMap,
   CallTokenDto,
   ClinicalDocumentKind,
   ConsentDto,
@@ -247,6 +248,21 @@ export class AppointmentsApi {
       `api/portal/appointments/${encodeURIComponent(id)}/messages`,
       { body },
     );
+  }
+
+  /** GET /api/portal/appointments/presence — who is in each of my appointments' calls now. */
+  presence(): Observable<SuccessResponse<CallPresenceMap>> {
+    return this.api.get<SuccessResponse<CallPresenceMap>>('api/portal/appointments/presence');
+  }
+
+  /** Absolute URL of the signed-in patient's call heartbeat (POST {state}). */
+  presenceUrl(id: string): string {
+    return this.api.absoluteUrl(`api/portal/appointments/${encodeURIComponent(id)}/presence`);
+  }
+
+  /** Absolute URL of the join-link call heartbeat (POST {state}); the token is the credential. */
+  joinPresenceUrl(token: string): string {
+    return this.api.absoluteUrl(`api/public/call/${encodeURIComponent(token)}/presence`);
   }
 
   /**

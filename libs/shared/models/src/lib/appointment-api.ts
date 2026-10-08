@@ -616,3 +616,12 @@ export interface ListAppointmentsQuery {
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
 }
+
+/** Who is in an appointment's call right now (from their call screens' heartbeats). */
+export interface CallPresenceDto {
+  doctor: boolean;
+  patient: boolean;
+}
+
+/** Presence by appointment id — only appointments with someone in the call. */
+export type CallPresenceMap = Record<string, CallPresenceDto>;

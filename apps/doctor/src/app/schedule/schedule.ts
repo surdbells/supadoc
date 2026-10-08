@@ -9,9 +9,9 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi, injectCallPresence } from '@supadoc/data-access';
 import type { DoctorAppointmentDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
 
 type TabKey = 'upcoming' | 'today' | 'pending';
 
@@ -27,7 +27,7 @@ const STATUS_TEXT: Record<string, string> = {
 @Component({
   selector: 'doc-schedule',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, CallPresenceComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -98,7 +98,11 @@ const STATUS_TEXT: Record<string, string> = {
                 </div>
                 <div class="flex flex-col gap-1.5 lg:w-48">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
-                  <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusPill(a.status)">{{ a.status_label }}</span>
+                  <!-- Status + who is in the call; wraps rather than overflowing on narrow rows. -->
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusPill(a.status)">{{ a.status_label }}</span>
+                    <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" />
+                  </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-3">
                   @if (a.status === 'pending' || a.status === 'rescheduled') {
@@ -131,6 +135,8 @@ export class DoctorSchedule implements OnInit {
   protected readonly appointments = signal<DoctorAppointmentDto[]>([]);
   protected readonly busyId = signal<string | null>(null);
   protected readonly tab = signal<TabKey>('upcoming');
+  /** Who is in each consultation's call right now (polled). */
+  protected readonly presence = injectCallPresence(() => this.api.presence());
 
   protected readonly tabs: ReadonlyArray<{ key: TabKey; label: string }> = [
     { key: 'upcoming', label: 'Upcoming' },

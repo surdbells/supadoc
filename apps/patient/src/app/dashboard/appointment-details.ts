@@ -21,6 +21,7 @@ import {
 import {
   apiErrorMessage,
   AppointmentsApi,
+  injectCallPresence,
   openClinicalDocument,
   openPendingTab,
   PrescriptionsApi,
@@ -34,7 +35,12 @@ import type {
   PrescriptionDto,
   PrescriptionStatus,
 } from '@supadoc/models';
-import { ButtonComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  CallPresenceComponent,
+  IconComponent,
+  MessageThreadComponent,
+} from '@supadoc/ui';
 
 /** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
 interface DocumentItem {
@@ -127,7 +133,13 @@ function toDetails(a: AppointmentDto): DetailsVm {
 @Component({
   selector: 'pat-appointment-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, ButtonComponent, IconComponent, MessageThreadComponent],
+  imports: [
+    RouterLink,
+    ButtonComponent,
+    CallPresenceComponent,
+    IconComponent,
+    MessageThreadComponent,
+  ],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -210,7 +222,9 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   </p>
                 </div>
               </div>
-              <div class="flex items-start justify-between gap-8 md:items-center">
+              <div
+                class="flex flex-wrap items-start justify-between gap-x-8 gap-y-3 md:items-center"
+              >
                 <div
                   class="flex flex-col gap-2 font-sans text-caption text-slate"
                 >
@@ -224,11 +238,19 @@ function toDetails(a: AppointmentDto): DetailsVm {
                     <sd-icon [name]="v.typeIcon" [size]="16" />{{ v.typeLabel }}
                   </span>
                 </div>
-                <span
-                  class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium"
-                  [class]="v.statusClass"
-                  >{{ v.statusLabel }}</span
-                >
+                <!-- Status + who's in the call; wraps under the dates on narrow phones -->
+                <div class="ml-auto flex flex-col items-end gap-2">
+                  <span
+                    class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium"
+                    [class]="v.statusClass"
+                    >{{ v.statusLabel }}</span
+                  >
+                  <sd-call-presence
+                    [presence]="presence()[v.id]"
+                    viewer="patient"
+                    size="md"
+                  />
+                </div>
               </div>
             </section>
 
@@ -257,9 +279,18 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 </div>
               </div>
               <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
-                <sd-button [full]="true" (click)="joinCall(v.id)">
+                <!-- A soft green halo + clearer label once the doctor is waiting -->
+                <sd-button
+                  [full]="true"
+                  [class]="doctorInCall() ? 'rounded-field ring-4 ring-success/25' : ''"
+                  (click)="joinCall(v.id)"
+                >
                   <sd-icon name="video" [size]="18" />
-                  Join Consultation
+                  {{
+                    doctorInCall()
+                      ? 'Join now — your doctor is in the call'
+                      : 'Join Consultation'
+                  }}
                 </sd-button>
                 @if (v.canCancel) {
                   <sd-button variant="outline" [full]="true" (click)="openReschedule(v)"
@@ -528,6 +559,16 @@ export class AppointmentDetails {
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly specialists = inject(SpecialistsApi);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Who is in my appointments' calls right now — polled while the page is open. */
+  protected readonly presence = injectCallPresence(() =>
+    this.appointments.presence(),
+  );
+  /** The doctor has joined this appointment's call — the join button says so. */
+  protected readonly doctorInCall = computed(() => {
+    const id = this.vm()?.id;
+    return !!id && !!this.presence()[id]?.doctor;
+  });
 
   protected readonly cancelling = signal(false);
   protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);

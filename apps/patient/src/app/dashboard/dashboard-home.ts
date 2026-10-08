@@ -11,12 +11,17 @@ import { Router } from '@angular/router';
 import {
   apiErrorMessage,
   AppointmentsApi,
+  injectCallPresence,
   NotificationsApi,
   PatientApi,
   WalletApi,
 } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  CallPresenceComponent,
+  IconComponent,
+} from '@supadoc/ui';
 
 interface QuickAction {
   readonly icon: string;
@@ -81,7 +86,7 @@ const UPCOMING_BADGE: Record<string, string> = {
 @Component({
   selector: 'pat-dashboard-home',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ButtonComponent],
+  imports: [IconComponent, ButtonComponent, CallPresenceComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -224,26 +229,33 @@ const UPCOMING_BADGE: Record<string, string> = {
                 <p class="font-sans text-caption text-alert">{{ upcomingError() }}</p>
               </div>
             } @else if (upcoming(); as u) {
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2">
-                  <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
-                    >{{ docInitials(u.name) }}</span
-                  >
-                  <div class="flex flex-col">
-                    <p class="font-sans text-body font-semibold text-ink">
-                      {{ u.name }}
-                    </p>
-                    <p class="font-sans text-caption text-slate">
-                      {{ u.specialty }}
-                    </p>
+              <!-- Who's in the call sits just under the badge (the card is narrow at lg) -->
+              <div class="flex flex-col items-end gap-2">
+                <div class="flex w-full items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                      >{{ docInitials(u.name) }}</span
+                    >
+                    <div class="flex flex-col">
+                      <p class="font-sans text-body font-semibold text-ink">
+                        {{ u.name }}
+                      </p>
+                      <p class="font-sans text-caption text-slate">
+                        {{ u.specialty }}
+                      </p>
+                    </div>
                   </div>
+                  <span
+                    class="rounded-lg px-4 py-1 font-sans text-[10px] font-medium leading-4 text-white"
+                    [class]="u.badgeClass"
+                    >{{ u.statusLabel }}</span
+                  >
                 </div>
-                <span
-                  class="rounded-lg px-4 py-1 font-sans text-[10px] font-medium leading-4 text-white"
-                  [class]="u.badgeClass"
-                  >{{ u.statusLabel }}</span
-                >
+                <sd-call-presence
+                  [presence]="presence()[u.id]"
+                  viewer="patient"
+                />
               </div>
               <div class="flex flex-col gap-2">
                 <div class="flex items-center justify-between">
@@ -445,6 +457,10 @@ const UPCOMING_BADGE: Record<string, string> = {
 })
 export class DashboardHome {
   private readonly appointments = inject(AppointmentsApi);
+  /** Who is in my appointments' calls right now — feeds the Upcoming card's indicator. */
+  protected readonly presence = injectCallPresence(() =>
+    this.appointments.presence(),
+  );
 
   /** Initials for a specialist name (the logged-in user's own initials use the `initials` signal). */
   protected docInitials(name: string): string {

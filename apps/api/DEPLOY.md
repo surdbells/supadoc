@@ -119,6 +119,9 @@ REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASSWORD=            # set if your Redis has requirepass (aaPanel usually does)
 REDIS_PREFIX=videomed:
+# Redis also holds "who is in the call" for the appointment indicators (keys
+# expire on their own, nothing to migrate). If Redis is unreachable the
+# indicators simply show nobody — calls are unaffected.
 
 # Exact browser origin(s) of the frontend(s) that may call the API (comma-separated):
 # the patient app plus the backoffice + doctor portals (each its own domain).

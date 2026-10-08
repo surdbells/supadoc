@@ -1,5 +1,6 @@
 export * from './lib/alert/alert';
 export * from './lib/button/button';
+export * from './lib/call-presence/call-presence';
 export * from './lib/card/card';
 export * from './lib/confirm-dialog/confirm-dialog';
 export * from './lib/doctor-profile-card/doctor-profile-card';

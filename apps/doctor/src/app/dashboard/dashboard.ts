@@ -10,13 +10,18 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
-import { apiErrorMessage, DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  DoctorApi,
+  injectCallPresence,
+  StaffNotificationsApi,
+} from '@supadoc/data-access';
 import type {
   DoctorAppointmentDto,
   DoctorDashboardDto,
   StaffNotificationDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
 
 interface Stat {
   readonly label: string;
@@ -57,7 +62,7 @@ const NOTE_ICON: Record<string, string> = {
 @Component({
   selector: 'doc-dashboard',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, CallPresenceComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -136,7 +141,7 @@ const NOTE_ICON: Record<string, string> = {
             } @else {
               <ul class="flex flex-col divide-y divide-cloud">
                 @for (a of d.agenda.slice(0, 4); track a.id; let i = $index) {
-                  <li class="flex items-center gap-3 px-5 py-3.5">
+                  <li class="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3.5">
                     <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean">
                       {{ initialsFor(a.patient_name) }}
                     </span>
@@ -148,10 +153,17 @@ const NOTE_ICON: Record<string, string> = {
                       <span class="font-sans text-caption font-semibold" [class]="statusText(a.status)">{{ a.status_label }}</span>
                       <span class="font-sans text-caption text-slate">{{ time(a.scheduled_at) }}</span>
                     </div>
-                    @if (i === 0) {
+                    <!-- Join the first consultation, and any whose patient is already waiting in the call. -->
+                    @if (i === 0 || patientWaiting(a.id)) {
                       <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">Join</button>
                     } @else {
                       <a [routerLink]="['/appointments', a.id]" class="ml-1 flex shrink-0 items-center rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean">View</a>
+                    }
+                    <!-- Who is in the call: its own line under the status, so a narrow card never squeezes the name. -->
+                    @if (presence()[a.id]; as p) {
+                      <div class="flex min-w-0 basis-full justify-end">
+                        <sd-call-presence [presence]="p" viewer="doctor" />
+                      </div>
                     }
                   </li>
                 }
@@ -254,6 +266,8 @@ export class DoctorDashboard implements OnInit {
   // The two summary cards are dismissable (matches the design's ✕ affordance).
   protected readonly scheduleOpen = signal(true);
   protected readonly notificationsOpen = signal(true);
+  /** Who is in each consultation's call right now (polled). */
+  protected readonly presence = injectCallPresence(() => this.api.presence());
 
   protected readonly greeting = computed(() => {
     const h = new Date().getHours();
@@ -352,6 +366,10 @@ export class DoctorDashboard implements OnInit {
     else window.location.href = a.join_url;
   }
 
+  /** The patient has joined this consultation's call and is waiting for the doctor. */
+  protected patientWaiting(id: string): boolean {
+    return this.presence()[id]?.patient === true;
+  }
   protected absDelta(delta: number): number {
     return Math.abs(delta);
   }

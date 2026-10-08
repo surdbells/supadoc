@@ -21,7 +21,12 @@ import AgoraRTC, {
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
 import { SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
-import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  DoctorApi,
+  sendCallPresence,
+  startCallPresence,
+} from '@supadoc/data-access';
 import type {
   ConsentDto,
   CopilotDraftDto,
@@ -1487,6 +1492,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
   private readonly DOCTOR_TOKEN_KEY = 'videomed.doctor.token';
   private left = false;
+  /** Stops the "in the call" heartbeat; set only while one is running. */
+  private heartbeatStop?: () => void;
 
   /**
    * Guard against an accidental refresh/close mid-consultation — reloading tears
@@ -1637,6 +1644,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       // Nobody touches the keyboard for long stretches in a consultation —
       // pause the portal idle timeout until the doctor leaves (see teardown).
       if (!this.left) this.session.hold('call');
+      // Let schedules show the doctor is in the call (stopped in teardown).
+      if (!this.left) this.startHeartbeat();
       this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
       this.startMetricsReport();
     } catch (err: unknown) {
@@ -1660,6 +1669,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     } catch {
       /* the SDK re-fires the event; a transient failure isn't fatal yet */
     }
+  }
+
+  /** Heartbeat "the doctor is in the call" via the join token. Never two at once. */
+  private startHeartbeat(): void {
+    if (this.heartbeatStop) return;
+    const url = `${this.base}/api/public/call/${encodeURIComponent(this.token)}/presence`;
+    this.heartbeatStop = startCallPresence((s) => sendCallPresence(url, s));
   }
 
   protected async toggleMic(): Promise<void> {
@@ -2389,6 +2405,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private async teardown(): Promise<void> {
     this.left = true;
     this.session.release('call');
+    // Says "out" at once, so schedules stop showing the doctor in the call.
+    this.heartbeatStop?.();
+    this.heartbeatStop = undefined;
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     if (this.timer) clearInterval(this.timer);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);

@@ -17,6 +17,7 @@ import { type Observable } from 'rxjs';
 import {
   apiErrorMessage,
   DoctorApi,
+  injectCallPresence,
   openBlobDocument,
   openClinicalDocument,
 } from '@supadoc/data-access';
@@ -39,7 +40,7 @@ import type {
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { AlertComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
+import { AlertComponent, CallPresenceComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
 import { MedicationItem, VisitStatusBadge } from '../patients/patient-record-ui';
 import { RxPanel } from '../prescriptions/rx-panel';
 import { ClinicalAi } from './clinical/clinical-ai';
@@ -129,6 +130,7 @@ function timeLeft(ms: number): TimeLeft | null {
     NgTemplateOutlet,
     RouterLink,
     AlertComponent,
+    CallPresenceComponent,
     IconComponent,
     MessageThreadComponent,
     RxPanel,
@@ -169,6 +171,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 <div class="flex flex-wrap items-center gap-2.5">
                   <span class="font-heading text-h4 text-cerulean">{{ a.patient_name }}</span>
                   <doc-visit-status-badge [status]="a.status" [label]="a.status_label" />
+                  <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" size="md" />
                 </div>
                 @if (age() !== null) { <span class="font-sans text-body-sm text-slate">{{ age() }} years</span> }
               </div>
@@ -220,6 +223,9 @@ function timeLeft(ms: number): TimeLeft | null {
                   {{ joinState().label }}
                 }
               </button>
+              @if (joinState().enabled && patientWaiting()) {
+                <p class="rounded-field bg-success/10 px-3 py-2 text-center font-sans text-caption font-semibold text-success" role="status">The patient is waiting in the call</p>
+              }
             }
             <div class="flex gap-3">
               @if (canReschedule(a.status)) {
@@ -602,6 +608,14 @@ export class DoctorAppointmentDetail implements OnInit {
     if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false, startsIn: null };
     const startsIn = timeLeft(new Date(a.scheduled_at).getTime() - this.now());
     return { label: startsIn ? 'Join Call' : 'Join Call Now', enabled: true, startsIn };
+  });
+
+  /** Who is in each consultation's call right now (polled). */
+  protected readonly presence = injectCallPresence(() => this.api.presence());
+  /** The patient has joined this consultation's call and is waiting for the doctor. */
+  protected readonly patientWaiting = computed(() => {
+    const a = this.appt();
+    return !!a && this.presence()[a.id]?.patient === true;
   });
 
   // Lifecycle actions

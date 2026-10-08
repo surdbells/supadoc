@@ -61,6 +61,11 @@ export class ApiService {
     return this.http.delete<T>(this.url(path));
   }
 
+  /** The absolute URL of an API path (for requests made outside HttpClient). */
+  absoluteUrl(path: string): string {
+    return this.url(path);
+  }
+
   private url(path: string): string {
     const base = this.config.baseUrl.replace(/\/+$/, '');
     const suffix = path.replace(/^\/+/, '');

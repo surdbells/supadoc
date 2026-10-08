@@ -1891,6 +1891,18 @@ return [
                 ],
             ],
         ],
+        '/api/public/call/{token}/presence' => [
+            'post' => ['tags' => ['Call'], 'summary' => 'Call-screen heartbeat (join token): {state: in|out}', 'security' => [], 'responses' => ['200' => ['description' => 'OK'], '401' => ['description' => 'Invalid or expired join link']]],
+        ],
+        '/api/portal/appointments/presence' => [
+            'get' => ['tags' => ['Portal'], 'summary' => 'Who is in the call now, per appointment of the signed-in patient', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+        ],
+        '/api/portal/appointments/{id}/presence' => [
+            'post' => ['tags' => ['Portal'], 'summary' => 'Patient call-screen heartbeat: {state: in|out}', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '404' => ['description' => 'Not found']]],
+        ],
+        '/api/doctor/appointments/presence' => [
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Who is in the call now, per consultation of the signed-in doctor', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']]],
+        ],
         '/api/portal/notifications' => [
             'get' => [
                 'tags'        => ['Portal'],

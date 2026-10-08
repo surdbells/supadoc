@@ -100,6 +100,7 @@ return static function (App $app): void {
         $group->post('/public/prescriptions/check', Action\Prescription\CheckPrescriptionAction::class);
         // Preauthenticated join — the signed token in the path IS the credential.
         $group->get('/public/call/{token}', Action\Call\JoinCallAction::class);
+        $group->post('/public/call/{token}/presence', Action\Call\CallPresenceAction::class);
 
         // Paystack webhook (public) — signature-verified + re-verified server-side.
         $group->post('/webhooks/paystack', Action\Wallet\PaystackWebhookAction::class);
@@ -167,6 +168,7 @@ return static function (App $app): void {
             $group->get('/doctor/dashboard', Action\Doctor\DoctorDashboardAction::class);
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
             $group->get('/doctor/appointments/history', Action\Doctor\DoctorAppointmentHistoryAction::class);
+            $group->get('/doctor/appointments/presence', Action\Doctor\DoctorCallPresenceAction::class);
             $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/decline', Action\Doctor\DeclineDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
@@ -330,6 +332,8 @@ return static function (App $app): void {
             $group->get('/specialists/specialties', Action\Specialist\ListSpecialtiesAction::class);
             $group->get('/specialists', Action\Specialist\ListSpecialistsAction::class);
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
+            // Before /appointments/{id}: FastRoute refuses a static route shadowed by an earlier variable one.
+            $group->get('/appointments/presence', Action\Appointment\MyCallPresenceAction::class);
             $group->post('/appointments', Action\Appointment\CreateMyAppointmentAction::class);
             $group->post('/appointments/pay-init', Action\Appointment\InitAppointmentPaymentAction::class);
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
@@ -338,6 +342,7 @@ return static function (App $app): void {
             $group->post('/appointments/{id}/reschedule', Action\Appointment\ReschedulePortalAppointmentAction::class);
             $group->post('/appointments/{id}/review', Action\Patient\SubmitReviewAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
+            $group->post('/appointments/{id}/presence', Action\Appointment\ReportMyPresenceAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
             $group->get('/appointments/{id}/messages', Action\Appointment\MyMessagesAction::class);
             $group->post('/appointments/{id}/messages', Action\Appointment\PostMyMessageAction::class);

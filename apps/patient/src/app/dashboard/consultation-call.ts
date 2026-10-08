@@ -18,7 +18,7 @@ import AgoraRTC, {
   IMicrophoneAudioTrack,
   UID,
 } from 'agora-rtc-sdk-ng';
-import { SessionTimeoutService } from '@supadoc/auth';
+import { AuthService, SessionTimeoutService } from '@supadoc/auth';
 import {
   apiErrorMessage,
   AppointmentsApi,
@@ -27,6 +27,8 @@ import {
   openPendingTab,
   PatientApi,
   PrescriptionsApi,
+  sendCallPresence,
+  startCallPresence,
 } from '@supadoc/data-access';
 import type {
   AllergyRow,
@@ -1157,6 +1159,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   /** Paused while connected so the idle timeout never signs a patient out mid-call. */
   private readonly session = inject(SessionTimeoutService);
+  /** Bearer token for the presence heartbeat (a raw fetch, outside the interceptors). */
+  private readonly auth = inject(AuthService);
 
   private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
   private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
@@ -1469,6 +1473,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   /** The doctor closed the appointment (completed / cancelled). */
   private consultationClosed = false;
+  /** Stops the "in the call" heartbeat; set only while one is running. */
+  private heartbeatStop?: () => void;
 
   ngAfterViewInit(): void {
     this.appointmentId = this.route.snapshot.paramMap.get('id') ?? '';
@@ -1567,12 +1573,14 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       if (this.left || this.client !== self) return;
 
       this.status.set('in-call');
+      this.startHeartbeat();
       this.startTimer();
       if (this.holding) this.startLivePolls();
     } catch (err) {
       if (this.left || (client && this.client !== client)) return; // already handled
       // Not in a working call — let the idle timeout run again.
       this.connected = false;
+      this.stopHeartbeat();
       this.syncHold();
       this.session.release(CALL_HOLD);
       this.clearFirstWait();
@@ -1699,6 +1707,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private callEnded(client: IAgoraRTCClient, reason: CallEndReason): void {
     if (client !== this.client || this.left || !this.connected) return;
     this.connected = false;
+    this.stopHeartbeat();
     this.syncHold();
     this.clearFirstWait();
     this.clearReconnectWatch();
@@ -1718,6 +1727,28 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.status.set('ended');
     // One last look, so the notes show everything issued during the visit.
     void this.refreshClinical();
+  }
+
+  /**
+   * Tell the API the patient is in the call, so appointment lists (theirs and
+   * the doctor's) can show it. Restarted after a rejoin; never two at once.
+   */
+  private startHeartbeat(): void {
+    if (this.heartbeatStop) return;
+    const url = this.appointments.presenceUrl(this.appointmentId);
+    this.heartbeatStop = startCallPresence((s) => sendCallPresence(url, s, this.authHeader()));
+  }
+
+  /** Stop the heartbeat, saying "out" (a no-op when none is running). */
+  private stopHeartbeat(): void {
+    this.heartbeatStop?.();
+    this.heartbeatStop = undefined;
+  }
+
+  /** Read on every beat — the access token may have been refreshed mid-call. */
+  private authHeader(): Record<string, string> {
+    const token = this.auth.token();
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
   /** "Rejoin call" after a dropped connection. */
@@ -2316,6 +2347,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private async teardown(): Promise<void> {
     this.left = true;
     this.connected = false;
+    this.stopHeartbeat();
     // Out of the call: the idle timeout runs again.
     this.holding = false;
     this.session.release(CALL_HOLD);
