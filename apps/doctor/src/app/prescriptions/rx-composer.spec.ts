@@ -60,12 +60,43 @@ interface ComposerView {
   saveDraft(): void;
   confirmSend(): void;
   setSigMode(m: 'saved' | 'drawn'): void;
+  rows(): { rxcui: string | null; dose: string }[];
+  draft(): { key: number } | null;
+  pickDraftDrug(d: Record<string, unknown>): void;
+  setDraft(field: string, value: string | boolean): void;
+  commitDraft(): boolean;
+  startEdit(key: number): void;
+  removeRow(key: number): void;
+  undoRemove(): void;
+  openSend(): void;
+  sendOpen(): boolean;
+}
+
+const AMOXICILLIN = {
+  rxcui: '308191',
+  tty: 'SCD',
+  name: 'amoxicillin 500 MG Oral Capsule',
+  generic_name: 'amoxicillin',
+  brand: null,
+  branded: false,
+  dose_form: 'Oral Capsule',
+  route: 'By mouth',
+};
+
+/** Fill the add-medicine form with a complete medicine. */
+function fillDraft(c: ComposerView, dose = '1 capsule'): void {
+  c.pickDraftDrug(AMOXICILLIN);
+  c.setDraft('dose', dose);
+  c.setDraft('route', 'By mouth');
+  c.setDraft('frequency', 'Three times daily');
+  c.setDraft('duration', '7 days');
+  c.setDraft('quantity', '21 capsules');
 }
 
 function setup(opts: {
   summary: ClinicalSummaryDto;
   draft?: Partial<PrescriptionDto>;
-  create?: () => Observable<unknown>;
+  create?: (input?: unknown) => Observable<unknown>;
   send?: () => Observable<unknown>;
   options?: () => Observable<unknown>;
 }) {
@@ -157,6 +188,95 @@ describe('RxComposer', () => {
     });
     await fixture.whenStable();
     expect(fixture.componentInstance.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('treats pregnancy as not applicable for a male patient', async () => {
+    let sent: Record<string, unknown> | null = null;
+    const { fixture, c, text } = setup({
+      summary: summary({ patient: { id: 'p1', name: 'Ade Obi', gender: 'male', date_of_birth: '1990-01-01', age: 36 } }),
+      create: (input?: unknown) => {
+        sent = input as Record<string, unknown>;
+        return of({ data: { id: 'rx1', status: 'draft', items: [], readings: {} } });
+      },
+    });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(text()).toContain('Not applicable — male patient');
+    expect((fixture.nativeElement as HTMLElement).querySelector('select[id$="-preg"]')).toBeNull();
+    // Showing "Not applicable" is not an edit.
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(false);
+    c.saveDraft();
+    const form = ((sent as { form?: Record<string, unknown> } | null)?.form ?? sent) as Record<string, unknown>;
+    expect(form['pregnancy_status']).toBe('not_applicable');
+  });
+
+  it('only lists a medicine once it is complete, and supports edit, remove and undo', async () => {
+    const { fixture, c } = setup({ summary: summary() });
+    await fixture.whenStable();
+    expect(c.rows().length).toBe(0);
+    expect(c.draft()).not.toBeNull();
+
+    // Incomplete: stays in the form with its messages.
+    expect(c.commitDraft()).toBe(false);
+    expect(c.rows().length).toBe(0);
+    const key = c.draft()?.key ?? -1;
+    expect(c.fe(`row:${key}.rxcui`)).not.toBe('');
+    expect(c.fe(`row:${key}.dose`)).not.toBe('');
+
+    fillDraft(c);
+    expect(c.commitDraft()).toBe(true);
+    expect(c.rows().map((r) => r.dose)).toEqual(['1 capsule']);
+    expect(c.draft()).toBeNull();
+    expect(c.fe(`row:${key}.rxcui`)).toBe('');
+
+    // Edit in the form; the list changes only on "Save changes".
+    const listed = c.rows()[0] as unknown as { key: number };
+    c.startEdit(listed.key);
+    c.setDraft('dose', '2 capsules');
+    expect(c.rows()[0].dose).toBe('1 capsule');
+    expect(c.commitDraft()).toBe(true);
+    expect(c.rows()[0].dose).toBe('2 capsules');
+
+    c.removeRow(listed.key);
+    expect(c.rows().length).toBe(0);
+    c.undoRemove();
+    expect(c.rows().map((r) => r.dose)).toEqual(['2 capsules']);
+  });
+
+  it('keeps an edit\'s errors in the form: Cancel leaves the listed medicine as it was', async () => {
+    const { fixture, c } = setup({ summary: summary() });
+    await fixture.whenStable();
+    fillDraft(c);
+    c.commitDraft();
+    const listed = c.rows()[0] as unknown as { key: number };
+    c.startEdit(listed.key);
+    c.setDraft('dose', '');
+    expect(c.commitDraft()).toBe(false);
+    expect(c.fe(`row:${c.draft()?.key}.dose`)).not.toBe('');
+    // The listed medicine shows no error, and none appears after Cancel.
+    expect(c.fe(`row:${listed.key}.dose`)).toBe('');
+    (c as unknown as { cancelDraft(): void }).cancelDraft();
+    expect(c.fe(`row:${listed.key}.dose`)).toBe('');
+    expect(c.rows()[0].dose).toBe('1 capsule');
+    // Edit is not offered while the form holds unsaved work.
+    (c as unknown as { startAdd(): void }).startAdd();
+    c.setDraft('dose', '5 ml');
+    c.startEdit(listed.key);
+    expect((c.draft() as unknown as { dose: string }).dose).toBe('5 ml');
+  });
+
+  it('will not send while the medicine form holds an incomplete medicine', async () => {
+    const { fixture, c } = setup({ summary: summary(), draft: { reason: 'Cough' } });
+    await fixture.whenStable();
+    fillDraft(c);
+    c.commitDraft();
+    // Start another one and leave it half-filled.
+    (c as unknown as { startAdd(): void }).startAdd();
+    c.setDraft('dose', '1 tablet');
+    c.openSend();
+    expect(c.sendOpen()).toBe(false);
+    expect(c.formError()).toContain('Finish the medicine in the form');
+    expect(c.rows().length).toBe(1);
   });
 
   it('starts from a blank pad whenever the signature mode changes', () => {

@@ -117,7 +117,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     `,
   ],
   template: `
-    <div class="flex min-h-screen flex-col xl:h-screen xl:overflow-hidden">
+    <!-- relative: contains absolutely positioned bits (e.g. screen-reader-only labels deep in
+         the tools panel) so they can never make the desktop cockpit scroll as a page. -->
+    <div class="relative flex min-h-screen flex-col xl:h-screen xl:overflow-hidden">
       <!-- Top bar -->
       <header
         class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 px-4 py-3"
@@ -150,6 +152,13 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           >
             <sd-icon name="shield-check" [size]="14" class="text-success" />
             End-to-end Encrypted
+          </span>
+          <!-- Desktop: the strip under the video is hidden for room, so this says it. -->
+          <span
+            class="hidden items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70 xl:flex"
+          >
+            <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-success">HD</span>
+            Noise Cancellation
           </span>
           <span
             class="flex items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70"
@@ -192,7 +201,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         class="flex flex-1 flex-col gap-4 p-4 xl:grid xl:min-h-0 xl:grid-cols-[300px_minmax(0,1fr)_320px] xl:overflow-hidden"
       >
         <!-- ===================== PATIENT CHART ===================== -->
-        <aside class="order-4 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+        <aside class="relative order-4 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
             <div class="flex items-center gap-3">
               <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-cerulean/20 font-heading text-body font-semibold text-frost">
@@ -312,7 +321,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
              The stage must stay positioned (sticky, or relative on desktop): the video,
              name tag, self-view and call controls are placed absolutely inside it. -->
         <section class="contents xl:flex xl:min-h-0 xl:min-w-0 xl:flex-col xl:gap-4">
-          <div class="sd-stage order-1 sticky top-0 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[45vh] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video xl:relative xl:order-none xl:aspect-auto xl:h-[clamp(280px,46vh,600px)] xl:max-h-none xl:shadow-none">
+          <div class="sd-stage order-1 sticky top-0 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[var(--stage-max)] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] transition-[height,max-height] duration-300 ease-out motion-reduce:transition-none sm:aspect-video xl:relative xl:order-none xl:aspect-auto xl:h-[var(--stage-h)] xl:max-h-none xl:shadow-none"
+            [style.--stage-max]="moreRoom() ? '28vh' : '45vh'"
+            [style.--stage-h]="moreRoom() ? 'clamp(200px,30vh,340px)' : 'clamp(220px,calc(55.5vh - 150px),560px)'">
             <div #remoteVideo class="absolute inset-0 bg-ink"></div>
 
             <!-- Doctor PiP. Kept in the DOM (hidden until in-call) so the camera
@@ -370,8 +381,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               <div class="absolute left-4 top-4 max-w-[calc(100%-7rem)] rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:max-w-[calc(100%-8rem)]">
                 <span class="block truncate font-sans text-body-sm font-medium text-white">{{ patientName() }}</span>
               </div>
-              <!-- Connection quality (small stage: the PiP has this corner; the bar below says HD) -->
-              <div class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex">
+              <!-- Connection quality (small stage: the PiP has this corner; the strip under the video,
+                   or the header on desktop, says HD) -->
+              <div class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex" title="HD video · Adaptive · Noise cancellation">
                 <span class="font-label text-caption font-semibold text-white">HD</span>
                 <span class="size-2 rounded-full bg-success"></span>
               </div>
@@ -406,8 +418,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             }
           </div>
 
-          <!-- Agora status bar -->
-          <div class="order-2 flex shrink-0 items-center gap-3 rounded-pill bg-white/[0.03] px-4 py-2 font-sans text-caption text-white/50 xl:order-none">
+          <!-- Agora status bar (desktop: hidden — the stage's HD badge says it, and the
+               tools panel needs the height) -->
+          <div class="order-2 flex shrink-0 items-center gap-3 rounded-pill bg-white/[0.03] px-4 py-2 font-sans text-caption text-white/50 xl:hidden">
             <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-success">HD</span>
             <span>Adaptive</span>
             <span class="flex items-center gap-1"><span class="size-1.5 rounded-full bg-success"></span> Noise Cancellation</span>
@@ -415,7 +428,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 
           <!-- Notes -->
           <div class="order-3 flex flex-col rounded-card border border-white/10 bg-white/[0.03] xl:order-none xl:min-h-0 xl:flex-1">
-            <div class="flex shrink-0 gap-1 overflow-x-auto border-b border-white/10 px-2">
+            <div class="flex shrink-0 items-center gap-1 border-b border-white/10 px-2">
+              <div class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
               @for (t of notesTabs; track t.key) {
                 <button
                   type="button"
@@ -429,11 +443,27 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   }
                 </button>
               }
+              </div>
+              <!-- Make the video smaller (it stays in view) so long forms such as a
+                   prescription have room; remembered for next time. Outside the
+                   scrolling tabs so it is always reachable. -->
+              <button
+                type="button"
+                class="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
+                [class]="moreRoom() ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white'"
+                aria-label="More room"
+                [attr.aria-pressed]="moreRoom()"
+                [attr.title]="moreRoom() ? 'On: the video is smaller to give these tools more room' : 'Make the video smaller to give these tools more room'"
+                (click)="toggleMoreRoom()"
+              >
+                <sd-icon [name]="moreRoom() ? 'minimize-2' : 'maximize-2'" [size]="14" />
+                <span class="hidden sm:inline" aria-hidden="true">More room</span>
+              </button>
             </div>
 
             <!-- Desktop: scrolls inside the panel. Everywhere: height changes ease
                  (sdSmoothHeight) and each tab fades in, instead of jumping. -->
-            <div class="p-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+            <div class="relative p-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               <div sdSmoothHeight>
               <div>
               @for (shown of [notesTab()]; track shown) {
@@ -1022,7 +1052,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </section>
 
         <!-- ===================== RECORDS + PARTICIPANTS ===================== -->
-        <aside class="order-5 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+        <aside class="relative order-5 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
             <h3 class="mb-3 font-sans text-body font-semibold text-white">Medical Records</h3>
             <div class="mb-3 flex gap-1 overflow-x-auto">
@@ -1315,6 +1345,27 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       return localStorage.getItem('videomed.call.theme') === 'light' ? 'light' : 'dark';
     } catch {
       return 'dark';
+    }
+  }
+
+  /** Smaller video, more room for the tools panel (notes, prescriptions…); remembered. */
+  protected readonly moreRoom = signal(this.readMoreRoom());
+
+  protected toggleMoreRoom(): void {
+    const next = !this.moreRoom();
+    this.moreRoom.set(next);
+    try {
+      localStorage.setItem('videomed.call.more-room', next ? '1' : '0');
+    } catch {
+      /* preference is best-effort */
+    }
+  }
+
+  private readMoreRoom(): boolean {
+    try {
+      return localStorage.getItem('videomed.call.more-room') === '1';
+    } catch {
+      return false;
     }
   }
 

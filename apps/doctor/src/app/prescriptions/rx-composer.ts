@@ -153,6 +153,17 @@ function isFilled(r: RowState): boolean {
   );
 }
 
+/** Anything entered in the add-medicine form (typed search text included). */
+function hasRowContent(r: RowState): boolean {
+  return isFilled(r) || r.query.trim() !== '' || r.no_substitute || toRepeats(r.repeats) > 0;
+}
+
+/** A row's medicine details, for "has this changed?" (ignores the search box). */
+function rowJson(r: RowState): string {
+  const { key: _key, query: _query, ...rest } = r;
+  return JSON.stringify({ ...rest, repeats: String(toRepeats(r.repeats)) });
+}
+
 function toRepeats(v: string): number {
   const n = Number(v);
   return v.trim() === '' || !Number.isFinite(n) ? 0 : n;
@@ -277,7 +288,7 @@ function nullIfBlank(v: string): string | null {
               <sd-icon name="chevron-down" [size]="18" class="text-slate transition-transform" [class.rotate-180]="infoOpen()" />
             </button>
             <div [id]="id('info')" [class]="infoBodyClass()">
-              <doc-rx-side-panel [patientId]="patientId()" (loaded)="summary.set($event)" />
+              <doc-rx-side-panel [patientId]="patientId()" (loaded)="onSummary($event)" />
             </div>
           </aside>
 
@@ -441,6 +452,15 @@ function nullIfBlank(v: string): string | null {
                 </div>
               </div>
 
+              @if (isMale()) {
+                <!-- Not a question for a male patient: recorded as "Not applicable". -->
+                <div class="flex flex-col gap-1.5">
+                  <span class="${LABEL}">Pregnant or breastfeeding?</span>
+                  <p class="flex items-center gap-2 rounded-field border border-cloud bg-cloud/40 px-3 py-2.5 font-sans text-body-sm text-slate">
+                    <sd-icon name="info" [size]="15" class="shrink-0" /> Not applicable — male patient
+                  </p>
+                </div>
+              } @else {
               <div
                 class="flex flex-col gap-1.5"
                 [class]="askPregnancy() ? 'rounded-field border border-warning/60 bg-warning/10 p-3' : ''"
@@ -470,6 +490,7 @@ function nullIfBlank(v: string): string | null {
                   <p class="${ERR}" data-rx-error>{{ m }}</p>
                 }
               </div>
+              }
             </section>
 
             <!-- e. Medicines -->
@@ -482,131 +503,207 @@ function nullIfBlank(v: string): string | null {
                 <p class="flex items-center gap-1.5 ${ERR}" data-rx-error><sd-icon name="circle-alert" [size]="14" /> {{ m }}</p>
               }
 
-              <ol class="flex flex-col gap-4">
-                @for (row of rows(); track row.key; let i = $index) {
-                  @if (i === perPage()) {
-                    <li class="flex items-center gap-3 py-1" role="separator" aria-label="Extra page (Page 2 of 2)">
-                      <span class="h-px flex-1 bg-ash"></span>
-                      <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-slate">
-                        <sd-icon name="file-text" [size]="14" /> Extra page (Page 2 of 2)
-                      </span>
-                      <span class="h-px flex-1 bg-ash"></span>
-                    </li>
-                  }
-                  <li class="rounded-card border border-cloud bg-glacier/40 p-3 @lg:p-4" [attr.aria-label]="'Medicine ' + (i + 1)">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="flex items-center gap-2">
-                        <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-cerulean font-sans text-caption font-semibold text-white" aria-hidden="true">{{ i + 1 }}</span>
-                        <span class="font-sans text-body-sm font-semibold text-ink">Medicine {{ i + 1 }}</span>
-                      </span>
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-1 rounded-field px-2 py-1 font-sans text-caption font-semibold text-alert transition-colors hover:bg-alert/10"
-                        [attr.aria-label]="'Remove medicine ' + (i + 1)"
-                        (click)="removeRow(row.key)"
-                      >
-                        <sd-icon name="trash-2" [size]="14" /> Remove
-                      </button>
-                    </div>
-
-                    <div class="mt-3 grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-                      <div class="col-span-full flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-drug')">Medicine</label>
-                        <doc-rx-drug-search
-                          [inputId]="id('row-' + row.key + '-drug')"
-                          [chosen]="row.rxcui ? { name: row.name, branded: row.branded, dose_form: row.dose_form, generic_name: row.generic_name } : null"
-                          [invalid]="!!fe('row:' + row.key + '.rxcui')"
-                          [describedBy]="fe('row:' + row.key + '.rxcui') ? id('row-' + row.key + '-drug-err') : null"
-                          [disabled]="locked() || disabled()"
-                          (picked)="pickDrug(row.key, $event)"
-                          (cleared)="clearDrug(row.key)"
-                          (queryChange)="setQuery(row.key, $event)"
-                        />
-                        @if (fe('row:' + row.key + '.rxcui'); as m) {
-                          <p class="${ERR}" [id]="id('row-' + row.key + '-drug-err')" data-rx-error>{{ m }}</p>
+              <!-- Added medicines: a compact list — view, edit, remove (with undo). -->
+              @if (rows().length > 0) {
+                <ol class="flex flex-col gap-2" [attr.aria-label]="'Medicines on this prescription (' + rows().length + ')'">
+                  @for (row of rows(); track row.key; let i = $index) {
+                    @if (i === perPage()) {
+                      <li class="flex items-center gap-3 py-1" role="separator" aria-label="Extra page (Page 2 of 2)">
+                        <span class="h-px flex-1 bg-ash"></span>
+                        <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-slate">
+                          <sd-icon name="file-text" [size]="14" /> Extra page (Page 2 of 2)
+                        </span>
+                        <span class="h-px flex-1 bg-ash"></span>
+                      </li>
+                    }
+                    <li
+                      class="flex items-start gap-3 rounded-card border p-3 transition-colors"
+                      [class]="editingKey() === row.key ? 'border-cerulean bg-frost/40' : rowErrors(row.key).length ? 'border-alert/60 bg-alert/5' : 'border-cloud bg-white'"
+                      [attr.aria-label]="'Medicine ' + (i + 1) + ': ' + (row.name || 'not chosen')"
+                    >
+                      <span class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-cerulean font-sans text-caption font-semibold text-white" aria-hidden="true">{{ i + 1 }}</span>
+                      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <p class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-semibold text-ink">
+                          <span class="min-w-0 break-words">{{ row.name || 'Medicine not chosen' }}</span>
+                          @if (row.no_substitute) {
+                            <span class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-ink">No substitute</span>
+                          }
+                        </p>
+                        @if (row.branded && row.generic_name) {
+                          <p class="${HINT}">{{ row.generic_name }}</p>
+                        }
+                        <p class="font-sans text-caption text-slate">{{ rowSummary(row) }}</p>
+                        @if (row.instructions) {
+                          <p class="font-sans text-caption italic text-slate">{{ row.instructions }}</p>
+                        }
+                        @for (m of rowErrors(row.key); track m) {
+                          <p class="flex items-center gap-1.5 ${ERR}" data-rx-error><sd-icon name="circle-alert" [size]="13" class="shrink-0" /> {{ m }}</p>
                         }
                       </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-dose')">How much to take</label>
-                        <input type="text" autocomplete="off" maxlength="40" class="${RX_FIELD}" [class]="fc('row:' + row.key + '.dose')"
-                          [id]="id('row-' + row.key + '-dose')" placeholder="e.g. 1 tablet" [value]="row.dose"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.dose') ? 'true' : null"
-                          (input)="setRow(row.key, 'dose', $any($event.target).value)" />
-                        @if (fe('row:' + row.key + '.dose'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-route')">How to take it</label>
-                        <select class="${RX_FIELD}" [class]="fc('row:' + row.key + '.route')" [id]="id('row-' + row.key + '-route')"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.route') ? 'true' : null"
-                          (change)="setRow(row.key, 'route', $any($event.target).value)">
-                          <option value="" [selected]="row.route === ''">Choose…</option>
-                          @for (r of routes(); track r) {
-                            <option [value]="r" [selected]="row.route === r">{{ r }}</option>
-                          }
-                        </select>
-                        @if (fe('row:' + row.key + '.route'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-freq')">How often</label>
-                        <input type="text" autocomplete="off" maxlength="40" class="${RX_FIELD}" [class]="fc('row:' + row.key + '.frequency')"
-                          [id]="id('row-' + row.key + '-freq')" [attr.list]="id('freq')" placeholder="e.g. Twice daily" [value]="row.frequency"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.frequency') ? 'true' : null"
-                          (input)="setRow(row.key, 'frequency', $any($event.target).value)" />
-                        @if (fe('row:' + row.key + '.frequency'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-dur')">For how long</label>
-                        <input type="text" autocomplete="off" maxlength="30" class="${RX_FIELD}" [class]="fc('row:' + row.key + '.duration')"
-                          [id]="id('row-' + row.key + '-dur')" [attr.list]="id('dur')" placeholder="e.g. 7 days" [value]="row.duration"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.duration') ? 'true' : null"
-                          (input)="setRow(row.key, 'duration', $any($event.target).value)" />
-                        @if (fe('row:' + row.key + '.duration'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-qty')">Quantity to give</label>
-                        <input type="text" autocomplete="off" maxlength="30" class="${RX_FIELD}" [class]="fc('row:' + row.key + '.quantity')"
-                          [id]="id('row-' + row.key + '-qty')" placeholder="e.g. 14 tablets" [value]="row.quantity"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.quantity') ? 'true' : null"
-                          (input)="setRow(row.key, 'quantity', $any($event.target).value)" />
-                        @if (fe('row:' + row.key + '.quantity'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-rep')">Repeats</label>
-                        <input type="number" inputmode="numeric" min="0" step="1" [max]="maxRepeats()" class="${RX_FIELD}" [class]="fc('row:' + row.key + '.repeats')"
-                          [id]="id('row-' + row.key + '-rep')" [value]="row.repeats"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.repeats') ? 'true' : null"
-                          (input)="setRow(row.key, 'repeats', $any($event.target).value)" />
-                        @if (fe('row:' + row.key + '.repeats'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
-                      </div>
-
-                      <label class="flex cursor-pointer items-center gap-2.5 self-end rounded-field border border-cloud bg-white px-3 py-3 font-sans text-body-sm text-ink">
-                        <input type="checkbox" class="size-4 accent-cerulean" [checked]="row.no_substitute"
-                          (change)="setRow(row.key, 'no_substitute', $any($event.target).checked)" />
-                        No substitute
-                      </label>
-
-                      <div class="col-span-full flex flex-col gap-1.5">
-                        <label class="${LABEL}" [for]="id('row-' + row.key + '-ins')">Instructions</label>
-                        <input type="text" autocomplete="off" class="${RX_FIELD}" [class]="fc('row:' + row.key + '.instructions')"
-                          [id]="id('row-' + row.key + '-ins')" [attr.maxlength]="limits().instructions" placeholder="e.g. Take after food"
-                          [value]="row.instructions"
-                          [attr.aria-invalid]="fe('row:' + row.key + '.instructions') ? 'true' : null"
-                          (input)="setRow(row.key, 'instructions', $any($event.target).value)" />
-                        <div class="flex items-start justify-between gap-3">
-                          @if (fe('row:' + row.key + '.instructions'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> } @else { <span></span> }
-                          <span class="shrink-0 font-sans text-caption" [class]="counterClass(row.instructions, limits().instructions)">{{ row.instructions.length }}/{{ limits().instructions }}</span>
+                      @if (!locked()) {
+                        <div class="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:bg-frost disabled:opacity-50"
+                            [attr.aria-label]="'Edit medicine ' + (i + 1)"
+                            [attr.title]="draftDirty() && editingKey() !== row.key ? 'Finish or cancel the medicine in the form first' : null"
+                            [disabled]="editingKey() === row.key || draftDirty()"
+                            (click)="startEdit(row.key)"
+                          >
+                            <sd-icon name="pencil" [size]="14" /> <span class="hidden @md:inline">Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-alert transition-colors hover:bg-alert/10"
+                            [attr.aria-label]="'Remove medicine ' + (i + 1)"
+                            (click)="removeRow(row.key)"
+                          >
+                            <sd-icon name="trash-2" [size]="14" /> <span class="hidden @md:inline">Remove</span>
+                          </button>
                         </div>
+                      }
+                    </li>
+                  }
+                </ol>
+              }
+
+              @if (removed(); as r) {
+                <p class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-field bg-cloud/60 px-3 py-2 font-sans text-body-sm text-ink" role="status">
+                  <sd-icon name="trash-2" [size]="14" class="shrink-0 text-slate" />
+                  <span class="min-w-0">Removed {{ r.row.name || 'a medicine' }}.</span>
+                  <button type="button" class="font-semibold text-cerulean underline transition-colors hover:text-ocean disabled:opacity-50" [id]="id('undo')" [disabled]="!canUndo()" (click)="undoRemove()">Undo</button>
+                </p>
+              }
+
+              <!-- Add / edit form — separate from the list; the list only takes complete medicines. -->
+              @if (draft(); as d) {
+                <div class="flex flex-col gap-3 rounded-card border border-cerulean/40 bg-frost/30 p-3 @lg:p-4" role="group" [attr.aria-labelledby]="id('ed-title')">
+                  <div class="flex items-center justify-between gap-2">
+                    <h4 class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink" [id]="id('ed-title')">
+                      <sd-icon [name]="editingKey() !== null ? 'pencil' : 'plus'" [size]="16" class="text-cerulean" />
+                      {{ editingKey() !== null ? 'Edit medicine ' + (editingIndex() + 1) : rows().length ? 'Add another medicine' : 'Add a medicine' }}
+                    </h4>
+                    <span class="${HINT}">{{ rows().length }} of {{ maxItems() }}</span>
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+                    <div class="col-span-full flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-drug')">Medicine</label>
+                      @for (k of [d.key]; track k) {
+                      <doc-rx-drug-search
+                        [inputId]="id('ed-drug')"
+                        [chosen]="d.rxcui ? { name: d.name, branded: d.branded, dose_form: d.dose_form, generic_name: d.generic_name } : null"
+                        [invalid]="!!fe('row:' + d.key + '.rxcui')"
+                        [describedBy]="fe('row:' + d.key + '.rxcui') ? id('ed-drug-err') : null"
+                        [disabled]="locked() || disabled()"
+                        (picked)="pickDraftDrug($event)"
+                        (cleared)="clearDraftDrug()"
+                        (queryChange)="setDraftQuery($event)"
+                      />
+                      }
+                      @if (fe('row:' + d.key + '.rxcui'); as m) {
+                        <p class="${ERR}" [id]="id('ed-drug-err')" data-rx-error>{{ m }}</p>
+                      }
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-dose')">How much to take</label>
+                      <input type="text" autocomplete="off" maxlength="40" class="${RX_FIELD}" [class]="fc('row:' + d.key + '.dose')"
+                        [id]="id('ed-dose')" placeholder="e.g. 1 tablet" [value]="d.dose"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.dose') ? 'true' : null"
+                        (input)="setDraft('dose', $any($event.target).value)" (keydown.enter)="commitDraft()" />
+                      @if (fe('row:' + d.key + '.dose'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-route')">How to take it</label>
+                      <select class="${RX_FIELD}" [class]="fc('row:' + d.key + '.route')" [id]="id('ed-route')"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.route') ? 'true' : null"
+                        (change)="setDraft('route', $any($event.target).value)">
+                        <option value="" [selected]="d.route === ''">Choose…</option>
+                        @for (r of routes(); track r) {
+                          <option [value]="r" [selected]="d.route === r">{{ r }}</option>
+                        }
+                      </select>
+                      @if (fe('row:' + d.key + '.route'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-freq')">How often</label>
+                      <input type="text" autocomplete="off" maxlength="40" class="${RX_FIELD}" [class]="fc('row:' + d.key + '.frequency')"
+                        [id]="id('ed-freq')" [attr.list]="id('freq')" placeholder="e.g. Twice daily" [value]="d.frequency"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.frequency') ? 'true' : null"
+                        (input)="setDraft('frequency', $any($event.target).value)" (keydown.enter)="commitDraft()" />
+                      @if (fe('row:' + d.key + '.frequency'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-dur')">For how long</label>
+                      <input type="text" autocomplete="off" maxlength="30" class="${RX_FIELD}" [class]="fc('row:' + d.key + '.duration')"
+                        [id]="id('ed-dur')" [attr.list]="id('dur')" placeholder="e.g. 7 days" [value]="d.duration"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.duration') ? 'true' : null"
+                        (input)="setDraft('duration', $any($event.target).value)" (keydown.enter)="commitDraft()" />
+                      @if (fe('row:' + d.key + '.duration'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-qty')">Quantity to give</label>
+                      <input type="text" autocomplete="off" maxlength="30" class="${RX_FIELD}" [class]="fc('row:' + d.key + '.quantity')"
+                        [id]="id('ed-qty')" placeholder="e.g. 14 tablets" [value]="d.quantity"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.quantity') ? 'true' : null"
+                        (input)="setDraft('quantity', $any($event.target).value)" (keydown.enter)="commitDraft()" />
+                      @if (fe('row:' + d.key + '.quantity'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-rep')">Repeats</label>
+                      <input type="number" inputmode="numeric" min="0" step="1" [max]="maxRepeats()" class="${RX_FIELD}" [class]="fc('row:' + d.key + '.repeats')"
+                        [id]="id('ed-rep')" [value]="d.repeats"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.repeats') ? 'true' : null"
+                        (input)="setDraft('repeats', $any($event.target).value)" (keydown.enter)="commitDraft()" />
+                      @if (fe('row:' + d.key + '.repeats'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> }
+                    </div>
+
+                    <label class="flex cursor-pointer items-center gap-2.5 self-end rounded-field border border-cloud bg-white px-3 py-3 font-sans text-body-sm text-ink">
+                      <input type="checkbox" class="size-4 accent-cerulean" [checked]="d.no_substitute"
+                        (change)="setDraft('no_substitute', $any($event.target).checked)" />
+                      No substitute
+                    </label>
+
+                    <div class="col-span-full flex flex-col gap-1.5">
+                      <label class="${LABEL}" [for]="id('ed-ins')">Instructions</label>
+                      <input type="text" autocomplete="off" class="${RX_FIELD}" [class]="fc('row:' + d.key + '.instructions')"
+                        [id]="id('ed-ins')" [attr.maxlength]="limits().instructions" placeholder="e.g. Take after food"
+                        [value]="d.instructions"
+                        [attr.aria-invalid]="fe('row:' + d.key + '.instructions') ? 'true' : null"
+                        (input)="setDraft('instructions', $any($event.target).value)" (keydown.enter)="commitDraft()" />
+                      <div class="flex items-start justify-between gap-3">
+                        @if (fe('row:' + d.key + '.instructions'); as m) { <p class="${ERR}" data-rx-error>{{ m }}</p> } @else { <span></span> }
+                        <span class="shrink-0 font-sans text-caption" [class]="counterClass(d.instructions, limits().instructions)">{{ d.instructions.length }}/{{ limits().instructions }}</span>
                       </div>
                     </div>
-                  </li>
-                }
-              </ol>
+                  </div>
+
+                  <div class="flex flex-wrap items-center justify-end gap-2">
+                    @if (editingKey() !== null || rows().length > 0) {
+                      <sd-button variant="ghost" size="sm" (click)="cancelDraft()">Cancel</sd-button>
+                    } @else if (draftDirty()) {
+                      <sd-button variant="ghost" size="sm" (click)="cancelDraft()">Clear</sd-button>
+                    }
+                    <sd-button variant="primary" size="sm" [disabled]="disabled()" (click)="commitDraft()">
+                      <sd-icon [name]="editingKey() !== null ? 'check' : 'plus'" [size]="16" />
+                      {{ editingKey() !== null ? 'Save changes' : 'Add to prescription' }}
+                    </sd-button>
+                  </div>
+                </div>
+              } @else if (!locked()) {
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <sd-button variant="outline" size="sm" [id]="id('ed-add')" [disabled]="rows().length >= maxItems()" (click)="startAdd()">
+                    <sd-icon name="plus" [size]="16" /> {{ rows().length ? 'Add another medicine' : 'Add a medicine' }}
+                  </sd-button>
+                  <span class="${HINT}">{{ rows().length }} of {{ maxItems() }} medicines</span>
+                </div>
+              }
 
               <datalist [id]="id('freq')">
                 @for (f of frequencies; track f) { <option [value]="f"></option> }
@@ -614,13 +711,6 @@ function nullIfBlank(v: string): string | null {
               <datalist [id]="id('dur')">
                 @for (d of durations; track d) { <option [value]="d"></option> }
               </datalist>
-
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <sd-button variant="outline" size="sm" [disabled]="rows().length >= maxItems() || locked()" (click)="addRow()">
-                  <sd-icon name="plus" [size]="16" /> Add medicine
-                </sd-button>
-                <span class="${HINT}">{{ rows().length }} of {{ maxItems() }} medicines</span>
-              </div>
               <p class="font-sans text-caption text-slate/80">
                 Medicine names from RxNorm, courtesy of the U.S. National Library of Medicine.
               </p>
@@ -763,8 +853,9 @@ function nullIfBlank(v: string): string | null {
           </fieldset>
         </div>
 
-        <!-- h. Footer actions -->
-        <div class="sticky bottom-0 z-10 flex flex-col gap-3 rounded-card border border-cloud bg-white/95 p-3 shadow-[0_-4px_16px_rgba(10,22,40,0.06)] backdrop-blur @lg:p-4">
+        <!-- h. Footer actions — kept slim (one row where the form is wide) so it
+             never crowds the form, e.g. in the call's scrolling tools panel. -->
+        <div class="sticky bottom-0 z-10 flex flex-col gap-2 rounded-card border border-cloud bg-white/95 px-3 py-2.5 shadow-[0_-4px_16px_rgba(10,22,40,0.06)] backdrop-blur @lg:px-4">
           @if (disabled() && !locked()) {
             <p class="flex items-start gap-2 rounded-field bg-warning/10 px-3 py-2.5 font-sans text-body-sm text-ink" role="status">
               <sd-icon name="lock" [size]="16" class="mt-0.5 shrink-0 text-warning" />
@@ -789,35 +880,53 @@ function nullIfBlank(v: string): string | null {
               </a>
             </p>
           }
-          <div class="flex flex-col gap-3 @2xl:flex-row @2xl:items-center @2xl:justify-between">
-            <span class="flex items-center gap-1.5 ${HINT}" aria-live="polite">
-              @if (locked()) {
-                <sd-icon name="lock" [size]="14" /> Sent and locked
-              } @else if (busy() === 'save') {
-                <sd-icon name="loader-circle" [size]="14" class="animate-spin" /> Saving…
-              } @else if (dirty()) {
-                <span class="size-2 rounded-full bg-warning" aria-hidden="true"></span> Unsaved changes
-              } @else if (rx()) {
-                <sd-icon name="check" [size]="14" class="text-sage" /> Draft saved
-              } @else {
-                Not saved yet
-              }
-            </span>
-            <div [class]="compact() ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-2 gap-2 @2xl:flex @2xl:flex-wrap @2xl:items-center @2xl:justify-end'">
-              <sd-button variant="ghost" size="sm" [full]="true" [disabled]="busy() !== ''" (click)="requestClose()">Close</sd-button>
+          <!-- One row from a 32rem-wide form (short labels), full labels from 48rem;
+               narrower: the status + Close line, then one row of actions. -->
+          <div class="flex flex-col gap-2 @lg:flex-row @lg:items-center @lg:justify-between @lg:gap-3">
+            <div class="flex min-h-6 min-w-0 items-center justify-between gap-3">
+              <span class="flex min-w-0 items-center gap-1.5 whitespace-nowrap ${HINT}" aria-live="polite">
+                @if (locked()) {
+                  <sd-icon name="lock" [size]="14" class="shrink-0" /> <span class="@3xl:hidden">Locked</span><span class="hidden @3xl:inline">Sent and locked</span>
+                } @else if (busy() === 'save') {
+                  <sd-icon name="loader-circle" [size]="14" class="shrink-0 animate-spin" /> Saving…
+                } @else if (dirty()) {
+                  <span class="size-2 shrink-0 rounded-full bg-warning" aria-hidden="true"></span> <span>Unsaved<span class="hidden @3xl:inline"> changes</span></span>
+                } @else if (rx()) {
+                  <sd-icon name="check" [size]="14" class="shrink-0 text-sage" /> <span class="@3xl:hidden">Saved</span><span class="hidden @3xl:inline">Draft saved</span>
+                } @else {
+                  <span>Not saved<span class="hidden @3xl:inline"> yet</span></span>
+                }
+              </span>
+              <!-- Narrow form: Close sits on the status line, leaving one row of actions. -->
+              <button
+                type="button"
+                class="shrink-0 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-50 @lg:hidden"
+                [disabled]="busy() !== ''"
+                (click)="requestClose()"
+              >
+                Close
+              </button>
+            </div>
+            <div class="grid shrink-0 gap-2 @lg:flex @lg:items-center @lg:justify-end" [class.grid-cols-3]="!locked()">
+              <div class="hidden @lg:block">
+                <sd-button variant="ghost" size="sm" [disabled]="busy() !== ''" (click)="requestClose()">Close</sd-button>
+              </div>
               @if (locked()) {
                 <sd-button variant="secondary" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="viewPdf()">
                   <sd-icon name="file-text" [size]="16" /> View PDF
                 </sd-button>
               } @else {
                 <sd-button variant="secondary" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="saveDraft()">
-                  <sd-icon name="save" [size]="16" /> {{ busy() === 'save' ? 'Saving…' : 'Save draft' }}
+                  <sd-icon name="save" [size]="16" class="hidden shrink-0 @sm:inline" />
+                  <span class="truncate">{{ busy() === 'save' ? 'Saving…' : 'Save' }}<span class="hidden @3xl:inline">{{ busy() === 'save' ? '' : ' draft' }}</span></span>
                 </sd-button>
                 <sd-button variant="outline" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="preview()">
-                  <sd-icon name="eye" [size]="16" /> {{ busy() === 'preview' ? 'Opening…' : 'Preview PDF' }}
+                  <sd-icon name="eye" [size]="16" class="hidden shrink-0 @sm:inline" />
+                  <span class="truncate">{{ busy() === 'preview' ? 'Opening…' : 'Preview' }}<span class="hidden @3xl:inline">{{ busy() === 'preview' ? '' : ' PDF' }}</span></span>
                 </sd-button>
-                <sd-button variant="primary" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="openSend()">
-                  <sd-icon name="send" [size]="16" /> Send to patient…
+                <sd-button variant="primary" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="openSend()" title="Send to patient">
+                  <sd-icon name="send" [size]="16" class="hidden shrink-0 @sm:inline" />
+                  <span class="truncate">Send<span class="hidden @3xl:inline"> to patient…</span></span>
                 </sd-button>
               }
             </div>
@@ -1046,7 +1155,32 @@ export class RxComposer {
   protected readonly icd = signal('');
   protected readonly currentMeds = signal('');
   protected readonly pregnancy = signal<PregnancyStatus | ''>('');
+  /** The medicines on the prescription (each one complete — added through the form below). */
   protected readonly rows = signal<RowState[]>([]);
+  /** The add / edit form's medicine, separate from the list; null while it is closed. */
+  protected readonly draft = signal<RowState | null>(null);
+  /** The listed medicine being edited (null: adding a new one). */
+  protected readonly editingKey = signal<number | null>(null);
+  protected readonly editingIndex = computed(() =>
+    this.rows().findIndex((r) => r.key === this.editingKey()),
+  );
+  /** Just removed — offered back for a moment ("Undo"). */
+  protected readonly removed = signal<{ row: RowState; index: number } | null>(null);
+  private removedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Undo still fits under the limit (a medicine being added in the form counts). */
+  protected readonly canUndo = computed(() => {
+    const pending = this.editingKey() === null && this.draftDirty() ? 1 : 0;
+    return !!this.removed() && this.rows().length + pending < this.maxItems();
+  });
+  /** The add / edit form holds something not on the list yet. */
+  protected readonly draftDirty = computed(() => {
+    const d = this.draft();
+    if (!d) return false;
+    const key = this.editingKey();
+    if (key === null) return hasRowContent(d);
+    const original = this.rows().find((r) => r.key === key);
+    return !original || rowJson(original) !== rowJson(d);
+  });
   protected readonly advice = signal('');
   protected readonly followUpDate = signal('');
   protected readonly followUpMode = signal<FollowUpMode | ''>('');
@@ -1098,6 +1232,10 @@ export class RxComposer {
   protected readonly limits = computed(() => this.options()?.limits ?? DEFAULT_LIMITS);
   protected readonly routes = computed(() => this.options()?.routes ?? []);
   protected readonly askPregnancy = computed(() => this.summary()?.ask_pregnancy ?? false);
+  /** Pregnancy does not apply to a male patient: the question is shown as "Not applicable". */
+  protected readonly isMale = computed(() =>
+    ['male', 'm', 'man'].includes((this.summary()?.patient.gender ?? '').trim().toLowerCase()),
+  );
   /** The clinical summary loaded and says there is no date of birth on file. */
   protected readonly dobMissing = computed(() => {
     const s = this.summary();
@@ -1133,7 +1271,7 @@ export class RxComposer {
       !this.loading() &&
       !this.loadError() &&
       !this.locked() &&
-      this.formJson() !== this.savedJson(),
+      (this.formJson() !== this.savedJson() || this.draftDirty()),
   );
   protected readonly pageHint = computed(() => {
     const n = this.rows().length;
@@ -1239,7 +1377,11 @@ export class RxComposer {
     this.icd.set(rx?.icd_code ?? '');
     this.currentMeds.set(rx?.current_medications ?? '');
     this.pregnancy.set(rx?.pregnancy_status ?? '');
-    this.rows.set(rx && rx.items.length > 0 ? rx.items.map((it) => this.rowFrom(it)) : [this.emptyRow()]);
+    const rows = rx ? rx.items.map((it) => this.rowFrom(it)) : [];
+    this.rows.set(rows);
+    this.editingKey.set(null);
+    this.clearRemoved();
+    this.draft.set(rows.length === 0 && (!rx || rx.status === 'draft') ? this.emptyRow() : null);
     this.advice.set(rx?.advice ?? '');
     this.followUpDate.set(rx?.follow_up_date ?? '');
     this.followUpMode.set(rx?.follow_up_mode ?? '');
@@ -1429,42 +1571,74 @@ export class RxComposer {
     this.rows.update((list) => list.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
-  protected setRow(key: number, field: RowField, value: string | boolean): void {
+  /** A short, readable line for a listed medicine. */
+  protected rowSummary(r: RowState): string {
+    const reps = toRepeats(r.repeats);
+    return [
+      r.dose.trim(),
+      r.route,
+      r.frequency.trim(),
+      r.duration.trim(),
+      r.quantity.trim() ? 'Give ' + r.quantity.trim() : '',
+      reps > 0 ? reps + (reps === 1 ? ' repeat' : ' repeats') : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  /** The messages for one listed medicine (shown on the list until it is fixed). */
+  protected rowErrors(key: number): string[] {
+    const prefix = `row:${key}.`;
+    return Object.entries(this.fieldErrors())
+      .filter(([k]) => k.startsWith(prefix))
+      .map(([, m]) => m);
+  }
+
+  private clearRowErrors(key: number): void {
+    const prefix = `row:${key}.`;
+    const cur = this.fieldErrors();
+    if (Object.keys(cur).some((k) => k.startsWith(prefix))) {
+      this.fieldErrors.set(Object.fromEntries(Object.entries(cur).filter(([k]) => !k.startsWith(prefix))));
+    }
+  }
+
+  private patchDraft(patch: Partial<RowState>): void {
+    this.draft.update((d) => (d ? { ...d, ...patch } : d));
+  }
+
+  protected setDraft(field: RowField, value: string | boolean): void {
+    const d = this.draft();
+    if (!d) return;
     this.touched();
-    this.patchRow(key, { [field]: value } as Partial<RowState>);
-    this.clearErr(`row:${key}.${field}`, 'items');
+    this.patchDraft({ [field]: value } as Partial<RowState>);
+    this.clearErr(`row:${d.key}.${field}`, 'items');
     if (field === 'repeats') this.clearErr('allows_repeats');
   }
 
-  protected setQuery(key: number, query: string): void {
-    this.patchRow(key, { query });
+  protected setDraftQuery(query: string): void {
+    this.patchDraft({ query });
   }
 
-  protected pickDrug(key: number, d: DrugDto): void {
+  protected pickDraftDrug(drug: DrugDto): void {
+    const d = this.draft();
+    if (!d) return;
     this.touched();
-    const route = this.matchRoute(d.route);
-    this.patchRow(key, {
-      rxcui: d.rxcui,
-      name: d.name,
-      generic_name: d.generic_name,
-      branded: d.branded,
-      dose_form: d.dose_form,
+    const route = this.matchRoute(drug.route);
+    this.patchDraft({
+      rxcui: drug.rxcui,
+      name: drug.name,
+      generic_name: drug.generic_name,
+      branded: drug.branded,
+      dose_form: drug.dose_form,
       query: '',
       ...(route ? { route } : {}),
     });
-    this.clearErr(`row:${key}.rxcui`, `row:${key}.route`, 'items');
+    this.clearErr(`row:${d.key}.rxcui`, `row:${d.key}.route`, 'items');
   }
 
-  protected clearDrug(key: number): void {
+  protected clearDraftDrug(): void {
     this.touched();
-    this.patchRow(key, {
-      rxcui: null,
-      name: '',
-      generic_name: '',
-      branded: false,
-      dose_form: null,
-      query: '',
-    });
+    this.patchDraft({ rxcui: null, name: '', generic_name: '', branded: false, dose_form: null, query: '' });
   }
 
   private matchRoute(route: string | null): string {
@@ -1473,28 +1647,176 @@ export class RxComposer {
     return list.find((r) => r.toLowerCase() === route.toLowerCase()) ?? '';
   }
 
-  protected addRow(): void {
+  /** Open the form for a new medicine. */
+  protected startAdd(): void {
     if (this.rows().length >= this.maxItems() || this.locked()) return;
+    this.discardDraftErrors();
+    this.editingKey.set(null);
+    this.draft.set(this.emptyRow());
+    this.afterRender(() => document.getElementById(this.id('ed-drug'))?.focus());
+  }
+
+  /**
+   * Open the form on a listed medicine. The form works on a copy with its own
+   * key, so what happens there (new errors, Cancel) never touches the listed
+   * row — whose own errors are shown in the form while it is edited.
+   */
+  protected startEdit(key: number): void {
+    const row = this.rows().find((r) => r.key === key);
+    if (!row || this.locked() || this.draftDirty()) return;
+    this.discardDraftErrors();
+    const copy: RowState = { ...row, key: ++this.rowSeq, query: '' };
+    const prefix = `row:${key}.`;
+    const carried = Object.fromEntries(
+      Object.entries(this.fieldErrors())
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([k, m]) => [`row:${copy.key}.${k.slice(prefix.length)}`, m]),
+    );
+    if (Object.keys(carried).length > 0) this.fieldErrors.update((e) => ({ ...e, ...carried }));
+    this.editingKey.set(key);
+    this.draft.set(copy);
+    this.afterRender(() => {
+      const el = document.getElementById(this.id(row.rxcui ? 'ed-dose' : 'ed-drug'));
+      el?.scrollIntoView({ block: 'nearest' });
+      el?.focus({ preventScroll: true });
+    });
+  }
+
+  /** Close the form without changing the list (with no medicines yet, just empty it). */
+  protected cancelDraft(): void {
+    this.discardDraftErrors();
+    this.editingKey.set(null);
+    this.draft.set(this.rows().length === 0 && !this.locked() ? this.emptyRow() : null);
+  }
+
+  /** The form's own errors go with it (a listed row keeps its own). */
+  private discardDraftErrors(): void {
+    const d = this.draft();
+    if (d) this.clearRowErrors(d.key);
+  }
+
+  /** What the form's medicine still needs before it can go on the list. */
+  private draftErrors(d: RowState): Record<string, string> {
+    const errs: Record<string, string> = {};
+    if (!d.rxcui) errs[`row:${d.key}.rxcui`] = 'Choose the medicine from the list';
+    const labels: [keyof RowState, string][] = [
+      ['dose', 'Enter how much to take'],
+      ['route', 'Choose how to take it'],
+      ['frequency', 'Enter how often'],
+      ['duration', 'Enter for how long'],
+      ['quantity', 'Enter the quantity to give'],
+    ];
+    for (const [field, msg] of labels) {
+      if (String(d[field]).trim() === '') errs[`row:${d.key}.${field}`] = msg;
+    }
+    const reps = Number(d.repeats === '' ? 0 : d.repeats);
+    if (!Number.isInteger(reps) || reps < 0 || reps > this.maxRepeats()) {
+      errs[`row:${d.key}.repeats`] = `Repeats must be a whole number from 0 to ${this.maxRepeats()}`;
+    }
+    if (d.instructions.length > this.limits().instructions) {
+      errs[`row:${d.key}.instructions`] = `Keep the instructions to ${this.limits().instructions} characters`;
+    }
+    return errs;
+  }
+
+  /** Put the form's medicine on the list (or update the one being edited). */
+  protected commitDraft(moveFocus = true): boolean {
+    const d = this.draft();
+    if (!d || this.locked()) return false;
+    const key = this.editingKey();
+    if (key === null && this.rows().length >= this.maxItems()) {
+      this.fieldErrors.update((e) => ({ ...e, items: `A prescription can hold up to ${this.maxItems()} medicines` }));
+      return false;
+    }
+    this.clearRowErrors(d.key);
+    const errs = this.draftErrors(d);
+    if (Object.keys(errs).length > 0) {
+      this.fieldErrors.update((e) => ({ ...e, ...errs }));
+      this.scrollToFirstError();
+      return false;
+    }
     this.touched();
-    const row = this.emptyRow();
-    this.rows.update((list) => [...list, row]);
+    // An edited medicine keeps its place (and key) on the list.
+    const row: RowState = { ...d, key: key ?? d.key, query: '', repeats: String(toRepeats(d.repeats)) };
+    this.rows.update((list) => (key === null ? [...list, row] : list.map((r) => (r.key === key ? row : r))));
+    if (key !== null) this.clearRowErrors(key);
     this.clearErr('items');
-    this.afterRender(() => document.getElementById(this.id(`row-${row.key}-drug`))?.focus());
+    this.editingKey.set(null);
+    this.draft.set(null);
+    if (moveFocus) {
+      // "Add another medicine" — or, once the list is full, that medicine's Edit.
+      const index = this.rows().findIndex((r) => r.key === row.key);
+      this.afterRender(() => {
+        const add = document.getElementById(this.id('ed-add'))?.querySelector('button');
+        if (add && !add.disabled) add.focus();
+        else this.host.nativeElement.querySelector<HTMLElement>(`button[aria-label="Edit medicine ${index + 1}"]`)?.focus();
+      });
+    }
+    return true;
+  }
+
+  /**
+   * Before save / preview / send: a complete medicine left in the form goes on
+   * the list. Returns false when the form holds an incomplete one (its errors
+   * are shown) — only send insists on that.
+   */
+  private flushDraft(showErrors: boolean): boolean {
+    if (!this.draftDirty()) return true;
+    const d = this.draft();
+    if (!d) return true;
+    if (Object.keys(this.draftErrors(d)).length === 0) return this.commitDraft(false);
+    if (showErrors) this.commitDraft();
+    return false;
   }
 
   protected removeRow(key: number): void {
+    if (this.locked()) return;
+    const list = this.rows();
+    const index = list.findIndex((r) => r.key === key);
+    if (index < 0) return;
+    this.touched();
+    this.rows.set(list.filter((r) => r.key !== key));
+    this.clearRowErrors(key);
+    if (this.editingKey() === key) {
+      this.editingKey.set(null);
+      this.draft.set(null);
+    }
+    this.clearRemoved();
+    this.removed.set({ row: list[index], index });
+    this.removedTimer = setTimeout(() => this.removed.set(null), 8000);
+    if (this.rows().length === 0 && !this.draft()) this.draft.set(this.emptyRow());
+    this.afterRender(() => document.getElementById(this.id('undo'))?.focus());
+  }
+
+  protected undoRemove(): void {
+    const r = this.removed();
+    if (!r || this.locked() || !this.canUndo()) return;
     this.touched();
     this.rows.update((list) => {
-      const next = list.filter((r) => r.key !== key);
-      return next.length > 0 ? next : [this.emptyRow()];
+      const next = [...list];
+      next.splice(Math.min(r.index, next.length), 0, r.row);
+      return next;
     });
-    const prefix = `row:${key}.`;
-    const cur = this.fieldErrors();
-    if (Object.keys(cur).some((k) => k.startsWith(prefix))) {
-      this.fieldErrors.set(
-        Object.fromEntries(Object.entries(cur).filter(([k]) => !k.startsWith(prefix))),
-      );
-    }
+    this.clearRemoved();
+    // An empty "Add a medicine" form opened by the removal is no longer needed.
+    if (this.editingKey() === null && !this.draftDirty()) this.draft.set(null);
+  }
+
+  private clearRemoved(): void {
+    if (this.removedTimer) clearTimeout(this.removedTimer);
+    this.removedTimer = null;
+    this.removed.set(null);
+  }
+
+  /** The clinical summary arrived; a male patient's "Not applicable" is not an edit. */
+  protected onSummary(s: ClinicalSummaryDto): void {
+    const pristine = !this.dirty();
+    this.summary.set(s);
+    // Only when nothing real changes: a stored answer other than "not applicable"
+    // for a male patient stays an unsaved change, so save / preview correct it.
+    const stored = this.pregnancy();
+    const cosmetic = !this.isMale() || stored === '' || stored === 'not_applicable';
+    if (pristine && cosmetic && !this.locked() && !this.loading()) this.savedJson.set(this.formJson());
   }
 
   // ----- payload -----
@@ -1519,7 +1841,7 @@ export class RxComposer {
       reason: nullIfBlank(this.reason()),
       icd_code: nullIfBlank(this.icd()),
       current_medications: nullIfBlank(this.currentMeds()),
-      pregnancy_status: this.pregnancy() || null,
+      pregnancy_status: this.isMale() ? 'not_applicable' : this.pregnancy() || null,
       items: filled.map((r) => ({
         rxcui: r.rxcui,
         dose: r.dose.trim(),
@@ -1643,6 +1965,9 @@ export class RxComposer {
 
   protected saveDraft(): void {
     if (this.busy() || this.locked() || this.disabled()) return;
+    // A complete medicine left in the form is saved with the rest; an incomplete
+    // one stays in the form (still counted as unsaved).
+    this.flushDraft(false);
     this.formError.set('');
     this.notice.set('');
     this.busy.set('save');
@@ -1663,6 +1988,7 @@ export class RxComposer {
   /** Save first (if needed), then open the DRAFT-watermarked PDF in a new tab. */
   protected preview(): void {
     if (this.busy() || this.locked() || this.disabled()) return;
+    this.flushDraft(false);
     this.formError.set('');
     this.notice.set('');
     this.blockedUrl.set(null);
@@ -1774,6 +2100,14 @@ export class RxComposer {
   protected openSend(): void {
     if (this.busy() || this.locked() || this.disabled()) return;
     this.notice.set('');
+    if (!this.flushDraft(true)) {
+      this.formError.set(
+        this.editingKey() === null && this.rows().length >= this.maxItems()
+          ? `This prescription already has ${this.maxItems()} medicines — cancel the one in the form (or remove another), then send again.`
+          : `Finish the medicine in the form — press ${this.editingKey() === null ? 'Add to prescription' : 'Save changes'} — or cancel it, then send again.`,
+      );
+      return;
+    }
     const errs = this.clientSendErrors();
     if (Object.keys(errs).length > 0) {
       this.fieldErrors.set(errs);
