@@ -1,6 +1,8 @@
+import { HttpClient, HttpEvent } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  AppointmentDocumentDto,
   AppointmentDto,
   AppointmentPayInitDto,
   BookAppointmentParams,
@@ -22,16 +24,20 @@ import type {
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
+import { API_CONFIG } from './api-config';
 import { ApiService, QueryParams } from './api.service';
 
 /**
  * Appointments client for the VideoMed backend. `listMine` hits the customer
  * portal route — the API scopes it to the signed-in patient via the bearer
- * token, so callers never pass a patient id.
+ * token, so callers never pass a patient id. The attachment upload uses
+ * HttpClient directly so it can report progress events.
  */
 @Injectable({ providedIn: 'root' })
 export class AppointmentsApi {
   private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
+  private readonly config = inject(API_CONFIG);
 
   /** GET /api/portal/appointments — the signed-in patient's own appointments. */
   listMine(
@@ -105,13 +111,22 @@ export class AppointmentsApi {
     );
   }
 
-  /** POST /api/portal/appointment-documents — upload a supporting image, returns its URL. */
-  uploadDocument(file: File): Observable<SuccessResponse<{ url: string }>> {
+  /**
+   * POST /api/portal/appointment-documents (multipart) — one file for a
+   * booking, filed privately in the patient's medical documents. Emits
+   * HttpEvents (UploadProgress for the bar, Response for the document); the
+   * booking then attaches it by id in `document_ids`.
+   */
+  uploadDocument(
+    file: File,
+  ): Observable<HttpEvent<SuccessResponse<AppointmentDocumentDto>>> {
     const form = new FormData();
-    form.append('document', file);
-    return this.api.post<SuccessResponse<{ url: string }>>(
-      'api/portal/appointment-documents',
+    form.append('document', file, file.name);
+    const base = this.config.baseUrl.replace(/\/+$/, '');
+    return this.http.post<SuccessResponse<AppointmentDocumentDto>>(
+      `${base}/api/portal/appointment-documents`,
       form,
+      { reportProgress: true, observe: 'events' },
     );
   }
 

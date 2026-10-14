@@ -203,6 +203,13 @@ entity. `bin/seed.php` is only for demo/staging data.
 In **aaPanel → the site → Config / URL Rewrite (伪静态)**, add:
 
 ```nginx
+# Booking attachments used to be written here (public). They are medical
+# documents: prod-migrate step 7 moves them into the private vault — never
+# serve anything left behind.
+location ^~ /uploads/appointment-docs/ {
+    return 404;
+}
+
 location / {
     try_files $uri $uri/ /index.php?$query_string;
 }
@@ -210,6 +217,8 @@ location / {
 
 That serves real files directly — including uploaded avatars under
 `/uploads/avatars/…` — and routes everything else to `public/index.php`.
+The `appointment-docs` block must sit above `location /` (add it once; reload
+Nginx after saving).
 PHP-FPM is already wired by aaPanel's `enable-php-82.conf`. CORS and OPTIONS
 preflight are handled inside the app (`CorsMiddleware`), so no extra Nginx CORS
 config is needed.

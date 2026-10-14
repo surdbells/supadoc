@@ -1,10 +1,12 @@
-import { NgTemplateOutlet } from '@angular/common';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
   inject,
+  Injector,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -31,6 +33,7 @@ import type {
   ReadingKey,
   RecordVitalsInput,
   VitalFieldDto,
+  VitalFlagLevel,
   VitalReadingDto,
 } from '@supadoc/models';
 import {
@@ -112,31 +115,147 @@ function isHerbalFlag(flag: string | boolean | undefined | null): boolean {
   return /^(1|yes|true)$/i.test((flag ?? '').trim());
 }
 
-/** Icon per health reading (the catalogue itself comes from the API). */
-const VITAL_ICON: Record<ReadingKey, string> = {
-  temperature: 'thermometer',
-  heart_rate: 'heart-pulse',
-  blood_pressure: 'gauge',
-  respiratory_rate: 'wind',
-  oxygen_saturation: 'activity',
-  blood_sugar: 'droplet',
-  weight: 'scale',
-  height: 'ruler',
-  bmi: 'user',
-  pain_score: 'circle-alert',
+/**
+ * How each health reading looks on Medical Information's cards (Figma
+ * 782:15059) and the edit form's labels (763:12524). The catalogue itself —
+ * ranges, units, what each reading means — comes from the API.
+ */
+interface VitalMeta {
+  /** Card label, in the design's casing ("Heart Rate"). */
+  readonly label: string;
+  /** The form's label when it differs ("Oxygen" for "Oxygen Level"). */
+  readonly formLabel?: string;
+  /** The unit in the form's label ("Heart Rate (Bpm)"). */
+  readonly formUnit: string;
+  readonly icon: string;
+  /** The tinted square behind the card's icon. */
+  readonly tint: string;
+  /** Unit after the card's value: "102 bpm" — or written straight on ("38.6°C") when `joined`. */
+  readonly unit: string;
+  readonly joined?: boolean;
+  /** The design keeps these units in the value's colour; the rest are muted. */
+  readonly inkUnit?: boolean;
+}
+
+const VITAL_META: Record<ReadingKey, VitalMeta> = {
+  blood_pressure: { label: 'Blood Pressure', formUnit: 'mmHg', icon: 'heart-pulse', tint: 'bg-alert/10 text-alert', unit: 'mmHg', inkUnit: true },
+  temperature: { label: 'Temperature', formUnit: '°C', icon: 'thermometer', tint: 'bg-alert/10 text-alert', unit: '°C', joined: true, inkUnit: true },
+  heart_rate: { label: 'Heart Rate', formUnit: 'Bpm', icon: 'heart', tint: 'bg-cerulean/10 text-cerulean', unit: 'bpm' },
+  oxygen_saturation: { label: 'Oxygen Level', formLabel: 'Oxygen', formUnit: '%', icon: 'droplet', tint: 'bg-sage/10 text-sage', unit: '%' },
+  weight: { label: 'Weight', formUnit: 'Kg', icon: 'weight', tint: 'bg-teal/10 text-teal', unit: 'Kg' },
+  respiratory_rate: { label: 'Breathing Rate', formUnit: 'breaths/min', icon: 'wind', tint: 'bg-sky/10 text-sky', unit: '/min', joined: true },
+  blood_sugar: { label: 'Blood Sugar', formUnit: 'mmol/L', icon: 'gauge', tint: 'bg-warning/15 text-warning', unit: 'mmol/L' },
+  height: { label: 'Height', formUnit: 'cm', icon: 'ruler', tint: 'bg-sky/10 text-sky', unit: 'cm' },
+  bmi: { label: 'BMI', formUnit: 'kg/m²', icon: 'scale', tint: 'bg-teal/10 text-teal', unit: 'kg/m²' },
+  pain_score: { label: 'Pain Score', formUnit: '0–10', icon: 'circle-alert', tint: 'bg-warning/15 text-warning', unit: '/10', joined: true },
 };
 
-/** "e.g." hints for the Update vitals boxes. */
+/** The five cards Medical Information always shows, recorded or not (design order). */
+const VITAL_PRIMARY = [
+  'blood_pressure',
+  'temperature',
+  'heart_rate',
+  'oxygen_saturation',
+  'weight',
+] as const satisfies readonly ReadingKey[];
+
+/** Further cards, shown only once recorded. */
+const VITAL_EXTRA = [
+  'height',
+  'bmi',
+  'blood_sugar',
+  'respiratory_rate',
+  'pain_score',
+] as const satisfies readonly ReadingKey[];
+
+/** The edit form's boxes: the design's five first, then the rest. */
+const VITAL_EDIT_ORDER: readonly ReadingKey[] = [
+  'blood_pressure',
+  'heart_rate',
+  'temperature',
+  'weight',
+  'oxygen_saturation',
+  'respiratory_rate',
+  'blood_sugar',
+  'height',
+  'bmi',
+  'pain_score',
+];
+
+/**
+ * Status-word colour per flag level. Colour only supplements the word itself;
+ * `vt-normal` / `vt-amber` keep teal and amber AA-legible in both themes (see `styles`).
+ */
+const FLAG_TONE: Record<VitalFlagLevel, string> = {
+  normal: 'vt-normal',
+  low: 'vt-amber',
+  elevated: 'vt-amber',
+  high: 'text-alert',
+  critical: 'text-alert',
+};
+
+/** One card on Medical Information. */
+interface VitalCardVm {
+  readonly key: ReadingKey;
+  readonly label: string;
+  readonly icon: string;
+  readonly tint: string;
+  /** False: no reading of this type yet (the value is a muted "—"). */
+  readonly recorded: boolean;
+  /** "—" when not recorded. */
+  readonly value: string;
+  readonly unit: string;
+  readonly joined: boolean;
+  readonly inkUnit: boolean;
+  /** The flag ("Normal", "Very high"), "Not recorded", or when it was taken (no flag). */
+  readonly status: string;
+  /** The status is "Taken 2 hours ago" (no flag) — `detail` already says it to screen readers. */
+  readonly statusIsWhen: boolean;
+  readonly statusTone: string;
+  /** When an out-of-date reading was taken ("12 Sep"), else ''. */
+  readonly staleNote: string;
+  /** Who recorded it and when — for screen readers and the hover title. */
+  readonly detail: string;
+}
+
+/** A high or critical reading, spelled out under the cards. */
+interface VitalAlertVm {
+  readonly key: ReadingKey;
+  readonly text: string;
+  /** The API's advice, "update your readings" for an old one, or null (weight / BMI / pain). */
+  readonly advice: string | null;
+  /** Critical and current — bold, and listed first. */
+  readonly critical: boolean;
+}
+
+/** "e.g." hints for the vitals boxes. */
 const VITAL_PLACEHOLDER: Partial<Record<ReadingKey, string>> = {
-  temperature: 'e.g 36.8',
+  temperature: 'e.g 36.6',
   heart_rate: 'e.g 72',
   respiratory_rate: 'e.g 16',
   oxygen_saturation: 'e.g 98',
   blood_sugar: 'e.g 5.4',
-  weight: 'e.g 70.5',
+  weight: 'e.g 68',
   height: 'e.g 172',
-  pain_score: '0 (none) – 10 (worst)',
+  pain_score: 'e.g 2',
 };
+
+/** "October 28, 2026. - 10:00AM" (local time), as the design writes "Last updated". */
+function lastUpdatedText(d: Date): string {
+  const date = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(d);
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .format(d)
+    .replace(/\s+/g, '');
+  return `${date}. - ${time}`;
+}
+
+/** "12 Sep" — when an out-of-date reading was taken ('' when unknown). */
+function shortDate(iso: string | null): string {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime())
+    ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(d)
+    : '';
+}
 
 /** The single-number readings the patient types (blood pressure is two boxes; BMI is worked out). */
 const VITAL_NUMBER_KEYS = [
@@ -167,13 +286,13 @@ function bmiOf(weightKg: number | null, heightCm: number | null): number | null 
   return Math.round((weightKg / (heightCm / 100) ** 2) * 10) / 10;
 }
 
+/** `medical-add` is the one Medical Information editor: vitals first, then the medical record. */
 type View =
   | 'home'
   | 'personal'
   | 'personal-edit'
   | 'medical'
   | 'medical-add'
-  | 'vitals-edit'
   | 'insurance'
   | 'emergency';
 
@@ -187,13 +306,33 @@ interface SectionCard {
 
 /**
  * My Profile (Figma 740:11873) with its Personal Information view (681:9123) /
- * edit (686:10572) and Medical Information view (701:9969) / add (763:12524).
+ * edit (686:10572) and Medical Information view (782:15059; empty 701:9969) /
+ * edit (763:12524) — one editor for the vitals and the medical record.
  * All sub-views and the success toasts live in this one component (they are not
  * separate pages), toggled by the `view` signal.
  */
 @Component({
   selector: 'pat-my-profile',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [
+    `
+      /* Status text that stays AA-legible in both themes: amber is the warning
+         token darkened for white, the token itself on dark; normal is teal,
+         the brighter teal on dark. */
+      .vt-amber {
+        color: color-mix(in srgb, var(--color-warning, #f2a900) 62%, black);
+      }
+      :host-context(html[data-theme='dark']) .vt-amber {
+        color: var(--color-warning, #f2a900);
+      }
+      .vt-normal {
+        color: var(--color-teal, #00796c);
+      }
+      :host-context(html[data-theme='dark']) .vt-normal {
+        color: var(--color-teal-bright, #00b39a);
+      }
+    `,
+  ],
   imports: [
     NgTemplateOutlet,
     ReactiveFormsModule,
@@ -515,148 +654,263 @@ interface SectionCard {
             [ngTemplateOutlet]="subHeader"
             [ngTemplateOutletContext]="{
               title: 'Medical Information',
-              subtitle: 'Your information is private and securely encrypted',
+              subtitle:
+                'Update your medical history, allergies, medications, and existing conditions.',
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
-          <ng-container [ngTemplateOutlet]="vitalsCard" />
+          <div class="mb-2 flex justify-end">
+            <sd-button class="w-[167px]" [full]="true" (click)="openEdit()">
+              <sd-icon name="square-pen" [size]="20" />
+              Edit
+            </sd-button>
+          </div>
+
+          <!-- Vitals: the latest reading of each type, flagged by the API -->
+          <section class="flex flex-col gap-4" aria-labelledby="vitals-heading">
+            <h2
+              id="vitals-heading"
+              class="flex items-center gap-2 font-sans text-body-lg text-ink"
+            >
+              <sd-icon name="activity" [size]="20" />Vitals
+            </h2>
+            @if (vitalsState() !== 'ready') {
+              <ng-container [ngTemplateOutlet]="vitalsUnavailable" />
+            } @else {
+              <!-- Five across from 1440px, where "128/88 mmHg" fits on one line; in rem so it sorts after md: -->
+              <ul class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 min-[90rem]:grid-cols-5">
+                @for (c of vitalCards(); track c.key) {
+                  <li
+                    class="flex min-w-0 items-start justify-between gap-2 rounded-lg border border-frost bg-white p-3 shadow-[0_4px_5px_rgba(21,101,192,0.05)] sm:items-center sm:p-4"
+                    [attr.title]="c.detail || null"
+                  >
+                    <div class="flex min-w-0 flex-col gap-2">
+                      <span class="font-sans text-caption text-ink">{{ c.label }}</span>
+                      <!-- Not recorded: a muted dash (the status says it in words) -->
+                      <span
+                        class="font-sans text-[18px] font-semibold leading-[22px] tracking-[0.4px] sm:text-[20px]"
+                        [class]="c.recorded ? 'text-ink' : 'text-slate'"
+                        [attr.aria-hidden]="c.recorded ? null : 'true'"
+                        >{{ c.value
+                        }}@if (c.unit) {<span [class.text-slate]="!c.inkUnit">{{ c.joined ? '' : ' ' }}{{ c.unit }}</span>}</span
+                      >
+                      <!-- No flag: the status is when it was taken, which the sr-only detail already says -->
+                      <span
+                        class="font-sans text-[10px] font-medium leading-[14px] tracking-[0.3px]"
+                        [class]="c.statusTone"
+                        [attr.aria-hidden]="c.statusIsWhen ? 'true' : null"
+                        >{{ c.status
+                        }}@if (c.staleNote) {<span class="font-normal text-slate"> · {{ c.staleNote }}</span>}</span
+                      >
+                      @if (c.detail) {
+                        <span class="sr-only">{{ c.detail }}</span>
+                      }
+                    </div>
+                    <span
+                      class="flex shrink-0 items-center rounded-lg p-2"
+                      [class]="c.tint"
+                      aria-hidden="true"
+                    >
+                      <sd-icon [name]="c.icon" [size]="16" />
+                    </span>
+                  </li>
+                }
+              </ul>
+              <div
+                class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-6"
+              >
+                @if (vitalAlerts().length) {
+                  <ul class="flex flex-col gap-1.5">
+                    @for (a of vitalAlerts(); track a.key) {
+                      <li class="flex items-start gap-2 font-sans text-caption">
+                        <sd-icon
+                          [name]="a.critical ? 'triangle-alert' : 'info'"
+                          [size]="16"
+                          class="mt-px shrink-0 text-alert"
+                        />
+                        <!-- The space before "(" is inside the span: Angular drops whitespace-only text between elements -->
+                        <span
+                          ><span class="text-alert" [class.font-semibold]="a.critical">{{
+                            a.text
+                          }}</span
+                          >@if (a.advice) {<span class="text-slate"> ({{ a.advice }})</span>}</span
+                        >
+                      </li>
+                    }
+                  </ul>
+                }
+                <p
+                  class="flex items-start gap-1.5 font-sans text-caption md:ml-auto md:text-right"
+                  [class]="vitalsCue() ? 'vt-amber' : 'text-slate'"
+                >
+                  @if (vitalsCue()) {
+                    <sd-icon name="clock" [size]="14" class="mt-0.5 shrink-0" />
+                  }
+                  <span
+                    >@if (lastUpdated(); as at) {
+                      Last updated: {{ at }}
+                    } @else {
+                      No readings yet
+                    }
+                    @if (vitalsCue()) {
+                      <span class="font-medium"> · {{ vitalsCue() }}</span>
+                    }</span
+                  >
+                </p>
+              </div>
+              <p class="font-sans text-caption font-light text-slate">
+                Based on typical adult ranges — your doctor will interpret your readings.
+              </p>
+            }
+          </section>
+
           @if (!healthLoaded()) {
             <ng-container [ngTemplateOutlet]="healthUnavailable" />
           } @else if (hasMedical()) {
-            <div class="flex flex-col gap-6">
-              <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                @if (medical().history.length) {
-                  <section
-                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
-                  >
-                    <h3
-                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                    >
-                      <sd-icon name="clipboard-list" [size]="20" />Medical History
-                    </h3>
-                    @for (row of medical().history; track $index) {
-                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
-                        <span class="font-sans text-body-sm font-medium text-ink"
-                          >{{ row.condition }}
-                          @if (row.year) {
-                            <span class="text-slate">· {{ row.year }}</span>
-                          }</span
-                        >
-                        @if (row.note) {
-                          <span class="font-sans text-caption text-slate">{{
-                            row.note
-                          }}</span>
-                        }
-                      </div>
-                    }
-                  </section>
-                }
-                @if (medical().allergies.length) {
-                  <section
-                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
-                  >
-                    <h3
-                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                    >
-                      <sd-icon name="triangle-alert" [size]="20" />Allergies
-                    </h3>
-                    @for (row of medical().allergies; track $index) {
-                      <div class="flex flex-col gap-1 rounded-field bg-glacier px-4 py-3">
-                        <span
-                          class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-medium text-ink"
-                          >{{ row.allergen }}
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
+              <!-- Medical History -->
+              <section [class]="viewCard" aria-labelledby="history-heading">
+                <h2 id="history-heading" [class]="cardTitle">
+                  <sd-icon name="clipboard-list" [size]="20" />Medical History
+                </h2>
+                <div class="flex flex-col">
+                  @for (row of medical().history; track $index) {
+                    <dl class="grid grid-cols-1 gap-4 @xs:grid-cols-2 @xs:gap-x-6" [class]="entryClass">
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Condition/Procedure', value: row.condition }"
+                      />
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Year', value: row.year }"
+                      />
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{
+                          label: 'Note (Optional)',
+                          value: row.note,
+                          empty: 'No note',
+                          span: 'col-span-full',
+                        }"
+                      />
+                    </dl>
+                  } @empty {
+                    <p class="font-sans text-body-sm text-slate">No past conditions or procedures added.</p>
+                  }
+                </div>
+              </section>
+
+              <!-- Allergies -->
+              <section [class]="viewCard" aria-labelledby="allergies-heading">
+                <h2 id="allergies-heading" [class]="cardTitle">
+                  <sd-icon name="triangle-alert" [size]="20" />Allergies
+                </h2>
+                <div class="flex flex-col">
+                  @for (row of medical().allergies; track $index) {
+                    <dl class="grid grid-cols-1 gap-4 @xs:grid-cols-2 @xs:gap-x-6" [class]="entryClass">
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Allergen', value: row.allergen }"
+                      />
+                      <div class="flex min-w-0 flex-col gap-1">
+                        <dt class="font-sans text-body-sm text-slate">Severity</dt>
+                        <dd class="flex items-center gap-2" [class]="readBoxClass">
                           @if (row.severity) {
                             <span
-                              class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
+                              class="flex size-6 shrink-0 items-center justify-center rounded-md"
                               [class]="severityTone(row.severity).cls"
+                              aria-hidden="true"
                             >
-                              <sd-icon [name]="severityTone(row.severity).icon" [size]="12" />{{
-                                severityLabel(row.severity)
-                              }}
+                              <sd-icon [name]="severityTone(row.severity).icon" [size]="14" />
                             </span>
-                          }</span
-                        >
-                        @if (row.reaction) {
-                          <span class="font-sans text-caption text-slate">{{
-                            row.reaction
-                          }}</span>
-                        }
-                      </div>
-                    }
-                  </section>
-                }
-                @if (medical().medications.length) {
-                  <section
-                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
-                  >
-                    <h3
-                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                    >
-                      <sd-icon name="pill" [size]="20" />Current Medications
-                    </h3>
-                    @for (row of medical().medications; track $index) {
-                      <div class="flex flex-col gap-1 rounded-field bg-glacier px-4 py-3">
-                        <span
-                          class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-medium text-ink"
-                          >{{ row.name }}
-                          @if (row.dosage) {
-                            <span class="text-slate">· {{ row.dosage }}</span>
+                            <span class="min-w-0 font-semibold text-ink">{{
+                              severityLabel(row.severity)
+                            }}</span>
+                          } @else {
+                            <span class="text-slate">—</span>
                           }
-                          @if (isHerbal(row.herbal)) {
-                            <span
-                              class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2 py-0.5 font-sans text-caption font-medium text-sage"
-                            >
-                              <sd-icon name="leaf" [size]="12" />Herbal
-                            </span>
-                          }</span
-                        >
-                        @if (row.frequency) {
-                          <span class="font-sans text-caption text-slate">{{
-                            row.frequency
-                          }}</span>
-                        }
-                        @if (row.reason) {
-                          <span class="font-sans text-caption text-slate"
-                            >For: {{ row.reason }}</span
-                          >
-                        }
+                        </dd>
                       </div>
-                    }
-                  </section>
-                }
-                @if (medical().conditions.length) {
-                  <section
-                    class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6"
-                  >
-                    <h3
-                      class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                    >
-                      <sd-icon name="activity" [size]="20" />Existing Conditions
-                    </h3>
-                    @for (row of medical().conditions; track $index) {
-                      <div class="flex flex-col rounded-field bg-glacier px-4 py-3">
-                        <span class="font-sans text-body-sm font-medium text-ink"
-                          >{{ row.condition }}
-                          @if (row.status) {
-                            <span class="text-slate">· {{ row.status }}</span>
-                          }</span
-                        >
-                        @if (row.since) {
-                          <span class="font-sans text-caption text-slate"
-                            >Since {{ row.since }}</span
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Reaction', value: row.reaction, span: 'col-span-full' }"
+                      />
+                    </dl>
+                  } @empty {
+                    <p class="font-sans text-body-sm text-slate">No allergies added.</p>
+                  }
+                </div>
+              </section>
+
+              <!-- Current Medications -->
+              <section [class]="viewCard" aria-labelledby="medications-heading">
+                <h2 id="medications-heading" [class]="cardTitle">
+                  <sd-icon name="pill" [size]="20" />Current Medications
+                </h2>
+                <div class="flex flex-col">
+                  @for (row of medical().medications; track $index) {
+                    <dl class="grid grid-cols-1 gap-4 @xs:grid-cols-2 @xs:gap-x-6 @min-[30rem]:grid-cols-3" [class]="entryClass">
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Medication name', value: row.name }"
+                      />
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Dosage', value: row.dosage }"
+                      />
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Frequency', value: row.frequency }"
+                      />
+                      @if (row.reason) {
+                        <ng-container
+                          [ngTemplateOutlet]="readBox"
+                          [ngTemplateOutletContext]="{ label: 'What it’s for', value: row.reason, span: 'col-span-full' }"
+                        />
+                      }
+                      @if (isHerbal(row.herbal)) {
+                        <div class="col-span-full">
+                          <dt class="sr-only">Type</dt>
+                          <dd
+                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage"
                           >
-                        }
-                      </div>
-                    }
-                  </section>
-                }
-              </div>
-              <div class="flex justify-end">
-                <sd-button (click)="openMedicalAdd()">
-                  <sd-icon name="pencil" [size]="18" />
-                  Edit medical details
-                </sd-button>
-              </div>
+                            <sd-icon name="leaf" [size]="14" />Herbal or traditional medicine
+                          </dd>
+                        </div>
+                      }
+                    </dl>
+                  } @empty {
+                    <p class="font-sans text-body-sm text-slate">No current medications added.</p>
+                  }
+                </div>
+              </section>
+
+              <!-- Existing Conditions -->
+              <section [class]="viewCard" aria-labelledby="conditions-heading">
+                <h2 id="conditions-heading" [class]="cardTitle">
+                  <sd-icon name="activity" [size]="20" />Existing Conditions
+                </h2>
+                <div class="flex flex-col">
+                  @for (row of medical().conditions; track $index) {
+                    <dl class="grid grid-cols-1 gap-4 @xs:grid-cols-2 @xs:gap-x-6 @min-[30rem]:grid-cols-3" [class]="entryClass">
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Condition', value: row.condition }"
+                      />
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Status', value: row.status }"
+                      />
+                      <ng-container
+                        [ngTemplateOutlet]="readBox"
+                        [ngTemplateOutletContext]="{ label: 'Since', value: row.since }"
+                      />
+                    </dl>
+                  } @empty {
+                    <p class="font-sans text-body-sm text-slate">No existing conditions added.</p>
+                  }
+                </div>
+              </section>
             </div>
           } @else {
             <div class="flex flex-col items-center gap-5 py-20 text-center">
@@ -674,7 +928,7 @@ interface SectionCard {
                   health better and provide personalised care.
                 </p>
               </div>
-              <sd-button (click)="openMedicalAdd()">
+              <sd-button (click)="openEdit('medical')">
                 <sd-icon name="plus" [size]="18" />
                 Add Medical details
               </sd-button>
@@ -692,25 +946,181 @@ interface SectionCard {
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
+
+          <!-- Vitals (Figma 763:12524): saved only when at least one box is filled -->
+          <section [class]="editCard" aria-labelledby="vitals-edit-heading">
+            <div class="flex flex-col gap-1">
+              <h2
+                id="vitals-edit-heading"
+                tabindex="-1"
+                class="flex items-center gap-2 font-sans text-body-lg text-ink outline-none"
+              >
+                <sd-icon name="activity" [size]="20" />Vitals
+              </h2>
+              <p class="font-sans text-caption text-slate">
+                Add the readings you have and leave the rest blank. Your doctor sees them
+                before and during your visits.
+              </p>
+            </div>
+            @if (vitalsState() !== 'ready') {
+              <ng-container [ngTemplateOutlet]="vitalsUnavailable" />
+            } @else {
+              <div [formGroup]="vitalsForm" class="flex flex-col gap-5">
+                <div class="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                  @for (f of editFields(); track f.key) {
+                    @if (f.key === 'blood_pressure') {
+                      <div class="flex w-full min-w-0 flex-col gap-1" role="group" aria-labelledby="bp-label">
+                        <span id="bp-label" [class]="vitalLabel">
+                          <sd-icon [name]="meta(f.key).icon" [size]="16" class="shrink-0" />{{
+                            formLabel(f.key)
+                          }}
+                        </span>
+                        <div
+                          class="flex items-center gap-1 rounded-field border bg-white px-4 transition-colors focus-within:border-cerulean focus-within:ring-2 focus-within:ring-cerulean/20"
+                          [class]="bpError(f) ? 'border-alert' : 'border-ash'"
+                        >
+                          <input
+                            type="number"
+                            inputmode="numeric"
+                            formControlName="systolic"
+                            (input)="noteBadInput('systolic', $event)"
+                            placeholder="e.g 118"
+                            aria-label="Systolic (top number)"
+                            aria-describedby="vt-hint-blood_pressure"
+                            [attr.aria-invalid]="bpError(f) ? true : null"
+                            [min]="f.systolic?.min ?? null"
+                            [max]="f.systolic?.max ?? null"
+                            step="1"
+                            [class]="bpInput"
+                          />
+                          <span class="font-sans text-body text-slate" aria-hidden="true">/</span>
+                          <input
+                            type="number"
+                            inputmode="numeric"
+                            formControlName="diastolic"
+                            (input)="noteBadInput('diastolic', $event)"
+                            placeholder="78"
+                            aria-label="Diastolic (bottom number)"
+                            aria-describedby="vt-hint-blood_pressure"
+                            [attr.aria-invalid]="bpError(f) ? true : null"
+                            [min]="f.diastolic?.min ?? null"
+                            [max]="f.diastolic?.max ?? null"
+                            step="1"
+                            [class]="bpInput"
+                          />
+                        </div>
+                        @if (bpError(f); as e) {
+                          <span id="vt-hint-blood_pressure" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                        } @else {
+                          <span id="vt-hint-blood_pressure" [class]="vitalHintClass">Format: Systolic/diastolic</span>
+                        }
+                      </div>
+                    } @else if (f.derived) {
+                      <div class="flex w-full min-w-0 flex-col gap-1">
+                        <span [class]="vitalLabel">
+                          <sd-icon [name]="meta(f.key).icon" [size]="16" class="shrink-0" />{{
+                            formLabel(f.key)
+                          }}
+                        </span>
+                        <span
+                          class="rounded-field border border-dashed border-ash bg-glacier px-4 py-[13px] font-sans text-body"
+                          [class]="bmiPreview() !== null ? 'font-semibold text-ink' : 'text-slate'"
+                          aria-live="polite"
+                          >{{ bmiPreview() ?? '—' }}</span
+                        >
+                        <span [class]="vitalHintClass">{{ bmiHint() }}</span>
+                      </div>
+                    } @else if (isNumberKey(f.key)) {
+                      <div class="flex w-full min-w-0 flex-col gap-1">
+                        <label [for]="'vt-' + f.key" [class]="vitalLabel">
+                          <sd-icon [name]="meta(f.key).icon" [size]="16" class="shrink-0" />{{
+                            formLabel(f.key)
+                          }}
+                        </label>
+                        <input
+                          [id]="'vt-' + f.key"
+                          type="number"
+                          [attr.inputmode]="(f.step ?? 1) < 1 ? 'decimal' : 'numeric'"
+                          [formControlName]="f.key"
+                          (input)="noteBadInput(f.key, $event)"
+                          [placeholder]="placeholder(f.key)"
+                          [min]="f.min"
+                          [max]="f.max"
+                          [attr.step]="f.step ?? 'any'"
+                          [attr.aria-invalid]="vitalFieldError(f) ? true : null"
+                          [attr.aria-describedby]="vitalFieldError(f) || vitalHint(f) ? 'vt-hint-' + f.key : null"
+                          [class]="vitalFieldError(f) ? vitalInputInvalid : vitalInput"
+                        />
+                        @if (vitalFieldError(f); as e) {
+                          <span [id]="'vt-hint-' + f.key" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                        } @else if (vitalHint(f); as hint) {
+                          <span [id]="'vt-hint-' + f.key" [class]="vitalHintClass">{{ hint }}</span>
+                        }
+                      </div>
+                    }
+                  }
+                </div>
+
+                <div class="grid grid-cols-1 gap-x-6 gap-y-4 border-t border-cloud pt-5 sm:grid-cols-2">
+                  <div class="flex w-full min-w-0 flex-col gap-1">
+                    <label for="vt-taken-at" [class]="vitalLabel">
+                      <sd-icon name="clock" [size]="16" class="shrink-0" />When were these taken?
+                    </label>
+                    <input
+                      id="vt-taken-at"
+                      type="datetime-local"
+                      formControlName="takenAt"
+                      [attr.max]="takenAtMax()"
+                      [attr.min]="takenAtMin()"
+                      [attr.aria-invalid]="takenAtError() ? true : null"
+                      [attr.aria-describedby]="takenAtError() ? 'vt-taken-at-error' : null"
+                      [class]="takenAtError() ? vitalInputInvalid : vitalInput"
+                    />
+                    @if (takenAtError(); as e) {
+                      <span id="vt-taken-at-error" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                    }
+                  </div>
+                  <label class="flex min-h-11 w-fit cursor-pointer items-center gap-3 sm:mt-6">
+                    <input
+                      type="checkbox"
+                      formControlName="device"
+                      class="size-5 shrink-0 cursor-pointer rounded border-ash accent-cerulean"
+                    />
+                    <span class="flex flex-col gap-0.5 font-sans text-body-sm text-ink">
+                      Measured with my own device
+                      <span class="text-caption text-slate"
+                        >e.g. a blood-pressure monitor, thermometer or smart scale</span
+                      >
+                    </span>
+                  </label>
+                </div>
+
+                @if (vitalsFormError()) {
+                  <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert" role="alert">
+                    {{ vitalsFormError() }}
+                  </p>
+                }
+              </div>
+            }
+          </section>
+
           @if (!healthLoaded()) {
             <ng-container [ngTemplateOutlet]="healthUnavailable" />
           } @else {
           <div
             [formGroup]="medicalForm"
-            class="grid grid-cols-1 gap-6 lg:grid-cols-2"
+            class="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8"
           >
             <!-- Medical History -->
             <section
               formArrayName="history"
-              class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+              [class]="editCard"
             >
               <div class="flex items-center justify-between gap-2">
-                <h3
-                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                >
+                <h2 id="medical-edit-start" tabindex="-1" class="outline-none" [class]="cardTitle">
                   <sd-icon name="clipboard-list" [size]="20" />Medical History
-                </h3>
-                <sd-button variant="outline" size="sm" (click)="addHistory()">
+                </h2>
+                <sd-button size="sm" (click)="addHistory()">
                   <sd-icon name="plus" [size]="16" />Add Another
                 </sd-button>
               </div>
@@ -748,7 +1158,7 @@ interface SectionCard {
                   @if (historyRows.length > 1) {
                     <button
                       type="button"
-                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      [class]="removeButton"
                       (click)="removeRow(historyRows, $index)"
                     >
                       Remove
@@ -761,15 +1171,13 @@ interface SectionCard {
             <!-- Allergies -->
             <section
               formArrayName="allergies"
-              class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+              [class]="editCard"
             >
               <div class="flex items-center justify-between gap-2">
-                <h3
-                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                >
+                <h2 [class]="cardTitle">
                   <sd-icon name="triangle-alert" [size]="20" />Allergies
-                </h3>
-                <sd-button variant="outline" size="sm" (click)="addAllergy()">
+                </h2>
+                <sd-button size="sm" (click)="addAllergy()">
                   <sd-icon name="plus" [size]="16" />Add Another
                 </sd-button>
               </div>
@@ -836,7 +1244,7 @@ interface SectionCard {
                   @if (allergyRows.length > 1) {
                     <button
                       type="button"
-                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      [class]="removeButton"
                       (click)="removeRow(allergyRows, $index)"
                     >
                       Remove
@@ -849,15 +1257,13 @@ interface SectionCard {
             <!-- Current Medications -->
             <section
               formArrayName="medications"
-              class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+              [class]="editCard"
             >
               <div class="flex items-center justify-between gap-2">
-                <h3
-                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                >
+                <h2 [class]="cardTitle">
                   <sd-icon name="pill" [size]="20" />Current Medications
-                </h3>
-                <sd-button variant="outline" size="sm" (click)="addMedication()">
+                </h2>
+                <sd-button size="sm" (click)="addMedication()">
                   <sd-icon name="plus" [size]="16" />Add Another
                 </sd-button>
               </div>
@@ -906,7 +1312,7 @@ interface SectionCard {
                       [class]="rowInput"
                     />
                   </label>
-                  <label class="flex w-fit cursor-pointer items-center gap-2.5">
+                  <label class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5">
                     <input
                       type="checkbox"
                       formControlName="herbal"
@@ -922,7 +1328,7 @@ interface SectionCard {
                   @if (medicationRows.length > 1) {
                     <button
                       type="button"
-                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      [class]="removeButton"
                       (click)="removeRow(medicationRows, $index)"
                     >
                       Remove
@@ -935,15 +1341,13 @@ interface SectionCard {
             <!-- Existing Conditions -->
             <section
               formArrayName="conditions"
-              class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+              [class]="editCard"
             >
               <div class="flex items-center justify-between gap-2">
-                <h3
-                  class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-                >
+                <h2 [class]="cardTitle">
                   <sd-icon name="activity" [size]="20" />Existing Conditions
-                </h3>
-                <sd-button variant="outline" size="sm" (click)="addCondition()">
+                </h2>
+                <sd-button size="sm" (click)="addCondition()">
                   <sd-icon name="plus" [size]="16" />Add Another
                 </sd-button>
               </div>
@@ -984,7 +1388,7 @@ interface SectionCard {
                   @if (conditionRows.length > 1) {
                     <button
                       type="button"
-                      class="self-end font-sans text-caption font-semibold text-alert hover:underline"
+                      [class]="removeButton"
                       (click)="removeRow(conditionRows, $index)"
                     >
                       Remove
@@ -994,160 +1398,32 @@ interface SectionCard {
               }
             </section>
           </div>
-          <div class="flex gap-3">
-            <sd-button variant="outline" (click)="view.set('medical')"
+          }
+
+          @if (editError()) {
+            <p
+              id="medical-edit-error"
+              tabindex="-1"
+              class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert outline-none"
+              role="alert"
+            >
+              {{ editError() }}
+            </p>
+          }
+          <div class="flex flex-wrap gap-3">
+            <sd-button
+              variant="outline"
+              [disabled]="savingSection() === 'medical'"
+              (click)="cancelEdit()"
               >Cancel</sd-button
             >
             <sd-button
-              (click)="saveMedical()"
+              (click)="saveEdit()"
               [disabled]="savingSection() === 'medical'"
             >
               {{ savingSection() === 'medical' ? 'Saving…' : 'Save' }}
             </sd-button>
           </div>
-          }
-        }
-
-        @case ('vitals-edit') {
-          <ng-container
-            [ngTemplateOutlet]="subHeader"
-            [ngTemplateOutletContext]="{
-              title: 'Update vitals',
-              subtitle:
-                'Add the readings you have and leave the rest blank. Your doctor sees them before and during your visits.',
-            }"
-          />
-          @if (vitalsState() !== 'ready') {
-            <ng-container [ngTemplateOutlet]="vitalsUnavailable" />
-          } @else {
-            <form
-              [formGroup]="vitalsForm"
-              (ngSubmit)="saveVitals()"
-              class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6"
-              novalidate
-            >
-              <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
-                @for (f of vitalFields(); track f.key) {
-                  @if (f.key === 'blood_pressure') {
-                    <div class="flex w-full flex-col gap-2" role="group" aria-labelledby="bp-label">
-                      <span id="bp-label" class="font-sans text-caption text-slate"
-                        >{{ f.label }} ({{ f.unit }})</span
-                      >
-                      <div class="flex items-center gap-2">
-                        <input
-                          type="number"
-                          inputmode="numeric"
-                          formControlName="systolic"
-                          (input)="noteBadInput('systolic', $event)"
-                          placeholder="e.g 120"
-                          aria-label="Systolic (top number)"
-                          [min]="f.systolic?.min ?? null"
-                          [max]="f.systolic?.max ?? null"
-                          step="1"
-                          [class]="rowInput + ' w-full min-w-0'"
-                        />
-                        <span class="font-sans text-body text-slate" aria-hidden="true">/</span>
-                        <input
-                          type="number"
-                          inputmode="numeric"
-                          formControlName="diastolic"
-                          (input)="noteBadInput('diastolic', $event)"
-                          placeholder="e.g 80"
-                          aria-label="Diastolic (bottom number)"
-                          [min]="f.diastolic?.min ?? null"
-                          [max]="f.diastolic?.max ?? null"
-                          step="1"
-                          [class]="rowInput + ' w-full min-w-0'"
-                        />
-                      </div>
-                      @if (bpError(f); as e) {
-                        <span class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                      } @else {
-                        <span class="font-sans text-caption text-slate">Top number / bottom number</span>
-                      }
-                    </div>
-                  } @else if (f.derived) {
-                    <div class="flex w-full flex-col gap-2">
-                      <span class="font-sans text-caption text-slate"
-                        >{{ f.label }} ({{ f.unit }})</span
-                      >
-                      <span
-                        class="rounded-field border border-dashed border-cloud bg-glacier px-4 py-3 font-sans text-body-sm"
-                        [class]="bmiPreview() !== null ? 'font-semibold text-ink' : 'text-slate'"
-                        aria-live="polite"
-                        >{{ bmiPreview() ?? '—' }}</span
-                      >
-                      <span class="font-sans text-caption text-slate">{{ bmiHint() }}</span>
-                    </div>
-                  } @else if (isNumberKey(f.key)) {
-                    <label class="flex w-full flex-col gap-2">
-                      <span class="font-sans text-caption text-slate"
-                        >{{ f.label }} ({{ f.unit }})</span
-                      >
-                      <input
-                        type="number"
-                        [attr.inputmode]="(f.step ?? 1) < 1 ? 'decimal' : 'numeric'"
-                        [formControlName]="f.key"
-                        (input)="noteBadInput(f.key, $event)"
-                        [placeholder]="placeholder(f.key)"
-                        [min]="f.min"
-                        [max]="f.max"
-                        [attr.step]="f.step ?? 'any'"
-                        [attr.aria-invalid]="vitalFieldError(f) ? true : null"
-                        [class]="rowInput"
-                      />
-                      @if (vitalFieldError(f); as e) {
-                        <span class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                      }
-                    </label>
-                  }
-                }
-              </div>
-
-              <div class="grid grid-cols-1 gap-x-6 gap-y-5 border-t border-cloud pt-5 md:grid-cols-2">
-                <label class="flex w-full flex-col gap-2">
-                  <span class="font-sans text-caption text-slate">When were these taken?</span>
-                  <input
-                    type="datetime-local"
-                    formControlName="takenAt"
-                    [attr.max]="takenAtMax()"
-                    [attr.min]="takenAtMin()"
-                    [class]="rowInput + ' w-full min-w-0'"
-                  />
-                  @if (takenAtError(); as e) {
-                    <span class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                  }
-                </label>
-                <label class="flex w-fit cursor-pointer items-start gap-2.5 md:mt-7">
-                  <input
-                    type="checkbox"
-                    formControlName="device"
-                    class="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-ash accent-cerulean"
-                  />
-                  <span class="flex flex-col gap-0.5 font-sans text-body-sm text-ink">
-                    Measured with my own device
-                    <span class="text-caption text-slate"
-                      >e.g. a blood-pressure monitor, thermometer or smart scale</span
-                    >
-                  </span>
-                </label>
-              </div>
-
-              @if (vitalsFormError()) {
-                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert" role="alert">
-                  {{ vitalsFormError() }}
-                </p>
-              }
-              <div class="flex flex-wrap gap-3">
-                <sd-button variant="outline" type="button" (click)="view.set('medical')"
-                  >Cancel</sd-button
-                >
-                <sd-button type="submit" [disabled]="savingVitals()">
-                  {{ savingVitals() ? 'Saving…' : 'Save readings' }}
-                </sd-button>
-              </div>
-            </form>
-          }
         }
 
         @case ('insurance') {
@@ -1379,78 +1655,6 @@ interface SectionCard {
       }
     </ng-template>
 
-    <!-- Vitals (Medical Information): latest reading of each type -->
-    <ng-template #vitalsCard>
-      <section
-        class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
-        aria-labelledby="vitals-heading"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <h3
-            id="vitals-heading"
-            class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
-          >
-            <sd-icon name="heart-pulse" [size]="20" />Vitals
-          </h3>
-          @if (vitalsState() === 'ready') {
-            <sd-button size="sm" (click)="openVitalsEdit()">
-              <sd-icon [name]="latestVitals().length ? 'pencil' : 'plus'" [size]="16" />
-              {{ latestVitals().length ? 'Update vitals' : 'Add vitals' }}
-            </sd-button>
-          }
-        </div>
-        @if (vitalsState() !== 'ready') {
-          <ng-container [ngTemplateOutlet]="vitalsUnavailable" />
-        } @else if (latestVitals().length) {
-          @if (vitalsReminder()?.reason === 'stale') {
-            <p class="flex items-start gap-2 rounded-field bg-warning/10 px-4 py-3 font-sans text-caption text-ink">
-              <sd-icon name="clock" [size]="16" class="mt-px shrink-0 text-warning" />
-              Your latest readings are {{ vitalsReminder()?.days_old }} days old. Add new ones
-              so your doctor sees how you are doing now.
-            </p>
-          }
-          <ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            @for (v of latestVitals(); track v.key) {
-              <li class="flex items-start gap-3 rounded-field bg-glacier px-4 py-3">
-                <span
-                  class="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-cerulean"
-                >
-                  <sd-icon [name]="vitalIcon(v.key)" [size]="18" />
-                </span>
-                <div class="flex min-w-0 flex-1 flex-col gap-1">
-                  <span class="font-sans text-caption text-slate">{{ v.label }}</span>
-                  <span class="font-sans text-body font-semibold text-ink"
-                    >{{ v.value }}
-                    <span class="font-normal text-caption text-slate">{{ v.unit }}</span></span
-                  >
-                  <span class="font-sans text-caption text-slate">{{ takenAgo(v.taken_at) }}</span>
-                  <span class="flex flex-wrap gap-1.5">
-                    <span
-                      class="rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
-                      [class]="v.recorded_by === 'patient' ? 'bg-sky/10 text-sky' : 'bg-teal/10 text-teal'"
-                      [attr.title]="v.source_label"
-                      >{{ v.recorded_by === 'patient' ? 'Self-reported' : 'From your doctor' }}</span
-                    >
-                    @if (v.stale) {
-                      <span
-                        class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-medium text-warning"
-                        >May be out of date</span
-                      >
-                    }
-                  </span>
-                </div>
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class="rounded-field bg-glacier px-4 py-4 font-sans text-body-sm text-slate">
-            No readings yet. Add your blood pressure, weight and other readings so your doctor
-            has them before your visit.
-          </p>
-        }
-      </section>
-    </ng-template>
-
     <ng-template #vitalsUnavailable>
       @if (vitalsState() === 'error') {
         <div
@@ -1463,7 +1667,7 @@ interface SectionCard {
           </p>
           <button
             type="button"
-            class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean"
+            class="flex min-h-11 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean"
             (click)="loadVitals()"
           >
             <sd-icon name="refresh-cw" [size]="14" />
@@ -1471,27 +1675,50 @@ interface SectionCard {
           </button>
         </div>
       } @else {
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading your vitals">
-          <div class="h-24 animate-pulse rounded-field bg-cloud"></div>
-          <div class="h-24 animate-pulse rounded-field bg-cloud"></div>
-          <div class="hidden h-24 animate-pulse rounded-field bg-cloud xl:block"></div>
+        <div
+          class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 min-[90rem]:grid-cols-5"
+          aria-busy="true"
+          aria-label="Loading your vitals"
+        >
+          <div class="h-24 animate-pulse rounded-lg bg-cloud"></div>
+          <div class="h-24 animate-pulse rounded-lg bg-cloud"></div>
+          <div class="hidden h-24 animate-pulse rounded-lg bg-cloud md:block"></div>
+          <div class="hidden h-24 animate-pulse rounded-lg bg-cloud min-[90rem]:block"></div>
+          <div class="hidden h-24 animate-pulse rounded-lg bg-cloud min-[90rem]:block"></div>
         </div>
       }
     </ng-template>
 
+    <!-- A read-only "field" on Medical Information: label over a boxed value (inside a <dl>) -->
+    <ng-template #readBox let-label="label" let-value="value" let-empty="empty" let-span="span">
+      <div class="flex min-w-0 flex-col gap-1" [class]="span ?? ''">
+        <dt class="font-sans text-body-sm text-slate">{{ label }}</dt>
+        <dd [class]="readBoxClass">
+          @if (value) {
+            <span class="font-semibold text-ink">{{ value }}</span>
+          } @else {
+            <span class="text-slate">{{ empty ?? '—' }}</span>
+          }
+        </dd>
+      </div>
+    </ng-template>
+
     <!-- ===== Shared templates ===== -->
     <ng-template #subHeader let-title="title" let-subtitle="subtitle">
-      <div class="flex items-start justify-between gap-4">
+      <!-- Back sits level with the title on phones (the subtitle wraps), centred on title + subtitle from sm -->
+      <div class="flex items-start justify-between gap-4 sm:items-center">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">{{ title }}</h1>
+          <h1 id="profile-view-title" class="scroll-mt-24 font-heading text-h3 text-ink">{{ title }}</h1>
           <p class="font-sans text-body text-slate">{{ subtitle }}</p>
         </div>
+        <!-- Not while the Medical Information editor saves: a failure must land on the editor that shows it -->
         <button
           type="button"
-          class="flex shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean"
+          class="flex min-h-11 shrink-0 items-center gap-2 font-sans text-body-lg font-normal text-slate transition-colors hover:text-cerulean disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-slate"
+          [disabled]="savingSection() === 'medical'"
           (click)="back()"
         >
-          <sd-icon name="chevron-right" [size]="18" class="rotate-180" />
+          <sd-icon name="arrow-left" [size]="22" />
           Back
         </button>
       </div>
@@ -1800,6 +2027,8 @@ export class MyProfile {
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Phone verification (inline in Personal Information).
@@ -1982,7 +2211,76 @@ export class MyProfile {
       (f) => f.key === 'blood_pressure' || !!f.derived || isVitalNumberKey(f.key),
     ),
   );
-  protected readonly savingVitals = signal(false);
+  /** The same boxes in the edit form's order (the design's five first). */
+  protected readonly editFields = computed<VitalFieldDto[]>(() => {
+    const byKey = new Map(this.vitalFields().map((f) => [f.key, f]));
+    return VITAL_EDIT_ORDER.flatMap((k) => byKey.get(k) ?? []);
+  });
+
+  /** Medical Information's cards: the five always (recorded or not), then any other recorded reading. */
+  protected readonly vitalCards = computed<VitalCardVm[]>(() => {
+    const byKey = new Map(this.latestVitals().map((v) => [v.key, v]));
+    const extra = VITAL_EXTRA.filter((k) => byKey.has(k));
+    return [...VITAL_PRIMARY, ...extra].map((k) => this.vitalCard(k, byKey.get(k)));
+  });
+
+  /**
+   * Every high or critical reading, the urgent ones first. The advice is the
+   * API's (none for weight, BMI or pain). An out-of-date reading is told in the
+   * past tense with its date — never a present-tense "seek urgent attention"
+   * about a fever from months ago.
+   */
+  protected readonly vitalAlerts = computed<VitalAlertVm[]>(() =>
+    this.latestVitals()
+      .flatMap((v): VitalAlertVm[] => {
+        const f = v.flag;
+        if (!f || (f.level !== 'high' && f.level !== 'critical')) return [];
+        const name = VITAL_META[v.key]?.label ?? v.label;
+        if (v.stale) {
+          const on = shortDate(v.taken_at);
+          return [
+            {
+              key: v.key,
+              text: `${name} was ${f.label}${on ? ` on ${on}` : ''}`,
+              advice: 'update your readings',
+              critical: false,
+            },
+          ];
+        }
+        return [{ key: v.key, text: `${name} is ${f.label}`, advice: f.advice, critical: f.level === 'critical' }];
+      })
+      .sort((a, b) => Number(b.critical) - Number(a.critical)),
+  );
+
+  /** When the newest reading of any type was taken, as the design writes it (or null: none yet). */
+  protected readonly lastUpdated = computed<string | null>(() => {
+    let newest: number | null = null;
+    for (const v of this.latestVitals()) {
+      const at = v.taken_at ? Date.parse(v.taken_at) : NaN;
+      if (!Number.isNaN(at) && (newest === null || at > newest)) newest = at;
+    }
+    return newest === null ? null : lastUpdatedText(new Date(newest));
+  });
+
+  /** A nudge beside "Last updated" when the reminder is due ('' when it isn't). */
+  protected readonly vitalsCue = computed<string>(() => {
+    const r = this.vitalsReminder();
+    if (!r?.due) return '';
+    if (r.reason === 'upcoming') {
+      const at = r.appointment ? new Date(r.appointment.scheduled_at) : null;
+      return at && !Number.isNaN(at.getTime())
+        ? `Update before your consultation on ${new Intl.DateTimeFormat('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          }).format(at)}`
+        : 'Update before your consultation';
+    }
+    return r.reason === 'never' ? 'Add them before your next consultation' : 'Update before your next consultation';
+  });
+
   /** Set on the first save attempt, so empty boxes aren't flagged before then. */
   private readonly vitalsSubmitted = signal(false);
   /** Field errors from the API (`readings.<key>`, `taken_at`, `readings`). */
@@ -1992,6 +2290,12 @@ export class MyProfile {
   protected readonly vitalsFormError = signal('');
   protected readonly takenAtMax = signal('');
   protected readonly takenAtMin = signal('');
+
+  // ----- The one Medical Information editor (vitals + the medical record) -----
+  /** What a save could not do, said plainly (e.g. "vitals saved, medical details weren't"). */
+  protected readonly editError = signal('');
+  /** The medical rows as the editor opened them — only a changed record is saved. */
+  private medicalSnapshot = '';
 
   protected readonly vitalsForm = this.fb.group({
     temperature: this.fb.control<number | null>(null),
@@ -2031,14 +2335,15 @@ export class MyProfile {
       });
 
     // Deep links from the dashboard: ?section=medical (Medical Information) or
-    // ?section=vitals (the Update vitals form). Consumed once, then dropped
-    // from the URL so Back / a refresh doesn't keep reopening it.
+    // ?section=vitals (the editor, scrolled to and focused on its vitals).
+    // Consumed once, then dropped from the URL so Back / a refresh doesn't keep
+    // reopening it.
     this.route.queryParamMap
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((params) => {
         const section = params.get('section');
         if (section !== 'medical' && section !== 'vitals') return;
-        if (section === 'vitals') this.openVitalsEdit();
+        if (section === 'vitals') this.openEdit('vitals');
         else this.view.set('medical');
         void this.router.navigate([], {
           relativeTo: this.route,
@@ -2094,6 +2399,9 @@ export class MyProfile {
     this.medical.set(h.medical);
     this.loadMedicalForm(h.medical);
     this.healthState.set('ready');
+    // The editor is open (a deep link that beat the load, or a save that kept
+    // it open): give it its blank rows and a fresh "unchanged" baseline.
+    if (this.view() === 'medical-add') this.prepareMedicalRows();
   }
 
   private applyProfile(p: {
@@ -2165,6 +2473,33 @@ export class MyProfile {
   // Standalone input styling for the medical FormArray rows.
   protected readonly rowInput =
     'rounded-field border border-[#d7e0e8] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+  protected readonly removeButton =
+    'min-h-11 self-end px-2 font-sans text-caption font-semibold text-alert hover:underline';
+
+  // Medical Information (Figma 782:15059 / 763:12524): 24px cards on a hairline slate border.
+  // A size container: the field boxes inside go 2- or 3-across by the card's
+  // own width (the cards sit two-across from lg, so the viewport says little).
+  protected readonly viewCard =
+    '@container flex flex-col gap-6 rounded-[24px] border-[0.5px] border-slate bg-white p-4 sm:p-6';
+  protected readonly editCard =
+    'flex flex-col gap-4 rounded-[24px] border-[0.5px] border-slate bg-white p-4 sm:p-6';
+  protected readonly cardTitle = 'flex items-center gap-2 font-sans text-body-lg text-ink';
+  /** One history / allergy / medicine / condition on the read view; a hairline between entries. */
+  protected readonly entryClass =
+    'mt-4 border-t border-cloud pt-4 first:mt-0 first:border-t-0 first:pt-0';
+  /** The boxed value of a read-only field. */
+  protected readonly readBoxClass =
+    'min-h-[50px] break-words rounded-field border border-ash px-4 py-[13px] font-sans text-body';
+  // The vitals boxes (label with icon, 50px box, light hint underneath).
+  protected readonly vitalLabel = 'flex items-center gap-1 font-sans text-body-sm text-slate';
+  protected readonly vitalInput =
+    'w-full min-w-0 rounded-field border border-ash bg-white px-4 py-[13px] font-sans text-body text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+  protected readonly vitalInputInvalid =
+    'w-full min-w-0 rounded-field border border-alert bg-white px-4 py-[13px] font-sans text-body text-ink placeholder:text-slate/60 focus:border-alert focus:outline-none focus:ring-2 focus:ring-alert/20';
+  /** The two numbers inside the one blood-pressure box. */
+  protected readonly bpInput =
+    'w-full min-w-0 bg-transparent py-[13px] font-sans text-body text-ink placeholder:text-slate/60 [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+  protected readonly vitalHintClass = 'font-sans text-caption font-light text-slate';
 
   // Options for the searchable dropdowns (sd-search-select).
   protected readonly genderSelectOptions = ['Female', 'Male', 'Other'];
@@ -2201,8 +2536,10 @@ export class MyProfile {
   }
 
   protected back(): void {
+    // Leaving the editor mid-save would hide a failure and drop what was typed.
+    if (this.savingSection() === 'medical') return;
     if (this.view() === 'personal-edit') this.view.set('personal');
-    else if (this.view() === 'medical-add' || this.view() === 'vitals-edit') this.view.set('medical');
+    else if (this.view() === 'medical-add') this.view.set('medical');
     else this.view.set('home');
   }
 
@@ -2397,14 +2734,57 @@ export class MyProfile {
     );
   });
 
-  /** Open the medical editor, seeding a blank row for any empty section. */
-  protected openMedicalAdd(): void {
-    if (!this.healthLoaded()) return;
+  /**
+   * Open the one Medical Information editor: the vitals boxes blank (taken
+   * "now") above the saved medical record. Each half shows its own loading /
+   * error state, so a deep link can open it before either has loaded.
+   * `vitals` (the ?section=vitals deep link) scrolls to and focuses the vitals.
+   */
+  protected openEdit(focus: 'vitals' | 'medical' | null = null): void {
+    this.resetVitalsForm();
+    this.editError.set('');
+    if (this.healthLoaded()) {
+      this.loadMedicalForm(this.medical()); // drop edits from a cancelled visit
+      this.prepareMedicalRows();
+    }
+    this.view.set('medical-add');
+    afterNextRender(
+      () => {
+        const id = focus === 'medical' ? 'medical-edit-start' : 'vitals-edit-heading';
+        const target = this.document.getElementById(id) ?? this.document.getElementById('vitals-edit-heading');
+        if (focus) {
+          target?.scrollIntoView({ block: 'start' });
+          target?.focus({ preventScroll: true });
+        } else {
+          // From the Edit button: back to the top, with focus at the editor's start.
+          this.document.getElementById('profile-view-title')?.scrollIntoView({ block: 'start' });
+          target?.focus({ preventScroll: true });
+        }
+      },
+      { injector: this.injector },
+    );
+  }
+
+  /** Discard the editor's changes and go back to the read view (never mid-save — see back()). */
+  protected cancelEdit(): void {
+    if (this.savingSection() === 'medical') return;
+    if (this.healthLoaded()) this.loadMedicalForm(this.medical());
+    this.resetVitalsForm();
+    this.editError.set('');
+    this.view.set('medical');
+  }
+
+  /** A blank row for any empty medical section, and the "unchanged" baseline. */
+  private prepareMedicalRows(): void {
     if (this.historyRows.length === 0) this.addHistory();
     if (this.allergyRows.length === 0) this.addAllergy();
     if (this.medicationRows.length === 0) this.addMedication();
     if (this.conditionRows.length === 0) this.addCondition();
-    this.view.set('medical-add');
+    this.medicalSnapshot = JSON.stringify(this.medicalPayload());
+  }
+
+  private medicalChanged(): boolean {
+    return JSON.stringify(this.medicalPayload()) !== this.medicalSnapshot;
   }
 
   /** The form's rows as the API stores them (herbal checkbox → '1' / ''). */
@@ -2434,32 +2814,148 @@ export class MyProfile {
     };
   }
 
-  protected async saveMedical(): Promise<void> {
-    // The section is replaced wholesale — never save over records we never loaded.
-    if (!this.healthLoaded() || this.savingSection()) return;
-    this.savingSection.set('medical');
-    try {
-      const res = await firstValueFrom(
-        this.patient.updateHealthProfile({
-          medical: this.medicalPayload(),
-        }),
-      );
-      this.applyHealthProfile(res.data);
-      this.view.set('medical');
-      this.showToast('Medical information saved successfully');
-    } catch (err) {
-      this.showToast(
-        apiErrorMessage(err, 'Could not save your medical information.'),
-      );
-    } finally {
-      this.savingSection.set('');
+  /**
+   * Save the editor. Vitals are recorded only when at least one box was filled
+   * (POST /me/vitals); the medical record only when it changed (it replaces
+   * the whole section, so never over records we never loaded). The two go in
+   * parallel; if one fails, say exactly which, keep what the patient typed for
+   * it, and stay here — the half that was saved is not sent again.
+   */
+  protected async saveEdit(): Promise<void> {
+    if (this.savingSection()) return;
+    this.editError.set('');
+    const vitalsReady = this.vitalsState() === 'ready';
+    const readings = vitalsReady ? this.vitalsPayload() : null;
+    const withVitals = !!readings && Object.keys(readings.readings).length > 0;
+    if (vitalsReady && this.vitalsInvalid(withVitals)) {
+      this.vitalsFormError.set('Check the readings marked in red.');
+      this.focusById('vitals-edit-heading');
+      return;
     }
+    const withMedical = this.healthLoaded() && this.medicalChanged();
+    if (!withVitals && !withMedical) {
+      this.cancelEdit();
+      this.showToast('No changes to save');
+      return;
+    }
+
+    this.savingSection.set('medical');
+    const [vitals, medical] = await Promise.allSettled([
+      withVitals && readings ? firstValueFrom(this.patient.recordVitals(readings)) : Promise.resolve(null),
+      withMedical
+        ? firstValueFrom(this.patient.updateHealthProfile({ medical: this.medicalPayload() }))
+        : Promise.resolve(null),
+    ]);
+    this.savingSection.set('');
+
+    if (vitals.status === 'fulfilled' && vitals.value) {
+      this.vitalsData.set(vitals.value.data);
+      this.vitalsState.set('ready');
+      this.resetVitalsForm(); // recorded — a retry must not record them twice
+    }
+    if (medical.status === 'fulfilled' && medical.value) this.applyHealthProfile(medical.value.data);
+
+    const vitalsFailed = vitals.status === 'rejected';
+    const medicalFailed = medical.status === 'rejected';
+    if (!vitalsFailed && !medicalFailed) {
+      this.view.set('medical');
+      this.showToast(
+        withVitals && withMedical
+          ? 'Vitals and medical information saved'
+          : withVitals
+            ? 'Vitals saved successfully'
+            : 'Medical information saved successfully',
+      );
+      return;
+    }
+
+    const vitalsWhy = vitals.status === 'rejected' ? apiErrorMessage(vitals.reason, 'Could not save your readings.') : '';
+    const medicalWhy =
+      medical.status === 'rejected' ? apiErrorMessage(medical.reason, 'Could not save your medical information.') : '';
+    if (vitals.status === 'rejected') {
+      this.vitalsFieldErrors.set(apiErrorFields(vitals.reason));
+      this.vitalsFormError.set(vitalsWhy);
+    }
+    this.editError.set(
+      vitalsFailed && medicalFailed
+        ? `Nothing was saved. Vitals: ${vitalsWhy} Medical details: ${medicalWhy}`
+        : vitalsFailed
+          ? withMedical
+            ? `Your medical details were saved, but your vitals weren't: ${vitalsWhy}`
+            : `Your vitals weren't saved: ${vitalsWhy}`
+          : withVitals
+            ? `Your vitals were saved, but your medical details weren't: ${medicalWhy}`
+            : `Your medical details weren't saved: ${medicalWhy}`,
+    );
+    this.focusById(vitalsFailed ? 'vitals-edit-heading' : 'medical-edit-error');
+  }
+
+  /** After the next render, move focus to (and show) an element of the editor. */
+  private focusById(id: string): void {
+    afterNextRender(
+      () => {
+        const el = this.document.getElementById(id);
+        el?.scrollIntoView({ block: 'center' });
+        el?.focus({ preventScroll: true });
+      },
+      { injector: this.injector },
+    );
   }
 
   // ----- Vitals -----
 
-  protected vitalIcon(key: ReadingKey): string {
-    return VITAL_ICON[key] ?? 'activity';
+  protected meta(key: ReadingKey): VitalMeta {
+    return VITAL_META[key];
+  }
+
+  /** "Heart Rate (Bpm)", as the edit design labels its boxes. */
+  protected formLabel(key: ReadingKey): string {
+    const m = VITAL_META[key];
+    return `${m.formLabel ?? m.label} (${m.formUnit})`;
+  }
+
+  /** The light line under a box: the API's normal range, or what the box is for. */
+  protected vitalHint(f: VitalFieldDto): string {
+    if (f.key === 'weight') return 'Used with your height to work out your BMI';
+    if (f.key === 'height') return 'Used to work out your BMI';
+    if (f.key === 'pain_score') return '0 = no pain, 10 = the worst pain';
+    if (!f.normal_range) return '';
+    const m = VITAL_META[f.key];
+    return `Normal range: ${f.normal_range}${m.joined || m.unit === '%' ? '' : ' '}${m.unit}`;
+  }
+
+  /** One card: the value and the API's flag, or "Not recorded". */
+  private vitalCard(key: ReadingKey, v: VitalReadingDto | undefined): VitalCardVm {
+    const m = VITAL_META[key];
+    const base = { key, label: m.label, icon: m.icon, tint: m.tint, joined: !!m.joined, inkUnit: !!m.inkUnit };
+    if (!v) {
+      return {
+        ...base,
+        recorded: false,
+        value: '—',
+        unit: '',
+        status: 'Not recorded',
+        statusIsWhen: false,
+        statusTone: 'text-slate',
+        staleNote: '',
+        detail: '',
+      };
+    }
+    const on = v.flag && v.stale ? shortDate(v.taken_at) : '';
+    return {
+      ...base,
+      recorded: true,
+      value: v.value,
+      unit: m.unit,
+      // No flag (height, or a weight / BMI with no height on file): say when it was taken instead.
+      status: v.flag ? v.flag.label : this.takenAgo(v.taken_at),
+      statusIsWhen: !v.flag,
+      statusTone: v.flag ? FLAG_TONE[v.flag.level] : 'text-slate',
+      staleNote: on ? `from ${on}` : '',
+      detail: `${this.takenAgo(v.taken_at)} · ${v.recorded_by === 'patient' ? 'Self-reported' : 'From your doctor'}${
+        v.stale ? ' · may be out of date' : ''
+      }`,
+    };
   }
 
   protected placeholder(key: ReadingKey): string {
@@ -2486,8 +2982,8 @@ export class MyProfile {
     return `Taken on ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(at)}`;
   }
 
-  /** Open the Update vitals form: every box blank, taken "now". */
-  protected openVitalsEdit(): void {
+  /** The vitals boxes back to blank, taken "now". */
+  private resetVitalsForm(): void {
     const now = new Date();
     const yearAgo = new Date(now);
     yearAgo.setFullYear(now.getFullYear() - 1);
@@ -2498,7 +2994,6 @@ export class MyProfile {
     this.vitalsFieldErrors.set({});
     this.vitalsBadInput.set({});
     this.vitalsFormError.set('');
-    this.view.set('vitals-edit');
   }
 
   /** Track a number box the browser couldn't read, so it is flagged instead of silently left out. */
@@ -2576,7 +3071,12 @@ export class MyProfile {
     const server = this.vitalsFieldErrors()['taken_at'];
     if (server) return server;
     const raw = this.vitalsForm.controls.takenAt.value;
-    if (!raw) return this.vitalsSubmitted() ? 'Enter when the readings were taken' : '';
+    // Only needed when there is something to record.
+    if (!raw) {
+      return this.vitalsSubmitted() && Object.keys(this.vitalsPayload().readings).length
+        ? 'Enter when the readings were taken'
+        : '';
+    }
     const at = new Date(raw);
     if (Number.isNaN(at.getTime())) return 'Enter a valid date and time';
     if (at.getTime() > Date.now() + 60_000) return 'This can’t be in the future';
@@ -2604,37 +3104,20 @@ export class MyProfile {
     };
   }
 
-  protected async saveVitals(): Promise<void> {
-    if (this.savingVitals()) return;
+  /**
+   * Run the boxes' own checks on a save attempt (flagging them from now on).
+   * Blank boxes are fine — the vitals are optional in this editor — but a box
+   * the browser couldn't read, an out-of-range number or half a blood pressure
+   * stops the save; when it will be recorded, so does a bad "taken" time.
+   */
+  private vitalsInvalid(withReadings: boolean): boolean {
     this.vitalsSubmitted.set(true);
     this.vitalsFieldErrors.set({});
     this.vitalsFormError.set('');
-    const fields = this.vitalFields();
-    const invalid =
-      fields.some((f) => (f.key === 'blood_pressure' ? this.bpError(f) : this.vitalFieldError(f))) ||
-      !!this.takenAtError();
-    if (invalid) {
-      this.vitalsFormError.set('Check the readings marked in red.');
-      return;
-    }
-    const input = this.vitalsPayload();
-    if (Object.keys(input.readings).length === 0) {
-      this.vitalsFormError.set('Enter at least one reading.');
-      return;
-    }
-    this.savingVitals.set(true);
-    try {
-      const res = await firstValueFrom(this.patient.recordVitals(input));
-      this.vitalsData.set(res.data);
-      this.vitalsState.set('ready');
-      this.view.set('medical');
-      this.showToast('Vitals saved successfully');
-    } catch (err) {
-      this.vitalsFieldErrors.set(apiErrorFields(err));
-      this.vitalsFormError.set(apiErrorMessage(err, 'Could not save your readings.'));
-    } finally {
-      this.savingVitals.set(false);
-    }
+    return (
+      this.vitalFields().some((f) => (f.key === 'blood_pressure' ? this.bpError(f) : this.vitalFieldError(f))) ||
+      (withReadings && !!this.takenAtError())
+    );
   }
 
   protected async saveInsurance(): Promise<void> {

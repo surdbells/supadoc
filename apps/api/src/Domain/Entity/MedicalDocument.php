@@ -17,6 +17,7 @@ use Ramsey\Uuid\Uuid;
 #[ORM\Entity]
 #[ORM\Table(name: 'medical_documents')]
 #[ORM\Index(name: 'idx_med_docs_patient', columns: ['patient_id', 'created_at'])]
+#[ORM\Index(name: 'idx_med_docs_appointment', columns: ['appointment_id'])]
 #[ORM\HasLifecycleCallbacks]
 class MedicalDocument
 {
@@ -39,9 +40,13 @@ class MedicalDocument
     #[ORM\Column(name: 'uploader_name', type: 'string', length: 200)]
     private string $uploaderName;
 
-    /** Set when a clinician files it against a specific consultation. */
-    #[ORM\Column(name: 'appointment_id', type: 'uuid', nullable: true)]
-    private ?string $appointmentId = null;
+    /**
+     * The consultation it was shared for — set when the patient attaches it while
+     * booking. Deleting the appointment keeps the document (the link is nulled).
+     */
+    #[ORM\ManyToOne(targetEntity: Appointment::class)]
+    #[ORM\JoinColumn(name: 'appointment_id', referencedColumnName: 'id', nullable: true, onDelete: 'SET NULL')]
+    private ?Appointment $appointment = null;
 
     #[ORM\Column(name: 'document_type', type: 'string', length: 50)]
     private string $documentType;
@@ -125,9 +130,15 @@ class MedicalDocument
         $this->customType = $v !== null && trim($v) !== '' ? trim($v) : null;
     }
 
-    public function setAppointmentId(?string $v): void
+    public function setAppointment(?Appointment $appointment): void
     {
-        $this->appointmentId = $v;
+        $this->appointment = $appointment;
+    }
+
+    /** The linked appointment's id (reading it never loads the appointment). */
+    public function getAppointmentId(): ?string
+    {
+        return $this->appointment?->getId();
     }
 
     /** The human label — the custom text for `other`, otherwise the catalogue label. */
@@ -161,7 +172,7 @@ class MedicalDocument
             'patient_id'     => $this->patientId,
             'uploader_role'  => $this->uploaderRole,
             'uploader_name'  => $this->uploaderName,
-            'appointment_id' => $this->appointmentId,
+            'appointment_id' => $this->getAppointmentId(),
             'document_type'  => $this->documentType,
             'custom_type'    => $this->customType,
             'type_label'     => $this->typeLabel(),

@@ -1,11 +1,14 @@
 import { NgTemplateOutlet } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
   untracked,
@@ -157,7 +160,7 @@ function timeLeft(ms: number): TimeLeft | null {
     <div class="flex flex-col gap-6 py-2">
       <div class="flex items-center justify-between">
         <h1 class="font-heading text-h3 text-ink">Schedule Details</h1>
-        <a routerLink="/schedule" class="flex items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
+        <a [routerLink]="backLink()" class="flex min-h-11 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
           <sd-icon name="chevron-right" [size]="18" class="rotate-180" /> Back
         </a>
       </div>
@@ -232,6 +235,28 @@ function timeLeft(ms: number): TimeLeft | null {
               @if (joinState().enabled && patientWaiting()) {
                 <p class="rounded-field bg-success/10 px-3 py-2 text-center font-sans text-caption font-semibold text-success" role="status">The patient is waiting in the call</p>
               }
+            }
+            <!-- A visit that ended without End in the call: close it here (asks first). -->
+            @if (canComplete()) {
+              @if (!completeAsk()) {
+                <button #completeButton type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-sage px-5 py-3 font-sans text-body-sm font-semibold text-sage transition-colors hover:bg-sage/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="askComplete()">
+                  <sd-icon name="circle-check" [size]="18" />Mark consultation completed
+                </button>
+              } @else {
+                <div class="flex flex-col gap-3 rounded-field border border-cloud p-3" role="group" aria-labelledby="complete-ask-title" aria-describedby="complete-ask-desc">
+                  <p #completeTitle id="complete-ask-title" tabindex="-1" class="font-sans text-body-sm font-semibold text-ink outline-none">Mark this consultation completed?</p>
+                  <p id="complete-ask-desc" class="font-sans text-caption text-slate">It moves to your history and the patient is told the consultation has ended. You can still finish the note and prescriptions here.</p>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="min-h-11 flex-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="complete()">{{ actionBusy() ? 'Saving…' : 'Mark completed' }}</button>
+                    <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60" [disabled]="actionBusy()" (click)="cancelComplete()">Not yet</button>
+                  </div>
+                </div>
+              }
+            }
+            @if (completedNotice()) {
+              <p #completedNote tabindex="-1" class="flex items-center gap-2 rounded-field bg-sage/10 px-3 py-2 font-sans text-caption font-semibold text-sage outline-none" role="status">
+                <sd-icon name="circle-check" [size]="16" class="shrink-0" />Consultation completed — it's now in your history.
+              </p>
             }
             <div class="flex gap-3">
               @if (canReschedule(a.status)) {
@@ -584,6 +609,7 @@ export class DoctorAppointmentDetail implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
 
   protected readonly tabs = TABS;
   protected readonly primaryTabs: ReadonlyArray<{ key: PrimaryTab; label: string }> = [
@@ -649,9 +675,31 @@ export class DoctorAppointmentDetail implements OnInit {
     return !!a && this.presence()[a.id]?.patient === true;
   });
 
+  /** A finished (or cancelled) visit belongs to the history; an open one to the schedule. */
+  protected readonly backLink = computed(() => {
+    const s = this.appt()?.status;
+    return s === 'completed' || s === 'cancelled' ? '/appointments/history' : '/schedule';
+  });
+
   // Lifecycle actions
   protected readonly actionBusy = signal(false);
   protected readonly actionError = signal('');
+  /**
+   * "Mark consultation completed": a confirmed visit whose time has come (for
+   * one that ended without End in the call). The API also allows it earlier
+   * while the doctor is in the call — that is the cockpit's End.
+   */
+  protected readonly canComplete = computed(() => {
+    const a = this.appt();
+    return !!a && a.status === 'confirmed' && new Date(a.scheduled_at).getTime() <= this.now();
+  });
+  /** The confirmation step is showing. */
+  protected readonly completeAsk = signal(false);
+  /** Just completed here — says so (the actions that went away explain nothing). */
+  protected readonly completedNotice = signal(false);
+  private readonly completeButton = viewChild<ElementRef<HTMLButtonElement>>('completeButton');
+  private readonly completeTitle = viewChild<ElementRef<HTMLElement>>('completeTitle');
+  private readonly completedNote = viewChild<ElementRef<HTMLElement>>('completedNote');
   protected readonly rescheduleOpen = signal(false);
   /** The doctor's own open slots (next 14 days with any), in local time. */
   protected readonly rescheduleDays = signal<DayAvailability[]>([]);
@@ -1036,6 +1084,23 @@ export class DoctorAppointmentDetail implements OnInit {
     });
   }
   protected confirm(): void { this.runAction(this.api.confirm(this.id)); }
+  protected askComplete(): void {
+    this.actionError.set('');
+    this.completeAsk.set(true);
+    afterNextRender(() => this.completeTitle()?.nativeElement.focus(), { injector: this.injector });
+  }
+  protected cancelComplete(): void {
+    this.completeAsk.set(false);
+    afterNextRender(() => this.completeButton()?.nativeElement.focus(), { injector: this.injector });
+  }
+  /** Mark the consultation completed (already completed counts as done). */
+  protected complete(): void {
+    this.runAction(this.api.complete(this.id), () => {
+      this.completeAsk.set(false);
+      this.completedNotice.set(true);
+      afterNextRender(() => this.completedNote()?.nativeElement.focus(), { injector: this.injector });
+    });
+  }
   protected decline(): void {
     if (!window.confirm('Cancel this appointment? Any payment will be refunded to the patient.')) return;
     this.runAction(this.api.decline(this.id));

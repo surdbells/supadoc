@@ -10,7 +10,8 @@ use DateTimeImmutable;
  * The health-reading catalogue — the ten boxes on the GVM-F-RX-01 form (AC7) —
  * and its validation. Shared by the prescription form and the patient's own
  * "Update vitals" form, so both apply the same ranges, the same blood-pressure
- * rule and the same worked-out BMI.
+ * rule and the same worked-out BMI. What each reading means (Normal, High…)
+ * is {@see VitalsFlags}.
  */
 final class VitalsForm
 {
@@ -154,7 +155,8 @@ final class VitalsForm
     }
 
     /**
-     * The catalogue as the API serves it, for building a form.
+     * The catalogue as the API serves it, for building a form. `normal_range`
+     * is the typical adult band the flags use (null where there is none).
      *
      * @return list<array<string,mixed>>
      */
@@ -162,7 +164,15 @@ final class VitalsForm
     {
         $fields = [];
         foreach (self::READINGS as $key => [$label, $unit, $min, $max]) {
-            $field = ['key' => $key, 'label' => $label, 'unit' => $unit, 'min' => $min, 'max' => $max, 'step' => self::STEPS[$key] ?? null];
+            $field = [
+                'key'          => $key,
+                'label'        => $label,
+                'unit'         => $unit,
+                'min'          => $min,
+                'max'          => $max,
+                'step'         => self::STEPS[$key] ?? null,
+                'normal_range' => VitalsFlags::NORMAL_RANGES[$key] ?? null,
+            ];
             if ($key === 'blood_pressure') {
                 $field['systolic']  = ['min' => self::SYSTOLIC[0], 'max' => self::SYSTOLIC[1]];
                 $field['diastolic'] = ['min' => self::DIASTOLIC[0], 'max' => self::DIASTOLIC[1]];

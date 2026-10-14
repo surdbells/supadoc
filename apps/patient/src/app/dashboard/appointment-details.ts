@@ -1,10 +1,15 @@
+import { DOCUMENT } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -21,7 +26,10 @@ import {
 import {
   apiErrorMessage,
   AppointmentsApi,
+  DocumentsApi,
   injectCallPresence,
+  localSlotDays,
+  openBlobDocument,
   openClinicalDocument,
   openPendingTab,
   PrescriptionsApi,
@@ -31,6 +39,7 @@ import type {
   AppointmentDto,
   ClinicalDocumentKind,
   DayAvailability,
+  MedicalDocumentDto,
   MessageDto,
   PrescriptionDto,
   PrescriptionStatus,
@@ -58,10 +67,9 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
   cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
 };
 
-interface SharedDoc {
-  readonly name: string;
-  readonly size: string;
-}
+/** What Tab can land on inside a dialog. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface DetailsVm {
   readonly id: string;
@@ -122,7 +130,8 @@ function toDetails(a: AppointmentDto): DetailsVm {
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
     statusLabel: a.status_label,
     statusClass: STATUS_CLASS[a.status] ?? 'bg-cloud text-slate',
-    amount: `₦${NAIRA.format(Number(a.amount) || 0)}`,
+    // A free consultation reads "Free", never "₦0.00".
+    amount: Number(a.amount) > 0 ? `₦${NAIRA.format(Number(a.amount))}` : 'Free',
     guests: (a.guests ?? []).map((g) => g.name),
     canCancel: ['pending', 'confirmed', 'rescheduled'].includes(a.status),
     canReview: a.status === 'completed',
@@ -153,7 +162,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
             <sd-icon name="chevron-right" [size]="16" class="rotate-180" />
             My Appointments
           </a>
-          <h1 class="font-heading text-h3 text-ink">Appointment Details</h1>
+          <h1 #pageTitle tabindex="-1" class="font-heading text-h3 text-ink outline-none">Appointment Details</h1>
           <p class="font-sans text-body text-slate">
             View and manage your scheduled consultations
           </p>
@@ -273,8 +282,10 @@ function toDetails(a: AppointmentDto): DetailsVm {
                     Join the consultation 5-10minutes early.
                   </p>
                   <p>
-                    Upload any relevant medical reports or tests below, so the
-                    doctor can review them.
+                    Your doctor can review the documents shared below and
+                    everything in your
+                    <a routerLink="/dashboard/documents" class="font-semibold text-cerulean hover:underline">medical documents</a>,
+                    where you can add more at any time.
                   </p>
                 </div>
               </div>
@@ -309,7 +320,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   </button>
                 }
                 @if (v.canReview && !reviewed()) {
-                  <sd-button variant="outline" [full]="true" (click)="reviewOpen.set(true)">
+                  <sd-button variant="outline" [full]="true" (click)="openReview()">
                     <sd-icon name="star" [size]="18" />Leave a review
                   </sd-button>
                 }
@@ -332,26 +343,47 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   <sd-icon name="file-text" [size]="20" />
                   Shared Documents
                 </h2>
-                <ul class="flex flex-col gap-3">
-                  @for (doc of documents; track doc.name) {
-                    <li class="flex items-center gap-3">
-                      <sd-icon
-                        name="file-text"
-                        [size]="20"
-                        class="shrink-0 text-slate"
-                      />
-                      <span
-                        class="min-w-0 flex-1 truncate font-sans text-body-sm text-ink"
-                      >
-                        {{ doc.name }} ({{ doc.size }})
-                      </span>
-                    </li>
-                  } @empty {
-                    <li class="font-sans text-body-sm text-slate">
-                      No documents were shared for this consultation.
-                    </li>
-                  }
-                </ul>
+                <!-- The files attached when booking (opened through the authenticated document route) -->
+                @if (sharedLoading()) {
+                  <div class="sd-shimmer h-14 rounded-field"></div>
+                } @else if (sharedError()) {
+                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ sharedError() }}
+                  </p>
+                  <button
+                    type="button"
+                    class="min-h-11 w-fit rounded-field border border-cloud bg-white px-5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                    (click)="loadSharedDocs(v.id)"
+                  >
+                    Try again
+                  </button>
+                } @else {
+                  <ul class="flex flex-col gap-2">
+                    @for (d of sharedDocs(); track d.id) {
+                      <li>
+                        <button
+                          type="button"
+                          class="flex min-h-11 w-full items-center gap-3 rounded-field border border-cloud px-3 py-2 text-left transition-colors hover:border-cerulean/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                          [attr.aria-label]="'Open ' + d.title + ', ' + d.type_label"
+                          (click)="openShared(d)"
+                        >
+                          <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
+                          <span class="flex min-w-0 flex-1 flex-col">
+                            <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
+                            <span class="truncate font-sans text-caption text-slate"
+                              ><span class="uppercase">{{ d.extension }}</span> · {{ d.size_label }} · {{ d.type_label }}</span
+                            >
+                          </span>
+                          <sd-icon name="eye" [size]="18" class="shrink-0 text-cerulean" />
+                        </button>
+                      </li>
+                    } @empty {
+                      <li class="font-sans text-body-sm text-slate">
+                        No documents were shared for this consultation.
+                      </li>
+                    }
+                  </ul>
+                }
               </section>
 
               <section
@@ -489,11 +521,20 @@ function toDetails(a: AppointmentDto): DetailsVm {
 
     @if (reviewOpen()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="reviewOpen.set(false)"></button>
-        <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
+        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeReview()"></button>
+        <div
+          #reviewDialog
+          class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="review-title"
+          tabindex="-1"
+          (keydown.escape)="closeReview()"
+          (keydown)="trapTab($event, reviewDialog)"
+        >
           <div class="flex items-center justify-between">
-            <h3 class="font-heading text-h5 text-ink">Rate your consultation</h3>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="reviewOpen.set(false)"><sd-icon name="x" [size]="24" /></button>
+            <h3 #reviewTitle id="review-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Rate your consultation</h3>
+            <button type="button" class="inline-flex size-11 items-center justify-center text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeReview()"><sd-icon name="x" [size]="24" /></button>
           </div>
           <div class="flex justify-center gap-2">
             @for (i of [1,2,3,4,5]; track i) {
@@ -513,29 +554,40 @@ function toDetails(a: AppointmentDto): DetailsVm {
 
     @if (rescheduleOpen()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="rescheduleOpen.set(false)"></button>
-        <div class="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
+        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeReschedule()"></button>
+        <div
+          #rescheduleDialog
+          class="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reschedule-title"
+          tabindex="-1"
+          (keydown.escape)="closeReschedule()"
+          (keydown)="trapTab($event, rescheduleDialog)"
+        >
           <div class="flex items-center justify-between">
-            <h3 class="font-heading text-h5 text-ink">Reschedule appointment</h3>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="rescheduleOpen.set(false)"><sd-icon name="x" [size]="24" /></button>
+            <h3 #rescheduleTitle id="reschedule-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Reschedule appointment</h3>
+            <button type="button" class="inline-flex size-11 items-center justify-center text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeReschedule()"><sd-icon name="x" [size]="24" /></button>
           </div>
 
           @if (rescheduleLoading()) {
             <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
           } @else if (rescheduleDays().length === 0 && !rescheduleError()) {
-            <p class="font-sans text-body-sm text-slate">This specialist has no open slots in the next couple of weeks. Please try again later.</p>
+            <!-- The slots endpoint looks 3 weeks ahead (AvailabilityService::LOOKAHEAD_DAYS). -->
+            <p class="font-sans text-body-sm text-slate">This specialist has no open times in the next three weeks. Please try again later.</p>
           } @else {
-            <div class="flex flex-wrap gap-2">
+            <!-- Days and times are the patient's local time (localSlotDays). -->
+            <div class="flex flex-wrap gap-2" role="group" aria-label="Day">
               @for (d of rescheduleDays(); track d.date) {
-                <button type="button" class="rounded-field border px-3 py-2 font-sans text-caption font-semibold transition-colors" [class]="selectedDay()?.date === d.date ? 'border-cerulean bg-frost text-cerulean' : 'border-cloud text-slate hover:border-cerulean/40'" (click)="selectDay(d)">
+                <button type="button" class="min-h-11 rounded-field border px-3 py-2 font-sans text-caption font-semibold transition-colors" [class]="selectedDay()?.date === d.date ? 'border-cerulean bg-frost text-cerulean' : 'border-cloud text-slate hover:border-cerulean/40'" [attr.aria-pressed]="selectedDay()?.date === d.date" (click)="selectDay(d)">
                   {{ d.weekday }} {{ d.day }}
                 </button>
               }
             </div>
             @if (selectedDay(); as d) {
-              <div class="grid grid-cols-3 gap-2">
+              <div class="grid grid-cols-3 gap-2" role="group" aria-label="Time">
                 @for (s of d.slots; track s.iso) {
-                  <button type="button" class="rounded-field border px-2 py-2 font-sans text-caption font-medium transition-colors" [class]="selectedIso() === s.iso ? 'border-cerulean bg-frost text-cerulean' : 'border-cloud text-ink hover:border-cerulean/40'" (click)="selectedIso.set(s.iso)">
+                  <button type="button" class="min-h-11 rounded-field border px-2 py-2 font-sans text-caption font-medium transition-colors" [class]="selectedIso() === s.iso ? 'border-cerulean bg-frost text-cerulean' : 'border-cloud text-ink hover:border-cerulean/40'" [attr.aria-pressed]="selectedIso() === s.iso" (click)="selectedIso.set(s.iso)">
                     {{ s.label }}
                   </button>
                 }
@@ -558,7 +610,15 @@ export class AppointmentDetails {
   private readonly appointments = inject(AppointmentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly specialists = inject(SpecialistsApi);
+  private readonly documentsApi = inject(DocumentsApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
+  private readonly reviewTitle = viewChild<ElementRef<HTMLElement>>('reviewTitle');
+  private readonly rescheduleTitle = viewChild<ElementRef<HTMLElement>>('rescheduleTitle');
+  /** What had focus before a dialog opened — it gets focus back on close. */
+  private opener: HTMLElement | null = null;
 
   /** Who is in my appointments' calls right now — polled while the page is open. */
   protected readonly presence = injectCallPresence(() =>
@@ -589,6 +649,11 @@ export class AppointmentDetails {
   /** Id of the prescription whose PDF link is being fetched. */
   protected readonly openingRx = signal('');
 
+  // Files the patient attached when booking (their own medical documents).
+  protected readonly sharedDocs = signal<MedicalDocumentDto[]>([]);
+  protected readonly sharedLoading = signal(false);
+  protected readonly sharedError = signal('');
+
   constructor() {
     // Load the thread + documents whenever the appointment id in the route changes.
     this.route.paramMap
@@ -601,7 +666,32 @@ export class AppointmentDetails {
       .subscribe((id) => {
         this.loadMessages(id);
         this.loadDocuments(id);
+        this.loadSharedDocs(id);
       });
+  }
+
+  /** The booking's attachments, in the order they were added. */
+  protected loadSharedDocs(id: string): void {
+    this.sharedLoading.set(true);
+    this.sharedError.set('');
+    this.documentsApi
+      .list({ appointment_id: id, per_page: 50, sort_dir: 'asc' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.sharedDocs.set(res.data ?? []);
+          this.sharedLoading.set(false);
+        },
+        error: (err: unknown) => {
+          this.sharedError.set(apiErrorMessage(err, 'Could not load the shared documents.'));
+          this.sharedLoading.set(false);
+        },
+      });
+  }
+
+  /** Same authenticated view as the Documents page: fetched as a blob, opened in a new tab. */
+  protected openShared(d: MedicalDocumentDto): void {
+    openBlobDocument(this.documentsApi.fileBlob(d.id));
   }
 
   private loadDocuments(id: string): void {
@@ -750,6 +840,65 @@ export class AppointmentDetails {
     void this.router.navigate(['/dashboard/call', id]);
   }
 
+  // Dialogs: focus moves to the heading on open, Tab stays inside, Esc closes,
+  // and focus goes back to the button that opened it.
+
+  private rememberOpener(): void {
+    const active = this.document.activeElement;
+    this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
+  }
+
+  private focusAfterRender(target: () => HTMLElement | undefined): void {
+    afterNextRender(() => target()?.focus(), { injector: this.injector });
+  }
+
+  /** Back to the opener — or the page heading when it is gone (e.g. after reviewing). */
+  private returnFocus(): void {
+    const back = this.opener;
+    this.opener = null;
+    this.focusAfterRender(() => (back?.isConnected ? back : this.pageTitle()?.nativeElement));
+  }
+
+  /** Tab and Shift+Tab wrap around inside the dialog instead of leaving it. */
+  protected trapTab(e: KeyboardEvent, root: HTMLElement): void {
+    if (e.key !== 'Tab') return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (el) => el.offsetParent !== null,
+    );
+    if (items.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    // -1: the heading or the dialog itself has focus (both sit before every control).
+    const at = items.indexOf(this.document.activeElement as HTMLElement);
+    if (e.shiftKey && at <= 0) {
+      e.preventDefault();
+      items[items.length - 1].focus();
+    } else if (!e.shiftKey && at === items.length - 1) {
+      e.preventDefault();
+      items[0].focus();
+    }
+  }
+
+  protected openReview(): void {
+    this.rememberOpener();
+    this.reviewError.set('');
+    this.reviewOpen.set(true);
+    this.focusAfterRender(() => this.reviewTitle()?.nativeElement);
+  }
+
+  protected closeReview(): void {
+    if (this.reviewing()) return; // let the request finish first
+    this.reviewOpen.set(false);
+    this.returnFocus();
+  }
+
+  protected closeReschedule(): void {
+    if (this.rescheduling()) return; // let the request finish first
+    this.rescheduleOpen.set(false);
+    this.returnFocus();
+  }
+
   // Reschedule
   protected readonly rescheduleOpen = signal(false);
   protected readonly rescheduleLoading = signal(false);
@@ -760,7 +909,9 @@ export class AppointmentDetails {
   protected readonly rescheduleError = signal('');
 
   protected openReschedule(v: DetailsVm): void {
+    this.rememberOpener();
     this.rescheduleOpen.set(true);
+    this.focusAfterRender(() => this.rescheduleTitle()?.nativeElement);
     this.rescheduleError.set('');
     this.selectedDay.set(null);
     this.selectedIso.set('');
@@ -771,8 +922,11 @@ export class AppointmentDetails {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.rescheduleDays.set(res.data);
-          this.selectedDay.set(res.data[0] ?? null);
+          // Regrouped by the patient's local date with local labels (the API's
+          // are UTC), minus any slot that has already started.
+          const days = localSlotDays(res.data);
+          this.rescheduleDays.set(days);
+          this.selectedDay.set(days[0] ?? null);
           this.rescheduleLoading.set(false);
         },
         error: (err: unknown) => {
@@ -802,7 +956,7 @@ export class AppointmentDetails {
         next: (res) => {
           this.override.set(res.data);
           this.rescheduling.set(false);
-          this.rescheduleOpen.set(false);
+          this.closeReschedule();
           this.notice.set({ ok: true, text: 'Appointment rescheduled to your new time.' });
         },
         error: (err) => {
@@ -823,8 +977,8 @@ export class AppointmentDetails {
       .subscribe({
         next: () => {
           this.reviewing.set(false);
-          this.reviewOpen.set(false);
           this.reviewed.set(true);
+          this.closeReview();
         },
         error: (err) => {
           this.reviewError.set(apiErrorMessage(err, 'Could not submit your review.'));
@@ -877,10 +1031,6 @@ export class AppointmentDetails {
       .join('')
       .toUpperCase() || '?';
   }
-
-  // Document sharing isn't modelled by the backend yet — show an empty state
-  // rather than fabricated files.
-  protected readonly documents: SharedDoc[] = [];
 
   private readonly result = toSignal(
     this.route.paramMap.pipe(

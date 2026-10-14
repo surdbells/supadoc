@@ -56,7 +56,13 @@ class Appointment
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $notes = null;
 
-    /** Relative URL of an optional supporting document (image), or null. */
+    /**
+     * LEGACY, read-only: the public URL of a booking attachment from before they
+     * became private MedicalDocuments linked to the appointment. Nothing writes
+     * it any more; bin/prod-migrate.php moves each file into document storage
+     * and nulls it. Still mapped so the schema update can't drop the column
+     * before that has run.
+     */
     #[ORM\Column(name: 'document_url', type: 'string', length: 300, nullable: true)]
     private ?string $documentUrl = null;
 
@@ -126,6 +132,12 @@ class Appointment
         return $this->amount;
     }
 
+    /** Nothing to pay (a ₦0 fee and no paid guests): no card checkout, no wallet posting. */
+    public function isFree(): bool
+    {
+        return bccomp($this->amount, '0', 2) <= 0;
+    }
+
     public function getPaymentStatus(): string
     {
         return $this->paymentStatus;
@@ -134,11 +146,6 @@ class Appointment
     public function setNotes(?string $notes): void
     {
         $this->notes = $notes !== null && trim($notes) !== '' ? trim($notes) : null;
-    }
-
-    public function setDocumentUrl(?string $url): void
-    {
-        $this->documentUrl = $url !== null && $url !== '' ? $url : null;
     }
 
     public function setPaymentStatus(string $status): void

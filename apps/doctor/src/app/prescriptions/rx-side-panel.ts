@@ -145,6 +145,20 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                       <span class="text-slate"> — {{ when(v.taken_at) }}</span>
                     }
                   </span>
+                  <!-- Out-of-range readings only (typical adult ranges); normal ones stay quiet. -->
+                  @if (v.flag && v.flag.level !== 'normal') {
+                    <span
+                      class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold text-ink"
+                      [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'bg-alert/10' : 'bg-warning/15'"
+                    >
+                      <sd-icon
+                        [name]="v.flag.level === 'critical' ? 'triangle-alert' : 'circle-alert'"
+                        [size]="12"
+                        [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'text-alert' : 'text-warning'"
+                      />
+                      {{ v.flag.label }}@if (v.flag.advice) { · {{ v.flag.advice }} }
+                    </span>
+                  }
                   @if (v.stale) {
                     <span
                       class="inline-flex w-fit items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink"

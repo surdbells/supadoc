@@ -4,6 +4,8 @@
  * doctor's side panel and the pharmacist check.
  */
 
+import type { VitalFlagDto } from './vitals';
+
 /** Effective status: an active prescription reads `expired` from the day after valid-until. */
 export type PrescriptionStatus = 'draft' | 'active' | 'expired' | 'cancelled';
 
@@ -271,6 +273,8 @@ export interface ClinicalSummaryDto {
     recorded_by?: 'patient' | 'doctor';
     /** Older than 7 days — "May be out of date". */
     stale: boolean;
+    /** Typical adult range check from the API (null: no flag for this reading). */
+    flag?: VitalFlagDto | null;
   }[];
   /** Grouped by what they are for. */
   medicines: {

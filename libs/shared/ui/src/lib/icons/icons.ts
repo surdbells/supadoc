@@ -125,6 +125,10 @@ import {
   LucideListChecks,
   LucideWind,
   LucideRuler,
+  LucideHeart,
+  LucideWeight,
+  LucideSquarePen,
+  LucideArrowLeft,
 } from '@lucide/angular';
 
 /**
@@ -261,6 +265,11 @@ export const SUPADOC_ICONS = [
   // Vitals (breathing rate, height).
   LucideWind,
   LucideRuler,
+  // Vitals cards (heart rate, weight), Medical Information's Edit and Back.
+  LucideHeart,
+  LucideWeight,
+  LucideSquarePen,
+  LucideArrowLeft,
 ];
 
 /**

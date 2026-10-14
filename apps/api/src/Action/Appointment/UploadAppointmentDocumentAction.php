@@ -4,30 +4,36 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Document\DocumentType;
+use App\Domain\Entity\MedicalDocument;
+use App\Domain\Repository\MedicalDocumentRepository;
+use App\Domain\Repository\PatientRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\DocumentRejectedException;
+use App\Infrastructure\Service\MedicalDocumentStorage;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 
 /**
- * POST /api/portal/appointment-documents (multipart, field `document`) — upload a
- * supporting file for a booking and return its URL. Accepts PDFs and images
- * (patients typically attach lab reports/scans). Validated by content and saved
- * under a server-generated name with a whitelisted extension, so nothing
- * executable can land in the web root.
+ * POST /api/portal/appointment-documents (multipart, field `document`) — a file
+ * the patient attaches while booking (lab report, scan, photo). It is filed in
+ * their medical record as a Booking Attachment: stored OUTSIDE the web root by
+ * MedicalDocumentStorage (same checks and 10MB cap as POST /portal/documents)
+ * and only ever served through the authenticated document routes, so the
+ * doctor sees it in the patient's documents too. One file per request; the
+ * booking then links up to 10 of them by id (`document_ids`).
  */
 final class UploadAppointmentDocumentAction
 {
     use ApiResponse;
 
-    private const MAX_BYTES = 10 * 1024 * 1024;
-
-    /** @var array<int,string> IMAGETYPE_* => extension */
-    private const IMAGE_TYPES = [
-        IMAGETYPE_JPEG => 'jpg',
-        IMAGETYPE_PNG  => 'png',
-        IMAGETYPE_WEBP => 'webp',
-    ];
+    public function __construct(
+        private readonly PatientRepository $patients,
+        private readonly MedicalDocumentRepository $documents,
+        private readonly MedicalDocumentStorage $storage,
+    ) {
+    }
 
     public function __invoke(
         ServerRequestInterface $request,
@@ -39,70 +45,53 @@ final class UploadAppointmentDocumentAction
         if (!$file instanceof UploadedFileInterface || $file->getError() !== UPLOAD_ERR_OK) {
             return $this->error($response, 'No file uploaded', 422, ['document' => 'Attach a file to upload']);
         }
-        if (($file->getSize() ?? 0) > self::MAX_BYTES) {
-            return $this->error($response, 'File is too large', 422, ['document' => 'File must be 10MB or smaller']);
-        }
 
-        $tmpPath = $file->getStream()->getMetadata('uri');
-        $tmpPath = is_string($tmpPath) ? $tmpPath : '';
-        $ext     = $this->resolveExtension($tmpPath);
-        if ($ext === null) {
-            return $this->error($response, 'Unsupported file type', 422, [
-                'document' => 'Upload a PDF, JPG, PNG or WEBP file',
-            ]);
+        $patient = $this->patients->find($customerId);
+        if ($patient === null) {
+            return $this->error($response, 'Account not found', 404);
         }
 
         try {
-            $dir = dirname(__DIR__, 3) . '/public/uploads/appointment-docs';
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0o775, true);
-            }
-            // The directory ships empty in git and can arrive owned by the deploy
-            // user, not php-fpm's `www`; a non-writable dir is the usual cause of a
-            // save failure, so fail with a precise, actionable log (see DEPLOY.md).
-            if (!is_dir($dir) || !is_writable($dir)) {
-                throw new \RuntimeException(sprintf(
-                    'upload directory not writable by the web user: %s (chown -R www:www public/uploads)',
-                    $dir,
-                ));
-            }
-
-            $filename = $customerId . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
-            $file->moveTo($dir . '/' . $filename);
+            $meta = $this->storage->store($file, $customerId);
+        } catch (DocumentRejectedException $e) {
+            return $this->error($response, $e->getMessage(), 422, ['document' => $e->getMessage()]);
         } catch (\Throwable $e) {
-            error_log('[appointment-documents] upload failed: ' . $e->getMessage());
+            // Anything else is a server fault whose message may name server paths: logged, never shown.
+            error_log('[appointment-documents] storage failed: ' . $e->getMessage());
 
             return $this->error($response, 'Could not save the file. Please try again.', 500);
         }
 
-        return $this->success(
+        $p        = $patient->toArray();
+        $document = new MedicalDocument(
+            $customerId,
+            MedicalDocument::UPLOADER_PATIENT,
+            trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? '')) ?: 'Patient',
+            DocumentType::BOOKING_ATTACHMENT,
+            $meta['title'],
+            $meta['stored_name'],
+            $meta['mime'],
+            $meta['extension'],
+            $meta['size'],
+        );
+
+        try {
+            $this->documents->save($document);
+        } catch (\Throwable $e) {
+            // Never leave an orphaned file behind a failed metadata write.
+            $this->storage->delete($document);
+            error_log('[appointment-documents] save failed: ' . $e->getMessage());
+
+            return $this->error($response, 'Could not save the file. Please try again.', 500);
+        }
+
+        // `url` is the authenticated download route (bearer token required) —
+        // never a public path. Older booking clients send it back as
+        // `document_url`, which the booking maps to this document.
+        return $this->created(
             $response,
-            ['url' => '/uploads/appointment-docs/' . $filename],
+            $document->toArray() + ['url' => '/api/portal/documents/' . $document->getId() . '/file'],
             'Uploaded',
         );
-    }
-
-    /** Canonical extension if the bytes are an accepted type, else null. */
-    private function resolveExtension(string $tmpPath): ?string
-    {
-        if ($tmpPath === '' || !is_file($tmpPath)) {
-            return null;
-        }
-
-        // PDF: "%PDF-" magic at the start.
-        $fh = @fopen($tmpPath, 'rb');
-        if ($fh !== false) {
-            $head = (string) @fread($fh, 5);
-            @fclose($fh);
-            if ($head === '%PDF-') {
-                return 'pdf';
-            }
-        }
-
-        // Images: trust the decoded type, not the client's name.
-        $info = @getimagesize($tmpPath);
-        $type = is_array($info) ? ($info[2] ?? 0) : 0;
-
-        return self::IMAGE_TYPES[$type] ?? null;
     }
 }

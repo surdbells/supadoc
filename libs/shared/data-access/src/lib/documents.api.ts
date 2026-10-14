@@ -16,6 +16,8 @@ export interface DocumentListQuery {
   search?: string;
   type?: string;
   sort_dir?: 'asc' | 'desc';
+  /** Only the files attached to this booking (one of the patient's own). */
+  appointment_id?: string;
 }
 
 /**

@@ -139,6 +139,18 @@ export class DoctorApi {
     );
   }
 
+  /**
+   * POST /api/doctor/appointments/{id}/complete — end the consultation: a
+   * confirmed visit that has started becomes completed (and moves to history).
+   * Idempotent: an already-completed visit answers 200 too.
+   */
+  complete(id: string): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `${this.base(id)}/complete`,
+      {},
+    );
+  }
+
   // ----- Profile (self-service) -----
 
   // ----- Patients -----

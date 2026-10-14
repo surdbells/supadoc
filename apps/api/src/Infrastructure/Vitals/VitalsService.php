@@ -26,6 +26,13 @@ final class VitalsService
     /** Older than this a reading "may be out of date" — the doctor's side panel uses the same rule. */
     public const STALE_AFTER_DAYS = 7;
 
+    /**
+     * A consultation starting within this many hours, with no reading taken in
+     * the same span before it, is a reason to remind the patient ("update your
+     * vitals 24–48 hours before every consultation").
+     */
+    public const UPCOMING_WITHIN_HOURS = 48;
+
     public const HISTORY_LIMIT = 50;
     public const HISTORY_MAX   = 200;
 
@@ -91,8 +98,8 @@ final class VitalsService
     /**
      * POST /api/portal/me/vitals — the patient's own readings, checked with the
      * same rules as the prescription form. Body: {readings: {key: value},
-     * taken_at?, source?}. When only a new weight is given, BMI is worked out
-     * from the last height on file.
+     * taken_at?, source?}. When only a new weight (or height) is given, BMI is
+     * worked out with the last height (or weight) on file.
      *
      * @throws ValidationException
      */
@@ -103,8 +110,13 @@ final class VitalsService
         return $this->record($patient, $values, $takenAt, $source, VitalsForm::RECORDED_BY_PATIENT, $patient->getId());
     }
 
-    /** GET /api/portal/me/vitals — latest readings, the form catalogue and the reminder. */
-    public function overview(Patient $patient, DateTimeImmutable $now): array
+    /**
+     * GET /api/portal/me/vitals — latest readings, the form catalogue and the reminder.
+     *
+     * @param list<array{id: string, scheduled_at: DateTimeImmutable}> $upcoming the patient's
+     *        consultations starting soon ({@see UpcomingConsultations})
+     */
+    public function overview(Patient $patient, DateTimeImmutable $now, array $upcoming = []): array
     {
         $cache = $patient->getLatestVitals();
 
@@ -113,7 +125,7 @@ final class VitalsService
             'fields'          => VitalsForm::fields(),
             'sources'         => VitalsForm::SOURCES,
             'patient_sources' => array_keys(VitalsForm::PATIENT_SOURCES),
-            'reminder'        => self::reminder(self::lastTakenAt($cache), $now),
+            'reminder'        => self::reminder(self::lastTakenAt($cache), $now, $upcoming),
         ];
     }
 
@@ -126,9 +138,10 @@ final class VitalsService
     public function history(Patient $patient, mixed $key, mixed $limit, DateTimeImmutable $now): array
     {
         [$key, $limit] = self::validateHistoryQuery($key, $limit);
+        $height        = self::heightOnFile($patient->getLatestVitals());
 
         return array_map(
-            static fn (VitalReading $r): array => self::readingRow($r, $now),
+            static fn (VitalReading $r): array => self::readingRow($r, $now, $height),
             $this->readings->history($patient->getId(), $key, $limit),
         );
     }
@@ -218,10 +231,12 @@ final class VitalsService
         $source = $clean['source'] ?? 'self_reported';
         unset($clean['source'], $clean['taken_at']);
 
-        // A new weight on its own: work BMI out from the height already on file.
-        if (isset($clean['weight']) && !isset($clean['height']) && !isset($clean['bmi'])
-            && is_numeric($cache['height']['value'] ?? null)) {
-            $bmi = VitalsForm::bmi((float) $clean['weight'], (float) $cache['height']['value']);
+        // A new weight or a new height on its own: work BMI out with the other one
+        // already on file, so the BMI on file keeps describing the latest of both.
+        if (!isset($clean['bmi']) && isset($clean['weight']) !== isset($clean['height'])) {
+            $weight = $clean['weight'] ?? ($cache['weight']['value'] ?? null);
+            $height = $clean['height'] ?? ($cache['height']['value'] ?? null);
+            $bmi    = is_numeric($weight) && is_numeric($height) ? VitalsForm::bmi((float) $weight, (float) $height) : null;
             if ($bmi !== null) {
                 $clean['bmi'] = $bmi;
             }
@@ -238,7 +253,13 @@ final class VitalsService
     }
 
     /**
-     * The latest-per-type cache as a display list, in catalogue order.
+     * The latest-per-type cache as a display list, in catalogue order. Each
+     * reading carries its `flag` ({@see VitalsFlags}). Weight and BMI always
+     * tell the same story: weight is judged by the BMI it gives with the latest
+     * height, and the BMI is flagged only while there is a height on file and
+     * it is no older than the latest weight and height — one left behind (a
+     * doctor's new weight without a height, say) has no flag rather than one
+     * that contradicts the weight's.
      *
      * @param array<string,array<string,string>> $cache Patient::getLatestVitals()
      * @return list<array<string,mixed>>
@@ -246,6 +267,8 @@ final class VitalsService
     public static function latestList(array $cache, DateTimeImmutable $now): array
     {
         $staleBefore = $now->modify('-' . self::STALE_AFTER_DAYS . ' days')->getTimestamp();
+        $height      = self::heightOnFile($cache);
+        $judgeBmi    = $height !== null && self::bmiIsCurrent($cache);
         $list        = [];
         foreach (VitalsForm::READINGS as $key => [$label, $unit]) {
             $v = $cache[$key] ?? null;
@@ -264,6 +287,7 @@ final class VitalsService
                 'source_label' => VitalsForm::SOURCES[$source] ?? null,
                 'recorded_by'  => self::recordedBy($v),
                 'stale'        => $at === null || $at < $staleBefore,
+                'flag'         => $key === 'bmi' && !$judgeBmi ? null : VitalsFlags::flag($key, (string) $v['value'], $height),
             ];
         }
 
@@ -271,26 +295,84 @@ final class VitalsService
     }
 
     /**
-     * Whether to nudge the patient to add readings: none on file yet, or the
-     * newest is older than {@see STALE_AFTER_DAYS}.
+     * Whether the BMI on file is at least as new as the latest weight and
+     * height, i.e. it still describes them.
      *
-     * @return array{due: bool, reason: ?string, last_taken_at: ?string, days_old: ?int, stale_after_days: int}
+     * @param array<string,array<string,string>> $cache
      */
-    public static function reminder(?DateTimeImmutable $lastTakenAt, DateTimeImmutable $now): array
+    private static function bmiIsCurrent(array $cache): bool
     {
+        $takenAt = static fn (string $key): ?int => is_array($cache[$key] ?? null)
+            ? (strtotime((string) ($cache[$key]['taken_at'] ?? '')) ?: null)
+            : null;
+        $bmiAt = $takenAt('bmi');
+        if ($bmiAt === null) {
+            return false;
+        }
+        foreach (['weight', 'height'] as $key) {
+            $at = $takenAt($key);
+            if ($at !== null && $at > $bmiAt) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether to nudge the patient to add readings, most pressing reason first:
+     * `never` — none on file yet; `upcoming` — a consultation starts within
+     * {@see UPCOMING_WITHIN_HOURS} and nothing was taken in that span before it
+     * (`appointment` says which); `stale` — the newest is older than
+     * {@see STALE_AFTER_DAYS}.
+     *
+     * @param list<array{id: string, scheduled_at: DateTimeImmutable}> $upcoming the patient's
+     *        consultations starting soon, any order (ones outside the window are ignored)
+     * @return array{due: bool, reason: ?string, last_taken_at: ?string, days_old: ?int, stale_after_days: int, appointment: ?array{id: string, scheduled_at: string}}
+     */
+    public static function reminder(?DateTimeImmutable $lastTakenAt, DateTimeImmutable $now, array $upcoming = []): array
+    {
+        $base = ['stale_after_days' => self::STALE_AFTER_DAYS, 'appointment' => null];
         if ($lastTakenAt === null) {
-            return ['due' => true, 'reason' => 'never', 'last_taken_at' => null, 'days_old' => null, 'stale_after_days' => self::STALE_AFTER_DAYS];
+            return ['due' => true, 'reason' => 'never', 'last_taken_at' => null, 'days_old' => null] + $base;
         }
         $daysOld = $lastTakenAt > $now ? 0 : (int) $lastTakenAt->diff($now)->days;
         $stale   = $lastTakenAt < $now->modify('-' . self::STALE_AFTER_DAYS . ' days');
+        $soon    = self::consultationNeedingVitals($lastTakenAt, $now, $upcoming);
 
         return [
-            'due'              => $stale,
-            'reason'           => $stale ? 'stale' : null,
-            'last_taken_at'    => $lastTakenAt->format(DATE_ATOM),
-            'days_old'         => $daysOld,
-            'stale_after_days' => self::STALE_AFTER_DAYS,
-        ];
+            'due'           => $soon !== null || $stale,
+            'reason'        => $soon !== null ? 'upcoming' : ($stale ? 'stale' : null),
+            'last_taken_at' => $lastTakenAt->format(DATE_ATOM),
+            'days_old'      => $daysOld,
+            'appointment'   => $soon !== null
+                ? ['id' => $soon['id'], 'scheduled_at' => $soon['scheduled_at']->format(DATE_ATOM)]
+                : null,
+        ] + $base;
+    }
+
+    /**
+     * The soonest consultation starting in [now, now + 48h] that has no reading
+     * taken in the 48 hours before it, if any.
+     *
+     * @param list<array{id: string, scheduled_at: DateTimeImmutable}> $upcoming
+     * @return ?array{id: string, scheduled_at: DateTimeImmutable}
+     */
+    private static function consultationNeedingVitals(DateTimeImmutable $lastTakenAt, DateTimeImmutable $now, array $upcoming): ?array
+    {
+        $window = sprintf('%d hours', self::UPCOMING_WITHIN_HOURS);
+        usort($upcoming, static fn (array $a, array $b): int => $a['scheduled_at'] <=> $b['scheduled_at']);
+        foreach ($upcoming as $appointment) {
+            $at = $appointment['scheduled_at'];
+            if ($at < $now || $at > $now->modify('+' . $window)) {
+                continue;
+            }
+            if ($lastTakenAt < $at->modify('-' . $window)) {
+                return $appointment;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -325,8 +407,21 @@ final class VitalsService
         return ($entry['source'] ?? '') === 'self_reported' ? VitalsForm::RECORDED_BY_PATIENT : VitalsForm::RECORDED_BY_DOCTOR;
     }
 
-    /** @return array<string,mixed> */
-    private static function readingRow(VitalReading $r, DateTimeImmutable $now): array
+    /** The latest height on file (cm), for judging a weight by its BMI. */
+    private static function heightOnFile(array $cache): ?string
+    {
+        $height = $cache['height']['value'] ?? null;
+
+        return is_scalar($height) && is_numeric((string) $height) ? (string) $height : null;
+    }
+
+    /**
+     * One history row. Weight is judged with the latest height; a BMI only
+     * while there is a height on file (as on the latest list).
+     *
+     * @return array<string,mixed>
+     */
+    private static function readingRow(VitalReading $r, DateTimeImmutable $now, ?string $height): array
     {
         [$label] = VitalsForm::READINGS[$r->getKey()] ?? [$r->getKey()];
 
@@ -341,6 +436,7 @@ final class VitalsService
             'source_label' => VitalsForm::SOURCES[$r->getSource()] ?? null,
             'recorded_by'  => $r->getRecordedByType(),
             'stale'        => $r->getTakenAt() < $now->modify('-' . self::STALE_AFTER_DAYS . ' days'),
+            'flag'         => $r->getKey() === 'bmi' && $height === null ? null : VitalsFlags::flag($r->getKey(), $r->getValue(), $height),
             'created_at'   => $r->getCreatedAt()->format(DATE_ATOM),
         ];
     }

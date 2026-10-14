@@ -512,6 +512,7 @@ final class PrescriptionService
             'source'      => $v['source_label'],
             'recorded_by' => $v['recorded_by'],
             'stale'       => $v['stale'],
+            'flag'        => $v['flag'] ?? null,
         ], VitalsService::latestList($patient->getLatestVitals(), new DateTimeImmutable()));
 
         $dob = $patient->getDateOfBirth();

@@ -4,6 +4,7 @@
  * envelope. Distinct from the richer domain types in `appointment.ts`, which
  * predate the real API.
  */
+import type { MedicalDocumentDto } from './message';
 import type { VitalReadingDto } from './vitals';
 
 export type ApiAppointmentStatus =
@@ -47,7 +48,13 @@ export interface AppointmentDto {
   status_label: string;
   amount: string;
   notes?: string | null;
+  /**
+   * Legacy public attachment URL — null once the API's prod migration has run.
+   * Booking attachments are medical documents now: list them with
+   * `DocumentsApi.list({ appointment_id })`.
+   */
   document_url?: string | null;
+  /** A free consultation (amount 0) is `paid` from the start — nothing is owed. */
   payment_status?: 'unpaid' | 'pending' | 'paid' | 'refunded';
   guests?: GuestInvite[];
   created_at: string;
@@ -230,10 +237,24 @@ export interface BookAppointmentParams {
   scheduled_at: string;
   type?: 'video' | 'follow_up' | 'urgent' | 'routine';
   notes?: string;
-  document_url?: string;
+  /**
+   * Up to 10 of the patient's documents to attach — ids from
+   * `AppointmentsApi.uploadDocument`. Each must be theirs and not attached to
+   * another booking, or the booking is refused (422 `document_ids.N`).
+   */
+  document_ids?: string[];
   guests?: GuestInvite[];
   /** Paystack reference from pay-init — pays by card instead of the wallet. */
   payment_reference?: string;
+}
+
+/**
+ * Response of POST /portal/appointment-documents: the file, filed privately in
+ * the patient's medical documents as a Booking Attachment. `url` is the
+ * authenticated download route (it needs the bearer token), never a public URL.
+ */
+export interface AppointmentDocumentDto extends MedicalDocumentDto {
+  readonly url: string;
 }
 
 /** Response of POST /portal/appointments/pay-init — a direct card checkout. */

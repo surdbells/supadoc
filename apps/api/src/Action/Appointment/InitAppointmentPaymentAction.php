@@ -20,6 +20,9 @@ use App\Domain\Settings\WebUrls;
  * consultation (Paystack), so a patient can pay by card instead of funding the
  * wallet. Returns the checkout access code + reference; the booking is created
  * only after the reference verifies (see CreateMyAppointmentAction).
+ *
+ * A free consultation has nothing to charge: it gets a 422 (`payment: free`)
+ * and is booked straight away with POST /portal/appointments instead.
  */
 final class InitAppointmentPaymentAction
 {
@@ -39,10 +42,6 @@ final class InitAppointmentPaymentAction
         ServerRequestInterface $request,
         ResponseInterface $response,
     ): ResponseInterface {
-        if (!$this->paystack->isConfigured()) {
-            return $this->error($response, 'Card payment is not available yet', 503);
-        }
-
         $customerId   = (string) $request->getAttribute('customer_id');
         $body         = (array) ($request->getParsedBody() ?? []);
         $specialistId = trim((string) ($body['specialist_id'] ?? ''));
@@ -63,6 +62,19 @@ final class InitAppointmentPaymentAction
             ]);
         }
 
+        // Priced before anything else: a free consultation never needs a
+        // checkout — even where card payment isn't set up yet.
+        $amount   = $this->totalAmount($specialist, $guestCount);
+        $currency = $this->pricing->currency();
+        $minor    = (int) bcmul($amount, '100', 0);
+        if ($minor <= 0) {
+            return $this->error($response, 'This consultation is free — no payment is needed.', 422, ['payment' => 'free']);
+        }
+
+        if (!$this->paystack->isConfigured()) {
+            return $this->error($response, 'Card payment is not available yet', 503);
+        }
+
         $email = trim($patient->getEmail());
         if ($this->isUnusableEmail($email)) {
             return $this->error(
@@ -71,13 +83,6 @@ final class InitAppointmentPaymentAction
                 422,
                 ['email' => 'A real, deliverable email is required for payments.'],
             );
-        }
-
-        $amount   = $this->totalAmount($specialist, $guestCount);
-        $currency = $this->pricing->currency();
-        $minor    = (int) bcmul($amount, '100', 0);
-        if ($minor <= 0) {
-            return $this->error($response, 'This consultation has no payable amount.', 422);
         }
 
         $reference = 'vma_' . bin2hex(random_bytes(12));

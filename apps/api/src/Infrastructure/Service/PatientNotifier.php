@@ -36,9 +36,9 @@ final class PatientNotifier
     /**
      * Convenience for the appointment lifecycle: writes an APPOINTMENT notification
      * whose body names the consultation type, specialist and UTC time, optionally
-     * prefixed with a status-specific sentence.
+     * prefixed with a status-specific sentence, and opens `$link` when tapped.
      */
-    public function appointment(Appointment $appointment, string $title, string $detail = ''): void
+    public function appointment(Appointment $appointment, string $title, string $detail = '', ?string $link = null): void
     {
         $appt = $appointment->toArray();
         $when = '';
@@ -54,6 +54,6 @@ final class PatientNotifier
             . ($when !== '' ? ' on ' . $when : '') . '.',
         );
 
-        $this->notify($appointment->getPatient(), NotificationType::APPOINTMENT, $title, $body);
+        $this->notify($appointment->getPatient(), NotificationType::APPOINTMENT, $title, $body, $link);
     }
 }

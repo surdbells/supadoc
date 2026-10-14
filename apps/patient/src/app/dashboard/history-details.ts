@@ -1,10 +1,14 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -25,6 +29,17 @@ import type {
   PrescriptionStatus,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
+
+/**
+ * How long after its start a consultation the doctor hasn't closed yet can be
+ * rejoined from here (the reminders cron closes a visit with proof it took
+ * place 12 hours after its slot).
+ */
+const REJOIN_WINDOW_MS = 12 * 60 * 60_000;
+
+/** While the doctor hasn't closed the visit, look for it being closed this often. */
+const STATUS_POLL_MS = 30_000;
 
 /** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
 interface DocItem {
@@ -68,7 +83,7 @@ const STATUS_CLASS: Record<string, string> = {
           <h1 class="font-heading text-h3 text-ink">Consultation Details</h1>
           <p class="font-sans text-body text-slate">See your consultation full information.</p>
         </div>
-        <a routerLink="/dashboard/history" class="flex shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
+        <a [routerLink]="backLink()" class="flex min-h-11 shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
           <sd-icon name="chevron-right" [size]="18" class="rotate-180" />
           Back
         </a>
@@ -111,6 +126,77 @@ const STATUS_CLASS: Record<string, string> = {
                 <span class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium" [class]="statusClass(a.status)">{{ a.status_label }}</span>
               </div>
             </section>
+
+            <!-- Right after leaving a call the doctor may not have closed the visit yet. -->
+            @if (a.status === 'confirmed') {
+              <section class="flex flex-col gap-4 rounded-card border border-warning/30 bg-warning/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <p class="flex items-start gap-3 font-sans text-body-sm text-ink">
+                  <sd-icon name="hourglass" [size]="20" class="mt-0.5 shrink-0 text-warning" />
+                  Your doctor hasn't closed this consultation yet — summaries and prescriptions appear here once issued.
+                </p>
+                @if (canRejoin()) {
+                  <a
+                    [routerLink]="['/dashboard/call', a.id]"
+                    class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
+                  >
+                    <sd-icon name="video" [size]="18" />Rejoin consultation
+                  </a>
+                }
+              </section>
+            }
+
+            <!-- Rate a completed consultation (once — the API refuses a second review). -->
+            @if (ratingVisible()) {
+              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="rate-consultation-title">
+                <h2 id="rate-consultation-title" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="star" [size]="20" />Rate your consultation</h2>
+                @if (reviewState() === 'done') {
+                  <p #reviewDone tabindex="-1" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-sage outline-none" role="status">
+                    <sd-icon name="circle-check" [size]="18" class="shrink-0" />{{ reviewNote() }}
+                  </p>
+                } @else {
+                  <p class="font-sans text-body-sm text-slate">How was your consultation with {{ a.specialist.name }}?</p>
+                  <div class="flex items-center gap-1" role="group" aria-label="Your rating, 1 to 5 stars">
+                    @for (n of stars; track n) {
+                      <button
+                        type="button"
+                        class="flex size-11 items-center justify-center rounded-field transition-colors hover:bg-glacier disabled:opacity-60"
+                        [attr.aria-label]="n + ' star' + (n === 1 ? '' : 's')"
+                        [attr.aria-pressed]="n === reviewRating()"
+                        [disabled]="reviewState() === 'sending'"
+                        (click)="reviewRating.set(n)"
+                      >
+                        <sd-icon name="star" [size]="28" [class]="n <= reviewRating() ? 'text-warning' : 'text-cloud'" />
+                      </button>
+                    }
+                  </div>
+                  <label class="flex flex-col gap-1.5">
+                    <span class="font-sans text-caption font-semibold text-slate">Comment (optional)</span>
+                    <textarea
+                      rows="3"
+                      maxlength="1000"
+                      class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+                      placeholder="Share how it went"
+                      [disabled]="reviewState() === 'sending'"
+                      [value]="reviewComment()"
+                      (input)="reviewComment.set($any($event.target).value)"
+                    ></textarea>
+                  </label>
+                  @if (reviewState() === 'error') {
+                    <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                      <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ reviewNote() }}
+                    </p>
+                  }
+                  <button
+                    type="button"
+                    class="inline-flex min-h-11 w-full items-center justify-center rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60 sm:w-fit"
+                    [disabled]="reviewRating() === 0 || reviewState() === 'sending'"
+                    (click)="submitReview(a.id)"
+                  >
+                    {{ reviewState() === 'sending' ? 'Sending…' : 'Submit rating' }}
+                  </button>
+                }
+              </section>
+            }
 
             <!-- Summary + Note -->
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -239,6 +325,7 @@ export class HistoryDetails {
   private readonly api = inject(AppointmentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
 
   protected readonly summary = signal<ConsultationSummaryDto | null>(null);
   protected readonly prescriptions = signal<PrescriptionDto[]>([]);
@@ -252,10 +339,29 @@ export class HistoryDetails {
   /** Id of the prescription whose PDF link is being fetched. */
   protected readonly openingRx = signal('');
 
+  /** The appointment as re-read while the doctor hadn't closed it yet (overrides the first load). */
+  private readonly refreshed = signal<AppointmentDto | null>(null);
+  /** Ticks so the rejoin window re-evaluates. */
+  private readonly now = signal(Date.now());
+
+  // Rating (a completed consultation, once).
+  protected readonly stars = [1, 2, 3, 4, 5];
+  protected readonly reviewRating = signal(0);
+  protected readonly reviewComment = signal('');
+  protected readonly reviewState = signal<'idle' | 'sending' | 'done' | 'error'>('idle');
+  /** The thanks / "already rated" / error line. */
+  protected readonly reviewNote = signal('');
+  private readonly reviewDone = viewChild<ElementRef<HTMLElement>>('reviewDone');
+
   private readonly result = toSignal(
     this.route.paramMap.pipe(
       map((p) => p.get('id') ?? ''),
       switchMap((id) => {
+        this.refreshed.set(null);
+        this.reviewState.set('idle');
+        this.reviewNote.set('');
+        this.reviewRating.set(0);
+        this.reviewComment.set('');
         if (id !== '') this.loadExtras(id);
         return this.api.getMine(id).pipe(
           map((res) => ({ state: 'loaded' as const, appt: res.data, error: '' })),
@@ -277,8 +383,84 @@ export class HistoryDetails {
   );
 
   protected readonly viewState = computed(() => this.result().state);
-  protected readonly appt = computed<AppointmentDto | null>(() => this.result().appt);
+  protected readonly appt = computed<AppointmentDto | null>(() => {
+    const loaded = this.result().appt;
+    const fresh = this.refreshed();
+    return fresh && loaded && fresh.id === loaded.id ? fresh : loaded;
+  });
   protected readonly loadError = computed(() => this.result().error);
+
+  /** The history lists closed visits only — an open one goes back to the appointments. */
+  protected readonly backLink = computed(() => {
+    const s = this.appt()?.status;
+    return s && s !== 'completed' && s !== 'cancelled' ? '/dashboard/appointments' : '/dashboard/history';
+  });
+
+  /** Not closed yet and still within the rejoin window. */
+  protected readonly canRejoin = computed(() => {
+    const a = this.appt();
+    return !!a && a.status === 'confirmed' && this.now() < new Date(a.scheduled_at).getTime() + REJOIN_WINDOW_MS;
+  });
+
+  /** Completed and not rated from this browser yet (or rated just now — keep the thanks in view). */
+  protected readonly ratingVisible = computed(() => {
+    const a = this.appt();
+    if (!a || a.status !== 'completed') return false;
+    return this.reviewState() !== 'idle' || !wasReviewed(a.id);
+  });
+
+  constructor() {
+    // Just back from a call the doctor hasn't ended: pick up the moment they
+    // close it (the summary, prescriptions and rating then appear).
+    const timer = setInterval(() => {
+      this.now.set(Date.now());
+      this.pollStatus();
+    }, STATUS_POLL_MS);
+    this.destroyRef.onDestroy(() => clearInterval(timer));
+  }
+
+  private pollStatus(): void {
+    const a = this.appt();
+    if (!a || a.status !== 'confirmed') return;
+    this.api
+      .getMine(a.id)
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        const fresh = res?.data;
+        if (!fresh || fresh.id !== this.appt()?.id || fresh.status === 'confirmed') return;
+        this.refreshed.set(fresh);
+        this.loadExtras(fresh.id);
+      });
+  }
+
+  /** Send the rating (an "already reviewed" answer counts as done). */
+  protected submitReview(id: string): void {
+    if (this.reviewRating() === 0 || this.reviewState() === 'sending') return;
+    this.reviewState.set('sending');
+    this.reviewNote.set('');
+    this.api
+      .review(id, this.reviewRating(), this.reviewComment().trim() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.reviewed(id, 'Thanks for your feedback!'),
+        error: (err: unknown) => {
+          if (isAlreadyReviewed(err)) {
+            this.reviewed(id, 'You have already rated this consultation — thank you.');
+            return;
+          }
+          this.reviewState.set('error');
+          this.reviewNote.set(apiErrorMessage(err, 'Could not send your rating. Please try again.'));
+        },
+      });
+  }
+
+  private reviewed(id: string, note: string): void {
+    rememberReviewed(id);
+    this.reviewNote.set(note);
+    this.reviewState.set('done');
+    // The form (and its focused button) is gone — say so where focus lands.
+    afterNextRender(() => this.reviewDone()?.nativeElement.focus(), { injector: this.injector });
+  }
 
   private loadExtras(id: string): void {
     this.api

@@ -75,6 +75,36 @@ final class EmailTemplates
     }
 
     /**
+     * The doctor closed the consultation (or it was closed for them after the
+     * visit). Points to the visit in the patient's history, where the summary,
+     * prescriptions and documents appear. Deliberately generic: no reason for
+     * the visit, diagnosis or medicine.
+     *
+     * @param array<string, mixed> $appt Appointment::toArray() output.
+     * @return array{subject: string, html: string}
+     */
+    public static function consultationCompleted(array $appt, string $firstName, string $webUrl): array
+    {
+        $specialist = (array) ($appt['specialist'] ?? []);
+        $details    = self::detailsCard([
+            'Specialist' => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
+            'Date'       => self::date((string) ($appt['scheduled_at'] ?? '')),
+            'Time'       => self::time((string) ($appt['scheduled_at'] ?? '')),
+        ], self::statusBadge((string) ($appt['status'] ?? ''), (string) ($appt['status_label'] ?? '')));
+
+        $body = self::heading('Your consultation is complete')
+            . self::lead('Hi ' . self::e($firstName) . ', your consultation has been completed. Anything your doctor shares with you, such as a summary, prescriptions or documents, will appear in your consultation history.')
+            . $details
+            . self::button('View consultation summary', $webUrl . '/dashboard/history/' . rawurlencode((string) ($appt['id'] ?? '')))
+            . self::note('You can also rate your consultation there.');
+
+        return [
+            'subject' => 'Your VideoMed consultation is complete',
+            'html'    => self::layout('Consultation complete', 'Your consultation has been completed.', $body),
+        ];
+    }
+
+    /**
      * Multi-party session invite carrying a preauthenticated join link. Sent to
      * the patient, the specialist and each invited guest; `$recipientName` and
      * `$role` personalise the greeting and `$joinUrl` is that recipient's own

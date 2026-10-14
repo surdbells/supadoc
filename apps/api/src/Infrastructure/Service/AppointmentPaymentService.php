@@ -17,6 +17,10 @@ use App\Domain\Exception\InsufficientFundsException;
  * money and flips the appointment's payment_status. The consultation is priced
  * and charged in the wallet's default currency (NGN), matching how the
  * specialist fee is stored.
+ *
+ * A free consultation (amount 0) never touches the wallet: the ledger only
+ * holds positive postings ({@see WalletService::normalise()} rejects 0), so
+ * booking one posts nothing and cancelling one refunds nothing.
  */
 final class AppointmentPaymentService
 {
@@ -26,11 +30,19 @@ final class AppointmentPaymentService
 
     /**
      * Debit the appointment amount from the patient's wallet and mark it paid.
+     * A free booking is marked paid (nothing is owed) with no posting, and
+     * returns null.
      *
      * @throws InsufficientFundsException when the balance is short (no charge made)
      */
-    public function chargeForBooking(Appointment $appointment): WalletTransaction
+    public function chargeForBooking(Appointment $appointment): ?WalletTransaction
     {
+        if ($appointment->isFree()) {
+            $appointment->setPaymentStatus('paid');
+
+            return null;
+        }
+
         $currency = $this->wallets->defaultCurrency();
         $txn      = $this->wallets->debit(
             $appointment->getPatient()->getId(),
@@ -48,11 +60,12 @@ final class AppointmentPaymentService
 
     /**
      * Refund a paid booking back to the wallet (idempotent). No-op unless the
-     * appointment is currently marked paid.
+     * appointment is currently marked paid — and for a free booking, which had
+     * nothing to refund (it stays `paid`: nothing was ever owed).
      */
     public function refundForCancellation(Appointment $appointment): ?WalletTransaction
     {
-        if ($appointment->getPaymentStatus() !== 'paid') {
+        if ($appointment->getPaymentStatus() !== 'paid' || $appointment->isFree()) {
             return null;
         }
 

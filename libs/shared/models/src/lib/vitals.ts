@@ -16,6 +16,22 @@ export type VitalSource =
 
 export type VitalRecordedBy = 'patient' | 'doctor';
 
+/** Where a reading sits against typical adult resting ranges (the API's `VitalsFlags`). */
+export type VitalFlagLevel = 'normal' | 'low' | 'elevated' | 'high' | 'critical';
+
+/**
+ * A reading's flag, worked out on the server so every screen says the same
+ * thing. `label` is "Normal" | "Low" | "Elevated" | "High" | "Very high" |
+ * "Very low" (pain: "None" | "Mild" | "Moderate" | "Severe"). `advice` is set
+ * for high ("Seek medical attention") and critical ("Seek urgent medical
+ * attention") readings — never for weight/BMI or pain.
+ */
+export interface VitalFlagDto {
+  level: VitalFlagLevel;
+  label: string;
+  advice: 'Seek medical attention' | 'Seek urgent medical attention' | null;
+}
+
 /** The newest reading of one type. */
 export interface VitalReadingDto {
   key: ReadingKey;
@@ -29,6 +45,13 @@ export interface VitalReadingDto {
   recorded_by: VitalRecordedBy;
   /** Older than 7 days — "may be out of date". */
   stale: boolean;
+  /**
+   * Null for height, for a weight or BMI with no height on file, and for a
+   * latest BMI older than the latest weight or height. Optional so a
+   * payload from an API that predates flags still type-checks — treat
+   * `undefined` as "no flag".
+   */
+  flag?: VitalFlagDto | null;
 }
 
 /** One row of GET /api/portal/me/vitals/history (newest first). */
@@ -51,14 +74,26 @@ export interface VitalFieldDto {
   diastolic?: { min: number; max: number };
   /** BMI: worked out from weight and height, never typed. */
   derived?: boolean;
+  /** The typical adult band the flags use, e.g. "36.0–37.5" (null: none, e.g. weight, height). */
+  normal_range?: string | null;
 }
+
+/**
+ * Why to nudge the patient, most pressing first: `never` (no readings yet),
+ * `upcoming` (a consultation starts within 48 hours and nothing was taken in
+ * the 48 hours before it — `appointment` says which), `stale` (newest reading
+ * older than `stale_after_days`).
+ */
+export type VitalsReminderReason = 'never' | 'upcoming' | 'stale';
 
 export interface VitalsReminderDto {
   due: boolean;
-  reason: 'never' | 'stale' | null;
+  reason: VitalsReminderReason | null;
   last_taken_at: string | null;
   days_old: number | null;
   stale_after_days: number;
+  /** Set only when `reason` is `upcoming`. */
+  appointment?: { id: string; scheduled_at: string } | null;
 }
 
 /** GET /api/portal/me/vitals (also the body POST returns). */

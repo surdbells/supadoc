@@ -9,9 +9,21 @@ namespace App\Domain\Document;
  * Single source of truth: the value list validates uploads server-side and the
  * label map drives the client dropdown (served by DocumentTypesAction), so the
  * two never drift. `other` is always valid and pairs with a free-text label.
+ *
+ * `booking_attachment` sits outside the catalogue: the system files it for a
+ * file attached while booking, so it is labelled everywhere a document is listed
+ * but never offered (or accepted) as a type to pick by hand.
  */
 final class DocumentType
 {
+    /** A file the patient attached while booking a consultation. */
+    public const BOOKING_ATTACHMENT = 'booking_attachment';
+
+    /** Types the system files on the patient's behalf: value => label. */
+    private const SYSTEM = [
+        self::BOOKING_ATTACHMENT => 'Booking Attachment',
+    ];
+
     /** value => human label, in display order. */
     public const CATALOGUE = [
         'laboratory_test_report' => 'Laboratory Test Report',
@@ -62,6 +74,6 @@ final class DocumentType
 
     public static function label(string $value): string
     {
-        return self::CATALOGUE[$value] ?? 'Document';
+        return self::CATALOGUE[$value] ?? self::SYSTEM[$value] ?? 'Document';
     }
 }

@@ -49,6 +49,7 @@ import type {
   VitalReadingDto,
 } from '@supadoc/models';
 import { IconComponent, SmoothHeightDirective } from '@supadoc/ui';
+import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
 type DocsTab = 'all' | 'labs' | 'imaging' | 'reports';
@@ -429,12 +430,14 @@ interface RecordItem {
                 @if (endedReason() === 'completed') {
                   <p class="max-w-sm font-sans text-body">Your consultation has ended.</p>
                   <p class="max-w-sm font-sans text-caption text-white/60">
-                    Anything your doctor shares appears in Prescriptions and your consultation history.
+                    Your consultation summary, prescriptions and anything else your doctor shares
+                    appear in your consultation history.
                   </p>
                 } @else {
                   <p class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
                   <p class="max-w-sm font-sans text-caption text-white/60">
-                    Check your internet connection, then rejoin.
+                    Check your internet connection, then rejoin. Anything your doctor has shared
+                    is in your consultation history.
                   </p>
                 }
                 <div class="flex flex-wrap items-center justify-center gap-3">
@@ -449,10 +452,10 @@ interface RecordItem {
                   }
                   <button
                     type="button"
-                    class="rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
-                    (click)="leave()"
+                    class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+                    (click)="leave('history')"
                   >
-                    Back to appointments
+                    View consultation summary
                   </button>
                 </div>
               </div>
@@ -625,9 +628,9 @@ interface RecordItem {
 
                 <button
                   type="button"
-                  class="flex flex-col items-center gap-1"
-                  aria-label="Leave call"
-                  (click)="leave()"
+                  class="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1"
+                  aria-label="Leave call and view the consultation summary"
+                  (click)="leave('history')"
                 >
                   <span
                     class="flex size-9 items-center justify-center rounded-full roomy:size-11 bg-alert transition-colors hover:bg-alert/80"
@@ -1132,28 +1135,48 @@ interface RecordItem {
             }
           </div>
 
-          <!-- Feedback -->
+          <!-- Feedback: a review needs a completed consultation, so it is only
+               offered once the doctor has ended it. -->
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4 text-center">
             <p class="font-sans text-body-sm font-medium text-white">How was your consultation?</p>
-            <div class="mt-2 flex items-center justify-center gap-1.5">
-              @for (n of stars; track n) {
-                <button
-                  type="button"
-                  class="transition-transform hover:scale-110"
-                  [attr.aria-label]="'Rate ' + n + ' star' + (n === 1 ? '' : 's')"
-                  (click)="rate(n)"
-                >
-                  <sd-icon
-                    name="star"
-                    [size]="24"
-                    [class]="n <= rating() ? 'text-warning' : 'text-white/25'"
-                  />
-                </button>
+            @if (canRate()) {
+              <div class="mt-2 flex items-center justify-center gap-0.5" role="group" aria-label="Rate your consultation">
+                @for (n of stars; track n) {
+                  <button
+                    type="button"
+                    class="flex size-11 items-center justify-center transition-transform hover:scale-110 disabled:hover:scale-100"
+                    [attr.aria-label]="'Rate ' + n + ' star' + (n === 1 ? '' : 's')"
+                    [attr.aria-pressed]="n === rating()"
+                    [disabled]="reviewState() === 'sending' || reviewState() === 'done'"
+                    (click)="rate(n)"
+                  >
+                    <sd-icon
+                      name="star"
+                      [size]="24"
+                      [class]="n <= rating() ? 'text-warning' : 'text-white/25'"
+                    />
+                  </button>
+                }
+              </div>
+              @switch (reviewState()) {
+                @case ('sending') {
+                  <p class="mt-1.5 font-sans text-caption text-white/60" role="status">Sending your rating…</p>
+                }
+                @case ('done') {
+                  <p class="mt-1.5 font-sans text-caption text-success" role="status">{{ reviewNote() || 'Thanks for your feedback!' }}</p>
+                }
+                @case ('error') {
+                  <p class="mt-1.5 font-sans text-caption text-alert" role="alert">{{ reviewNote() }}</p>
+                }
+                @default {
+                  <p class="mt-1.5 font-sans text-caption text-white/45">Your feedback helps us improve</p>
+                }
               }
-            </div>
-            <p class="mt-1.5 font-sans text-caption text-white/45">
-              {{ rating() ? 'Thanks for your feedback!' : 'Your feedback helps us improve' }}
-            </p>
+            } @else {
+              <p class="mt-1.5 font-sans text-caption text-white/45">
+                Once your doctor ends the consultation, you can rate it from your consultation history.
+              </p>
+            }
           </div>
         </div>
       </div>
@@ -1225,6 +1248,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly notesTab = signal<NotesTab>('notes');
   protected readonly docsTab = signal<DocsTab>('all');
   protected readonly rating = signal(0);
+  /** The star rating, sent as a review once the doctor has completed the visit. */
+  protected readonly reviewState = signal<'idle' | 'sending' | 'done' | 'error'>('idle');
+  /** The thanks / "already rated" / error line under the stars. */
+  protected readonly reviewNote = signal('');
 
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
     { key: 'notes', label: 'Consultation Notes' },
@@ -1247,6 +1274,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   // ---- Data ----
   protected readonly appointment = signal<AppointmentDto | null>(null);
+  /**
+   * A review needs a completed consultation (the API refuses anything else),
+   * so the stars are offered only once the doctor has ended it.
+   */
+  protected readonly canRate = computed(
+    () => this.status() === 'ended' && this.endedReason() === 'completed' && this.appointment()?.status === 'completed',
+  );
   private readonly patient = signal<PatientProfileDto | null>(null);
   private readonly health = signal<HealthProfileDto | null>(null);
   // The doctor's finalized write-up (available:false until they sign it).
@@ -1737,6 +1771,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.recordingActive.set(false);
     this.endedReason.set(reason);
     this.status.set('ended');
+    if (reason === 'completed' && wasReviewed(this.appointmentId)) {
+      this.reviewState.set('done');
+      this.reviewNote.set('You have already rated this consultation — thank you.');
+    }
     // One last look, so the notes show everything issued during the visit.
     void this.refreshClinical();
   }
@@ -2245,8 +2283,27 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.draft.set('');
   }
 
-  protected rate(n: number): void {
+  /** Send the star rating as the consultation's review (once it is completed). */
+  protected async rate(n: number): Promise<void> {
+    if (!this.canRate() || this.reviewState() === 'sending' || this.reviewState() === 'done') return;
     this.rating.set(n);
+    this.reviewState.set('sending');
+    this.reviewNote.set('');
+    try {
+      await firstValueFrom(this.appointments.review(this.appointmentId, n));
+      rememberReviewed(this.appointmentId);
+      this.reviewState.set('done');
+      this.reviewNote.set('Thanks for your feedback!');
+    } catch (err: unknown) {
+      if (isAlreadyReviewed(err)) {
+        rememberReviewed(this.appointmentId);
+        this.reviewState.set('done');
+        this.reviewNote.set('You have already rated this consultation — thank you.');
+        return;
+      }
+      this.reviewState.set('error');
+      this.reviewNote.set(apiErrorMessage(err, 'Could not send your rating. Please try again.'));
+    }
   }
 
   protected invite(): void {
@@ -2279,9 +2336,18 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     void this.router.navigate(['/dashboard/appointments']);
   }
 
-  protected async leave(): Promise<void> {
+  /**
+   * Leave the call. End and the "ended" screen go to this visit in the
+   * consultation history (its summary, prescriptions and rating); Back and the
+   * error screen go back to the appointments.
+   */
+  protected async leave(to: 'appointments' | 'history' = 'appointments'): Promise<void> {
     await this.teardown();
-    void this.router.navigate(['/dashboard/appointments']);
+    if (to === 'history') {
+      void this.router.navigate(this.appointmentId ? ['/dashboard/history', this.appointmentId] : ['/dashboard/history']);
+    } else {
+      void this.router.navigate(['/dashboard/appointments']);
+    }
   }
 
   // ---- Device test (waiting room) ----

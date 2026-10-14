@@ -171,8 +171,8 @@ return [
                     'status_label' => ['type' => 'string'],
                     'amount'         => ['type' => 'string', 'example' => '150.00'],
                     'notes'          => ['type' => 'string', 'nullable' => true],
-                    'document_url'   => ['type' => 'string', 'nullable' => true],
-                    'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid']],
+                    'document_url'   => ['type' => 'string', 'nullable' => true, 'deprecated' => true, 'description' => 'Legacy public attachment URL; always null once bin/prod-migrate.php has run. Booking attachments are medical documents — list them with GET /portal/documents?appointment_id='],
+                    'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid', 'refunded'], 'description' => 'A free consultation (amount 0) is `paid` from the start — nothing is owed.'],
                     'guests'         => [
                         'type'        => 'array',
                         'description' => 'Invited third parties (max 3); each adds the guest fee.',
@@ -449,7 +449,18 @@ return [
             'get' => ['tags' => ['Documents'], 'summary' => 'Medical document type catalogue', 'responses' => ['200' => ['description' => 'OK']]],
         ],
         '/api/portal/documents' => [
-            'get'  => ['tags' => ['Documents'], 'summary' => 'List my medical documents (?search=&type=&sort_dir=)', 'responses' => ['200' => ['description' => 'OK']]],
+            'get'  => [
+                'tags'        => ['Documents'],
+                'summary'     => 'List my medical documents (?search=&type=&sort_dir=&appointment_id=)',
+                'description' => '`appointment_id` narrows the list to the files attached to one of my bookings (each document carries `appointment_id`, null when it is not attached to one). Booking attachments have `document_type` `booking_attachment`.',
+                'parameters'  => [
+                    ...$paginationParams,
+                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'type', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'appointment_id', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'   => ['200' => ['description' => 'OK'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
             'post' => ['tags' => ['Documents'], 'summary' => 'Upload a medical document (multipart)', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
         ],
         '/api/portal/documents/{id}/file' => [
@@ -1403,21 +1414,44 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => "The signed-in patient's latest health readings",
-                'description' => 'latest: newest reading of each type {key, label, value, unit, taken_at, source, source_label, recorded_by: patient|doctor, stale (older than 7 days)}; '
-                    . 'fields: the reading catalogue {key, label, unit, min, max, step} (blood_pressure adds systolic/diastolic bounds, bmi is derived); '
-                    . 'sources / patient_sources; reminder {due, reason: never|stale, last_taken_at, days_old, stale_after_days}.',
+                'description' => 'latest: newest reading of each type {key, label, value, unit, taken_at, source, source_label, recorded_by: patient|doctor, stale (older than 7 days), '
+                    . 'flag} — flag is where the reading sits against typical adult resting ranges, worked out on the server: {level: normal|low|elevated|high|critical, '
+                    . 'label: Normal|Low|Elevated|High|Very high|Very low (pain: None|Mild|Moderate|Severe), advice: null|"Seek medical attention" (high)|"Seek urgent medical attention" (critical)}; '
+                    . 'weight is judged by the BMI it gives with the latest height (no height, no flag); BMI is flagged only with a height on file and while it is no older than the latest weight and height (so it never contradicts the weight); '
+                    . 'BMI/weight and pain never carry advice, height has no flag (null). '
+                    . 'fields: the reading catalogue {key, label, unit, min, max, step, normal_range} (blood_pressure adds systolic/diastolic bounds, bmi is derived); '
+                    . 'sources / patient_sources; reminder {due, reason, last_taken_at, days_old, stale_after_days, appointment} where reason is, most pressing first, '
+                    . 'never (no readings yet), upcoming (a pending/confirmed/rescheduled consultation starts within 48 hours and nothing was taken in the 48 hours before it — '
+                    . 'appointment {id, scheduled_at} names the soonest such one) or stale (newest reading older than 7 days); appointment is null unless reason is upcoming.',
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => [
-                        'latest'          => ['type' => 'array', 'items' => ['type' => 'object']],
-                        'fields'          => ['type' => 'array', 'items' => ['type' => 'object']],
+                        'latest'          => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                            'key'   => ['type' => 'string', 'example' => 'temperature'],
+                            'value' => ['type' => 'string', 'example' => '38.6'],
+                            'unit'  => ['type' => 'string', 'example' => '°C'],
+                            'stale' => ['type' => 'boolean'],
+                            'flag'  => ['type' => 'object', 'nullable' => true, 'properties' => [
+                                'level'  => ['type' => 'string', 'enum' => ['normal', 'low', 'elevated', 'high', 'critical']],
+                                'label'  => ['type' => 'string', 'example' => 'High'],
+                                'advice' => ['type' => 'string', 'enum' => ['Seek medical attention', 'Seek urgent medical attention'], 'nullable' => true],
+                            ]],
+                        ]]],
+                        'fields'          => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                            'key'          => ['type' => 'string'],
+                            'normal_range' => ['type' => 'string', 'nullable' => true, 'example' => '36.0–37.5'],
+                        ]]],
                         'sources'         => ['type' => 'object', 'additionalProperties' => ['type' => 'string']],
                         'patient_sources' => ['type' => 'array', 'items' => ['type' => 'string']],
                         'reminder'        => ['type' => 'object', 'properties' => [
                             'due'              => ['type' => 'boolean'],
-                            'reason'           => ['type' => 'string', 'enum' => ['never', 'stale'], 'nullable' => true],
+                            'reason'           => ['type' => 'string', 'enum' => ['never', 'upcoming', 'stale'], 'nullable' => true],
                             'last_taken_at'    => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
                             'days_old'         => ['type' => 'integer', 'nullable' => true],
                             'stale_after_days' => ['type' => 'integer', 'example' => 7],
+                            'appointment'      => ['type' => 'object', 'nullable' => true, 'properties' => [
+                                'id'           => ['type' => 'string', 'format' => 'uuid'],
+                                'scheduled_at' => ['type' => 'string', 'format' => 'date-time'],
+                            ]],
                         ]],
                     ]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
@@ -1427,7 +1461,7 @@ return [
                 'tags'        => ['Portal'],
                 'summary'     => 'Add my own health readings (self-reported)',
                 'description' => 'Same rules as the prescription form: each reading within its range, blood_pressure as systolic/diastolic (e.g. 120/80), BMI worked out from weight and height '
-                    . '(or the last height on file). taken_at defaults to now and may not be in the future or more than a year ago. Readings are append-only and always recorded as the patient\'s. Returns the same body as GET.',
+                    . '(a weight or height given on its own uses the other one on file). taken_at defaults to now and may not be in the future or more than a year ago. Readings are append-only and always recorded as the patient\'s. Returns the same body as GET.',
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['readings'], 'properties' => [
                     'readings' => ['type' => 'object', 'additionalProperties' => ['type' => 'string'], 'example' => ['blood_pressure' => '120/80', 'weight' => '72.5']],
                     'taken_at' => ['type' => 'string', 'format' => 'date-time'],
@@ -1449,7 +1483,7 @@ return [
                     ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 50, 'maximum' => 200]],
                 ],
                 'responses'  => [
-                    '200' => ['description' => '[{id, key, label, value, unit, taken_at, source, source_label, recorded_by, stale, created_at}]'],
+                    '200' => ['description' => '[{id, key, label, value, unit, taken_at, source, source_label, recorded_by, stale, flag, created_at}] — flag as on GET /api/portal/me/vitals (weight judged with the latest height; a BMI row only with a height on file)'],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
@@ -1913,7 +1947,9 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Upload a supporting document for a booking',
-                'description' => 'multipart/form-data with a `document` image field (JPG/PNG, <= 5MB). Returns its URL for the booking payload.',
+                'description' => 'multipart/form-data with one `document` file (PDF, JPG, PNG, WEBP, DOCX, DICOM or video; <= 10MB — the same checks as POST /portal/documents). '
+                    . 'The file is filed privately in the patient\'s medical documents as a `booking_attachment` (never publicly reachable) and returned as a document; '
+                    . 'pass its `id` in the booking\'s `document_ids`. `url` is the authenticated download route, not a public URL.',
                 'requestBody' => [
                     'required' => true,
                     'content'  => [
@@ -1927,9 +1963,21 @@ return [
                     ],
                 ],
                 'responses'   => [
-                    '200' => ['description' => 'Uploaded', ...$json($envelope(['type' => 'object', 'properties' => ['url' => ['type' => 'string']]]))],
+                    '201' => ['description' => 'Uploaded', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'id'             => ['type' => 'string', 'format' => 'uuid'],
+                        'title'          => ['type' => 'string', 'description' => 'From the file name, without its extension'],
+                        'document_type'  => ['type' => 'string', 'example' => 'booking_attachment'],
+                        'type_label'     => ['type' => 'string', 'example' => 'Booking Attachment'],
+                        'appointment_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true, 'description' => 'Null until a booking attaches it'],
+                        'extension'      => ['type' => 'string'],
+                        'mime_type'      => ['type' => 'string'],
+                        'size_bytes'     => ['type' => 'integer'],
+                        'size_label'     => ['type' => 'string', 'example' => '2.5MB'],
+                        'url'            => ['type' => 'string', 'example' => '/api/portal/documents/{id}/file', 'description' => 'Authenticated download route (bearer token required)'],
+                    ]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
-                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '422' => ['description' => 'No file, or the file was refused (empty, too big, a type not taken, or content that does not match its name) — `errors.document` says which', ...$json(['$ref' => '#/components/schemas/Error'])],
+                    '500' => ['description' => 'The file was accepted but could not be stored (logged server-side; try again)'],
                 ],
             ],
         ],
@@ -1946,7 +1994,11 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Book a consultation',
-                'description' => 'The patient is taken from the token; the appointment is created with status pending.',
+                'description' => 'The patient is taken from the token; the appointment is created with status pending. '
+                    . 'Paid by card (`payment_reference`) or from the wallet; a free consultation (amount 0) books with no payment and no wallet posting. '
+                    . 'Each of `document_ids` must be one of the patient\'s own documents and not attached to another appointment, else 422 (`document_ids.N`, N = its position in the request; another patient\'s id reads as not found). '
+                    . 'They are linked in the transaction that stores the appointment, guarded so two bookings can never take the same file: the one that loses gets the same 422 and nothing is booked '
+                    . '(a wallet charge is refunded; a card payment\'s reference stays unused, so the booking can be retried with it).',
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
                     'required'   => ['specialist_id', 'scheduled_at'],
@@ -1955,7 +2007,13 @@ return [
                         'scheduled_at'  => ['type' => 'string', 'format' => 'date-time'],
                         'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video'],
                         'notes'         => ['type' => 'string', 'description' => 'Reason for the consultation'],
-                        'document_url'  => ['type' => 'string', 'description' => 'Relative URL from POST /portal/appointment-documents'],
+                        'document_ids'  => [
+                            'type'        => 'array',
+                            'description' => 'Up to 10 document ids from POST /portal/appointment-documents to attach to this booking.',
+                            'maxItems'    => 10,
+                            'items'       => ['type' => 'string', 'format' => 'uuid'],
+                        ],
+                        'document_url'  => ['type' => 'string', 'deprecated' => true, 'description' => 'Older clients: the `url` from POST /portal/appointment-documents, read as one document id. Ignored when `document_ids` is sent.'],
                         'payment_reference' => ['type' => 'string', 'description' => 'Paystack reference from pay-init, to pay by card instead of the wallet'],
                         'guests'        => [
                             'type'        => 'array',
@@ -1977,6 +2035,7 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Start a direct card payment for a consultation',
+                'description' => 'A free consultation (amount 0) has nothing to charge: 422 with `errors.payment = "free"` — book it directly with POST /portal/appointments.',
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
                     'required'   => ['specialist_id'],
@@ -1987,7 +2046,7 @@ return [
                 ])],
                 'responses'   => [
                     '201' => ['description' => 'Payment started'],
-                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '422' => ['description' => 'Validation failed, or the consultation is free (`errors.payment = "free"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
                     '503' => ['description' => 'Card payment not configured'],
                 ],
             ],
@@ -2062,6 +2121,21 @@ return [
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
                     '200' => ['description' => 'Confirmed', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/complete' => [
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'End a consultation: mark it completed (assigned doctor)',
+                'description' => 'Moves a CONFIRMED appointment to COMPLETED, so it appears in the patient\'s and the doctor\'s history, can be reviewed and counts towards earnings. Audited (`appointment.completed`); the patient gets an in-app notification (linking to /dashboard/history/{id}) and an email, neither naming the reason for the visit or any medicine. Idempotent: an already-completed appointment answers 200 ("Consultation already completed") and nothing is recorded or sent again. 422 when the appointment is not confirmed (pending, rescheduled or cancelled; `errors.status`), or when it has not started — before its scheduled time while the doctor is not in the call (`errors.scheduled_at`). Visits a doctor forgets to end are closed by the reminders cron 12 hours after their slot when there is evidence they took place (`appointment.auto_completed`). Only the assigned doctor may complete.',
+                'operationId' => 'doctorCompleteAppointment',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'Completed (or already completed)', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
                     '422' => ['$ref' => '#/components/responses/Validation'],

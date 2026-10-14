@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Document\BookingAttachments;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
@@ -12,6 +13,7 @@ use App\Domain\Enum\ConsultationType;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\InsufficientFundsException;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
@@ -27,6 +29,7 @@ use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Ramsey\Uuid\Uuid;
 use App\Domain\Settings\WebUrls;
 
 /**
@@ -38,17 +41,30 @@ use App\Domain\Settings\WebUrls;
  * back-office-configured guest fee to the amount. Everyone — patient, doctor and
  * guests — gets a confirmation email with the schedule and a preauthenticated
  * link to join the video call without logging in.
+ *
+ * It may also attach up to 10 of the patient's own documents (`document_ids`,
+ * uploaded via POST /portal/appointment-documents). Each must be theirs and not
+ * already attached to another booking ({@see BookingAttachments}); they are
+ * linked in the same transaction that stores the appointment, so the doctor
+ * sees them as this booking's files.
+ *
+ * A free consultation (amount 0) books without any payment.
  */
 final class CreateMyAppointmentAction
 {
     use ApiResponse;
 
     private const MAX_GUESTS = 3;
+    public const MAX_DOCUMENTS = 10;
+
+    /** The authenticated download route that older clients send back as `document_url`. */
+    private const LEGACY_DOCUMENT_URL = '#^/api/portal/documents/([0-9a-fA-F-]{36})/file$#';
 
     public function __construct(
         private readonly PatientRepository $patients,
         private readonly SpecialistRepository $specialists,
         private readonly AppointmentRepository $appointments,
+        private readonly MedicalDocumentRepository $documents,
         private readonly NotificationRepository $notifications,
         private readonly MailService $mail,
         private readonly AvailabilityService $availability,
@@ -97,6 +113,9 @@ final class CreateMyAppointmentAction
         [$guests, $guestErrors] = $this->parseGuests($body['guests'] ?? null);
         $errors += $guestErrors;
 
+        [$documentIds, $documentErrors] = $this->parseDocumentIds($body['document_ids'] ?? null, $body['document_url'] ?? null);
+        $errors += $documentErrors;
+
         if ($errors !== []) {
             return $this->error($response, 'Validation failed', 422, $errors);
         }
@@ -120,18 +139,20 @@ final class CreateMyAppointmentAction
             ]);
         }
 
+        // Checked before any money moves, so a bad attachment never leaves a charge.
+        $documentErrors = BookingAttachments::problems($documentIds, $this->documents->attachmentStates($customerId, array_values($documentIds)));
+        if ($documentErrors !== []) {
+            return $this->error($response, 'Validation failed', 422, $documentErrors);
+        }
+
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
         $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
-        $documentUrl = trim((string) ($body['document_url'] ?? ''));
-        if ($documentUrl !== '' && str_starts_with($documentUrl, '/uploads/')) {
-            $appointment->setDocumentUrl($documentUrl);
-        }
         $appointment->setGuests($guests);
         $appointment->setAmount($this->totalAmount($specialist, count($guests)));
 
         // Two ways to pay: a verified card payment (Paystack reference) or the
         // wallet. Card lets the patient pay the fee directly, without funding a
-        // wallet first.
+        // wallet first. A free booking takes the wallet path, which posts nothing.
         $reference = trim((string) ($body['payment_reference'] ?? ''));
         $paidByCard = false;
         if ($reference !== '') {
@@ -144,7 +165,8 @@ final class CreateMyAppointmentAction
         } else {
             // Charge the wallet before persisting: debit throws (with no charge)
             // when the balance is short, so we never create an unpaid appointment.
-            // On success the appointment is marked paid and a receipt is emailed.
+            // On success the appointment is marked paid and a receipt is emailed;
+            // a free booking is just marked paid (no posting, no receipt).
             try {
                 $this->payments->chargeForBooking($appointment);
             } catch (InsufficientFundsException) {
@@ -157,7 +179,24 @@ final class CreateMyAppointmentAction
             }
         }
 
-        $this->appointments->save($appointment);
+        if ($documentIds === []) {
+            $this->appointments->save($appointment);
+        } elseif (!$this->documents->saveWithAttachments($appointment, $customerId, array_values($documentIds))) {
+            // Another booking took one of the files since the check above, so
+            // nothing was booked: the wallet charge goes straight back (a card
+            // payment's reference was never stored, so it can book again).
+            if (!$paidByCard) {
+                $this->payments->refundForCancellation($appointment);
+            }
+
+            return $this->error(
+                $response,
+                'Validation failed',
+                422,
+                BookingAttachments::problems($documentIds, $this->documents->attachmentStates($customerId, array_values($documentIds)))
+                    ?: ['document_ids' => BookingAttachments::TAKEN],
+            );
+        }
 
         if ($paidByCard) {
             $this->notifyCardPayment($patient, $appointment);
@@ -285,6 +324,48 @@ final class CreateMyAppointmentAction
         }
 
         return [$guests, $errors];
+    }
+
+    /**
+     * Normalise + validate `document_ids` (max 10 UUIDs). Keyed by each id's
+     * position in the request, so an error's `document_ids.N` points at the
+     * entry the client sent; a repeat of an earlier id is dropped. An older
+     * client sends one `document_url` instead — the authenticated download
+     * route the upload returned — which maps to that document's id.
+     *
+     * @return array{0: array<int,string>, 1: array<string,string>}
+     */
+    private function parseDocumentIds(mixed $raw, mixed $legacyUrl): array
+    {
+        if ($raw === null || $raw === '' || $raw === []) {
+            $match = [];
+            if (is_string($legacyUrl) && preg_match(self::LEGACY_DOCUMENT_URL, trim($legacyUrl), $match) === 1 && Uuid::isValid($match[1])) {
+                return [[strtolower($match[1])], []];
+            }
+
+            return [[], []];
+        }
+        if (!is_array($raw)) {
+            return [[], ['document_ids' => 'Invalid document list']];
+        }
+        if (count($raw) > self::MAX_DOCUMENTS) {
+            return [[], ['document_ids' => 'You can attach at most ' . self::MAX_DOCUMENTS . ' documents']];
+        }
+
+        $ids    = [];
+        $errors = [];
+        foreach (array_values($raw) as $i => $id) {
+            if (!is_string($id) || !Uuid::isValid(trim($id))) {
+                $errors["document_ids.$i"] = 'Invalid document id';
+                continue;
+            }
+            $id = strtolower(trim($id));
+            if (!in_array($id, $ids, true)) {
+                $ids[$i] = $id;
+            }
+        }
+
+        return [$ids, $errors];
     }
 
     /** In-app notification so the booking shows up on the notifications screen. */

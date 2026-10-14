@@ -7,32 +7,52 @@ declare(strict_types=1);
  * Unlike bin/seed.php (which refuses in production and creates demo rows), this
  * only ADAPTS existing production data and is safe to run on a live database.
  *
- * It is fully idempotent — re-running it changes nothing that's already done:
+ * It is fully idempotent — re-running it changes nothing that's already done
+ * (the numbers match the steps below):
+ *   0. Grants the back-office permissions (settings.manage, specialists.manage,
+ *      monitoring.view) to every admin that lacks them.
  *   1. Ensures the pricing settings exist (currency=NGN, guest_fee, platform_fee)
  *      — only fills a key that is missing, never overwrites a back-office value.
- *   2. Converts each specialist's consultation fee from the old USD era to Naira
+ *   2. Specialists: converts each consultation fee from the old USD era to Naira
  *      (×100), but ONLY while it still looks like a dollar-era value (< 1000), so
- *      it never touches a fee you've already set in Naira.
- *   3. Gives every specialist a contact email if it has none (a derived
- *      placeholder — update these to the doctors' real inboxes so invites land).
- *   4. Creates one doctor login per specialist (role `doctor`, linked via
+ *      it never touches a fee you've already set in Naira; gives every
+ *      specialist a contact email if it has none (a derived placeholder —
+ *      update these to the doctors' real inboxes so invites land); and creates
+ *      one doctor login per specialist (role `doctor`, linked via
  *      specialist_id). New logins get a password (from DOCTOR_DEFAULT_PASSWORD if
  *      set, else a random one PRINTED once below). Existing users are never
  *      re-passworded, and a non-doctor account that happens to share an email is
  *      left untouched (reported as a conflict). Doctors still in onboarding are
  *      skipped — they get their login from the back-office invite.
+ *   3. E-prescribing: gives prescriptions from the old free-text form a GVM-RX
+ *      number, `active` status, a valid-until date and their prescriber.
+ *   4. Rewrites legacy allergy severities (Low / Medium / High) in the
+ *      canonical wording the prescribing panel ranks.
  *   5. Vitals history: copies each sent prescription's readings into
- *      vital_readings as the prescribing doctor's (once per prescription; needs
- *      the schema update first).
+ *      vital_readings as the prescribing doctor's (once per prescription).
  *   6. Doctor onboarding: marks every pre-existing doctor (status NULL) as
  *      approved, so the new review step never hides a live doctor.
+ *   7. Booking attachments: moves every file under the PUBLIC
+ *      public/uploads/appointment-docs folder into private document storage as
+ *      the patient's "Booking Attachment" — linked to the appointment that
+ *      points at it (whose document_url is then cleared), or unlinked for a
+ *      booking that was never made. One it can't take in (it fails the upload
+ *      checks, names no patient, or names a different patient than its
+ *      appointment) moves to the private var/quarantine/appointment-docs
+ *      folder instead and is listed for a look by hand — nothing stays public.
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
  * missing column can never stop the run part-way. Any later stop still prints
  * the report collected so far, so a new doctor login's password is never lost.
  *
+ * `--dry-run` runs every step inside one database transaction that is rolled
+ * back at the end, and step 7 only checks the files (it moves nothing) — so
+ * the report shows what --run would change, and nothing is saved. (Its doctor
+ * logins are not created, so it prints no passwords.)
+ *
  * Usage (on the server, inside apps/api):
+ *   php bin/prod-migrate.php --dry-run    # preview: nothing is saved
  *   php bin/prod-migrate.php --run
  *   DOCTOR_DEFAULT_PASSWORD='S3tByYou!' php bin/prod-migrate.php --run
  *
@@ -41,19 +61,25 @@ declare(strict_types=1);
  */
 
 use App\Domain\Entity\AppSetting;
+use App\Domain\Entity\MedicalDocument;
 use App\Domain\Entity\Patient;
 use App\Domain\Entity\Prescription;
 use App\Domain\Entity\Specialist;
 use App\Domain\Entity\User;
 use App\Domain\Entity\VitalReading;
+use App\Infrastructure\Document\LegacyBookingAttachments;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
+use App\Infrastructure\Service\DocumentRejectedException;
+use App\Infrastructure\Service\MedicalDocumentStorage;
 
 require __DIR__ . '/../vendor/autoload.php';
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
-if (!in_array('--run', $argv, true)) {
-    fwrite(STDOUT, "This adapts LIVE data. Re-run with --run to proceed:\n  php bin/prod-migrate.php --run\n");
+$dryRun = in_array('--dry-run', $argv, true);
+if (!$dryRun && !in_array('--run', $argv, true)) {
+    fwrite(STDOUT, "This adapts LIVE data. Preview it with --dry-run (nothing is saved), or re-run with --run to proceed:\n"
+        . "  php bin/prod-migrate.php --dry-run\n  php bin/prod-migrate.php --run\n");
     exit(0);
 }
 
@@ -97,6 +123,7 @@ function bail(array $report, string $message): never
 }
 
 $report = [
+    'dry_run'           => $dryRun,
     'completed_steps'   => [],
     'settings_seeded'   => [],
     'admins_granted'    => 0,
@@ -111,11 +138,13 @@ $report = [
 
 // Anything that stops the run part-way (a database error, say) still prints
 // what was already saved — above all the new doctor logins' passwords.
-set_exception_handler(static function (\Throwable $e) use (&$report): void {
+set_exception_handler(static function (\Throwable $e) use (&$report, $dryRun): void {
     bail($report, sprintf(
-        "Stopped part-way: %s: %s\n"
-        . "The steps in completed_steps were saved, and so were any new_logins listed above — keep those\n"
-        . "passwords, they are not shown again. Fix the cause and re-run; finished work is skipped.\n",
+        $dryRun
+            ? "Dry run stopped: %s: %s\nNothing was saved. Fix the cause before running with --run.\n"
+            : "Stopped part-way: %s: %s\n"
+                . "The steps in completed_steps were saved, and so were any new_logins listed above — keep those\n"
+                . "passwords, they are not shown again. Fix the cause and re-run; finished work is skipped.\n",
         $e::class,
         $e->getMessage(),
     ));
@@ -123,7 +152,7 @@ set_exception_handler(static function (\Throwable $e) use (&$report): void {
 
 // Check this release's schema BEFORE anything is written. Steps 0 and 2 load
 // users and specialists through Doctrine, which selects every mapped column,
-// and steps 3, 5 and 6 need this release's tables and columns — so a missing
+// and steps 3, 5, 6 and 7 need this release's tables and columns — so a missing
 // schema update would otherwise stop the run part-way, after earlier steps had
 // saved (and after step 2 had created doctor logins).
 $conn     = $em->getConnection();
@@ -131,14 +160,16 @@ $schema   = $conn->createSchemaManager();
 $unquote  = static fn (string $name): string => strtolower(trim($name, '"`[]'));
 $tables   = array_map($unquote, $schema->listTableNames());
 $required = [
-    'prescriptions'  => ['valid_until'],          // step 3 (e-prescribing)
-    'vital_readings' => [],                       // step 5 (vitals history)
-    'specialists'    => ['status'],               // step 6 (doctor onboarding)
-    'users'          => ['password_token_hash'],  // doctor invite / reset links
+    'prescriptions'     => ['valid_until'],          // step 3 (e-prescribing)
+    'vital_readings'    => [],                       // step 5 (vitals history)
+    'specialists'       => ['status'],               // step 6 (doctor onboarding)
+    'users'             => ['password_token_hash'],  // doctor invite / reset links
+    'appointments'      => ['document_url'],         // step 7 (booking attachments)
+    'medical_documents' => ['appointment_id'],       // step 7 (a join column, so listed by hand)
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
-foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class] as $class) {
+foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class] as $class) {
     $meta             = $em->getClassMetadata($class);
     $table            = $unquote($meta->getTableName());
     $required[$table] = array_merge($required[$table] ?? [], array_map($unquote, $meta->getColumnNames()));
@@ -161,6 +192,13 @@ if ($missingSchema !== []) {
         . "  php bin/doctrine.php orm:schema-tool:update --dump-sql   # review\n"
         . "  php bin/doctrine.php orm:schema-tool:update --force\n"
         . "  php bin/prod-migrate.php --run\n");
+}
+
+// A dry run does all its database work inside one transaction and rolls it
+// back at the end (nested transactions below become savepoints), so every
+// step reports exactly what --run would change while nothing is saved.
+if ($dryRun) {
+    $conn->beginTransaction();
 }
 
 // 0) Grant the back-office permissions the new endpoints require to any admin,
@@ -248,7 +286,10 @@ foreach ($em->getRepository(Specialist::class)->findAll() as $specialist) {
 }
 
 $em->flush();
-$report['new_logins']      = $pendingLogins;
+// A dry run rolls these logins back, so it never prints a password.
+$report['new_logins']      = $dryRun
+    ? array_map(static fn (array $login): array => ['email' => $login['email'], 'password' => '(dry run: not created)'], $pendingLogins)
+    : $pendingLogins;
 $report['completed_steps'] = [0, 1, 2];
 
 // 3) E-prescribing release: bring prescriptions issued on the old free-text form
@@ -372,6 +413,120 @@ $report['specialists_marked_approved'] = (int) $conn->executeStatement(
 );
 $report['completed_steps'][] = 6;
 
+// 7) Booking attachments: a file attached while booking used to be saved under
+//    public/uploads/appointment-docs as {patient id}-{8 hex}.{ext} — reachable
+//    by anyone with the URL, and never shown to the doctor. Each one moves into
+//    private document storage as the patient's Booking Attachment: a file an
+//    appointment points at is filed for that appointment's patient and linked
+//    to it (document_url is then cleared); a file no appointment points at (a
+//    booking that was never made) is filed, unlinked, for the patient whose id
+//    it starts with. Each row is saved in its own transaction and a file's last
+//    row MOVES it (see LegacyBookingAttachments::file()), so a filed file
+//    leaves nothing public behind and a re-run only finds what is left. A file
+//    that can't be filed — missing, failing the upload checks, naming no
+//    patient, or naming a different patient than its appointment — moves to
+//    the private quarantine folder instead (outside the web root, 0700) and is
+//    listed for a look by hand, so nothing is left public either way. An
+//    appointment whose URL isn't one of these files is listed too. A dry run
+//    checks each file but moves nothing. (Its tables and columns were checked
+//    at the top.)
+$report['booking_attachments_imported']    = 0;
+$report['booking_attachments_skipped']     = [];
+$report['booking_attachments_quarantined'] = [];
+$publicDir   = dirname(__DIR__) . '/public/uploads/appointment-docs';
+$storage     = new MedicalDocumentStorage();
+$legacyFiles = new LegacyBookingAttachments($storage, $publicDir, dirname(__DIR__) . '/var/quarantine/appointment-docs');
+
+/**
+ * Take a file that can't be filed out of the public folder, listing it with
+ * why and the appointments that point at it (a dry run only says where it
+ * would go). A failed move throws, so the run never ends with it still public.
+ *
+ * @param list<array<string,mixed>> $group
+ */
+$quarantine = static function (string $name, string $reason, array $group = []) use ($legacyFiles, $publicDir, $dryRun, &$report): void {
+    $moved = $dryRun
+        ? (is_file($publicDir . '/' . $name) ? $legacyFiles->quarantinePath($name) : null)
+        : $legacyFiles->quarantine($name);
+    $report['booking_attachments_quarantined'][] = array_filter([
+        'file'            => $name,
+        'appointment_ids' => array_values(array_filter(array_column($group, 'id'))), // none for an unlinked file
+        'reason'          => $reason,
+        'quarantined_at'  => $moved ?? ($dryRun ? '(not in the public folder)' : '(in neither the public nor the quarantine folder)'),
+    ]);
+};
+
+/** One row's database side, in its own transaction (LegacyBookingAttachments::file() undoes its file on a throw). */
+$saveAttachment = static function (array $row, array $columns) use ($conn, &$report): void {
+    $conn->beginTransaction();
+    try {
+        $conn->insert('medical_documents', $columns);
+        if ($columns['appointment_id'] !== null) {
+            $conn->update('appointments', ['document_url' => null], ['id' => $columns['appointment_id']]);
+        }
+        $conn->commit();
+    } catch (\Throwable $e) {
+        $conn->rollBack();
+        throw $e;
+    }
+    $report['booking_attachments_imported']++;
+};
+
+// Files appointments point at, grouped by file (a URL can only have been reused
+// by hand, but then every appointment still gets its own copy).
+$grouped = $legacyFiles->group($conn->fetchAllAssociative(
+    "SELECT a.id, a.document_url, a.created_at, p.id AS patient_id, p.first_name, p.last_name
+       FROM appointments a JOIN patients p ON p.id = a.patient_id
+      WHERE a.document_url IS NOT NULL AND a.document_url <> ''
+      ORDER BY a.created_at ASC",
+));
+$report['booking_attachments_skipped'] = $grouped['skipped'];
+foreach ($grouped['held'] as $name => $group) {
+    $quarantine($name, 'the file name names a different patient than its appointment', $group);
+}
+
+// Files no appointment points at: a booking that was never made, filed for the
+// patient whose id the name starts with.
+$files = $grouped['files'];
+foreach ($legacyFiles->unclaimed([...array_keys($files), ...array_keys($grouped['held'])]) as $name) {
+    $owner = LegacyBookingAttachments::ownerOf($name);
+    $row   = $owner !== null
+        ? $conn->fetchAssociative('SELECT id AS patient_id, first_name, last_name FROM patients WHERE id = ?', [$owner])
+        : false;
+    if ($row === false) {
+        $quarantine($name, $owner === null ? 'not named like a booking attachment' : 'no patient with the id in its name');
+        continue;
+    }
+    // Same shape as an appointment row, with no appointment to link.
+    $files[$name] = [$row + ['id' => null, 'created_at' => date('Y-m-d H:i:s', (int) (@filemtime($publicDir . '/' . $name) ?: time()))]];
+}
+
+foreach ($files as $name => $group) {
+    try {
+        $storage->checkImport($publicDir . '/' . $name);
+    } catch (DocumentRejectedException $e) {
+        $quarantine($name, is_file($publicDir . '/' . $name) ? $e->getMessage() : 'not in the public folder (an earlier run quarantined it, or it was removed)', $group);
+        continue;
+    }
+    if ($dryRun) {
+        $report['booking_attachments_imported'] += count($group);
+        continue;
+    }
+    $legacyFiles->file($name, $group, $saveAttachment);
+}
+$report['completed_steps'][] = 7;
+
+if ($dryRun) {
+    $conn->rollBack();
+    printReport($report);
+    fwrite(STDOUT, "\nDry run: nothing was saved or moved. The report shows what --run would change.\n");
+    exit(0);
+}
+
 printReport($report);
+if ($report['booking_attachments_quarantined'] !== []) {
+    fwrite(STDOUT, "\nSome old booking attachments could not be filed and were moved out of the public folder into\n"
+        . "var/quarantine/appointment-docs — review them by hand: see booking_attachments_quarantined above.\n");
+}
 fwrite(STDOUT, "\nDone. Reminder: the doctor emails above are placeholders — update each\n");
 fwrite(STDOUT, "specialist's email to the doctor's real inbox so invites + join links land there.\n");

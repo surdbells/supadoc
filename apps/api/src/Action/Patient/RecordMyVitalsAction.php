@@ -7,6 +7,7 @@ namespace App\Action\Patient;
 use App\Domain\Entity\Patient;
 use App\Domain\Repository\PatientRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Vitals\UpcomingConsultations;
 use App\Infrastructure\Vitals\VitalsService;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
@@ -27,6 +28,7 @@ final class RecordMyVitalsAction
     public function __construct(
         private readonly PatientRepository $patients,
         private readonly VitalsService $vitals,
+        private readonly UpcomingConsultations $upcoming,
     ) {
     }
 
@@ -42,7 +44,7 @@ final class RecordMyVitalsAction
 
         return $this->success(
             $response,
-            $this->vitals->overview($patient, $now),
+            $this->vitals->overview($patient, $now, $this->upcoming->startingWithin($patient->getId(), $now)),
             $count === 1 ? 'Reading saved' : 'Readings saved',
         );
     }

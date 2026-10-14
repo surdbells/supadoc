@@ -10,6 +10,7 @@ export interface MedicalDocumentDto {
   readonly patient_id: string;
   readonly uploader_role: 'patient' | 'doctor' | 'staff';
   readonly uploader_name: string;
+  /** The booking it was attached to (document_type `booking_attachment`), or null. */
   readonly appointment_id: string | null;
   readonly document_type: string;
   readonly custom_type: string | null;

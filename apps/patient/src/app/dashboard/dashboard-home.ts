@@ -1,10 +1,15 @@
+import { DOCUMENT } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
@@ -82,14 +87,26 @@ const UPCOMING_BADGE: Record<string, string> = {
   rescheduled: 'bg-slate',
 };
 
-interface VitalsNudge {
-  readonly title: string;
-  readonly body: string;
-  readonly cta: string;
+/**
+ * Session flag: the "Keep Vitals Updated" pop-up was shown / dismissed for this
+ * reason — `…:never`, `…:stale`, or `…:upcoming:<appointment id>` so the next
+ * consultation brings it back. It returns next session.
+ */
+const VITALS_REMINDER_KEY = 'pat.vitals-reminder-dismissed';
+
+function vitalsReminderKey(r: VitalsReminderDto): string {
+  const appointment = r.reason === 'upcoming' ? r.appointment?.id : null;
+  return appointment ? `${VITALS_REMINDER_KEY}:upcoming:${appointment}` : `${VITALS_REMINDER_KEY}:${r.reason}`;
 }
 
-/** Session flag: the vitals reminder was dismissed (comes back next session). */
-const VITALS_NUDGE_KEY = 'pat.vitals-reminder-dismissed';
+/** The same, in memory — so blocked storage still means once per page load, not every visit. */
+const remindedThisLoad = new Set<string>();
+
+/** Another dialog, drawer or full-screen overlay is up — the pop-up waits for it. */
+const OTHER_OVERLAY = '[aria-modal="true"], .fixed.inset-0';
+
+/** Controls the pop-up's Tab key cycles through. */
+const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), [tabindex="0"]';
 
 function readSessionFlag(key: string): boolean {
   try {
@@ -107,6 +124,12 @@ function writeSessionFlag(key: string): void {
   }
 }
 
+/** The welcome line's greeting by the local hour: morning until 12, afternoon until 17, then evening. */
+function greetingFor(now: Date): string {
+  const hour = now.getHours();
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
 /** Patient dashboard home (Figma 666:9342). */
 @Component({
   selector: 'pat-dashboard-home',
@@ -120,8 +143,9 @@ function writeSessionFlag(key: string): void {
         class="relative flex items-center justify-between overflow-hidden rounded-card bg-sky/10 px-6 pt-4 pb-11 sm:pb-4"
       >
         <div class="flex flex-col gap-2.5">
-          <h1 class="font-heading text-h2 text-ocean">
-            Good morning, {{ firstName() }} 👋
+          <!-- tabindex -1: where focus returns when the vitals pop-up closes by itself -->
+          <h1 #welcomeHeading tabindex="-1" class="font-heading text-h2 text-ocean outline-none">
+            {{ greeting }}, {{ firstName() }} 👋
           </h1>
           <p class="font-sans text-h5 text-ink">
             Here's your health summary for today.
@@ -142,37 +166,6 @@ function writeSessionFlag(key: string): void {
           Stay on top of your health. You're doing great!
         </div>
       </section>
-
-      <!-- Vitals reminder: none on file yet, or the newest is over a week old -->
-      @if (vitalsNudge(); as n) {
-        <section
-          class="flex flex-col gap-3 rounded-card border border-teal/20 bg-teal/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
-          aria-label="Vitals reminder"
-        >
-          <div class="flex min-w-0 items-start gap-3 sm:items-center">
-            <span
-              class="flex size-9 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal"
-            >
-              <sd-icon name="heart-pulse" [size]="18" />
-            </span>
-            <div class="flex min-w-0 flex-col">
-              <p class="font-sans text-body-sm font-semibold text-ink">{{ n.title }}</p>
-              <p class="font-sans text-caption text-slate">{{ n.body }}</p>
-            </div>
-          </div>
-          <div class="flex shrink-0 items-center gap-2 self-end sm:self-auto">
-            <sd-button size="sm" (click)="openVitals()">{{ n.cta }}</sd-button>
-            <button
-              type="button"
-              class="flex size-8 items-center justify-center rounded-full text-slate transition-colors hover:bg-white hover:text-ink"
-              aria-label="Dismiss the vitals reminder"
-              (click)="dismissVitalsNudge()"
-            >
-              <sd-icon name="x" [size]="16" />
-            </button>
-          </div>
-        </section>
-      }
 
       <!-- Widgets -->
       <section class="flex flex-col gap-4">
@@ -509,6 +502,74 @@ function writeSessionFlag(key: string): void {
         </div>
       </section>
     </div>
+
+    <!-- "Keep Vitals Updated" (Figma 2234:39857): once a session while the reminder is due -->
+    @if (reminderOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button
+          type="button"
+          tabindex="-1"
+          class="absolute inset-0 cursor-default bg-abyss/40"
+          aria-label="Dismiss the vitals reminder"
+          (click)="dismissReminder()"
+        ></button>
+        <!-- tabindex -1: a click on the card's text keeps focus (and so Esc / the Tab trap) in the dialog -->
+        <div
+          #reminderDialog
+          tabindex="-1"
+          class="relative z-10 flex w-full max-w-[22rem] flex-col gap-4 rounded-[16px] bg-white p-6 shadow-[0_4px_4px_2px_rgba(21,101,192,0.1)] outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="vitals-reminder-title"
+          aria-describedby="vitals-reminder-desc"
+          (keydown)="reminderKeydown($event)"
+        >
+          <div class="flex flex-col gap-1">
+            <h2
+              #reminderTitle
+              id="vitals-reminder-title"
+              tabindex="-1"
+              class="flex items-center gap-2 font-sans text-body font-semibold text-abyss outline-none"
+            >
+              <sd-icon name="info" [size]="16" class="shrink-0" />
+              Keep Vitals Updated
+            </h2>
+            <p id="vitals-reminder-desc" class="font-sans text-caption text-slate">
+              Keeping your vitals updated helps specialist
+            </p>
+          </div>
+          <ul class="flex flex-col gap-2">
+            @for (b of reminderBenefits; track b) {
+              <li class="flex items-center gap-4 font-sans text-caption text-slate">
+                <sd-icon name="check" [size]="16" class="shrink-0" />
+                {{ b }}
+              </li>
+            }
+          </ul>
+          <div class="flex flex-col gap-2">
+            <p class="font-sans text-[10px] font-light leading-[18px] tracking-[0.3px] text-slate">
+              Always update vitals 24-48 hours before every consultation
+            </p>
+            <div class="flex gap-4">
+              <button
+                type="button"
+                class="flex min-h-11 flex-1 items-center justify-center rounded-field border-[0.5px] border-ash bg-white px-4 font-sans text-caption font-medium text-slate transition-colors hover:bg-glacier focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                (click)="dismissReminder()"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="flex min-h-11 flex-1 items-center justify-center rounded-field bg-cerulean px-4 font-sans text-caption font-medium text-white transition-colors hover:bg-cerulean-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
+                (click)="updateVitalsFromReminder()"
+              >
+                Update Vitals
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class DashboardHome {
@@ -534,6 +595,9 @@ export class DashboardHome {
   private readonly walletApi = inject(WalletApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+
+  /** By the patient's local clock, worked out each time the dashboard opens. */
+  protected readonly greeting = greetingFor(new Date());
 
   // Name/email come from GET /api/portal/me; neutral until it resolves.
   protected readonly firstName = signal('there');
@@ -589,43 +653,131 @@ export class DashboardHome {
     void this.router.navigate(['/dashboard/wallet']);
   }
 
-  // Vitals reminder — from GET /api/portal/me/vitals; dismissable for the session.
-  private readonly vitalsReminder = signal<VitalsReminderDto | null>(null);
-  private readonly vitalsNudgeDismissed = signal(readSessionFlag(VITALS_NUDGE_KEY));
-  protected readonly vitalsNudge = computed<VitalsNudge | null>(() => {
-    const r = this.vitalsReminder();
-    if (!r?.due || this.vitalsNudgeDismissed()) return null;
-    if (r.reason === 'never' || r.days_old === null) {
-      return {
-        title: 'Add your vitals',
-        body: 'Add your blood pressure, weight and other readings so your doctor has them before your visit.',
-        cta: 'Add vitals',
-      };
-    }
-    return {
-      title: `Your vitals are ${r.days_old} days old`,
-      body: 'Add new readings so your doctor sees how you are doing now.',
-      cta: 'Update vitals',
-    };
-  });
+  // "Keep Vitals Updated" — from GET /api/portal/me/vitals' reminder (no
+  // readings yet, a consultation within 48 hours, or out of date). Shown once a
+  // session per reason (per consultation for "upcoming").
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+  private readonly reminderDialog = viewChild<ElementRef<HTMLElement>>('reminderDialog');
+  private readonly reminderTitle = viewChild<ElementRef<HTMLElement>>('reminderTitle');
+  private readonly welcomeHeading = viewChild<ElementRef<HTMLElement>>('welcomeHeading');
+  protected readonly reminderOpen = signal(false);
+  private reminderOpener: HTMLElement | null = null;
+  private overlayWatch?: MutationObserver;
+  private reminderTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly shownAt = Date.now();
+  protected readonly reminderBenefits = [
+    'Saves time for the real problem',
+    'Helps them dose medicine correctly',
+    "Shows if you're getting worse between visits",
+    'Prevents wrong diagnosis',
+  ];
 
-  protected openVitals(): void {
+  /**
+   * Due and not yet shown this session: open it as soon as no other overlay is
+   * up. Not before the page's entry animation has finished — while it runs, the
+   * animated page (not the viewport) would anchor a fixed overlay.
+   */
+  private considerReminder(r: VitalsReminderDto | null | undefined): void {
+    if (!r?.due || !r.reason) return;
+    const key = vitalsReminderKey(r);
+    if (remindedThisLoad.has(key) || readSessionFlag(key)) return;
+    const wait = Math.max(0, this.shownAt + 450 - Date.now());
+    this.reminderTimer = setTimeout(
+      () =>
+        this.whenNoOtherOverlay(() => {
+          // Once a session, however it is closed.
+          remindedThisLoad.add(key);
+          writeSessionFlag(key);
+          const active = this.document.activeElement;
+          this.reminderOpener = active instanceof HTMLElement && active !== this.document.body ? active : null;
+          this.reminderOpen.set(true);
+          afterNextRender(() => this.reminderTitle()?.nativeElement.focus(), { injector: this.injector });
+        }),
+      wait,
+    );
+  }
+
+  /** Run `open` now, or once the dialog / drawer / overlay that is up has gone. */
+  private whenNoOtherOverlay(open: () => void): void {
+    const busy = () => this.document.querySelector(OTHER_OVERLAY) !== null;
+    if (!busy()) {
+      open();
+      return;
+    }
+    this.overlayWatch?.disconnect();
+    this.overlayWatch = new MutationObserver(() => {
+      if (busy()) return;
+      this.overlayWatch?.disconnect();
+      this.overlayWatch = undefined;
+      open();
+    });
+    this.overlayWatch.observe(this.document.body, { childList: true, subtree: true });
+  }
+
+  /**
+   * Cancel, Esc or the backdrop: gone for this session. Focus goes back to
+   * whatever had it, or — the usual case, as the pop-up opens by itself — to
+   * the welcome heading rather than being dropped on <body>.
+   */
+  protected dismissReminder(): void {
+    this.reminderOpen.set(false);
+    const back = this.reminderOpener;
+    this.reminderOpener = null;
+    afterNextRender(() => {
+      const target = back?.isConnected ? back : this.welcomeHeading()?.nativeElement;
+      target?.focus();
+    }, { injector: this.injector });
+  }
+
+  protected updateVitalsFromReminder(): void {
+    this.reminderOpen.set(false);
+    this.reminderOpener = null;
     void this.router.navigate(['/dashboard/profile'], { queryParams: { section: 'vitals' } });
   }
 
-  protected dismissVitalsNudge(): void {
-    this.vitalsNudgeDismissed.set(true);
-    writeSessionFlag(VITALS_NUDGE_KEY);
+  /** Esc closes; Tab and Shift+Tab wrap around inside the dialog. */
+  protected reminderKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.dismissReminder();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const root = this.reminderDialog()?.nativeElement;
+    if (!root) return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (items.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    // -1: the title (tabindex -1) has focus — it sits before both buttons.
+    const at = items.indexOf(this.document.activeElement as HTMLElement);
+    if (e.shiftKey && at <= 0) {
+      e.preventDefault();
+      items[items.length - 1].focus();
+    } else if (!e.shiftKey && at === items.length - 1) {
+      e.preventDefault();
+      items[0].focus();
+    }
   }
 
   constructor() {
+    this.destroyRef.onDestroy(() => {
+      clearTimeout(this.reminderTimer);
+      this.overlayWatch?.disconnect();
+    });
+
     // A gentle nudge only — if it can't load, the dashboard simply goes without it.
     this.patient
       .vitals()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.vitalsReminder.set(res.data.reminder),
-        error: () => this.vitalsReminder.set(null),
+        next: (res) => this.considerReminder(res.data.reminder),
+        error: () => {
+          /* no reminder — nothing else on the dashboard depends on it */
+        },
       });
 
     // Two at most, so the card lines up with the Quick Actions row beside it.

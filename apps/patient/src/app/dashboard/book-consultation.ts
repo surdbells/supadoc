@@ -1,23 +1,32 @@
-import { NgTemplateOutlet } from '@angular/common';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
+import { HttpEventType } from '@angular/common/http';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
+  effect,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import {
+  apiErrorFields,
   apiErrorMessage,
   AppointmentsApi,
+  localSlotDays,
   SpecialistsApi,
   WalletApi,
 } from '@supadoc/data-access';
 import type {
+  AppointmentDocumentDto,
   DayAvailability,
   GuestInvite,
   PricingDto,
@@ -26,16 +35,59 @@ import type {
 import {
   AlertComponent,
   ButtonComponent,
+  FileDropComponent,
   IconComponent,
   StepperComponent,
+  type FileDropRejection,
 } from '@supadoc/ui';
 
+type AttachStatus = 'queued' | 'uploading' | 'done' | 'failed';
+
+/** One supporting document: uploaded as soon as it's added, one at a time. */
+interface Attachment {
+  /** Local key for `@for` tracking (files have no id until uploaded). */
+  readonly key: number;
+  readonly file: File;
+  readonly status: AttachStatus;
+  readonly progress: number;
+  /** The API's message when the upload failed. */
+  readonly error: string;
+  /** The filed document once uploaded — its id goes in the booking. */
+  readonly doc: AppointmentDocumentDto | null;
+}
+
+/** A file that never made it into the list, and why. */
+interface SkippedFile {
+  readonly name: string;
+  readonly reason: string;
+}
+
+/** Every upload status reads as an icon AND a word — never colour alone. */
+const ATTACH_STATUS: Record<AttachStatus, { label: string; icon: string; cls: string }> = {
+  queued: { label: 'Waiting', icon: 'clock', cls: 'bg-cloud text-slate' },
+  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean' },
+  done: { label: 'Attached', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+};
+
+/** Accepted client-side (mirrors MedicalDocumentStorage, which files these). */
+const DOC_ACCEPT =
+  '.pdf,.jpg,.jpeg,.png,.webp,.dcm,.docx,.doc,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime';
+const DOC_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'dcm', 'docx', 'doc', 'mp4', 'webm', 'mov'];
+const DOC_MAX_BYTES = 10 * 1024 * 1024;
+const DOC_TOO_BIG = 'File must be 10MB or smaller.';
+const DOC_UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, WEBP, DOCX, DICOM or video.';
+/** The API attaches at most this many documents to one booking. */
+const MAX_DOCS = 10;
+
 /**
- * Book a Consultation (Figma) — a 7-step wizard: date/time, consultation type,
- * reason, invite guests (up to 3, each adds the guest fee), optional supporting
- * document, a booking summary, and a payment step that creates the appointment
- * (payment is stubbed, so it's created unpaid). Driven by the specialist's real
- * availability and the back-office-configured Naira pricing.
+ * Book a Consultation (Figma) — a 7-step wizard: date/time (in the patient's
+ * local time), consultation type, reason, invite guests (up to 3, each adds
+ * the guest fee), supporting documents (up to 10, each uploaded as soon as
+ * it's added), a booking summary, and a payment step — card or wallet, or
+ * nothing for a free consultation — that creates the appointment. Driven by
+ * the specialist's real availability and the back-office-configured Naira
+ * pricing.
  */
 @Component({
   selector: 'pat-book-consultation',
@@ -45,6 +97,7 @@ import {
     RouterLink,
     AlertComponent,
     ButtonComponent,
+    FileDropComponent,
     IconComponent,
     StepperComponent,
   ],
@@ -147,7 +200,7 @@ import {
                 <span class="flex items-center gap-1.5 text-slate"
                   ><sd-icon name="banknote" [size]="14" />Fee</span
                 >
-                <span class="text-ink">{{ fmt(s.consultation_fee) }}</span>
+                <span class="text-ink">{{ feeLabel(s.consultation_fee) }}</span>
               </div>
             </div>
           </div>
@@ -169,8 +222,9 @@ import {
               <div
                 class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
               >
-                <sd-icon name="calendar-off" [size]="16" />No open slots in the
-                next two weeks.
+                <!-- The slots endpoint looks 3 weeks ahead (AvailabilityService::LOOKAHEAD_DAYS). -->
+                <sd-icon name="calendar-off" [size]="16" />No open times in the
+                next three weeks. Please check back later.
               </div>
             } @else {
               <div class="rounded-card border border-cloud bg-glacier/50 p-4">
@@ -184,16 +238,19 @@ import {
                     selectedSummary()
                   }}</span>
                 </div>
-                <div class="flex gap-2 overflow-x-auto pb-1">
+                <!-- Days and times are the patient's local time (localSlotDays). -->
+                <div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Day">
                   @for (d of days(); track d.date) {
                     <button
                       type="button"
-                      class="flex shrink-0 flex-col items-center rounded-field border px-4 py-2 transition-colors"
+                      class="flex shrink-0 flex-col items-center rounded-field border px-4 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
                       [class]="
                         selectedDate() === d.date
                           ? 'border-cerulean bg-cerulean text-white'
                           : 'border-cloud bg-white text-slate hover:border-cerulean/50'
                       "
+                      [attr.aria-pressed]="selectedDate() === d.date"
+                      [attr.aria-label]="dayName(d.date)"
                       (click)="pickDate(d)"
                     >
                       <span class="font-sans text-[10px] uppercase">{{
@@ -205,16 +262,17 @@ import {
                     </button>
                   }
                 </div>
-                <div class="mt-3 flex flex-wrap gap-2">
+                <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Time">
                   @for (t of selectedDaySlots(); track t.iso) {
                     <button
                       type="button"
-                      class="rounded-field border px-3 py-1 font-sans text-caption transition-colors"
+                      class="min-h-11 rounded-field border px-4 py-1 font-sans text-caption transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
                       [class]="
                         selectedTime() === t.iso
                           ? 'border-cerulean bg-cerulean text-white'
                           : 'border-cloud bg-white text-slate hover:border-cerulean/50'
                       "
+                      [attr.aria-pressed]="selectedTime() === t.iso"
                       (click)="selectedTime.set(t.iso)"
                     >
                       {{ t.label }}
@@ -401,77 +459,151 @@ import {
           <ng-container [ngTemplateOutlet]="navRow" />
         }
 
-        <!-- Step 5: document -->
+        <!-- Step 5: documents -->
         @if (step() === 5) {
-          <div class="rounded-card border border-cloud bg-white p-6">
-            <div class="mb-4 flex items-center justify-between">
-              <h2 class="font-heading text-h5 text-cerulean">
+          <div class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+            <div class="flex items-center justify-between gap-3">
+              <h2
+                #docsTitle
+                tabindex="-1"
+                class="font-heading text-h5 text-cerulean outline-none"
+              >
                 <span
                   class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
                   >5</span
-                >Upload Supporting Document
+                >Upload Supporting Documents
                 <span class="font-sans text-body-sm font-normal text-slate"
                   >(Optional)</span
                 >
               </h2>
-              <button
-                type="button"
-                class="font-sans text-body-sm font-semibold text-cerulean hover:underline"
-                (click)="skipDocument()"
-              >
-                Skip
-              </button>
-            </div>
-
-            @if (docUrl()) {
-              <div
-                class="flex items-center gap-3 rounded-card border border-sage/40 bg-sage/5 px-4 py-3"
-              >
-                <sd-icon name="circle-check" [size]="20" class="text-sage" />
-                <span class="min-w-0 flex-1 truncate font-sans text-body-sm text-ink"
-                  >{{ docName() }}</span
-                >
+              @if (attachments().length === 0) {
                 <button
                   type="button"
-                  class="shrink-0 font-sans text-caption font-semibold text-alert hover:underline"
-                  (click)="removeDocument()"
+                  class="min-h-11 shrink-0 px-2 font-sans text-body-sm font-semibold text-cerulean hover:underline"
+                  (click)="next()"
                 >
-                  Remove
+                  Skip
                 </button>
-              </div>
-            } @else {
-              <button
-                type="button"
-                class="flex w-full flex-col items-center gap-2 rounded-card border border-dashed border-cloud bg-glacier/40 px-4 py-10 text-center transition-colors hover:border-cerulean/50 disabled:opacity-60"
-                [disabled]="uploadingDoc()"
-                (click)="docInput.click()"
-              >
-                @if (uploadingDoc()) {
-                  <span
-                    class="size-6 animate-spin rounded-full border-2 border-cloud border-t-cerulean"
-                  ></span>
-                  <span class="font-sans text-body-sm text-slate">Uploading…</span>
-                } @else {
-                  <sd-icon name="upload" [size]="26" class="text-slate" />
-                  <span class="font-sans text-body font-semibold text-ink"
-                    >Click to upload or drag and drop</span
-                  >
-                  <span class="font-sans text-caption text-slate"
-                    >Supported format: PDF, JPG, PNG or WEBP, up to 10MB</span
-                  >
+              }
+            </div>
+            <p class="font-sans text-body-sm text-slate">
+              Add lab results, scans or photos for your doctor. Each file is
+              also saved to your medical documents.
+            </p>
+
+            <!-- Upload progress and outcomes, announced to screen readers -->
+            <p class="sr-only" aria-live="polite" aria-atomic="true">{{ docsLiveStatus() }}</p>
+
+            @if (attachments().length > 0) {
+              <ul class="flex flex-col gap-3" aria-label="Attached documents">
+                @for (a of attachments(); track a.key) {
+                  <li class="flex flex-col gap-2 rounded-card border border-cloud p-3 sm:p-4">
+                    <div class="flex items-center gap-3">
+                      <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"
+                        ><sd-icon name="file-text" [size]="18"
+                      /></span>
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate font-sans text-body-sm font-semibold text-ink" [title]="a.file.name">{{ a.file.name }}</span>
+                        <span class="font-sans text-caption text-slate">{{ sizeLabel(a.file.size) }}</span>
+                      </span>
+                      <span
+                        class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium"
+                        [class]="attachStatus(a.status).cls"
+                      >
+                        <sd-icon
+                          [name]="attachStatus(a.status).icon"
+                          [size]="12"
+                          [class.animate-spin]="a.status === 'uploading'"
+                        />{{ a.status === 'uploading' ? a.progress + '%' : attachStatus(a.status).label }}
+                      </span>
+                      <button
+                        type="button"
+                        class="inline-flex size-11 shrink-0 items-center justify-center rounded-field text-slate transition-colors hover:text-alert"
+                        [attr.aria-label]="'Remove ' + a.file.name"
+                        (click)="removeAttachment(a.key)"
+                      >
+                        <sd-icon name="trash-2" [size]="18" />
+                      </button>
+                    </div>
+                    @if (a.status === 'uploading') {
+                      <div
+                        class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
+                        role="progressbar"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        [attr.aria-valuenow]="a.progress"
+                        [attr.aria-label]="'Uploading ' + a.file.name"
+                      >
+                        <div class="h-full rounded-full bg-cerulean transition-[width] duration-200" [style.width.%]="a.progress"></div>
+                      </div>
+                    }
+                    @if (a.status === 'failed') {
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="flex min-w-0 items-start gap-1.5 font-sans text-caption text-alert">
+                          <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" /><span class="min-w-0 wrap-anywhere">{{ a.error }}</span>
+                        </p>
+                        <button
+                          type="button"
+                          class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-cloud px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+                          [attr.aria-label]="'Retry ' + a.file.name"
+                          (click)="retryAttachment(a.key)"
+                        >
+                          <sd-icon name="refresh-cw" [size]="14" />Retry
+                        </button>
+                      </div>
+                    }
+                  </li>
                 }
-              </button>
+              </ul>
             }
-            @if (docError()) {
-              <sd-alert class="mt-2 block" tone="error">{{ docError() }}</sd-alert>
+
+            @if (attachments().length < maxDocs) {
+              <sd-file-drop
+                [accept]="docAccept"
+                [multiple]="true"
+                [maxBytes]="docMaxBytes"
+                [compact]="attachments().length > 0"
+                [label]="attachments().length > 0 ? 'Add more files' : 'Drag and drop files here'"
+                [hint]="'PDF, JPG, PNG, WEBP, DOCX, DICOM or video · up to 10MB each · up to ' + maxDocs + ' files'"
+                (files)="addAttachments($event)"
+                (rejected)="onAttachmentsRejected($event)"
+              />
+            } @else {
+              <p class="font-sans text-caption text-slate">
+                That's the most you can attach to one booking ({{ maxDocs }} files).
+              </p>
             }
-            <input
-              #docInput
-              type="file"
-              accept="application/pdf,image/png,image/jpeg,image/webp"
-              class="hidden"
-              (change)="onDocumentSelected($event)"
-            />
+
+            @if (skipped().length > 0) {
+              <div class="flex flex-col gap-2 rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-alert" role="alert">
+                <div class="flex items-start justify-between gap-3">
+                  <span class="flex items-start gap-2 font-semibold">
+                    <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ skipped().length === 1 ? '1 file wasn’t added' : skipped().length + ' files weren’t added' }}
+                  </span>
+                  <button
+                    type="button"
+                    class="inline-flex size-11 shrink-0 items-center justify-center rounded-field transition-colors hover:text-ink"
+                    aria-label="Dismiss"
+                    (click)="dismissSkipped()"
+                  >
+                    <sd-icon name="x" [size]="18" />
+                  </button>
+                </div>
+                <ul class="flex flex-col gap-1 pl-[26px] font-sans text-caption">
+                  @for (s of skipped(); track $index) {
+                    <li class="wrap-anywhere"><span class="font-semibold">{{ s.name }}</span> — {{ s.reason }}</li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (docsBusy()) {
+              <p class="font-sans text-caption text-slate">You can continue once your files have uploaded.</p>
+            } @else if (failedAttachments() > 0) {
+              <p class="font-sans text-caption text-slate">
+                Files that failed won't be attached. Retry or remove them.
+              </p>
+            }
           </div>
           <ng-container [ngTemplateOutlet]="navRow" />
         }
@@ -548,10 +680,10 @@ import {
               }
               <div class="flex justify-between gap-4">
                 <dt class="flex items-center gap-2 text-slate">
-                  <sd-icon name="file-text" [size]="16" />Supporting Document
+                  <sd-icon name="file-text" [size]="16" />Supporting Documents
                 </dt>
                 <dd class="text-right text-ink">
-                  {{ docUrl() ? '1 document uploaded' : 'None' }}
+                  {{ attachedSummary() }}
                 </dd>
               </div>
             </dl>
@@ -560,7 +692,7 @@ import {
             >
               <div class="flex justify-between">
                 <span class="text-slate">Consultation Fee</span>
-                <span class="text-ink">{{ fmt(baseFee()) }}</span>
+                <span class="text-ink">{{ feeLabel(baseFee()) }}</span>
               </div>
               @if (validGuests().length > 0) {
                 <div class="flex justify-between">
@@ -575,7 +707,7 @@ import {
                 class="flex justify-between border-t border-cloud pt-2 font-semibold"
               >
                 <span class="text-body text-cerulean">Amount</span>
-                <span class="text-h5 text-cerulean">{{ fmt(amount()) }}</span>
+                <span class="text-h5 text-cerulean">{{ feeLabel(amount()) }}</span>
               </div>
             </div>
           </div>
@@ -585,19 +717,67 @@ import {
               >Back to previous</sd-button
             >
             <sd-button (click)="next()">
-              Continue to payment <sd-icon name="arrow-right" [size]="18" />
+              {{ isFree() ? 'Continue' : 'Continue to payment' }}
+              <sd-icon name="arrow-right" [size]="18" />
             </sd-button>
           </div>
           <p
             class="flex items-center justify-center gap-1.5 font-sans text-caption text-slate"
           >
-            <sd-icon name="lock" [size]="14" />Secure payment will be processed
-            next
+            @if (isFree()) {
+              <sd-icon name="circle-check" [size]="14" />This consultation is
+              free — no payment needed
+            } @else {
+              <sd-icon name="lock" [size]="14" />Secure payment will be processed
+              next
+            }
           </p>
         }
 
-        <!-- Step 7: payment (stub, skippable) -->
-        @if (step() === 7) {
+        <!-- Step 7: a free consultation books with no payment at all -->
+        @if (step() === 7 && isFree()) {
+          <div class="rounded-card border border-cloud bg-white p-6">
+            <h2 class="mb-5 font-heading text-h5 text-cerulean">
+              <span
+                class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
+                >7</span
+              >Confirm Booking
+            </h2>
+            <div class="flex flex-col gap-3 font-sans text-body-sm">
+              <div class="flex justify-between">
+                <span class="text-slate">Consultation Fee</span>
+                <span class="text-ink">Free</span>
+              </div>
+              <div
+                class="flex justify-between border-t border-cloud pt-3 font-semibold"
+              >
+                <span class="text-ink">Total</span>
+                <span class="text-cerulean">Free</span>
+              </div>
+            </div>
+            <p class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
+              <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+              This consultation is free — nothing will be charged to your card
+              or wallet.
+            </p>
+          </div>
+
+          @if (submitError()) {
+            <sd-alert tone="error">{{ submitError() }}</sd-alert>
+          }
+
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <sd-button variant="outline" (click)="back()"
+              >Back to previous</sd-button
+            >
+            <sd-button [disabled]="submitting()" (click)="confirm()">
+              {{ submitting() ? 'Booking…' : 'Confirm booking' }}
+            </sd-button>
+          </div>
+        }
+
+        <!-- Step 7: payment — card (Paystack) or wallet -->
+        @if (step() === 7 && !isFree()) {
           <div class="rounded-card border border-cloud bg-white p-6">
             <h2 class="mb-5 font-heading text-h5 text-cerulean">
               <span
@@ -646,10 +826,12 @@ import {
                   <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
                 }
               </button>
+              <!-- Not once the card has been charged: the wallet would pay twice. -->
               <button
                 type="button"
-                class="flex items-center gap-3 rounded-card border-2 p-4 text-left transition-colors"
+                class="flex items-center gap-3 rounded-card border-2 p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 [class]="payMethod() === 'wallet' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                [disabled]="!!paidReference()"
                 (click)="payMethod.set('wallet')"
               >
                 <sd-icon name="wallet" [size]="22" class="shrink-0 text-cerulean" />
@@ -672,7 +854,13 @@ import {
             @if (payMethod() === 'card') {
               <p class="mt-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
                 <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
-                {{ fmt(amount()) }} will be charged to your card now via Paystack — you'll get a receipt by email.
+                @if (paidReference()) {
+                  Your card payment went through, but the booking didn't. Fix
+                  what's shown below, then complete the booking — you won't be
+                  charged again.
+                } @else {
+                  {{ fmt(amount()) }} will be charged to your card now via Paystack — you'll get a receipt by email.
+                }
               </p>
               @if (fundError()) {
                 <sd-alert tone="error" class="mt-2 block">{{ fundError() }}</sd-alert>
@@ -730,7 +918,13 @@ import {
             >
             @if (payMethod() === 'card') {
               <sd-button [disabled]="funding() || submitting()" (click)="payWithCard()">
-                {{ funding() || submitting() ? 'Processing…' : 'Pay ' + fmt(amount()) + ' with card' }}
+                {{
+                  funding() || submitting()
+                    ? 'Processing…'
+                    : paidReference()
+                      ? 'Complete booking'
+                      : 'Pay ' + fmt(amount()) + ' with card'
+                }}
                 @if (!funding() && !submitting()) { <sd-icon name="arrow-right" [size]="18" /> }
               </sd-button>
             } @else if (walletLoaded() && !walletError() && !walletSufficient()) {
@@ -772,6 +966,10 @@ export class BookConsultation implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  /** Step 5's heading — focus lands here when the control used is removed. */
+  private readonly docsTitle = viewChild<ElementRef<HTMLElement>>('docsTitle');
 
   protected readonly steps = [1, 2, 3, 4, 5, 6, 7];
   protected readonly step = signal(1);
@@ -794,10 +992,44 @@ export class BookConsultation implements OnInit {
 
   protected readonly reason = signal('');
   protected readonly guests = signal<GuestInvite[]>([]);
-  protected readonly docUrl = signal('');
-  protected readonly docName = signal('');
-  protected readonly uploadingDoc = signal(false);
-  protected readonly docError = signal('');
+
+  // Supporting documents — each is filed in the patient's medical documents as
+  // it uploads; the booking attaches the uploaded ones by id.
+  protected readonly docAccept = DOC_ACCEPT;
+  protected readonly docMaxBytes = DOC_MAX_BYTES;
+  protected readonly maxDocs = MAX_DOCS;
+  protected readonly attachments = signal<Attachment[]>([]);
+  protected readonly skipped = signal<SkippedFile[]>([]);
+  /** A file is on the wire or waiting its turn — Continue waits for them. */
+  protected readonly docsBusy = computed(() =>
+    this.attachments().some((a) => a.status === 'uploading' || a.status === 'queued'),
+  );
+  protected readonly failedAttachments = computed(
+    () => this.attachments().filter((a) => a.status === 'failed').length,
+  );
+  /** The uploaded documents' ids, in the order they were added. */
+  private readonly attachedIds = computed(() =>
+    this.attachments()
+      .filter((a) => a.status === 'done')
+      .map((a) => a.doc?.id)
+      .filter((id): id is string => !!id),
+  );
+  protected readonly attachedSummary = computed(() => {
+    const n = this.attachedIds().length;
+    return n === 0 ? 'None' : n === 1 ? '1 document attached' : `${n} documents attached`;
+  });
+  /** What the aria-live region says — per file, not per progress tick. */
+  protected readonly docsLiveStatus = computed(() => {
+    const list = this.attachments();
+    const at = list.find((a) => a.status === 'uploading');
+    if (at) return `Uploading ${at.file.name}.`;
+    if (list.length === 0) return '';
+    const failed = this.failedAttachments();
+    return `${this.attachedSummary()}.${failed > 0 ? ` ${failed} failed.` : ''}`;
+  });
+  private nextDocKey = 1;
+  /** The in-flight upload per attachment, so Remove can cancel it. */
+  private readonly uploads = new Map<number, Subscription>();
 
   protected readonly submitting = signal(false);
   protected readonly submitError = signal('');
@@ -810,6 +1042,11 @@ export class BookConsultation implements OnInit {
   // kept intact; on success we book automatically.
   protected readonly funding = signal(false);
   protected readonly fundError = signal('');
+  /**
+   * A card payment that went through for a booking the server then refused —
+   * kept so "Complete booking" retries on it instead of charging again.
+   */
+  protected readonly paidReference = signal('');
   protected readonly topUpAmount = signal('');
   private paystackLoader?: Promise<PaystackPopCtor>;
 
@@ -818,6 +1055,28 @@ export class BookConsultation implements OnInit {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+  constructor() {
+    // While the documents step is showing, a file dropped just outside the
+    // drop zone must not make the browser navigate away to open it (losing
+    // the whole booking). The zone cancels its own events first, so anything
+    // still uncancelled here is a miss.
+    effect((onCleanup) => {
+      const win = this.document.defaultView;
+      if (this.step() !== 5 || !win) return;
+      const guard = (e: DragEvent): void => {
+        if (e.defaultPrevented || !Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+      };
+      win.addEventListener('dragover', guard);
+      win.addEventListener('drop', guard);
+      onCleanup(() => {
+        win.removeEventListener('dragover', guard);
+        win.removeEventListener('drop', guard);
+      });
+    });
+  }
 
   ngOnInit(): void {
     this.specialistId = this.route.snapshot.paramMap.get('id') ?? '';
@@ -856,11 +1115,14 @@ export class BookConsultation implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.days.set(res.data);
+          // Regrouped by the patient's local date with local labels (the API's
+          // are UTC), minus any slot that has already started.
+          const days = localSlotDays(res.data);
+          this.days.set(days);
           const preDay = preslot
-            ? res.data.find((d) => d.slots.some((s) => s.iso === preslot))
+            ? days.find((d) => d.slots.some((s) => s.iso === preslot))
             : undefined;
-          const day = preDay ?? res.data[0];
+          const day = preDay ?? days[0];
           if (day) {
             this.selectedDate.set(day.date);
             this.selectedTime.set(
@@ -920,12 +1182,20 @@ export class BookConsultation implements OnInit {
     }).format(new Date(`${day.date}T12:00:00`));
   });
 
-  // The slot's server-formatted label, so the summary matches the picked pill.
+  // The slot's local label, so the summary matches the picked pill.
   protected readonly summaryTime = computed(
     () =>
       this.selectedDaySlots().find((s) => s.iso === this.selectedTime())
         ?.label ?? '—',
   );
+
+  /** "Wednesday, 15 October" for a day pill's local YYYY-MM-DD (read at local noon). */
+  protected dayName(date: string): string {
+    const d = new Date(`${date}T12:00:00`);
+    return isNaN(d.getTime())
+      ? date
+      : new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+  }
 
   // ----- Pricing -----
 
@@ -948,6 +1218,13 @@ export class BookConsultation implements OnInit {
   );
   /** Consultation fee + guest fees — what the backend charges the wallet. */
   protected readonly amount = computed(() => this.baseFee() + this.guestsTotal());
+  /**
+   * Nothing to pay: no card checkout and no wallet balance needed. With guests
+   * it waits for the pricing, so an unloaded guest fee never reads as free.
+   */
+  protected readonly isFree = computed(
+    () => this.amount() <= 0 && (this.validGuests().length === 0 || this.pricing() !== null),
+  );
   /** Amount + platform fee — the checkout total shown at payment. */
   protected readonly total = computed(() => this.amount() + this.platformFee());
 
@@ -979,6 +1256,11 @@ export class BookConsultation implements OnInit {
 
   protected fmt(value: number | string): string {
     return this.currency() + this.nf.format(Number(value) || 0);
+  }
+
+  /** A fee as money, or "Free" when there is nothing to pay (never "₦0.00"). */
+  protected feeLabel(value: number | string): string {
+    return Number(value) > 0 ? this.fmt(value) : 'Free';
   }
 
   protected emailValid(email: string): boolean {
@@ -1016,6 +1298,8 @@ export class BookConsultation implements OnInit {
             (g.name.trim() === '' && g.email.trim() === '') ||
             (g.name.trim() !== '' && this.emailValid(g.email)),
         );
+      case 5:
+        return !this.docsBusy(); // wait for files still uploading
       default:
         return true;
     }
@@ -1029,44 +1313,155 @@ export class BookConsultation implements OnInit {
     if (this.step() > 1) this.step.update((s) => s - 1);
   }
 
-  protected async onDocumentSelected(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file) return;
-    this.docError.set('');
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    const ok =
-      /^(application\/pdf|image\/(png|jpe?g|webp))$/.test(file.type) ||
-      ['pdf', 'png', 'jpg', 'jpeg', 'webp'].includes(ext);
-    if (!ok) {
-      this.docError.set('Upload a PDF, JPG, PNG or WEBP file.');
-      return;
+  // ----- Supporting documents -----
+
+  /** Queue what a drop or pick produced (turning away what we can't take) and start uploading. */
+  protected addAttachments(files: File[]): void {
+    const current = this.attachments();
+    const added: Attachment[] = [];
+    const skipped: SkippedFile[] = [];
+    for (const file of files) {
+      const err = this.validateDocument(file);
+      const dup = [...current, ...added].some(
+        (a) =>
+          a.file.name === file.name &&
+          a.file.size === file.size &&
+          a.file.lastModified === file.lastModified,
+      );
+      if (err) skipped.push({ name: file.name, reason: err });
+      else if (dup) skipped.push({ name: file.name, reason: 'Already attached.' });
+      else if (current.length + added.length >= MAX_DOCS) {
+        skipped.push({ name: file.name, reason: `You can attach up to ${MAX_DOCS} files to a booking.` });
+      } else {
+        added.push({ key: this.nextDocKey++, file, status: 'queued', progress: 0, error: '', doc: null });
+      }
     }
-    if (file.size > 10 * 1024 * 1024) {
-      this.docError.set('File must be 10MB or smaller.');
-      return;
-    }
-    this.uploadingDoc.set(true);
-    try {
-      const res = await firstValueFrom(this.appointments.uploadDocument(file));
-      this.docUrl.set(res.data.url);
-      this.docName.set(file.name);
-    } catch (err) {
-      this.docError.set(apiErrorMessage(err, 'Could not upload the file.'));
-    } finally {
-      this.uploadingDoc.set(false);
-    }
+    if (added.length > 0) this.attachments.set([...current, ...added]);
+    this.skip(skipped);
+    // A full list hides the drop zone that was just used.
+    if (this.attachments().length >= MAX_DOCS) this.keepDocsFocus();
+    this.uploadNext();
   }
 
-  protected removeDocument(): void {
-    this.docUrl.set('');
-    this.docName.set('');
+  /** Files the drop zone already turned away on type or size. */
+  protected onAttachmentsRejected(rejections: FileDropRejection[]): void {
+    this.skip(
+      rejections.map((r) => ({ name: r.file.name, reason: r.reason === 'size' ? DOC_TOO_BIG : DOC_UNSUPPORTED })),
+    );
   }
 
-  protected skipDocument(): void {
-    this.removeDocument();
-    this.next();
+  protected dismissSkipped(): void {
+    this.skipped.set([]);
+    this.keepDocsFocus();
+  }
+
+  /**
+   * Take a file off this booking. An upload still running is cancelled; one
+   * that finished stays in the patient's medical documents (there is no
+   * delete), it just won't be attached.
+   */
+  protected removeAttachment(key: number): void {
+    this.uploads.get(key)?.unsubscribe();
+    this.uploads.delete(key);
+    this.attachments.update((list) => list.filter((a) => a.key !== key));
+    this.keepDocsFocus(); // the Remove button went with its row
+    this.uploadNext();
+  }
+
+  protected retryAttachment(key: number): void {
+    this.patchAttachment(key, { status: 'queued', progress: 0, error: '' });
+    this.keepDocsFocus(); // the row's Retry button is gone
+    this.uploadNext();
+  }
+
+  /**
+   * Upload the next waiting file. The API takes one file per request, so they
+   * go one at a time — each with its own progress and outcome — and a failure
+   * never stops the rest.
+   */
+  private uploadNext(): void {
+    if (this.attachments().some((a) => a.status === 'uploading')) return;
+    const next = this.attachments().find((a) => a.status === 'queued');
+    if (!next) return;
+    this.patchAttachment(next.key, { status: 'uploading', progress: 0, error: '' });
+
+    const sub = this.appointments
+      .uploadDocument(next.file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (event) => {
+          if (event.type === HttpEventType.UploadProgress && event.total) {
+            this.patchAttachment(next.key, { progress: Math.round((event.loaded / event.total) * 100) });
+          } else if (event.type === HttpEventType.Response) {
+            const doc = event.body?.data ?? null;
+            this.uploads.delete(next.key);
+            // Only a filed document (it has an id) is attached. An older API
+            // answers with just a public URL — that file can't be attached by
+            // id, so it must never read as "Attached".
+            this.patchAttachment(
+              next.key,
+              doc?.id
+                ? { status: 'done', progress: 100, doc }
+                : { status: 'failed', error: 'Upload failed. Please try again.' },
+            );
+            this.uploadNext();
+          }
+        },
+        error: (err: unknown) => {
+          this.uploads.delete(next.key);
+          this.patchAttachment(next.key, {
+            status: 'failed',
+            error: apiErrorMessage(err, 'Upload failed. Please try again.'),
+          });
+          this.uploadNext();
+        },
+      });
+    this.uploads.set(next.key, sub);
+  }
+
+  private patchAttachment(key: number, changes: Partial<Attachment>): void {
+    this.attachments.update((list) => list.map((a) => (a.key === key ? { ...a, ...changes } : a)));
+  }
+
+  private skip(list: SkippedFile[]): void {
+    if (list.length === 0) return;
+    this.skipped.update((prev) => [
+      ...prev.filter((p) => !list.some((s) => s.name === p.name && s.reason === p.reason)),
+      ...list,
+    ]);
+  }
+
+  private validateDocument(f: File): string | null {
+    if (f.size > DOC_MAX_BYTES) return DOC_TOO_BIG;
+    const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!DOC_EXT.includes(ext)) return DOC_UNSUPPORTED;
+    if (f.size === 0) return 'This file is empty.';
+    return null;
+  }
+
+  /**
+   * After the next render, if the control that had focus was removed (focus
+   * fell back to <body>), put it on the step's heading instead of losing it.
+   */
+  private keepDocsFocus(): void {
+    afterNextRender(
+      () => {
+        const active = this.document.activeElement;
+        if (active && active !== this.document.body && active.isConnected) return;
+        this.docsTitle()?.nativeElement.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  protected attachStatus(status: AttachStatus): { label: string; icon: string; cls: string } {
+    return ATTACH_STATUS[status];
+  }
+
+  protected sizeLabel(bytes: number): string {
+    return bytes >= 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1).replace(/\.0$/, '')}MB`
+      : `${Math.max(1, Math.round(bytes / 1024))}KB`;
   }
 
   protected async confirm(paymentReference?: string): Promise<void> {
@@ -1081,13 +1476,14 @@ export class BookConsultation implements OnInit {
         name: g.name.trim(),
         email: g.email.trim(),
       }));
+      const documentIds = this.attachedIds();
       await firstValueFrom(
         this.appointments.book({
           specialist_id: this.specialistId,
           scheduled_at: this.selectedTime(),
           type: 'video',
           notes: this.reason().trim() || undefined,
-          document_url: this.docUrl() || undefined,
+          document_ids: documentIds.length > 0 ? documentIds : undefined,
           guests: guests.length > 0 ? guests : undefined,
           payment_reference: paymentReference,
         }),
@@ -1098,11 +1494,15 @@ export class BookConsultation implements OnInit {
     } catch (err) {
       // Backstop: the server rejects an underfunded wallet with a 422 flag —
       // flip the balance to a known-short state so the top-up CTA shows.
-      const fields = (err as { errors?: Record<string, string> })?.errors;
-      if (fields?.['wallet'] === 'insufficient_funds') {
+      // (`wallet: insufficient_funds` is a flag, so it gets words of its own.)
+      if (apiErrorFields(err)['wallet'] === 'insufficient_funds') {
         this.walletBalance.set(Math.max(0, this.amount() - 1));
         this.walletLoaded.set(true);
         this.walletError.set('');
+        this.submitError.set(
+          'Your wallet balance is too low to book this consultation. Pay by card, or top up your wallet and try again.',
+        );
+        return;
       }
       this.submitError.set(
         apiErrorMessage(err, 'Could not complete your booking. Please try again.'),
@@ -1122,6 +1522,12 @@ export class BookConsultation implements OnInit {
       this.step.set(1);
       return;
     }
+    // Already paid, but the booking was refused (a slot taken, an attachment
+    // the server turned down): book again on the same, still unused, payment.
+    if (this.paidReference()) {
+      void this.confirm(this.paidReference());
+      return;
+    }
     this.funding.set(true);
     this.fundError.set('');
     this.submitError.set('');
@@ -1134,6 +1540,7 @@ export class BookConsultation implements OnInit {
       popup.resumeTransaction(init.data.access_code, {
         onSuccess: () => {
           this.funding.set(false);
+          this.paidReference.set(init.data.reference);
           void this.confirm(init.data.reference);
         },
         onCancel: () => {
@@ -1146,8 +1553,33 @@ export class BookConsultation implements OnInit {
         },
       });
     } catch (err) {
+      if (apiErrorFields(err)['payment'] === 'free') {
+        // The server says there's nothing to pay (the fee changed since this
+        // page loaded): reprice, and this step becomes the free "Confirm
+        // booking" one. `payment: free` is a flag, never shown as a message.
+        await this.refreshPricing();
+        this.funding.set(false);
+        if (!this.isFree()) {
+          this.fundError.set('This consultation is now free — no payment is needed. Reload the page to book it.');
+        }
+        return;
+      }
       this.funding.set(false);
       this.fundError.set(apiErrorMessage(err, 'Could not start the card payment. Please try again.'));
+    }
+  }
+
+  /** Reload the specialist's fee and the guest pricing (best effort). */
+  private async refreshPricing(): Promise<void> {
+    try {
+      const [specialist, pricing] = await Promise.all([
+        firstValueFrom(this.specialistsApi.getPublic(this.specialistId)),
+        firstValueFrom(this.specialistsApi.pricing()),
+      ]);
+      this.specialist.set(specialist.data);
+      this.pricing.set(pricing.data);
+    } catch {
+      // Keep the prices we have; the caller explains what to do.
     }
   }
 
