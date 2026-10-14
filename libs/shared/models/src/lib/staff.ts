@@ -124,7 +124,17 @@ export interface DoctorProfileUpdate {
 /** A row in the doctor's schedule — an appointment plus join affordances. */
 export interface DoctorAppointmentDto extends AppointmentDto {
   patient_name: string;
-  join_url: string;
+  /** Preauthenticated call link; null on a follow-up proposal the patient hasn't accepted (no call yet). */
+  join_url: string | null;
+}
+
+/**
+ * A follow-up as the doctor sees it (GET .../follow-ups, POST .../follow-up):
+ * the appointment plus the patient's name. `status` 'proposed' = awaiting the
+ * patient; `decline_reason` is set when they declined.
+ */
+export interface DoctorFollowUpDto extends AppointmentDto {
+  patient_name: string;
 }
 
 /** `GET /api/doctor/appointments` payload. */

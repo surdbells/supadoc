@@ -15,6 +15,12 @@ use Ramsey\Uuid\Uuid;
  * A booked consultation. `status` is a backed enum that guards its own
  * transitions — `transitionTo()` refuses illegal moves rather than trusting the
  * caller (see ARCHITECTURE §6). `amount` is money-as-string.
+ *
+ * A follow-up links to the consultation it follows on from (`parent`). The
+ * doctor can propose one ({@see proposeFollowUp()}: PROPOSED until the patient
+ * accepts, declines or it expires), or the patient books one from a completed
+ * consultation ({@see bookAsFollowUpOf()}). Either way `amount` is the final,
+ * follow-up-priced fee, so refunds use it.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'appointments')]
@@ -22,6 +28,7 @@ use Ramsey\Uuid\Uuid;
 #[ORM\Index(name: 'idx_appointments_status', columns: ['status'])]
 #[ORM\Index(name: 'idx_appointments_specialist_scheduled', columns: ['specialist_id', 'scheduled_at'])]
 #[ORM\Index(name: 'idx_appointments_scheduled', columns: ['scheduled_at'])]
+#[ORM\Index(name: 'idx_appointments_parent', columns: ['parent_appointment_id'])]
 #[ORM\HasLifecycleCallbacks]
 class Appointment
 {
@@ -83,6 +90,51 @@ class Appointment
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $guests = null;
 
+    /** The consultation this follow-up follows on from; null for an ordinary booking. */
+    #[ORM\ManyToOne(targetEntity: Appointment::class)]
+    #[ORM\JoinColumn(name: 'parent_appointment_id', referencedColumnName: 'id', nullable: true)]
+    private ?Appointment $parent = null;
+
+    /** Who created the follow-up: 'doctor' (a proposal) or 'patient' (booked it); null otherwise. */
+    #[ORM\Column(name: 'proposed_by', type: 'string', length: 10, nullable: true)]
+    private ?string $proposedBy = null;
+
+    /** The doctor's note to the patient on a proposal — shown in the app only, never in emails or notifications. */
+    #[ORM\Column(name: 'follow_up_note', type: 'text', nullable: true)]
+    private ?string $followUpNote = null;
+
+    /**
+     * How the follow-up was priced ({@see \App\Infrastructure\Service\PricingService::followUpPrice()}):
+     * base_fee, amount, rule, discount_percent, window_days, window_ends_at, waived.
+     *
+     * @var array<string,mixed>|null
+     */
+    #[ORM\Column(name: 'follow_up_pricing', type: 'json', nullable: true)]
+    private ?array $followUpPricing = null;
+
+    /** An unanswered proposal closes here (the reminders cron cancels it); it holds the slot until then. */
+    #[ORM\Column(name: 'expires_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $expiresAt = null;
+
+    /** When the patient was reminded about an unanswered proposal (it happens once). */
+    #[ORM\Column(name: 'follow_up_nudged_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $followUpNudgedAt = null;
+
+    /** The patient's optional reason for declining a proposal (patient + doctor only). */
+    #[ORM\Column(name: 'decline_reason', type: 'text', nullable: true)]
+    private ?string $declineReason = null;
+
+    /**
+     * How a doctor's proposal closed without being accepted (one of
+     * FOLLOW_UP_OUTCOMES); null while open, once accepted, on an ordinary
+     * booking — and on proposals closed before this was recorded.
+     */
+    #[ORM\Column(name: 'follow_up_outcome', type: 'string', length: 10, nullable: true)]
+    private ?string $followUpOutcome = null;
+
+    /** The patient declined it; the doctor (or the back office) withdrew it; it closed unanswered. */
+    public const FOLLOW_UP_OUTCOMES = ['declined', 'withdrawn', 'expired'];
+
     public function __construct(
         Patient $patient,
         Specialist $specialist,
@@ -97,9 +149,147 @@ class Appointment
         $this->amount      = $specialist->getConsultationFee();
     }
 
+    /**
+     * A doctor-proposed follow-up of `$parent`: same patient and doctor, a video
+     * consultation, PROPOSED (holding the slot) until the patient answers or
+     * `$expiresAt` passes. Priced by `$pricing` (its `amount` is the fee).
+     *
+     * @param array<string,mixed> $pricing
+     */
+    public static function proposeFollowUp(
+        Appointment $parent,
+        DateTimeImmutable $scheduledAt,
+        array $pricing,
+        ?string $note,
+        DateTimeImmutable $expiresAt,
+    ): self {
+        $proposal               = new self($parent->patient, $parent->specialist, $scheduledAt, ConsultationType::FOLLOW_UP);
+        $proposal->status       = AppointmentStatus::PROPOSED;
+        $proposal->parent       = $parent;
+        $proposal->proposedBy   = 'doctor';
+        $proposal->followUpNote = $note !== null && trim($note) !== '' ? trim($note) : null;
+        $proposal->expiresAt    = $expiresAt;
+        $proposal->priceFollowUp($pricing);
+
+        return $proposal;
+    }
+
+    /**
+     * The patient books this consultation as a follow-up of `$parent`. Only the
+     * link and the pricing record are set here — the caller sets the amount
+     * (the follow-up price plus any guests).
+     *
+     * @param array<string,mixed> $pricing
+     */
+    public function bookAsFollowUpOf(Appointment $parent, array $pricing): void
+    {
+        $this->parent          = $parent;
+        $this->proposedBy      = 'patient';
+        $this->type            = ConsultationType::FOLLOW_UP;
+        $this->followUpPricing = $pricing;
+    }
+
+    /**
+     * The patient accepts a proposal at another open slot: the new time and its
+     * price (re-quoted for that time, keeping a doctor's waiver).
+     *
+     * @param array<string,mixed> $pricing
+     */
+    public function moveProposal(DateTimeImmutable $scheduledAt, array $pricing): void
+    {
+        $this->scheduledAt = $scheduledAt;
+        $this->priceFollowUp($pricing);
+    }
+
+    /** @param array<string,mixed> $pricing */
+    private function priceFollowUp(array $pricing): void
+    {
+        $this->followUpPricing = $pricing;
+        $this->amount          = (string) $pricing['amount'];
+    }
+
     public function getId(): string
     {
         return $this->id;
+    }
+
+    public function getType(): ConsultationType
+    {
+        return $this->type;
+    }
+
+    public function getParent(): ?Appointment
+    {
+        return $this->parent;
+    }
+
+    public function getProposedBy(): ?string
+    {
+        return $this->proposedBy;
+    }
+
+    public function getFollowUpNote(): ?string
+    {
+        return $this->followUpNote;
+    }
+
+    /** @return array<string,mixed>|null */
+    public function getFollowUpPricing(): ?array
+    {
+        return $this->followUpPricing;
+    }
+
+    /** The doctor waived the fee when proposing (a re-quote for another slot keeps it free). */
+    public function isFeeWaived(): bool
+    {
+        return ($this->followUpPricing['waived'] ?? false) === true;
+    }
+
+    public function getExpiresAt(): ?DateTimeImmutable
+    {
+        return $this->expiresAt;
+    }
+
+    /** A proposal the patient can still answer: PROPOSED and not past its expiry. */
+    public function isOpenProposal(DateTimeImmutable $now): bool
+    {
+        return $this->status === AppointmentStatus::PROPOSED
+            && $this->expiresAt !== null
+            && $this->expiresAt > $now;
+    }
+
+    public function getFollowUpNudgedAt(): ?DateTimeImmutable
+    {
+        return $this->followUpNudgedAt;
+    }
+
+    public function markFollowUpNudged(DateTimeImmutable $at): void
+    {
+        $this->followUpNudgedAt = $at;
+    }
+
+    public function getDeclineReason(): ?string
+    {
+        return $this->declineReason;
+    }
+
+    public function setDeclineReason(?string $reason): void
+    {
+        $this->declineReason = $reason !== null && trim($reason) !== '' ? trim($reason) : null;
+    }
+
+    public function getFollowUpOutcome(): ?string
+    {
+        return $this->followUpOutcome;
+    }
+
+    /** Record how the proposal closed (declined | withdrawn | expired). */
+    public function setFollowUpOutcome(string $outcome): void
+    {
+        if (!in_array($outcome, self::FOLLOW_UP_OUTCOMES, true)) {
+            throw new \InvalidArgumentException('Unknown follow-up outcome: ' . $outcome);
+        }
+        $this->followUpOutcome = $outcome;
     }
 
     public function getStatus(): AppointmentStatus
@@ -218,6 +408,20 @@ class Appointment
             'document_url'   => $this->documentUrl,
             'payment_status' => $this->paymentStatus,
             'guests'         => $this->getGuests(),
+            // Follow-ups (all null on an ordinary booking).
+            'parent_appointment_id' => $this->parent?->getId(),
+            'parent'                => $this->parent !== null ? [
+                'id'              => $this->parent->getId(),
+                'scheduled_at'    => $this->parent->getScheduledAt()->format(DATE_ATOM),
+                'status'          => $this->parent->getStatus()->value,
+                'specialist_name' => $this->parent->getSpecialist()->getName(),
+            ] : null,
+            'proposed_by'           => $this->proposedBy,
+            'follow_up_note'        => $this->followUpNote,
+            'follow_up_pricing'     => $this->followUpPricing,
+            'expires_at'            => $this->expiresAt?->format(DATE_ATOM),
+            'decline_reason'        => $this->declineReason,
+            'follow_up_outcome'     => $this->followUpOutcome,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ];
     }
@@ -232,8 +436,11 @@ class Appointment
     public function toAdminArray(): array
     {
         $p = $this->patient->toArray();
+        // What the doctor and the patient wrote each other about a follow-up stays between them.
+        $base = $this->toArray();
+        unset($base['follow_up_note'], $base['decline_reason']);
 
-        return $this->toArray() + [
+        return $base + [
             'patient' => [
                 'id'    => $this->patient->getId(),
                 'name'  => trim(((string) ($p['first_name'] ?? '')) . ' ' . ((string) ($p['last_name'] ?? ''))),

@@ -7,12 +7,70 @@
 import type { MedicalDocumentDto } from './message';
 import type { VitalReadingDto } from './vitals';
 
+/**
+ * `proposed` is a follow-up the doctor offered that the patient hasn't answered:
+ * it holds the slot until `expires_at` but is not a booking yet (no call, no
+ * reminders). Accepting it → `confirmed`; declining, withdrawal or expiry →
+ * `cancelled`. Label it "Proposed" (patient: "Awaiting your reply"; doctor:
+ * "Awaiting patient").
+ */
 export type ApiAppointmentStatus =
+  | 'proposed'
   | 'pending'
   | 'confirmed'
   | 'rescheduled'
   | 'completed'
   | 'cancelled';
+
+/** Who created a follow-up: the doctor proposed it, or the patient booked it. */
+export type FollowUpProposedBy = 'doctor' | 'patient';
+
+/** The back office's follow-up fee mode (inside the follow-up window). */
+export type FollowUpFeeMode = 'full' | 'percent' | 'free';
+
+/**
+ * Which rule priced a follow-up: the doctor waived it, free / percent / full
+ * mode inside the window, or the full fee because it starts after the window.
+ */
+export type FollowUpPriceRule = 'waived' | 'free' | 'percent' | 'full' | 'outside_window';
+
+/** How a follow-up was priced (`AppointmentDto.follow_up_pricing`). Money is a string. */
+export interface FollowUpPriceDto {
+  /** The doctor's full consultation fee. */
+  base_fee: string;
+  /** The follow-up consultation price (before any guest fees). */
+  amount: string;
+  rule: FollowUpPriceRule;
+  /** The discount applied: 0 for full / outside_window, 100 for free / waived. */
+  discount_percent: number;
+  window_days: number;
+  /** Follow-up pricing applies to follow-ups starting up to this time. */
+  window_ends_at: string;
+  waived: boolean;
+}
+
+/**
+ * A follow-up price before proposing / booking / accepting (the follow-up
+ * quote endpoints). When `free`, there is no card checkout, no wallet posting
+ * and no platform fee (`platform_fee` is 0).
+ */
+export interface FollowUpQuoteDto extends FollowUpPriceDto {
+  parent_appointment_id: string;
+  /** The start time this price is for. */
+  scheduled_at: string;
+  currency: string;
+  within_window: boolean;
+  free: boolean;
+  platform_fee: number;
+}
+
+/** A follow-up's summary of the consultation it follows on from. */
+export interface AppointmentParentRef {
+  id: string;
+  scheduled_at: string;
+  status: ApiAppointmentStatus;
+  specialist_name: string;
+}
 
 export interface ApiSpecialistRef {
   id: string;
@@ -57,8 +115,33 @@ export interface AppointmentDto {
   /** A free consultation (amount 0) is `paid` from the start — nothing is owed. */
   payment_status?: 'unpaid' | 'pending' | 'paid' | 'refunded';
   guests?: GuestInvite[];
+  // ----- Follow-ups (null on an ordinary booking; absent from older APIs) -----
+  /** The consultation this follow-up follows on from. */
+  parent_appointment_id?: string | null;
+  parent?: AppointmentParentRef | null;
+  proposed_by?: FollowUpProposedBy | null;
+  /**
+   * The doctor's note to the patient on a proposal — patient and doctor
+   * payloads only (never admin), never in emails or notifications.
+   */
+  follow_up_note?: string | null;
+  follow_up_pricing?: FollowUpPriceDto | null;
+  /** When an unanswered proposal closes. Only meaningful while `status === 'proposed'`. */
+  expires_at?: string | null;
+  /** The patient's reason for declining a proposal (patient and doctor payloads only). */
+  decline_reason?: string | null;
+  /**
+   * How a doctor's proposal closed unaccepted (status `cancelled`): declined by
+   * the patient, withdrawn (by the doctor or the back office), or expired
+   * unanswered. null while open, once accepted, and on proposals closed
+   * before it was recorded.
+   */
+  follow_up_outcome?: FollowUpOutcome | null;
   created_at: string;
 }
+
+/** {@link AppointmentDto.follow_up_outcome}. */
+export type FollowUpOutcome = 'declined' | 'withdrawn' | 'expired';
 
 /** A patient account as serialised by `Patient::toArray()` (admin console). */
 export interface PatientAccountDto {
@@ -83,11 +166,20 @@ export interface PatientDetailDto {
   appointments_total: number;
 }
 
-/** Back-office-configurable consultation pricing (GET /public/pricing). */
+/**
+ * Back-office-configurable consultation pricing (GET /public/pricing). A
+ * follow-up starting within `follow_up_window_days` of the consultation it
+ * follows costs the doctor's fee (`full`), that fee less
+ * `follow_up_discount_percent` (`percent`) or nothing (`free`); later than that
+ * it is the full fee. Optional on older APIs.
+ */
 export interface PricingDto {
   currency: string;
   guest_fee: number;
   platform_fee: number;
+  follow_up_fee_mode?: FollowUpFeeMode;
+  follow_up_discount_percent?: number;
+  follow_up_window_days?: number;
 }
 
 export interface PageMeta {
@@ -246,6 +338,50 @@ export interface BookAppointmentParams {
   guests?: GuestInvite[];
   /** Paystack reference from pay-init — pays by card instead of the wallet. */
   payment_reference?: string;
+  /**
+   * Book a follow-up of this completed consultation (same doctor): the booking
+   * becomes type `follow_up`, linked to it and priced by the follow-up rules
+   * (422 `parent_appointment_id` / `specialist_id` otherwise).
+   */
+  parent_appointment_id?: string;
+}
+
+/** Body for POST /api/doctor/appointments/{id}/follow-up (the doctor proposes). */
+export interface ProposeFollowUpParams {
+  /** One of the doctor's open slots, at least 2h30 from now. */
+  scheduled_at: string;
+  /** Shown to the patient in the app only (≤ 1000 characters). */
+  note?: string;
+  /** Make it free. */
+  waive_fee?: boolean;
+}
+
+/** Body for POST /api/portal/appointments/{id}/follow-up/accept. */
+export interface AcceptFollowUpParams {
+  /** Required unless the follow-up is free. */
+  payment_method?: 'wallet' | 'card';
+  /** With `card`: the pay-init reference once paid. */
+  payment_reference?: string;
+  /** Another open slot of the same doctor instead of the proposed time. */
+  scheduled_at?: string;
+}
+
+/**
+ * The answer to POST /api/portal/appointments/{id}/follow-up/accept. `meta` is
+ * there when it had been accepted already and the card payment this request
+ * brought wasn't needed: it was credited to the wallet (the message says so).
+ */
+export interface AcceptFollowUpResponse extends SuccessResponse<AppointmentDto> {
+  meta?: { card_payment: 'credited_to_wallet'; credited_amount: string };
+}
+
+/**
+ * What pay-init prices: a follow-up booking of a completed consultation
+ * (`parent_appointment_id` + `scheduled_at`) on top of the doctor + guests.
+ */
+export interface PayInitFollowUp {
+  parent_appointment_id: string;
+  scheduled_at: string;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
 import { RouterLink } from '@angular/router';
 import type { AppointmentDto, MedicalDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { doctorStatusLabel } from '../appointment/follow-ups';
 import {
   allergySeverity,
   AllergySeverityBadge,
@@ -149,7 +150,7 @@ const FOOTER_LINK =
                 <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="shrink-0 text-slate" />{{ v.type_label }}</span>
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3">
-                <doc-visit-status-badge [status]="v.status" [label]="v.status_label" />
+                <doc-visit-status-badge [status]="v.status" [label]="statusLabel(v)" />
                 <a [routerLink]="['/appointments', v.id]" class="inline-flex items-center gap-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
                   Open chart <sd-icon name="chevron-right" [size]="14" />
                 </a>
@@ -203,6 +204,10 @@ export class PatientOverview {
     ];
   });
 
+  /** How a closed follow-up proposal closed, else the API's label. */
+  protected statusLabel(v: AppointmentDto): string {
+    return doctorStatusLabel(v);
+  }
   protected day(iso: string): string {
     return formatDay(iso);
   }

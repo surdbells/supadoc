@@ -22,6 +22,7 @@ interface Stat {
 }
 
 const STATUS_LABEL: Record<string, string> = {
+  proposed: 'Proposed',
   pending: 'Pending',
   confirmed: 'Confirmed',
   rescheduled: 'Rescheduled',
@@ -147,6 +148,7 @@ export class AdminDashboard implements OnInit {
 
   protected statusClass(status: string): string {
     const map: Record<string, string> = {
+      proposed: 'bg-teal/10 text-teal',
       pending: 'bg-warning/15 text-warning',
       confirmed: 'bg-sage/15 text-sage',
       rescheduled: 'bg-cloud text-slate',

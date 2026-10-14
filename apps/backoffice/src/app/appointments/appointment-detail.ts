@@ -9,14 +9,20 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { catchError, distinctUntilChanged, map, of, switchMap, tap } from 'rxjs';
 import { AdminAppointmentsApi } from '@supadoc/data-access';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
+import type { AppointmentDto, FollowUpPriceDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
-/** Allowed next statuses per the API's appointment state machine. */
+/**
+ * Allowed next statuses per the API's appointment state machine. A follow-up
+ * proposal is only confirmed by the patient accepting (and paying for) it, so
+ * staff can just cancel one.
+ */
 const TRANSITIONS: Record<string, string[]> = {
+  proposed: ['cancelled'],
   pending: ['confirmed', 'rescheduled', 'cancelled'],
   confirmed: ['completed', 'rescheduled', 'cancelled'],
   rescheduled: ['confirmed', 'cancelled'],
@@ -69,6 +75,25 @@ const STATUS_LABEL: Record<string, string> = {
             <div class="flex justify-between gap-4"><dt class="text-slate">Payment</dt><dd class="capitalize text-ink">{{ a.payment_status || '—' }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Guests</dt><dd class="text-ink">{{ a.guests?.length || 0 }}</dd></div>
           </dl>
+
+          <!-- Follow-ups: the consultation it follows, who created it, how it was priced -->
+          @if (a.parent_appointment_id) {
+            <div class="flex flex-col gap-2 rounded-field border border-teal/30 bg-teal/5 px-4 py-3 font-sans text-body-sm">
+              <a [routerLink]="['/appointments', a.parent_appointment_id]" class="flex w-fit items-center gap-2 font-semibold text-cerulean hover:underline">
+                <sd-icon name="refresh-cw" [size]="16" />
+                Follow-up of the {{ a.parent ? when(a.parent.scheduled_at) : 'earlier' }} consultation
+              </a>
+              <dl class="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
+                <div class="flex justify-between gap-4"><dt class="text-slate">Created by</dt><dd class="text-ink">{{ proposedByLabel(a) }}</dd></div>
+                @if (a.follow_up_pricing; as fp) {
+                  <div class="flex justify-between gap-4"><dt class="text-slate">Pricing</dt><dd class="text-right text-ink">{{ pricingLabel(fp) }}</dd></div>
+                }
+                @if (a.status === 'proposed' && a.expires_at) {
+                  <div class="flex justify-between gap-4"><dt class="text-slate">Patient must answer by</dt><dd class="text-ink">{{ when(a.expires_at) }}</dd></div>
+                }
+              </dl>
+            </div>
+          }
 
           @if (a.notes) {
             <div class="rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-ink">
@@ -123,13 +148,29 @@ export class AdminAppointmentDetail implements OnInit {
   protected readonly nextStatuses = computed(() => TRANSITIONS[this.appt()?.status ?? ''] ?? []);
 
   ngOnInit(): void {
-    this.id = this.route.snapshot.paramMap.get('id') ?? '';
-    this.api
-      .get(this.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.appt.set(res.data),
-        error: (err: unknown) => this.error.set(apiErrorMessage(err, 'Appointment not found.')),
+    // The follow-up -> parent link stays on this route, so the component is
+    // reused: follow the param rather than reading the snapshot once.
+    this.route.paramMap
+      .pipe(
+        map((p) => p.get('id') ?? ''),
+        distinctUntilChanged(),
+        tap((id) => {
+          this.id = id;
+          this.appt.set(null);
+          this.error.set('');
+          this.notice.set('');
+        }),
+        switchMap((id) =>
+          this.api.get(id).pipe(
+            map((res) => ({ appt: res.data, error: '' })),
+            catchError((err: unknown) => of({ appt: null, error: apiErrorMessage(err, 'Appointment not found.') })),
+          ),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(({ appt, error }) => {
+        this.appt.set(appt);
+        this.error.set(error);
       });
   }
 
@@ -137,25 +178,29 @@ export class AdminAppointmentDetail implements OnInit {
     if (this.busy()) return;
     this.busy.set(true);
     this.notice.set('');
+    const id = this.id;
     this.api
-      .updateStatus(this.id, status)
+      .updateStatus(id, status)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          this.busy.set(false);
+          if (id !== this.id) return; // moved to another appointment meanwhile
           this.appt.set(res.data);
           this.noticeOk.set(true);
           this.notice.set('Status updated.');
-          this.busy.set(false);
         },
         error: (err) => {
+          this.busy.set(false);
+          if (id !== this.id) return;
           this.noticeOk.set(false);
           this.notice.set(apiErrorMessage(err, 'Could not update the status.'));
-          this.busy.set(false);
         },
       });
   }
 
   protected label(status: string): string {
+    if (status === 'cancelled' && this.appt()?.status === 'proposed') return 'Cancel proposal';
     return STATUS_LABEL[status] ?? status;
   }
   protected when(iso: string): string {
@@ -167,7 +212,28 @@ export class AdminAppointmentDetail implements OnInit {
     return isNaN(n) ? '—' : '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   protected statusClass(status: string): string {
-    const map: Record<string, string> = { pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
+    const map: Record<string, string> = { proposed: 'bg-teal/10 text-teal', pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
     return map[status] ?? 'bg-cloud text-slate';
+  }
+  protected proposedByLabel(a: AppointmentDto): string {
+    if (a.proposed_by === 'doctor') return a.status === 'proposed' ? 'Doctor (awaiting patient)' : 'Doctor';
+    return a.proposed_by === 'patient' ? 'Patient' : '—';
+  }
+  /** "50% off ₦10,000.00 (within 14 days)", "Waived by the doctor", … */
+  protected pricingLabel(p: FollowUpPriceDto): string {
+    switch (p.rule) {
+      case 'waived':
+        return 'Waived by the doctor';
+      case 'free':
+        return `Free (within ${p.window_days} days)`;
+      case 'percent':
+        return `${p.discount_percent}% off ${this.money(p.base_fee)} (within ${p.window_days} days)`;
+      case 'full':
+        return `Full fee (within ${p.window_days} days)`;
+      case 'outside_window':
+        return `Full fee (after the ${p.window_days}-day window)`;
+      default:
+        return '—';
+    }
   }
 }

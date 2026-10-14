@@ -60,6 +60,8 @@ export const appRoutes: Route[] = [
         path: 'appointments/:id',
         // Hosts <doc-rx-panel>: a no-op until the page implements canLeave().
         canDeactivate: [unsavedChangesGuard],
+        // Follow-ups link record to record; the page loads its id once.
+        data: { remountOnParamChange: true },
         loadComponent: () =>
           import('./appointment/appointment-detail').then(
             (m) => m.DoctorAppointmentDetail,

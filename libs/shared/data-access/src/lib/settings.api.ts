@@ -1,12 +1,18 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { PricingDto, SuccessResponse } from '@supadoc/models';
+import type { FollowUpFeeMode, PricingDto, SuccessResponse } from '@supadoc/models';
 import { ApiService } from './api.service';
 
 export interface UpdatePricingParams {
   currency?: string;
   guest_fee?: number | string;
   platform_fee?: number | string;
+  /** Follow-ups inside the window: full fee, fee less the discount, or free. */
+  follow_up_fee_mode?: FollowUpFeeMode;
+  /** Whole number 0–100 (percent mode). */
+  follow_up_discount_percent?: number;
+  /** Whole number of days 1–365 after the original consultation's start. */
+  follow_up_window_days?: number;
 }
 
 /**

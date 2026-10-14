@@ -14,16 +14,16 @@ import {
   AppointmentsApi,
   injectCallPresence,
 } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
+import type { ApiAppointmentStatus, AppointmentDto } from '@supadoc/models';
 import {
   ButtonComponent,
   CallPresenceComponent,
   EmptyStateComponent,
   IconComponent,
 } from '@supadoc/ui';
+import { isExpiredProposal, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
 
-type Status =
-  'confirmed' | 'pending' | 'completed' | 'cancelled' | 'rescheduled';
+type Status = ApiAppointmentStatus;
 type Tab = 'all' | 'upcoming' | 'completed' | 'cancelled' | 'rescheduled';
 
 interface Appointment {
@@ -35,9 +35,27 @@ interface Appointment {
   readonly typeIcon: string;
   readonly typeLabel: string;
   readonly status: Status;
+  /** Its tab and status pill — a proposal that closed unanswered reads as such. */
+  readonly tab: Tab;
+  readonly badge: { label: string; class: string };
+}
+
+/** A follow-up the doctor proposed that is waiting for the patient's answer. */
+interface ProposalCard {
+  readonly id: string;
+  readonly name: string;
+  readonly specialty: string;
+  /** "Tue 21 Oct, 3:00 PM", local time. */
+  readonly when: string;
+  readonly price: string;
+  readonly free: boolean;
+  /** "Respond by Mon 20 Oct, 1:00 PM". */
+  readonly respondBy: string;
 }
 
 const STATUS: Record<Status, { label: string; class: string }> = {
+  // A doctor's follow-up proposal: not booked until the patient accepts it.
+  proposed: { label: 'Proposed', class: 'bg-teal/10 text-teal' },
   confirmed: { label: 'Confirmed', class: 'bg-sage/15 text-sage' },
   pending: { label: 'Pending', class: 'bg-warning/15 text-warning' },
   completed: { label: 'Completed', class: 'bg-frost text-cerulean' },
@@ -46,11 +64,25 @@ const STATUS: Record<Status, { label: string; class: string }> = {
 };
 
 const TAB_OF: Record<Status, Tab> = {
+  proposed: 'upcoming',
   confirmed: 'upcoming',
   pending: 'upcoming',
   rescheduled: 'rescheduled',
   completed: 'completed',
   cancelled: 'cancelled',
+};
+
+/** A proposal past its answer-by time that the server hasn't closed yet: it can't be accepted. */
+const EXPIRED = { label: 'Expired', class: 'bg-cloud text-slate' };
+/** A proposal that was declined, withdrawn or expired — never a consultation. */
+const NOT_TAKEN_UP = { label: 'Not taken up', class: 'bg-cloud text-slate' };
+
+const EMPTY_TAB: Record<Tab, string> = {
+  all: 'Nothing else is booked yet.',
+  upcoming: 'No upcoming consultations are booked yet.',
+  completed: 'No completed consultations yet.',
+  cancelled: 'No cancelled appointments.',
+  rescheduled: 'No rescheduled appointments.',
 };
 
 const TYPE_ICON: Record<string, string> = {
@@ -63,6 +95,7 @@ const TYPE_ICON: Record<string, string> = {
 /** Maps a backend appointment onto the row shape this screen renders. */
 export function toAppointmentRow(a: AppointmentDto): Appointment {
   const when = new Date(a.scheduled_at);
+  const expired = isExpiredProposal(a);
   return {
     id: a.id,
     name: a.specialist.name,
@@ -81,6 +114,20 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
     typeLabel: a.type_label,
     status: a.status,
+    tab: expired ? 'cancelled' : TAB_OF[a.status],
+    badge: expired ? EXPIRED : isUntakenProposal(a) ? NOT_TAKEN_UP : STATUS[a.status],
+  };
+}
+
+function toProposalCard(a: AppointmentDto): ProposalCard {
+  return {
+    id: a.id,
+    name: a.specialist.name,
+    specialty: a.specialist.specialty ?? '',
+    when: whenLabel(a.scheduled_at),
+    price: priceLabel(a.amount),
+    free: !(Number(a.amount) > 0),
+    respondBy: `Respond by ${whenLabel(a.expires_at)}`,
   };
 }
 
@@ -88,6 +135,8 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
  * My Appointments (Figma 497:7793) with inline loading, empty (826:12182) and
  * error (826:12960) states. Data comes from `GET /api/portal/appointments`;
  * `?view=empty|error` still forces a state for design QA. Row → details route.
+ * Follow-ups the doctor proposed and the patient hasn't answered are pinned on
+ * top as "Action needed" cards; each answer is given on the details page.
  */
 @Component({
   selector: 'pat-appointments',
@@ -114,6 +163,93 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
           Book Consultation
         </sd-button>
       </div>
+
+      <!-- Follow-ups the doctor proposed, waiting for an answer — pinned above the list -->
+      @if (proposals().length > 0) {
+        <section class="flex flex-col gap-3" aria-labelledby="action-needed-title">
+          <h2
+            id="action-needed-title"
+            class="flex items-center gap-2 font-sans text-body font-semibold text-ink"
+          >
+            <sd-icon name="bell" [size]="18" class="text-teal" />
+            Action needed
+            <span
+              class="rounded-pill bg-teal/10 px-2 py-0.5 font-sans text-caption font-semibold text-teal"
+              >{{ proposals().length }}</span
+            >
+          </h2>
+          @for (p of proposals(); track p.id) {
+            <article
+              class="flex flex-col gap-4 rounded-card border border-teal/30 bg-white p-4 sm:p-5"
+              [attr.aria-labelledby]="'proposal-' + p.id"
+            >
+              <div class="flex items-start gap-3 sm:gap-4">
+                <span
+                  class="flex size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 font-heading text-body font-semibold text-teal"
+                  aria-hidden="true"
+                  >{{ initials(p.name) }}</span
+                >
+                <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <p
+                    [id]="'proposal-' + p.id"
+                    class="font-sans text-body font-semibold text-ink"
+                  >
+                    {{ p.name }} proposed a follow-up
+                  </p>
+                  <p class="truncate font-sans text-caption text-slate">
+                    {{ p.specialty }}
+                  </p>
+                </div>
+                <span
+                  class="shrink-0 rounded-lg px-2.5 py-0.5 font-sans text-caption font-medium"
+                  [class]="proposedStatus.class"
+                  >{{ proposedStatus.label }}</span
+                >
+              </div>
+              <dl
+                class="grid grid-cols-1 gap-2 font-sans text-body-sm text-ink sm:grid-cols-3"
+              >
+                <div class="flex items-center gap-2">
+                  <dt class="flex shrink-0 text-slate">
+                    <sd-icon name="calendar-clock" [size]="16" /><span class="sr-only">When</span>
+                  </dt>
+                  <dd>{{ p.when }}</dd>
+                </div>
+                <div class="flex items-center gap-2">
+                  <dt class="flex shrink-0 text-slate">
+                    <sd-icon name="credit-card" [size]="16" /><span class="sr-only">Price</span>
+                  </dt>
+                  <dd class="font-semibold">{{ p.price }}</dd>
+                </div>
+                <div class="flex items-center gap-2">
+                  <dt class="flex shrink-0 text-warning">
+                    <sd-icon name="hourglass" [size]="16" /><span class="sr-only">Deadline</span>
+                  </dt>
+                  <dd>{{ p.respondBy }}</dd>
+                </div>
+              </dl>
+              <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <sd-button (click)="respond(p, 'accept')">
+                  <sd-icon name="circle-check" [size]="18" />
+                  {{ p.free ? 'Accept' : 'Accept & pay' }}
+                </sd-button>
+                <sd-button variant="outline" (click)="respond(p, 'time')">
+                  <sd-icon name="calendar-days" [size]="18" />
+                  Choose another time
+                </sd-button>
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
+                  (click)="respond(p, 'decline')"
+                >
+                  <sd-icon name="circle-x" [size]="18" />
+                  Decline
+                </button>
+              </div>
+            </article>
+          }
+        </section>
+      }
 
       <!-- Tabs -->
       <div
@@ -181,6 +317,11 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
         }
         @default {
           <div class="flex flex-col gap-4">
+            @if (filtered().length === 0) {
+              <p class="rounded-card border border-cloud bg-white p-6 text-center font-sans text-body-sm text-slate">
+                {{ emptyTabText() }}
+              </p>
+            }
             @for (a of filtered(); track a.id) {
               <button
                 type="button"
@@ -280,6 +421,9 @@ export class Appointments {
   ];
 
   private readonly all = signal<Appointment[]>([]);
+  /** Open follow-up proposals — shown as "Action needed" cards, not list rows. */
+  protected readonly proposals = signal<ProposalCard[]>([]);
+  protected readonly proposedStatus = STATUS.proposed;
   private readonly loading = signal(true);
   /** The API's reason the list failed to load ('' when it hasn't). */
   protected readonly loadError = signal('');
@@ -296,11 +440,18 @@ export class Appointments {
   }
 
   protected status(a: Appointment) {
-    return STATUS[a.status];
+    return a.badge;
   }
 
   protected open(a: Appointment): void {
     void this.router.navigate(['/dashboard/appointments', a.id]);
+  }
+
+  /** Answer a proposal on its details page (payment, slots and the decline reason live there). */
+  protected respond(p: ProposalCard, action: 'accept' | 'time' | 'decline'): void {
+    void this.router.navigate(['/dashboard/appointments', p.id], {
+      queryParams: { respond: action },
+    });
   }
 
   protected initials(name: string): string {
@@ -324,22 +475,29 @@ export class Appointments {
   }
 
   protected readonly upcomingCount = computed(
-    () => this.all().filter((a) => TAB_OF[a.status] === 'upcoming').length,
+    () => this.all().filter((a) => a.tab === 'upcoming').length,
   );
 
   protected readonly filtered = computed(() => {
     const tab = this.activeTab();
     const all = this.all();
     if (tab === 'all') return all;
-    return all.filter((a) => TAB_OF[a.status] === tab);
+    return all.filter((a) => a.tab === tab);
   });
+
+  /** The list line when this tab has no rows but proposal cards show above it. */
+  protected readonly emptyTabText = computed(() => EMPTY_TAB[this.activeTab()]);
 
   protected readonly viewState = computed<
     'loading' | 'list' | 'empty' | 'error'
   >(() => {
     if (this.view() === 'error' || this.loadError()) return 'error';
     if (this.loading()) return 'loading';
-    if (this.view() === 'empty' || this.filtered().length === 0) return 'empty';
+    if (this.view() === 'empty' || this.filtered().length === 0) {
+      // Open proposals but no rows on this tab: the cards above aren't "no
+      // appointment history", so the list says so for this tab instead.
+      return this.view() !== 'empty' && this.proposals().length > 0 ? 'list' : 'empty';
+    }
     return 'list';
   });
 
@@ -351,7 +509,13 @@ export class Appointments {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.all.set(res.data.map(toAppointmentRow));
+          const now = Date.now();
+          const open = res.data.filter((a) => isOpenProposal(a, now));
+          this.proposals.set(open.map(toProposalCard));
+          // An expired proposal the server hasn't closed yet stays a row ("Expired", under Cancelled).
+          this.all.set(
+            res.data.filter((a) => !open.includes(a)).map(toAppointmentRow),
+          );
           this.loading.set(false);
         },
         error: (err: unknown) => {

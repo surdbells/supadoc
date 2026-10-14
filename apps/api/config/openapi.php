@@ -167,7 +167,11 @@ return [
                     'scheduled_at' => ['type' => 'string', 'format' => 'date-time'],
                     'type'         => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine']],
                     'type_label'   => ['type' => 'string'],
-                    'status'       => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'rescheduled', 'completed', 'cancelled']],
+                    'status'       => [
+                        'type'        => 'string',
+                        'enum'        => ['proposed', 'pending', 'confirmed', 'rescheduled', 'completed', 'cancelled'],
+                        'description' => '`proposed`: a follow-up the doctor offered that the patient has not answered — it holds the slot until `expires_at` but is not a booking (no reminders, call, completion or earnings). Accepting moves it to confirmed; declining, withdrawal or expiry to cancelled.',
+                    ],
                     'status_label' => ['type' => 'string'],
                     'amount'         => ['type' => 'string', 'example' => '150.00'],
                     'notes'          => ['type' => 'string', 'nullable' => true],
@@ -178,16 +182,67 @@ return [
                         'description' => 'Invited third parties (max 3); each adds the guest fee.',
                         'items'       => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'email' => ['type' => 'string', 'format' => 'email']]],
                     ],
+                    'parent_appointment_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true, 'description' => 'Follow-ups: the consultation this one follows on from'],
+                    'parent'                => [
+                        'type'        => 'object',
+                        'nullable'    => true,
+                        'description' => 'Follow-ups: a summary of the consultation it follows on from',
+                        'properties'  => [
+                            'id'              => ['type' => 'string', 'format' => 'uuid'],
+                            'scheduled_at'    => ['type' => 'string', 'format' => 'date-time'],
+                            'status'          => ['type' => 'string'],
+                            'specialist_name' => ['type' => 'string'],
+                        ],
+                    ],
+                    'proposed_by'       => ['type' => 'string', 'enum' => ['doctor', 'patient'], 'nullable' => true, 'description' => 'Follow-ups: doctor = proposed by the doctor; patient = booked by the patient'],
+                    'follow_up_note'    => ['type' => 'string', 'nullable' => true, 'description' => "The doctor's note to the patient on a proposal (patient and doctor payloads only — never in emails or notifications)"],
+                    'follow_up_pricing' => ['$ref' => '#/components/schemas/FollowUpPrice'],
+                    'expires_at'        => ['type' => 'string', 'format' => 'date-time', 'nullable' => true, 'description' => 'A proposal closes then (2h before it starts, at most 72h after proposing). Meaningful while status is proposed.'],
+                    'decline_reason'    => ['type' => 'string', 'nullable' => true, 'description' => "The patient's reason for declining a proposal (patient and doctor payloads only)"],
+                    'follow_up_outcome' => ['type' => 'string', 'enum' => ['declined', 'withdrawn', 'expired'], 'nullable' => true, 'description' => 'How a doctor\'s proposal closed unaccepted (status cancelled): declined by the patient, withdrawn by the doctor or the back office, or expired unanswered. null while open, once accepted, on an ordinary booking, and on proposals closed before it was recorded.'],
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
             'Pricing' => [
                 'type'        => 'object',
-                'description' => 'Back-office-configurable consultation pricing.',
+                'description' => 'Back-office-configurable consultation pricing. Follow-ups starting within `follow_up_window_days` of the consultation they follow on from cost the doctor\'s fee (`full`), that fee less `follow_up_discount_percent` (`percent`) or nothing (`free`); later than that, the full fee.',
                 'properties'  => [
-                    'currency'     => ['type' => 'string', 'example' => 'NGN'],
-                    'guest_fee'    => ['type' => 'number', 'example' => 5000, 'description' => 'Added per invited guest'],
-                    'platform_fee' => ['type' => 'number', 'example' => 200],
+                    'currency'                   => ['type' => 'string', 'example' => 'NGN'],
+                    'guest_fee'                  => ['type' => 'number', 'example' => 5000, 'description' => 'Added per invited guest'],
+                    'platform_fee'               => ['type' => 'number', 'example' => 200],
+                    'follow_up_fee_mode'         => ['type' => 'string', 'enum' => ['full', 'percent', 'free'], 'example' => 'percent'],
+                    'follow_up_discount_percent' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 100, 'example' => 50],
+                    'follow_up_window_days'      => ['type' => 'integer', 'minimum' => 1, 'maximum' => 365, 'example' => 14],
+                ],
+            ],
+            'FollowUpPrice' => [
+                'type'        => 'object',
+                'nullable'    => true,
+                'description' => 'How a follow-up was priced. rule: waived (the doctor waived the fee) | free (free mode, in the window) | percent (fee less discount_percent, in the window) | full (full mode, in the window) | outside_window (more than window_days after the original consultation: the full fee).',
+                'properties'  => [
+                    'base_fee'         => ['type' => 'string', 'example' => '20000.00', 'description' => "The doctor's full consultation fee"],
+                    'amount'           => ['type' => 'string', 'example' => '10000.00', 'description' => 'The follow-up consultation price (before any guest fees)'],
+                    'rule'             => ['type' => 'string', 'enum' => ['waived', 'free', 'percent', 'full', 'outside_window']],
+                    'discount_percent' => ['type' => 'integer', 'example' => 50],
+                    'window_days'      => ['type' => 'integer', 'example' => 14],
+                    'window_ends_at'   => ['type' => 'string', 'format' => 'date-time', 'description' => 'Follow-up pricing applies to follow-ups starting up to this time'],
+                    'waived'           => ['type' => 'boolean'],
+                ],
+            ],
+            'FollowUpQuote' => [
+                'allOf' => [
+                    ['$ref' => '#/components/schemas/FollowUpPrice'],
+                    [
+                        'type'       => 'object',
+                        'properties' => [
+                            'parent_appointment_id' => ['type' => 'string', 'format' => 'uuid'],
+                            'scheduled_at'          => ['type' => 'string', 'format' => 'date-time', 'description' => 'The start time this price is for'],
+                            'currency'              => ['type' => 'string', 'example' => 'NGN'],
+                            'within_window'         => ['type' => 'boolean'],
+                            'free'                  => ['type' => 'boolean', 'description' => 'Nothing to pay: no card checkout, no wallet posting, no platform fee'],
+                            'platform_fee'          => ['type' => 'number', 'example' => 200, 'description' => '0 when free'],
+                        ],
+                    ],
                 ],
             ],
             'PatientProfile' => [
@@ -967,7 +1022,9 @@ return [
             'patch' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Transition an appointment status',
-                'description' => 'Enforces the state machine; illegal transitions return 422.',
+                'description' => 'Enforces the state machine; illegal transitions return 422. Nothing moves into `proposed`, and a proposed follow-up can only be cancelled here (the patient accepting it confirms it). '
+                    . 'Cancelling a proposal is a compare-and-set, like the doctor withdrawing it: 422 `errors.status` when the patient accepted it a moment earlier (cancel the confirmed appointment instead), 200 "Follow-up proposal already closed" when it had already closed. '
+                    . 'Audited (`appointment.follow_up_withdrawn`, actor role admin); the doctor gets an in-app notice and the patient the usual status email.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['status'], 'properties' => ['status' => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'rescheduled', 'completed', 'cancelled']]]])],
                 'responses'   => [
@@ -1136,7 +1193,7 @@ return [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "A doctor's own consultations (minimal doctor portal)",
-                'description' => 'Staff token from a doctor login (role doctor). Each row includes a preauthenticated join_url.',
+                'description' => 'Staff token from a doctor login (role doctor). The schedule, soonest first: the next 100 from a day ago on (all of today and what\'s coming), then, if there is room, the most recent earlier ones — GET /doctor/appointments/{id} loads any one, /doctor/appointments/history pages through the rest. Each row includes a preauthenticated join_url — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet.',
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope([
                         'type'       => 'object',
@@ -1149,7 +1206,7 @@ return [
                                         ['$ref' => '#/components/schemas/Appointment'],
                                         ['type' => 'object', 'properties' => [
                                             'patient_name' => ['type' => 'string'],
-                                            'join_url'     => ['type' => 'string'],
+                                            'join_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'null while the row is an unaccepted follow-up proposal'],
                                         ]],
                                     ],
                                 ],
@@ -1188,11 +1245,33 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/appointments/{id}' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "One of the doctor's own consultations",
+                'description' => 'The same row GET /doctor/appointments lists, whatever its date (the record page and the links in notices load it by id): the Appointment plus `patient_name` and a preauthenticated `join_url` — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet. 403 when it is not this doctor\'s consultation (or does not exist).',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/Appointment'],
+                            ['type' => 'object', 'properties' => [
+                                'patient_name' => ['type' => 'string'],
+                                'join_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'null while it is an unaccepted follow-up proposal'],
+                            ]],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Not a doctor login, or not this doctor\'s consultation'],
+                ],
+            ],
+        ],
         '/api/doctor/appointments/{id}/decline' => [
             'post' => [
                 'tags'       => ['Staff'],
-                'summary'    => 'Decline a booking (assigned doctor); refunds if paid',
-                'parameters' => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'summary'     => 'Decline a booking (assigned doctor); refunds if paid',
+                'description' => 'On the doctor\'s own unanswered follow-up proposal it withdraws it instead, like POST .../follow-up/withdraw (message "Follow-up withdrawn").',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'  => [
                     '200' => ['description' => 'Declined', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
@@ -1205,7 +1284,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Reschedule a booking (assigned doctor)',
-                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422.',
+                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422. 422 `errors.status` on a follow-up proposal — withdraw it and propose the new time.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['scheduled_at'], 'properties' => ['scheduled_at' => ['type' => 'string', 'format' => 'date-time']]])],
                 'responses'   => [
@@ -1709,7 +1788,7 @@ return [
             'get' => [
                 'tags'        => ['Public'],
                 'summary'     => 'Resolve a preauthenticated join link into an Agora session',
-                'description' => 'The signed call-access token from the invite email IS the credential — no login. Returns the meeting details plus an Agora token when video is configured.',
+                'description' => 'The signed call-access token from the invite email IS the credential — no login. Returns the meeting details plus an Agora token when video is configured. 422 (`errors.status = "proposed"`) for a follow-up proposal the patient has not accepted yet.',
                 'security'    => [],
                 'parameters'  => [['name' => 'token', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
                 'responses'   => [
@@ -1730,6 +1809,7 @@ return [
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['description' => 'A follow-up proposal not accepted yet (`errors.status = "proposed"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
                 ],
             ],
         ],
@@ -1933,7 +2013,7 @@ return [
             'patch' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Update consultation pricing (back office)',
-                'description' => 'Requires settings.manage. Only the keys present are changed.',
+                'description' => 'Requires settings.manage. Only the keys present are changed. 422 (per field) when guest_fee / platform_fee is negative or not a number, currency is blank, follow_up_fee_mode is not full|percent|free, follow_up_discount_percent is not a whole number 0–100, or follow_up_window_days is not a whole number 1–365. Read the current values with GET /public/pricing.',
                 'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/Pricing'])],
                 'responses'   => [
                     '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/Pricing']))],
@@ -1985,7 +2065,10 @@ return [
             'get' => [
                 'tags'       => ['Portal'],
                 'summary'    => "The patient's own appointments",
-                'parameters' => $paginationParams,
+                'parameters' => [
+                    ...$paginationParams,
+                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses, e.g. `proposed` for follow-ups awaiting an answer (unknown values are ignored)'],
+                ],
                 'responses'  => [
                     '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Appointment'))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
@@ -1998,14 +2081,18 @@ return [
                     . 'Paid by card (`payment_reference`) or from the wallet; a free consultation (amount 0) books with no payment and no wallet posting. '
                     . 'Each of `document_ids` must be one of the patient\'s own documents and not attached to another appointment, else 422 (`document_ids.N`, N = its position in the request; another patient\'s id reads as not found). '
                     . 'They are linked in the transaction that stores the appointment, guarded so two bookings can never take the same file: the one that loses gets the same 422 and nothing is booked '
-                    . '(a wallet charge is refunded; a card payment\'s reference stays unused, so the booking can be retried with it).',
+                    . '(a wallet charge is refunded; a card payment\'s reference stays unused, so the booking can be retried with it). '
+                    . 'A follow-up: `parent_appointment_id` is one of the patient\'s COMPLETED consultations with the same doctor (422 `errors.parent_appointment_id` when it is not theirs / not completed, `errors.specialist_id` when the doctor differs). '
+                    . 'It is then booked as type follow_up, linked to it (`parent_appointment_id`, `proposed_by: patient`) and priced by the follow-up rules for its start time (see Pricing; plus any guest fees); payment, status and emails are as for any booking. '
+                    . 'Price it first with GET /portal/appointments/{parentId}/follow-up/quote; a card payment uses pay-init with the same parent_appointment_id + scheduled_at.',
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
                     'required'   => ['specialist_id', 'scheduled_at'],
                     'properties' => [
                         'specialist_id' => ['type' => 'string', 'format' => 'uuid'],
                         'scheduled_at'  => ['type' => 'string', 'format' => 'date-time'],
-                        'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video'],
+                        'type'          => ['type' => 'string', 'enum' => ['video', 'follow_up', 'urgent', 'routine'], 'default' => 'video', 'description' => 'Ignored (always follow_up) when parent_appointment_id is sent'],
+                        'parent_appointment_id' => ['type' => 'string', 'format' => 'uuid', 'description' => 'Book a follow-up of this completed consultation (same doctor) at the follow-up price'],
                         'notes'         => ['type' => 'string', 'description' => 'Reason for the consultation'],
                         'document_ids'  => [
                             'type'        => 'array',
@@ -2035,18 +2122,32 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Start a direct card payment for a consultation',
-                'description' => 'A free consultation (amount 0) has nothing to charge: 422 with `errors.payment = "free"` — book it directly with POST /portal/appointments.',
+                'description' => 'Priced one of three ways: `{specialist_id, guest_count}` — a new booking (the doctor\'s fee + guest fees); '
+                    . 'plus `{parent_appointment_id, scheduled_at}` — booking a follow-up of that completed consultation at the follow-up price (422 `errors.parent_appointment_id` / `errors.specialist_id` / `errors.scheduled_at` as for the booking); '
+                    . '`{appointment_id, scheduled_at?}` — accepting the doctor\'s follow-up proposal (its price, or re-priced for the other slot `scheduled_at`; 422 `errors.appointment_id` when it is not the patient\'s proposal, `errors.status` when it has closed or expired or closes within 15 minutes (pay from the wallet instead), '
+                    . '`errors.specialist_id` when the doctor can no longer be booked, `errors.scheduled_at` when the other slot is no longer open — all checked before the checkout starts). '
+                    . 'Then send the returned `reference` as `payment_reference` to POST /portal/appointments or POST /portal/appointments/{id}/follow-up/accept. '
+                    . 'A free consultation (amount 0) has nothing to charge: 422 with `errors.payment = "free"` — book / accept it directly.',
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
-                    'required'   => ['specialist_id'],
                     'properties' => [
-                        'specialist_id' => ['type' => 'string', 'format' => 'uuid'],
-                        'guest_count'   => ['type' => 'integer', 'minimum' => 0, 'maximum' => 3],
+                        'specialist_id'         => ['type' => 'string', 'format' => 'uuid', 'description' => 'Required unless appointment_id is sent'],
+                        'guest_count'           => ['type' => 'integer', 'minimum' => 0, 'maximum' => 3],
+                        'parent_appointment_id' => ['type' => 'string', 'format' => 'uuid', 'description' => 'Booking a follow-up of this completed consultation'],
+                        'appointment_id'        => ['type' => 'string', 'format' => 'uuid', 'description' => 'Accepting this follow-up proposal'],
+                        'scheduled_at'          => ['type' => 'string', 'format' => 'date-time', 'description' => 'Required with parent_appointment_id; with appointment_id, another slot than the proposed one'],
                     ],
                 ])],
                 'responses'   => [
-                    '201' => ['description' => 'Payment started'],
+                    '201' => ['description' => 'Payment started', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'authorization_url' => ['type' => 'string'],
+                        'access_code'       => ['type' => 'string'],
+                        'reference'         => ['type' => 'string'],
+                        'amount'            => ['type' => 'string', 'example' => '10000.00'],
+                        'currency'          => ['type' => 'string', 'example' => 'NGN'],
+                    ]]))],
                     '422' => ['description' => 'Validation failed, or the consultation is free (`errors.payment = "free"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
+                    '502' => ['description' => 'Paystack refused to start the payment'],
                     '503' => ['description' => 'Card payment not configured'],
                 ],
             ],
@@ -2068,7 +2169,7 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Cancel one of the patient\'s own appointments',
-                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee and emails a receipt.',
+                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee and emails a receipt. On a follow-up proposal (status proposed) it declines it instead, like POST .../follow-up/decline (message "Follow-up declined").',
                 'operationId' => 'portalCancelAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -2083,7 +2184,7 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Reschedule one of the patient\'s own appointments',
-                'description' => 'Moves the booking to a new, still-open slot and notifies both parties.',
+                'description' => 'Moves the booking to a new, still-open slot and notifies both parties. 422 `errors.status` on a follow-up proposal — choose the other time when accepting it (POST .../follow-up/accept `scheduled_at`).',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
@@ -2116,7 +2217,7 @@ return [
             'post' => [
                 'tags'        => ['Doctor'],
                 'summary'     => 'Confirm a pending appointment (assigned doctor)',
-                'description' => 'Moves the appointment to CONFIRMED and emails the patient. Only the assigned doctor may confirm.',
+                'description' => 'Moves the appointment to CONFIRMED and emails the patient. Only the assigned doctor may confirm. A follow-up proposal is confirmed only by the patient accepting it: 422 `errors.status`.',
                 'operationId' => 'doctorConfirmAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -2139,6 +2240,155 @@ return [
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        // ----- Follow-ups -----
+        '/api/doctor/appointments/{id}/follow-up' => [
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Propose a follow-up of consultation {id} (assigned doctor)',
+                'description' => '{id} must be the doctor\'s consultation, COMPLETED or CONFIRMED and under way (from 2 hours before its start), else 422 `errors.status`; '
+                    . 'only one proposal per consultation may await the patient (422 `errors.follow_up` — withdraw it first). '
+                    . '`scheduled_at` must be one of the doctor\'s open slots under the booking rules (not blocked or taken; 422 `errors.scheduled_at`) and at least 2h30 from now (so the patient has 30 minutes to answer). '
+                    . '`note` (≤ 1000 chars, 422 `errors.note`) is shown to the patient in the app only — never in emails or notifications. `waive_fee: true` makes it free. '
+                    . 'Creates a follow_up appointment with status proposed, proposed_by doctor, parent_appointment_id = {id}, priced server-side (follow_up_pricing; see Pricing) and expires_at = the earlier of 2h before its start and 72h from now. '
+                    . 'It holds the slot until it expires; nothing is charged until the patient accepts. Audited (`appointment.follow_up_proposed`); the patient gets an in-app notice and an email linking to /dashboard/appointments/{proposalId}.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid'], 'description' => 'The consultation to follow up']],
+                'requestBody' => ['required' => true, ...$json([
+                    'type'       => 'object',
+                    'required'   => ['scheduled_at'],
+                    'properties' => [
+                        'scheduled_at' => ['type' => 'string', 'format' => 'date-time'],
+                        'note'         => ['type' => 'string', 'maxLength' => 1000],
+                        'waive_fee'    => ['type' => 'boolean', 'default' => false],
+                    ],
+                ])],
+                'responses'   => [
+                    '201' => ['description' => 'Proposed (the Appointment plus patient_name)', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/follow-up/quote' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Price a follow-up of consultation {id} before proposing it',
+                'description' => 'Without `scheduled_at`, prices a follow-up starting now (it holds until `window_ends_at`). `waive=1` shows the waived (free) price. 422 `errors.status` when {id} cannot have a follow-up proposed yet; 422 `errors.scheduled_at` for an invalid or past time.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'scheduled_at', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date-time']],
+                    ['name' => 'waive', 'in' => 'query', 'schema' => ['type' => 'boolean', 'default' => false]],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/FollowUpQuote']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/follow-up/withdraw' => [
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Withdraw an unanswered follow-up proposal {id} (assigned doctor)',
+                'description' => '{id} is the proposal itself. proposed → cancelled: the slot reopens, the patient gets an in-app notice and an email. Audited (`appointment.follow_up_withdrawn`). Idempotent: an already-closed proposal answers 200 ("Follow-up proposal already closed"). 422 `errors.status` once the patient has accepted it (cancel it with POST .../decline instead) or when {id} is not a proposal.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid'], 'description' => 'The proposal']],
+                'responses'   => [
+                    '200' => ['description' => 'Withdrawn', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/follow-ups' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'The follow-ups of consultation {id} (any status), soonest first',
+                'description' => 'Proposals (open, accepted, declined — with decline_reason — withdrawn, expired) and follow-ups the patient booked. Each row is an Appointment plus `patient_name`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Appointment']]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/follow-up/accept' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => "Accept the doctor's follow-up proposal {id}",
+                'description' => 'It must be the patient\'s, proposed and not expired (422 `errors.status` otherwise), with a doctor who can still be booked (422 `errors.specialist_id`). `scheduled_at` takes another open slot of the same doctor instead (re-checked: 422 `errors.scheduled_at`; re-priced for that date, keeping a waiver — see the quote). '
+                    . 'A free follow-up is confirmed at once. Otherwise `payment_method` (422 `errors.payment_method`): `wallet` debits the wallet (too low → 422 `errors.wallet = "insufficient_funds"` with a top-up hint in `message`; nothing changes), '
+                    . 'or `card` with the `payment_reference` from POST /portal/appointments/pay-init `{appointment_id, scheduled_at?}` (422 `errors.payment_reference` when missing, `errors.payment` when it does not verify or was already used or added to the wallet). '
+                    . 'If a card payment was made but the acceptance is refused (`errors.status` / `errors.specialist_id` / `errors.scheduled_at` — it closed, or the doctor or the slot went, during the checkout), the amount paid is credited to the patient\'s wallet (once per reference), the message ends "Your card payment of ₦X has been added to your VideoMed wallet instead." and `errors.card_payment = "credited_to_wallet"` flags it — retry with `payment_method: wallet`. '
+                    . 'A reference that is already in the wallet answers 422 `errors.payment` with the same flag. '
+                    . 'The claim, the new time/price and the payment are stored in one transaction. If another acceptance won at the same moment, anything this request took that the follow-up doesn\'t carry is credited back to the wallet (and the message says so). '
+                    . 'Then it is confirmed: the doctor gets an in-app notice, everyone gets their join-link email, and it is audited (`appointment.follow_up_accepted`). Idempotent: a repeat answers 200 ("Follow-up already accepted") without charging again; '
+                    . 'a card payment a repeat brings that the follow-up wasn\'t confirmed with (paid on one device while it was accepted on another) is credited to the wallet, the message says so and `meta` is `{card_payment: "credited_to_wallet", credited_amount}`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid'], 'description' => 'The proposal']],
+                'requestBody' => ['required' => false, ...$json([
+                    'type'       => 'object',
+                    'properties' => [
+                        'payment_method'    => ['type' => 'string', 'enum' => ['wallet', 'card'], 'description' => 'Required unless the follow-up is free'],
+                        'payment_reference' => ['type' => 'string', 'description' => 'With card: the pay-init reference, once paid'],
+                        'scheduled_at'      => ['type' => 'string', 'format' => 'date-time', 'description' => 'Another open slot of the same doctor'],
+                    ],
+                ])],
+                'responses'   => [
+                    '200' => ['description' => 'Confirmed (or already accepted; `meta.card_payment` when a second card payment went to the wallet)', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/follow-up/decline' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => "Decline the doctor's follow-up proposal {id}",
+                'description' => 'proposed → cancelled (nothing was charged); the slot reopens and the doctor gets an in-app notice (never the reason). `reason` (≤ 500 chars, 422 `errors.reason`) is kept on the follow-up as decline_reason for the doctor. Audited (`appointment.follow_up_declined`). Idempotent: an already-closed proposal answers 200; 422 `errors.status` once accepted (cancel it instead) or when {id} is not a proposal.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid'], 'description' => 'The proposal']],
+                'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => ['reason' => ['type' => 'string', 'maxLength' => 500]]])],
+                'responses'   => [
+                    '200' => ['description' => 'Declined', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/follow-up/quote' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Price a follow-up before paying',
+                'description' => 'When {id} is one of the patient\'s completed consultations: booking a follow-up of it (with that doctor) starting at `scheduled_at` (default now — the price holds until `window_ends_at`). '
+                    . 'When {id} is an open follow-up proposal: accepting it — at the proposed time the doctor\'s price stands; another `scheduled_at` is re-priced for that date (a waiver is kept). '
+                    . '422 `errors.parent_appointment_id` when the consultation is not completed, `errors.status` when the proposal has closed or expired, `errors.scheduled_at` for an invalid or past time.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'scheduled_at', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date-time']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/FollowUpQuote']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/follow-ups' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'The follow-ups of one of the patient\'s consultations (any status), soonest first',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Appointment']]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
             ],
         ],
@@ -2200,7 +2450,7 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Agora RTC token for the consultation call',
-                'description' => 'Channel is the appointment id; the token is a publisher token valid for 1 hour.',
+                'description' => 'Channel is the appointment id; the token is a publisher token valid for 1 hour. 422 (`errors.status = "proposed"`) for a follow-up proposal not accepted yet.',
                 'operationId' => 'portalCallToken',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -2216,6 +2466,7 @@ return [
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['description' => 'A follow-up proposal not accepted yet (`errors.status = "proposed"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
                     '503' => ['description' => 'Video calling not configured'],
                 ],
             ],

@@ -357,7 +357,7 @@ export class AdminMonitoring implements OnInit {
     return isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(d);
   }
   protected statusClass(status: string): string {
-    const map: Record<string, string> = { pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
+    const map: Record<string, string> = { proposed: 'bg-teal/10 text-teal', pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
     return map[status] ?? 'bg-cloud text-slate';
   }
   protected recStatusClass(status: string): string {

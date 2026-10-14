@@ -105,6 +105,81 @@ final class EmailTemplates
     }
 
     /**
+     * The doctor proposed a follow-up consultation — or, with `$reminder`, it is
+     * still unanswered and closes soon. Deliberately generic: the doctor's note
+     * to the patient, the reason for the visit, diagnoses and medicines never
+     * appear (they are in the app). Times are pre-formatted by the caller.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function followUpProposed(
+        string $firstName,
+        string $doctorName,
+        string $whenLabel,
+        string $replyByLabel,
+        string $priceLabel,
+        string $url,
+        bool $reminder = false,
+    ): array {
+        $doctor = $doctorName !== '' ? $doctorName : 'Your doctor';
+        $intro  = $reminder
+            ? 'the follow-up consultation ' . $doctor . ' proposed for ' . $whenLabel . ' is still waiting for your reply. Accept it or choose another time before ' . $replyByLabel . '.'
+            : $doctor . ' has proposed a follow-up consultation on ' . $whenLabel . '. Open VideoMed to accept or choose another time.';
+
+        $body = self::heading($reminder ? 'Your follow-up is waiting for a reply' : 'Follow-up consultation proposed')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', ' . self::e($intro))
+            . self::infoCard([
+                'Doctor'       => $doctor,
+                'Date & time'  => $whenLabel,
+                'Consultation' => 'Video follow-up',
+                'Price'        => $priceLabel,
+                'Reply by'     => $replyByLabel,
+            ])
+            . self::button('Accept or choose another time', $url)
+            . self::note("If there's no reply by then, the proposal closes and the time is released. Nothing is charged until you accept.");
+
+        return [
+            'subject' => $reminder ? 'Reminder: reply to your follow-up consultation proposal' : $doctor . ' proposed a follow-up consultation',
+            'html'    => self::layout(
+                $reminder ? 'Follow-up reminder' : 'Follow-up proposed',
+                $reminder ? 'Your proposed follow-up closes soon.' : $doctor . ' proposed a follow-up consultation.',
+                $body,
+            ),
+        ];
+    }
+
+    /**
+     * A follow-up proposal closed without becoming a booking: the doctor
+     * withdrew it (`withdrawn`) or it expired unanswered (`expired`). Generic,
+     * like {@see followUpProposed()}.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function followUpClosed(string $firstName, string $doctorName, string $whenLabel, string $why, string $url): array
+    {
+        $doctor = $doctorName !== '' ? $doctorName : 'Your doctor';
+        [$title, $intro] = match ($why) {
+            'withdrawn' => [
+                'Follow-up proposal withdrawn',
+                $doctor . ' withdrew the follow-up consultation proposed for ' . $whenLabel . '. Nothing was charged.',
+            ],
+            default => [
+                'Follow-up proposal closed',
+                'the follow-up consultation ' . $doctor . ' proposed for ' . $whenLabel . ' closed without a reply, so the time was released. You can still book a follow-up from your consultation history.',
+            ],
+        };
+
+        $body = self::heading($title)
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', ' . self::e($intro))
+            . self::button('Open VideoMed', $url);
+
+        return [
+            'subject' => $title,
+            'html'    => self::layout($title, $title . '.', $body),
+        ];
+    }
+
+    /**
      * Multi-party session invite carrying a preauthenticated join link. Sent to
      * the patient, the specialist and each invited guest; `$recipientName` and
      * `$role` personalise the greeting and `$joinUrl` is that recipient's own
@@ -638,6 +713,7 @@ final class EmailTemplates
     private static function statusBadge(string $status, string $label): string
     {
         $palette = [
+            'proposed'    => ['#fff4e5', '#a15c00'],
             'pending'     => ['#fff4e5', '#a15c00'],
             'confirmed'   => ['#e5f4ee', self::TEAL],
             'rescheduled' => [self::CLOUD, self::SLATE],

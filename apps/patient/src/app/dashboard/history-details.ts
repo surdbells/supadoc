@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { catchError, forkJoin, map, of, startWith, switchMap } from 'rxjs';
+import { catchError, forkJoin, map, of, startWith, Subscription, switchMap } from 'rxjs';
 import {
   apiErrorMessage,
   AppointmentsApi,
@@ -24,11 +24,13 @@ import type {
   AppointmentDto,
   ClinicalDocumentKind,
   ConsultationSummaryDto,
+  FollowUpQuoteDto,
   LabOrderDto,
   PrescriptionDto,
   PrescriptionStatus,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { dayLabel, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
 /**
@@ -63,6 +65,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 });
 
 const STATUS_CLASS: Record<string, string> = {
+  proposed: 'bg-teal/10 text-teal',
   pending: 'bg-warning/15 text-warning',
   confirmed: 'bg-sage/15 text-sage',
   rescheduled: 'bg-cloud text-slate',
@@ -122,6 +125,11 @@ const STATUS_CLASS: Record<string, string> = {
                   <span class="flex items-center gap-2"><sd-icon name="calendar-days" [size]="16" />{{ dateLabel(a.scheduled_at) }}</span>
                   <span class="flex items-center gap-2"><sd-icon name="clock" [size]="16" />{{ timeLabel(a.scheduled_at) }}</span>
                   <span class="flex items-center gap-2"><sd-icon name="video" [size]="16" />{{ a.type_label }}</span>
+                  @if (a.parent_appointment_id) {
+                    <a [routerLink]="['/dashboard/history', a.parent_appointment_id]" class="flex min-h-11 items-center gap-2 font-semibold text-cerulean hover:underline sm:min-h-0">
+                      <sd-icon name="history" [size]="16" />Follow-up of your {{ parentDate() || 'earlier' }} consultation
+                    </a>
+                  }
                 </div>
                 <span class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium" [class]="statusClass(a.status)">{{ a.status_label }}</span>
               </div>
@@ -221,6 +229,64 @@ const STATUS_CLASS: Record<string, string> = {
                 }
               </section>
             </div>
+
+            <!-- Follow-ups of this visit: the doctor's proposal to answer, or book one with the same doctor -->
+            @if (a.status === 'completed' || followUps().length > 0) {
+              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="follow-ups-title">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div class="flex min-w-0 flex-col gap-1">
+                    <h2 id="follow-ups-title" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="calendar-plus" [size]="20" />Follow-up</h2>
+                    @if (openProposal()) {
+                      <p class="font-sans text-body-sm text-slate">{{ a.specialist.name }} proposed a follow-up video consultation. Accept it or choose another time.</p>
+                    } @else if (a.status === 'completed') {
+                      <p class="font-sans text-body-sm text-slate">Book a video follow-up with {{ a.specialist.name }}.</p>
+                      @if (bookQuoteNote()) { <p class="font-sans text-caption text-slate">{{ bookQuoteNote() }}</p> }
+                    }
+                  </div>
+                  @if (openProposal(); as op) {
+                    <a
+                      [routerLink]="['/dashboard/appointments', op.id]"
+                      class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field bg-teal px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-teal/90"
+                    >
+                      <sd-icon name="calendar-clock" [size]="18" />Review proposed follow-up
+                    </a>
+                  } @else if (a.status === 'completed') {
+                    <a
+                      [routerLink]="['/dashboard/appointments/book', a.specialist.id]"
+                      [queryParams]="{ follow_up: a.id }"
+                      class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean"
+                    >
+                      <sd-icon name="video" [size]="18" />Book follow-up
+                    </a>
+                  }
+                </div>
+                @if (followUps().length > 0) {
+                  <ul class="flex flex-col gap-2" aria-label="Follow-ups of this consultation">
+                    @for (f of followUps(); track f.id) {
+                      <li>
+                        <a
+                          [routerLink]="[followUpLink(f), f.id]"
+                          class="flex min-h-11 items-center gap-3 rounded-field border border-cloud px-3 py-2 transition-colors hover:border-cerulean/50"
+                        >
+                          <sd-icon name="refresh-cw" [size]="18" class="shrink-0 text-slate" />
+                          <span class="flex min-w-0 flex-1 flex-col">
+                            <span class="font-sans text-body-sm font-semibold text-ink">{{ when(f.scheduled_at) }}</span>
+                            <span class="font-sans text-caption text-slate">{{ f.proposed_by === 'doctor' ? 'Proposed by ' + f.specialist.name : 'Booked by you' }}</span>
+                          </span>
+                          <span class="shrink-0 rounded-lg px-3 py-1 font-sans text-caption font-medium" [class]="followUpStatusClass(f)">{{ followUpStatus(f) }}</span>
+                          <sd-icon name="chevron-right" [size]="16" class="shrink-0 text-cerulean" />
+                        </a>
+                      </li>
+                    }
+                  </ul>
+                }
+                @if (followUpsError()) {
+                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ followUpsError() }}
+                  </p>
+                }
+              </section>
+            }
 
             <!-- Documents + payment -->
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -339,6 +405,27 @@ export class HistoryDetails {
   /** Id of the prescription whose PDF link is being fetched. */
   protected readonly openingRx = signal('');
 
+  // Follow-ups of this consultation (a doctor's proposal, ones booked) and the price of booking one.
+  protected readonly followUps = signal<AppointmentDto[]>([]);
+  protected readonly followUpsError = signal('');
+  private readonly bookQuote = signal<FollowUpQuoteDto | null>(null);
+  /** The summary, documents and follow-ups requests of the visit shown, and its id. */
+  private extrasSub?: Subscription;
+  private extrasId = '';
+
+  /** The doctor's proposal still waiting for an answer — it replaces "Book follow-up". */
+  protected readonly openProposal = computed(
+    () => this.followUps().find((f) => isOpenProposal(f, this.now())) ?? null,
+  );
+
+  protected readonly bookQuoteNote = computed(() => {
+    const q = this.bookQuote();
+    if (!q) return '';
+    return q.within_window
+      ? `Follow-up price: ${priceLabel(q.amount)} for one starting by ${dayLabel(q.window_ends_at)}.`
+      : 'Follow-up pricing has ended for this consultation — the usual fee applies.';
+  });
+
   /** The appointment as re-read while the doctor hadn't closed it yet (overrides the first load). */
   private readonly refreshed = signal<AppointmentDto | null>(null);
   /** Ticks so the rejoin window re-evaluates. */
@@ -389,6 +476,7 @@ export class HistoryDetails {
     return fresh && loaded && fresh.id === loaded.id ? fresh : loaded;
   });
   protected readonly loadError = computed(() => this.result().error);
+  protected readonly parentDate = computed(() => dayLabel(this.appt()?.parent?.scheduled_at));
 
   /** The history lists closed visits only — an open one goes back to the appointments. */
   protected readonly backLink = computed(() => {
@@ -463,15 +551,54 @@ export class HistoryDetails {
   }
 
   private loadExtras(id: string): void {
-    this.api
-      .consultationSummary(id)
-      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
-      .subscribe((res) => this.summary.set(res?.data ?? null));
+    // A reply still on its way is for the last visit (moving between a
+    // consultation and its follow-ups): drop it, and what that visit showed.
+    this.extrasSub?.unsubscribe();
+    const sub = new Subscription();
+    this.extrasSub = sub;
+    if (id !== this.extrasId) {
+      this.extrasId = id;
+      this.summary.set(null);
+      this.prescriptions.set([]);
+      this.docs.set([]);
+      this.labs.set([]);
+    }
+    this.followUps.set([]);
+
+    sub.add(
+      this.api
+        .consultationSummary(id)
+        .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+        .subscribe((res) => this.summary.set(res?.data ?? null)),
+    );
+
+    this.followUpsError.set('');
+    sub.add(
+      this.api
+        .followUps(id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (res) => this.followUps.set(res.data ?? []),
+          error: (err: unknown) => {
+            this.followUps.set([]);
+            this.followUpsError.set(apiErrorMessage(err, 'Could not load the follow-ups of this consultation.'));
+          },
+        }),
+    );
+
+    // What a follow-up booked now would cost (only a completed consultation has a price — else no line).
+    this.bookQuote.set(null);
+    sub.add(
+      this.api
+        .followUpQuote(id)
+        .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+        .subscribe((res) => this.bookQuote.set(res?.data ?? null)),
+    );
 
     this.docsLoading.set(true);
     this.docsError.set('');
     this.rxError.set('');
-    forkJoin({
+    sub.add(forkJoin({
       prescriptions: this.api.prescriptions(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your prescriptions')))),
       referrals: this.api.referrals(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your referrals')))),
       certificates: this.api.certificates(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your certificates')))),
@@ -499,7 +626,7 @@ export class HistoryDetails {
         this.docs.set(docs);
         this.labs.set('data' in labOrders ? (labOrders.data ?? []) : []);
         this.docsLoading.set(false);
-      });
+      }));
   }
 
   /** A failed documents request, carrying the API's message. */
@@ -563,6 +690,27 @@ export class HistoryDetails {
   }
   protected statusClass(status: string): string {
     return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
+  }
+  /** "Tue 21 Oct, 3:00 PM", local time. */
+  protected when(iso: string): string {
+    return whenLabel(iso);
+  }
+  /**
+   * A follow-up that has happened (or won't) lives in the history; one still
+   * ahead in the appointments — as does a proposal never taken up, which the
+   * history leaves out.
+   */
+  protected followUpLink(f: AppointmentDto): string {
+    if (isUntakenProposal(f)) return '/dashboard/appointments';
+    return f.status === 'completed' || f.status === 'cancelled' ? '/dashboard/history' : '/dashboard/appointments';
+  }
+  protected followUpStatus(f: AppointmentDto): string {
+    if (isOpenProposal(f, this.now())) return 'Awaiting your reply';
+    if (isUntakenProposal(f)) return 'Not taken up';
+    return f.status === 'proposed' ? 'Expired' : f.status_label;
+  }
+  protected followUpStatusClass(f: AppointmentDto): string {
+    return isUntakenProposal(f) ? 'bg-cloud text-slate' : this.statusClass(f.status);
   }
   protected money(amount: string): string {
     return NAIRA.format(Number(amount) || 0);

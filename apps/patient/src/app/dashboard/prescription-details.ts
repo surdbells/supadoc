@@ -20,6 +20,7 @@ import {
 } from 'rxjs';
 import {
   apiErrorMessage,
+  AppointmentsApi,
   openPendingTab,
   PrescriptionsApi,
 } from '@supadoc/data-access';
@@ -30,6 +31,7 @@ import {
   EmptyStateComponent,
   IconComponent,
 } from '@supadoc/ui';
+import { isOpenProposal } from './follow-up';
 import { rxDate, rxStatus, type RxStatusMeta } from './prescriptions';
 
 type FileAction = 'view' | 'download' | 'print';
@@ -436,10 +438,21 @@ function httpStatus(err: unknown): number | undefined {
                         </span>
                       }
                     </div>
-                    @if (canBookFollowUp()) {
+                    @if (proposalId(); as proposal) {
+                      <!-- The doctor already proposed one: answer it rather than book another. -->
+                      <a
+                        [routerLink]="['/dashboard/appointments', proposal]"
+                        class="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-field bg-teal px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-teal/90"
+                      >
+                        <sd-icon name="calendar-clock" [size]="16" />
+                        Review proposed follow-up
+                      </a>
+                    } @else if (canBookFollowUp()) {
+                      <!-- Linked to this consultation, so the follow-up price applies. -->
                       <a
                         [routerLink]="['/dashboard/appointments/book', p.specialist_id]"
-                        class="mt-1 inline-flex w-fit items-center gap-2 rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                        [queryParams]="followUpParams()"
+                        class="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
                       >
                         <sd-icon name="video" [size]="16" />
                         Book video follow-up
@@ -467,6 +480,7 @@ function httpStatus(err: unknown): number | undefined {
 })
 export class PrescriptionDetails {
   private readonly api = inject(PrescriptionsApi);
+  private readonly appointments = inject(AppointmentsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly doc = inject(DOCUMENT);
@@ -485,6 +499,7 @@ export class PrescriptionDetails {
 
   private id = '';
   private loadSub: Subscription | null = null;
+  private proposalSub: Subscription | null = null;
   private printFrame: HTMLIFrameElement | null = null;
   private printObjectUrl: string | null = null;
   private printTimer: ReturnType<typeof setTimeout> | null = null;
@@ -525,6 +540,20 @@ export class PrescriptionDetails {
   protected readonly canBookFollowUp = computed(() => {
     const p = this.rx();
     return !!p && p.status === 'active' && p.follow_up_mode === 'video' && !!p.specialist_id;
+  });
+
+  /** The doctor's open follow-up proposal for this prescription's consultation ('' when none). */
+  protected readonly proposalId = signal('');
+
+  /** Book as a follow-up of the consultation, around the date the doctor wrote down. */
+  protected readonly followUpParams = computed(() => {
+    const p = this.rx();
+    const params: Record<string, string> = {};
+    if (!p?.appointment_id) return params;
+    params['follow_up'] = p.appointment_id;
+    const date = /^\d{4}-\d{2}-\d{2}/.exec(p.follow_up_date ?? '')?.[0];
+    if (date) params['date'] = date;
+    return params;
   });
 
   /** Book again with the same doctor when we know who; otherwise the directory. */
@@ -776,6 +805,20 @@ export class PrescriptionDetails {
     }
   }
 
+  /** Is a follow-up of this consultation waiting for the patient's answer? (best effort) */
+  private loadProposal(p: PrescriptionDto): void {
+    this.proposalSub?.unsubscribe();
+    this.proposalId.set('');
+    if (!p.appointment_id || !(p.follow_up_date || p.follow_up_mode)) return;
+    this.proposalSub = this.appointments
+      .followUps(p.appointment_id)
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        const open = (res?.data ?? []).find((a) => isOpenProposal(a));
+        this.proposalId.set(open?.id ?? '');
+      });
+  }
+
   private load(): void {
     this.loadSub?.unsubscribe();
     this.loading.set(true);
@@ -798,6 +841,7 @@ export class PrescriptionDetails {
         next: (res) => {
           this.rx.set(res.data);
           this.loading.set(false);
+          this.loadProposal(res.data);
         },
         error: (err: unknown) => {
           const code = httpStatus(err);

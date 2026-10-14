@@ -38,7 +38,8 @@ final class GetPatientAction
 
         return $this->success($response, [
             'patient'             => $patient->toArray(),
-            'appointments'        => array_map(static fn ($a) => $a->toArray(), $appts['items']),
+            // The admin shape: never the follow-up notes doctor and patient wrote each other.
+            'appointments'        => array_map(static fn ($a) => $a->toAdminArray(), $appts['items']),
             'appointments_total'  => $appts['total'],
         ]);
     }

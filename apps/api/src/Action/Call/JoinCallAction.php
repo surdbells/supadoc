@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Call;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Exception\EntityNotFoundException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Agora\AgoraTokenService;
@@ -49,6 +50,12 @@ final class JoinCallAction
         $appointment = $this->appointments->find($claims['appointment_id']);
         if ($appointment === null) {
             throw EntityNotFoundException::for(Appointment::class, $claims['appointment_id']);
+        }
+        // A follow-up proposal isn't a booking until the patient accepts it.
+        if ($appointment->getStatus() === AppointmentStatus::PROPOSED) {
+            $notYet = "This follow-up hasn't been accepted yet, so there is no call to join. The patient can accept it in VideoMed.";
+
+            return $this->error($response, $notYet, 422, ['status' => 'proposed']);
         }
 
         $specialist = $appointment->getSpecialist();

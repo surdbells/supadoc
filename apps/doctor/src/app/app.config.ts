@@ -3,7 +3,7 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
 } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, RouteReuseStrategy } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import {
   httpErrorInterceptor,
@@ -17,6 +17,7 @@ import {
 } from '@supadoc/auth';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { appRoutes } from './app.routes';
+import { DoctorRouteReuseStrategy } from './route-reuse';
 import { environment } from '../environments/environment';
 
 export const appConfig: ApplicationConfig = {
@@ -24,6 +25,8 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(appRoutes),
+    // `/appointments/A` → `/appointments/B` re-creates the record page (see the route's data).
+    { provide: RouteReuseStrategy, useClass: DoctorRouteReuseStrategy },
     provideHttpClient(
       withInterceptors([staffAuthInterceptor, httpErrorInterceptor]),
     ),

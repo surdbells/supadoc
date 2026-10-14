@@ -112,7 +112,8 @@ final class PrescriptionService
         }
         $started = $appointment->getScheduledAt() <= (new DateTimeImmutable())->modify('+' . self::CONSULT_LEAD_MINUTES . ' minutes');
 
-        return $started && $appointment->getStatus() !== AppointmentStatus::CANCELLED;
+        // An unaccepted follow-up proposal hasn't taken place either.
+        return $started && !in_array($appointment->getStatus(), [AppointmentStatus::CANCELLED, AppointmentStatus::PROPOSED], true);
     }
 
     /**

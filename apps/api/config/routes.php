@@ -186,11 +186,21 @@ return static function (App $app): void {
             $group->get('/doctor/appointments', Action\Doctor\DoctorAppointmentsAction::class);
             $group->get('/doctor/appointments/history', Action\Doctor\DoctorAppointmentHistoryAction::class);
             $group->get('/doctor/appointments/presence', Action\Doctor\DoctorCallPresenceAction::class);
+            // One consultation by id (after the static /history and /presence: FastRoute
+            // refuses a static route registered after a variable one that shadows it).
+            $group->get('/doctor/appointments/{id}', Action\Doctor\GetDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/decline', Action\Doctor\DeclineDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
             // End the consultation: CONFIRMED → COMPLETED (moves it to history).
             $group->post('/doctor/appointments/{id}/complete', Action\Doctor\CompleteDoctorAppointmentAction::class);
+            // Follow-ups: propose one of consultation {id} at an open slot (PROPOSED
+            // until the patient answers), price it first, list them; withdraw a
+            // proposal ({id} = the proposal).
+            $group->post('/doctor/appointments/{id}/follow-up', Action\Doctor\ProposeFollowUpAction::class);
+            $group->get('/doctor/appointments/{id}/follow-up/quote', Action\Doctor\FollowUpQuoteAction::class);
+            $group->post('/doctor/appointments/{id}/follow-up/withdraw', Action\Doctor\WithdrawFollowUpAction::class);
+            $group->get('/doctor/appointments/{id}/follow-ups', Action\Doctor\ListFollowUpsAction::class);
             $group->get('/doctor/patients', Action\Doctor\DoctorPatientsAction::class);
             $group->get('/doctor/patients/{id}', Action\Doctor\DoctorPatientDetailAction::class);
             $group->get('/doctor/reviews', Action\Doctor\DoctorReviewsAction::class);
@@ -367,6 +377,12 @@ return static function (App $app): void {
             $group->post('/appointments/{id}/cancel', Action\Appointment\CancelMyAppointmentAction::class);
             $group->post('/appointments/{id}/reschedule', Action\Appointment\ReschedulePortalAppointmentAction::class);
             $group->post('/appointments/{id}/review', Action\Patient\SubmitReviewAction::class);
+            // Follow-ups: answer the doctor's proposal {id}; price / list the follow-ups of
+            // consultation {id} (the quote also prices accepting proposal {id} at another slot).
+            $group->post('/appointments/{id}/follow-up/accept', Action\Appointment\AcceptFollowUpAction::class);
+            $group->post('/appointments/{id}/follow-up/decline', Action\Appointment\DeclineFollowUpAction::class);
+            $group->get('/appointments/{id}/follow-up/quote', Action\Appointment\MyFollowUpQuoteAction::class);
+            $group->get('/appointments/{id}/follow-ups', Action\Appointment\MyFollowUpsAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->post('/appointments/{id}/presence', Action\Appointment\ReportMyPresenceAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);

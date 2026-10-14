@@ -27,6 +27,7 @@ import {
   CallPresenceComponent,
   IconComponent,
 } from '@supadoc/ui';
+import { isOpenProposal, whenLabel } from './follow-up';
 
 interface QuickAction {
   readonly icon: string;
@@ -61,6 +62,15 @@ const NOTIF_STYLE: Record<string, { icon: string; tint: string }> = {
   payment: { icon: 'banknote', tint: 'bg-sage/10 text-sage' },
   system: { icon: 'bell', tint: 'bg-sky/10 text-sky' },
 };
+
+/** A follow-up the doctor proposed that the patient hasn't answered yet. */
+interface ProposalNotice {
+  readonly id: string;
+  readonly doctor: string;
+  /** "Tue 21 Oct, 3:00 PM", local time. */
+  readonly when: string;
+  readonly respondBy: string;
+}
 
 interface UpcomingVm {
   readonly id: string;
@@ -166,6 +176,34 @@ function greetingFor(now: Date): string {
           Stay on top of your health. You're doing great!
         </div>
       </section>
+
+      <!-- Follow-ups the doctor proposed, waiting for an answer -->
+      @if (proposals().length > 0) {
+        <section class="flex flex-col gap-2" aria-label="Follow-ups waiting for your reply">
+          @for (p of proposals(); track p.id) {
+            <div
+              class="flex flex-col gap-3 rounded-card border border-teal/30 bg-teal/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+            >
+              <p class="flex min-w-0 items-start gap-3 font-sans text-body-sm text-ink">
+                <sd-icon name="calendar-plus" [size]="20" class="mt-0.5 shrink-0 text-teal" />
+                <span class="min-w-0">
+                  <span class="font-semibold">{{ p.doctor }}</span> proposed a follow-up on
+                  <span class="font-semibold">{{ p.when }}</span>.
+                  <span class="block font-sans text-caption text-slate">{{ p.respondBy }}</span>
+                </span>
+              </p>
+              <button
+                type="button"
+                class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-field bg-teal px-5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-teal/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 focus-visible:ring-offset-2"
+                [attr.aria-label]="'Review the follow-up ' + p.doctor + ' proposed'"
+                (click)="reviewProposal(p.id)"
+              >
+                Review <sd-icon name="arrow-right" [size]="16" />
+              </button>
+            </div>
+          }
+        </section>
+      }
 
       <!-- Widgets -->
       <section class="flex flex-col gap-4">
@@ -625,6 +663,8 @@ export class DashboardHome {
   protected readonly upcoming = signal<UpcomingVm | null>(null);
   protected readonly loadingUpcoming = signal(true);
   protected readonly upcomingError = signal('');
+  /** Open follow-up proposals (from the same list) — a notice each, linking to the answer. */
+  protected readonly proposals = signal<ProposalNotice[]>([]);
 
   // Notifications widget — the two most recent from GET /api/portal/notifications.
   protected readonly notifications = signal<Notice[]>([]);
@@ -818,6 +858,27 @@ export class DashboardHome {
         },
       });
 
+    // Follow-ups waiting for an answer, however long the appointment history is.
+    this.appointments
+      .listMine({ status: 'proposed', per_page: 20, sort_by: 'scheduled_at', sort_dir: 'asc' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) =>
+          this.proposals.set(
+            res.data
+              .filter((a) => isOpenProposal(a))
+              .map((a) => ({
+                id: a.id,
+                doctor: a.specialist.name,
+                when: whenLabel(a.scheduled_at),
+                respondBy: `Respond by ${whenLabel(a.expires_at)}`,
+              })),
+          ),
+        error: () => {
+          /* a nudge only — My Appointments lists them too */
+        },
+      });
+
     this.walletApi
       .wallet()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -865,7 +926,11 @@ export class DashboardHome {
     void this.router.navigate(['/dashboard/call', id]);
   }
 
-  /** The soonest appointment still in an upcoming (non-terminal) state. */
+  protected reviewProposal(id: string): void {
+    void this.router.navigate(['/dashboard/appointments', id]);
+  }
+
+  /** The soonest appointment still in an upcoming (non-terminal) state — never a proposal (no call yet). */
   private pickUpcoming(list: AppointmentDto[]): UpcomingVm | null {
     const next = list.find(
       (a) =>

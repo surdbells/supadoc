@@ -20,6 +20,7 @@ import AgoraRTC, {
 } from 'agora-rtc-sdk-ng';
 import { AuthService, SessionTimeoutService } from '@supadoc/auth';
 import {
+  apiErrorFields,
   apiErrorMessage,
   AppointmentsApi,
   DocumentsApi,
@@ -49,6 +50,7 @@ import type {
   VitalReadingDto,
 } from '@supadoc/models';
 import { IconComponent, SmoothHeightDirective } from '@supadoc/ui';
+import { isOpenProposal, whenLabel } from './follow-up';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
@@ -482,6 +484,15 @@ interface RecordItem {
                   <sd-icon name="video-off" [size]="28" />
                 </span>
                 <p class="max-w-sm font-sans text-body">{{ errorMessage() }}</p>
+                @if (awaitingAcceptance()) {
+                  <button
+                    type="button"
+                    class="min-h-11 rounded-field bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-ink transition-colors hover:bg-white/90"
+                    (click)="leave('proposal')"
+                  >
+                    Review the follow-up
+                  </button>
+                }
                 <button
                   type="button"
                   class="rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
@@ -938,6 +949,18 @@ interface RecordItem {
                   }
                 }
                 @case ('followup') {
+                  <!-- The doctor proposed a follow-up from this call: answered after it -->
+                  @for (fu of proposedFollowUps(); track fu.id) {
+                    <div class="mb-4 rounded-2xl border border-teal-bright/40 bg-teal-bright/10 px-3 py-3">
+                      <p class="flex items-start gap-2 font-sans text-body-sm text-white">
+                        <sd-icon name="calendar-plus" [size]="16" class="mt-0.5 shrink-0 text-teal-bright" />
+                        Your doctor proposed a follow-up on {{ proposalWhen(fu) }}.
+                      </p>
+                      <p class="mt-1 pl-6 font-sans text-caption text-white/60">
+                        After the call, accept it or choose another time in My Appointments.
+                      </p>
+                    </div>
+                  }
                   @if (carePlan()?.available && (carePlan()?.items?.length ?? 0) > 0) {
                     <div>
                       <h4 class="font-sans text-body-sm font-semibold text-white">Your Care Plan</h4>
@@ -1290,6 +1313,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly labs = signal<LabOrderDto[]>([]);
   protected readonly carePlan = signal<PatientCarePlanDto | null>(null);
   protected readonly referrals = signal<ReferralDto[]>([]);
+  /** Follow-ups the doctor proposed from this call, waiting for the patient's answer. */
+  protected readonly proposedFollowUps = signal<AppointmentDto[]>([]);
+  /** This is a follow-up proposal the patient hasn't accepted — there is no call to join yet. */
+  protected readonly awaitingAcceptance = signal(false);
   /** A prescription arrived during the call while the patient was on another tab. */
   protected readonly newRx = signal(false);
   /** Guards the newRx badge so the first (baseline) fetch never flags pre-existing scripts. */
@@ -1392,6 +1419,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     steps.push('Book a follow-up if symptoms persist');
     return steps;
   });
+
+  /** A proposed follow-up's start, "Tue 21 Oct, 3:00 PM" in local time. */
+  protected proposalWhen(a: AppointmentDto): string {
+    return whenLabel(a.scheduled_at);
+  }
 
   protected readonly scheduledLabel = computed(() => {
     const iso = this.appointment()?.scheduled_at;
@@ -1634,7 +1666,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       const failed = this.client;
       this.client = undefined;
       void this.releaseMedia(failed);
-      this.errorMessage.set(apiErrorMessage(err, 'We couldn’t start the call. Please try again.'));
+      // A doctor's follow-up proposal has no call until the patient accepts it
+      // (`status: proposed` is a flag, so it gets words of its own).
+      const awaiting = apiErrorFields(err)['status'] === 'proposed';
+      this.awaitingAcceptance.set(awaiting);
+      this.errorMessage.set(
+        awaiting
+          ? 'Accept this follow-up first — there is no call to join until you do.'
+          : apiErrorMessage(err, 'We couldn’t start the call. Please try again.'),
+      );
       this.status.set('error');
     }
   }
@@ -1906,6 +1946,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     try {
       const rf = await firstValueFrom(this.appointments.referrals(this.appointmentId));
       this.referrals.set(rf.data ?? []);
+    } catch {
+      /* none */
+    }
+    try {
+      const fu = await firstValueFrom(this.appointments.followUps(this.appointmentId));
+      this.proposedFollowUps.set((fu.data ?? []).filter((a) => isOpenProposal(a)));
     } catch {
       /* none */
     }
@@ -2341,10 +2387,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * consultation history (its summary, prescriptions and rating); Back and the
    * error screen go back to the appointments.
    */
-  protected async leave(to: 'appointments' | 'history' = 'appointments'): Promise<void> {
+  protected async leave(to: 'appointments' | 'history' | 'proposal' = 'appointments'): Promise<void> {
     await this.teardown();
     if (to === 'history') {
       void this.router.navigate(this.appointmentId ? ['/dashboard/history', this.appointmentId] : ['/dashboard/history']);
+    } else if (to === 'proposal' && this.appointmentId) {
+      // A follow-up proposal not accepted yet: where it is answered.
+      void this.router.navigate(['/dashboard/appointments', this.appointmentId]);
     } else {
       void this.router.navigate(['/dashboard/appointments']);
     }

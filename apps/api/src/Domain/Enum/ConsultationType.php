@@ -16,7 +16,7 @@ enum ConsultationType: string
     {
         return match ($this) {
             self::VIDEO     => 'Video Consultation',
-            self::FOLLOW_UP => 'Patient Follow-up',
+            self::FOLLOW_UP => 'Follow-up Consultation',
             self::URGENT    => 'Urgent Care',
             self::ROUTINE   => 'Routine Checkup',
         };

@@ -48,6 +48,12 @@ final class ConfirmDoctorAppointmentAction
         if ($current === AppointmentStatus::CONFIRMED) {
             return $this->success($response, $appointment->toArray(), 'Appointment already confirmed');
         }
+        // A proposal is confirmed by the patient accepting (and paying for) it.
+        if ($current === AppointmentStatus::PROPOSED) {
+            $waiting = 'This follow-up is waiting for the patient to accept it';
+
+            return $this->error($response, $waiting, 422, ['status' => $waiting]);
+        }
         if (!$current->canTransitionTo(AppointmentStatus::CONFIRMED)) {
             return $this->error($response, 'This appointment cannot be confirmed', 422, [
                 'status' => 'Not confirmable',

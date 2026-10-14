@@ -101,6 +101,7 @@ final class ConsultationCompleter
             return match ($status) {
                 AppointmentStatus::COMPLETED => 'This consultation is already completed',
                 AppointmentStatus::CANCELLED => "This appointment was cancelled, so it can't be marked completed",
+                AppointmentStatus::PROPOSED  => "The patient hasn't accepted this follow-up yet, so it can't be marked completed",
                 default                      => 'Confirm this appointment before marking the consultation completed',
             };
         }

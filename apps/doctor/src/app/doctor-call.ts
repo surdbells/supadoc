@@ -45,6 +45,7 @@ import type {
 import { ConfirmDialogComponent, IconComponent, SmoothHeightDirective } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
+import { FollowUpPlanner } from './appointment/follow-up-planner';
 import { RxPanel } from './prescriptions/rx-panel';
 import { CanLeave, LeavePrompt } from './prescriptions/unsaved-changes.guard';
 
@@ -126,7 +127,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 @Component({
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ConfirmDialogComponent, IconComponent, RxPanel, SmoothHeightDirective],
+  imports: [ConfirmDialogComponent, FollowUpPlanner, IconComponent, RxPanel, SmoothHeightDirective],
   host: {
     class: 'sd-call block min-h-screen bg-abyss text-white',
     '[attr.data-theme]': 'theme()',
@@ -547,6 +548,40 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             <div class="relative p-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               <div sdSmoothHeight>
               <div>
+              <!-- Schedule follow-up (Follow-ups tab, above the care plan). Once opened
+                   it stays mounted for the rest of the call — hidden on the other
+                   tabs — so a half-chosen time and note survive a tab switch; it
+                   refreshes its slots and replies each time the tab shows again. -->
+              @if (followUpMounted() && rxAppointmentId(); as apptId) {
+                <div class="sd-tab-panel mb-4" [class.hidden]="notesTab() !== 'followup'">
+                  @if (!portalSignedIn()) {
+                    <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                      <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                        <span>You are signed out of the doctor portal. Sign in again in a new tab (this call keeps going) to propose or withdraw a follow-up, or edit the care plan.</span>
+                      </span>
+                      <button
+                        type="button"
+                        class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                        (click)="openPortalSignIn()"
+                      >
+                        <sd-icon name="external-link" [size]="14" /> Sign in again
+                      </button>
+                    </div>
+                  }
+                  <!-- Light "paper" surface: the follow-up planner uses the portal palette. The call is a
+                       confirmed consultation; its start says whether a follow-up can be proposed yet (a past one never blocks). -->
+                  <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4">
+                    <doc-follow-up-planner
+                      [appointmentId]="apptId"
+                      parentStatus="confirmed"
+                      [parentScheduledAt]="info()?.scheduled_at ?? ''"
+                      [active]="notesTab() === 'followup'"
+                      [newTab]="true"
+                    />
+                  </div>
+                </div>
+              }
               @for (shown of [notesTab()]; track shown) {
               <div class="sd-tab-panel">
               @switch (notesTab()) {
@@ -793,7 +828,28 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   }
                 }
                 @case ('followup') {
-                  @if (!canDocument()) {
+                  @if (!followUpMounted()) {
+                    @if (!portalSignedIn()) {
+                      <!-- Opened from an emailed join link without a portal session. -->
+                      <div class="mb-4 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                        <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                          <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                          <span>Sign in to the doctor portal to schedule a follow-up or build a care plan. The sign-in page opens in a new tab, so this call keeps going.</span>
+                        </span>
+                        <button
+                          type="button"
+                          class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                          (click)="openPortalSignIn()"
+                        >
+                          <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
+                        </button>
+                      </div>
+                    } @else {
+                      <p class="mb-4 font-sans text-caption text-white/50">
+                        Scheduling a follow-up is available once this consultation's details have loaded.
+                      </p>
+                    }
+                  } @else if (!canDocument() && portalSignedIn()) {
                     <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
                       Sign in to the doctor portal to build a care plan.
                     </p>
@@ -872,7 +928,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
 
                   <!-- Referral -->
-                  <div class="mt-4 border-t border-white/10 pt-3">
+                  <div id="call-referral" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
                     <p class="mb-2 font-sans text-body-sm font-semibold text-white">Referral</p>
                     <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <select
@@ -927,7 +983,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
 
                   <!-- Certificate -->
-                  <div class="mt-4 border-t border-white/10 pt-3">
+                  <div id="call-certificate" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
                     <p class="mb-2 font-sans text-body-sm font-semibold text-white">Medical Certificate</p>
                     <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <select
@@ -1427,6 +1483,19 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       (this.notesTab() === 'prescriptions' && this.portalSignedIn() && !!this.rxPatientId()),
   );
   private readonly rxPanel = viewChild(RxPanel);
+  /** Latches true once the follow-up planner has been shown (see `followUpMounted`). */
+  private readonly followUpKeep = signal(false);
+  /**
+   * The follow-up planner (Follow-ups tab) is mounted: from the first time the
+   * doctor opens that tab while signed in, until the call ends — then only
+   * hidden by tab switches, like the prescribing panel, so a half-chosen time
+   * and note survive. It talks to the API over the portal session (DoctorApi).
+   */
+  protected readonly followUpMounted = computed(
+    () =>
+      this.followUpKeep() ||
+      (this.notesTab() === 'followup' && this.portalSignedIn() && !!this.rxAppointmentId()),
+  );
   /** "Leave with an unsaved prescription?" (End call, Back, browser Back). */
   protected readonly leavePrompt = new LeavePrompt();
   private readonly leavePromptZone = viewChild<ElementRef<HTMLDivElement>>('leavePromptZone');
@@ -1709,6 +1778,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     effect(() => {
       if (this.rxMounted() && !untracked(this.rxKeep)) untracked(() => this.rxKeep.set(true));
     });
+    // ...and the follow-up planner once it has been shown.
+    effect(() => {
+      if (this.followUpMounted() && !untracked(this.followUpKeep)) untracked(() => this.followUpKeep.set(true));
+    });
 
     // The doctor-role join payload carries the patient id; if it ever doesn't,
     // find it from the portal schedule once the doctor is signed in.
@@ -1746,14 +1819,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.patientLookup = 'loading';
     this.rxPatientError.set('');
     this.doctorApi
-      .schedule()
+      .appointment(appointmentId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.patientLookup = 'done';
-          const found = res.data.appointments.find((a) => a.id === appointmentId);
-          if (found?.patient_id) this.lookedUpPatientId.set(found.patient_id);
-          else this.rxPatientError.set('Could not find the patient for this consultation in your schedule.');
+          if (res.data.patient_id) this.lookedUpPatientId.set(res.data.patient_id);
+          else this.rxPatientError.set('Could not find the patient for this consultation.');
         },
         error: (err: unknown) => {
           this.patientLookup = 'done';
@@ -1916,15 +1988,24 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     }
     if (label === 'Referral') {
       this.toolNote.set('');
-      this.notesTab.set('followup');
+      this.openFollowUpSection('call-referral');
       return;
     }
     if (label === 'Certificate') {
       this.toolNote.set('');
-      this.notesTab.set('followup');
+      this.openFollowUpSection('call-certificate');
       return;
     }
     this.toolNote.set('');
+  }
+
+  /** The Follow-ups tab, scrolled to one of its tools (they sit below Schedule follow-up and the care plan). */
+  private openFollowUpSection(id: string): void {
+    this.notesTab.set('followup');
+    afterNextRender(
+      () => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+      { injector: this.injector },
+    );
   }
 
   // ---- Patient medical documents (in-call review) ----

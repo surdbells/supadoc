@@ -22,6 +22,8 @@ interface Filter {
 
 const FILTERS: Filter[] = [
   { key: 'all', label: 'All', status: '' },
+  // Follow-ups a doctor proposed that the patient hasn't answered yet.
+  { key: 'proposed', label: 'Proposed', status: 'proposed' },
   { key: 'pending', label: 'Pending', status: 'pending' },
   { key: 'confirmed', label: 'Confirmed', status: 'confirmed' },
   { key: 'completed', label: 'Completed', status: 'completed' },
@@ -87,7 +89,14 @@ const FILTERS: Filter[] = [
                   <span class="block text-caption text-slate">{{ a.specialist.specialty }}</span>
                 </td>
                 <td class="px-4 py-3 text-slate">{{ when(a.scheduled_at) }}</td>
-                <td class="px-4 py-3 text-slate">{{ a.type_label }}</td>
+                <td class="px-4 py-3 text-slate">
+                  {{ a.type_label }}
+                  @if (a.parent_appointment_id) {
+                    <a [routerLink]="['/appointments', a.parent_appointment_id]" class="block text-caption font-semibold text-cerulean hover:underline">
+                      of {{ a.parent ? day(a.parent.scheduled_at) : 'an earlier visit' }}
+                    </a>
+                  }
+                </td>
                 <td class="px-4 py-3">{{ money(a.amount) }}</td>
                 <td class="px-4 py-3 capitalize text-slate">{{ a.payment_status || '—' }}</td>
                 <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(a.status)">{{ a.status_label }}</span></td>
@@ -184,12 +193,17 @@ export class AdminAppointments implements OnInit {
     const d = new Date(iso);
     return isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d);
   }
+  /** "12 Oct 2026" — the day the consultation a follow-up follows took place. */
+  protected day(iso: string): string {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+  }
   protected money(amount: string): string {
     const n = Number(amount);
     return isNaN(n) ? '—' : '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   protected statusClass(status: string): string {
-    const map: Record<string, string> = { pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
+    const map: Record<string, string> = { proposed: 'bg-teal/10 text-teal', pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
     return map[status] ?? 'bg-cloud text-slate';
   }
 }

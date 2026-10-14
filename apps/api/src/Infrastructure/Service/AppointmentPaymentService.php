@@ -31,13 +31,16 @@ final class AppointmentPaymentService
     /**
      * Debit the appointment amount from the patient's wallet and mark it paid.
      * A free booking is marked paid (nothing is owed) with no posting, and
-     * returns null.
+     * returns null. `$amount` charges a price not stored on the appointment yet
+     * (accepting a follow-up at another slot: the time and price change only
+     * once it is accepted).
      *
      * @throws InsufficientFundsException when the balance is short (no charge made)
      */
-    public function chargeForBooking(Appointment $appointment): ?WalletTransaction
+    public function chargeForBooking(Appointment $appointment, ?string $amount = null): ?WalletTransaction
     {
-        if ($appointment->isFree()) {
+        $amount ??= $appointment->getAmount();
+        if (bccomp($amount, '0', 2) <= 0) {
             $appointment->setPaymentStatus('paid');
 
             return null;
@@ -47,7 +50,7 @@ final class AppointmentPaymentService
         $txn      = $this->wallets->debit(
             $appointment->getPatient()->getId(),
             $currency,
-            $appointment->getAmount(),
+            $amount,
             WalletTransaction::TYPE_CONSULTATION,
             'appt_debit_' . $appointment->getId(),
             'Consultation with ' . $appointment->getSpecialist()->getName(),
@@ -82,5 +85,30 @@ final class AppointmentPaymentService
         $appointment->setPaymentStatus('refunded');
 
         return $txn;
+    }
+
+    /**
+     * Credit `$amount` to the patient's wallet for money taken towards
+     * `$appointment` that it doesn't keep — a follow-up accepted twice at once,
+     * or a card payment whose follow-up closed while the patient paid. The
+     * appointment itself is untouched. Idempotent on `$reference`, which must
+     * not be `appt_refund_<id>`: a later cancellation refund needs that one.
+     */
+    public function creditBack(Appointment $appointment, string $amount, string $reference): WalletTransaction
+    {
+        return $this->wallets->credit(
+            $appointment->getPatient()->getId(),
+            $this->wallets->defaultCurrency(),
+            $amount,
+            WalletTransaction::TYPE_REFUND,
+            $reference,
+            'Refund for consultation with ' . $appointment->getSpecialist()->getName(),
+        );
+    }
+
+    /** Whether the wallet ledger already holds an entry under `$reference`. */
+    public function isPosted(string $reference): bool
+    {
+        return $this->wallets->hasPosting($reference);
     }
 }

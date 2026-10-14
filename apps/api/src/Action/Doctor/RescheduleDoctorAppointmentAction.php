@@ -62,6 +62,11 @@ final class RescheduleDoctorAppointmentAction
             return $this->error($response, 'Validation failed', 422, ['scheduled_at' => 'Choose a time in the future']);
         }
 
+        if ($appointment->getStatus() === AppointmentStatus::PROPOSED) {
+            $instead = 'Withdraw this follow-up proposal and propose the new time instead';
+
+            return $this->error($response, $instead, 422, ['status' => $instead]);
+        }
         if (!$appointment->getStatus()->canTransitionTo(AppointmentStatus::RESCHEDULED)) {
             return $this->error($response, 'This appointment cannot be rescheduled', 422, [
                 'status' => 'Not reschedulable',

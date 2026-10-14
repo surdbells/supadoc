@@ -5,10 +5,12 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   Injector,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -17,13 +19,16 @@ import {
   catchError,
   distinctUntilChanged,
   filter,
+  firstValueFrom,
   forkJoin,
   map,
   of,
   startWith,
+  Subscription,
   switchMap,
 } from 'rxjs';
 import {
+  apiErrorFields,
   apiErrorMessage,
   AppointmentsApi,
   DocumentsApi,
@@ -34,22 +39,30 @@ import {
   openPendingTab,
   PrescriptionsApi,
   SpecialistsApi,
+  WalletApi,
 } from '@supadoc/data-access';
 import type {
+  AcceptFollowUpParams,
   AppointmentDto,
   ClinicalDocumentKind,
   DayAvailability,
+  FollowUpPriceDto,
+  FollowUpQuoteDto,
   MedicalDocumentDto,
   MessageDto,
   PrescriptionDto,
   PrescriptionStatus,
 } from '@supadoc/models';
 import {
+  AlertComponent,
   ButtonComponent,
   CallPresenceComponent,
   IconComponent,
   MessageThreadComponent,
+  SlotPickerComponent,
 } from '@supadoc/ui';
+import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './follow-up';
+import { loadPaystack } from './paystack';
 
 /** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
 interface DocumentItem {
@@ -86,6 +99,25 @@ interface DetailsVm {
   readonly guests: string[];
   readonly canCancel: boolean;
   readonly canReview: boolean;
+  /** A cancelled appointment (a declined follow-up among them) has no call to join. */
+  readonly canJoin: boolean;
+  /** A doctor's follow-up proposal (answered with the panel, not Join / Cancel). */
+  readonly isProposal: boolean;
+  /** The consultation this follows up ('' when it isn't a follow-up). */
+  readonly parentId: string;
+  readonly parentDate: string;
+}
+
+/** What the "Follow-up proposed" panel shows. */
+interface ProposalVm {
+  /** Still answerable (not past `expires_at`). */
+  readonly open: boolean;
+  readonly note: string;
+  readonly respondBy: string;
+  /** The proposed start, local time. */
+  readonly when: string;
+  readonly amount: string;
+  readonly pricing: FollowUpPriceDto | null;
 }
 
 const NAIRA = new Intl.NumberFormat('en-NG', {
@@ -94,6 +126,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 });
 
 const STATUS_CLASS: Record<string, string> = {
+  proposed: 'bg-teal/10 text-teal',
   pending: 'bg-warning/15 text-warning',
   confirmed: 'bg-sage/15 text-sage',
   rescheduled: 'bg-cloud text-slate',
@@ -135,19 +168,32 @@ function toDetails(a: AppointmentDto): DetailsVm {
     guests: (a.guests ?? []).map((g) => g.name),
     canCancel: ['pending', 'confirmed', 'rescheduled'].includes(a.status),
     canReview: a.status === 'completed',
+    canJoin: a.status !== 'cancelled',
+    isProposal: a.status === 'proposed',
+    parentId: a.parent_appointment_id ?? '',
+    parentDate: dayLabel(a.parent?.scheduled_at),
   };
 }
 
-/** Appointment details (Figma 648:9480) — wired to GET /api/portal/appointments/{id}. */
+/**
+ * Appointment details (Figma 648:9480) — wired to GET /api/portal/appointments/{id}.
+ * A follow-up the doctor proposed is answered here: the doctor's note, the
+ * price (and why), optionally another open slot of the same doctor, payment by
+ * wallet or card (free ones need none), Accept, or Decline with an optional
+ * reason. `?respond=accept|time|decline` (from the appointments list) jumps
+ * straight to that step.
+ */
 @Component({
   selector: 'pat-appointment-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,
+    AlertComponent,
     ButtonComponent,
     CallPresenceComponent,
     IconComponent,
     MessageThreadComponent,
+    SlotPickerComponent,
   ],
   host: { class: 'block' },
   template: `
@@ -246,6 +292,15 @@ function toDetails(a: AppointmentDto): DetailsVm {
                   <span class="flex items-center gap-2">
                     <sd-icon [name]="v.typeIcon" [size]="16" />{{ v.typeLabel }}
                   </span>
+                  @if (v.parentId) {
+                    <a
+                      [routerLink]="['/dashboard/history', v.parentId]"
+                      class="flex min-h-11 items-center gap-2 font-semibold text-cerulean hover:underline sm:min-h-0"
+                    >
+                      <sd-icon name="history" [size]="16" />
+                      Follow-up of your {{ v.parentDate || 'earlier' }} consultation
+                    </a>
+                  }
                 </div>
                 <!-- Status + who's in the call; wraps under the dates on narrow phones -->
                 <div class="ml-auto flex flex-col items-end gap-2">
@@ -263,7 +318,236 @@ function toDetails(a: AppointmentDto): DetailsVm {
               </div>
             </section>
 
+            <!-- A follow-up the doctor proposed: accept (paying unless free), another time, or decline -->
+            @if (proposal(); as fp) {
+              <section
+                #respondPanel
+                tabindex="-1"
+                class="flex flex-col gap-5 rounded-card border border-teal/30 bg-white p-5 outline-none sm:p-6"
+                aria-labelledby="proposal-title"
+              >
+                <div class="flex flex-col gap-1">
+                  <h2
+                    id="proposal-title"
+                    class="flex items-center gap-2 font-sans text-body font-semibold text-teal"
+                  >
+                    <sd-icon name="calendar-plus" [size]="20" />
+                    {{ v.name }} proposed a follow-up
+                  </h2>
+                  @if (fp.open) {
+                    <p class="flex items-start gap-1.5 font-sans text-body-sm text-slate">
+                      <sd-icon name="hourglass" [size]="16" class="mt-0.5 shrink-0 text-warning" />
+                      Respond by {{ fp.respondBy }} — the time is held for you until then.
+                    </p>
+                  }
+                </div>
+
+                @if (!fp.open) {
+                  <!-- Expired: read-only (the server closes it shortly) -->
+                  <sd-alert tone="warning">
+                    <span class="text-ink">
+                      This follow-up proposal has expired, so it can no longer be
+                      accepted.
+                    </span>
+                    @if (v.parentId) {
+                      <a
+                        [routerLink]="['/dashboard/history', v.parentId]"
+                        class="mt-2 flex w-fit items-center gap-1 font-semibold text-cerulean hover:underline"
+                      >
+                        <sd-icon name="calendar-plus" [size]="16" />
+                        Book a follow-up from your consultation
+                      </a>
+                    }
+                  </sd-alert>
+                } @else {
+                  @if (fp.note) {
+                    <figure class="flex flex-col gap-1 rounded-field bg-glacier px-4 py-3">
+                      <figcaption class="font-sans text-caption font-semibold text-slate">
+                        Note from {{ v.name }}
+                      </figcaption>
+                      <blockquote class="whitespace-pre-line break-words font-sans text-body-sm text-ink">
+                        {{ fp.note }}
+                      </blockquote>
+                    </figure>
+                  }
+
+                  <!-- Time: the proposed one, or another open slot of the same doctor -->
+                  <div class="flex flex-col gap-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div class="flex min-w-0 flex-col gap-0.5">
+                        <span class="font-sans text-caption font-semibold text-slate">
+                          {{ altIso() ? 'Your new time' : 'Proposed time' }}
+                        </span>
+                        <span class="flex items-center gap-2 font-sans text-body font-semibold text-ink">
+                          <sd-icon name="calendar-clock" [size]="18" class="shrink-0 text-slate" />
+                          {{ altIso() ? altWhen() : fp.when }}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-cloud px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                        [attr.aria-expanded]="slotsOpen()"
+                        aria-controls="proposal-slots"
+                        [disabled]="accepting()"
+                        (click)="toggleSlots(v.specialistId)"
+                      >
+                        <sd-icon [name]="slotsOpen() ? 'x' : 'calendar-days'" [size]="16" />
+                        {{ slotsOpen() ? 'Keep the proposed time' : 'Choose another time' }}
+                      </button>
+                    </div>
+                    @if (slotsOpen()) {
+                      <div id="proposal-slots" class="flex flex-col gap-3 rounded-card border border-cloud bg-glacier/50 p-4">
+                        @if (altLoading()) {
+                          <div class="sd-shimmer h-24 rounded-field"></div>
+                        } @else if (altError()) {
+                          <sd-alert tone="error">{{ altError() }}</sd-alert>
+                          <button
+                            type="button"
+                            class="min-h-11 w-fit rounded-field border border-cloud bg-white px-5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                            (click)="loadAltSlots(v.specialistId)"
+                          >
+                            Try again
+                          </button>
+                        } @else if (altDays().length === 0) {
+                          <!-- The slots endpoint looks 3 weeks ahead (AvailabilityService::LOOKAHEAD_DAYS). -->
+                          <p class="font-sans text-body-sm text-slate">
+                            {{ v.name }} has no other open times in the next three weeks.
+                          </p>
+                        } @else {
+                          <!-- Days and times are the patient's local time (localSlotDays). -->
+                          <sd-slot-picker [days]="altDays()" [value]="altIso()" (valueChange)="pickAlt($event)" />
+                          <p class="font-sans text-caption text-slate">
+                            Times are in your local time. Pick one, or keep the proposed time.
+                          </p>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  <!-- Price, and why -->
+                  <div class="flex flex-col gap-1 border-t border-cloud pt-4" aria-live="polite">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="font-sans text-body-sm text-slate">Follow-up fee</span>
+                      <span class="font-heading text-h5 text-ink">
+                        {{ priceReady() ? priceText() : quoteError() ? '—' : 'Checking price…' }}
+                      </span>
+                    </div>
+                    @if (priceReady() && priceWhy()) {
+                      <p class="font-sans text-caption text-slate">{{ priceWhy() }}</p>
+                    }
+                    @if (quoteError()) {
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <p class="flex min-w-0 items-start gap-1.5 font-sans text-caption text-alert" role="alert">
+                          <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ quoteError() }}
+                        </p>
+                        <button
+                          type="button"
+                          class="min-h-11 shrink-0 rounded-field border border-cloud bg-white px-4 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+                          (click)="pickAlt(altIso())"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    }
+                  </div>
+
+                  <!-- Payment (none for a free follow-up) -->
+                  @if (priceReady() && !proposalFree()) {
+                    <div class="flex flex-col gap-3" role="group" aria-labelledby="pay-with-title">
+                      <h3 id="pay-with-title" class="font-sans text-body-sm font-semibold text-ink">Pay with</h3>
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          class="flex min-h-11 items-center gap-3 rounded-card border-2 p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                          [class]="payMethod() === 'card' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                          [attr.aria-pressed]="payMethod() === 'card'"
+                          [disabled]="accepting()"
+                          (click)="payMethod.set('card')"
+                        >
+                          <sd-icon name="credit-card" [size]="22" class="shrink-0 text-cerulean" />
+                          <span class="flex min-w-0 flex-col">
+                            <span class="font-sans text-body-sm font-semibold text-ink">Card</span>
+                            <span class="font-sans text-caption text-slate">Secure checkout via Paystack</span>
+                          </span>
+                          @if (payMethod() === 'card') {
+                            <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
+                          }
+                        </button>
+                        <!-- Not once the card has been charged: the wallet would pay twice. -->
+                        <button
+                          type="button"
+                          class="flex min-h-11 items-center gap-3 rounded-card border-2 p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:cursor-not-allowed disabled:opacity-50"
+                          [class]="payMethod() === 'wallet' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                          [attr.aria-pressed]="payMethod() === 'wallet'"
+                          [disabled]="accepting() || !!paidReference()"
+                          (click)="payMethod.set('wallet')"
+                        >
+                          <sd-icon name="wallet" [size]="22" class="shrink-0 text-cerulean" />
+                          <span class="flex min-w-0 flex-col">
+                            <span class="font-sans text-body-sm font-semibold text-ink">Wallet</span>
+                            <span class="font-sans text-caption text-slate">{{ walletCaption() }}</span>
+                          </span>
+                          @if (payMethod() === 'wallet') {
+                            <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
+                          }
+                        </button>
+                      </div>
+                      @if (payMethod() === 'wallet' && walletShort()) {
+                        <p class="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert">
+                          <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
+                          <span class="min-w-0 flex-1">
+                            Your wallet is short by {{ shortfallText() }}. Pay by card, or
+                            <a routerLink="/dashboard/wallet" class="font-semibold text-cerulean underline">top up your wallet</a>
+                            and come back to accept.
+                          </span>
+                        </p>
+                      }
+                      @if (payMethod() === 'card' && paidReference()) {
+                        <p class="flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
+                          <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+                          Your card payment went through, but the follow-up wasn't
+                          confirmed. Fix what's shown below and try again — you won't
+                          be charged twice.
+                        </p>
+                      }
+                    </div>
+                  }
+
+                  @if (paidNote()) {
+                    <sd-alert tone="warning">{{ paidNote() }}</sd-alert>
+                  }
+                  @if (unusedPayment()) {
+                    <sd-alert tone="warning">{{ unusedPayment() }}</sd-alert>
+                  }
+                  @if (acceptError()) {
+                    <sd-alert tone="error">{{ acceptError() }}</sd-alert>
+                  }
+
+                  <div class="flex flex-col gap-3 border-t border-cloud pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <button
+                      type="button"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60 sm:order-first"
+                      [disabled]="accepting()"
+                      (click)="openDecline()"
+                    >
+                      <sd-icon name="circle-x" [size]="18" />
+                      Decline
+                    </button>
+                    <sd-button [disabled]="!canAccept()" (click)="accept()">
+                      @if (accepting()) {
+                        <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
+                      } @else {
+                        <sd-icon name="circle-check" [size]="18" />
+                      }
+                      {{ acceptLabel() }}
+                    </sd-button>
+                  </div>
+                }
+              </section>
+            }
+
             <!-- Instructions + actions -->
+            @if (!v.isProposal) {
             <section
               class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 lg:flex-row lg:justify-between"
             >
@@ -291,18 +575,20 @@ function toDetails(a: AppointmentDto): DetailsVm {
               </div>
               <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
                 <!-- A soft green halo + clearer label once the doctor is waiting -->
-                <sd-button
-                  [full]="true"
-                  [class]="doctorInCall() ? 'rounded-field ring-4 ring-success/25' : ''"
-                  (click)="joinCall(v.id)"
-                >
-                  <sd-icon name="video" [size]="18" />
-                  {{
-                    doctorInCall()
-                      ? 'Join now — your doctor is in the call'
-                      : 'Join Consultation'
-                  }}
-                </sd-button>
+                @if (v.canJoin) {
+                  <sd-button
+                    [full]="true"
+                    [class]="doctorInCall() ? 'rounded-field ring-4 ring-success/25' : ''"
+                    (click)="joinCall(v.id)"
+                  >
+                    <sd-icon name="video" [size]="18" />
+                    {{
+                      doctorInCall()
+                        ? 'Join now — your doctor is in the call'
+                        : 'Join Consultation'
+                    }}
+                  </sd-button>
+                }
                 @if (v.canCancel) {
                   <sd-button variant="outline" [full]="true" (click)="openReschedule(v)"
                     >Reschedule Appointment</sd-button
@@ -331,6 +617,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 }
               </div>
             </section>
+            }
 
             <!-- Documents + payment -->
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -602,6 +889,68 @@ function toDetails(a: AppointmentDto): DetailsVm {
         </div>
       </div>
     }
+
+    @if (declineOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeDecline()"></button>
+        <div
+          #declineDialog
+          class="relative z-10 flex w-full max-w-md flex-col gap-4 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="decline-title"
+          aria-describedby="decline-desc"
+          tabindex="-1"
+          (keydown.escape)="closeDecline()"
+          (keydown)="trapTab($event, declineDialog)"
+        >
+          <div class="flex items-center justify-between">
+            <h3 #declineTitle id="decline-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Decline this follow-up?</h3>
+            <button type="button" class="inline-flex size-11 items-center justify-center text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeDecline()"><sd-icon name="x" [size]="24" /></button>
+          </div>
+          <p id="decline-desc" class="font-sans text-body-sm text-slate">
+            Nothing has been charged. The time is released and your doctor is told
+            you declined. You can still book a follow-up later.
+          </p>
+          <label class="flex flex-col gap-1.5">
+            <span class="font-sans text-caption font-semibold text-slate">Reason for your doctor (optional)</span>
+            <textarea
+              rows="3"
+              maxlength="500"
+              class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+              placeholder="For example: I'm feeling better, or the time doesn't suit me"
+              [disabled]="declining()"
+              [value]="declineReason()"
+              (input)="declineReason.set($any($event.target).value)"
+            ></textarea>
+            <span class="text-right font-sans text-caption text-slate">{{ declineReason().length }}/500</span>
+          </label>
+          @if (declineError()) {
+            <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ declineError() }}
+            </p>
+          }
+          <div class="flex flex-col-reverse gap-3 sm:flex-row">
+            <button
+              type="button"
+              class="inline-flex min-h-11 flex-1 items-center justify-center rounded-field border border-cloud px-4 py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier"
+              [disabled]="declining()"
+              (click)="closeDecline()"
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field bg-alert px-4 py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60"
+              [disabled]="declining()"
+              (click)="submitDecline()"
+            >
+              {{ declining() ? 'Declining…' : 'Decline follow-up' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class AppointmentDetails {
@@ -654,6 +1003,140 @@ export class AppointmentDetails {
   protected readonly sharedLoading = signal(false);
   protected readonly sharedError = signal('');
 
+  // ----- Follow-up proposal (status `proposed`) -----
+  private readonly walletApi = inject(WalletApi);
+  private readonly declineTitle = viewChild<ElementRef<HTMLElement>>('declineTitle');
+  private readonly respondPanel = viewChild<ElementRef<HTMLElement>>('respondPanel');
+  /** The `?respond=` step to jump to once the proposal has loaded (used once). */
+  private pendingRespond = this.route.snapshot.queryParamMap.get('respond');
+  /** Ticks so an open proposal turns read-only once it expires. */
+  private readonly clock = signal(Date.now());
+
+  protected readonly proposal = computed<ProposalVm | null>(() => {
+    const a = this.appt();
+    if (!a || a.status !== 'proposed') return null;
+    return {
+      open: isOpenProposal(a, this.clock()),
+      note: a.follow_up_note?.trim() ?? '',
+      respondBy: whenLabel(a.expires_at),
+      when: whenLabel(a.scheduled_at),
+      amount: a.amount,
+      pricing: a.follow_up_pricing ?? null,
+    };
+  });
+
+  // Another open slot of the same doctor instead of the proposed time.
+  protected readonly slotsOpen = signal(false);
+  protected readonly altDays = signal<DayAvailability[]>([]);
+  protected readonly altLoading = signal(false);
+  protected readonly altError = signal('');
+  /** The slot the patient picked instead ('' = the proposed time). */
+  protected readonly altIso = signal('');
+  protected readonly altWhen = computed(() => whenLabel(this.altIso()));
+  private altLoaded = false;
+  /** The price quoted for the patient's other time, keyed by the slot it is for. */
+  private readonly altQuote = signal<{ iso: string; quote: FollowUpQuoteDto } | null>(null);
+  protected readonly quoteError = signal('');
+  private quoteSub?: Subscription;
+
+  /** The chosen time is priced: the proposed one always is; another one once quoted. */
+  protected readonly priceReady = computed(() => {
+    const iso = this.altIso();
+    return !iso || this.altQuote()?.iso === iso;
+  });
+  /** What accepting costs at the chosen time, and the rule that priced it. */
+  private readonly price = computed<{ amount: string; pricing: FollowUpPriceDto | null }>(() => {
+    const iso = this.altIso();
+    const q = this.altQuote();
+    if (iso && q?.iso === iso) return { amount: q.quote.amount, pricing: q.quote };
+    const fp = this.proposal();
+    return { amount: fp?.amount ?? '0', pricing: fp?.pricing ?? null };
+  });
+  protected readonly priceText = computed(() => priceLabel(this.price().amount));
+  protected readonly priceWhy = computed(() => priceNote(this.price().pricing));
+  protected readonly proposalFree = computed(() => !(Number(this.price().amount) > 0));
+
+  // Paying: card (Paystack, the same pop-up as booking) or the wallet balance.
+  protected readonly payMethod = signal<'card' | 'wallet'>('card');
+  private readonly walletBalance = signal<number | null>(null);
+  private readonly walletFailed = signal(false);
+  private walletRequested = false;
+  protected readonly walletCaption = computed(() => {
+    const balance = this.walletBalance();
+    if (this.walletFailed()) return 'Balance unavailable';
+    return balance === null ? 'Balance …' : `Balance ₦${NAIRA.format(balance)}`;
+  });
+  protected readonly walletShort = computed(() => {
+    const balance = this.walletBalance();
+    return balance !== null && balance < Number(this.price().amount);
+  });
+  protected readonly shortfallText = computed(
+    () => `₦${NAIRA.format(Math.max(0, Number(this.price().amount) - (this.walletBalance() ?? 0)))}`,
+  );
+
+  protected readonly accepting = signal(false);
+  protected readonly acceptError = signal('');
+  /**
+   * A card payment that went through for an acceptance the server then refused
+   * (another time taken, …), with the amount it paid — reused on the next try
+   * instead of charging again, as long as it covers the chosen time's price.
+   */
+  private readonly paid = signal<{ reference: string; amount: number } | null>(null);
+  /** The kept card payment while it covers the chosen time ('' otherwise). */
+  protected readonly paidReference = computed(() => {
+    const p = this.paid();
+    if (!p) return '';
+    // While another time is being priced it still counts (accepting waits for the price).
+    if (!this.priceReady()) return p.reference;
+    return !this.proposalFree() && Number(this.price().amount) <= p.amount ? p.reference : '';
+  });
+  /** How the kept card payment differs from the chosen time's price ('' when it matches). */
+  protected readonly paidNote = computed(() => {
+    const p = this.paid();
+    if (!p || !this.priceReady()) return '';
+    const now = Number(this.price().amount);
+    const paidText = `₦${NAIRA.format(p.amount)}`;
+    if (!(now > 0)) {
+      return `This time is free, so your earlier card payment of ${paidText} won't be used — contact support with reference ${p.reference} about it.`;
+    }
+    if (now > p.amount) {
+      return (
+        `Your earlier card payment of ${paidText} doesn't cover this time (${this.priceText()}). ` +
+        `Pick a time that costs ${paidText} or less to accept on it without paying again — ` +
+        `paying now is a separate charge, so contact support about the earlier payment.`
+      );
+    }
+    if (now < p.amount) {
+      return (
+        `Your earlier card payment of ${paidText} is more than this time costs (${this.priceText()}). ` +
+        `Accepting uses it — contact support about the ₦${NAIRA.format(p.amount - now)} difference.`
+      );
+    }
+    return '';
+  });
+  /** A card payment the server wouldn't take for this proposal, for support to sort out. */
+  protected readonly unusedPayment = signal('');
+
+  protected readonly canAccept = computed(() => {
+    if (this.accepting() || !this.priceReady() || !this.proposal()?.open) return false;
+    if (this.proposalFree() || this.payMethod() === 'card') return true;
+    // The wallet: once the balance is known to cover it (or couldn't be read — the server decides).
+    return this.walletFailed() || (this.walletBalance() !== null && !this.walletShort());
+  });
+
+  protected readonly acceptLabel = computed(() => {
+    if (this.accepting()) return 'Processing…';
+    if (!this.priceReady() || this.proposalFree()) return 'Accept follow-up';
+    if (this.payMethod() === 'wallet') return `Pay ${this.priceText()} from wallet & accept`;
+    return this.paidReference() ? 'Complete acceptance' : `Pay ${this.priceText()} by card & accept`;
+  });
+
+  // Declining (optional reason for the doctor).
+  protected readonly declineOpen = signal(false);
+  protected readonly declineReason = signal('');
+  protected readonly declining = signal(false);
+  protected readonly declineError = signal('');
+
   constructor() {
     // Load the thread + documents whenever the appointment id in the route changes.
     this.route.paramMap
@@ -664,9 +1147,344 @@ export class AppointmentDetails {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((id) => {
+        // Another appointment: nothing from the last one carries over.
+        this.override.set(null);
+        this.notice.set(null);
+        this.resetProposalState();
+        this.paid.set(null);
+        this.unusedPayment.set('');
         this.loadMessages(id);
         this.loadDocuments(id);
         this.loadSharedDocs(id);
+      });
+
+    const tick = setInterval(() => this.clock.set(Date.now()), 30_000);
+    this.destroyRef.onDestroy(() => {
+      clearInterval(tick);
+      this.quoteSub?.unsubscribe();
+    });
+
+    // A card payment that covers the chosen time again is how it is paid: the
+    // wallet would pay twice.
+    effect(() => {
+      if (this.paidReference()) untracked(() => this.payMethod.set('card'));
+    });
+
+    // An open proposal that may need paying: read the wallet balance once.
+    effect(() => {
+      if (!this.proposal()?.open || this.walletRequested) return;
+      this.walletRequested = true;
+      untracked(() => this.loadWallet());
+    });
+
+    // Arrived from the list's Accept / Choose another time / Decline: go to that step once.
+    effect(() => {
+      const fp = this.proposal();
+      const step = this.pendingRespond;
+      const specialistId = this.appt()?.specialist.id ?? '';
+      if (!fp || !step) return;
+      this.pendingRespond = null;
+      untracked(() => {
+        // Drop the param so a reload or Back doesn't jump again.
+        void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+        if (fp.open && step === 'decline') {
+          this.openDecline();
+          return;
+        }
+        if (fp.open && step === 'time' && !this.slotsOpen()) this.toggleSlots(specialistId);
+        this.focusAfterRender(() => this.respondPanel()?.nativeElement);
+      });
+    });
+  }
+
+  // ----- Follow-up proposal -----
+
+  protected toggleSlots(specialistId: string): void {
+    if (this.slotsOpen()) {
+      this.slotsOpen.set(false);
+      this.pickAlt(''); // back to the proposed time
+      return;
+    }
+    this.slotsOpen.set(true);
+    if (!this.altLoaded && !this.altLoading()) this.loadAltSlots(specialistId);
+  }
+
+  protected loadAltSlots(specialistId: string): void {
+    this.altLoading.set(true);
+    this.altError.set('');
+    this.specialists
+      .slots(specialistId, 14)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          // Local dates and labels, minus any slot that has already started.
+          this.altDays.set(localSlotDays(res.data));
+          this.altLoaded = true;
+          this.altLoading.set(false);
+        },
+        error: (err: unknown) => {
+          this.altError.set(apiErrorMessage(err, 'Could not load other times. Please try again.'));
+          this.altLoading.set(false);
+        },
+      });
+  }
+
+  /** Take another slot (or '' for the proposed time) and price it for that date. */
+  protected pickAlt(iso: string): void {
+    this.altIso.set(iso);
+    this.acceptError.set('');
+    this.quoteError.set('');
+    this.quoteSub?.unsubscribe();
+    const id = this.appt()?.id;
+    if (!iso || !id) return;
+    this.quoteSub = this.appointments
+      .followUpQuote(id, iso)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.altQuote.set({ iso, quote: res.data }),
+        error: (err: unknown) =>
+          this.quoteError.set(apiErrorMessage(err, 'Could not check the price for that time. Please try again.')),
+      });
+  }
+
+  private loadWallet(): void {
+    this.walletApi
+      .wallet()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.walletBalance.set(Number(res.data.balance));
+          this.walletFailed.set(false);
+        },
+        error: () => this.walletFailed.set(true),
+      });
+  }
+
+  /**
+   * Accept the proposal at the chosen time: free → straight away; wallet →
+   * debited by the server; card → the Paystack pop-up (pay-init for this
+   * proposal), then the verified reference confirms it.
+   */
+  protected async accept(): Promise<void> {
+    const id = this.appt()?.id;
+    if (!id || !this.canAccept()) return;
+    const scheduledAt = this.altIso() || undefined;
+    this.accepting.set(true);
+    this.acceptError.set('');
+    this.notice.set(null);
+    if (this.proposalFree()) return this.sendAccept(id, { scheduled_at: scheduledAt });
+    if (this.payMethod() === 'wallet') {
+      return this.sendAccept(id, { payment_method: 'wallet', scheduled_at: scheduledAt });
+    }
+    // Already paid, but the acceptance was refused: try again on the same payment.
+    const paid = this.paidReference();
+    if (paid) return this.sendAccept(id, { payment_method: 'card', payment_reference: paid, scheduled_at: scheduledAt });
+    try {
+      const init = await firstValueFrom(this.appointments.payInitForProposal(id, scheduledAt));
+      const Pop = await loadPaystack();
+      new Pop().resumeTransaction(init.data.access_code, {
+        onSuccess: () => {
+          // An earlier payment this one replaces was never used.
+          const earlier = this.paid();
+          if (earlier) this.unusedPayment.set(this.unusedPaymentNote(earlier));
+          this.paid.set({ reference: init.data.reference, amount: Number(init.data.amount) });
+          this.sendAccept(id, {
+            payment_method: 'card',
+            payment_reference: init.data.reference,
+            scheduled_at: scheduledAt,
+          });
+        },
+        onCancel: () => {
+          this.accepting.set(false);
+          this.acceptError.set('Payment cancelled — nothing was charged. Try again when you’re ready.');
+        },
+        onError: () => {
+          this.accepting.set(false);
+          this.acceptError.set('The payment could not be completed. Please try again.');
+        },
+      });
+    } catch (err) {
+      // `payment: free` is a flag: nothing to pay at this time after all.
+      if (apiErrorFields(err)['payment'] === 'free') {
+        this.sendAccept(id, { scheduled_at: scheduledAt });
+        return;
+      }
+      this.accepting.set(false);
+      this.acceptError.set(apiErrorMessage(err, 'Could not start the card payment. Please try again.'));
+      this.afterRefusal(err);
+    }
+  }
+
+  private sendAccept(id: string, params: AcceptFollowUpParams): void {
+    this.appointments
+      .acceptFollowUp(id, params)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.accepting.set(false);
+          // A card payment left unused on the way (refused, replaced, or not
+          // needed at the time accepted) stays in view once the panel is gone.
+          const kept = this.paid();
+          const unused = [
+            this.unusedPayment(),
+            kept && kept.reference !== params.payment_reference ? this.unusedPaymentNote(kept) : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          // Already accepted (another device): the card payment this try brought
+          // wasn't needed, so the server put it in the wallet — the message says so.
+          const credited = res.meta?.card_payment === 'credited_to_wallet';
+          this.paid.set(null);
+          this.unusedPayment.set('');
+          this.resetProposalState();
+          this.override.set(res.data);
+          this.notice.set({
+            ok: true,
+            text: credited
+              ? `${res.message}${unused ? ` ${unused}` : ''}`
+              : 'Follow-up confirmed. We’ve emailed you the join link — you can also join from this page.' +
+                (unused ? ` ${unused}` : ''),
+          });
+          // The panel (and the button that had focus) is gone.
+          this.focusAfterRender(() => this.pageTitle()?.nativeElement);
+        },
+        error: (err: unknown) => {
+          this.accepting.set(false);
+          const fields = apiErrorFields(err);
+          // The server put the card payment in the wallet (the acceptance was
+          // refused, or it had been credited already): it can't pay again, but
+          // the wallet can. The server's message says where the money went, so
+          // no "contact support" note about it; a note about an earlier,
+          // different payment (`unusedPayment`) still stands.
+          if (fields['card_payment'] === 'credited_to_wallet' || /already in your wallet/i.test(fields['payment'] ?? '')) {
+            const said = apiErrorMessage(err, 'Could not accept the follow-up. Please try again.');
+            this.paid.set(null);
+            this.payMethod.set('wallet');
+            this.loadWallet();
+            this.acceptError.set(said);
+            // Closed meanwhile: the panel goes, so it is said at the top of the page.
+            if (fields['status']) this.notice.set({ ok: false, text: said });
+            this.afterRefusal(err);
+            return;
+          }
+          // `wallet: insufficient_funds` is a flag, so it gets words of its own.
+          if (fields['wallet'] === 'insufficient_funds') {
+            this.acceptError.set(
+              'Your wallet balance is too low to accept this follow-up. Pay by card, or top up your wallet and try again.',
+            );
+            this.loadWallet();
+            return;
+          }
+          // The server won't take the kept card payment (it doesn't cover the
+          // price, or was used already): stop retrying on it, and say what to do.
+          // A verification hiccup ("… Please try again.") keeps it for a retry.
+          const kept = this.paid();
+          const refused = fields['payment'] ?? '';
+          if (params.payment_reference && kept?.reference === params.payment_reference && refused && !/try again/i.test(refused)) {
+            this.paid.set(null);
+            this.unusedPayment.set(this.unusedPaymentNote(kept, refused));
+            return;
+          }
+          // Closed meanwhile (expired, withdrawn): the panel goes, so the reason —
+          // incl. a returned wallet debit or a card payment made for it — is
+          // reported at the top of the page.
+          if (fields['status']) {
+            if (kept) this.paid.set(null);
+            this.notice.set({ ok: false, text: kept ? this.unusedPaymentNote(kept, fields['status']) : fields['status'] });
+          }
+          this.acceptError.set(apiErrorMessage(err, 'Could not accept the follow-up. Please try again.'));
+          this.afterRefusal(err);
+        },
+      });
+  }
+
+  /** What to tell the patient about a card payment no acceptance used (with the server's reason, if any). */
+  private unusedPaymentNote(p: { reference: string; amount: number }, reason = ''): string {
+    return (
+      `${reason ? reason + ' ' : ''}Your earlier card payment of ₦${NAIRA.format(p.amount)} couldn't be used — ` +
+      `contact support with reference ${p.reference}.`
+    );
+  }
+
+  /**
+   * The proposal closed meanwhile → show it as it is now; the other time went →
+   * back to the proposed time, with fresh times to pick from (`paidNote` says
+   * if a card payment made for the other time doesn't cover the proposed one).
+   */
+  private afterRefusal(err: unknown): void {
+    const a = this.appt();
+    if (!a) return;
+    const fields = apiErrorFields(err);
+    if (fields['status']) this.refresh(a.id);
+    if (fields['scheduled_at'] && this.altIso()) {
+      this.altIso.set('');
+      this.loadAltSlots(a.specialist.id);
+    }
+  }
+
+  /** Re-read the appointment in place (best effort). */
+  private refresh(id: string): void {
+    this.appointments
+      .getMine(id)
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        if (res?.data && res.data.id === this.appt()?.id) this.override.set(res.data);
+      });
+  }
+
+  private resetProposalState(): void {
+    this.quoteSub?.unsubscribe();
+    this.slotsOpen.set(false);
+    this.altIso.set('');
+    this.altQuote.set(null);
+    this.altDays.set([]);
+    this.altLoaded = false;
+    this.quoteError.set('');
+    this.acceptError.set('');
+  }
+
+  protected openDecline(): void {
+    this.rememberOpener();
+    this.declineError.set('');
+    this.declineOpen.set(true);
+    this.focusAfterRender(() => this.declineTitle()?.nativeElement);
+  }
+
+  protected closeDecline(): void {
+    if (this.declining()) return; // let the request finish first
+    this.declineOpen.set(false);
+    this.returnFocus();
+  }
+
+  protected submitDecline(): void {
+    const id = this.appt()?.id;
+    if (!id || this.declining()) return;
+    this.declining.set(true);
+    this.declineError.set('');
+    this.appointments
+      .declineFollowUp(id, this.declineReason().trim() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.declining.set(false);
+          this.declineReason.set('');
+          this.resetProposalState();
+          this.override.set(res.data);
+          // Withdrawn by the doctor or expired while the dialog was open: a 200 all the same.
+          this.notice.set({
+            ok: true,
+            text:
+              res.message === 'Follow-up declined'
+                ? 'Follow-up declined. We’ve let your doctor know.'
+                : 'This follow-up proposal had already been closed.',
+          });
+          this.closeDecline(); // focus falls back to the page heading (the panel is gone)
+        },
+        error: (err: unknown) => {
+          this.declining.set(false);
+          this.declineError.set(apiErrorMessage(err, 'Could not decline the follow-up. Please try again.'));
+          if (apiErrorFields(err)['status']) this.refresh(id);
+        },
       });
   }
 
@@ -1058,8 +1876,11 @@ export class AppointmentDetails {
   protected readonly viewState = computed(() => this.result().state);
   protected readonly loadError = computed(() => this.result().error);
 
+  /** The appointment as last read, or as an in-place change (cancel, accept…) left it. */
+  private readonly appt = computed<AppointmentDto | null>(() => this.override() ?? this.result().appt);
+
   protected readonly vm = computed<DetailsVm | null>(() => {
-    const appt = this.override() ?? this.result().appt;
+    const appt = this.appt();
     return appt ? toDetails(appt) : null;
   });
 }

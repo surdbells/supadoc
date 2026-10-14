@@ -12,6 +12,7 @@ import { map } from 'rxjs';
 import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { isUntakenProposal } from './follow-up';
 
 type Status = 'completed' | 'cancelled';
 type Tab = 'all' | 'completed' | 'cancelled';
@@ -33,6 +34,8 @@ const STATUS: Record<Status, { label: string; class: string }> = {
 /** History is the terminal appointments — the ones that have already happened. */
 function toConsultation(a: AppointmentDto): Consultation | null {
   if (a.status !== 'completed' && a.status !== 'cancelled') return null;
+  // A follow-up proposal that was declined, withdrawn or expired was never a consultation.
+  if (isUntakenProposal(a)) return null;
   const when = new Date(a.scheduled_at);
   return {
     id: a.id,

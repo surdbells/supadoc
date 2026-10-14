@@ -64,10 +64,14 @@ final class DoctorDashboardAction
             AppointmentStatus::COMPLETED,
         ];
 
-        $agenda = array_map(
+        // A follow-up proposal holds its slot but isn't on the day's schedule until accepted.
+        $agenda = array_values(array_map(
             fn (Appointment $a): array => $this->row($a, $specialist, $webUrl),
-            $this->appointments->forSpecialistBetween($specialistId, $startToday, $endToday),
-        );
+            array_filter(
+                $this->appointments->forSpecialistBetween($specialistId, $startToday, $endToday),
+                static fn (Appointment $a): bool => $a->getStatus() !== AppointmentStatus::PROPOSED,
+            ),
+        ));
         $next = $this->appointments->nextForSpecialist($specialistId, $now);
 
         $todayCount     = count($agenda);

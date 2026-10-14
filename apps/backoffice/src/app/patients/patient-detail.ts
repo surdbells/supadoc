@@ -292,6 +292,8 @@ export class AdminPatientDetail implements OnInit {
         return 'bg-alert/10 text-alert';
       case 'rescheduled':
         return 'bg-cloud text-slate';
+      case 'proposed':
+        return 'bg-teal/10 text-teal';
       default:
         return 'bg-warning/15 text-warning';
     }

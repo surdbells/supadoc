@@ -61,6 +61,11 @@ final class ReschedulePortalAppointmentAction
             return $this->error($response, 'Validation failed', 422, ['scheduled_at' => 'Choose a time in the future']);
         }
 
+        if ($appointment->getStatus() === AppointmentStatus::PROPOSED) {
+            $instead = 'To take another time, accept this follow-up and choose the new time as you accept it';
+
+            return $this->error($response, $instead, 422, ['status' => $instead]);
+        }
         if (!$appointment->getStatus()->canTransitionTo(AppointmentStatus::RESCHEDULED)) {
             return $this->error($response, 'This appointment can no longer be rescheduled', 422, [
                 'status' => 'Not reschedulable',

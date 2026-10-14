@@ -12,6 +12,7 @@ import {
   Injector,
   OnInit,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -23,11 +24,14 @@ import {
   AppointmentsApi,
   localSlotDays,
   SpecialistsApi,
+  todayLocal,
   WalletApi,
 } from '@supadoc/data-access';
 import type {
   AppointmentDocumentDto,
+  AppointmentDto,
   DayAvailability,
+  FollowUpQuoteDto,
   GuestInvite,
   PricingDto,
   SpecialistDto,
@@ -40,6 +44,8 @@ import {
   StepperComponent,
   type FileDropRejection,
 } from '@supadoc/ui';
+import { dayLabel, priceNote } from './follow-up';
+import { loadPaystack } from './paystack';
 
 type AttachStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -87,7 +93,11 @@ const MAX_DOCS = 10;
  * it's added), a booking summary, and a payment step — card or wallet, or
  * nothing for a free consultation — that creates the appointment. Driven by
  * the specialist's real availability and the back-office-configured Naira
- * pricing.
+ * pricing. `?follow_up=<consultation id>[&date=YYYY-MM-DD]` books a follow-up
+ * of one of the patient's completed consultations with this doctor: the
+ * suggested day is preselected, each slot is priced by the follow-up quote and
+ * the booking is linked to that consultation (a link that doesn't hold falls
+ * back to a regular booking, with a note).
  */
 @Component({
   selector: 'pat-book-consultation',
@@ -123,6 +133,39 @@ const MAX_DOCS = 10;
 
       <!-- Stepper -->
       <sd-stepper [count]="steps.length" [current]="step()" />
+
+      <!-- Booking a follow-up of an earlier consultation (?follow_up=) -->
+      @if (parent()) {
+        <div
+          class="flex flex-col gap-2 rounded-card border border-teal/30 bg-teal/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p class="flex min-w-0 items-start gap-3 font-sans text-body-sm text-ink">
+            <sd-icon name="refresh-cw" [size]="18" class="mt-0.5 shrink-0 text-teal" />
+            <span class="min-w-0">
+              <span class="font-semibold">Follow-up to your {{ parentDate() }} consultation</span>
+              <!-- The price follows the chosen time, announced as it changes -->
+              <span
+                class="block font-sans text-caption"
+                [class]="quoteError() ? 'text-alert' : 'text-slate'"
+                aria-live="polite"
+                >{{ followUpPriceLine() }}</span
+              >
+            </span>
+          </p>
+          @if (quoteError()) {
+            <button
+              type="button"
+              class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-cloud bg-white px-4 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+              (click)="retryQuote()"
+            >
+              Try again
+            </button>
+          }
+        </div>
+      }
+      @if (parentNotice()) {
+        <sd-alert tone="info">{{ parentNotice() }}</sd-alert>
+      }
 
       @if (loadError()) {
         <div class="flex flex-col items-center gap-4 py-16 text-center">
@@ -212,6 +255,11 @@ const MAX_DOCS = 10;
                 >1</span
               >Choose Date &amp; Time
             </h2>
+            @if (dateNotice()) {
+              <p class="mb-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
+                <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />{{ dateNotice() }}
+              </p>
+            }
             @if (loadingSlots()) {
               <div
                 class="sd-shimmer h-28 rounded-card"
@@ -658,8 +706,18 @@ const MAX_DOCS = 10;
                 <dt class="flex items-center gap-2 text-slate">
                   <sd-icon name="video" [size]="16" />Consultation Type
                 </dt>
-                <dd class="text-right text-ink">Online Video Consultation</dd>
+                <dd class="text-right text-ink">
+                  {{ parent() ? 'Follow-up Video Consultation' : 'Online Video Consultation' }}
+                </dd>
               </div>
+              @if (parent()) {
+                <div class="flex justify-between gap-4">
+                  <dt class="flex items-center gap-2 text-slate">
+                    <sd-icon name="history" [size]="16" />Follow-up of
+                  </dt>
+                  <dd class="text-right text-ink">Your {{ parentDate() }} consultation</dd>
+                </div>
+              }
               <div class="flex justify-between gap-4">
                 <dt class="flex items-center gap-2 text-slate">
                   <sd-icon name="clipboard-list" [size]="16" />Reason
@@ -691,8 +749,8 @@ const MAX_DOCS = 10;
               class="mt-5 flex flex-col gap-2 border-t border-cloud pt-4 font-sans text-body-sm"
             >
               <div class="flex justify-between">
-                <span class="text-slate">Consultation Fee</span>
-                <span class="text-ink">{{ feeLabel(baseFee()) }}</span>
+                <span class="text-slate">{{ parent() ? 'Follow-up Fee' : 'Consultation Fee' }}</span>
+                <span class="text-ink">{{ priceReady() ? feeLabel(baseFee()) : '…' }}</span>
               </div>
               @if (validGuests().length > 0) {
                 <div class="flex justify-between">
@@ -707,7 +765,7 @@ const MAX_DOCS = 10;
                 class="flex justify-between border-t border-cloud pt-2 font-semibold"
               >
                 <span class="text-body text-cerulean">Amount</span>
-                <span class="text-h5 text-cerulean">{{ feeLabel(amount()) }}</span>
+                <span class="text-h5 text-cerulean">{{ priceReady() ? feeLabel(amount()) : '…' }}</span>
               </div>
             </div>
           </div>
@@ -716,7 +774,8 @@ const MAX_DOCS = 10;
             <sd-button variant="outline" (click)="back()"
               >Back to previous</sd-button
             >
-            <sd-button (click)="next()">
+            <!-- A follow-up waits for its price before payment -->
+            <sd-button [disabled]="!priceReady()" (click)="toPayment()">
               {{ isFree() ? 'Continue' : 'Continue to payment' }}
               <sd-icon name="arrow-right" [size]="18" />
             </sd-button>
@@ -745,7 +804,7 @@ const MAX_DOCS = 10;
             </h2>
             <div class="flex flex-col gap-3 font-sans text-body-sm">
               <div class="flex justify-between">
-                <span class="text-slate">Consultation Fee</span>
+                <span class="text-slate">{{ parent() ? 'Follow-up Fee' : 'Consultation Fee' }}</span>
                 <span class="text-ink">Free</span>
               </div>
               <div
@@ -762,6 +821,12 @@ const MAX_DOCS = 10;
             </p>
           </div>
 
+          @if (paidNote()) {
+            <sd-alert tone="warning">{{ paidNote() }}</sd-alert>
+          }
+          @if (unusedPayment()) {
+            <sd-alert tone="warning">{{ unusedPayment() }}</sd-alert>
+          }
           @if (submitError()) {
             <sd-alert tone="error">{{ submitError() }}</sd-alert>
           }
@@ -770,7 +835,8 @@ const MAX_DOCS = 10;
             <sd-button variant="outline" (click)="back()"
               >Back to previous</sd-button
             >
-            <sd-button [disabled]="submitting()" (click)="confirm()">
+            <!-- A card payment made earlier on this page is kept on the booking. -->
+            <sd-button [disabled]="submitting()" (click)="confirm(paidReference() || undefined)">
               {{ submitting() ? 'Booking…' : 'Confirm booking' }}
             </sd-button>
           </div>
@@ -787,8 +853,8 @@ const MAX_DOCS = 10;
             </h2>
             <div class="flex flex-col gap-3 font-sans text-body-sm">
               <div class="flex justify-between">
-                <span class="text-slate">Consultation Fee</span>
-                <span class="text-ink">{{ fmt(baseFee()) }}</span>
+                <span class="text-slate">{{ parent() ? 'Follow-up Fee' : 'Consultation Fee' }}</span>
+                <span class="text-ink">{{ feeLabel(baseFee()) }}</span>
               </div>
               @if (validGuests().length > 0) {
                 <div class="flex justify-between">
@@ -908,6 +974,12 @@ const MAX_DOCS = 10;
             }
           </div>
 
+          @if (paidNote()) {
+            <sd-alert tone="warning">{{ paidNote() }}</sd-alert>
+          }
+          @if (unusedPayment()) {
+            <sd-alert tone="warning">{{ unusedPayment() }}</sd-alert>
+          }
           @if (submitError()) {
             <sd-alert tone="error">{{ submitError() }}</sd-alert>
           }
@@ -1043,12 +1115,41 @@ export class BookConsultation implements OnInit {
   protected readonly funding = signal(false);
   protected readonly fundError = signal('');
   /**
-   * A card payment that went through for a booking the server then refused —
-   * kept so "Complete booking" retries on it instead of charging again.
+   * A card payment that went through for a booking the server then refused,
+   * with the amount it paid — kept so "Complete booking" retries on it instead
+   * of charging again, as long as it still covers the price (a follow-up's
+   * price can change with the slot).
    */
-  protected readonly paidReference = signal('');
+  private readonly paid = signal<{ reference: string; amount: number } | null>(null);
+  /** The kept card payment while it covers this booking ('' otherwise). */
+  protected readonly paidReference = computed(() => {
+    const p = this.paid();
+    // While a new slot is being priced it still counts (paying waits for the price).
+    return p && (!this.priceReady() || this.amount() <= p.amount) ? p.reference : '';
+  });
+  /** How the kept card payment differs from this booking's price ('' when it matches). */
+  protected readonly paidNote = computed(() => {
+    const p = this.paid();
+    if (!p || !this.priceReady()) return '';
+    const now = this.amount();
+    if (now > p.amount) {
+      return (
+        `Your earlier card payment of ${this.fmt(p.amount)} doesn't cover this time (${this.fmt(now)}). ` +
+        `Pick a time that costs ${this.fmt(p.amount)} or less to book on it without paying again — ` +
+        `paying now is a separate charge, so contact support about the earlier payment.`
+      );
+    }
+    if (now < p.amount) {
+      return (
+        `Your earlier card payment of ${this.fmt(p.amount)} is more than this time costs (${this.feeLabel(now)}). ` +
+        `This booking uses it — contact support about the ${this.fmt(p.amount - now)} difference.`
+      );
+    }
+    return '';
+  });
+  /** A card payment the server wouldn't take for this booking, for support to sort out. */
+  protected readonly unusedPayment = signal('');
   protected readonly topUpAmount = signal('');
-  private paystackLoader?: Promise<PaystackPopCtor>;
 
   private specialistId = '';
   private readonly nf = new Intl.NumberFormat('en-NG', {
@@ -1056,7 +1157,54 @@ export class BookConsultation implements OnInit {
     maximumFractionDigits: 2,
   });
 
+  // ----- Follow-up of an earlier consultation (`?follow_up=<id>[&date=YYYY-MM-DD]`) -----
+  /** The completed consultation (with this doctor) this books a follow-up of; null = a regular booking. */
+  protected readonly parent = signal<AppointmentDto | null>(null);
+  /** `?follow_up` is being checked — prices wait for it. */
+  protected readonly parentChecking = signal(false);
+  /** Why the booking fell back to a regular one ('' when it didn't). */
+  protected readonly parentNotice = signal('');
+  /** Why the doctor's suggested day (`?date`) isn't the one selected. */
+  protected readonly dateNotice = signal('');
+  /** The follow-up price, keyed by the slot it was quoted for. */
+  private readonly quote = signal<{ iso: string; data: FollowUpQuoteDto } | null>(null);
+  protected readonly quoteError = signal('');
+  private quoteSub?: Subscription;
+  protected readonly parentDate = computed(() => dayLabel(this.parent()?.scheduled_at));
+
+  /**
+   * The consultation fee for the chosen slot is known: always for a regular
+   * booking; for a follow-up once the slot has been quoted.
+   */
+  protected readonly priceReady = computed(() => {
+    if (this.parentChecking()) return false;
+    const iso = this.selectedTime();
+    return !this.parent() || (iso !== '' && this.quote()?.iso === iso);
+  });
+
+  /** The follow-up banner's price line. */
+  protected readonly followUpPriceLine = computed(() => {
+    const q = this.quote();
+    if (this.quoteError()) return this.quoteError();
+    if (!this.priceReady() || !q) return 'Checking the follow-up price…';
+    const why = priceNote(q.data);
+    return `${this.feeLabel(q.data.amount)} for the selected time${why ? ` · ${why}` : ''}`;
+  });
+
   constructor() {
+    // A follow-up's price depends on its date: quote each slot as it is picked.
+    effect(() => {
+      const parent = this.parent();
+      const iso = this.selectedTime();
+      untracked(() => this.fetchQuote(parent, iso));
+    });
+
+    // A card payment that covers the booking again is how it is paid: the
+    // wallet would pay twice.
+    effect(() => {
+      if (this.paidReference()) untracked(() => this.payMethod.set('card'));
+    });
+
     // While the documents step is showing, a file dropped just outside the
     // drop zone must not make the browser navigate away to open it (losing
     // the whole booking). The zone cancels its own events first, so anything
@@ -1080,7 +1228,12 @@ export class BookConsultation implements OnInit {
 
   ngOnInit(): void {
     this.specialistId = this.route.snapshot.paramMap.get('id') ?? '';
-    const preslot = this.route.snapshot.queryParamMap.get('slot');
+    const query = this.route.snapshot.queryParamMap;
+    const preslot = query.get('slot');
+    const followUpOf = query.get('follow_up') ?? '';
+    // The doctor's suggested follow-up day (a local calendar date).
+    const wantDate = /^\d{4}-\d{2}-\d{2}$/.test(query.get('date') ?? '') ? (query.get('date') as string) : '';
+    if (followUpOf) this.checkParent(followUpOf);
 
     this.specialistsApi
       .getPublic(this.specialistId)
@@ -1110,8 +1263,9 @@ export class BookConsultation implements OnInit {
         },
       });
 
+    // A follow-up looks further ahead, so the doctor's suggested day is reachable.
     this.specialistsApi
-      .slots(this.specialistId, 7)
+      .slots(this.specialistId, followUpOf ? 14 : 7)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -1122,7 +1276,23 @@ export class BookConsultation implements OnInit {
           const preDay = preslot
             ? days.find((d) => d.slots.some((s) => s.iso === preslot))
             : undefined;
-          const day = preDay ?? days[0];
+          // The suggested day, else the next open day after it — or, when it is
+          // past the last day open for booking, that last (closest) day.
+          const target = !preDay && wantDate >= todayLocal() ? wantDate : '';
+          const onDate = target ? days.find((d) => d.date === target) : undefined;
+          const after = target && !onDate ? days.find((d) => d.date > target) : undefined;
+          const latest = target && !onDate && !after ? days[days.length - 1] : undefined;
+          if (after) {
+            this.dateNotice.set(
+              `Your doctor suggested ${this.dayName(target)}, but there are no open times that day — the next open day is selected.`,
+            );
+          } else if (latest) {
+            this.dateNotice.set(
+              `Your doctor suggested ${this.dayName(target)}; times can only be booked up to ` +
+                `${this.dayName(latest.date)} right now — the latest open day is selected.`,
+            );
+          }
+          const day = preDay ?? onDate ?? after ?? latest ?? days[0];
           if (day) {
             this.selectedDate.set(day.date);
             this.selectedTime.set(
@@ -1207,9 +1377,12 @@ export class BookConsultation implements OnInit {
   protected readonly platformFee = computed(
     () => this.pricing()?.platform_fee ?? 0,
   );
-  protected readonly baseFee = computed(() =>
-    Number(this.specialist()?.consultation_fee ?? 0),
-  );
+  /** The doctor's fee — or, for a follow-up, its quoted price for the chosen slot. */
+  protected readonly baseFee = computed(() => {
+    const q = this.quote();
+    if (this.parent() && q && q.iso === this.selectedTime()) return Number(q.data.amount);
+    return Number(this.specialist()?.consultation_fee ?? 0);
+  });
   protected readonly validGuests = computed(() =>
     this.guests().filter((g) => g.name.trim() !== '' && this.emailValid(g.email)),
   );
@@ -1223,7 +1396,10 @@ export class BookConsultation implements OnInit {
    * it waits for the pricing, so an unloaded guest fee never reads as free.
    */
   protected readonly isFree = computed(
-    () => this.amount() <= 0 && (this.validGuests().length === 0 || this.pricing() !== null),
+    () =>
+      this.priceReady() &&
+      this.amount() <= 0 &&
+      (this.validGuests().length === 0 || this.pricing() !== null),
   );
   /** Amount + platform fee — the checkout total shown at payment. */
   protected readonly total = computed(() => this.amount() + this.platformFee());
@@ -1261,6 +1437,79 @@ export class BookConsultation implements OnInit {
   /** A fee as money, or "Free" when there is nothing to pay (never "₦0.00"). */
   protected feeLabel(value: number | string): string {
     return Number(value) > 0 ? this.fmt(value) : 'Free';
+  }
+
+  // ----- Follow-up -----
+
+  /**
+   * `?follow_up` must be one of the patient's completed consultations with
+   * this doctor; anything else falls back to a regular booking, with a note.
+   */
+  private checkParent(id: string): void {
+    this.parentChecking.set(true);
+    this.appointments
+      .getMine(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.parentChecking.set(false);
+          const a = res.data;
+          const sameDoctor = a.specialist.id === this.specialistId;
+          if (a.status === 'completed' && sameDoctor) this.parent.set(a);
+          else if (a.status === 'confirmed' && sameDoctor) {
+            // Straight after the call (e.g. from its prescription), before the
+            // doctor has closed the consultation.
+            this.dropParent(
+              "Your consultation hasn't been closed by your doctor yet, so follow-up pricing can't apply yet — " +
+                'book now at the usual fee, or come back once it is completed.',
+            );
+          } else this.dropParent();
+        },
+        error: () => {
+          this.parentChecking.set(false);
+          this.dropParent();
+        },
+      });
+  }
+
+  /** Book as a regular consultation from here on (the follow-up link didn't hold). */
+  private dropParent(
+    notice = "We couldn't link this to an earlier consultation with this doctor, so it's booked as a regular consultation at the usual fee.",
+  ): void {
+    this.quoteSub?.unsubscribe();
+    this.parent.set(null);
+    this.quote.set(null);
+    this.quoteError.set('');
+    this.parentNotice.set(notice);
+  }
+
+  /** Price the follow-up for the chosen slot (once per slot, unless `force`). */
+  private fetchQuote(parent: AppointmentDto | null, iso: string, force = false): void {
+    // A quote still on its way is for a slot no longer chosen.
+    this.quoteSub?.unsubscribe();
+    this.quoteError.set('');
+    if (!parent || !iso) return;
+    if (!force && this.quote()?.iso === iso) return;
+    this.quoteSub = this.appointments
+      .followUpQuote(parent.id, iso)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.quote.set({ iso, data: res.data }),
+        error: (err: unknown) => {
+          const fields = apiErrorFields(err);
+          // The consultation can't be followed up after all (e.g. no longer completed).
+          if (fields['parent_appointment_id'] || fields['specialist_id']) {
+            this.dropParent();
+            return;
+          }
+          this.quoteError.set(apiErrorMessage(err, "Couldn't check the follow-up price. Please try again."));
+        },
+      });
+  }
+
+  /** Retry a failed quote for the selected slot. */
+  protected retryQuote(): void {
+    this.fetchQuote(this.parent(), this.selectedTime(), true);
   }
 
   protected emailValid(email: string): boolean {
@@ -1307,6 +1556,11 @@ export class BookConsultation implements OnInit {
 
   protected next(): void {
     if (this.step() < 7) this.step.update((s) => s + 1);
+  }
+
+  /** Summary → payment, once the price is known (a follow-up's is quoted per slot). */
+  protected toPayment(): void {
+    if (this.priceReady()) this.next();
   }
 
   protected back(): void {
@@ -1469,6 +1723,7 @@ export class BookConsultation implements OnInit {
       this.step.set(1);
       return;
     }
+    if (!this.priceReady()) return;
     this.submitting.set(true);
     this.submitError.set('');
     try {
@@ -1486,16 +1741,19 @@ export class BookConsultation implements OnInit {
           document_ids: documentIds.length > 0 ? documentIds : undefined,
           guests: guests.length > 0 ? guests : undefined,
           payment_reference: paymentReference,
+          // A follow-up: linked to the consultation and priced as one by the server.
+          parent_appointment_id: this.parent()?.id,
         }),
       );
       await this.router.navigate(['/dashboard/appointments'], {
         queryParams: { booked: '1' },
       });
     } catch (err) {
+      const fields = apiErrorFields(err);
       // Backstop: the server rejects an underfunded wallet with a 422 flag —
       // flip the balance to a known-short state so the top-up CTA shows.
       // (`wallet: insufficient_funds` is a flag, so it gets words of its own.)
-      if (apiErrorFields(err)['wallet'] === 'insufficient_funds') {
+      if (fields['wallet'] === 'insufficient_funds') {
         this.walletBalance.set(Math.max(0, this.amount() - 1));
         this.walletLoaded.set(true);
         this.walletError.set('');
@@ -1504,9 +1762,22 @@ export class BookConsultation implements OnInit {
         );
         return;
       }
+      // The server won't take the kept card payment (it doesn't cover the
+      // price, or was used already): stop retrying on it, and say what to do.
+      // A verification hiccup ("… Please try again.") keeps it for a retry.
+      const kept = this.paid();
+      const refused = fields['payment'] ?? '';
+      if (paymentReference && kept?.reference === paymentReference && refused && !/try again/i.test(refused)) {
+        this.paid.set(null);
+        this.unusedPayment.set(this.unusedPaymentNote(kept, refused));
+        return;
+      }
       this.submitError.set(
         apiErrorMessage(err, 'Could not complete your booking. Please try again.'),
       );
+      // The consultation can no longer be followed up: the price is the usual
+      // fee now, so the patient confirms again at that price.
+      if (this.parent() && (fields['parent_appointment_id'] || fields['specialist_id'])) this.dropParent();
     } finally {
       this.submitting.set(false);
     }
@@ -1522,6 +1793,7 @@ export class BookConsultation implements OnInit {
       this.step.set(1);
       return;
     }
+    if (!this.priceReady()) return;
     // Already paid, but the booking was refused (a slot taken, an attachment
     // the server turned down): book again on the same, still unused, payment.
     if (this.paidReference()) {
@@ -1532,15 +1804,24 @@ export class BookConsultation implements OnInit {
     this.fundError.set('');
     this.submitError.set('');
     try {
+      // A follow-up is charged its follow-up price for this slot.
+      const parent = this.parent();
       const init = await firstValueFrom(
-        this.appointments.payInit(this.specialistId, this.validGuests().length),
+        this.appointments.payInit(
+          this.specialistId,
+          this.validGuests().length,
+          parent ? { parent_appointment_id: parent.id, scheduled_at: this.selectedTime() } : undefined,
+        ),
       );
-      const Pop = await this.loadPaystack();
+      const Pop = await loadPaystack();
       const popup = new Pop();
       popup.resumeTransaction(init.data.access_code, {
         onSuccess: () => {
           this.funding.set(false);
-          this.paidReference.set(init.data.reference);
+          // An earlier payment this one replaces was never used.
+          const earlier = this.paid();
+          if (earlier) this.unusedPayment.set(this.unusedPaymentNote(earlier));
+          this.paid.set({ reference: init.data.reference, amount: Number(init.data.amount) });
           void this.confirm(init.data.reference);
         },
         onCancel: () => {
@@ -1564,20 +1845,40 @@ export class BookConsultation implements OnInit {
         }
         return;
       }
+      const fields = apiErrorFields(err);
+      if (this.parent() && (fields['parent_appointment_id'] || fields['specialist_id'])) {
+        // Not a follow-up after all: it is the usual fee now, shown before paying again.
+        this.funding.set(false);
+        this.dropParent();
+        this.fundError.set(apiErrorMessage(err, 'This booking can no longer be a follow-up.'));
+        return;
+      }
       this.funding.set(false);
       this.fundError.set(apiErrorMessage(err, 'Could not start the card payment. Please try again.'));
     }
   }
 
-  /** Reload the specialist's fee and the guest pricing (best effort). */
+  /** What to tell the patient about a card payment no booking used (with the server's reason, if any). */
+  private unusedPaymentNote(p: { reference: string; amount: number }, reason = ''): string {
+    return (
+      `${reason ? reason + ' ' : ''}Your earlier card payment of ${this.fmt(p.amount)} couldn't be used for this booking — ` +
+      `contact support with reference ${p.reference}. You can still book by paying again or from your wallet.`
+    );
+  }
+
+  /** Reload the specialist's fee, the guest pricing and a follow-up's quote (best effort). */
   private async refreshPricing(): Promise<void> {
     try {
-      const [specialist, pricing] = await Promise.all([
+      const parent = this.parent();
+      const iso = this.selectedTime();
+      const [specialist, pricing, quote] = await Promise.all([
         firstValueFrom(this.specialistsApi.getPublic(this.specialistId)),
         firstValueFrom(this.specialistsApi.pricing()),
+        parent && iso ? firstValueFrom(this.appointments.followUpQuote(parent.id, iso)) : Promise.resolve(null),
       ]);
       this.specialist.set(specialist.data);
       this.pricing.set(pricing.data);
+      if (quote && parent === this.parent() && iso === this.selectedTime()) this.quote.set({ iso, data: quote.data });
     } catch {
       // Keep the prices we have; the caller explains what to do.
     }
@@ -1599,7 +1900,7 @@ export class BookConsultation implements OnInit {
     try {
       const currency = this.pricing()?.currency ?? 'NGN';
       const init = await firstValueFrom(this.wallet.fund(String(amount), currency));
-      const Pop = await this.loadPaystack();
+      const Pop = await loadPaystack();
       const popup = new Pop();
       popup.resumeTransaction(init.data.access_code, {
         onSuccess: () => void this.afterFunding(init.data.reference),
@@ -1645,36 +1946,4 @@ export class BookConsultation implements OnInit {
     }
   }
 
-  /** Lazy-load Paystack's inline v2 script once and resolve its constructor. */
-  private loadPaystack(): Promise<PaystackPopCtor> {
-    this.paystackLoader ??= new Promise<PaystackPopCtor>((resolve, reject) => {
-      const existing = (window as unknown as { PaystackPop?: PaystackPopCtor }).PaystackPop;
-      if (existing) {
-        resolve(existing);
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://js.paystack.co/v2/inline.js';
-      script.async = true;
-      script.onload = () => {
-        const ctor = (window as unknown as { PaystackPop?: PaystackPopCtor }).PaystackPop;
-        if (ctor) resolve(ctor);
-        else reject(new Error('Paystack failed to load'));
-      };
-      script.onerror = () => reject(new Error('Paystack failed to load'));
-      document.head.appendChild(script);
-    });
-    return this.paystackLoader;
-  }
 }
-
-/** Minimal shape of Paystack Inline v2 used here (not shipped with types). */
-interface PaystackTxnCallbacks {
-  onSuccess?: (transaction: { reference?: string }) => void;
-  onCancel?: () => void;
-  onError?: (error: unknown) => void;
-}
-interface PaystackPopInstance {
-  resumeTransaction(accessCode: string, callbacks?: PaystackTxnCallbacks): void;
-}
-type PaystackPopCtor = new () => PaystackPopInstance;

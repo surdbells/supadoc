@@ -8,7 +8,6 @@ use App\Domain\Document\BookingAttachments;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
-use App\Domain\Entity\Specialist;
 use App\Domain\Enum\ConsultationType;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\InsufficientFundsException;
@@ -17,20 +16,18 @@ use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
-use App\Infrastructure\Email\EmailTemplates;
-use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AppointmentCheckout;
+use App\Infrastructure\Service\AppointmentInvites;
 use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AvailabilityService;
-use App\Infrastructure\Service\JwtService;
-use App\Infrastructure\Service\PaystackService;
+use App\Infrastructure\Service\FollowUpService;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Ramsey\Uuid\Uuid;
-use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/portal/appointments — the signed-in patient books a consultation.
@@ -49,6 +46,11 @@ use App\Domain\Settings\WebUrls;
  * sees them as this booking's files.
  *
  * A free consultation (amount 0) books without any payment.
+ *
+ * A follow-up: `parent_appointment_id` names one of the patient's completed
+ * consultations with the same doctor. The booking then becomes a follow-up of
+ * it (type follow_up) priced by the follow-up rules (see PricingService);
+ * otherwise everything — payment, status, emails — is the same.
  */
 final class CreateMyAppointmentAction
 {
@@ -66,13 +68,13 @@ final class CreateMyAppointmentAction
         private readonly AppointmentRepository $appointments,
         private readonly MedicalDocumentRepository $documents,
         private readonly NotificationRepository $notifications,
-        private readonly MailService $mail,
         private readonly AvailabilityService $availability,
         private readonly PricingService $pricing,
-        private readonly JwtService $jwt,
         private readonly AppointmentPaymentService $payments,
         private readonly StaffNotifier $notifier,
-        private readonly PaystackService $paystack,
+        private readonly AppointmentCheckout $checkout,
+        private readonly AppointmentInvites $invites,
+        private readonly FollowUpService $followUps,
     ) {
     }
 
@@ -116,6 +118,11 @@ final class CreateMyAppointmentAction
         [$documentIds, $documentErrors] = $this->parseDocumentIds($body['document_ids'] ?? null, $body['document_url'] ?? null);
         $errors += $documentErrors;
 
+        $parentId = trim((string) ($body['parent_appointment_id'] ?? ''));
+        if ($parentId !== '' && !Uuid::isValid($parentId)) {
+            $errors['parent_appointment_id'] = 'Choose one of your consultations to follow up on';
+        }
+
         if ($errors !== []) {
             return $this->error($response, 'Validation failed', 422, $errors);
         }
@@ -130,6 +137,16 @@ final class CreateMyAppointmentAction
             return $this->error($response, 'Validation failed', 422, [
                 'specialist_id' => 'This specialist is not currently available',
             ]);
+        }
+
+        // A follow-up: of one of the patient's own completed consultations, with that doctor.
+        $parent = null;
+        if ($parentId !== '') {
+            $parent  = $this->appointments->findForPatient($parentId, $customerId);
+            $problem = FollowUpService::patientParentProblem($parent, $specialist->getId());
+            if ($problem !== null) {
+                return $this->error($response, 'Validation failed', 422, [$problem[0] => $problem[1]]);
+            }
         }
 
         // The slot must fall on the specialist's schedule and still be open.
@@ -148,7 +165,13 @@ final class CreateMyAppointmentAction
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
         $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
         $appointment->setGuests($guests);
-        $appointment->setAmount($this->totalAmount($specialist, count($guests)));
+        if ($parent !== null) {
+            $price = $this->followUps->price($parent, $scheduledAt);
+            $appointment->bookAsFollowUpOf($parent, $price);
+            $appointment->setAmount($this->totalAmount($price['amount'], count($guests)));
+        } else {
+            $appointment->setAmount($this->totalAmount($specialist->getConsultationFee(), count($guests)));
+        }
 
         // Two ways to pay: a verified card payment (Paystack reference) or the
         // wallet. Card lets the patient pay the fee directly, without funding a
@@ -156,7 +179,7 @@ final class CreateMyAppointmentAction
         $reference = trim((string) ($body['payment_reference'] ?? ''));
         $paidByCard = false;
         if ($reference !== '') {
-            $cardError = $this->verifyCardPayment($reference, $appointment);
+            $cardError = $this->checkout->verify($reference, $appointment);
             if ($cardError !== null) {
                 return $this->error($response, $cardError, 422, ['payment' => $cardError]);
             }
@@ -199,11 +222,11 @@ final class CreateMyAppointmentAction
         }
 
         if ($paidByCard) {
-            $this->notifyCardPayment($patient, $appointment);
+            $this->checkout->notifyCardPayment($appointment);
         }
 
         $this->notifyBooked($patient, $appointment);
-        $this->sendInvites($appointment, $patient, $specialist, $guests);
+        $this->invites->send($appointment);
 
         $a = $appointment->toArray();
         $this->notifier->notifyDoctor(
@@ -219,67 +242,15 @@ final class CreateMyAppointmentAction
     }
 
     /**
-     * Server-side verification of a direct card payment before it can book a
-     * consultation. Returns a user-safe error string, or null when the payment
-     * is valid: it must be a fresh (unused) Paystack reference whose transaction
-     * succeeded, in the right currency, for at least the appointment amount.
+     * The consultation fee (the doctor's, or a follow-up's price) plus the guest
+     * fee for each invited third party, as money-as-string (bcmath — never
+     * floats for money).
      */
-    private function verifyCardPayment(string $reference, Appointment $appointment): ?string
-    {
-        if ($this->appointments->existsByPaymentReference($reference)) {
-            return 'This payment has already been used for a booking.';
-        }
-        try {
-            $tx = $this->paystack->verify($reference);
-        } catch (\Throwable $e) {
-            error_log('[appointments.book] card verify failed: ' . $e->getMessage());
-
-            return 'We could not verify your card payment. Please try again.';
-        }
-        if ($tx['status'] !== 'success') {
-            return 'Your card payment was not completed.';
-        }
-        if ($tx['currency'] !== strtoupper($this->pricing->currency())) {
-            return 'The payment currency does not match. Please contact support.';
-        }
-        $expectedMinor = (int) bcmul($appointment->getAmount(), '100', 0);
-        if ($tx['amount_minor'] < $expectedMinor) {
-            return 'The amount paid does not cover this consultation.';
-        }
-
-        return null;
-    }
-
-    /** In-app payment notification for a direct card booking. */
-    private function notifyCardPayment(Patient $patient, Appointment $appointment): void
-    {
-        try {
-            $a        = $appointment->toArray();
-            $currency = $this->pricing->currency() === 'NGN' ? '₦' : $this->pricing->currency();
-            $this->notifications->save(new Notification(
-                $patient,
-                NotificationType::PAYMENT,
-                'Payment received',
-                sprintf('We received your payment of %s%s for your consultation with %s.', $currency, $a['amount'], $a['specialist']['name']),
-            ));
-        } catch (\Throwable) {
-            // The booking + payment already succeeded; a missing notification isn't fatal.
-        }
-    }
-
-    /**
-     * Base consultation fee plus the guest fee for each invited third party,
-     * as money-as-string (bcmath — never floats for money).
-     */
-    private function totalAmount(Specialist $specialist, int $guestCount): string
+    private function totalAmount(string $fee, int $guestCount): string
     {
         $guestFee = number_format($this->pricing->guestFee(), 2, '.', '');
 
-        return bcadd(
-            $specialist->getConsultationFee(),
-            bcmul($guestFee, (string) $guestCount, 2),
-            2,
-        );
+        return bcadd($fee, bcmul($guestFee, (string) $guestCount, 2), 2);
     }
 
     /**
@@ -382,55 +353,6 @@ final class CreateMyAppointmentAction
             ));
         } catch (\Throwable) {
             // The booking already succeeded; a missing notification isn't fatal.
-        }
-    }
-
-    /**
-     * Fire-and-forget confirmation emails to every party — patient, doctor and
-     * each guest — each with their own preauthenticated join link. Never let a
-     * mail failure break the booking.
-     *
-     * @param list<array{name:string,email:string}> $guests
-     */
-    private function sendInvites(
-        Appointment $appointment,
-        Patient $patient,
-        Specialist $specialist,
-        array $guests,
-    ): void {
-        try {
-            // Each party's join link opens on their own site (see WebUrls).
-            $patientBase = WebUrls::forPatient($patient);
-            $doctorBase  = WebUrls::patientAppForSpecialist($specialist);
-            $currency = $this->pricing->currency() === 'NGN' ? '₦' : $this->pricing->currency();
-            $appt     = $appointment->toArray();
-            $p        = $patient->toArray();
-
-            $patientName = trim((string) $p['first_name'] . ' ' . (string) $p['last_name']);
-            $attendees   = array_merge(
-                [$patientName, $specialist->getName()],
-                array_map(static fn (array $g): string => $g['name'], $guests),
-            );
-
-            // uid must be unique per party in the shared Agora channel.
-            $send = function (string $email, string $name, string $role, int $uid) use ($appt, $attendees, $patientBase, $doctorBase, $currency): void {
-                $token = $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
-                $mail  = EmailTemplates::sessionInvite($appt, $name, $role, ($role === 'doctor' ? $doctorBase : $patientBase) . '/call/join/' . $token, $attendees, $currency);
-                $this->mail->send($email, $name, $mail['subject'], $mail['html']);
-            };
-
-            $send((string) $p['email'], $patientName, 'patient', 1);
-
-            if ($specialist->getEmail() !== null) {
-                $send($specialist->getEmail(), $specialist->getName(), 'doctor', 2);
-            }
-
-            $uid = 3;
-            foreach ($guests as $guest) {
-                $send($guest['email'], $guest['name'], 'guest', $uid++);
-            }
-        } catch (\Throwable) {
-            // logged inside MailService; booking already succeeded.
         }
     }
 }

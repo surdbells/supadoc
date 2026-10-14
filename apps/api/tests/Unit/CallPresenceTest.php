@@ -133,6 +133,21 @@ final class CallPresenceTest extends TestCase
         $this->assertSame([], $this->redis->sets);
     }
 
+    public function testAnUnacceptedFollowUpProposalIsNeverMarked(): void
+    {
+        $proposal = Appointment::proposeFollowUp(
+            $this->appointment(),
+            new DateTimeImmutable('+2 days'),
+            ['amount' => '0.00', 'rule' => 'waived', 'waived' => true],
+            null,
+            new DateTimeImmutable('+1 day'),
+        );
+
+        $this->presence->mark($proposal, 'patient');
+        $this->presence->mark($proposal, 'doctor');
+        $this->assertSame([], $this->redis->strings, 'no call until the patient accepts');
+    }
+
     public function testUnknownRolesAreIgnored(): void
     {
         $appointment = $this->appointment();

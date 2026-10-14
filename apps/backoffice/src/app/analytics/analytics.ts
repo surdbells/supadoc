@@ -35,6 +35,7 @@ const CHART_H = 200;
 const PAD = { top: 12, right: 12, bottom: 22, left: 44 };
 
 const STATUS_COLOR: Record<string, string> = {
+  proposed: 'text-teal',
   pending: 'text-warning',
   confirmed: 'text-sage',
   rescheduled: 'text-slate',
@@ -42,6 +43,7 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: 'text-alert',
 };
 const STATUS_LABEL: Record<string, string> = {
+  proposed: 'Proposed',
   pending: 'Pending',
   confirmed: 'Confirmed',
   rescheduled: 'Rescheduled',

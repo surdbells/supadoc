@@ -59,7 +59,19 @@ import { ClinicalLabs } from './clinical/clinical-labs';
 import { ClinicalNote, type NoteSaveMode } from './clinical/clinical-note';
 import { ClinicalRecording } from './clinical/clinical-recording';
 import { ClinicalReferrals } from './clinical/clinical-referrals';
-import { ClinicalHeader } from './clinical/clinical-ui';
+import { ClinicalBadge, ClinicalHeader } from './clinical/clinical-ui';
+import { FollowUpPlanner } from './follow-up-planner';
+import {
+  doctorStatusLabel,
+  followUpPriceLabel,
+  followUpState,
+  type FollowUpState,
+  IN_CALL_LEAD_MINUTES,
+  isClosedProposal,
+  isOpenProposal,
+  whenLabel,
+  withdrewProposal,
+} from './follow-ups';
 
 type PrimaryTab = 'overview' | 'history' | 'documents' | 'visits' | 'clinical';
 
@@ -69,6 +81,7 @@ type TabKey =
   | 'prescriptions'
   | 'labs'
   | 'care'
+  | 'followups'
   | 'referrals'
   | 'certificates'
   | 'consents'
@@ -87,6 +100,7 @@ const TABS: Tab[] = [
   { key: 'prescriptions', label: 'Prescriptions', icon: 'pill' },
   { key: 'labs', label: 'Lab orders', icon: 'clipboard-list' },
   { key: 'care', label: 'Care plan', icon: 'list-checks' },
+  { key: 'followups', label: 'Follow-ups', icon: 'calendar-plus' },
   { key: 'referrals', label: 'Referrals', icon: 'share-2' },
   { key: 'certificates', label: 'Certificates', icon: 'id-card' },
   { key: 'consents', label: 'Consents', icon: 'shield-check' },
@@ -144,6 +158,7 @@ function timeLeft(ms: number): TimeLeft | null {
     RxPanel,
     SlotPickerComponent,
     ClinicalAi,
+    ClinicalBadge,
     ClinicalCarePlan,
     ClinicalCertificates,
     ClinicalConsents,
@@ -152,6 +167,7 @@ function timeLeft(ms: number): TimeLeft | null {
     ClinicalNote,
     ClinicalRecording,
     ClinicalReferrals,
+    FollowUpPlanner,
     MedicationItem,
     VisitStatusBadge,
   ],
@@ -179,7 +195,7 @@ function timeLeft(ms: number): TimeLeft | null {
               <div class="flex flex-col gap-1">
                 <div class="flex flex-wrap items-center gap-2.5">
                   <span class="font-heading text-h4 text-cerulean">{{ a.patient_name }}</span>
-                  <doc-visit-status-badge [status]="a.status" [label]="a.status_label" />
+                  <doc-visit-status-badge [status]="a.status" [label]="statusLabel(a)" />
                   <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" size="md" />
                 </div>
                 @if (age() !== null) { <span class="font-sans text-body-sm text-slate">{{ age() }} years</span> }
@@ -196,13 +212,37 @@ function timeLeft(ms: number): TimeLeft | null {
             </div>
 
             <div class="flex flex-wrap items-center gap-3">
-              <span class="font-sans text-body-sm text-slate">Fee: <span class="font-semibold text-ink">{{ money(a.amount) }}</span></span>
-              @if (a.payment_status === 'paid') {
+              <span class="font-sans text-body-sm text-slate">Fee: <span class="font-semibold text-ink">{{ a.follow_up_pricing ? followUpPrice(a) : money(a.amount) }}</span></span>
+              @if (a.status === 'proposed') {
+                <!-- Nothing is charged until the patient accepts. -->
+                <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate"><sd-icon name="hourglass" [size]="13" />{{ isFree(a.amount) ? 'Nothing to pay' : 'Paid when accepted' }}</span>
+              } @else if (a.payment_status === 'paid') {
                 <span class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-sage"><sd-icon name="circle-check" [size]="13" />Paid</span>
-              } @else {
+              } @else if (!(a.status === 'cancelled' && a.proposed_by === 'doctor')) {
+                <!-- (A proposal that closed was never owed anything.) -->
                 <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink"><sd-icon name="circle-alert" [size]="13" />Unpaid</span>
               }
             </div>
+
+            <!-- This consultation is a follow-up: where it came from, and how the proposal stands. -->
+            @if (a.parent; as parent) {
+              @let fu = followUp(a);
+              <div class="flex flex-col gap-2 rounded-field border border-cloud bg-glacier px-4 py-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <a [routerLink]="['/appointments', parent.id]" class="inline-flex min-h-11 items-center gap-1.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
+                    <sd-icon name="history" [size]="16" />Follow-up of the {{ shortDate(parent.scheduled_at) }} consultation<sd-icon name="chevron-right" [size]="16" />
+                  </a>
+                  <doc-clinical-badge [tone]="fu.tone" [icon]="fu.icon" [label]="fu.label" />
+                </div>
+                <p class="font-sans text-caption text-slate">{{ followUpOrigin(a) }}</p>
+                @if (a.follow_up_note) {
+                  <p class="whitespace-pre-wrap break-words font-sans text-body-sm text-ink"><span class="font-semibold text-slate">Your note to the patient:</span> {{ a.follow_up_note }}</p>
+                }
+                @if (a.decline_reason) {
+                  <p class="whitespace-pre-wrap break-words font-sans text-body-sm text-ink"><span class="font-semibold text-slate">Patient's reason for declining:</span> {{ a.decline_reason }}</p>
+                }
+              </div>
+            }
 
             @if (a.notes) {
               <div class="flex flex-col gap-1 border-t border-cloud pt-3">
@@ -214,10 +254,42 @@ function timeLeft(ms: number): TimeLeft | null {
 
           <div class="flex w-full min-w-0 flex-col gap-3 lg:w-64">
             <span class="font-heading text-body-lg text-ink">Quick actions</span>
-            @if (a.status === 'pending' || a.status === 'rescheduled') {
+            @if (a.status === 'proposed') {
+              <!-- A proposal is not a booking: no call until the patient accepts. -->
+              <p class="flex items-start gap-2 rounded-field bg-warning/15 px-3 py-2 font-sans text-caption text-ink">
+                <sd-icon name="hourglass" [size]="16" class="mt-0.5 shrink-0" />
+                @if (proposalOpen()) {
+                  <span>Awaiting the patient's reply — it closes {{ when(a.expires_at) }}. There is no call until they accept.</span>
+                } @else {
+                  <span>This proposal closed without a reply, and the time is open again.</span>
+                }
+              </p>
+              @if (proposalOpen()) {
+                @if (!withdrawAsk()) {
+                  <button #withdrawButton type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-5 py-3 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="askWithdraw()">
+                    <sd-icon name="undo-2" [size]="18" />Withdraw proposal
+                  </button>
+                } @else {
+                  <div class="flex flex-col gap-3 rounded-field border border-cloud p-3" role="group" aria-labelledby="withdraw-ask-title" aria-describedby="withdraw-ask-desc" (keydown.escape)="cancelWithdraw()">
+                    <p #withdrawTitle id="withdraw-ask-title" tabindex="-1" class="font-sans text-body-sm font-semibold text-ink outline-none">Withdraw this proposal?</p>
+                    <p id="withdraw-ask-desc" class="font-sans text-caption text-slate">The patient is told it was withdrawn, and the time opens again on your schedule.</p>
+                    <div class="flex flex-wrap gap-2">
+                      <button type="button" class="min-h-11 flex-1 rounded-field bg-alert px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60" [disabled]="actionBusy()" (click)="withdrawProposal()">{{ actionBusy() ? 'Withdrawing…' : 'Withdraw' }}</button>
+                      <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60" [disabled]="actionBusy()" (click)="cancelWithdraw()">Keep it</button>
+                    </div>
+                  </div>
+                }
+              }
+            } @else if (a.status === 'pending' || a.status === 'rescheduled') {
               <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="confirm()">
                 <sd-icon name="circle-check" [size]="18" />{{ actionBusy() ? 'Working…' : 'Confirm appointment' }}
               </button>
+            } @else if (closedProposal()) {
+              <!-- Declined, withdrawn or expired: it never became a consultation, so there is no call to show. -->
+              <p class="flex items-start gap-2 rounded-field bg-cloud px-3 py-2 font-sans text-caption text-ink">
+                <sd-icon name="calendar-off" [size]="16" class="mt-0.5 shrink-0 text-slate" />
+                <span>{{ closedProposalText(a) }}</span>
+              </p>
             } @else {
               <button type="button" class="flex items-center justify-center gap-2 rounded-field px-5 py-3 font-sans text-body-sm font-semibold transition-colors"
                 [class]="joinState().enabled ? 'bg-cerulean text-white hover:bg-ocean' : 'bg-cerulean/40 text-white cursor-not-allowed'"
@@ -257,6 +329,18 @@ function timeLeft(ms: number): TimeLeft | null {
               <p #completedNote tabindex="-1" class="flex items-center gap-2 rounded-field bg-sage/10 px-3 py-2 font-sans text-caption font-semibold text-sage outline-none" role="status">
                 <sd-icon name="circle-check" [size]="16" class="shrink-0" />Consultation completed — it's now in your history.
               </p>
+            }
+            @if (withdrawNotice(); as n) {
+              <p #withdrawnNote tabindex="-1" class="flex items-center gap-2 rounded-field px-3 py-2 font-sans text-caption font-semibold outline-none" role="status"
+                [class]="n.tone === 'success' ? 'bg-sage/10 text-sage' : 'bg-frost/50 text-cerulean'">
+                <sd-icon [name]="n.tone === 'success' ? 'circle-check' : 'info'" [size]="16" class="shrink-0" />{{ n.text }}
+              </p>
+            }
+            <!-- In progress or completed: offer the patient a follow-up (Clinical tools → Follow-ups). -->
+            @if (canFollowUp()) {
+              <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:bg-frost/30" (click)="openFollowUps()">
+                <sd-icon name="calendar-plus" [size]="18" />Schedule follow-up
+              </button>
             }
             <div class="flex gap-3">
               @if (canReschedule(a.status)) {
@@ -299,7 +383,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy() || rescheduleSlotsLoading()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
               </div>
             }
-            @if (actionError()) { <p class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert">{{ actionError() }}</p> }
+            @if (actionError()) { <p #actionErrorEl tabindex="-1" role="alert" class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert outline-none">{{ actionError() }}</p> }
           </div>
         </section>
 
@@ -451,7 +535,7 @@ function timeLeft(ms: number): TimeLeft | null {
                       <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(v.scheduled_at) }}</span>
                       <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(v.scheduled_at) }}</span>
                     </div>
-                    <doc-visit-status-badge [status]="v.status" [label]="v.status_label" />
+                    <doc-visit-status-badge [status]="v.status" [label]="visitLabel(v)" />
                   </li>
                 }
               </ul>
@@ -475,7 +559,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 </div>
               </nav>
 
-              <div class="flex min-w-0 flex-col gap-6">
+              <div #clinicalPane tabindex="-1" class="flex min-w-0 flex-col gap-6 outline-none">
                 @switch (tab()) {
                   @case ('notes') {
                     <doc-clinical-note
@@ -525,6 +609,15 @@ function timeLeft(ms: number): TimeLeft | null {
                       (removeStep)="removeCare($event)"
                       (stepChange)="setCare($event.index, $event.value)"
                       (publish)="saveCare()"
+                    />
+                  }
+                  @case ('followups') {
+                    <!-- Owns its loading and API calls (slots, price, proposals). -->
+                    <doc-follow-up-planner
+                      [appointmentId]="id"
+                      [specialistId]="a.specialist.id"
+                      [parentStatus]="a.status"
+                      [parentScheduledAt]="a.scheduled_at"
                     />
                   }
                   @case ('referrals') {
@@ -662,7 +755,10 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly joinState = computed<{ label: string; enabled: boolean; startsIn: TimeLeft | null }>(() => {
     const a = this.appt();
     if (!a) return { label: 'Join Call', enabled: false, startsIn: null };
+    // (The template shows a closed proposal's own line instead of this button.)
+    if (isClosedProposal(a)) return { label: 'Proposal closed', enabled: false, startsIn: null };
     if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false, startsIn: null };
+    if (a.status === 'proposed') return { label: 'No call until accepted', enabled: false, startsIn: null };
     const startsIn = timeLeft(new Date(a.scheduled_at).getTime() - this.now());
     return { label: startsIn ? 'Join Call' : 'Join Call Now', enabled: true, startsIn };
   });
@@ -700,6 +796,37 @@ export class DoctorAppointmentDetail implements OnInit {
   private readonly completeButton = viewChild<ElementRef<HTMLButtonElement>>('completeButton');
   private readonly completeTitle = viewChild<ElementRef<HTMLElement>>('completeTitle');
   private readonly completedNote = viewChild<ElementRef<HTMLElement>>('completedNote');
+
+  // Follow-ups
+  /** "Schedule follow-up": a completed consultation, or a confirmed one under way (or about to be). */
+  protected readonly canFollowUp = computed(() => {
+    const a = this.appt();
+    if (!a) return false;
+    if (a.status === 'completed') return true;
+    return a.status === 'confirmed' && new Date(a.scheduled_at).getTime() <= this.now() + IN_CALL_LEAD_MINUTES * 60_000;
+  });
+  /** This appointment is a proposal the patient can still answer. */
+  protected readonly proposalOpen = computed(() => {
+    const a = this.appt();
+    return !!a && isOpenProposal(a, this.now());
+  });
+  /** This appointment is a proposal that closed without being accepted (never a consultation). */
+  protected readonly closedProposal = computed(() => {
+    const a = this.appt();
+    return !!a && isClosedProposal(a);
+  });
+  /** "Withdraw this proposal?" is showing. */
+  protected readonly withdrawAsk = signal(false);
+  /** Withdrawn here — the payload doesn't say how a closed proposal closed. */
+  protected readonly withdrawnHere = signal(false);
+  /** What Withdraw did: withdrew it, or found it had already closed. */
+  protected readonly withdrawNotice = signal<{ text: string; tone: 'success' | 'info' } | null>(null);
+  private readonly withdrawButton = viewChild<ElementRef<HTMLButtonElement>>('withdrawButton');
+  private readonly withdrawTitle = viewChild<ElementRef<HTMLElement>>('withdrawTitle');
+  private readonly withdrawnNote = viewChild<ElementRef<HTMLElement>>('withdrawnNote');
+  private readonly actionErrorEl = viewChild<ElementRef<HTMLElement>>('actionErrorEl');
+  private readonly clinicalPane = viewChild<ElementRef<HTMLElement>>('clinicalPane');
+
   protected readonly rescheduleOpen = signal(false);
   /** The doctor's own open slots (next 14 days with any), in local time. */
   protected readonly rescheduleDays = signal<DayAvailability[]>([]);
@@ -793,19 +920,7 @@ export class DoctorAppointmentDetail implements OnInit {
     const tick = setInterval(() => this.now.set(Date.now()), 30_000);
     this.destroyRef.onDestroy(() => clearInterval(tick));
 
-    this.api
-      .schedule()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          const found = res.data.appointments.find((a) => a.id === this.id) ?? null;
-          if (found) {
-            this.appt.set(found);
-            this.loadRecord(found.patient_id);
-          } else this.apptError.set('Appointment not found.');
-        },
-        error: (err: unknown) => this.apptError.set(apiErrorMessage(err, 'Could not load the appointment.')),
-      });
+    this.loadAppointment(true);
 
     this.docsError.set('');
     this.api
@@ -816,6 +931,27 @@ export class DoctorAppointmentDetail implements OnInit {
         error: (err: unknown) => {
           this.docsError.set(apiErrorMessage(err, "Could not load the patient's documents."));
           this.loadingDocs.set(false);
+        },
+      });
+  }
+
+  /**
+   * The appointment, by id (whatever its date — the schedule list only
+   * carries the days around today). `initial` also loads the patient's record
+   * and reports a failure; a later re-read (after an action raced the
+   * patient's answer) only refreshes what is on screen.
+   */
+  private loadAppointment(initial = false): void {
+    this.api
+      .appointment(this.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.appt.set(res.data);
+          if (initial) this.loadRecord(res.data.patient_id);
+        },
+        error: (err: unknown) => {
+          if (initial) this.apptError.set(apiErrorMessage(err, 'Could not load the appointment.'));
         },
       });
   }
@@ -1038,11 +1174,14 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   protected join(a: DoctorAppointmentDto): void {
+    // No link on an unaccepted follow-up proposal — there is no call to join yet.
+    const url = a.join_url;
+    if (!url) return;
     const marker = '/call/join/';
-    const idx = a.join_url.indexOf(marker);
-    const token = idx >= 0 ? a.join_url.slice(idx + marker.length) : '';
+    const idx = url.indexOf(marker);
+    const token = idx >= 0 ? url.slice(idx + marker.length) : '';
     if (token) void this.router.navigate(['/call', token]);
-    else window.location.href = a.join_url;
+    else window.location.href = url;
   }
 
   // ----- Lifecycle actions -----
@@ -1105,6 +1244,56 @@ export class DoctorAppointmentDetail implements OnInit {
     if (!window.confirm('Cancel this appointment? Any payment will be refunded to the patient.')) return;
     this.runAction(this.api.decline(this.id));
   }
+
+  // ----- Follow-ups -----
+  /** Clinical tools → Follow-ups, brought into view (asks first if a prescription is unsaved). */
+  protected async openFollowUps(): Promise<void> {
+    await this.setPrimary('clinical');
+    if (this.primary() !== 'clinical') return;
+    await this.select('followups');
+    if (this.tab() !== 'followups') return;
+    afterNextRender(() => {
+      const pane = this.clinicalPane()?.nativeElement;
+      pane?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      pane?.focus({ preventScroll: true });
+    }, { injector: this.injector });
+  }
+  protected askWithdraw(): void {
+    this.actionError.set('');
+    this.withdrawAsk.set(true);
+    afterNextRender(() => this.withdrawTitle()?.nativeElement.focus(), { injector: this.injector });
+  }
+  protected cancelWithdraw(): void {
+    if (this.actionBusy()) return;
+    this.withdrawAsk.set(false);
+    afterNextRender(() => this.withdrawButton()?.nativeElement.focus(), { injector: this.injector });
+  }
+  /** Withdraw this unanswered proposal: the patient is told and the slot reopens. */
+  protected withdrawProposal(): void {
+    this.withdrawNotice.set(null);
+    this.runAction(
+      this.api.withdrawFollowUp(this.id),
+      (res) => {
+        this.withdrawAsk.set(false);
+        if (withdrewProposal(res)) {
+          this.withdrawnHere.set(true);
+          this.withdrawNotice.set({ text: 'Proposal withdrawn — the patient has been told.', tone: 'success' });
+        } else {
+          // The patient declined it, or it expired, a moment before: show how it closed.
+          this.withdrawNotice.set({ text: 'This proposal had already closed — the patient declined it or it expired.', tone: 'info' });
+          this.loadAppointment();
+        }
+        afterNextRender(() => this.withdrawnNote()?.nativeElement.focus(), { injector: this.injector });
+      },
+      () => {
+        // E.g. the patient accepted it a moment ago: show the appointment as it is now,
+        // and move focus from the confirm step (which goes away) to the error.
+        this.withdrawAsk.set(false);
+        this.loadAppointment();
+        afterNextRender(() => this.actionErrorEl()?.nativeElement.focus(), { injector: this.injector });
+      },
+    );
+  }
   protected submitReschedule(): void {
     let iso = this.rescheduleSlot();
     if (this.rescheduleUseManual()) {
@@ -1119,15 +1308,45 @@ export class DoctorAppointmentDetail implements OnInit {
     }
     this.runAction(this.api.reschedule(this.id, iso), () => this.rescheduleOpen.set(false));
   }
-  private runAction(call: Observable<SuccessResponse<AppointmentDto>>, onOk?: () => void): void {
+  private runAction(
+    call: Observable<SuccessResponse<AppointmentDto>>,
+    onOk?: (res: SuccessResponse<AppointmentDto>) => void,
+    onError?: () => void,
+  ): void {
     this.actionBusy.set(true); this.actionError.set('');
     call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => { this.appt.update((a) => (a ? { ...a, status: res.data.status, status_label: res.data.status_label, scheduled_at: res.data.scheduled_at } : a)); this.actionBusy.set(false); onOk?.(); },
-      error: (err) => { this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.')); this.actionBusy.set(false); },
+      next: (res) => { this.appt.update((a) => (a ? { ...a, status: res.data.status, status_label: res.data.status_label, scheduled_at: res.data.scheduled_at, follow_up_outcome: res.data.follow_up_outcome } : a)); this.actionBusy.set(false); onOk?.(res); },
+      error: (err) => { this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.')); this.actionBusy.set(false); onError?.(); },
     });
   }
 
   // ----- Helpers -----
+  /** The header badge: "Awaiting patient" for a proposal, how a closed one closed, else the API's label. */
+  protected statusLabel(a: DoctorAppointmentDto): string {
+    return a.status === 'cancelled' && this.withdrawnHere() ? 'Withdrawn' : doctorStatusLabel(a, this.now());
+  }
+  protected visitLabel(v: AppointmentDto): string { return doctorStatusLabel(v, this.now()); }
+  protected followUp(a: DoctorAppointmentDto): FollowUpState {
+    return followUpState(a, this.now(), this.withdrawnHere() ? new Set([a.id]) : undefined);
+  }
+  /** Who made this follow-up, and what happens next. */
+  protected followUpOrigin(a: DoctorAppointmentDto): string {
+    if (a.proposed_by === 'patient') return 'Booked by the patient as a follow-up.';
+    if (a.status === 'proposed') return 'You proposed this follow-up. The patient accepts it (paying any fee), chooses another of your times, or declines.';
+    return 'You proposed this follow-up.';
+  }
+  /** A closed proposal's line in place of the Join button: how it closed, and that the time is free. */
+  protected closedProposalText(a: DoctorAppointmentDto): string {
+    const how = this.followUp(a).label;
+    const lead = how === 'Declined' ? 'The patient declined this proposal'
+      : how === 'Withdrawn' ? 'You withdrew this proposal'
+      : 'This proposal closed without being accepted';
+    const ahead = new Date(a.scheduled_at).getTime() > this.now();
+    return `${lead}, so there was no consultation.${ahead ? ' The time is open again on your schedule.' : ''}`;
+  }
+  protected followUpPrice(a: DoctorAppointmentDto): string { return followUpPriceLabel(a); }
+  protected isFree(amount: string): boolean { return Number(amount) <= 0; }
+  protected when(iso: string | null | undefined): string { return whenLabel(iso); }
   protected initialsFor(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase(); }
   protected money(amount: string): string { const n = Number(amount); return '₦' + (isNaN(n) ? '0' : n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }
   protected dateLabel(iso: string): string { return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)); }

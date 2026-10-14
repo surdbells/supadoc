@@ -3,8 +3,9 @@
 declare(strict_types=1);
 
 /**
- * Send due appointment join reminders (plus prescription expiry housekeeping and
- * closing consultations a doctor forgot to end). Meant to be run by cron every few minutes
+ * Send due appointment join reminders (plus prescription expiry housekeeping,
+ * closing consultations a doctor forgot to end, and expiring / nudging
+ * unanswered follow-up proposals). Meant to be run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
  *   * / 5 * * * *  cd /path/to/apps/api && php bin/send-reminders.php >> var/log/reminders.log 2>&1
@@ -70,4 +71,16 @@ try {
     );
 } catch (\Throwable $e) {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] consultations: ' . $e->getMessage() . "\n");
+}
+
+// Follow-up proposals the patient hasn't answered: past their expiry (2 hours
+// before the slot, at most 72 hours after proposing) they are cancelled and
+// both sides told; about a day before that the patient is reminded once. An
+// expired proposal is never picked again and the reminder is recorded before
+// it is sent, so running every 5 minutes is safe.
+try {
+    $fu = $container->get(App\Infrastructure\Service\FollowUpService::class)->housekeeping();
+    printf("[%s] follow-ups: expired=%d nudged=%d\n", gmdate('Y-m-d H:i:s'), $fu['expired'], $fu['nudged']);
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] follow-ups: ' . $e->getMessage() . "\n");
 }

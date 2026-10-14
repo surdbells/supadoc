@@ -166,6 +166,12 @@ final class WalletService
         }
     }
 
+    /** Whether the ledger holds an entry (of any status) under `$reference` — e.g. a top-up's Paystack reference. */
+    public function hasPosting(string $reference): bool
+    {
+        return $this->txns->byReference($reference) !== null;
+    }
+
     /**
      * Credit a wallet immediately (e.g. a consultation refund). Idempotent on
      * $reference. Creates the wallet if the patient has none for this currency.

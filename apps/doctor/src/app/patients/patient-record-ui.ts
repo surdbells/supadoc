@@ -102,6 +102,8 @@ export function isCurrentCondition(c: ConditionRow): boolean {
 // ----- Appointments -----
 
 const VISIT_STATUS: Record<string, BadgeMeta> = {
+  // A follow-up the doctor offered and the patient hasn't answered (the API says "Proposed").
+  proposed: { label: 'Awaiting patient', icon: 'calendar-clock', cls: 'bg-warning/15 text-ink' },
   pending: { label: 'Pending', icon: 'hourglass', cls: 'bg-warning/15 text-ink' },
   confirmed: { label: 'Confirmed', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
   rescheduled: { label: 'Rescheduled', icon: 'refresh-cw', cls: 'bg-cloud text-slate' },
@@ -121,9 +123,12 @@ export function sortVisits(rows: readonly AppointmentDto[]): AppointmentDto[] {
   return [...rows].sort((a, b) => timeOf(b.scheduled_at) - timeOf(a.scheduled_at));
 }
 
-/** A visit that is still ahead (not cancelled / completed, scheduled in the future). */
+/**
+ * A visit that is still ahead (booked — not cancelled / completed, nor a
+ * follow-up the patient hasn't accepted yet — and scheduled in the future).
+ */
 export function isUpcomingVisit(a: AppointmentDto, now: number): boolean {
-  return a.status !== 'cancelled' && a.status !== 'completed' && timeOf(a.scheduled_at) > now;
+  return a.status !== 'cancelled' && a.status !== 'completed' && a.status !== 'proposed' && timeOf(a.scheduled_at) > now;
 }
 
 // ----- Medications -----
@@ -209,12 +214,13 @@ export function capitalise(value: string | null | undefined): string {
 })
 export class VisitStatusBadge {
   readonly status = input.required<string>();
-  /** The API's own label (preferred when present). */
+  /** The API's own label (preferred when present — except a proposal's, which reads "Awaiting patient" here). */
   readonly label = input<string>('');
   protected readonly meta = computed<BadgeMeta>(() => {
     const known = VISIT_STATUS[this.status()];
     const base = known ?? { label: this.status(), icon: 'info', cls: 'bg-cloud text-slate' };
-    return this.label() ? { ...base, label: this.label() } : base;
+    const label = this.label();
+    return label && !(this.status() === 'proposed' && label === 'Proposed') ? { ...base, label } : base;
   });
 }
 

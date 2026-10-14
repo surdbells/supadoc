@@ -7,9 +7,11 @@ namespace App\Action\Appointment;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\FollowUpService;
 use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -33,6 +35,8 @@ final class UpdateAppointmentStatusAction
         private readonly AppointmentRepository $repo,
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
+        private readonly FollowUpService $followUps,
+        private readonly UserRepository $users,
     ) {
     }
 
@@ -60,6 +64,15 @@ final class UpdateAppointmentStatusAction
         }
 
         $current = $appointment->getStatus();
+        // Only the patient accepting (and paying for) a follow-up proposal confirms it.
+        if ($current === AppointmentStatus::PROPOSED && $target === AppointmentStatus::CONFIRMED) {
+            return $this->error(
+                $response,
+                'A proposed follow-up is confirmed when the patient accepts it (it can only be cancelled here)',
+                422,
+                ['status' => 'Illegal transition'],
+            );
+        }
         if ($current !== $target && !$current->canTransitionTo($target)) {
             $allowed = array_map(
                 static fn (AppointmentStatus $s): string => $s->value,
@@ -81,8 +94,17 @@ final class UpdateAppointmentStatusAction
             );
         }
 
-        $appointment->transitionTo($target);
-        $this->repo->save($appointment);
+        if ($current === AppointmentStatus::PROPOSED && $target === AppointmentStatus::CANCELLED) {
+            // A compare-and-set, as when the doctor withdraws it: a patient
+            // accepting (and paying) at this moment wins or loses cleanly —
+            // 422 when they won. Audited, and the doctor told, there.
+            if (!$this->followUps->cancelByStaff($appointment, $this->actorName((string) $request->getAttribute('user_id')))) {
+                return $this->success($response, $appointment->toAdminArray(), 'Follow-up proposal already closed');
+            }
+        } else {
+            $appointment->transitionTo($target);
+            $this->repo->save($appointment);
+        }
 
         $this->notifyPatient($appointment);
         $this->patientNotifier->appointment(
@@ -91,7 +113,19 @@ final class UpdateAppointmentStatusAction
             'The status of your appointment changed to ' . $appointment->getStatus()->label() . '.',
         );
 
-        return $this->success($response, $appointment->toArray(), 'Status updated');
+        return $this->success($response, $appointment->toAdminArray(), 'Status updated');
+    }
+
+    /** The signed-in staff member's name, for the audit trail. */
+    private function actorName(string $userId): string
+    {
+        $user = $userId !== '' ? $this->users->find($userId) : null;
+        if ($user === null) {
+            return 'Admin';
+        }
+        $a = $user->toArray();
+
+        return trim(((string) $a['first_name']) . ' ' . ((string) $a['last_name'])) ?: 'Admin';
     }
 
     /** Fire-and-forget status-update email to the patient. */

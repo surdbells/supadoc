@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorAppointmentDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { doctorStatusLabel } from './follow-ups';
 
 interface Filter {
   readonly key: string;
@@ -25,6 +26,8 @@ const FILTERS: Filter[] = [
 ];
 
 const STATUS_CLASS: Record<string, string> = {
+  // A follow-up waiting for the patient: ink on the amber tint (amber text is below AA on it).
+  proposed: 'bg-warning/15 text-ink',
   pending: 'bg-warning/15 text-warning',
   confirmed: 'bg-sage/15 text-sage',
   rescheduled: 'bg-cloud text-slate',
@@ -93,7 +96,7 @@ const STATUS_CLASS: Record<string, string> = {
                 </div>
                 <div class="flex flex-col gap-1.5 lg:w-48">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
-                  <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                  <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(a.status)">{{ statusLabel(a) }}</span>
                 </div>
                 <sd-icon name="chevron-right" [size]="22" class="shrink-0 self-center text-slate" />
               </a>
@@ -178,6 +181,10 @@ export class DoctorAppointmentHistory implements OnInit {
   }
   protected statusClass(status: string): string {
     return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
+  }
+  /** "Awaiting patient" for a follow-up proposal, how an unaccepted one closed, else the API's label. */
+  protected statusLabel(a: DoctorAppointmentDto): string {
+    return doctorStatusLabel(a);
   }
   protected dateLabel(iso: string): string {
     return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));

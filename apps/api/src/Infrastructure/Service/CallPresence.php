@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Service;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Enum\AppointmentStatus;
 use Predis\Client as RedisClient;
 use Psr\Log\LoggerInterface;
 
@@ -37,10 +38,14 @@ final class CallPresence
     ) {
     }
 
-    /** A heartbeat from `$role` (patient | doctor) in this appointment's call. */
+    /** A heartbeat from `$role` (patient | doctor) in this appointment's call (none for a closed visit or an unaccepted proposal). */
     public function mark(Appointment $appointment, string $role): void
     {
-        if (!in_array($role, self::ROLES, true) || $appointment->getStatus()->isTerminal()) {
+        if (
+            !in_array($role, self::ROLES, true)
+            || $appointment->getStatus()->isTerminal()
+            || $appointment->getStatus() === AppointmentStatus::PROPOSED
+        ) {
             return;
         }
         $id = $appointment->getId();

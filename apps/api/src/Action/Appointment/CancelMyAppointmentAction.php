@@ -11,6 +11,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\FollowUpService;
 use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\StaffNotifier;
 use Psr\Http\Message\ResponseInterface;
@@ -21,6 +22,8 @@ use App\Domain\Settings\WebUrls;
  * POST /api/portal/appointments/{id}/cancel — the signed-in patient cancels their
  * own booking. If it was paid from the wallet, the fee is refunded (idempotently)
  * and a refund receipt is emailed; the patient also gets a cancellation email.
+ * Cancelling a follow-up proposal the patient hasn't accepted declines it
+ * (see POST .../follow-up/decline): nothing was paid, the doctor is told.
  */
 final class CancelMyAppointmentAction
 {
@@ -32,6 +35,7 @@ final class CancelMyAppointmentAction
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
         private readonly StaffNotifier $staffNotifier,
+        private readonly FollowUpService $followUps,
     ) {
     }
 
@@ -47,6 +51,11 @@ final class CancelMyAppointmentAction
         }
 
         $current = $appointment->getStatus();
+        if ($current === AppointmentStatus::PROPOSED) {
+            $this->followUps->decline($appointment, null);
+
+            return $this->success($response, $appointment->toArray(), 'Follow-up declined');
+        }
         if ($current === AppointmentStatus::CANCELLED) {
             return $this->success($response, $appointment->toArray(), 'Appointment already cancelled');
         }

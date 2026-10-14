@@ -23,6 +23,7 @@ import type {
   StaffNotificationDto,
 } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
+import { doctorStatusLabel } from '../appointment/follow-ups';
 
 interface Stat {
   readonly label: string;
@@ -55,6 +56,7 @@ interface QuickAction {
 }
 
 const STATUS_CLASS: Record<string, string> = {
+  proposed: 'bg-warning/15 text-ink',
   pending: 'bg-warning/15 text-warning',
   confirmed: 'bg-sage/15 text-sage',
   rescheduled: 'bg-cloud text-slate',
@@ -182,11 +184,12 @@ const NOTE_ICON: Record<string, string> = {
                       <span class="truncate font-sans text-caption text-slate">{{ a.type_label }}</span>
                     </div>
                     <div class="flex flex-col items-end gap-0.5">
-                      <span class="font-sans text-caption font-semibold" [class]="statusText(a.status)">{{ a.status_label }}</span>
+                      <span class="font-sans text-caption font-semibold" [class]="statusText(a.status)">{{ statusLabel(a) }}</span>
                       <span class="font-sans text-caption text-slate">{{ time(a.scheduled_at) }}</span>
                     </div>
-                    <!-- Join the first consultation, and any whose patient is already waiting in the call. -->
-                    @if (i === 0 || patientWaiting(a.id)) {
+                    <!-- Join the first consultation, and any whose patient is already waiting in the call
+                         (never a follow-up proposal: no call until the patient accepts it). -->
+                    @if ((i === 0 || patientWaiting(a.id)) && a.status !== 'proposed') {
                       <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">Join</button>
                     } @else {
                       <a [routerLink]="['/appointments', a.id]" class="ml-1 flex shrink-0 items-center rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean">View</a>
@@ -442,11 +445,14 @@ export class DoctorDashboard implements OnInit {
   }
 
   protected join(a: DoctorAppointmentDto): void {
+    // No link on an unaccepted follow-up proposal — there is no call to join yet.
+    const url = a.join_url;
+    if (!url) return;
     const marker = '/call/join/';
-    const idx = a.join_url.indexOf(marker);
-    const token = idx >= 0 ? a.join_url.slice(idx + marker.length) : '';
+    const idx = url.indexOf(marker);
+    const token = idx >= 0 ? url.slice(idx + marker.length) : '';
     if (token) void this.router.navigate(['/call', token]);
-    else window.location.href = a.join_url;
+    else window.location.href = url;
   }
 
   /** The patient has joined this consultation's call and is waiting for the doctor. */
@@ -467,6 +473,10 @@ export class DoctorDashboard implements OnInit {
         : status === 'cancelled'
           ? 'text-alert'
           : 'text-slate';
+  }
+  /** "Awaiting patient" for a follow-up proposal (the API leaves them off the agenda), else the API's label. */
+  protected statusLabel(a: DoctorAppointmentDto): string {
+    return doctorStatusLabel(a);
   }
   protected noteIcon(type: string): string {
     return NOTE_ICON[type] ?? 'bell';

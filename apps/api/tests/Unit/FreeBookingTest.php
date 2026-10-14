@@ -10,11 +10,16 @@ use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Patient;
 use App\Domain\Entity\Specialist;
 use App\Domain\Enum\SpecialistStatus;
+use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AppSettingRepository;
+use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
+use App\Infrastructure\Service\AppointmentCheckout;
 use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\FollowUpService;
+use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\PaystackService;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\WalletService;
@@ -100,11 +105,22 @@ final class FreeBookingTest extends TestCase
             $uow->registerManaged(new AppSetting($key, $value), ['key' => $key], []);
         }
 
-        $action = new InitAppointmentPaymentAction(
+        $pricing      = new PricingService(new AppSettingRepository($em));
+        $appointments = new AppointmentRepository($em);
+        $action       = new InitAppointmentPaymentAction(
             new PatientRepository($em),
             new SpecialistRepository($em),
-            new PricingService(new AppSettingRepository($em)),
-            new PaystackService('', '', ''), // not configured: reaching it would be a 503
+            $appointments,
+            $pricing,
+            new AppointmentCheckout(
+                new PaystackService('', '', ''), // not configured: reaching it would be a 503
+                $pricing,
+                $appointments,
+                new PatientNotifier(new NotificationRepository($em)),
+                new AppointmentPaymentService($this->untouchedWallet()),
+            ),
+            // Only a follow-up is priced by it — never reached for a plain booking.
+            (new \ReflectionClass(FollowUpService::class))->newInstanceWithoutConstructor(),
         );
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/api/portal/appointments/pay-init')

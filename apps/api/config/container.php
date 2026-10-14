@@ -41,7 +41,10 @@ use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Email\WalletMailer;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
+use App\Infrastructure\Service\AppointmentCheckout;
+use App\Infrastructure\Service\AppointmentInvites;
 use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\FollowUpService;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\AuthService;
 use App\Infrastructure\Service\CopilotService;
@@ -166,6 +169,36 @@ return [
 
     AppointmentPaymentService::class => static fn (ContainerInterface $c): AppointmentPaymentService =>
         new AppointmentPaymentService($c->get(WalletService::class)),
+
+    // Card checkout (pay-init + verify) shared by booking and accepting a follow-up.
+    AppointmentCheckout::class => static fn (ContainerInterface $c): AppointmentCheckout => new AppointmentCheckout(
+        $c->get(PaystackService::class),
+        $c->get(PricingService::class),
+        $c->get(AppointmentRepository::class),
+        $c->get(PatientNotifier::class),
+        $c->get(AppointmentPaymentService::class),
+    ),
+
+    // The join-link invite emails sent once a consultation is booked / a follow-up accepted.
+    AppointmentInvites::class => static fn (ContainerInterface $c): AppointmentInvites => new AppointmentInvites(
+        $c->get(MailService::class),
+        $c->get(JwtService::class),
+        $c->get(PricingService::class),
+    ),
+
+    // Follow-up proposals: propose / accept / decline / withdraw, plus the cron's expiry + nudge.
+    FollowUpService::class => static fn (ContainerInterface $c): FollowUpService => new FollowUpService(
+        $c->get(AppointmentRepository::class),
+        $c->get(AvailabilityService::class),
+        $c->get(PricingService::class),
+        $c->get(AppointmentPaymentService::class),
+        $c->get(AppointmentCheckout::class),
+        $c->get(AppointmentInvites::class),
+        $c->get(PatientNotifier::class),
+        $c->get(StaffNotifier::class),
+        $c->get(MailService::class),
+        $c->get(AuditLogger::class),
+    ),
 
     ReminderService::class => static fn (ContainerInterface $c): ReminderService => new ReminderService(
         $c->get(AppointmentRepository::class),

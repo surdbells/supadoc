@@ -23,6 +23,9 @@ import type {
   DoctorAvailabilityDto,
   DoctorCopilotStateDto,
   DoctorDashboardDto,
+  DoctorFollowUpDto,
+  FollowUpQuoteDto,
+  ProposeFollowUpParams,
   DoctorOnboardingDto,
   DoctorPatientListItemDto,
   DoctorPatientRecordDto,
@@ -87,16 +90,25 @@ export class DoctorApi {
     return this.api.get<SuccessResponse<DoctorDashboardDto>>('api/doctor/dashboard');
   }
 
-  /** GET /api/doctor/appointments — the signed-in doctor's schedule. */
   /** GET /api/doctor/appointments/presence — who is in each of my consultations' calls now. */
   presence(): Observable<SuccessResponse<CallPresenceMap>> {
     return this.api.get<SuccessResponse<CallPresenceMap>>('api/doctor/appointments/presence');
   }
 
+  /**
+   * GET /api/doctor/appointments — the signed-in doctor's schedule: today's
+   * and what's coming, then the latest earlier ones. Not every consultation —
+   * load one by id with {@link appointment}.
+   */
   schedule(): Observable<SuccessResponse<DoctorScheduleDto>> {
     return this.api.get<SuccessResponse<DoctorScheduleDto>>(
       'api/doctor/appointments',
     );
+  }
+
+  /** GET /api/doctor/appointments/{id} — one of my consultations (any date), as a schedule row. */
+  appointment(id: string): Observable<SuccessResponse<DoctorAppointmentDto>> {
+    return this.api.get<SuccessResponse<DoctorAppointmentDto>>(this.base(id));
   }
 
   /** GET /api/doctor/appointments/history — paginated, filterable history. */
@@ -147,6 +159,57 @@ export class DoctorApi {
   complete(id: string): Observable<SuccessResponse<AppointmentDto>> {
     return this.api.post<SuccessResponse<AppointmentDto>>(
       `${this.base(id)}/complete`,
+      {},
+    );
+  }
+
+  // ----- Follow-ups -----
+
+  /**
+   * POST /api/doctor/appointments/{id}/follow-up — propose a follow-up of
+   * consultation `id` (in progress or completed) at one of the doctor's open
+   * slots. It is `proposed` (holding the slot) until the patient answers or it
+   * expires. 422 `errors.follow_up` while another proposal is open.
+   */
+  proposeFollowUp(
+    id: string,
+    params: ProposeFollowUpParams,
+  ): Observable<SuccessResponse<DoctorFollowUpDto>> {
+    return this.api.post<SuccessResponse<DoctorFollowUpDto>>(
+      `${this.base(id)}/follow-up`,
+      params,
+    );
+  }
+
+  /**
+   * GET /api/doctor/appointments/{id}/follow-up/quote — the patient's price for
+   * a follow-up of `id` (starting at `scheduledAt`, default now; `waive` = free).
+   */
+  followUpQuote(
+    id: string,
+    query: { scheduledAt?: string; waive?: boolean } = {},
+  ): Observable<SuccessResponse<FollowUpQuoteDto>> {
+    return this.api.get<SuccessResponse<FollowUpQuoteDto>>(
+      `${this.base(id)}/follow-up/quote`,
+      { scheduled_at: query.scheduledAt, waive: query.waive ? 1 : undefined },
+    );
+  }
+
+  /** GET /api/doctor/appointments/{id}/follow-ups — every follow-up of consultation `id` (any status). */
+  followUps(id: string): Observable<SuccessResponse<DoctorFollowUpDto[]>> {
+    return this.api.get<SuccessResponse<DoctorFollowUpDto[]>>(
+      `${this.base(id)}/follow-ups`,
+    );
+  }
+
+  /**
+   * POST /api/doctor/appointments/{id}/follow-up/withdraw — withdraw the
+   * unanswered proposal `id` (the proposal's own id). Idempotent; 422 once
+   * the patient has accepted it.
+   */
+  withdrawFollowUp(id: string): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `${this.base(id)}/follow-up/withdraw`,
       {},
     );
   }

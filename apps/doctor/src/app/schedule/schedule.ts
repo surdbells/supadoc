@@ -12,10 +12,12 @@ import { Router, RouterLink } from '@angular/router';
 import { apiErrorMessage, DoctorApi, injectCallPresence } from '@supadoc/data-access';
 import type { DoctorAppointmentDto } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
+import { doctorStatusLabel, isOpenProposal, whenLabel } from '../appointment/follow-ups';
 
 type TabKey = 'upcoming' | 'today' | 'pending';
 
 const STATUS_TEXT: Record<string, string> = {
+  proposed: 'text-slate',
   pending: 'text-warning',
   confirmed: 'text-sage',
   rescheduled: 'text-warning',
@@ -100,12 +102,18 @@ const STATUS_TEXT: Record<string, string> = {
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
                   <!-- Status + who is in the call; wraps rather than overflowing on narrow rows. -->
                   <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusPill(a.status)">{{ a.status_label }}</span>
+                    <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusPill(a.status)">{{ statusLabel(a) }}</span>
                     <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" />
                   </div>
+                  @if (a.status === 'proposed' && a.expires_at) {
+                    <span class="font-sans text-caption text-slate">Reply due {{ when(a.expires_at) }}</span>
+                  }
                 </div>
                 <div class="flex shrink-0 items-center gap-3">
-                  @if (a.status === 'pending' || a.status === 'rescheduled') {
+                  @if (a.status === 'proposed') {
+                    <!-- A follow-up offer: no call until the patient accepts it. -->
+                    <a [routerLink]="['/appointments', a.id]" class="flex min-h-11 items-center justify-center rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">View proposal</a>
+                  } @else if (a.status === 'pending' || a.status === 'rescheduled') {
                     <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="busyId() === a.id" (click)="confirm(a)">
                       {{ busyId() === a.id ? 'Working…' : 'Confirm' }}
                     </button>
@@ -152,6 +160,11 @@ export class DoctorSchedule implements OnInit {
     const upcoming: DoctorAppointmentDto[] = [];
     const pending: DoctorAppointmentDto[] = [];
     for (const a of this.appointments()) {
+      // A follow-up proposal holds its slot but isn't booked: Upcoming only, while the patient can still answer.
+      if (a.status === 'proposed') {
+        if (isOpenProposal(a, now)) upcoming.push(a);
+        continue;
+      }
       if (a.status === 'pending' || a.status === 'rescheduled') pending.push(a);
       const t = new Date(a.scheduled_at).getTime();
       if (t >= start.getTime() && t <= end.getTime()) today.push(a);
@@ -210,11 +223,14 @@ export class DoctorSchedule implements OnInit {
   }
 
   protected join(a: DoctorAppointmentDto): void {
+    // No link on an unaccepted follow-up proposal — there is no call to join yet.
+    const url = a.join_url;
+    if (!url) return;
     const marker = '/call/join/';
-    const idx = a.join_url.indexOf(marker);
-    const token = idx >= 0 ? a.join_url.slice(idx + marker.length) : '';
+    const idx = url.indexOf(marker);
+    const token = idx >= 0 ? url.slice(idx + marker.length) : '';
     if (token) void this.router.navigate(['/call', token]);
-    else window.location.href = a.join_url;
+    else window.location.href = url;
   }
 
   protected initialsFor(name: string): string {
@@ -225,9 +241,18 @@ export class DoctorSchedule implements OnInit {
       ? 'bg-sage/15 text-sage'
       : status === 'pending' || status === 'rescheduled'
         ? 'bg-warning/15 text-warning'
-        : status === 'cancelled'
-          ? 'bg-alert/10 text-alert'
-          : 'bg-frost text-cerulean';
+        : status === 'proposed'
+          ? 'bg-warning/15 text-ink'
+          : status === 'cancelled'
+            ? 'bg-alert/10 text-alert'
+            : 'bg-frost text-cerulean';
+  }
+  /** "Awaiting patient" for a follow-up proposal, else the API's label. */
+  protected statusLabel(a: DoctorAppointmentDto): string {
+    return doctorStatusLabel(a);
+  }
+  protected when(iso: string): string {
+    return whenLabel(iso);
   }
   protected statusText(status: string): string {
     return STATUS_TEXT[status] ?? 'text-slate';

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
@@ -15,10 +16,14 @@ use Psr\Http\Message\ServerRequestInterface;
 use App\Domain\Settings\WebUrls;
 
 /**
- * GET /api/doctor/appointments — the signed-in doctor's own consultations.
+ * GET /api/doctor/appointments — the signed-in doctor's own consultations:
+ * their schedule, soonest first — today's and what's coming, then, if there
+ * is room, the most recent earlier ones ({@see AppointmentRepository::forSpecialist()};
+ * GET /doctor/appointments/{id} loads any one).
  * Staff-scoped; the account must be a doctor login (role `doctor`, linked to a
  * Specialist). Each row carries a freshly minted preauthenticated `join_url` so
- * the doctor can jump straight into the call.
+ * the doctor can jump straight into the call — null on a follow-up proposal
+ * the patient hasn't accepted yet.
  */
 final class DoctorAppointmentsAction
 {
@@ -51,7 +56,9 @@ final class DoctorAppointmentsAction
         $webUrl = WebUrls::patientAppForStaffOrigin(WebUrls::requestStaffOrigin() ?? $specialist->getWebOrigin());
         $rows   = array_map(function (Appointment $appt) use ($specialist, $webUrl): array {
             $patient = $appt->getPatient()->toArray();
-            $token   = $this->jwt->issueCallAccess(
+            // An unaccepted follow-up proposal has no call yet: no link (the
+            // same token would work the moment the patient accepts).
+            $token   = $appt->getStatus() === AppointmentStatus::PROPOSED ? null : $this->jwt->issueCallAccess(
                 $appt->getId(),
                 $specialist->getName(),
                 'doctor',
@@ -60,7 +67,7 @@ final class DoctorAppointmentsAction
 
             return $appt->toArray() + [
                 'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
-                'join_url'     => $webUrl . '/call/join/' . $token,
+                'join_url'     => $token !== null ? $webUrl . '/call/join/' . $token : null,
             ];
         }, $this->appointments->forSpecialist($specialist->getId()));
 

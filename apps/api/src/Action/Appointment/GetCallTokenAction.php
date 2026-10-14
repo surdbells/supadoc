@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Exception\EntityNotFoundException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Agora\AgoraTokenService;
@@ -40,6 +41,12 @@ final class GetCallTokenAction
 
         if ($appointment === null) {
             throw EntityNotFoundException::for(Appointment::class, $id);
+        }
+        // A follow-up proposal isn't a booking until the patient accepts it.
+        if ($appointment->getStatus() === AppointmentStatus::PROPOSED) {
+            $notYet = "Accept this follow-up first — there is no call to join until you do.";
+
+            return $this->error($response, $notYet, 422, ['status' => 'proposed']);
         }
         if (!$this->agora->hasAppId()) {
             return $this->error($response, 'Video calling is not configured', 503);

@@ -2,10 +2,14 @@ import { HttpClient, HttpEvent } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  AcceptFollowUpParams,
+  AcceptFollowUpResponse,
   AppointmentDocumentDto,
   AppointmentDto,
   AppointmentPayInitDto,
   BookAppointmentParams,
+  FollowUpQuoteDto,
+  PayInitFollowUp,
   CallPresenceMap,
   CallTokenDto,
   ClinicalDocumentKind,
@@ -100,14 +104,86 @@ export class AppointmentsApi {
     );
   }
 
-  /** POST /api/portal/appointments/pay-init — start a direct card payment for a booking. */
+  /**
+   * POST /api/portal/appointments/pay-init — start a direct card payment for a
+   * booking. Pass `followUp` when booking a follow-up of a completed
+   * consultation, so the card is charged the follow-up price for that slot.
+   */
   payInit(
     specialistId: string,
     guestCount: number,
+    followUp?: PayInitFollowUp,
   ): Observable<SuccessResponse<AppointmentPayInitDto>> {
     return this.api.post<SuccessResponse<AppointmentPayInitDto>>(
       'api/portal/appointments/pay-init',
-      { specialist_id: specialistId, guest_count: guestCount },
+      { specialist_id: specialistId, guest_count: guestCount, ...(followUp ?? {}) },
+    );
+  }
+
+  /**
+   * POST /api/portal/appointments/pay-init `{appointment_id}` — start a card
+   * payment to accept the doctor's follow-up proposal `id` (at its price, or
+   * re-priced for `scheduledAt`). Then call `acceptFollowUp` with the reference.
+   */
+  payInitForProposal(
+    id: string,
+    scheduledAt?: string,
+  ): Observable<SuccessResponse<AppointmentPayInitDto>> {
+    return this.api.post<SuccessResponse<AppointmentPayInitDto>>(
+      'api/portal/appointments/pay-init',
+      scheduledAt ? { appointment_id: id, scheduled_at: scheduledAt } : { appointment_id: id },
+    );
+  }
+
+  /**
+   * POST /api/portal/appointments/{id}/follow-up/accept — accept the doctor's
+   * follow-up proposal (free → confirmed at once; else wallet or a verified
+   * card reference), optionally at another open slot. 422 `errors.wallet =
+   * 'insufficient_funds'` when the wallet is short. A card payment the
+   * acceptance can't use goes to the wallet: 422 `errors.card_payment =
+   * 'credited_to_wallet'` when refused, or — on a repeat (message "Follow-up
+   * already accepted…") — `meta.card_payment`.
+   */
+  acceptFollowUp(
+    id: string,
+    params: AcceptFollowUpParams = {},
+  ): Observable<AcceptFollowUpResponse> {
+    return this.api.post<AcceptFollowUpResponse>(
+      `api/portal/appointments/${encodeURIComponent(id)}/follow-up/accept`,
+      params,
+    );
+  }
+
+  /** POST /api/portal/appointments/{id}/follow-up/decline — decline the proposal (reason goes to the doctor). */
+  declineFollowUp(
+    id: string,
+    reason?: string,
+  ): Observable<SuccessResponse<AppointmentDto>> {
+    return this.api.post<SuccessResponse<AppointmentDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/follow-up/decline`,
+      reason ? { reason } : {},
+    );
+  }
+
+  /**
+   * GET /api/portal/appointments/{id}/follow-up/quote — the price before
+   * paying: `id` is a completed consultation (booking a follow-up of it) or an
+   * open proposal (accepting it, re-priced when `scheduledAt` is another slot).
+   */
+  followUpQuote(
+    id: string,
+    scheduledAt?: string,
+  ): Observable<SuccessResponse<FollowUpQuoteDto>> {
+    return this.api.get<SuccessResponse<FollowUpQuoteDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/follow-up/quote`,
+      { scheduled_at: scheduledAt },
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/follow-ups — the follow-ups of one of my consultations (any status). */
+  followUps(id: string): Observable<SuccessResponse<AppointmentDto[]>> {
+    return this.api.get<SuccessResponse<AppointmentDto[]>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/follow-ups`,
     );
   }
 

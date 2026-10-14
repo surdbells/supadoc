@@ -1,16 +1,34 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { apiErrorMessage, SettingsApi } from '@supadoc/data-access';
+import { apiErrorFields, apiErrorMessage, SettingsApi } from '@supadoc/data-access';
+import type { FollowUpFeeMode, PricingDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 
-/** Pricing settings (route `/pricing`) — currency + guest/platform fees. */
+/** The follow-up fee modes, as the API spells them. */
+const FEE_MODES: { value: FollowUpFeeMode; label: string; hint: string }[] = [
+  { value: 'percent', label: 'Discounted', hint: "The doctor's fee less the discount below." },
+  { value: 'full', label: 'Full fee', hint: "The doctor's usual consultation fee." },
+  { value: 'free', label: 'Free', hint: 'No charge — no payment step for the patient.' },
+];
+
+/** The API's defaults when a setting has never been saved. */
+const DEFAULTS = { mode: 'percent' as FollowUpFeeMode, discount: 50, windowDays: 14 };
+const MAX_WINDOW_DAYS = 365;
+
+/**
+ * Pricing settings (route `/pricing`) — currency, guest/platform fees, and how
+ * follow-up consultations are priced: a follow-up starting within the window
+ * after the consultation it follows costs the full fee, a discounted fee or
+ * nothing; after the window it is the full fee. A doctor can still waive it.
+ */
 @Component({
   selector: 'bo-pricing',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,11 +63,108 @@ import { IconComponent } from '@supadoc/ui';
             <input type="number" min="0" step="100" [value]="platformFee()" (input)="platformFee.set($any($event.target).value)" class="rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" />
           </label>
 
+          <!-- Follow-up consultations -->
+          <div role="group" aria-labelledby="fu-pricing-title" class="flex flex-col gap-4 border-t border-cloud pt-5">
+            <div class="flex flex-col gap-1">
+              <h2 id="fu-pricing-title" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
+                <sd-icon name="refresh-cw" [size]="18" class="text-slate" />Follow-up consultations
+              </h2>
+            </div>
+            <p class="-mt-2 font-sans text-caption text-slate">
+              Applies to follow-ups a doctor proposes and ones patients book from a
+              completed consultation. A doctor can always waive the fee.
+            </p>
+
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-slate">Follow-up fee</span>
+              <select
+                class="min-h-11 rounded-field border bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+                [class]="fieldError('follow_up_fee_mode') ? 'border-alert' : 'border-cloud'"
+                [value]="mode()"
+                [attr.aria-invalid]="fieldError('follow_up_fee_mode') ? 'true' : null"
+                aria-describedby="fu-mode-hint"
+                (change)="setMode($any($event.target).value)"
+              >
+                @for (m of modes; track m.value) {
+                  <option [value]="m.value" [selected]="m.value === mode()">{{ m.label }}</option>
+                }
+              </select>
+              @if (fieldError('follow_up_fee_mode'); as msg) {
+                <span class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
+              }
+              <span id="fu-mode-hint" class="font-sans text-caption text-slate">{{ modeHint() }}</span>
+            </label>
+
+            @if (mode() === 'percent') {
+              <label class="flex flex-col gap-1.5">
+                <span class="font-sans text-caption font-semibold text-slate">Discount</span>
+                <div
+                  class="flex items-stretch overflow-hidden rounded-field border bg-white focus-within:border-cerulean"
+                  [class]="fieldError('follow_up_discount_percent') ? 'border-alert' : 'border-cloud'"
+                >
+                  <input
+                    type="number"
+                    inputmode="numeric"
+                    min="0"
+                    max="100"
+                    step="1"
+                    class="w-full min-w-0 flex-1 bg-transparent px-3 py-2 font-sans text-body-sm text-ink focus:outline-none"
+                    [value]="discount()"
+                    [attr.aria-invalid]="fieldError('follow_up_discount_percent') ? 'true' : null"
+                    aria-describedby="fu-discount-hint"
+                    (input)="setField('follow_up_discount_percent', discount, $any($event.target).value)"
+                  />
+                  <span class="flex shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">%</span>
+                </div>
+                @if (fieldError('follow_up_discount_percent'); as msg) {
+                  <span class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
+                }
+                <span id="fu-discount-hint" class="font-sans text-caption text-slate">
+                  A whole number from 0 to 100 — 50 halves the doctor's fee. Rounded down to the kobo.
+                </span>
+              </label>
+            }
+
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-slate">Follow-up window</span>
+              <div
+                class="flex items-stretch overflow-hidden rounded-field border bg-white focus-within:border-cerulean"
+                [class]="fieldError('follow_up_window_days') ? 'border-alert' : 'border-cloud'"
+              >
+                <input
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  [max]="maxWindowDays"
+                  step="1"
+                  class="w-full min-w-0 flex-1 bg-transparent px-3 py-2 font-sans text-body-sm text-ink focus:outline-none"
+                  [value]="windowDays()"
+                  [attr.aria-invalid]="fieldError('follow_up_window_days') ? 'true' : null"
+                  aria-describedby="fu-window-hint"
+                  (input)="setField('follow_up_window_days', windowDays, $any($event.target).value)"
+                />
+                <span class="flex shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">days</span>
+              </div>
+              @if (fieldError('follow_up_window_days'); as msg) {
+                <span class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
+              }
+              <span id="fu-window-hint" class="font-sans text-caption text-slate">
+                Follow-up pricing applies when the follow-up starts within this many days
+                of the original consultation's start (1–{{ maxWindowDays }}); after that
+                it is the full fee.
+              </span>
+            </label>
+
+            <p class="rounded-field bg-glacier px-4 py-3 font-sans text-caption text-ink" aria-live="polite">
+              <span class="font-semibold">Example:</span> {{ example() }}
+            </p>
+          </div>
+
           @if (notice()) {
-            <p class="rounded-field px-4 py-2 font-label text-caption" [class]="noticeOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'">{{ notice() }}</p>
+            <p class="rounded-field px-4 py-2 font-label text-caption" [class]="noticeOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'" [attr.role]="noticeOk() ? 'status' : 'alert'">{{ notice() }}</p>
           }
 
-          <button type="button" class="flex w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving()" (click)="save()">
+          <button type="button" class="flex min-h-11 w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving()" (click)="save()">
             <sd-icon name="check" [size]="18" />{{ saving() ? 'Saving…' : 'Save pricing' }}
           </button>
         </div>
@@ -71,15 +186,44 @@ export class AdminPricing implements OnInit {
   protected readonly guestFee = signal('0');
   protected readonly platformFee = signal('0');
 
+  // Follow-up pricing.
+  protected readonly modes = FEE_MODES;
+  protected readonly maxWindowDays = MAX_WINDOW_DAYS;
+  protected readonly mode = signal<FollowUpFeeMode>(DEFAULTS.mode);
+  protected readonly discount = signal(String(DEFAULTS.discount));
+  protected readonly windowDays = signal(String(DEFAULTS.windowDays));
+  /** Field-level problems: the form's own checks, then the API's 422 `errors`. */
+  private readonly errors = signal<Record<string, string>>({});
+
+  protected readonly modeHint = computed(
+    () => FEE_MODES.find((m) => m.value === this.mode())?.hint ?? '',
+  );
+
+  /** What a follow-up of a ₦10,000 consultation would cost under these settings. */
+  protected readonly example = computed(() => {
+    const days = wholeNumber(this.windowDays());
+    const within = days !== null ? `within ${days} day${days === 1 ? '' : 's'}` : 'within the window';
+    switch (this.mode()) {
+      case 'free':
+        return `a follow-up ${within} of a ₦10,000 consultation is free; later, ₦10,000.`;
+      case 'full':
+        return `a follow-up ${within} of a ₦10,000 consultation costs ₦10,000, the same as later.`;
+      default: {
+        const pct = wholeNumber(this.discount());
+        if (pct === null || pct > 100) return 'enter a discount from 0 to 100.';
+        const price = Math.floor(10000 * (100 - pct)) / 100;
+        return `a follow-up ${within} of a ₦10,000 consultation costs ₦${price.toLocaleString('en-NG')}; later, ₦10,000.`;
+      }
+    }
+  });
+
   ngOnInit(): void {
     this.api
       .getPricing()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.currency.set(res.data.currency ?? 'NGN');
-          this.guestFee.set(String(res.data.guest_fee ?? 0));
-          this.platformFee.set(String(res.data.platform_fee ?? 0));
+          this.apply(res.data);
           this.loading.set(false);
         },
         error: (err: unknown) => {
@@ -91,7 +235,40 @@ export class AdminPricing implements OnInit {
       });
   }
 
+  protected fieldError(key: string): string {
+    return this.errors()[key] ?? '';
+  }
+
+  protected setMode(value: string): void {
+    const mode = FEE_MODES.find((m) => m.value === value)?.value;
+    if (mode) this.mode.set(mode);
+    this.clearError('follow_up_fee_mode');
+  }
+
+  protected setField(key: string, target: { set(v: string): void }, value: string): void {
+    target.set(value);
+    this.clearError(key);
+  }
+
   protected save(): void {
+    if (this.saving()) return;
+    const discount = wholeNumber(this.discount());
+    const windowDays = wholeNumber(this.windowDays());
+    // The API's rules, checked first so a typo never reaches it.
+    const problems: Record<string, string> = {};
+    if (this.mode() === 'percent' && (discount === null || discount > 100)) {
+      problems['follow_up_discount_percent'] = 'Must be a whole number from 0 to 100';
+    }
+    if (windowDays === null || windowDays < 1 || windowDays > MAX_WINDOW_DAYS) {
+      problems['follow_up_window_days'] = `Must be a whole number of days from 1 to ${MAX_WINDOW_DAYS}`;
+    }
+    this.errors.set(problems);
+    if (Object.keys(problems).length > 0) {
+      this.noticeOk.set(false);
+      this.notice.set('Fix the highlighted fields, then save again.');
+      return;
+    }
+
     this.saving.set(true);
     this.notice.set('');
     this.api
@@ -99,22 +276,51 @@ export class AdminPricing implements OnInit {
         currency: this.currency().trim() || 'NGN',
         guest_fee: this.guestFee(),
         platform_fee: this.platformFee(),
+        follow_up_fee_mode: this.mode(),
+        // Kept as it was when another mode is chosen (it only applies to percent).
+        ...(discount !== null && discount <= 100 ? { follow_up_discount_percent: discount } : {}),
+        follow_up_window_days: windowDays as number,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.currency.set(res.data.currency ?? this.currency());
-          this.guestFee.set(String(res.data.guest_fee ?? this.guestFee()));
-          this.platformFee.set(String(res.data.platform_fee ?? this.platformFee()));
+          this.apply(res.data);
           this.noticeOk.set(true);
           this.notice.set('Pricing updated.');
           this.saving.set(false);
         },
         error: (err: unknown) => {
+          this.errors.set(apiErrorFields(err));
           this.noticeOk.set(false);
           this.notice.set(apiErrorMessage(err, 'Could not update pricing.'));
           this.saving.set(false);
         },
       });
   }
+
+  /** Fill the form from the API (an older API without the follow-up keys keeps the defaults). */
+  private apply(p: PricingDto): void {
+    this.currency.set(p.currency ?? this.currency() ?? 'NGN');
+    this.guestFee.set(String(p.guest_fee ?? this.guestFee()));
+    this.platformFee.set(String(p.platform_fee ?? this.platformFee()));
+    if (p.follow_up_fee_mode) this.mode.set(p.follow_up_fee_mode);
+    if (p.follow_up_discount_percent !== undefined) this.discount.set(String(p.follow_up_discount_percent));
+    if (p.follow_up_window_days !== undefined) this.windowDays.set(String(p.follow_up_window_days));
+    this.errors.set({});
+  }
+
+  private clearError(key: string): void {
+    if (!this.errors()[key]) return;
+    this.errors.update((all) => {
+      const rest = { ...all };
+      delete rest[key];
+      return rest;
+    });
+  }
+}
+
+/** A whole number typed into a field, or null. */
+function wholeNumber(raw: string): number | null {
+  const s = String(raw ?? '').trim();
+  return /^\d+$/.test(s) ? Number(s) : null;
 }
