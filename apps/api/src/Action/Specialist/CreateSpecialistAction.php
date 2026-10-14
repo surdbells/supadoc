@@ -16,7 +16,8 @@ use Psr\Http\Message\ServerRequestInterface;
  * everything else is optional and can be edited later (by the operator here, or
  * by the doctor via their own profile). The response echoes the private array so
  * the operator can confirm the created record, including its new id to link a
- * doctor login to.
+ * doctor login to. The specialist starts in onboarding: unlisted and unbookable
+ * until they are invited, complete their profile and an admin approves them.
  */
 final class CreateSpecialistAction
 {
@@ -110,6 +111,12 @@ final class CreateSpecialistAction
 
         $this->specialists->save($specialist);
 
-        return $this->created($response, $specialist->toPrivateArray(), 'Specialist created');
+        // A new specialist starts in onboarding (unlisted) with no login yet —
+        // the operator invites them next.
+        return $this->created(
+            $response,
+            $specialist->toPrivateArray() + $specialist->toReviewArray() + ['login' => null],
+            'Specialist created',
+        );
     }
 }

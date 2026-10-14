@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Admin;
 
 use App\Domain\Entity\User;
+use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -21,8 +22,10 @@ final class UpdateStaffAction
     use ApiResponse;
     use ManagesStaff;
 
-    public function __construct(private readonly UserRepository $users)
-    {
+    public function __construct(
+        private readonly UserRepository $users,
+        private readonly SpecialistRepository $specialists,
+    ) {
     }
 
     public function __invoke(
@@ -111,7 +114,16 @@ final class UpdateStaffAction
         }
 
         if (array_key_exists('specialist_id', $body)) {
-            $user->setSpecialistId((string) $body['specialist_id']);
+            // Null / '' unlinks; otherwise the specialist must exist and be free.
+            $specialistId = trim((string) $body['specialist_id']);
+            $problem      = $specialistId !== ''
+                ? $this->specialistLinkProblem($this->specialists, $this->users, $specialistId, $user->getId())
+                : null;
+            if ($problem !== null) {
+                $errors['specialist_id'] = $problem;
+            } else {
+                $user->setSpecialistId($specialistId);
+            }
         }
 
         if ($errors !== []) {

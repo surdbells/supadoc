@@ -9,6 +9,7 @@ use App\Domain\Enum\SlotKind;
 use App\Domain\Repository\AvailabilitySlotRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ScheduleRules;
 use App\Infrastructure\Service\ApiResponse;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -19,7 +20,9 @@ use Psr\Http\Message\ServerRequestInterface;
  * POST /api/doctor/availability — publish open slots for a date. Splits the
  * [start, end) time range into fixed-length slots of `duration` minutes; when
  * `recurring` is set, repeats weekly for `weeks` weeks. Slots that already exist
- * at the same start are skipped, so re-adding a range is idempotent.
+ * at the same start are skipped, so re-adding a range is idempotent. A past
+ * date, a start that has already gone by today, or a range too short for one
+ * slot is rejected (422).
  *
  * Body: { date: "YYYY-MM-DD", start: "HH:MM", end: "HH:MM",
  *         duration: 15|30|45|60, recurring?: bool, weeks?: int }
@@ -54,6 +57,9 @@ final class AddAvailabilityAction
         if ($date === false) {
             return $this->error($response, 'Validation failed', 422, ['date' => 'Enter a valid date']);
         }
+        if (ScheduleRules::isPastUtcDay($date)) {
+            return $this->error($response, 'Validation failed', 422, ['date' => 'Choose today or a later date']);
+        }
 
         $start    = $this->minutesOfDay((string) ($body['start'] ?? ''));
         $end      = $this->minutesOfDay((string) ($body['end'] ?? ''));
@@ -71,9 +77,21 @@ final class AddAvailabilityAction
         }
         if (!in_array($duration, [15, 30, 45, 60], true)) {
             $errors['duration'] = 'Choose 15, 30, 45 or 60 minutes';
+        } elseif (
+            $start !== null && $end !== null && $end > $start
+            && ScheduleRules::slotsInRange($start, $end, $duration) === 0
+        ) {
+            // Otherwise this "succeeds" with 0 slots and reads like a duplicate.
+            $errors['end'] = 'The time range must fit at least one ' . $duration . '-minute slot';
         }
         if ($errors !== []) {
             return $this->error($response, 'Validation failed', 422, $errors);
+        }
+        // The first occurrence is the earliest; later weeks are always ahead of it.
+        if (ScheduleRules::hasPassed($date->setTime(intdiv((int) $start, 60), ((int) $start) % 60))) {
+            return $this->error($response, 'Validation failed', 422, [
+                'start' => 'That start time has already passed — choose a later time',
+            ]);
         }
 
         $recurring = (bool) ($body['recurring'] ?? false);

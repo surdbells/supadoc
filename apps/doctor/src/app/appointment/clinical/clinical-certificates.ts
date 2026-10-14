@@ -33,6 +33,9 @@ const CERTIFICATE_TYPES: ReadonlyArray<{ readonly key: CertificateType; readonly
   { key: 'general', label: 'General' },
 ];
 
+/** How far back sick leave may start — a short backdate is clinically valid (the API enforces the same). */
+export const CERTIFICATE_BACKDATE_DAYS = 7;
+
 let nextUid = 0;
 
 /**
@@ -41,7 +44,7 @@ let nextUid = 0;
  * (two-way bound), validation, the API call and document opening.
  *
  * Usage:
- * `<doc-clinical-certificates [certificates]="certificates()" [(type)]="certType"
+ * `<doc-clinical-certificates [certificates]="certificates()" [earliestFrom]="certMinFrom()" [(type)]="certType"
  *    [(diagnosis)]="certDiagnosis" [(from)]="certFrom" [(to)]="certTo" [(statement)]="certStatement"
  *    [busy]="sectionBusy()" [error]="sectionError()" (issue)="issueCertificate()"
  *    (openDocument)="openDoc('certificate', $event)" />`
@@ -99,13 +102,14 @@ let nextUid = 0;
           <div class="grid grid-cols-1 gap-3 @md:grid-cols-2">
             <div class="flex flex-col gap-1.5">
               <label class="font-sans text-caption font-semibold text-slate" [for]="uid + '-from'">From</label>
-              <input type="date" class="${CLINICAL_INPUT}" [id]="uid + '-from'" [value]="from()" (input)="from.set($any($event.target).value)" />
+              <input type="date" class="${CLINICAL_INPUT}" [id]="uid + '-from'" [min]="earliestFrom()" [value]="from()" (input)="from.set($any($event.target).value)" />
             </div>
             <div class="flex flex-col gap-1.5">
               <label class="font-sans text-caption font-semibold text-slate" [for]="uid + '-to'">To</label>
-              <input type="date" class="${CLINICAL_INPUT}" [id]="uid + '-to'" [value]="to()" (input)="to.set($any($event.target).value)" />
+              <input type="date" class="${CLINICAL_INPUT}" [id]="uid + '-to'" [min]="from() || earliestFrom()" [value]="to()" (input)="to.set($any($event.target).value)" />
             </div>
           </div>
+          <p class="mt-2 font-sans text-caption text-slate">Leave can start up to {{ backdateDays }} days ago.</p>
         </fieldset>
       }
 
@@ -187,6 +191,8 @@ let nextUid = 0;
 })
 export class ClinicalCertificates {
   readonly certificates = input.required<MedicalCertificateDto[]>();
+  /** The earliest leave start (YYYY-MM-DD) — the API's clinic-calendar floor; the API still decides. */
+  readonly earliestFrom = input.required<string>();
   readonly busy = input(false);
   readonly error = input('');
 
@@ -204,6 +210,7 @@ export class ClinicalCertificates {
 
   protected readonly uid = `clinical-certificates-${++nextUid}`;
   protected readonly types = CERTIFICATE_TYPES;
+  protected readonly backdateDays = CERTIFICATE_BACKDATE_DAYS;
 
   protected day(value: string | null): string {
     return rxDate(value);

@@ -9,6 +9,7 @@ use App\Domain\Enum\SlotKind;
 use App\Domain\Repository\AvailabilitySlotRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ScheduleRules;
 use App\Infrastructure\Service\ApiResponse;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -19,7 +20,8 @@ use Psr\Http\Message\ServerRequestInterface;
  * POST /api/doctor/availability/block — mark a date (or a span within it)
  * unavailable. A block overlays the schedule: patient slot generation subtracts
  * any time that falls inside a block, and the doctor's calendar shows overlapping
- * open slots as blocked.
+ * open slots as blocked. A past date, or a span starting before now, is
+ * rejected (422); today as a whole day can still be blocked.
  *
  * Body: { date: "YYYY-MM-DD", entire_day?: bool, start?: "HH:MM",
  *         end?: "HH:MM", reason?: string }
@@ -52,6 +54,9 @@ final class BlockAvailabilityAction
         if ($date === false) {
             return $this->error($response, 'Validation failed', 422, ['date' => 'Enter a valid date']);
         }
+        if (ScheduleRules::isPastUtcDay($date)) {
+            return $this->error($response, 'Validation failed', 422, ['date' => 'Choose today or a later date']);
+        }
 
         $entireDay = (bool) ($body['entire_day'] ?? false);
         if ($entireDay) {
@@ -75,6 +80,12 @@ final class BlockAvailabilityAction
             }
             $start = $date->setTime(intdiv((int) $s, 60), ((int) $s) % 60);
             $end   = $date->setTime(intdiv((int) $e, 60), ((int) $e) % 60);
+            // Today's whole day may be blocked; a specific span must start from now on.
+            if (ScheduleRules::hasPassed($start)) {
+                return $this->error($response, 'Validation failed', 422, [
+                    'start' => 'That start time has already passed — choose a later time',
+                ]);
+            }
         }
 
         $block = new AvailabilitySlot(

@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
+import { apiErrorMessage, localSlotDays, SpecialistsApi } from '@supadoc/data-access';
 import type { DayAvailability, SpecialistDto } from '@supadoc/models';
 import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@supadoc/ui';
 
@@ -295,8 +295,10 @@ export class SpecialistCard implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.days.set(res.data);
-          const first = res.data[0];
+          // Labels and day grouping in the viewer's local time, never the server's UTC text.
+          const days = localSlotDays(res.data);
+          this.days.set(days);
+          const first = days[0];
           if (first) {
             this.selectedDate.set(first.date);
             this.selectedTime.set(first.slots[0]?.iso ?? '');

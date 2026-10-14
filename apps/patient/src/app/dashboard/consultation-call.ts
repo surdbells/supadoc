@@ -46,6 +46,7 @@ import type {
   PrescriptionStatus,
   ReferralDto,
   TranscriptSegmentDto,
+  VitalReadingDto,
 } from '@supadoc/models';
 import { IconComponent, SmoothHeightDirective } from '@supadoc/ui';
 
@@ -1025,19 +1026,29 @@ interface RecordItem {
 
           <!-- Latest vitals -->
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <div class="mb-3 flex items-center justify-between">
+            <div class="mb-3 flex items-center justify-between gap-2">
               <h3 class="font-sans text-body font-semibold text-white">Latest Vitals</h3>
-              <span class="font-sans text-caption text-white/40">{{ vitalsAsOf }}</span>
+              <span class="font-sans text-caption text-white/40">{{ vitalsAsOf() }}</span>
             </div>
-            <div class="grid grid-cols-2 gap-2.5">
-              @for (v of vitals; track v.label) {
-                <div class="rounded-2xl bg-white/[0.04] p-3 text-center">
-                  <p class="font-sans text-caption text-white/50">{{ v.label }}</p>
-                  <p class="mt-0.5 font-heading text-h5 font-semibold text-white">{{ v.value }}</p>
-                  <p class="font-sans text-[10px] text-white/40">{{ v.unit }}</p>
-                </div>
-              }
-            </div>
+            @if (vitals().length) {
+              <div class="grid grid-cols-2 gap-2.5">
+                @for (v of vitals(); track v.key) {
+                  <div class="rounded-2xl bg-white/[0.04] p-3 text-center">
+                    <p class="truncate font-sans text-caption text-white/50">{{ v.label }}</p>
+                    <p class="mt-0.5 font-heading text-h5 font-semibold text-white">{{ v.value }}</p>
+                    <p class="font-sans text-[10px] text-white/40">{{ v.unit }}</p>
+                    @if (v.stale) {
+                      <p class="mt-1 font-sans text-[10px] text-warning">May be out of date</p>
+                    }
+                  </div>
+                }
+              </div>
+            } @else {
+              <p class="font-sans text-caption text-white/50">
+                No readings yet. You can add them in My Profile › Medical Information
+                after your visit.
+              </p>
+            }
           </div>
 
           <!-- Documents & records -->
@@ -1369,15 +1380,16 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     return `${p(Math.floor(t / 3600))}:${p(Math.floor((t % 3600) / 60))}:${p(t % 60)}`;
   });
 
-  // Vitals aren't captured in-app yet — show the panel structure with honest
-  // empty values (never fabricated readings). Wire to a vitals endpoint later.
-  protected readonly vitalsAsOf = 'Not yet recorded';
-  protected readonly vitals: ReadonlyArray<{ label: string; value: string; unit: string }> = [
-    { label: 'Blood Pressure', value: '—', unit: 'mmHg' },
-    { label: 'Heart Rate', value: '—', unit: 'bpm' },
-    { label: 'SpO₂', value: '—', unit: '%' },
-    { label: 'Weight', value: '—', unit: 'kg' },
-  ];
+  // Vitals: the patient's latest reading of each type (GET /api/portal/me/vitals,
+  // loaded once in-call) — never fabricated values.
+  protected readonly vitals = signal<VitalReadingDto[]>([]);
+  protected readonly vitalsAsOf = computed(() => {
+    const times = this.vitals()
+      .map((v) => Date.parse(v.taken_at ?? ''))
+      .filter((t) => !Number.isNaN(t));
+    if (!times.length) return 'Not yet recorded';
+    return `As of ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(Math.max(...times))}`;
+  });
   /** The patient's medical-document library (loaded once in-call). */
   private readonly libraryDocs = signal<MedicalDocumentDto[]>([]);
 
@@ -1793,6 +1805,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.health.set(hp.data);
     } catch {
       /* optional */
+    }
+    try {
+      const vitals = await firstValueFrom(this.patientApi.vitals());
+      this.vitals.set(vitals.data.latest ?? []);
+    } catch {
+      /* optional — the panel says "Not yet recorded" */
     }
     try {
       const docs = await firstValueFrom(this.documentsApi.list({ per_page: 100 }));

@@ -84,7 +84,50 @@ export class StaffAuthService implements SessionAuth {
         password,
       }),
     );
-    const data = res.data;
+    return this.adopt(res.data);
+  }
+
+  /**
+   * POST /api/auth/staff/accept-invite — an invited doctor chooses their first
+   * password from the emailed link, and is signed in.
+   */
+  async acceptInvite(token: string, password: string): Promise<StaffUserDto> {
+    const res = await firstValueFrom(
+      this.api.post<{ data: StaffLoginData }>('api/auth/staff/accept-invite', {
+        token,
+        password,
+      }),
+    );
+    return this.adopt(res.data);
+  }
+
+  /** POST /api/auth/staff/reset-password — new password from a reset link, then signed in. */
+  async resetPassword(token: string, password: string): Promise<StaffUserDto> {
+    const res = await firstValueFrom(
+      this.api.post<{ data: StaffLoginData }>('api/auth/staff/reset-password', {
+        token,
+        password,
+      }),
+    );
+    return this.adopt(res.data);
+  }
+
+  /**
+   * POST /api/auth/staff/forgot-password — email a reset link. Resolves with the
+   * server's message, which is the same whether or not the account exists.
+   */
+  async requestPasswordReset(email: string): Promise<string> {
+    const res = await firstValueFrom(
+      this.api.post<{ message?: string; data?: { sent?: boolean } }>(
+        'api/auth/staff/forgot-password',
+        { email: email.trim() },
+      ),
+    );
+    return res.message ?? 'If an account exists for that email, we have sent a reset link.';
+  }
+
+  /** Keep a fresh session — after checking it has the role this app requires. */
+  private adopt(data: StaffLoginData): StaffUserDto {
     const required = this.config.requiredRole;
     if (required && !data.user.roles.includes(required)) {
       throw new Error(`This account is not a ${required} login.`);

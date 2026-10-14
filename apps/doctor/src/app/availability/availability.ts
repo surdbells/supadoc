@@ -25,6 +25,13 @@ const TIME_INPUT =
 
 const DURATIONS = [15, 30, 45, 60];
 
+/** Minutes since midnight -> 'HH:MM'. */
+const hm = (mins: number): string => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+/** 'HH:MM' -> minutes since midnight. */
+const toMinutes = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+/** The day's last bookable minute: an end time can't go past 23:59. */
+const LAST_MINUTE = 23 * 60 + 59;
+
 /** Date-specific availability (route `/availability`) — calendar + list, with
  *  Add Availability and Block day modals. Times are UTC wall-clock end-to-end. */
 @Component({
@@ -40,10 +47,10 @@ const DURATIONS = [15, 30, 45, 60];
           <p class="font-sans text-body text-slate">Manage your consultation hour and availability.</p>
         </div>
         <div class="flex flex-wrap items-center gap-3">
-          <button type="button" class="flex items-center gap-2 rounded-field border border-cloud bg-white px-5 py-3 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
+          <button type="button" class="flex items-center gap-2 rounded-field border border-cloud bg-white px-5 py-3 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert disabled:pointer-events-none disabled:opacity-50" [disabled]="isPast(selectedDate())" (click)="openBlock(selectedDate())">
             <sd-icon name="ban" [size]="18" />Block this day
           </button>
-          <sd-button (click)="openAdd(selectedDate())">
+          <sd-button [disabled]="isPast(selectedDate())" (click)="openAdd(selectedDate())">
             <sd-icon name="plus" [size]="18" />Add Availability
           </sd-button>
         </div>
@@ -78,6 +85,7 @@ const DURATIONS = [15, 30, 45, 60];
                 <button type="button"
                   class="relative flex h-10 items-center justify-center rounded-field font-sans text-body-sm transition-colors"
                   [class]="cellClass(cell)"
+                  [attr.aria-label]="isPast(cell.date) ? cell.day + ' (past)' : null"
                   (click)="selectedDate.set(cell.date)">
                   {{ cell.day }}
                   @if (dayState(cell.date) !== 'none' && selectedDate() !== cell.date) {
@@ -165,12 +173,18 @@ const DURATIONS = [15, 30, 45, 60];
               }
             </ul>
           }
-          <div class="mt-2 flex flex-col gap-3 sm:flex-row">
-            <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
-              <sd-icon name="ban" [size]="18" />Block this day
-            </button>
-            <sd-button [full]="true" (click)="openAdd(selectedDate())"><sd-icon name="plus" [size]="18" />Add Availability</sd-button>
-          </div>
+          @if (isPast(selectedDate())) {
+            <p class="mt-2 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
+              <sd-icon name="info" [size]="16" class="mt-px shrink-0" />This day has passed. Pick today or a later day to add or block time.
+            </p>
+          } @else {
+            <div class="mt-2 flex flex-col gap-3 sm:flex-row">
+              <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
+                <sd-icon name="ban" [size]="18" />Block this day
+              </button>
+              <sd-button [full]="true" (click)="openAdd(selectedDate())"><sd-icon name="plus" [size]="18" />Add Availability</sd-button>
+            </div>
+          }
         }
       </section>
     </ng-template>
@@ -192,7 +206,7 @@ const DURATIONS = [15, 30, 45, 60];
 
           <label class="flex flex-col gap-2">
             <span class="font-sans text-body font-semibold text-ink">Date</span>
-            <input type="date" class="${TIME_INPUT}" [min]="today" [value]="addDate()" (input)="addDate.set($any($event.target).value)" />
+            <input type="date" class="${TIME_INPUT}" [min]="today()" [value]="addDate()" (input)="addDate.set($any($event.target).value)" />
           </label>
 
           @if (addRecurring()) {
@@ -217,9 +231,9 @@ const DURATIONS = [15, 30, 45, 60];
           <div class="flex flex-col gap-2">
             <span class="font-sans text-body font-semibold text-ink">Time Range</span>
             <div class="flex items-center gap-2">
-              <input type="time" class="${TIME_INPUT} flex-1" [value]="addStart()" (input)="addStart.set($any($event.target).value)" />
+              <input type="time" class="${TIME_INPUT} min-w-0 flex-1" [attr.min]="addDate() === today() ? nowTime() : null" [value]="addStart()" (input)="addStart.set($any($event.target).value)" />
               <span class="font-sans text-caption text-slate">to</span>
-              <input type="time" class="${TIME_INPUT} flex-1" [value]="addEnd()" (input)="addEnd.set($any($event.target).value)" />
+              <input type="time" class="${TIME_INPUT} min-w-0 flex-1" [attr.min]="addStart() || null" [value]="addEnd()" (input)="addEnd.set($any($event.target).value)" />
             </div>
           </div>
 
@@ -241,7 +255,7 @@ const DURATIONS = [15, 30, 45, 60];
 
           <label class="flex flex-col gap-2">
             <span class="font-sans text-body font-semibold text-ink">Date</span>
-            <input type="date" class="${TIME_INPUT}" [min]="today" [value]="blockDate()" (input)="blockDate.set($any($event.target).value)" />
+            <input type="date" class="${TIME_INPUT}" [min]="today()" [value]="blockDate()" (input)="blockDate.set($any($event.target).value)" />
           </label>
 
           <div class="flex rounded-pill border border-cloud bg-white p-1">
@@ -253,9 +267,9 @@ const DURATIONS = [15, 30, 45, 60];
             <div class="flex flex-col gap-2">
               <span class="font-sans text-body font-semibold text-ink">Time Range</span>
               <div class="flex items-center gap-2">
-                <input type="time" class="${TIME_INPUT} flex-1" [value]="blockStart()" (input)="blockStart.set($any($event.target).value)" />
+                <input type="time" class="${TIME_INPUT} min-w-0 flex-1" [attr.min]="blockDate() === today() ? nowTime() : null" [value]="blockStart()" (input)="blockStart.set($any($event.target).value)" />
                 <span class="font-sans text-caption text-slate">to</span>
-                <input type="time" class="${TIME_INPUT} flex-1" [value]="blockEnd()" (input)="blockEnd.set($any($event.target).value)" />
+                <input type="time" class="${TIME_INPUT} min-w-0 flex-1" [attr.min]="blockStart() || null" [value]="blockEnd()" (input)="blockEnd.set($any($event.target).value)" />
               </div>
             </div>
           }
@@ -280,7 +294,12 @@ export class DoctorAvailability implements OnInit {
 
   protected readonly weekdayLabels = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
   protected readonly durations = DURATIONS;
-  protected readonly today = new Date().toISOString().slice(0, 10);
+  /** Ticks so "today" and "now" stay current while the page is open. */
+  private readonly clock = signal(Date.now());
+  /** Today's date in UTC — this editor's calendar. Earlier days are read-only. */
+  protected readonly today = computed(() => new Date(this.clock()).toISOString().slice(0, 10));
+  /** The current UTC time, 'HH:MM' — the earliest start allowed on today's date. */
+  protected readonly nowTime = computed(() => new Date(this.clock()).toISOString().slice(11, 16));
 
   protected readonly mode = signal<'calendar' | 'list'>('calendar');
   protected readonly loading = signal(true);
@@ -292,12 +311,12 @@ export class DoctorAvailability implements OnInit {
 
   /** First day of the visible month, as a UTC date. */
   protected readonly monthCursor = signal(this.firstOfMonth(new Date()));
-  protected readonly selectedDate = signal(this.today);
+  protected readonly selectedDate = signal(this.today());
 
   // Add modal
   protected readonly addOpen = signal(false);
   protected readonly addRecurring = signal(false);
-  protected readonly addDate = signal(this.today);
+  protected readonly addDate = signal(this.today());
   protected readonly addDuration = signal(30);
   protected readonly addStart = signal('09:00');
   protected readonly addEnd = signal('12:00');
@@ -306,7 +325,7 @@ export class DoctorAvailability implements OnInit {
 
   // Block modal
   protected readonly blockOpen = signal(false);
-  protected readonly blockDate = signal(this.today);
+  protected readonly blockDate = signal(this.today());
   protected readonly blockEntire = signal(true);
   protected readonly blockStart = signal('09:00');
   protected readonly blockEnd = signal('12:00');
@@ -423,6 +442,8 @@ export class DoctorAvailability implements OnInit {
   );
 
   ngOnInit(): void {
+    const tick = setInterval(() => this.clock.set(Date.now()), 30_000);
+    this.destroyRef.onDestroy(() => clearInterval(tick));
     this.load();
   }
 
@@ -459,8 +480,13 @@ export class DoctorAvailability implements OnInit {
 
   protected cellClass(cell: DayCell): string {
     if (this.selectedDate() === cell.date) return 'bg-cerulean font-semibold text-white';
-    const base = cell.inMonth ? 'text-ink hover:bg-glacier' : 'text-slate/40 hover:bg-glacier';
-    return cell.date === this.today ? `${base} ring-1 ring-inset ring-cerulean/40` : base;
+    const base = !cell.inMonth ? 'text-slate/40 hover:bg-glacier' : this.isPast(cell.date) ? 'text-slate/60 hover:bg-glacier' : 'text-ink hover:bg-glacier';
+    return cell.date === this.today() ? `${base} ring-1 ring-inset ring-cerulean/40` : base;
+  }
+
+  /** A day before today: viewable, but nothing can be added or blocked on it. */
+  protected isPast(date: string): boolean {
+    return date < this.today();
   }
 
   /** Underline colour for a calendar day by its state. */
@@ -504,29 +530,100 @@ export class DoctorAvailability implements OnInit {
 
   // ----- Modals -----
   protected openAdd(date: string): void {
-    this.addDate.set(date);
+    this.clock.set(Date.now());
+    // A disabled <sd-button> still lets a click reach its host, so past days are refused here too.
+    if (this.isPast(date)) return;
+    const [day, start, end] = this.defaultAddRange(this.notBeforeToday(date));
+    this.addDate.set(day);
     this.addRecurring.set(false);
     this.addDuration.set(this.slotMinutes());
-    this.addStart.set('09:00');
-    this.addEnd.set('12:00');
+    this.addStart.set(start);
+    this.addEnd.set(end);
     this.addWeeks.set(8);
     this.addError.set('');
     this.addOpen.set(true);
   }
 
   protected openBlock(date: string): void {
-    this.blockDate.set(date);
+    this.clock.set(Date.now());
+    if (this.isPast(date)) return;
+    const day = this.notBeforeToday(date);
+    const [start, end] = this.defaultBlockRange(day);
+    this.blockDate.set(day);
     this.blockEntire.set(true);
-    this.blockStart.set('09:00');
-    this.blockEnd.set('12:00');
+    this.blockStart.set(start);
+    this.blockEnd.set(end);
     this.blockReason.set('');
     this.blockError.set('');
     this.blockOpen.set(true);
   }
 
+  /** A pre-filled date is clamped to today — a picker's `min` doesn't reject a value already set. */
+  private notBeforeToday(date: string): string {
+    return date && !this.isPast(date) ? date : this.today();
+  }
+
+  /** Today's next half hour (minutes; up to 24:00), or null when 09:00 is still ahead / it isn't today. */
+  private nextHalfHour(date: string): number | null {
+    if (date !== this.today()) return null;
+    const now = new Date(this.clock());
+    const from = Math.ceil((now.getUTCHours() * 60 + now.getUTCMinutes()) / 30) * 30;
+    return from <= 9 * 60 ? null : from;
+  }
+
+  /**
+   * The Add pre-fill [date, start, end]: 09:00–12:00, or from the next half hour
+   * once 09:00 has gone today, always long enough for one slot. When not even one
+   * slot fits before 23:59 any more, it moves to tomorrow, 09:00–12:00.
+   */
+  private defaultAddRange(date: string): [string, string, string] {
+    const from = this.nextHalfHour(date);
+    if (from === null) return [date, '09:00', '12:00'];
+    const slot = this.slotMinutes();
+    if (from + slot > LAST_MINUTE) return [this.nextDay(date), '09:00', '12:00'];
+    return [date, hm(from), hm(Math.max(Math.min(from + 180, LAST_MINUTE), from + slot))];
+  }
+
+  /**
+   * The Block pre-fill for a specific time: 09:00–12:00, or the next half hour
+   * onward today; in the day's last half hour, now to 23:59. The date stays put:
+   * the default "entire day" block of today is always allowed.
+   */
+  private defaultBlockRange(date: string): [string, string] {
+    const from = this.nextHalfHour(date);
+    if (from === null) return ['09:00', '12:00'];
+    if (from >= LAST_MINUTE) return [this.nowTime(), hm(LAST_MINUTE)];
+    return [hm(from), hm(Math.min(from + 180, LAST_MINUTE))];
+  }
+
+  /** The UTC day after `date` (YYYY-MM-DD). */
+  private nextDay(date: string): string {
+    return new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  }
+
+  /** Why a start on `date` at `start` can't be used (it has gone by), or '' when it can. */
+  private pastStartError(date: string, start: string | null): string {
+    this.clock.set(Date.now());
+    if (date === '') return 'Choose a date.';
+    if (this.isPast(date)) return 'Choose today or a later date.';
+    if (start !== null && date === this.today() && start < this.nowTime()) {
+      return `That start time has passed. Choose ${this.nowTime()} or later.`;
+    }
+    return '';
+  }
+
   protected async submitAdd(): Promise<void> {
+    const past = this.pastStartError(this.addDate(), this.addStart());
+    if (past) {
+      this.addError.set(past);
+      return;
+    }
     if (this.addEnd() <= this.addStart()) {
       this.addError.set('End time must be after the start time.');
+      return;
+    }
+    if (toMinutes(this.addEnd()) - toMinutes(this.addStart()) < this.addDuration()) {
+      this.addError.set(`The time range must fit at least one ${this.addDuration()}-minute slot.`);
       return;
     }
     this.busy.set(true);
@@ -557,6 +654,11 @@ export class DoctorAvailability implements OnInit {
   }
 
   protected async submitBlock(): Promise<void> {
+    const past = this.pastStartError(this.blockDate(), this.blockEntire() ? null : this.blockStart());
+    if (past) {
+      this.blockError.set(past);
+      return;
+    }
     if (!this.blockEntire() && this.blockEnd() <= this.blockStart()) {
       this.blockError.set('End time must be after the start time.');
       return;

@@ -74,8 +74,10 @@ class Patient
     private ?array $twoFactorBackupCodes = null;
 
     /**
-     * Latest health reading per type — {type: {value, unit, taken_at, source}} —
-     * from readings recorded on prescriptions. Feeds the doctor's side panel.
+     * Latest health reading per type — {type: {value, unit, taken_at, source,
+     * recorded_by}} — a cache over the `vital_readings` history (VitalsService
+     * keeps it in step). Entries written before the history existed have no
+     * `recorded_by`; they all came from a doctor's prescription.
      *
      * @var array<string,array<string,string>>|null
      */
@@ -242,7 +244,7 @@ class Patient
      * Merge newer readings into the latest-per-type map; an older reading never
      * replaces a newer one.
      *
-     * @param array<string,array{value:string,unit:string,taken_at:string,source:string}> $entries
+     * @param array<string,array{value:string,unit:string,taken_at:string,source:string,recorded_by?:string}> $entries
      */
     public function recordVitals(array $entries): void
     {

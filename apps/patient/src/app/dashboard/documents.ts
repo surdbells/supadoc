@@ -1,11 +1,15 @@
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { HttpEventType } from '@angular/common/http';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
   viewChild,
@@ -25,7 +29,7 @@ import type {
   PrescriptionStatus,
   PrescriptionSummaryDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { FileDropComponent, IconComponent, type FileDropRejection } from '@supadoc/ui';
 
 /** How many recent prescriptions the documents page previews. */
 const RX_PREVIEW = 3;
@@ -38,23 +42,62 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
   cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
 };
 
-type Step = '' | 'source' | 'type' | 'preview' | 'uploading' | 'success';
+type Step = '' | 'source' | 'queue' | 'uploading' | 'success';
+type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
+
+/** One file in an upload batch: its own type, progress and outcome. */
+interface QueueItem {
+  /** Local key for `@for` tracking (files have no id until uploaded). */
+  readonly key: number;
+  readonly file: File;
+  readonly type: string;
+  readonly custom: string;
+  readonly status: UploadStatus;
+  readonly progress: number;
+  /** The API's message when the upload failed. */
+  readonly error: string;
+  readonly result: MedicalDocumentDto | null;
+}
+
+/** A file that never made it into the queue, and why. */
+interface SkippedFile {
+  readonly name: string;
+  readonly reason: string;
+}
+
+/** Every upload status reads as an icon AND a word — never colour alone. */
+const UPLOAD_STATUS: Record<UploadStatus, { label: string; icon: string; cls: string }> = {
+  queued: { label: 'Waiting', icon: 'clock', cls: 'bg-cloud text-slate' },
+  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean' },
+  done: { label: 'Uploaded', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+};
 
 /** Accepted client-side (mirrors MedicalDocumentStorage on the server). */
 const ACCEPT =
   '.pdf,.jpg,.jpeg,.png,.dcm,.docx,.doc,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,video/mp4,video/webm,video/quicktime';
 const ALLOWED_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'dcm', 'docx', 'doc', 'mp4', 'webm', 'mov'];
 const MAX_BYTES = 10 * 1024 * 1024;
+const TOO_BIG = 'File must be 10MB or smaller.';
+const UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, DOCX, DICOM or video.';
+/** Files per batch — each is its own request, so keep a batch reviewable. */
+const MAX_FILES = 20;
+/** Length of medical_documents.custom_type. */
+const CUSTOM_TYPE_MAX = 120;
+/** What Tab can land on inside the upload dialog. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Medical documents (route `/dashboard/documents`) — the patient's record
- * library plus the upload flow (source → type → preview → progress → success).
- * Files are streamed back through an authenticated endpoint, opened in a new tab.
+ * library plus the upload flow (drop or pick files → a type per file → one
+ * request per file, in turn, with progress and retry → success). Files are
+ * streamed back through an authenticated endpoint, opened in a new tab.
  */
 @Component({
   selector: 'pat-documents',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, RouterLink],
+  imports: [FileDropComponent, IconComponent, NgTemplateOutlet, RouterLink],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -64,7 +107,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
           <p class="font-sans text-body text-slate">All your reports, scans, and prescriptions in one place.</p>
         </div>
         @if (hasAny()) {
-          <button type="button" class="flex items-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="startUpload()">
+          <button #headerUpload type="button" class="flex items-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="startUpload()">
             <sd-icon name="upload" [size]="18" />Upload Document
           </button>
         }
@@ -250,123 +293,194 @@ const MAX_BYTES = 10 * 1024 * 1024;
       }
     </div>
 
-    <!-- Hidden file inputs -->
-    <input #fileInputEl type="file" class="hidden" [attr.accept]="accept" (change)="onFilePicked($event)" />
-    <input #cameraInputEl type="file" class="hidden" accept="image/*" capture="environment" (change)="onFilePicked($event)" />
+    <!-- Files a drop or pick turned away (accumulates until dismissed) -->
+    <ng-template #skippedNote>
+      @if (skipped().length > 0) {
+        <div class="flex flex-col gap-2 rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-alert" role="alert">
+          <div class="flex items-start justify-between gap-3">
+            <span class="flex items-start gap-2 font-semibold">
+              <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ skipped().length === 1 ? '1 file wasn’t added' : skipped().length + ' files weren’t added' }}
+            </span>
+            <button type="button" class="shrink-0 transition-colors hover:text-ink" aria-label="Dismiss" (click)="dismissSkipped()"><sd-icon name="x" [size]="18" /></button>
+          </div>
+          <ul class="flex flex-col gap-1 pl-[26px] font-sans text-caption">
+            @for (s of skipped(); track $index) {
+              <li class="wrap-anywhere"><span class="font-semibold">{{ s.name }}</span> — {{ s.reason }}</li>
+            }
+          </ul>
+        </div>
+      }
+    </ng-template>
 
     <!-- Upload modal -->
-    @if (step() !== '') {
+    @if (modalOpen()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="close()"></button>
-        <div class="relative z-10 flex w-full max-w-lg flex-col gap-6 rounded-[16px] bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.16)]">
+        <div
+          #dialog
+          class="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col gap-6 overflow-y-auto rounded-[16px] bg-white p-5 shadow-[0_4px_24px_rgba(10,22,40,0.16)] outline-none sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="doc-upload-title"
+          tabindex="-1"
+          (keydown)="dialogKeydown($event)"
+        >
+          <!-- Batch progress and outcome, announced to screen readers -->
+          <p class="sr-only" aria-live="polite" aria-atomic="true">{{ liveStatus() }}</p>
 
           @switch (step()) {
             @case ('source') {
-              <div class="flex items-start justify-between border-b border-cloud pb-4">
+              <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
                 <div class="flex flex-col gap-1">
-                  <h3 class="font-heading text-h5 text-ink">Upload Document</h3>
-                  <p class="font-sans text-body-sm text-slate">Choose how you want to upload your document</p>
+                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Upload Documents</h3>
+                  <p class="font-sans text-body-sm text-slate">Add one or more files to your medical records</p>
                 </div>
-                <button type="button" class="text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
+                <button type="button" class="shrink-0 text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
               </div>
-              <button type="button" class="flex items-center gap-4 rounded-card border border-cloud p-5 text-left transition-colors hover:border-cerulean" (click)="cameraInput().nativeElement.click()">
-                <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="camera" [size]="22" /></span>
-                <span class="flex flex-col"><span class="font-sans text-body font-semibold text-ink">Take photo</span><span class="font-sans text-body-sm text-slate">Use your camera to capture the document</span></span>
-              </button>
-              <button type="button" class="flex items-center gap-4 rounded-card border border-cloud p-5 text-left transition-colors hover:border-cerulean" (click)="fileInput().nativeElement.click()">
-                <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="folder-open" [size]="22" /></span>
-                <span class="flex flex-col"><span class="font-sans text-body font-semibold text-ink">Choose from file</span><span class="font-sans text-body-sm text-slate">Select from gallery or files</span></span>
-              </button>
+              <sd-file-drop
+                [accept]="accept"
+                [multiple]="true"
+                [maxBytes]="maxBytes"
+                [hint]="'Up to ' + maxFiles + ' files at a time'"
+                (files)="addFiles($event)"
+                (rejected)="onRejected($event)"
+              />
               <div class="rounded-card bg-frost/50 p-4 font-sans text-body-sm text-slate">
-                <p><span class="font-semibold text-ink">Supported Size:</span> Maximum of 10mb</p>
+                <p><span class="font-semibold text-ink">Supported Size:</span> Maximum of 10mb per file</p>
                 <p class="mt-1"><span class="font-semibold text-ink">Supported format:</span> DICOM (.dcm), PDF, JPG, PNG, DOCX, or video</p>
               </div>
-              @if (fileError()) { <p class="font-sans text-caption text-alert">{{ fileError() }}</p> }
+              <ng-container [ngTemplateOutlet]="skippedNote" />
               <div class="flex gap-3">
                 <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="close()">Cancel</button>
               </div>
             }
 
-            @case ('type') {
-              <div class="flex items-start justify-between border-b border-cloud pb-4">
+            @case ('queue') {
+              <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
                 <div class="flex flex-col gap-1">
-                  <h3 class="font-heading text-h5 text-ink">Document Type</h3>
-                  <p class="font-sans text-body-sm text-slate">Select the type of document</p>
+                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Document Type</h3>
+                  <p class="font-sans text-body-sm text-slate">Select the type of each document</p>
                 </div>
-                <button type="button" class="text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
+                <button type="button" class="shrink-0 text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
               </div>
-              <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-3">
-                <span class="flex min-w-0 items-center gap-2"><sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" /><span class="truncate font-sans text-body-sm text-ink">{{ file()?.name }}</span></span>
-                <span class="flex shrink-0 items-center gap-3"><span class="font-sans text-caption text-slate">{{ fileSizeLabel() }}</span><button type="button" class="text-slate hover:text-alert" aria-label="Remove" (click)="clearFile()"><sd-icon name="x" [size]="18" /></button></span>
-              </div>
-              <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-body-sm text-slate">Document Type</span>
-                <div class="relative">
-                  <select class="w-full appearance-none rounded-field border border-cloud bg-white px-4 py-3 pr-10 font-sans text-body-sm text-ink outline-none focus:border-cerulean" [value]="selectedType()" (change)="selectedType.set($any($event.target).value)">
-                    <option value="">Select type</option>
-                    @for (t of types(); track t.value) { <option [value]="t.value">{{ t.label }}</option> }
-                  </select>
-                  <sd-icon name="chevron-down" [size]="18" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate" />
-                </div>
-              </label>
-              @if (typesError()) { <p class="font-sans text-caption text-alert">{{ typesError() }}</p> }
-              @if (selectedType() === 'other') {
-                <label class="flex flex-col gap-1.5">
-                  <span class="font-sans text-body-sm text-slate">Others (Specify)</span>
-                  <input class="rounded-field border border-cloud px-4 py-3 font-sans text-body-sm text-ink outline-none focus:border-cerulean" placeholder="Enter document type" [value]="customType()" (input)="customType.set($any($event.target).value)" />
-                </label>
+              <ul class="flex flex-col gap-3" aria-label="Documents to upload">
+                @for (item of queue(); track item.key) {
+                  <li class="flex flex-col gap-3 rounded-card border border-cloud p-3 sm:p-4">
+                    <div class="flex items-center gap-3">
+                      <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="18" /></span>
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate font-sans text-body-sm font-semibold text-ink" [title]="item.file.name">{{ item.file.name }}</span>
+                        <span class="font-sans text-caption text-slate">{{ sizeLabel(item.file.size) }}</span>
+                      </span>
+                      <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-field text-slate transition-colors hover:text-alert" [attr.aria-label]="'Remove ' + item.file.name" (click)="removeItem(item.key)">
+                        <sd-icon name="trash-2" [size]="18" />
+                      </button>
+                    </div>
+                    <label class="relative block">
+                      <span class="sr-only">Document type for {{ item.file.name }}</span>
+                      <select class="w-full appearance-none rounded-field border border-cloud bg-white px-4 py-3 pr-10 font-sans text-body-sm text-ink outline-none focus:border-cerulean" (change)="setType(item.key, $any($event.target).value)">
+                        <option value="" [selected]="item.type === ''">Select document type</option>
+                        @for (t of types(); track t.value) { <option [value]="t.value" [selected]="t.value === item.type">{{ t.label }}</option> }
+                      </select>
+                      <sd-icon name="chevron-down" [size]="18" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate" />
+                    </label>
+                    @if (item.type === 'other') {
+                      <label class="flex flex-col gap-1.5">
+                        <span class="font-sans text-caption text-slate">Others (Specify)<span class="sr-only"> for {{ item.file.name }}</span></span>
+                        <input
+                          class="rounded-field border border-cloud px-4 py-3 font-sans text-body-sm text-ink outline-none focus:border-cerulean"
+                          placeholder="Enter document type"
+                          [attr.maxlength]="customMax"
+                          [value]="item.custom"
+                          (input)="setCustom(item.key, $any($event.target).value)"
+                        />
+                      </label>
+                    }
+                    @if (canApplyToAll(item)) {
+                      <button type="button" class="flex w-fit items-center gap-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean" (click)="applyToAll(item.key)">
+                        <sd-icon name="copy" [size]="14" />Apply this type to all
+                      </button>
+                    }
+                  </li>
+                }
+              </ul>
+              @if (queue().length < maxFiles) {
+                <sd-file-drop
+                  [compact]="true"
+                  label="Add more files"
+                  [accept]="accept"
+                  [multiple]="true"
+                  [maxBytes]="maxBytes"
+                  (files)="addFiles($event)"
+                  (rejected)="onRejected($event)"
+                />
               }
-              @if (fileError()) { <p class="font-sans text-caption text-alert">{{ fileError() }}</p> }
+              @if (typesError()) { <p class="font-sans text-caption text-alert">{{ typesError() }}</p> }
+              <ng-container [ngTemplateOutlet]="skippedNote" />
+              @if (missingTypes() > 0) {
+                <p class="font-sans text-caption text-slate">
+                  {{ missingTypes() === 1 ? 'Choose a type for 1 more document to continue.' : 'Choose a type for ' + missingTypes() + ' more documents to continue.' }}
+                </p>
+              }
               <div class="flex gap-3">
                 <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="close()">Cancel</button>
-                <button type="button" class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-50" [disabled]="!canContinueType()" (click)="step.set('preview')">Continue</button>
-              </div>
-            }
-
-            @case ('preview') {
-              <div class="flex items-start justify-between border-b border-cloud pb-4">
-                <div class="flex flex-col gap-1">
-                  <h3 class="font-heading text-h5 text-ink">Preview</h3>
-                  <p class="font-sans text-body-sm text-slate">Confirm before upload</p>
-                </div>
-                <button type="button" class="text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
-              </div>
-              <div class="flex items-center gap-4 rounded-card border border-cloud p-5">
-                <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="22" /></span>
-                <span class="flex min-w-0 flex-col">
-                  <span class="truncate font-sans text-body font-semibold text-ink">{{ file()?.name }} <span class="font-normal text-slate">({{ fileSizeLabel() }})</span></span>
-                  <span class="font-sans text-body-sm text-slate">{{ selectedTypeLabel() }}</span>
-                </span>
-              </div>
-              @if (fileError()) { <p class="font-sans text-caption text-alert">{{ fileError() }}</p> }
-              <div class="flex gap-3">
-                <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="step.set('type')">Cancel</button>
-                <button type="button" class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean" (click)="doUpload()">Upload</button>
+                <button type="button" class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-50" [disabled]="!canUpload()" (click)="startBatch()">
+                  Upload {{ queue().length }} {{ queue().length === 1 ? 'file' : 'files' }}
+                </button>
               </div>
             }
 
             @case ('uploading') {
-              <div class="flex items-start justify-between border-b border-cloud pb-4">
-                <div class="flex flex-col gap-1">
-                  <h3 class="font-heading text-h5 text-ink">Uploading</h3>
-                  <p class="font-sans text-body-sm text-slate">It will take a few seconds</p>
-                </div>
+              <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">{{ running() ? 'Uploading' : 'Some uploads failed' }}</h3>
+                <p class="font-sans text-body-sm text-slate">{{ doneItems().length }} of {{ queue().length }} uploaded</p>
               </div>
-              <div class="flex items-center gap-4 rounded-card border border-cloud p-5">
-                <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="22" /></span>
-                <span class="flex min-w-0 flex-col">
-                  <span class="truncate font-sans text-body font-semibold text-ink">{{ file()?.name }} <span class="font-normal text-slate">({{ fileSizeLabel() }})</span></span>
-                  <span class="font-sans text-body-sm text-slate">{{ selectedTypeLabel() }}</span>
-                </span>
-              </div>
-              <div class="h-2 w-full overflow-hidden rounded-full bg-frost">
-                <div class="h-full rounded-full bg-cerulean transition-[width] duration-200" [style.width.%]="progress()"></div>
-              </div>
-              @if (fileError()) {
-                <p class="font-sans text-caption text-alert">{{ fileError() }}</p>
+              <ul class="flex flex-col gap-3" aria-label="Upload progress">
+                @for (item of queue(); track item.key) {
+                  <li class="flex flex-col gap-2 rounded-card border border-cloud p-3 sm:p-4">
+                    <div class="flex items-center gap-3">
+                      <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="18" /></span>
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate font-sans text-body-sm font-semibold text-ink" [title]="item.file.name">{{ item.file.name }}</span>
+                        <span class="truncate font-sans text-caption text-slate">{{ sizeLabel(item.file.size) }} · {{ typeLabel(item) }}</span>
+                      </span>
+                      <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="uploadStatus(item.status).cls">
+                        <sd-icon [name]="uploadStatus(item.status).icon" [size]="12" [class.animate-spin]="item.status === 'uploading'" />{{ item.status === 'uploading' ? item.progress + '%' : uploadStatus(item.status).label }}
+                      </span>
+                    </div>
+                    @if (item.status === 'uploading') {
+                      <div
+                        class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
+                        role="progressbar"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        [attr.aria-valuenow]="item.progress"
+                        [attr.aria-label]="'Uploading ' + item.file.name"
+                      >
+                        <div class="h-full rounded-full bg-cerulean transition-[width] duration-200" [style.width.%]="item.progress"></div>
+                      </div>
+                    }
+                    @if (item.status === 'failed') {
+                      <div class="flex items-start justify-between gap-3">
+                        <p class="flex min-w-0 items-start gap-1.5 font-sans text-caption text-alert">
+                          <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" /><span class="min-w-0 wrap-anywhere">{{ item.error }}</span>
+                        </p>
+                        <button type="button" class="inline-flex shrink-0 items-center gap-1 rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean" [attr.aria-label]="'Retry ' + item.file.name" (click)="retry(item.key)">
+                          <sd-icon name="refresh-cw" [size]="14" />Retry
+                        </button>
+                      </div>
+                    }
+                  </li>
+                }
+              </ul>
+              @if (!running()) {
                 <div class="flex gap-3">
-                  <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="step.set('preview')">Back</button>
-                  <button type="button" class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean" (click)="doUpload()">Retry</button>
+                  <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="finishWithFailures()">
+                    {{ doneItems().length > 0 ? 'Done' : 'Close' }}
+                  </button>
+                  <button type="button" class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean" (click)="retryFailed()">
+                    {{ failedCount() === 1 ? 'Retry' : 'Retry all' }}
+                  </button>
                 </div>
               }
             }
@@ -375,18 +489,31 @@ const MAX_BYTES = 10 * 1024 * 1024;
               <div class="flex flex-col items-center gap-4 py-4 text-center">
                 <span class="flex size-16 items-center justify-center rounded-full bg-sage text-white"><sd-icon name="check" [size]="34" /></span>
                 <div class="flex flex-col gap-1">
-                  <h3 class="font-heading text-h4 text-ink">Document uploaded</h3>
-                  <p class="font-sans text-body text-slate">Your document has been successfully added to your medical records.</p>
+                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h4 text-ink outline-none">{{ uploadedSummary() }}</h3>
+                  <p class="font-sans text-body text-slate">{{ doneItems().length === 1 ? 'Your document has' : 'Your documents have' }} been successfully added to your medical records.</p>
                 </div>
-                <div class="flex w-full items-center gap-4 rounded-card border border-cloud p-4 text-left">
-                  <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="20" /></span>
-                  <span class="flex min-w-0 flex-col">
-                    <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ uploaded()?.title }} <span class="font-normal text-slate">({{ uploaded()?.extension }}. {{ uploaded()?.size_label }})</span></span>
-                    <span class="font-sans text-body-sm text-slate">{{ uploaded()?.type_label }}</span>
-                  </span>
-                </div>
+                @if (failedCount() > 0) {
+                  <p class="flex w-full items-start gap-2 rounded-field bg-warning/10 px-4 py-3 text-left font-sans text-body-sm text-warning">
+                    <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />
+                    <span>{{ failedCount() === 1 ? '1 document wasn’t uploaded.' : failedCount() + ' documents weren’t uploaded.' }} You can try again with Upload Document.</span>
+                  </p>
+                }
+                <ul class="flex w-full flex-col gap-2 text-left">
+                  @for (item of doneItems(); track item.key) {
+                    <li class="flex items-center gap-4 rounded-card border border-cloud p-4">
+                      <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="20" /></span>
+                      <span class="flex min-w-0 flex-col">
+                        <span class="truncate font-sans text-body-sm font-semibold text-ink">
+                          {{ item.result?.title || item.file.name }}
+                          <span class="font-normal text-slate">({{ item.result ? item.result.extension + '. ' + item.result.size_label : sizeLabel(item.file.size) }})</span>
+                        </span>
+                        <span class="font-sans text-body-sm text-slate">{{ item.result?.type_label || typeLabel(item) }}</span>
+                      </span>
+                    </li>
+                  }
+                </ul>
                 <button type="button" class="w-full rounded-field bg-cerulean py-3.5 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean" (click)="close()">View Medical records</button>
-                <button type="button" class="font-sans text-body font-semibold text-cerulean transition-colors hover:text-ocean" (click)="startUpload()">Upload another</button>
+                <button type="button" class="font-sans text-body font-semibold text-cerulean transition-colors hover:text-ocean" (click)="startUpload()">Upload more</button>
               </div>
             }
           }
@@ -399,8 +526,20 @@ export class PatientDocuments implements OnInit {
   private readonly api = inject(DocumentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  private readonly dialog = viewChild<ElementRef<HTMLElement>>('dialog');
+  /** The current step's heading (one per step; it names the dialog). */
+  private readonly stepTitle = viewChild<ElementRef<HTMLElement>>('stepTitle');
+  /** The page-header Upload button — focus goes here when the empty-state opener is gone. */
+  private readonly headerUpload = viewChild<ElementRef<HTMLElement>>('headerUpload');
+  /** What had focus before the modal opened — it gets focus back on close. */
+  private opener: HTMLElement | null = null;
 
   protected readonly accept = ACCEPT;
+  protected readonly maxBytes = MAX_BYTES;
+  protected readonly maxFiles = MAX_FILES;
+  protected readonly customMax = CUSTOM_TYPE_MAX;
 
   // Prescriptions preview (newest first, from GET /api/portal/prescriptions)
   protected readonly prescriptions = signal<PrescriptionSummaryDto[]>([]);
@@ -412,8 +551,6 @@ export class PatientDocuments implements OnInit {
   protected readonly rxError = signal('');
   /** Id of the prescription whose PDF link is being fetched. */
   protected readonly openingRx = signal('');
-  protected readonly fileInput = viewChild.required<ElementRef<HTMLInputElement>>('fileInputEl');
-  protected readonly cameraInput = viewChild.required<ElementRef<HTMLInputElement>>('cameraInputEl');
 
   // List state
   protected readonly docs = signal<MedicalDocumentDto[]>([]);
@@ -434,12 +571,74 @@ export class PatientDocuments implements OnInit {
 
   // Upload modal state
   protected readonly step = signal<Step>('');
-  protected readonly file = signal<File | null>(null);
-  protected readonly selectedType = signal('');
-  protected readonly customType = signal('');
-  protected readonly fileError = signal('');
-  protected readonly progress = signal(0);
-  protected readonly uploaded = signal<MedicalDocumentDto | null>(null);
+  protected readonly modalOpen = computed(() => this.step() !== '');
+  protected readonly queue = signal<QueueItem[]>([]);
+  protected readonly skipped = signal<SkippedFile[]>([]);
+  /** A file is on the wire — the modal can't be closed mid-request. */
+  protected readonly busy = computed(() => this.queue().some((i) => i.status === 'uploading'));
+  /** The batch still has work to do (uploading now, or waiting its turn). */
+  protected readonly running = computed(() =>
+    this.queue().some((i) => i.status === 'uploading' || i.status === 'queued'),
+  );
+  protected readonly doneItems = computed(() => this.queue().filter((i) => i.status === 'done'));
+  protected readonly failedCount = computed(
+    () => this.queue().filter((i) => i.status === 'failed').length,
+  );
+  /** Files still waiting for a type (or for the "Others" name). */
+  protected readonly missingTypes = computed(
+    () => this.queue().filter((i) => !this.typeReady(i)).length,
+  );
+  protected readonly canUpload = computed(
+    () => this.queue().length > 0 && this.missingTypes() === 0,
+  );
+  protected readonly uploadedSummary = computed(() => {
+    const n = this.doneItems().length;
+    return n === 1 ? 'Document uploaded' : `${n} documents uploaded`;
+  });
+  /** What the aria-live region says — per file, not per progress tick. */
+  protected readonly liveStatus = computed(() => {
+    const list = this.queue();
+    const failed = this.failedCount();
+    const failedNote = failed > 0 ? ` ${failed} failed.` : '';
+    if (this.step() === 'uploading') {
+      const at = list.findIndex((i) => i.status === 'uploading');
+      if (at >= 0) return `Uploading ${list[at].file.name}, ${at + 1} of ${list.length}.${failedNote}`;
+      if (!this.running()) return `${this.doneItems().length} of ${list.length} uploaded.${failedNote}`;
+    }
+    if (this.step() === 'success') return `${this.uploadedSummary()}.${failedNote}`;
+    return '';
+  });
+  private nextKey = 1;
+  /** Something was uploaded since the list was last loaded. */
+  private needsReload = false;
+
+  constructor() {
+    // While the modal is open, a file dropped anywhere outside a drop zone
+    // must not make the browser navigate away to open it. The zones cancel
+    // their own events first, so anything still uncancelled here is a miss.
+    effect((onCleanup) => {
+      const win = this.document.defaultView;
+      if (!this.modalOpen() || !win) return;
+      const guard = (e: DragEvent): void => {
+        if (e.defaultPrevented || !Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+      };
+      win.addEventListener('dragover', guard);
+      win.addEventListener('drop', guard);
+      onCleanup(() => {
+        win.removeEventListener('dragover', guard);
+        win.removeEventListener('drop', guard);
+      });
+    });
+
+    // Every step swaps out the dialog's content, destroying whatever had focus
+    // (often the very button that was used). Opening the modal, and each step
+    // change, puts focus on the new step's heading so it stays in the dialog.
+    effect(() => {
+      if (this.step() !== '') this.keepFocusInDialog(true);
+    });
+  }
 
   ngOnInit(): void {
     this.api.types().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -562,97 +761,254 @@ export class PatientDocuments implements OnInit {
 
   // ----- Upload flow -----
   protected startUpload(): void {
-    this.file.set(null);
-    this.selectedType.set('');
-    this.customType.set('');
-    this.fileError.set('');
-    this.progress.set(0);
+    // "Upload more" restarts from inside the modal: keep the original opener.
+    if (!this.modalOpen()) {
+      const active = this.document.activeElement;
+      this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
+    }
+    this.queue.set([]);
+    this.skipped.set([]);
     this.step.set('source');
   }
 
   protected close(): void {
-    const wasSuccess = this.step() === 'success';
+    if (this.busy()) return; // let the file on the wire finish first
     this.step.set('');
-    this.fileError.set('');
-    if (wasSuccess) {
+    this.queue.set([]);
+    this.skipped.set([]);
+    if (this.needsReload) {
+      this.needsReload = false;
       this.page = 1;
       this.reload();
     }
+    const back = this.opener;
+    this.opener = null;
+    if (back) {
+      afterNextRender(() => {
+        // A first upload removes the empty-state button that opened the modal.
+        if (back.isConnected) back.focus();
+        else this.headerUpload()?.nativeElement.focus();
+      }, { injector: this.injector });
+    }
   }
 
-  protected onFilePicked(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const picked = input.files?.[0] ?? null;
-    input.value = ''; // allow re-picking the same file
-    if (!picked) return;
-    const err = this.validate(picked);
-    if (err) {
-      this.fileError.set(err);
+  /**
+   * After the next render, if the control that had focus was destroyed (focus
+   * fell back to <body>) or focus is otherwise outside the dialog, move it to
+   * the current step's heading. Called whenever an action removes the button
+   * that triggered it — the dialog is aria-modal, so focus must not escape.
+   * `always` (a new step) moves focus to the heading regardless.
+   */
+  private keepFocusInDialog(always = false): void {
+    afterNextRender(() => {
+      const root = this.dialog()?.nativeElement;
+      if (!root || (!always && root.contains(this.document.activeElement))) return;
+      (this.stepTitle()?.nativeElement ?? root).focus();
+    }, { injector: this.injector });
+  }
+
+  /** Tab and Shift+Tab wrap around inside the dialog instead of leaving it. */
+  protected dialogKeydown(e: KeyboardEvent): void {
+    if (e.key !== 'Tab') return;
+    const root = this.dialog()?.nativeElement;
+    if (!root) return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (el) => el.offsetParent !== null,
+    );
+    // Nothing to tab to (e.g. mid-upload): keep focus inside the dialog.
+    if (items.length === 0) {
+      e.preventDefault();
       return;
     }
-    this.fileError.set('');
-    this.file.set(picked);
-    this.step.set('type');
+    // -1: the heading or the dialog itself has focus (both sit before every control).
+    const at = items.indexOf(this.document.activeElement as HTMLElement);
+    if (e.shiftKey && at <= 0) {
+      e.preventDefault();
+      items[items.length - 1].focus();
+    } else if (!e.shiftKey && at === items.length - 1) {
+      e.preventDefault();
+      items[0].focus();
+    }
+  }
+
+  protected dismissSkipped(): void {
+    this.skipped.set([]);
+    this.keepFocusInDialog();
+  }
+
+  /** Queue what a drop or pick produced, turning away what we can't take. */
+  protected addFiles(files: File[]): void {
+    const current = this.queue();
+    const added: QueueItem[] = [];
+    const skipped: SkippedFile[] = [];
+    for (const file of files) {
+      const err = this.validate(file);
+      const dup = [...current, ...added].some(
+        (i) =>
+          i.file.name === file.name &&
+          i.file.size === file.size &&
+          i.file.lastModified === file.lastModified,
+      );
+      if (err) skipped.push({ name: file.name, reason: err });
+      else if (dup) skipped.push({ name: file.name, reason: 'Already in the list.' });
+      else if (current.length + added.length >= MAX_FILES) {
+        skipped.push({ name: file.name, reason: `You can upload up to ${MAX_FILES} files at a time.` });
+      } else {
+        added.push({ key: this.nextKey++, file, type: '', custom: '', status: 'queued', progress: 0, error: '', result: null });
+      }
+    }
+    if (added.length > 0) this.queue.set([...current, ...added]);
+    this.skip(skipped);
+    if (this.step() === 'source' && this.queue().length > 0) this.step.set('queue');
+    // A full batch hides the "Add more files" zone that was just used.
+    else if (this.queue().length >= MAX_FILES) this.keepFocusInDialog();
+  }
+
+  /** Files the drop zone already turned away on type or size. */
+  protected onRejected(rejections: FileDropRejection[]): void {
+    this.skip(
+      rejections.map((r) => ({ name: r.file.name, reason: r.reason === 'size' ? TOO_BIG : UNSUPPORTED })),
+    );
+  }
+
+  private skip(list: SkippedFile[]): void {
+    if (list.length === 0) return;
+    this.skipped.update((prev) => [
+      ...prev.filter((p) => !list.some((s) => s.name === p.name && s.reason === p.reason)),
+      ...list,
+    ]);
   }
 
   private validate(f: File): string | null {
-    if (f.size > MAX_BYTES) return 'File must be 10MB or smaller.';
+    if (f.size > MAX_BYTES) return TOO_BIG;
     const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
-    if (!ALLOWED_EXT.includes(ext)) return 'Unsupported file type. Use PDF, JPG, PNG, DOCX, DICOM or video.';
+    if (!ALLOWED_EXT.includes(ext)) return UNSUPPORTED;
+    if (f.size === 0) return 'This file is empty.';
     return null;
   }
 
-  protected clearFile(): void {
-    this.file.set(null);
-    this.step.set('source');
+  protected removeItem(key: number): void {
+    this.queue.update((list) => list.filter((i) => i.key !== key));
+    if (this.queue().length === 0) this.step.set('source');
+    else this.keepFocusInDialog(); // the Remove button went with its row
   }
 
-  protected canContinueType(): boolean {
-    if (!this.file() || this.selectedType() === '') return false;
-    if (this.selectedType() === 'other' && this.customType().trim() === '') return false;
-    return true;
+  protected setType(key: number, type: string): void {
+    this.patch(key, { type });
   }
 
-  protected doUpload(): void {
-    const f = this.file();
-    if (!f) return;
-    this.fileError.set('');
-    this.progress.set(0);
+  protected setCustom(key: number, custom: string): void {
+    this.patch(key, { custom });
+  }
+
+  /** Copy one file's type (and its "Others" name) onto every file in the batch. */
+  protected applyToAll(key: number): void {
+    const from = this.queue().find((i) => i.key === key);
+    if (!from) return;
+    this.queue.update((list) => list.map((i): QueueItem => ({ ...i, type: from.type, custom: from.custom })));
+    this.keepFocusInDialog(); // every row now matches, so the link is gone
+  }
+
+  /** Offered on a file that has a type, while some other file differs. */
+  protected canApplyToAll(item: QueueItem): boolean {
+    const list = this.queue();
+    return (
+      list.length > 1 &&
+      this.typeReady(item) &&
+      list.some(
+        (o) => o.type !== item.type || (item.type === 'other' && o.custom.trim() !== item.custom.trim()),
+      )
+    );
+  }
+
+  private typeReady(i: QueueItem): boolean {
+    return i.type !== '' && (i.type !== 'other' || i.custom.trim() !== '');
+  }
+
+  protected startBatch(): void {
+    if (!this.canUpload()) return;
+    this.skipped.set([]);
     this.step.set('uploading');
+    this.uploadNext();
+  }
+
+  /**
+   * Upload the next waiting file. The API takes one file per request, so the
+   * batch goes one at a time — each with its own progress and outcome — and a
+   * failure never stops the rest.
+   */
+  private uploadNext(): void {
+    if (this.busy()) return;
+    const next = this.queue().find((i) => i.status === 'queued');
+    if (!next) {
+      // All settled: straight to the summary unless something needs a retry.
+      if (this.failedCount() === 0) this.step.set('success');
+      return;
+    }
+    this.patch(next.key, { status: 'uploading', progress: 0, error: '' });
 
     this.api
-      .upload(f, this.selectedType(), this.selectedType() === 'other' ? this.customType().trim() : undefined)
+      .upload(next.file, next.type, next.type === 'other' ? next.custom.trim() : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (event) => {
           if (event.type === HttpEventType.UploadProgress && event.total) {
-            this.progress.set(Math.round((event.loaded / event.total) * 100));
+            this.patch(next.key, { progress: Math.round((event.loaded / event.total) * 100) });
           } else if (event.type === HttpEventType.Response) {
             const doc = event.body?.data ?? null;
-            this.progress.set(100);
-            this.uploaded.set(doc);
+            this.patch(next.key, { status: 'done', progress: 100, result: doc });
             if (doc) this.docs.update((list) => [doc, ...list]);
             this.hasAny.set(true);
-            this.step.set('success');
+            this.needsReload = true;
+            this.uploadNext();
           }
         },
-        error: (err) => {
-          this.fileError.set(apiErrorMessage(err, 'Upload failed. Please try again.'));
+        error: (err: unknown) => {
+          this.patch(next.key, {
+            status: 'failed',
+            error: apiErrorMessage(err, 'Upload failed. Please try again.'),
+          });
+          this.uploadNext();
         },
       });
   }
 
-  // ----- Display helpers -----
-  protected fileSizeLabel(): string {
-    const f = this.file();
-    if (!f) return '';
-    return f.size >= 1024 * 1024
-      ? `${(f.size / (1024 * 1024)).toFixed(f.size >= 10 * 1024 * 1024 ? 0 : 1).replace(/\.0$/, '')}mb`
-      : `${Math.round(f.size / 1024)}kb`;
+  protected retry(key: number): void {
+    this.patch(key, { status: 'queued', progress: 0, error: '' });
+    this.uploadNext();
+    this.keepFocusInDialog(); // the row's Retry button is gone
   }
-  protected selectedTypeLabel(): string {
-    if (this.selectedType() === 'other') return this.customType().trim() || 'Other';
-    return this.types().find((t) => t.value === this.selectedType())?.label ?? '';
+
+  protected retryFailed(): void {
+    this.queue.update((list) =>
+      list.map((i): QueueItem => (i.status === 'failed' ? { ...i, status: 'queued', progress: 0, error: '' } : i)),
+    );
+    this.uploadNext();
+    this.keepFocusInDialog(); // the footer hides while the batch runs
+  }
+
+  /** Leave the failed files behind: show what did upload, or just close. */
+  protected finishWithFailures(): void {
+    if (this.doneItems().length > 0) this.step.set('success');
+    else this.close();
+  }
+
+  private patch(key: number, changes: Partial<QueueItem>): void {
+    this.queue.update((list) => list.map((i) => (i.key === key ? { ...i, ...changes } : i)));
+  }
+
+  // ----- Display helpers -----
+  protected sizeLabel(bytes: number): string {
+    return bytes >= 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1).replace(/\.0$/, '')}mb`
+      : `${Math.max(1, Math.round(bytes / 1024))}kb`;
+  }
+  protected typeLabel(item: QueueItem): string {
+    if (item.type === 'other') return item.custom.trim() || 'Other';
+    return this.types().find((t) => t.value === item.type)?.label ?? '';
+  }
+  protected uploadStatus(status: UploadStatus): { label: string; icon: string; cls: string } {
+    return UPLOAD_STATUS[status];
   }
   protected badgeLabel(role: string): string {
     return role === 'patient' ? 'Patient-upload' : role === 'doctor' ? 'Doctor-uploaded' : 'Staff-uploaded';

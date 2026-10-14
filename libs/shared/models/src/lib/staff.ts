@@ -1,11 +1,13 @@
 import type {
   AppointmentDto,
   CertificationEntry,
+  DoctorLoginStateDto,
   MedicalDto,
   QualificationEntry,
   RecordingDto,
   SpecialistAdminDto,
   SpecialistDto,
+  SpecialistStatus,
 } from './appointment-api';
 
 /** Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end] "HH:MM". */
@@ -21,6 +23,11 @@ export interface StaffUserDto {
   permissions: string[];
   active: boolean;
   specialist_id: string | null;
+  /** False for an invited login that hasn't chosen a password yet. */
+  password_set?: boolean;
+  /** An invite email is out and its set-password link still works. */
+  invite_pending?: boolean;
+  invite_expires_at?: string | null;
   created_at: string;
 }
 
@@ -31,6 +38,48 @@ export interface StaffLoginData {
   token_type?: string;
   expires_in?: number;
   user: StaffUserDto;
+}
+
+// ----- Doctor onboarding -----
+
+/** One item of the doctor's onboarding checklist. */
+export type OnboardingItemKey =
+  | 'photo'
+  | 'bio'
+  | 'qualifications'
+  | 'mdcn'
+  | 'signature'
+  | 'availability'
+  | 'payout';
+
+/** GET /api/doctor/onboarding — checklist + review status. */
+export interface DoctorOnboardingDto {
+  status: SpecialistStatus;
+  status_label: string;
+  /** Why the last review sent the profile back (when rejected). */
+  rejection_reason: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  checklist: Record<OnboardingItemKey, boolean>;
+  completed: number;
+  total: number;
+  /** Every item done — "Submit for review" is allowed. */
+  complete: boolean;
+}
+
+/** GET /api/specialists/{id}/onboarding — the back-office review panel. */
+export interface SpecialistOnboardingReviewDto extends DoctorOnboardingDto {
+  profile: DoctorProfileDto;
+  login: DoctorLoginStateDto | null;
+}
+
+/** POST /api/specialists/{id}/invite (and staff invites) — what was sent. */
+export interface DoctorInviteResultDto {
+  email_sent: boolean;
+  expires_at: string;
+  /** Non-production only: the set-password link, for testing without mail. */
+  dev_link?: string;
+  login?: DoctorLoginStateDto | null;
 }
 
 /** Slim patient result from the staff `GET /api/patients` search. */

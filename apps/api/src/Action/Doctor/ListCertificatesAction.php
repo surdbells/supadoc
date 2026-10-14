@@ -8,6 +8,7 @@ use App\Domain\Entity\MedicalCertificate;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ScheduleRules;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -15,6 +16,7 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /api/doctor/appointments/{id}/certificates — medical certificates issued
  * for this consultation. The signed-in doctor must own the appointment.
+ * `meta.earliest_from_date` is the earliest sick-leave start the POST accepts.
  */
 final class ListCertificatesAction
 {
@@ -44,6 +46,13 @@ final class ListCertificatesAction
             $this->certificates->forAppointment($id),
         );
 
-        return $this->success($response, $items);
+        // `meta` carries the leave-start floor on the clinic calendar, so the
+        // form's picker matches what the POST accepts (the POST still decides).
+        return $this->json($response, [
+            'status'  => 'success',
+            'message' => 'OK',
+            'data'    => $items,
+            'meta'    => ScheduleRules::certificateWindow(),
+        ]);
     }
 }

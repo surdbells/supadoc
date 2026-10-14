@@ -4,6 +4,7 @@
  * envelope. Distinct from the richer domain types in `appointment.ts`, which
  * predate the real API.
  */
+import type { VitalReadingDto } from './vitals';
 
 export type ApiAppointmentStatus =
   | 'pending'
@@ -175,7 +176,40 @@ export interface CreateSpecialistParams {
  * A specialist as returned by the staff edit endpoint — the base fields plus the
  * normally server-side `email`, echoed back so the operator can confirm the save.
  */
-export type SpecialistAdminDto = SpecialistDto & { email: string | null };
+export type SpecialistAdminDto = SpecialistDto & {
+  email: string | null;
+  /** Back office only: where the doctor is in onboarding (absent on older payloads). */
+  status?: SpecialistStatus;
+  status_label?: string;
+  rejection_reason?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  /** The doctor login linked to this specialist, or null when not invited yet. */
+  login?: DoctorLoginStateDto | null;
+};
+
+/**
+ * Doctor onboarding status: invited (setting up) → pending_review → approved, or
+ * rejected (sent back with a reason) / suspended. A legacy doctor reads as approved.
+ */
+export type SpecialistStatus =
+  | 'invited'
+  | 'pending_review'
+  | 'approved'
+  | 'rejected'
+  | 'suspended';
+
+/** A specialist's doctor-login state, as the back office sees it. */
+export interface DoctorLoginStateDto {
+  id: string;
+  email: string;
+  active: boolean;
+  /** False until the doctor chooses a password from their invite link. */
+  password_set: boolean;
+  /** An invite email is out and its link still works. */
+  invite_pending: boolean;
+  invite_expires_at: string | null;
+}
 
 /** Filter options for the directory (GET /public/facets). */
 export interface SpecialistFacets {
@@ -252,6 +286,8 @@ export interface JoinPatientSummary {
   conditions: ConditionRow[];
   medications: MedicationRow[];
   history: MedicalHistoryRow[];
+  /** Latest reading of each type (who recorded it, whether it is out of date). */
+  vitals?: VitalReadingDto[];
 }
 
 /**
@@ -487,6 +523,14 @@ export interface MedicalCertificateDto {
   days: number | null;
   author: string | null;
   created_at: string;
+}
+
+/**
+ * The doctor's certificates list. `meta` is the sick-leave backdate floor on the
+ * clinic calendar (absent from an older API) — a picker hint; the POST decides.
+ */
+export interface CertificatesListResponse extends SuccessResponse<MedicalCertificateDto[]> {
+  meta?: { earliest_from_date: string; backdate_days: number };
 }
 
 /** Body for issuing a medical certificate. */

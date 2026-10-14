@@ -394,6 +394,116 @@ final class EmailTemplates
         ];
     }
 
+    /**
+     * Invite a doctor to the portal: a one-time link to choose their password,
+     * then they finish their profile and submit it for review.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorInvite(string $doctorName, string $link, int $validDays): array
+    {
+        $body = self::heading("You're invited to VideoMed")
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', you have been invited to join VideoMed as a doctor. Choose your password to sign in, '
+                . 'then complete your profile — photo, bio, qualifications, MDCN number, signature, availability '
+                . 'and payout account — and submit it for review. Patients can book you once it is approved.')
+            . self::button('Set your password', $link)
+            . self::note('This link works once and expires in ' . $validDays . ' day' . ($validDays === 1 ? '' : 's')
+                . ". If you weren't expecting this invitation, you can safely ignore this email.");
+
+        return [
+            'subject' => "You're invited to join VideoMed",
+            'html'    => self::layout('Doctor invitation', 'Set your password to get started on VideoMed.', $body),
+        ];
+    }
+
+    /**
+     * A staff (doctor) password reset link, sent on request.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function staffPasswordReset(string $firstName, string $link, int $validMinutes): array
+    {
+        $body = self::heading('Reset your password')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there')
+                . ', we received a request to reset the password for your VideoMed account. '
+                . 'Use the button below to choose a new one.')
+            . self::button('Choose a new password', $link)
+            . self::note('This link works once and expires in ' . $validMinutes . ' minutes. '
+                . "If you didn't ask to reset your password, you can ignore this email — your password won't change.");
+
+        return [
+            'subject' => 'Reset your VideoMed password',
+            'html'    => self::layout('Password reset', 'Choose a new password for your VideoMed account.', $body),
+        ];
+    }
+
+    /**
+     * The doctor's profile passed review — they are now listed and bookable.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorApproved(string $doctorName, string $webUrl): array
+    {
+        $body = self::heading('Your profile is approved')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', good news — your VideoMed profile has been approved. You now appear in the doctor directory '
+                . 'and patients can book consultations in the times you have made available.')
+            . self::button('Open your dashboard', $webUrl . '/dashboard')
+            . self::note('Keep your availability up to date so patients can always find a time that works.');
+
+        return [
+            'subject' => 'Your VideoMed profile is approved',
+            'html'    => self::layout('Profile approved', 'Your VideoMed doctor profile is approved.', $body),
+        ];
+    }
+
+    /**
+     * The review sent the doctor's profile back, with what to change.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorRejected(string $doctorName, string $reason, string $webUrl): array
+    {
+        $body = self::heading('Your profile needs a few changes')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', thank you for submitting your VideoMed profile. Our team reviewed it and needs a few changes '
+                . 'before it can be approved.')
+            . self::infoCard(['What to update' => $reason])
+            . self::button('Update your profile', $webUrl . '/onboarding')
+            . self::note('Once you have made the changes, submit your profile for review again from the onboarding page.');
+
+        return [
+            'subject' => 'Your VideoMed profile needs a few changes',
+            'html'    => self::layout('Profile review', 'Your VideoMed profile needs a few changes.', $body),
+        ];
+    }
+
+    /**
+     * To the reviewers (`specialists.manage`): a doctor submitted their profile.
+     * Only the doctor's name — the profile itself is reviewed in the back office.
+     * Without a back-office URL there is no button, just where to look.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorReadyForReview(string $doctorName, string $backofficeUrl): array
+    {
+        $name = trim($doctorName) !== '' ? trim($doctorName) : 'A doctor';
+        $url  = rtrim(trim($backofficeUrl), '/');
+
+        $body = self::heading('A doctor is ready for review')
+            . self::lead(self::e($name) . ' has completed their VideoMed profile and submitted it for review. '
+                . 'Check it in the back office, then approve them or send the profile back with what to change.')
+            . ($url !== '' ? self::button('Review in the back office', $url . '/specialists?filter=review') : '')
+            . self::note(($url !== '' ? '' : 'Open the back office, go to Specialists and choose "Needs review". ')
+                . 'They are not listed or bookable until approved.');
+
+        return [
+            'subject' => 'Doctor ready for review: ' . $name,
+            'html'    => self::layout('Doctor ready for review', $name . ' submitted their profile for review.', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body): string

@@ -68,6 +68,21 @@ final class AuthService
             throw new AuthenticationException('Invalid email or password');
         }
 
+        return $this->issueStaffTokens($user, $userAgent, $ip);
+    }
+
+    /**
+     * Start a staff session for an already-proven user (password sign-in, or a
+     * one-time invite / reset link). A deactivated account never gets one.
+     *
+     * @return array{access_token:string, refresh_token:string, user:array}
+     */
+    public function issueStaffTokens(\App\Domain\Entity\User $user, string $userAgent = '', string $ip = ''): array
+    {
+        if (!$user->isActive()) {
+            throw new AuthenticationException('This account has been deactivated. Please contact your administrator.');
+        }
+
         $this->rememberStaffSite($user);
 
         // A revocable, time-boxed server session; its id becomes the token jti.
@@ -287,6 +302,11 @@ final class AuthService
             $user = $this->users->find($payload->sub);
             if ($user === null) {
                 throw new AuthenticationException('Account no longer exists');
+            }
+            // A deactivated account loses its session at the next refresh.
+            if (!$user->isActive()) {
+                $this->sessions->revokeById((string) $jti);
+                throw new AuthenticationException('This account has been deactivated. Please contact your administrator.');
             }
             $this->rememberStaffSite($user);
             $access = $this->jwt->issueAccessToken(

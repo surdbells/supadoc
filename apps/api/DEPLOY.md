@@ -351,6 +351,7 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
    STAFF_WEB_URL=https://doctor.dosthq.com          # the DOCTOR portal: links in doctor/staff emails
    PATIENT_WEB_URLS=https://patient.dosthq.com,https://patient.betacrest.com   # every patient site (first = default)
    STAFF_WEB_URLS=https://doctor.dosthq.com,https://doctor.betacrest.com       # every doctor site, same order
+   BACKOFFICE_WEB_URL=https://backoffice.dosthq.com # optional: link in the "doctor ready for review" email (else the backoffice.* CORS origin)
    CLINIC_NAME / CLINIC_TAGLINE / CLINIC_CONTACT    # branding printed on the PDF
    ```
 

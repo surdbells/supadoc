@@ -86,6 +86,11 @@ return static function (App $app): void {
         $group->post('/portal/auth/phone/login', Action\Auth\LoginByPhoneAction::class);
         $group->post('/auth/refresh', Action\Auth\RefreshAction::class);
         $group->post('/auth/logout', Action\Auth\LogoutAction::class);   // staff + customer
+        // Staff one-time set-password links: an invited doctor's first password,
+        // and forgot / reset password. The emailed token IS the credential.
+        $group->post('/auth/staff/accept-invite', Action\Auth\AcceptStaffInviteAction::class);
+        $group->post('/auth/staff/forgot-password', Action\Auth\StaffForgotPasswordAction::class);
+        $group->post('/auth/staff/reset-password', Action\Auth\StaffResetPasswordAction::class);
 
         // ----- Public marketing data (no auth) -----
         $group->get('/public/specialties', Action\Public\PublicSpecialtiesAction::class);
@@ -158,9 +163,21 @@ return static function (App $app): void {
             // Back-office: list + create + edit specialists (incl. their contact email).
             $group->get('/specialists', Action\Specialist\ListSpecialistsAdminAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
+            // The "Needs review" count for the back-office nav badge.
+            $group->get('/specialists/review-queue', Action\Specialist\GetSpecialistReviewQueueAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
             $group->post('/specialists', Action\Specialist\CreateSpecialistAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
             $group->patch('/specialists/{id}', Action\Specialist\UpdateSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            // Doctor onboarding: invite (or resend), review checklist, approve / reject.
+            $group->post('/specialists/{id}/invite', Action\Specialist\InviteSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/onboarding', Action\Specialist\GetSpecialistOnboardingAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/approve', Action\Specialist\ApproveSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/reject', Action\Specialist\RejectSpecialistAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
 
             // Minimal doctor portal — a doctor login (role 'doctor') sees only
@@ -177,6 +194,9 @@ return static function (App $app): void {
             $group->get('/doctor/reviews', Action\Doctor\DoctorReviewsAction::class);
             $group->get('/doctor/reviews/summary', Action\Doctor\DoctorReviewsSummaryAction::class);
             $group->post('/doctor/reviews/{id}/respond', Action\Doctor\RespondToReviewAction::class);
+            // First-login onboarding checklist + "Submit for review".
+            $group->get('/doctor/onboarding', Action\Doctor\GetDoctorOnboardingAction::class);
+            $group->post('/doctor/onboarding/submit', Action\Doctor\SubmitDoctorOnboardingAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
             $group->post('/doctor/avatar', Action\Doctor\UploadDoctorAvatarAction::class);
@@ -315,6 +335,10 @@ return static function (App $app): void {
             $group->patch('/me/settings', Action\Patient\UpdateMySettingsAction::class);
             $group->get('/me/health-profile', Action\Patient\MyHealthProfileAction::class);
             $group->patch('/me/health-profile', Action\Patient\UpdateMyHealthProfileAction::class);
+            // Vitals — latest readings + reminder, the patient's own readings, history.
+            $group->get('/me/vitals', Action\Patient\MyVitalsAction::class);
+            $group->post('/me/vitals', Action\Patient\RecordMyVitalsAction::class);
+            $group->get('/me/vitals/history', Action\Patient\MyVitalsHistoryAction::class);
             $group->get('/me/sessions', Action\Patient\MySessionsAction::class);
             $group->delete('/me/sessions/{id}', Action\Patient\RevokeSessionAction::class);
             $group->post('/me/verify-phone', Action\Patient\VerifyMyPhoneAction::class);

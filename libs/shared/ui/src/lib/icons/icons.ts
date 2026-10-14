@@ -123,6 +123,8 @@ import {
   LucideBadgeAlert,
   LucideSearchCheck,
   LucideListChecks,
+  LucideWind,
+  LucideRuler,
 } from '@lucide/angular';
 
 /**
@@ -256,6 +258,9 @@ export const SUPADOC_ICONS = [
   LucideBadgeAlert,
   LucideSearchCheck,
   LucideListChecks,
+  // Vitals (breathing rate, height).
+  LucideWind,
+  LucideRuler,
 ];
 
 /**

@@ -106,7 +106,8 @@ final class CreateMyAppointmentAction
         // findOrFail throws → 404 if the specialist id is unknown.
         $specialist = $this->specialists->findOrFail($specialistId);
 
-        if (!$specialist->isAvailable()) {
+        // Only an approved doctor who is switched on for bookings can be booked.
+        if (!$specialist->isBookable()) {
             return $this->error($response, 'Validation failed', 422, [
                 'specialist_id' => 'This specialist is not currently available',
             ]);

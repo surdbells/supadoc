@@ -88,9 +88,12 @@ final class CreateAppointmentAction
         $patient    = $this->patients->findOrFail($patientId);
         $specialist = $this->specialists->findOrFail($specialistId);
 
-        if (!$specialist->isAvailable()) {
+        // Only an approved doctor who is switched on for bookings can be booked.
+        if (!$specialist->isBookable()) {
             return $this->error($response, 'Validation failed', 422, [
-                'specialist_id' => 'This specialist is not currently available',
+                'specialist_id' => $specialist->isApproved()
+                    ? 'This specialist is not currently available'
+                    : "This doctor's profile hasn't been approved yet",
             ]);
         }
         if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {

@@ -52,6 +52,18 @@ const FIELD =
         </button>
       </header>
 
+      @if (pageNotice()) {
+        <div class="flex items-start gap-3 rounded-field bg-sage/10 px-4 py-3 font-sans text-body-sm text-sage">
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <span>{{ pageNotice() }}</span>
+            @if (devLink()) {
+              <span class="break-all text-caption text-slate">Testing only — set-password link: <span class="select-all font-mono text-ink">{{ devLink() }}</span></span>
+            }
+          </span>
+          <button type="button" class="shrink-0 text-sage/70 transition-colors hover:text-sage" aria-label="Dismiss" (click)="pageNotice.set(''); devLink.set('')"><sd-icon name="x" [size]="18" /></button>
+        </div>
+      }
+
       @if (loading()) {
         <div class="sd-shimmer h-40 rounded-card"></div>
       } @else if (listError()) {
@@ -84,7 +96,12 @@ const FIELD =
                     </span>
                   </td>
                   <td class="px-4 py-3">
-                    <span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="u.active ? 'bg-sage/15 text-sage' : 'bg-cloud text-slate'">{{ u.active ? 'Active' : 'Inactive' }}</span>
+                    <span class="flex flex-wrap gap-1">
+                      <span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="u.active ? 'bg-sage/15 text-sage' : 'bg-cloud text-slate'">{{ u.active ? 'Active' : 'Inactive' }}</span>
+                      @if (u.password_set === false) {
+                        <span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="u.invite_pending ? 'bg-frost text-cerulean' : 'bg-warning/15 text-ink'">{{ u.invite_pending ? 'Invite sent' : 'Invite expired' }}</span>
+                      }
+                    </span>
                   </td>
                   <td class="px-4 py-3 text-right">
                     <button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openEdit(u)">Edit</button>
@@ -123,10 +140,22 @@ const FIELD =
             <input type="email" class="${FIELD}" [value]="email()" (input)="email.set($any($event.target).value)" />
           </label>
           @if (!editing()) {
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Temporary password</span>
-              <input type="password" autocomplete="new-password" class="${FIELD}" [value]="password()" (input)="password.set($any($event.target).value)" placeholder="At least 8 characters" />
-            </label>
+            @if (hasRole('doctor')) {
+              <!-- Doctors choose their own password from an emailed link (preferred). -->
+              <label class="flex cursor-pointer items-start gap-2">
+                <input type="checkbox" class="mt-0.5 size-4 shrink-0 accent-cerulean" [checked]="sendInvite()" (change)="sendInvite.set($any($event.target).checked)" />
+                <span class="flex flex-col">
+                  <span class="font-sans text-body-sm text-ink">Email an invite to set their own password</span>
+                  <span class="font-sans text-caption text-slate">Recommended — no password changes hands. The link expires in 7 days.</span>
+                </span>
+              </label>
+            }
+            @if (!invitingDoctor()) {
+              <label class="flex flex-col gap-1.5">
+                <span class="font-sans text-caption font-semibold text-slate">Temporary password</span>
+                <input type="password" autocomplete="new-password" class="${FIELD}" [value]="password()" (input)="password.set($any($event.target).value)" placeholder="At least 8 characters" />
+              </label>
+            }
           }
 
           <div class="flex flex-col gap-2">
@@ -145,7 +174,10 @@ const FIELD =
               <span class="font-sans text-caption font-semibold text-slate">Linked specialist (for doctor login)</span>
               <select class="${FIELD}" [value]="specialistId()" (change)="specialistId.set($any($event.target).value)">
                 <option value="">— None —</option>
-                @for (s of specialists(); track s.id) { <option [value]="s.id">{{ s.name }} · {{ s.specialty }}</option> }
+                <!-- A specialist can belong to only one login. -->
+                @for (s of specialists(); track s.id) {
+                  <option [value]="s.id" [disabled]="!!s.login && s.login.id !== editing()?.id">{{ s.name }} · {{ s.specialty }}{{ s.login && s.login.id !== editing()?.id ? ' · already linked' : '' }}</option>
+                }
               </select>
             </label>
           }
@@ -221,6 +253,12 @@ export class AdminStaff implements OnInit {
   protected readonly specialistId = signal('');
   protected readonly saving = signal(false);
   protected readonly formError = signal('');
+  /** New doctor logins: email a set-password link instead of a temporary password. */
+  protected readonly sendInvite = signal(true);
+  protected readonly invitingDoctor = computed(() => this.hasRole('doctor') && this.sendInvite());
+  /** Shown above the list after an invite goes out. */
+  protected readonly pageNotice = signal('');
+  protected readonly devLink = signal('');
 
   // Reset password
   protected readonly resetPw = signal('');
@@ -236,6 +274,10 @@ export class AdminStaff implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadSpecialists();
+  }
+
+  private loadSpecialists(): void {
     this.specialistsApi
       .listAdmin()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -283,6 +325,7 @@ export class AdminStaff implements OnInit {
     this.roles.set([]);
     this.permissions.set([]);
     this.specialistId.set('');
+    this.sendInvite.set(true);
     this.formError.set('');
     this.resetNotice.set('');
     this.resetPw.set('');
@@ -328,18 +371,34 @@ export class AdminStaff implements OnInit {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({ next: () => this.afterSave(), error: (err) => this.onError(err) });
     } else {
+      const invite = this.invitingDoctor();
       this.api
         .create({
           email: this.email().trim(),
           first_name: this.firstName().trim(),
           last_name: this.lastName().trim(),
-          password: this.password(),
+          // An invited doctor chooses their own password from the emailed link.
+          ...(invite ? { send_invite: true } : { password: this.password() }),
           roles: this.roles(),
           permissions: this.permissions(),
           specialist_id: specialistId,
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: () => this.afterSave(), error: (err) => this.onError(err) });
+        .subscribe({
+          next: (res) => {
+            const sent = res.data.invite;
+            if (sent) {
+              this.pageNotice.set(
+                sent.email_sent
+                  ? `Invite sent to ${res.data.email}. The link expires in 7 days.`
+                  : `The login was created, but the invite email to ${res.data.email} could not be sent. Resend it from Specialists.`,
+              );
+              this.devLink.set(sent.dev_link ?? '');
+            }
+            this.afterSave();
+          },
+          error: (err) => this.onError(err),
+        });
     }
   }
 
@@ -347,6 +406,8 @@ export class AdminStaff implements OnInit {
     this.saving.set(false);
     this.editorOpen.set(false);
     this.load();
+    // Refresh which specialists are already linked to a login.
+    this.loadSpecialists();
   }
   private onError(err: unknown): void {
     this.saving.set(false);

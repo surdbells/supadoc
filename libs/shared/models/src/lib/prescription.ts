@@ -267,6 +267,8 @@ export interface ClinicalSummaryDto {
     unit: string;
     taken_at: string | null;
     source: string | null;
+    /** Who recorded it — `patient` for the patient's own (self-reported) readings. */
+    recorded_by?: 'patient' | 'doctor';
     /** Older than 7 days — "May be out of date". */
     stale: boolean;
   }[];

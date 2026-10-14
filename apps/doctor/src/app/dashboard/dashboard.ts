@@ -19,6 +19,7 @@ import {
 import type {
   DoctorAppointmentDto,
   DoctorDashboardDto,
+  DoctorOnboardingDto,
   StaffNotificationDto,
 } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
@@ -32,6 +33,17 @@ interface Stat {
   readonly inlineSub?: string;
   readonly delta: number | null;
   readonly deltaPeriod?: string;
+}
+
+interface OnboardingBanner {
+  readonly icon: string;
+  readonly title: string;
+  readonly text: string;
+  readonly cta: string;
+  /** Card border/background classes. */
+  readonly tone: string;
+  /** Icon + call-to-action text colour. */
+  readonly iconTone: string;
 }
 
 interface QuickAction {
@@ -70,6 +82,26 @@ const NOTE_ICON: Record<string, string> = {
         <h1 class="font-heading text-h3 text-ink">{{ greeting() }} 👋</h1>
         <p class="font-sans text-body text-slate">Here's your Activities for today.</p>
       </header>
+
+      <!-- Onboarding: shown until an admin approves the doctor's profile. -->
+      @if (onboardingBanner(); as b) {
+        <a
+          routerLink="/onboarding"
+          class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border px-5 py-4 transition-colors"
+          [class]="b.tone"
+        >
+          <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm" [class]="b.iconTone">
+            <sd-icon [name]="b.icon" [size]="20" />
+          </span>
+          <span class="flex min-w-0 flex-1 basis-48 flex-col">
+            <span class="font-sans text-body-sm font-semibold text-ink">{{ b.title }}</span>
+            <span class="font-sans text-caption text-slate">{{ b.text }}</span>
+          </span>
+          <span class="ml-auto flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold" [class]="b.iconTone">
+            {{ b.cta }}<sd-icon name="chevron-right" [size]="18" />
+          </span>
+        </a>
+      }
 
       @if (loading()) {
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
@@ -268,6 +300,51 @@ export class DoctorDashboard implements OnInit {
   protected readonly notificationsOpen = signal(true);
   /** Who is in each consultation's call right now (polled). */
   protected readonly presence = injectCallPresence(() => this.api.presence());
+  /** Onboarding / review state — drives the banner until the doctor is approved. */
+  protected readonly onboarding = signal<DoctorOnboardingDto | null>(null);
+
+  protected readonly onboardingBanner = computed<OnboardingBanner | null>(() => {
+    const o = this.onboarding();
+    if (!o || o.status === 'approved') return null;
+    switch (o.status) {
+      case 'pending_review':
+        return {
+          icon: 'hourglass',
+          title: 'Your profile is being reviewed',
+          text: "We'll email you once it's approved. Until then patients can't find or book you.",
+          cta: 'View status',
+          tone: 'border-cerulean/20 bg-frost/50 hover:bg-frost',
+          iconTone: 'text-cerulean',
+        };
+      case 'rejected':
+        return {
+          icon: 'circle-alert',
+          title: 'Your profile needs a few changes',
+          text: 'See what to update, then submit your profile for review again.',
+          cta: 'See changes',
+          tone: 'border-warning/30 bg-warning/5 hover:bg-warning/10',
+          iconTone: 'text-warning',
+        };
+      case 'suspended':
+        return {
+          icon: 'ban',
+          title: 'Your account is suspended',
+          text: "Patients can't book you right now. Please contact support.",
+          cta: 'Details',
+          tone: 'border-alert/30 bg-alert/5 hover:bg-alert/10',
+          iconTone: 'text-alert',
+        };
+      default:
+        return {
+          icon: 'list-checks',
+          title: 'Finish setting up your profile',
+          text: `${o.completed} of ${o.total} steps done — patients can book you once your profile is approved.`,
+          cta: 'Continue setup',
+          tone: 'border-cerulean/20 bg-frost/50 hover:bg-frost',
+          iconTone: 'text-cerulean',
+        };
+    }
+  });
 
   protected readonly greeting = computed(() => {
     const h = new Date().getHours();
@@ -348,6 +425,12 @@ export class DoctorDashboard implements OnInit {
           this.loading.set(false);
         },
       });
+
+    // Best-effort: without it the dashboard simply shows no onboarding banner.
+    this.api
+      .onboarding()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (res) => this.onboarding.set(res.data), error: () => undefined });
 
     this.notificationsApi
       .list({ per_page: 5 })

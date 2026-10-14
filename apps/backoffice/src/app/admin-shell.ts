@@ -6,7 +6,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  NavigationEnd,
   Router,
   RouterLink,
   RouterLinkActive,
@@ -14,12 +16,16 @@ import {
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
 import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { filter } from 'rxjs';
+import { ReviewQueue } from './specialists/review-queue';
 
 interface NavItem {
   readonly label: string;
   readonly icon: string;
   readonly link: string;
   readonly permission: string;
+  /** Show the "doctors waiting for review" count next to this item. */
+  readonly reviewBadge?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -28,7 +34,7 @@ const NAV: NavItem[] = [
   { label: 'Analytics', icon: 'chart-column', link: '/analytics', permission: 'monitoring.view' },
   { label: 'Monitoring', icon: 'activity', link: '/monitoring', permission: 'monitoring.view' },
   { label: 'Patients', icon: 'user-round', link: '/patients', permission: 'monitoring.view' },
-  { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage' },
+  { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage', reviewBadge: true },
   { label: 'Staff & roles', icon: 'users', link: '/staff', permission: 'staff.manage' },
   { label: 'Payouts', icon: 'wallet', link: '/payouts', permission: 'payouts.manage' },
   { label: 'Support', icon: 'headphones', link: '/support', permission: 'support.manage' },
@@ -62,8 +68,11 @@ const NAV: NavItem[] = [
       <div class="flex min-w-0 flex-1 flex-col">
         <header class="flex h-16 items-center justify-between gap-4 px-5 lg:h-20 lg:justify-end lg:px-6">
           <div class="flex items-center gap-3 lg:hidden">
-            <button type="button" class="text-ink transition-colors hover:text-cerulean" aria-label="Open menu" (click)="menuOpen.set(true)">
+            <button type="button" class="relative text-ink transition-colors hover:text-cerulean" [attr.aria-label]="reviewCount() > 0 ? 'Open menu (' + reviewLabel() + ')' : 'Open menu'" (click)="menuOpen.set(true)">
               <sd-icon name="menu" [size]="24" />
+              @if (reviewCount() > 0) {
+                <span class="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-warning ring-2 ring-glacier"></span>
+              }
             </button>
             <span class="font-heading text-h5 tracking-tight">
               <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
@@ -105,6 +114,11 @@ const NAV: NavItem[] = [
               (click)="menuOpen.set(false)"
             >
               <sd-icon [name]="item.icon" [size]="20" />{{ item.label }}
+              @if (item.reviewBadge && reviewCount() > 0) {
+                <span class="ml-auto rounded-pill bg-warning/20 px-2 py-0.5 font-sans text-caption font-semibold text-ink" [attr.title]="reviewLabel()">
+                  {{ reviewCount() }}<span class="sr-only"> {{ reviewLabel() }}</span>
+                </span>
+              }
             </a>
           }
         </nav>
@@ -139,6 +153,16 @@ const NAV: NavItem[] = [
 export class AdminShell {
   private readonly auth = inject(StaffAuthService);
   private readonly router = inject(Router);
+  private readonly reviewQueue = inject(ReviewQueue);
+
+  /** Doctors waiting for review (reviewers only; 0 hides the badge). */
+  protected readonly reviewCount = computed(() =>
+    this.auth.hasPermission('specialists.manage') ? this.reviewQueue.count() : 0,
+  );
+  protected readonly reviewLabel = computed(() => {
+    const n = this.reviewCount();
+    return `${n} ${n === 1 ? 'doctor' : 'doctors'} waiting for review`;
+  });
 
   protected readonly menuOpen = signal(false);
   protected readonly confirmLogout = signal(false);
@@ -160,6 +184,14 @@ export class AdminShell {
 
   constructor() {
     void this.auth.loadMe();
+    // Keep the "Needs review" badge current as the admin moves around.
+    this.reviewQueue.refresh();
+    this.router.events
+      .pipe(
+        filter((e) => e instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.reviewQueue.refresh());
   }
 
   protected askLogout(): void {

@@ -11,8 +11,10 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/portal/specialists — the bookable specialist directory, paginated,
- * with optional `?search=`, `?specialty=`, `?available=true`, `?location=`,
- * `?language=`, `?gender=` and `?mode=in_person`.
+ * with optional `?search=`, `?specialty=`, `?location=`, `?language=`,
+ * `?gender=` and `?mode=in_person`. Only approved (or legacy) doctors who are
+ * available for booking are listed; `?available=` is accepted but no longer
+ * widens that.
  */
 final class ListSpecialistsAction
 {
@@ -35,9 +37,6 @@ final class ListSpecialistsAction
         $language      = trim((string) ($query['language'] ?? ''));
         $gender        = trim((string) ($query['gender'] ?? ''));
         $inPerson      = strtolower(trim((string) ($query['mode'] ?? ''))) === 'in_person' ? true : null;
-        $availableOnly = array_key_exists('available', $query)
-            ? filter_var($query['available'], FILTER_VALIDATE_BOOLEAN)
-            : null;
 
         $result = $this->repo->paginated(
             $p['offset'],
@@ -45,7 +44,7 @@ final class ListSpecialistsAction
             $p['sort_by'],
             $p['sort_dir'],
             $search === '' ? null : $search,
-            $availableOnly,
+            true, // only doctors taking bookings, whatever `?available=` says
             $specialty === '' ? null : $specialty,
             $location === '' ? null : $location,
             $language === '' ? null : $language,

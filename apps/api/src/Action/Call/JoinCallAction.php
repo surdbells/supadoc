@@ -10,6 +10,8 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Vitals\VitalsService;
+use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -75,6 +77,8 @@ final class JoinCallAction
                 'conditions'    => array_values($medical['conditions'] ?? []),
                 'medications'   => array_values($medical['medications'] ?? []),
                 'history'       => array_values($medical['history'] ?? []),
+                // Latest reading of each type, who recorded it, and whether it is out of date.
+                'vitals'        => VitalsService::latestList($patient->getLatestVitals(), new DateTimeImmutable()),
             ];
         }
 

@@ -13,13 +13,17 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { type Observable } from 'rxjs';
+import { type Observable, tap } from 'rxjs';
 import {
   apiErrorMessage,
   DoctorApi,
   injectCallPresence,
+  localSlotDays,
+  nowLocalInput,
   openBlobDocument,
   openClinicalDocument,
+  SpecialistsApi,
+  todayLocal,
 } from '@supadoc/data-access';
 import type {
   AppointmentDto,
@@ -28,6 +32,7 @@ import type {
   ClinicalNoteDto,
   ConsentDto,
   CopilotDraftDto,
+  DayAvailability,
   DoctorAppointmentDto,
   DoctorPatientRecordDto,
   DoctorRecordingStateDto,
@@ -40,12 +45,12 @@ import type {
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { AlertComponent, CallPresenceComponent, IconComponent, MessageThreadComponent } from '@supadoc/ui';
+import { AlertComponent, CallPresenceComponent, IconComponent, MessageThreadComponent, SlotPickerComponent } from '@supadoc/ui';
 import { MedicationItem, VisitStatusBadge } from '../patients/patient-record-ui';
 import { RxPanel } from '../prescriptions/rx-panel';
 import { ClinicalAi } from './clinical/clinical-ai';
 import { ClinicalCarePlan } from './clinical/clinical-care-plan';
-import { ClinicalCertificates } from './clinical/clinical-certificates';
+import { CERTIFICATE_BACKDATE_DAYS, ClinicalCertificates } from './clinical/clinical-certificates';
 import { ClinicalConsents } from './clinical/clinical-consents';
 import { ClinicalLabs } from './clinical/clinical-labs';
 import { ClinicalNote, type NoteSaveMode } from './clinical/clinical-note';
@@ -134,6 +139,7 @@ function timeLeft(ms: number): TimeLeft | null {
     IconComponent,
     MessageThreadComponent,
     RxPanel,
+    SlotPickerComponent,
     ClinicalAi,
     ClinicalCarePlan,
     ClinicalCertificates,
@@ -203,7 +209,7 @@ function timeLeft(ms: number): TimeLeft | null {
             }
           </div>
 
-          <div class="flex w-full flex-col gap-3 lg:w-64">
+          <div class="flex w-full min-w-0 flex-col gap-3 lg:w-64">
             <span class="font-heading text-body-lg text-ink">Quick actions</span>
             @if (a.status === 'pending' || a.status === 'rescheduled') {
               <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="confirm()">
@@ -240,9 +246,32 @@ function timeLeft(ms: number): TimeLeft | null {
               }
             </div>
             @if (rescheduleOpen()) {
-              <div class="flex flex-col gap-2 rounded-field border border-cloud p-3">
-                <input type="datetime-local" class="rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
-                <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
+              <div class="flex min-w-0 flex-col gap-3 rounded-field border border-cloud p-3">
+                @if (rescheduleSlotsLoading()) {
+                  <div class="sd-shimmer h-24 rounded-field"></div>
+                } @else if (!rescheduleUseManual()) {
+                  <span class="font-sans text-caption font-semibold text-slate">Your open slots</span>
+                  <sd-slot-picker [days]="rescheduleDays()" [(value)]="rescheduleSlot" />
+                } @else {
+                  @if (rescheduleSlotsError()) {
+                    <p class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ rescheduleSlotsError() }}</p>
+                  } @else if (rescheduleSlotsNote()) {
+                    <p class="font-sans text-caption text-slate">{{ rescheduleSlotsNote() }}</p>
+                  } @else if (rescheduleDays().length === 0) {
+                    <p class="font-sans text-caption text-slate">You have no open slots coming up.</p>
+                  }
+                  <label class="flex flex-col gap-1.5">
+                    <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
+                    <input type="datetime-local" step="1800" class="w-full min-w-0 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [min]="rescheduleMin()" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
+                    <span class="font-sans text-caption text-slate">Must be on your availability, at least an hour from now.</span>
+                  </label>
+                }
+                @if (!rescheduleSlotsLoading() && rescheduleDays().length > 0) {
+                  <button type="button" class="w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean" (click)="rescheduleManual.set(!rescheduleManual())">
+                    {{ rescheduleManual() ? 'Choose from open slots' : 'Enter another time' }}
+                  </button>
+                }
+                <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy() || rescheduleSlotsLoading()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
               </div>
             }
             @if (actionError()) { <p class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert">{{ actionError() }}</p> }
@@ -490,6 +519,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   @case ('certificates') {
                     <doc-clinical-certificates
                       [certificates]="certificates()"
+                      [earliestFrom]="certMinFrom()"
                       [(type)]="certType"
                       [(diagnosis)]="certDiagnosis"
                       [(from)]="certFrom"
@@ -550,6 +580,7 @@ function timeLeft(ms: number): TimeLeft | null {
 })
 export class DoctorAppointmentDetail implements OnInit {
   private readonly api = inject(DoctorApi);
+  private readonly specialistsApi = inject(SpecialistsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -622,7 +653,24 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly actionBusy = signal(false);
   protected readonly actionError = signal('');
   protected readonly rescheduleOpen = signal(false);
+  /** The doctor's own open slots (next 14 days with any), in local time. */
+  protected readonly rescheduleDays = signal<DayAvailability[]>([]);
+  protected readonly rescheduleSlotsLoading = signal(false);
+  protected readonly rescheduleSlotsError = signal('');
+  /** Why there are no slots to pick when that isn't an error (a doctor not approved yet). */
+  protected readonly rescheduleSlotsNote = signal('');
+  /** The picked slot's ISO start. */
+  protected readonly rescheduleSlot = signal('');
+  /** Typing a time instead (e.g. beyond the two weeks the pills cover). */
+  protected readonly rescheduleManual = signal(false);
+  /** The typed time — a local datetime-local value. */
   protected readonly rescheduleAt = signal('');
+  /** The typed time's earliest value: now, on the half hour. */
+  protected readonly rescheduleMin = signal('');
+  /** The typed input shows when chosen, or when there are no slots to pick. */
+  protected readonly rescheduleUseManual = computed(
+    () => this.rescheduleManual() || this.rescheduleSlotsError() !== '' || this.rescheduleDays().length === 0,
+  );
 
   // Clinical tools (nested)
   protected readonly tab = signal<TabKey>('notes');
@@ -670,6 +718,8 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly certDiagnosis = signal('');
   protected readonly certFrom = signal('');
   protected readonly certTo = signal('');
+  /** The API's earliest leave start (clinic calendar), from the certificates list; '' until it loads. */
+  protected readonly certEarliestFrom = signal('');
 
   protected readonly consents = signal<ConsentDto[]>([]);
   protected readonly recording = signal<DoctorRecordingStateDto | null>(null);
@@ -789,7 +839,7 @@ export class DoctorAppointmentDetail implements OnInit {
         this.api.listReferrals(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.referrals.set(r.data), error: () => undefined });
         break;
       case 'certificates':
-        this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.certificates.set(r.data), error: () => undefined });
+        this.loadCertificates();
         break;
       case 'consents':
         this.api.consents(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.consents.set(r.data), error: () => undefined });
@@ -886,10 +936,29 @@ export class DoctorAppointmentDetail implements OnInit {
   protected issueCertificate(): void {
     if (this.certStatement().trim() === '') { this.sectionError.set('Add a certifying statement.'); return; }
     if (this.certType() === 'sick_leave' && (this.certFrom() === '' || this.certTo() === '')) { this.sectionError.set('Set the leave period.'); return; }
-    this.runSection(this.api.createCertificate(this.id, { type: this.certType(), statement: this.certStatement(), diagnosis: this.certDiagnosis() || null, from_date: this.certType() === 'sick_leave' ? this.certFrom() : null, to_date: this.certType() === 'sick_leave' ? this.certTo() : null }), () => {
+    if (this.certType() === 'sick_leave' && this.certFrom() < this.certMinFrom()) { this.sectionError.set(`Leave can start at most ${CERTIFICATE_BACKDATE_DAYS} days ago.`); return; }
+    if (this.certType() === 'sick_leave' && this.certTo() < this.certFrom()) { this.sectionError.set('The end date cannot be before the start date.'); return; }
+    this.runSection(this.api.createCertificate(this.id, { type: this.certType(), statement: this.certStatement(), diagnosis: this.certDiagnosis() || null, from_date: this.certType() === 'sick_leave' ? this.certFrom() : null, to_date: this.certType() === 'sick_leave' ? this.certTo() : null }).pipe(tap({ error: () => this.loadCertificates() })), () => {
       this.certStatement.set(''); this.certDiagnosis.set(''); this.certFrom.set(''); this.certTo.set('');
-      this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.certificates.set(r.data), error: () => undefined });
+      this.loadCertificates();
     }, 'Could not issue the certificate.');
+  }
+
+  /** The issued list, plus the API's leave-start floor (a page left open past midnight picks up the new one). */
+  private loadCertificates(): void {
+    this.api.listCertificates(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.certificates.set(r.data); this.certEarliestFrom.set(r.meta?.earliest_from_date ?? ''); },
+      error: () => undefined,
+    });
+  }
+
+  /**
+   * The leave-start floor for the picker and the pre-check: the API's date (clinic
+   * calendar), or, until it loads, a day looser than the browser's own so no date
+   * the API accepts is hidden. The API rejects anything earlier with its message.
+   */
+  protected certMinFrom(): string {
+    return this.certEarliestFrom() || todayLocal(-CERTIFICATE_BACKDATE_DAYS - 1);
   }
 
   protected openDoc(kind: ClinicalDocumentKind, docId: string): void {
@@ -931,15 +1000,59 @@ export class DoctorAppointmentDetail implements OnInit {
   // ----- Lifecycle actions -----
   protected canReschedule(s: string): boolean { return ['pending', 'confirmed', 'rescheduled'].includes(s); }
   protected canCancel(s: string): boolean { return ['pending', 'confirmed', 'rescheduled'].includes(s); }
-  protected toggleReschedule(): void { this.rescheduleOpen.update((v) => !v); this.actionError.set(''); }
+  protected toggleReschedule(): void {
+    this.rescheduleOpen.update((v) => !v);
+    this.actionError.set('');
+    if (this.rescheduleOpen()) this.loadRescheduleSlots();
+  }
+  /** Fresh slots on every open — the same ones a patient could book (lead time, blocks and bookings applied). */
+  private loadRescheduleSlots(): void {
+    const a = this.appt();
+    if (!a) return;
+    this.rescheduleSlot.set('');
+    this.rescheduleAt.set('');
+    this.rescheduleManual.set(false);
+    this.rescheduleMin.set(nowLocalInput(30));
+    this.rescheduleSlotsError.set('');
+    this.rescheduleSlotsNote.set('');
+    this.rescheduleSlotsLoading.set(true);
+    this.specialistsApi.slots(a.specialist.id, 14).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.rescheduleDays.set(localSlotDays(r.data)); this.rescheduleSlotsLoading.set(false); },
+      error: (err: unknown) => {
+        this.rescheduleDays.set([]);
+        const failed = apiErrorMessage(err, 'Could not load your open slots.');
+        // These are the public slots, which answer "not found" for a doctor who
+        // isn't approved. Say that instead; a typed time on the schedule still works.
+        this.api.onboarding().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (o) => {
+            const status = o.data.status;
+            if (status === 'approved') this.rescheduleSlotsError.set(failed);
+            else this.rescheduleSlotsNote.set(`${status === 'suspended' ? 'Your profile is suspended' : "Your profile hasn't been approved yet"}, so patients can't book your slots and there are none to pick here. Enter a time that's on your availability.`);
+            this.rescheduleSlotsLoading.set(false);
+          },
+          error: () => { this.rescheduleSlotsError.set(failed); this.rescheduleSlotsLoading.set(false); },
+        });
+      },
+    });
+  }
   protected confirm(): void { this.runAction(this.api.confirm(this.id)); }
   protected decline(): void {
     if (!window.confirm('Cancel this appointment? Any payment will be refunded to the patient.')) return;
     this.runAction(this.api.decline(this.id));
   }
   protected submitReschedule(): void {
-    if (this.rescheduleAt().trim() === '') { this.actionError.set('Choose a new date and time.'); return; }
-    this.runAction(this.api.reschedule(this.id, new Date(this.rescheduleAt()).toISOString()), () => this.rescheduleOpen.set(false));
+    let iso = this.rescheduleSlot();
+    if (this.rescheduleUseManual()) {
+      if (this.rescheduleAt().trim() === '') { this.actionError.set('Choose a new date and time.'); return; }
+      const at = new Date(this.rescheduleAt());
+      if (isNaN(at.getTime())) { this.actionError.set('Enter a valid date and time.'); return; }
+      if (at.getTime() <= Date.now()) { this.actionError.set('Choose a time in the future.'); return; }
+      iso = at.toISOString();
+    } else if (iso === '') {
+      this.actionError.set('Pick one of your open slots.');
+      return;
+    }
+    this.runAction(this.api.reschedule(this.id, iso), () => this.rescheduleOpen.set(false));
   }
   private runAction(call: Observable<SuccessResponse<AppointmentDto>>, onOk?: () => void): void {
     this.actionBusy.set(true); this.actionError.set('');

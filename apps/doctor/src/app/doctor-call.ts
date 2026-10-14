@@ -36,6 +36,7 @@ import type {
   MedicalDocumentDto,
   ReferralDto,
   TranscriptSegmentDto,
+  VitalReadingDto,
 } from '@supadoc/models';
 import { ConfirmDialogComponent, IconComponent, SmoothHeightDirective } from '@supadoc/ui';
 import { environment } from '../environments/environment';
@@ -231,20 +232,45 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             </div>
           </div>
 
-          <!-- Vitals -->
+          <!-- Vitals (latest reading of each type, from the join payload) -->
           <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-3 font-sans text-body-sm font-semibold text-white">Vitals</h3>
-            <div class="grid grid-cols-3 gap-2">
-              @for (v of vitals; track v.label) {
-                <div class="rounded-xl bg-white/[0.04] p-2 text-center">
-                  <p class="font-heading text-body font-semibold text-white">{{ v.value }}</p>
-                  <p class="font-sans text-[10px] text-white/45">{{ v.label }}</p>
-                </div>
+            <div class="mb-3 flex items-center justify-between gap-2">
+              <h3 class="font-sans text-body-sm font-semibold text-white">Vitals</h3>
+              @if (vitalsAsOf()) {
+                <span class="font-sans text-[10px] text-white/40">{{ vitalsAsOf() }}</span>
               }
             </div>
-            <p class="mt-2 font-sans text-[10px] text-white/40">
-              No readings captured for this visit yet.
-            </p>
+            @if (vitals().length) {
+              <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2">
+                @for (v of vitals(); track v.key) {
+                  <div
+                    class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-white/[0.04] p-2"
+                    [attr.title]="vitalTitle(v)"
+                  >
+                    <p class="truncate font-sans text-[10px] text-white/45">{{ v.label }}</p>
+                    <p class="font-heading text-body font-semibold text-white">
+                      {{ v.value }}
+                      <span class="font-sans text-[10px] font-normal text-white/50">{{ v.unit }}</span>
+                    </p>
+                    @if (v.recorded_by === 'patient' || v.stale) {
+                      <p class="flex flex-wrap gap-1">
+                        @if (v.recorded_by === 'patient') {
+                          <span class="rounded-pill bg-sky/15 px-1.5 font-sans text-[9px] text-sky">Self-reported</span>
+                        }
+                        @if (v.stale) {
+                          <span class="rounded-pill bg-warning/15 px-1.5 font-sans text-[9px] text-warning">Out of date</span>
+                        }
+                      </p>
+                    }
+                  </div>
+                }
+              </div>
+            } @else {
+              <p class="font-sans text-[10px] text-white/40">
+                No readings on file yet. Readings the patient adds, or that you record on a
+                prescription, appear here.
+              </p>
+            }
           </div>
 
           <!-- Conditions -->
@@ -1413,15 +1439,25 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     { label: 'Certificate', icon: 'file-text' },
   ];
 
-  // Vitals aren't captured in-app yet — honest placeholders (no fabricated values).
-  protected readonly vitals: ReadonlyArray<{ label: string; value: string }> = [
-    { label: 'SYS', value: '—' },
-    { label: 'DIA', value: '—' },
-    { label: 'BPM', value: '—' },
-    { label: '°F', value: '—' },
-    { label: 'SpO₂', value: '—' },
-    { label: 'RPM', value: '—' },
-  ];
+  // Vitals: the latest reading of each type (units as recorded, e.g. °C), who
+  // recorded it and whether it is over a week old — from the join payload.
+  protected readonly vitals = computed<VitalReadingDto[]>(() => this.info()?.patient?.vitals ?? []);
+  /** "Updated 3 days ago" from the newest reading, or '' when there are none. */
+  protected readonly vitalsAsOf = computed(() => {
+    const times = this.vitals()
+      .map((v) => Date.parse(v.taken_at ?? ''))
+      .filter((t) => !Number.isNaN(t));
+    if (!times.length) return '';
+    const days = Math.floor((Date.now() - Math.max(...times)) / 86_400_000);
+    if (days <= 0) return 'Updated today';
+    return days === 1 ? 'Updated yesterday' : `Updated ${days} days ago`;
+  });
+  protected vitalTitle(v: VitalReadingDto): string {
+    const when = v.taken_at
+      ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(v.taken_at))
+      : 'time not recorded';
+    return `${v.label}: ${v.value} ${v.unit} · ${v.source_label ?? (v.recorded_by === 'patient' ? 'Self-reported' : 'Recorded by a doctor')} · ${when}`;
+  }
 
   // ---- Derived ----
   protected readonly doctorName = computed(() => this.info()?.you?.name ?? 'You');

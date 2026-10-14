@@ -87,7 +87,7 @@ final class UpdateSpecialistAction
 
         return $this->success(
             $response,
-            $specialist->toArray() + ['email' => $specialist->getEmail()],
+            $specialist->toArray() + ['email' => $specialist->getEmail()] + $specialist->toReviewArray(),
             'Specialist updated',
         );
     }

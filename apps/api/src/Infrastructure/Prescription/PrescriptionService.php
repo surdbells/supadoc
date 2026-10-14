@@ -27,6 +27,8 @@ use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PatientNotifier;
+use App\Infrastructure\Vitals\VitalsForm;
+use App\Infrastructure\Vitals\VitalsService;
 use DateTimeImmutable;
 use DomainException;
 use App\Domain\Settings\WebUrls;
@@ -57,6 +59,7 @@ final class PrescriptionService
         private readonly PatientNotifier $notifier,
         private readonly MailService $mail,
         private readonly AuditLogger $audit,
+        private readonly VitalsService $vitals,
         private readonly ?DrugCatalogueImporter $catalogue = null,
     ) {
     }
@@ -237,7 +240,7 @@ final class PrescriptionService
         $now = new DateTimeImmutable();
         $rx->send($this->prescriberDetails($doctor), $this->patientDetails($patient), $mode, $frozenKey, $now);
         $this->prescriptions->save($rx);
-        $this->recordVitals($patient, $rx, $now);
+        $this->recordVitals($patient, $rx, $doctor, $now);
 
         $this->audit->record($doctor->getName(), 'doctor', 'prescription.sent', $rx->getAppointmentId(), 'prescription', $rx->getId(), [
             'number'     => $rx->getNumber(),
@@ -498,23 +501,18 @@ final class PrescriptionService
             $medicines[] = ['for' => $for, 'items' => $rows];
         }
 
-        $vitals = [];
-        foreach (PrescriptionForm::READINGS as $key => [$label, $unit]) {
-            $v = $patient->getLatestVitals()[$key] ?? null;
-            if ($v === null) {
-                continue;
-            }
-            $at = strtotime((string) ($v['taken_at'] ?? '')) ?: null;
-            $vitals[] = [
-                'key'       => $key,
-                'label'     => $label,
-                'value'     => (string) $v['value'],
-                'unit'      => $unit,
-                'taken_at'  => $at !== null ? date(DATE_ATOM, $at) : null,
-                'source'    => PrescriptionForm::READING_SOURCES[$v['source'] ?? ''] ?? null,
-                'stale'     => $at === null || $at < strtotime('-7 days'),
-            ];
-        }
+        // Same list the call screens show; `source` stays a label here, and
+        // self-reported readings say so ("Self-reported").
+        $vitals = array_map(static fn (array $v): array => [
+            'key'         => $v['key'],
+            'label'       => $v['label'],
+            'value'       => $v['value'],
+            'unit'        => $v['unit'],
+            'taken_at'    => $v['taken_at'],
+            'source'      => $v['source_label'],
+            'recorded_by' => $v['recorded_by'],
+            'stale'       => $v['stale'],
+        ], VitalsService::latestList($patient->getLatestVitals(), new DateTimeImmutable()));
 
         $dob = $patient->getDateOfBirth();
 
@@ -697,25 +695,23 @@ final class PrescriptionService
         $this->signatures->delete($old);
     }
 
-    /** Readings on the form become the patient's latest readings (newer wins). */
-    private function recordVitals(Patient $patient, Prescription $rx, DateTimeImmutable $now): void
+    /** Readings on the form join the patient's history and latest readings (newer wins), as the doctor's. */
+    private function recordVitals(Patient $patient, Prescription $rx, Specialist $doctor, DateTimeImmutable $now): void
     {
         $readings = $rx->getReadings();
-        $takenAt  = (string) ($readings['taken_at'] ?? $now->format(DATE_ATOM));
-        $source   = (string) ($readings['source'] ?? 'video');
-        $entries  = [];
-        foreach (PrescriptionForm::READINGS as $key => [, $unit]) {
-            if (($readings[$key] ?? '') !== '') {
-                $entries[$key] = ['value' => (string) $readings[$key], 'unit' => $unit, 'taken_at' => $takenAt, 'source' => $source];
-            }
-        }
-        if ($entries !== []) {
-            try {
-                $patient->recordVitals($entries);
-                $this->patients->save($patient);
-            } catch (\Throwable) {
-                // the prescription is already sent; readings are a convenience
-            }
+        try {
+            $this->vitals->record(
+                $patient,
+                array_intersect_key($readings, VitalsForm::READINGS),
+                new DateTimeImmutable((string) ($readings['taken_at'] ?? $now->format(DATE_ATOM))),
+                (string) ($readings['source'] ?? 'video'),
+                VitalsForm::RECORDED_BY_DOCTOR,
+                $doctor->getId(),
+                $rx->getAppointmentId(),
+                $rx->getId(),
+            );
+        } catch (\Throwable) {
+            // the prescription is already sent; readings are a convenience
         }
     }
 

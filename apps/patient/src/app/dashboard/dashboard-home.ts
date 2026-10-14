@@ -16,7 +16,7 @@ import {
   PatientApi,
   WalletApi,
 } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
+import type { AppointmentDto, VitalsReminderDto } from '@supadoc/models';
 import {
   ButtonComponent,
   CallPresenceComponent,
@@ -82,6 +82,31 @@ const UPCOMING_BADGE: Record<string, string> = {
   rescheduled: 'bg-slate',
 };
 
+interface VitalsNudge {
+  readonly title: string;
+  readonly body: string;
+  readonly cta: string;
+}
+
+/** Session flag: the vitals reminder was dismissed (comes back next session). */
+const VITALS_NUDGE_KEY = 'pat.vitals-reminder-dismissed';
+
+function readSessionFlag(key: string): boolean {
+  try {
+    return sessionStorage.getItem(key) === '1';
+  } catch {
+    return false; // storage blocked — just show the reminder
+  }
+}
+
+function writeSessionFlag(key: string): void {
+  try {
+    sessionStorage.setItem(key, '1');
+  } catch {
+    /* storage blocked — dismissed for this page view only */
+  }
+}
+
 /** Patient dashboard home (Figma 666:9342). */
 @Component({
   selector: 'pat-dashboard-home',
@@ -117,6 +142,37 @@ const UPCOMING_BADGE: Record<string, string> = {
           Stay on top of your health. You're doing great!
         </div>
       </section>
+
+      <!-- Vitals reminder: none on file yet, or the newest is over a week old -->
+      @if (vitalsNudge(); as n) {
+        <section
+          class="flex flex-col gap-3 rounded-card border border-teal/20 bg-teal/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+          aria-label="Vitals reminder"
+        >
+          <div class="flex min-w-0 items-start gap-3 sm:items-center">
+            <span
+              class="flex size-9 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal"
+            >
+              <sd-icon name="heart-pulse" [size]="18" />
+            </span>
+            <div class="flex min-w-0 flex-col">
+              <p class="font-sans text-body-sm font-semibold text-ink">{{ n.title }}</p>
+              <p class="font-sans text-caption text-slate">{{ n.body }}</p>
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+            <sd-button size="sm" (click)="openVitals()">{{ n.cta }}</sd-button>
+            <button
+              type="button"
+              class="flex size-8 items-center justify-center rounded-full text-slate transition-colors hover:bg-white hover:text-ink"
+              aria-label="Dismiss the vitals reminder"
+              (click)="dismissVitalsNudge()"
+            >
+              <sd-icon name="x" [size]="16" />
+            </button>
+          </div>
+        </section>
+      }
 
       <!-- Widgets -->
       <section class="flex flex-col gap-4">
@@ -533,7 +589,45 @@ export class DashboardHome {
     void this.router.navigate(['/dashboard/wallet']);
   }
 
+  // Vitals reminder — from GET /api/portal/me/vitals; dismissable for the session.
+  private readonly vitalsReminder = signal<VitalsReminderDto | null>(null);
+  private readonly vitalsNudgeDismissed = signal(readSessionFlag(VITALS_NUDGE_KEY));
+  protected readonly vitalsNudge = computed<VitalsNudge | null>(() => {
+    const r = this.vitalsReminder();
+    if (!r?.due || this.vitalsNudgeDismissed()) return null;
+    if (r.reason === 'never' || r.days_old === null) {
+      return {
+        title: 'Add your vitals',
+        body: 'Add your blood pressure, weight and other readings so your doctor has them before your visit.',
+        cta: 'Add vitals',
+      };
+    }
+    return {
+      title: `Your vitals are ${r.days_old} days old`,
+      body: 'Add new readings so your doctor sees how you are doing now.',
+      cta: 'Update vitals',
+    };
+  });
+
+  protected openVitals(): void {
+    void this.router.navigate(['/dashboard/profile'], { queryParams: { section: 'vitals' } });
+  }
+
+  protected dismissVitalsNudge(): void {
+    this.vitalsNudgeDismissed.set(true);
+    writeSessionFlag(VITALS_NUDGE_KEY);
+  }
+
   constructor() {
+    // A gentle nudge only — if it can't load, the dashboard simply goes without it.
+    this.patient
+      .vitals()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.vitalsReminder.set(res.data.reminder),
+        error: () => this.vitalsReminder.set(null),
+      });
+
     // Two at most, so the card lines up with the Quick Actions row beside it.
     this.notificationsApi
       .list({ per_page: 2 })

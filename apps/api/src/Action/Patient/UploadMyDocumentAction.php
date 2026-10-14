@@ -23,6 +23,9 @@ final class UploadMyDocumentAction
 {
     use ApiResponse;
 
+    /** Length of medical_documents.custom_type. */
+    public const CUSTOM_TYPE_MAX = 120;
+
     public function __construct(
         private readonly PatientRepository $patients,
         private readonly MedicalDocumentRepository $documents,
@@ -49,6 +52,14 @@ final class UploadMyDocumentAction
         $customType = is_string($body['custom_type'] ?? null) ? trim((string) $body['custom_type']) : '';
         if ($type === 'other' && $customType === '') {
             return $this->error($response, 'Specify the document type', 422, ['custom_type' => 'Please name the document type']);
+        }
+        // medical_documents.custom_type is VARCHAR(120): reject here with a 422
+        // rather than letting the INSERT fail as a 500. Only checked for `other`,
+        // the one type that stores it — an ignored value shouldn't block upload.
+        if ($type === 'other' && mb_strlen($customType) > self::CUSTOM_TYPE_MAX) {
+            return $this->error($response, 'Document type name is too long', 422, [
+                'custom_type' => 'Use ' . self::CUSTOM_TYPE_MAX . ' characters or fewer',
+            ]);
         }
 
         $file = $request->getUploadedFiles()['file'] ?? null;

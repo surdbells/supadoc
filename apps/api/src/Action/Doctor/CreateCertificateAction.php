@@ -9,6 +9,7 @@ use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ScheduleRules;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\PatientNotifier;
@@ -58,6 +59,12 @@ final class CreateCertificateAction
         }
         if ($from !== null && $to !== null && $to < $from) {
             return $this->error($response, 'The end date cannot be before the start date', 422, ['to_date' => 'Must be on or after the start date']);
+        }
+        // A short backdate is clinically valid; further back is not (clinic calendar).
+        if ($from !== null && ScheduleRules::isCertificateBackdatedTooFar($from)) {
+            $limit = 'Leave can start at most ' . ScheduleRules::CERTIFICATE_BACKDATE_DAYS . ' days ago';
+
+            return $this->error($response, $limit, 422, ['from_date' => $limit]);
         }
 
         $certificate = new MedicalCertificate($id, $appointment->getPatient()->getId());

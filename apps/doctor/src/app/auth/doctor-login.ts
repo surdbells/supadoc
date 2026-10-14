@@ -5,15 +5,16 @@ import {
   signal,
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { StaffAuthService, consumeSessionNotice } from '@supadoc/auth';
-import { apiErrorMessage } from '@supadoc/data-access';
+import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import {
   AlertComponent,
   ButtonComponent,
   IconComponent,
   InputComponent,
 } from '@supadoc/ui';
+import { doctorLandingUrl } from '../onboarding/onboarding-landing';
 
 /** Doctor sign-in. Only accounts with the `doctor` role are accepted. */
 @Component({
@@ -21,6 +22,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     AlertComponent,
     ButtonComponent,
     IconComponent,
@@ -78,6 +80,11 @@ import {
             placeholder="Enter your password"
             formControlName="password"
           />
+          <a
+            routerLink="/auth/forgot-password"
+            class="-mt-2 self-end font-sans text-body-sm font-semibold text-cerulean hover:underline"
+            >Forgot password?</a
+          >
           @if (error()) {
             <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">
               {{ error() }}
@@ -95,6 +102,7 @@ import {
 export class DoctorLogin {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(StaffAuthService);
+  private readonly doctorApi = inject(DoctorApi);
   private readonly router = inject(Router);
 
   protected readonly busy = signal(false);
@@ -126,7 +134,8 @@ export class DoctorLogin {
     const { email, password } = this.form.getRawValue();
     try {
       await this.auth.login(email, password);
-      const target = this.auth.consumeRedirect() ?? '/schedule';
+      // Until approved, a doctor lands on their onboarding checklist.
+      const target = this.auth.consumeRedirect() ?? (await doctorLandingUrl(this.doctorApi));
       await this.router.navigateByUrl(target);
     } catch (err) {
       this.error.set(

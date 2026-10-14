@@ -398,8 +398,8 @@ return [
             'post' => ['tags' => ['Doctor'], 'summary' => 'Create a referral', 'responses' => ['201' => ['description' => 'Created']]],
         ],
         '/api/doctor/appointments/{id}/certificates' => [
-            'get'  => ['tags' => ['Doctor'], 'summary' => 'List medical certificates', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
-            'post' => ['tags' => ['Doctor'], 'summary' => 'Issue a medical certificate', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
+            'get'  => ['tags' => ['Doctor'], 'summary' => 'List medical certificates', 'description' => '`meta.earliest_from_date` (Y-m-d, clinic calendar) is the earliest sick-leave start the POST accepts; `meta.backdate_days` is the window.', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Issue a medical certificate', 'description' => 'Sick leave may start at most 7 days ago (clinic calendar); `to_date` must be on or after `from_date`.', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
         ],
         '/api/doctor/appointments/{id}/documents/{kind}/{docId}' => [
             'get' => ['tags' => ['Doctor'], 'summary' => 'Render a printable clinical document (HTML)', 'responses' => ['200' => ['description' => 'HTML document'], '404' => ['$ref' => '#/components/responses/NotFound']]],
@@ -883,12 +883,13 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Create a staff account',
-                'description' => 'Needs staff.manage. Only a super_admin may grant the super_admin role.',
-                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email', 'first_name', 'last_name', 'password'], 'properties' => [
+                'description' => 'Needs staff.manage. Only a super_admin may grant the super_admin role. For a doctor login linked to a specialist, `send_invite: true` replaces the temporary password: the doctor is emailed a one-time link (7 days) to choose their own. A linked specialist must exist and not belong to another login.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email', 'first_name', 'last_name'], 'properties' => [
                     'email' => ['type' => 'string', 'format' => 'email'],
                     'first_name' => ['type' => 'string'],
                     'last_name' => ['type' => 'string'],
-                    'password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8],
+                    'password' => ['type' => 'string', 'format' => 'password', 'minLength' => 8, 'description' => 'Required unless send_invite'],
+                    'send_invite' => ['type' => 'boolean', 'description' => 'Doctor logins only: email a set-password link instead'],
                     'roles' => ['type' => 'array', 'items' => ['type' => 'string']],
                     'permissions' => ['type' => 'array', 'items' => ['type' => 'string']],
                     'specialist_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true],
@@ -1068,7 +1069,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Publish open availability slots for a date',
-                'description' => 'Splits [start, end) into `duration`-minute slots; `recurring` repeats weekly for `weeks` weeks. Existing slots at the same start are skipped.',
+                'description' => 'Splits [start, end) into `duration`-minute slots; `recurring` repeats weekly for `weeks` weeks. Existing slots at the same start are skipped. A past date, a start that has already passed (UTC), or a range too short for one slot is a 422.',
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
                     'date' => ['type' => 'string', 'format' => 'date'],
                     'start' => ['type' => 'string', 'example' => '09:00'],
@@ -1089,7 +1090,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Block a date (or a span within it)',
-                'description' => '`entire_day` blocks the whole day; otherwise blocks [start, end). Blocks subtract from generated availability.',
+                'description' => '`entire_day` blocks the whole day; otherwise blocks [start, end). Blocks subtract from generated availability. A past date, or a specific span starting before now (UTC), is a 422.',
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
                     'date' => ['type' => 'string', 'format' => 'date'],
                     'entire_day' => ['type' => 'boolean'],
@@ -1193,6 +1194,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Reschedule a booking (assigned doctor)',
+                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['scheduled_at'], 'properties' => ['scheduled_at' => ['type' => 'string', 'format' => 'date-time']]])],
                 'responses'   => [
@@ -1397,6 +1399,62 @@ return [
                 ],
             ],
         ],
+        '/api/portal/me/vitals' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => "The signed-in patient's latest health readings",
+                'description' => 'latest: newest reading of each type {key, label, value, unit, taken_at, source, source_label, recorded_by: patient|doctor, stale (older than 7 days)}; '
+                    . 'fields: the reading catalogue {key, label, unit, min, max, step} (blood_pressure adds systolic/diastolic bounds, bmi is derived); '
+                    . 'sources / patient_sources; reminder {due, reason: never|stale, last_taken_at, days_old, stale_after_days}.',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'latest'          => ['type' => 'array', 'items' => ['type' => 'object']],
+                        'fields'          => ['type' => 'array', 'items' => ['type' => 'object']],
+                        'sources'         => ['type' => 'object', 'additionalProperties' => ['type' => 'string']],
+                        'patient_sources' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'reminder'        => ['type' => 'object', 'properties' => [
+                            'due'              => ['type' => 'boolean'],
+                            'reason'           => ['type' => 'string', 'enum' => ['never', 'stale'], 'nullable' => true],
+                            'last_taken_at'    => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                            'days_old'         => ['type' => 'integer', 'nullable' => true],
+                            'stale_after_days' => ['type' => 'integer', 'example' => 7],
+                        ]],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                ],
+            ],
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Add my own health readings (self-reported)',
+                'description' => 'Same rules as the prescription form: each reading within its range, blood_pressure as systolic/diastolic (e.g. 120/80), BMI worked out from weight and height '
+                    . '(or the last height on file). taken_at defaults to now and may not be in the future or more than a year ago. Readings are append-only and always recorded as the patient\'s. Returns the same body as GET.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['readings'], 'properties' => [
+                    'readings' => ['type' => 'object', 'additionalProperties' => ['type' => 'string'], 'example' => ['blood_pressure' => '120/80', 'weight' => '72.5']],
+                    'taken_at' => ['type' => 'string', 'format' => 'date-time'],
+                    'source'   => ['type' => 'string', 'enum' => ['self_reported', 'patient_device'], 'default' => 'self_reported'],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Saved'],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/me/vitals/history' => [
+            'get' => [
+                'tags'       => ['Portal'],
+                'summary'    => 'My health-reading history, newest first',
+                'parameters' => [
+                    ['name' => 'key', 'in' => 'query', 'schema' => ['type' => 'string', 'example' => 'blood_pressure']],
+                    ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 50, 'maximum' => 200]],
+                ],
+                'responses'  => [
+                    '200' => ['description' => '[{id, key, label, value, unit, taken_at, source, source_label, recorded_by, stale, created_at}]'],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/portal/me/verify-phone' => [
             'post' => [
                 'tags'        => ['Portal'],
@@ -1473,11 +1531,12 @@ return [
             'get' => [
                 'tags'       => ['Portal'],
                 'summary'    => 'Specialist directory',
+                'description' => 'Only approved (or legacy) doctors who are available for booking are listed.',
                 'parameters' => [
                     ...$paginationParams,
                     ['name' => 'search', 'in' => 'query', 'description' => 'Matches name or specialty', 'schema' => ['type' => 'string']],
                     ['name' => 'specialty', 'in' => 'query', 'description' => 'Exact specialty filter', 'schema' => ['type' => 'string']],
-                    ['name' => 'available', 'in' => 'query', 'schema' => ['type' => 'boolean']],
+                    ['name' => 'available', 'in' => 'query', 'description' => 'Accepted for compatibility; unavailable doctors are never listed', 'schema' => ['type' => 'boolean']],
                     ['name' => 'location', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'language', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'gender', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['male', 'female']]],
@@ -1518,6 +1577,7 @@ return [
             'get' => [
                 'tags'       => ['Public'],
                 'summary'    => 'Public specialist search (homepage autocomplete)',
+                'description' => 'Only approved (or legacy) doctors who are available for booking are listed; /api/public/facets and /api/public/specialties count the same set.',
                 'parameters' => [
                     ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'specialty', 'in' => 'query', 'schema' => ['type' => 'string']],
@@ -1637,6 +1697,123 @@ return [
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
+            ],
+        ],
+        // ----- Doctor onboarding (invite → set password → checklist → review) -----
+        '/api/auth/staff/accept-invite' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Accept a doctor invite: choose a password and sign in',
+                'description' => 'Body {token, password}. The one-time token from the invite email (valid 7 days) IS the credential. Password: 8+ characters. Success returns the same session as staff sign-in; the link stops working. A bad / expired / used link is a 422 on `token`.',
+                'operationId' => 'staffAcceptInvite',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['token', 'password'], 'properties' => ['token' => ['type' => 'string'], 'password' => ['type' => 'string', 'format' => 'password']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Password set and signed in', ...$json($envelope($authData('#/components/schemas/StaffUser')))],
+                    '401' => ['description' => 'Account deactivated'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/auth/staff/forgot-password' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Email a staff (doctor) login a password reset link',
+                'description' => 'Body {email}. Always the same reply, in content and timing, whether or not the account exists (the lookup and email happen after the reply is sent). The link is single-use and valid for 1 hour, and only ever goes to the account\'s inbox — it is never in the reply, in any environment (outside production it is written to the app log for testing). At most one email per address per minute (plus the global rate limit).',
+                'operationId' => 'staffForgotPassword',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['email'], 'properties' => ['email' => ['type' => 'string', 'format' => 'email']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Request accepted', ...$json($envelope(['type' => 'object', 'properties' => ['sent' => ['type' => 'boolean']]]))],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '429' => ['description' => 'Too many requests'],
+                ],
+            ],
+        ],
+        '/api/auth/staff/reset-password' => [
+            'post' => [
+                'tags'        => ['Auth'],
+                'summary'     => 'Choose a new staff password from a reset link and sign in',
+                'description' => 'Body {token, password}. Password: 8+ characters. Success returns the same session as staff sign-in. A bad / expired / used link is a 422 on `token`.',
+                'operationId' => 'staffResetPassword',
+                'security'    => [],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['token', 'password'], 'properties' => ['token' => ['type' => 'string'], 'password' => ['type' => 'string', 'format' => 'password']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Password updated and signed in', ...$json($envelope($authData('#/components/schemas/StaffUser')))],
+                    '401' => ['description' => 'Account deactivated'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/onboarding' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => "The signed-in doctor's onboarding checklist and review status",
+                'description' => '`checklist` booleans: photo, bio, qualifications, mdcn, signature, availability (weekly hours or a future open slot), payout. `status`: invited | pending_review | approved | rejected | suspended (a legacy doctor reads as approved); `rejection_reason` when sent back.',
+                'operationId' => 'doctorOnboarding',
+                'responses'   => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']],
+            ],
+        ],
+        '/api/doctor/onboarding/submit' => [
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Submit the completed profile for review',
+                'description' => 'Only when every checklist item is done (422 names what is missing) and the profile is onboarding or was sent back. Moves to pending_review and notifies the reviewers (specialists.manage) in-app and by email.',
+                'operationId' => 'doctorOnboardingSubmit',
+                'responses'   => ['200' => ['description' => 'Submitted'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/invite' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Invite (or re-invite) a doctor by email',
+                'description' => "Requires specialists.manage. Creates (from the specialist's email) or reuses the doctor login, which has no usable password, and emails it a one-time set-password link valid for 7 days; calling it again resends and the old link stops working. An existing login keeps its own email. 422 when there is no email, the email belongs to another login, the doctor has already set a password (they use forgot-password), or the doctor is already live (approved / legacy / suspended) with no login — that login is created from Staff (staff.manage). Outside production `dev_link` is included for testing.",
+                'operationId' => 'specialistInvite',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'Invite sent (`email_sent`, `expires_at`, `login`)'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/review-queue' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'How many doctors are waiting for review (back-office badge)',
+                'description' => 'Requires specialists.manage. A count of specialists in pending_review — no names.',
+                'operationId' => 'specialistReviewQueue',
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => ['pending_review' => ['type' => 'integer']]]))],
+                    '403' => ['description' => 'Missing specialists.manage'],
+                ],
+            ],
+        ],
+        '/api/specialists/{id}/onboarding' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "A doctor's onboarding checklist, profile and login state (review panel)",
+                'description' => 'Requires specialists.manage.',
+                'operationId' => 'specialistOnboarding',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/approve' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Approve a doctor's submitted profile (listed + bookable)",
+                'description' => 'Requires specialists.manage. Only from pending_review (or suspended, to reinstate); emails the doctor.',
+                'operationId' => 'specialistApprove',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'Approved'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/reject' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Send a submitted profile back to the doctor with a reason',
+                'description' => 'Requires specialists.manage. Body {reason} (required, ≤ 2000 chars). Only from pending_review; the doctor sees the reason and is emailed.',
+                'operationId' => 'specialistReject',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['reason'], 'properties' => ['reason' => ['type' => 'string']]])],
+                'responses'   => ['200' => ['description' => 'Sent back'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
         ],
         '/api/specialists' => [

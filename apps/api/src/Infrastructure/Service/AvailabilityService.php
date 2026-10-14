@@ -30,7 +30,7 @@ final class AvailabilityService
     private const LOOKAHEAD_DAYS = 21; // scan window to collect available days
     private const LEAD_MINUTES   = 60; // earliest bookable slot = now + 1h
 
-    /** Fallback when a specialist has no schedule: weekdays 09:00–17:00. */
+    /** Fallback when an approved specialist has no schedule: weekdays 09:00–17:00. */
     private const DEFAULT_HOURS = [
         '1' => [['09:00', '17:00']],
         '2' => [['09:00', '17:00']],
@@ -125,10 +125,22 @@ final class AvailabilityService
         return !isset($booked[$when->format('Y-m-d H:i')]);
     }
 
+    /**
+     * The recurring grid in play. The weekday default only stands in for an
+     * approved doctor who never set hours — a doctor still onboarding (or
+     * suspended) must never look bookable on made-up hours.
+     *
+     * @return array<string, list<array{0:string,1:string}>>
+     */
+    private function weeklyHours(Specialist $specialist): array
+    {
+        return $specialist->getWeeklyHours() ?? ($specialist->isApproved() ? self::DEFAULT_HOURS : []);
+    }
+
     /** Does $when land exactly on the specialist's recurring weekly grid? */
     private function onWeeklyGrid(Specialist $specialist, DateTimeImmutable $when): bool
     {
-        $hours = $specialist->getWeeklyHours() ?? self::DEFAULT_HOURS;
+        $hours = $this->weeklyHours($specialist);
         foreach ($hours[(string) ((int) $when->format('w'))] ?? [] as [$start, $end]) {
             $s = $this->at($when, $start);
             $e = $this->at($when, $end);
@@ -211,7 +223,7 @@ final class AvailabilityService
         DateTimeImmutable $lead,
         int $maxDays,
     ): array {
-        $hours = $specialist->getWeeklyHours() ?? self::DEFAULT_HOURS;
+        $hours = $this->weeklyHours($specialist);
 
         $days = [];
         for ($i = 0; $i < self::LOOKAHEAD_DAYS && count($days) < $maxDays; $i++) {

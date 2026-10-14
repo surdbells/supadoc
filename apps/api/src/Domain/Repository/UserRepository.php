@@ -36,6 +36,59 @@ final class UserRepository extends BaseRepository
             ->getOneOrNullResult();
     }
 
+    /** The user holding a one-time set-password link, by the token's hash. */
+    public function findByPasswordTokenHash(string $hash): ?User
+    {
+        return $this->qb()
+            ->andWhere('e.passwordTokenHash = :hash')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('hash', $hash)
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    /**
+     * Doctor logins for several specialists at once, keyed by specialist id.
+     *
+     * @param list<string> $specialistIds
+     * @return array<string, User>
+     */
+    public function findBySpecialistIds(array $specialistIds): array
+    {
+        if ($specialistIds === []) {
+            return [];
+        }
+        $rows = $this->qb()
+            ->andWhere('e.specialistId IN (:ids)')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('ids', array_values($specialistIds))
+            ->getQuery()
+            ->getResult();
+
+        $out = [];
+        foreach ($rows as $user) {
+            $out[(string) $user->getSpecialistId()] ??= $user;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Active staff who hold a permission (super_admins hold every one). Done in
+     * PHP — the grants live in a JSON column and the staff list is small.
+     *
+     * @return list<User>
+     */
+    public function withPermission(string $permission): array
+    {
+        return array_values(array_filter(
+            $this->all(),
+            static fn (User $u): bool => $u->isActive()
+                && (in_array('super_admin', $u->getRoles(), true) || in_array($permission, $u->getPermissions(), true)),
+        ));
+    }
+
     /**
      * All staff users (non-deleted), by name — the back-office staff directory.
      *

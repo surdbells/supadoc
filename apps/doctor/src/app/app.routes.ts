@@ -7,6 +7,21 @@ export const appRoutes: Route[] = [
     path: 'auth/login',
     loadComponent: () => import('./auth/doctor-login').then((m) => m.DoctorLogin),
   },
+  // Public one-time-link pages: the invite's first password, and forgot / reset.
+  {
+    path: 'auth/set-password',
+    data: { mode: 'invite' },
+    loadComponent: () => import('./auth/choose-password').then((m) => m.DoctorChoosePassword),
+  },
+  {
+    path: 'auth/forgot-password',
+    loadComponent: () => import('./auth/forgot-password').then((m) => m.DoctorForgotPassword),
+  },
+  {
+    path: 'auth/reset-password',
+    data: { mode: 'reset' },
+    loadComponent: () => import('./auth/choose-password').then((m) => m.DoctorChoosePassword),
+  },
   {
     // In-call cockpit — reached via a preauthenticated join token, outside the shell.
     path: 'call/:token',
@@ -24,6 +39,12 @@ export const appRoutes: Route[] = [
         path: 'dashboard',
         loadComponent: () =>
           import('./dashboard/dashboard').then((m) => m.DoctorDashboard),
+      },
+      {
+        // First-login checklist + "Submit for review" (nothing else is blocked).
+        path: 'onboarding',
+        loadComponent: () =>
+          import('./onboarding/onboarding').then((m) => m.DoctorOnboarding),
       },
       {
         path: 'schedule',

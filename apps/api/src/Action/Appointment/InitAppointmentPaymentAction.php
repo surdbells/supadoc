@@ -56,6 +56,12 @@ final class InitAppointmentPaymentAction
         $patient    = $this->patients->findOrFail($customerId);
         /** @var Specialist $specialist */
         $specialist = $this->specialists->findOrFail($specialistId);
+        // Never take a card payment for a doctor who can't be booked.
+        if (!$specialist->isBookable()) {
+            return $this->error($response, 'Validation failed', 422, [
+                'specialist_id' => 'This specialist is not currently available',
+            ]);
+        }
 
         $email = trim($patient->getEmail());
         if ($this->isUnusableEmail($email)) {

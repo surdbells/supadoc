@@ -23,6 +23,7 @@ import type {
   DoctorAvailabilityDto,
   DoctorCopilotStateDto,
   DoctorDashboardDto,
+  DoctorOnboardingDto,
   DoctorPatientListItemDto,
   DoctorPatientRecordDto,
   DoctorProfileDto,
@@ -32,6 +33,7 @@ import type {
   DoctorScheduleDto,
   EarningsSummaryDto,
   EarningsTxnDto,
+  CertificatesListResponse,
   LabOrderDto,
   MedicalCertificateDto,
   MessageDto,
@@ -227,6 +229,19 @@ export class DoctorApi {
 
   requestPayout(amount: string, note?: string): Observable<SuccessResponse<PayoutDto>> {
     return this.api.post<SuccessResponse<PayoutDto>>('api/doctor/payouts', { amount, note });
+  }
+
+  /** GET /api/doctor/onboarding — first-login checklist + review status. */
+  onboarding(): Observable<SuccessResponse<DoctorOnboardingDto>> {
+    return this.api.get<SuccessResponse<DoctorOnboardingDto>>('api/doctor/onboarding');
+  }
+
+  /** POST /api/doctor/onboarding/submit — send the finished profile for review. */
+  submitOnboarding(): Observable<SuccessResponse<DoctorOnboardingDto>> {
+    return this.api.post<SuccessResponse<DoctorOnboardingDto>>(
+      'api/doctor/onboarding/submit',
+      {},
+    );
   }
 
   /** GET /api/doctor/profile — the doctor's own profile (email + weekly hours). */
@@ -493,8 +508,9 @@ export class DoctorApi {
 
   // ----- Certificates + printable documents -----
 
-  listCertificates(id: string): Observable<SuccessResponse<MedicalCertificateDto[]>> {
-    return this.api.get<SuccessResponse<MedicalCertificateDto[]>>(
+  /** `meta.earliest_from_date` is the earliest sick-leave start the API accepts. */
+  listCertificates(id: string): Observable<CertificatesListResponse> {
+    return this.api.get<CertificatesListResponse>(
       `${this.base(id)}/certificates`,
     );
   }

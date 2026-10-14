@@ -17,15 +17,21 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, type Subscription } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
-import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
+import { apiErrorFields, apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type {
   AllergyRow,
   AllergySeverity,
   HealthProfileDto,
   MedicalDto,
   MedicationRow,
+  MyVitalsDto,
+  ReadingKey,
+  RecordVitalsInput,
+  VitalFieldDto,
+  VitalReadingDto,
 } from '@supadoc/models';
 import {
   ButtonComponent,
@@ -106,12 +112,68 @@ function isHerbalFlag(flag: string | boolean | undefined | null): boolean {
   return /^(1|yes|true)$/i.test((flag ?? '').trim());
 }
 
+/** Icon per health reading (the catalogue itself comes from the API). */
+const VITAL_ICON: Record<ReadingKey, string> = {
+  temperature: 'thermometer',
+  heart_rate: 'heart-pulse',
+  blood_pressure: 'gauge',
+  respiratory_rate: 'wind',
+  oxygen_saturation: 'activity',
+  blood_sugar: 'droplet',
+  weight: 'scale',
+  height: 'ruler',
+  bmi: 'user',
+  pain_score: 'circle-alert',
+};
+
+/** "e.g." hints for the Update vitals boxes. */
+const VITAL_PLACEHOLDER: Partial<Record<ReadingKey, string>> = {
+  temperature: 'e.g 36.8',
+  heart_rate: 'e.g 72',
+  respiratory_rate: 'e.g 16',
+  oxygen_saturation: 'e.g 98',
+  blood_sugar: 'e.g 5.4',
+  weight: 'e.g 70.5',
+  height: 'e.g 172',
+  pain_score: '0 (none) – 10 (worst)',
+};
+
+/** The single-number readings the patient types (blood pressure is two boxes; BMI is worked out). */
+const VITAL_NUMBER_KEYS = [
+  'temperature',
+  'heart_rate',
+  'respiratory_rate',
+  'oxygen_saturation',
+  'blood_sugar',
+  'weight',
+  'height',
+  'pain_score',
+] as const satisfies readonly ReadingKey[];
+type VitalNumberKey = (typeof VITAL_NUMBER_KEYS)[number];
+
+function isVitalNumberKey(key: string): key is VitalNumberKey {
+  return (VITAL_NUMBER_KEYS as readonly string[]).includes(key);
+}
+
+/** A local date-time as an `<input type="datetime-local">` value (YYYY-MM-DDTHH:mm). */
+function localDateTimeValue(d: Date): string {
+  const p = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** BMI to one decimal from kg and cm (as the API works it out), or null when either is missing. */
+function bmiOf(weightKg: number | null, heightCm: number | null): number | null {
+  if (!weightKg || !heightCm || weightKg <= 0 || heightCm <= 0) return null;
+  return Math.round((weightKg / (heightCm / 100) ** 2) * 10) / 10;
+}
+
 type View =
   | 'home'
   | 'personal'
   | 'personal-edit'
   | 'medical'
   | 'medical-add'
+  | 'vitals-edit'
   | 'insurance'
   | 'emergency';
 
@@ -457,6 +519,7 @@ interface SectionCard {
             }"
           />
           <ng-container [ngTemplateOutlet]="tipsBanner" />
+          <ng-container [ngTemplateOutlet]="vitalsCard" />
           @if (!healthLoaded()) {
             <ng-container [ngTemplateOutlet]="healthUnavailable" />
           } @else if (hasMedical()) {
@@ -945,6 +1008,148 @@ interface SectionCard {
           }
         }
 
+        @case ('vitals-edit') {
+          <ng-container
+            [ngTemplateOutlet]="subHeader"
+            [ngTemplateOutletContext]="{
+              title: 'Update vitals',
+              subtitle:
+                'Add the readings you have and leave the rest blank. Your doctor sees them before and during your visits.',
+            }"
+          />
+          @if (vitalsState() !== 'ready') {
+            <ng-container [ngTemplateOutlet]="vitalsUnavailable" />
+          } @else {
+            <form
+              [formGroup]="vitalsForm"
+              (ngSubmit)="saveVitals()"
+              class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6"
+              novalidate
+            >
+              <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+                @for (f of vitalFields(); track f.key) {
+                  @if (f.key === 'blood_pressure') {
+                    <div class="flex w-full flex-col gap-2" role="group" aria-labelledby="bp-label">
+                      <span id="bp-label" class="font-sans text-caption text-slate"
+                        >{{ f.label }} ({{ f.unit }})</span
+                      >
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="number"
+                          inputmode="numeric"
+                          formControlName="systolic"
+                          (input)="noteBadInput('systolic', $event)"
+                          placeholder="e.g 120"
+                          aria-label="Systolic (top number)"
+                          [min]="f.systolic?.min ?? null"
+                          [max]="f.systolic?.max ?? null"
+                          step="1"
+                          [class]="rowInput + ' w-full min-w-0'"
+                        />
+                        <span class="font-sans text-body text-slate" aria-hidden="true">/</span>
+                        <input
+                          type="number"
+                          inputmode="numeric"
+                          formControlName="diastolic"
+                          (input)="noteBadInput('diastolic', $event)"
+                          placeholder="e.g 80"
+                          aria-label="Diastolic (bottom number)"
+                          [min]="f.diastolic?.min ?? null"
+                          [max]="f.diastolic?.max ?? null"
+                          step="1"
+                          [class]="rowInput + ' w-full min-w-0'"
+                        />
+                      </div>
+                      @if (bpError(f); as e) {
+                        <span class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                      } @else {
+                        <span class="font-sans text-caption text-slate">Top number / bottom number</span>
+                      }
+                    </div>
+                  } @else if (f.derived) {
+                    <div class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >{{ f.label }} ({{ f.unit }})</span
+                      >
+                      <span
+                        class="rounded-field border border-dashed border-cloud bg-glacier px-4 py-3 font-sans text-body-sm"
+                        [class]="bmiPreview() !== null ? 'font-semibold text-ink' : 'text-slate'"
+                        aria-live="polite"
+                        >{{ bmiPreview() ?? '—' }}</span
+                      >
+                      <span class="font-sans text-caption text-slate">{{ bmiHint() }}</span>
+                    </div>
+                  } @else if (isNumberKey(f.key)) {
+                    <label class="flex w-full flex-col gap-2">
+                      <span class="font-sans text-caption text-slate"
+                        >{{ f.label }} ({{ f.unit }})</span
+                      >
+                      <input
+                        type="number"
+                        [attr.inputmode]="(f.step ?? 1) < 1 ? 'decimal' : 'numeric'"
+                        [formControlName]="f.key"
+                        (input)="noteBadInput(f.key, $event)"
+                        [placeholder]="placeholder(f.key)"
+                        [min]="f.min"
+                        [max]="f.max"
+                        [attr.step]="f.step ?? 'any'"
+                        [attr.aria-invalid]="vitalFieldError(f) ? true : null"
+                        [class]="rowInput"
+                      />
+                      @if (vitalFieldError(f); as e) {
+                        <span class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                      }
+                    </label>
+                  }
+                }
+              </div>
+
+              <div class="grid grid-cols-1 gap-x-6 gap-y-5 border-t border-cloud pt-5 md:grid-cols-2">
+                <label class="flex w-full flex-col gap-2">
+                  <span class="font-sans text-caption text-slate">When were these taken?</span>
+                  <input
+                    type="datetime-local"
+                    formControlName="takenAt"
+                    [attr.max]="takenAtMax()"
+                    [attr.min]="takenAtMin()"
+                    [class]="rowInput + ' w-full min-w-0'"
+                  />
+                  @if (takenAtError(); as e) {
+                    <span class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                  }
+                </label>
+                <label class="flex w-fit cursor-pointer items-start gap-2.5 md:mt-7">
+                  <input
+                    type="checkbox"
+                    formControlName="device"
+                    class="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-ash accent-cerulean"
+                  />
+                  <span class="flex flex-col gap-0.5 font-sans text-body-sm text-ink">
+                    Measured with my own device
+                    <span class="text-caption text-slate"
+                      >e.g. a blood-pressure monitor, thermometer or smart scale</span
+                    >
+                  </span>
+                </label>
+              </div>
+
+              @if (vitalsFormError()) {
+                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert" role="alert">
+                  {{ vitalsFormError() }}
+                </p>
+              }
+              <div class="flex flex-wrap gap-3">
+                <sd-button variant="outline" type="button" (click)="view.set('medical')"
+                  >Cancel</sd-button
+                >
+                <sd-button type="submit" [disabled]="savingVitals()">
+                  {{ savingVitals() ? 'Saving…' : 'Save readings' }}
+                </sd-button>
+              </div>
+            </form>
+          }
+        }
+
         @case ('insurance') {
           <ng-container
             [ngTemplateOutlet]="subHeader"
@@ -1170,6 +1375,106 @@ interface SectionCard {
         >
           <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
           <div class="h-40 animate-pulse rounded-card bg-cloud"></div>
+        </div>
+      }
+    </ng-template>
+
+    <!-- Vitals (Medical Information): latest reading of each type -->
+    <ng-template #vitalsCard>
+      <section
+        class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+        aria-labelledby="vitals-heading"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h3
+            id="vitals-heading"
+            class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
+          >
+            <sd-icon name="heart-pulse" [size]="20" />Vitals
+          </h3>
+          @if (vitalsState() === 'ready') {
+            <sd-button size="sm" (click)="openVitalsEdit()">
+              <sd-icon [name]="latestVitals().length ? 'pencil' : 'plus'" [size]="16" />
+              {{ latestVitals().length ? 'Update vitals' : 'Add vitals' }}
+            </sd-button>
+          }
+        </div>
+        @if (vitalsState() !== 'ready') {
+          <ng-container [ngTemplateOutlet]="vitalsUnavailable" />
+        } @else if (latestVitals().length) {
+          @if (vitalsReminder()?.reason === 'stale') {
+            <p class="flex items-start gap-2 rounded-field bg-warning/10 px-4 py-3 font-sans text-caption text-ink">
+              <sd-icon name="clock" [size]="16" class="mt-px shrink-0 text-warning" />
+              Your latest readings are {{ vitalsReminder()?.days_old }} days old. Add new ones
+              so your doctor sees how you are doing now.
+            </p>
+          }
+          <ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            @for (v of latestVitals(); track v.key) {
+              <li class="flex items-start gap-3 rounded-field bg-glacier px-4 py-3">
+                <span
+                  class="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-cerulean"
+                >
+                  <sd-icon [name]="vitalIcon(v.key)" [size]="18" />
+                </span>
+                <div class="flex min-w-0 flex-1 flex-col gap-1">
+                  <span class="font-sans text-caption text-slate">{{ v.label }}</span>
+                  <span class="font-sans text-body font-semibold text-ink"
+                    >{{ v.value }}
+                    <span class="font-normal text-caption text-slate">{{ v.unit }}</span></span
+                  >
+                  <span class="font-sans text-caption text-slate">{{ takenAgo(v.taken_at) }}</span>
+                  <span class="flex flex-wrap gap-1.5">
+                    <span
+                      class="rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
+                      [class]="v.recorded_by === 'patient' ? 'bg-sky/10 text-sky' : 'bg-teal/10 text-teal'"
+                      [attr.title]="v.source_label"
+                      >{{ v.recorded_by === 'patient' ? 'Self-reported' : 'From your doctor' }}</span
+                    >
+                    @if (v.stale) {
+                      <span
+                        class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-medium text-warning"
+                        >May be out of date</span
+                      >
+                    }
+                  </span>
+                </div>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="rounded-field bg-glacier px-4 py-4 font-sans text-body-sm text-slate">
+            No readings yet. Add your blood pressure, weight and other readings so your doctor
+            has them before your visit.
+          </p>
+        }
+      </section>
+    </ng-template>
+
+    <ng-template #vitalsUnavailable>
+      @if (vitalsState() === 'error') {
+        <div
+          class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-field bg-alert/10 px-4 py-3"
+          role="alert"
+        >
+          <p class="flex items-start gap-2 font-label text-caption text-alert">
+            <sd-icon name="triangle-alert" [size]="16" class="mt-px shrink-0" />
+            {{ vitalsError() }}
+          </p>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean"
+            (click)="loadVitals()"
+          >
+            <sd-icon name="refresh-cw" [size]="14" />
+            Try again
+          </button>
+        </div>
+      } @else {
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading your vitals">
+          <div class="h-24 animate-pulse rounded-field bg-cloud"></div>
+          <div class="h-24 animate-pulse rounded-field bg-cloud"></div>
+          <div class="hidden h-24 animate-pulse rounded-field bg-cloud xl:block"></div>
         </div>
       }
     </ng-template>
@@ -1493,6 +1798,8 @@ export class MyProfile {
   private readonly destroyRef = inject(DestroyRef);
   private readonly patient = inject(PatientApi);
   private readonly auth = inject(AuthService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Phone verification (inline in Personal Information).
@@ -1576,7 +1883,7 @@ export class MyProfile {
       icon: 'heart-pulse',
       tint: 'bg-teal/10 text-teal',
       title: 'Medical Information',
-      subtitle: 'History, allergies, medications and conditions',
+      subtitle: 'Vitals, history, allergies, medications and conditions',
     },
     {
       key: 'insurance',
@@ -1662,6 +1969,45 @@ export class MyProfile {
   protected readonly healthError = signal('');
   private healthSub?: Subscription;
 
+  // ----- Vitals (GET/POST /api/portal/me/vitals) -----
+  protected readonly vitalsState = signal<'loading' | 'ready' | 'error'>('loading');
+  protected readonly vitalsError = signal('');
+  private readonly vitalsData = signal<MyVitalsDto | null>(null);
+  private vitalsSub?: Subscription;
+  protected readonly latestVitals = computed<VitalReadingDto[]>(() => this.vitalsData()?.latest ?? []);
+  protected readonly vitalsReminder = computed(() => this.vitalsData()?.reminder ?? null);
+  /** The form's boxes, in the API's catalogue order (only the ones this form knows how to show). */
+  protected readonly vitalFields = computed<VitalFieldDto[]>(() =>
+    (this.vitalsData()?.fields ?? []).filter(
+      (f) => f.key === 'blood_pressure' || !!f.derived || isVitalNumberKey(f.key),
+    ),
+  );
+  protected readonly savingVitals = signal(false);
+  /** Set on the first save attempt, so empty boxes aren't flagged before then. */
+  private readonly vitalsSubmitted = signal(false);
+  /** Field errors from the API (`readings.<key>`, `taken_at`, `readings`). */
+  private readonly vitalsFieldErrors = signal<Record<string, string>>({});
+  /** Boxes whose text the browser can't read as a number ("37,5", "1e") — they reach the form as null. */
+  private readonly vitalsBadInput = signal<Record<string, boolean>>({});
+  protected readonly vitalsFormError = signal('');
+  protected readonly takenAtMax = signal('');
+  protected readonly takenAtMin = signal('');
+
+  protected readonly vitalsForm = this.fb.group({
+    temperature: this.fb.control<number | null>(null),
+    heart_rate: this.fb.control<number | null>(null),
+    systolic: this.fb.control<number | null>(null),
+    diastolic: this.fb.control<number | null>(null),
+    respiratory_rate: this.fb.control<number | null>(null),
+    oxygen_saturation: this.fb.control<number | null>(null),
+    blood_sugar: this.fb.control<number | null>(null),
+    weight: this.fb.control<number | null>(null),
+    height: this.fb.control<number | null>(null),
+    pain_score: this.fb.control<number | null>(null),
+    takenAt: this.fb.nonNullable.control(''),
+    device: this.fb.nonNullable.control(false),
+  });
+
   constructor() {
     this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
 
@@ -1675,6 +2021,52 @@ export class MyProfile {
       });
 
     this.loadHealthProfile();
+    this.loadVitals();
+    // An API error describes what was sent — drop it once the patient edits.
+    this.vitalsForm.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        if (Object.keys(this.vitalsFieldErrors()).length) this.vitalsFieldErrors.set({});
+        this.vitalsFormError.set('');
+      });
+
+    // Deep links from the dashboard: ?section=medical (Medical Information) or
+    // ?section=vitals (the Update vitals form). Consumed once, then dropped
+    // from the URL so Back / a refresh doesn't keep reopening it.
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((params) => {
+        const section = params.get('section');
+        if (section !== 'medical' && section !== 'vitals') return;
+        if (section === 'vitals') this.openVitalsEdit();
+        else this.view.set('medical');
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { section: null },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+      });
+  }
+
+  /** GET the patient's vitals (latest readings + the form's catalogue). */
+  protected loadVitals(): void {
+    this.vitalsSub?.unsubscribe();
+    this.vitalsState.set('loading');
+    this.vitalsError.set('');
+    this.vitalsSub = this.patient
+      .vitals()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.vitalsData.set(res.data);
+          this.vitalsState.set('ready');
+        },
+        error: (err: unknown) => {
+          this.vitalsError.set(apiErrorMessage(err, "We couldn't load your vitals."));
+          this.vitalsState.set('error');
+        },
+      });
   }
 
   /** GET the health profile; until it arrives those sections stay read-only. */
@@ -1810,7 +2202,7 @@ export class MyProfile {
 
   protected back(): void {
     if (this.view() === 'personal-edit') this.view.set('personal');
-    else if (this.view() === 'medical-add') this.view.set('medical');
+    else if (this.view() === 'medical-add' || this.view() === 'vitals-edit') this.view.set('medical');
     else this.view.set('home');
   }
 
@@ -2061,6 +2453,187 @@ export class MyProfile {
       );
     } finally {
       this.savingSection.set('');
+    }
+  }
+
+  // ----- Vitals -----
+
+  protected vitalIcon(key: ReadingKey): string {
+    return VITAL_ICON[key] ?? 'activity';
+  }
+
+  protected placeholder(key: ReadingKey): string {
+    return VITAL_PLACEHOLDER[key] ?? '';
+  }
+
+  protected isNumberKey(key: string): key is VitalNumberKey {
+    return isVitalNumberKey(key);
+  }
+
+  /** "Taken 3 days ago" / "Taken on 2 Sep 2026" (older than a month). */
+  protected takenAgo(iso: string | null): string {
+    if (!iso) return 'When it was taken is not recorded';
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return '';
+    const min = Math.max(0, Math.round((Date.now() - at.getTime()) / 60000));
+    if (min < 1) return 'Taken just now';
+    if (min < 60) return `Taken ${min} minute${min === 1 ? '' : 's'} ago`;
+    const hr = Math.round(min / 60);
+    if (hr < 24) return `Taken ${hr} hour${hr === 1 ? '' : 's'} ago`;
+    const days = Math.round(hr / 24);
+    if (days === 1) return 'Taken yesterday';
+    if (days < 31) return `Taken ${days} days ago`;
+    return `Taken on ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(at)}`;
+  }
+
+  /** Open the Update vitals form: every box blank, taken "now". */
+  protected openVitalsEdit(): void {
+    const now = new Date();
+    const yearAgo = new Date(now);
+    yearAgo.setFullYear(now.getFullYear() - 1);
+    this.takenAtMax.set(localDateTimeValue(now));
+    this.takenAtMin.set(localDateTimeValue(yearAgo));
+    this.vitalsForm.reset({ takenAt: localDateTimeValue(now), device: false });
+    this.vitalsSubmitted.set(false);
+    this.vitalsFieldErrors.set({});
+    this.vitalsBadInput.set({});
+    this.vitalsFormError.set('');
+    this.view.set('vitals-edit');
+  }
+
+  /** Track a number box the browser couldn't read, so it is flagged instead of silently left out. */
+  protected noteBadInput(key: string, event: Event): void {
+    const bad = (event.target as HTMLInputElement | null)?.validity?.badInput === true;
+    if ((this.vitalsBadInput()[key] ?? false) !== bad) {
+      this.vitalsBadInput.update((m) => ({ ...m, [key]: bad }));
+    }
+  }
+
+  /** An API error for this box first, else the box's own range check (after a save attempt or edit). */
+  protected vitalFieldError(f: VitalFieldDto): string {
+    const server = this.vitalsFieldErrors()[`readings.${f.key}`];
+    if (server) return server;
+    if (!isVitalNumberKey(f.key)) return '';
+    if (this.vitalsBadInput()[f.key]) return `Enter a number for ${f.label.toLowerCase()}`;
+    const c = this.vitalsForm.controls[f.key];
+    if (!c.errors || (!c.dirty && !this.vitalsSubmitted())) return '';
+    if (c.errors['min'] || c.errors['max']) {
+      return `${f.label} must be between ${f.min} and ${f.max} ${f.unit}`;
+    }
+    return `Enter a number for ${f.label.toLowerCase()}`;
+  }
+
+  /** Blood pressure needs both numbers, each in range, the bottom one lower. */
+  protected bpError(f: VitalFieldDto): string {
+    const server = this.vitalsFieldErrors()['readings.blood_pressure'];
+    if (server) return server;
+    const bad = this.vitalsBadInput();
+    if (bad['systolic'] || bad['diastolic']) return 'Enter blood pressure as two numbers, e.g. 120 / 80';
+    const { systolic: sc, diastolic: dc } = this.vitalsForm.controls;
+    if (!this.vitalsSubmitted() && !(sc.dirty && dc.dirty)) return '';
+    const sys = sc.value;
+    const dia = dc.value;
+    if (sys === null && dia === null) return sc.errors || dc.errors ? 'Enter blood pressure as two numbers, e.g. 120 / 80' : '';
+    if (sys === null || dia === null) return 'Enter both numbers, e.g. 120 / 80';
+    const s = f.systolic;
+    const d = f.diastolic;
+    if (sc.errors || (s && (sys < s.min || sys > s.max))) {
+      return `The top number must be between ${s?.min ?? 50} and ${s?.max ?? 260}`;
+    }
+    if (dc.errors || (d && (dia < d.min || dia > d.max))) {
+      return `The bottom number must be between ${d?.min ?? 30} and ${d?.max ?? 160}`;
+    }
+    if (dia >= sys) return 'The bottom number must be lower than the top number';
+    return '';
+  }
+
+  /** BMI from the weight typed here and the height typed here — or the height already on file. */
+  protected bmiPreview(): string | null {
+    const { weight, height } = this.vitalsForm.controls;
+    if (weight.invalid || height.invalid) return null;
+    const bmi = bmiOf(weight.value, height.value ?? this.heightOnFile());
+    const range = this.vitalFields().find((f) => f.key === 'bmi');
+    if (bmi === null || (range?.min != null && bmi < range.min) || (range?.max != null && bmi > range.max)) {
+      return null;
+    }
+    return bmi.toFixed(1);
+  }
+
+  protected bmiHint(): string {
+    if (this.bmiPreview() === null) return 'Add your weight and height to see it.';
+    return this.vitalsForm.controls.height.value === null
+      ? `Worked out from your weight and your height on file (${this.heightOnFile()} cm).`
+      : 'Worked out from your weight and height.';
+  }
+
+  private heightOnFile(): number | null {
+    const h = this.latestVitals().find((v) => v.key === 'height');
+    const n = h ? Number(h.value) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  protected takenAtError(): string {
+    const server = this.vitalsFieldErrors()['taken_at'];
+    if (server) return server;
+    const raw = this.vitalsForm.controls.takenAt.value;
+    if (!raw) return this.vitalsSubmitted() ? 'Enter when the readings were taken' : '';
+    const at = new Date(raw);
+    if (Number.isNaN(at.getTime())) return 'Enter a valid date and time';
+    if (at.getTime() > Date.now() + 60_000) return 'This can’t be in the future';
+    const min = this.takenAtMin() ? new Date(this.takenAtMin()) : null;
+    if (min && at.getTime() < min.getTime()) return 'Enter a time within the last year';
+    return '';
+  }
+
+  /** The form as the API expects it: only the boxes that were filled in. */
+  private vitalsPayload(): RecordVitalsInput {
+    const v = this.vitalsForm.getRawValue();
+    const readings: Partial<Record<ReadingKey, string>> = {};
+    for (const key of VITAL_NUMBER_KEYS) {
+      const n = v[key];
+      if (n !== null && Number.isFinite(n)) readings[key] = String(n);
+    }
+    if (v.systolic !== null && v.diastolic !== null) {
+      readings.blood_pressure = `${v.systolic}/${v.diastolic}`;
+    }
+    const at = v.takenAt ? new Date(v.takenAt) : null;
+    return {
+      readings,
+      taken_at: at && !Number.isNaN(at.getTime()) ? at.toISOString() : undefined,
+      source: v.device ? 'patient_device' : 'self_reported',
+    };
+  }
+
+  protected async saveVitals(): Promise<void> {
+    if (this.savingVitals()) return;
+    this.vitalsSubmitted.set(true);
+    this.vitalsFieldErrors.set({});
+    this.vitalsFormError.set('');
+    const fields = this.vitalFields();
+    const invalid =
+      fields.some((f) => (f.key === 'blood_pressure' ? this.bpError(f) : this.vitalFieldError(f))) ||
+      !!this.takenAtError();
+    if (invalid) {
+      this.vitalsFormError.set('Check the readings marked in red.');
+      return;
+    }
+    const input = this.vitalsPayload();
+    if (Object.keys(input.readings).length === 0) {
+      this.vitalsFormError.set('Enter at least one reading.');
+      return;
+    }
+    this.savingVitals.set(true);
+    try {
+      const res = await firstValueFrom(this.patient.recordVitals(input));
+      this.vitalsData.set(res.data);
+      this.vitalsState.set('ready');
+      this.view.set('medical');
+      this.showToast('Vitals saved successfully');
+    } catch (err) {
+      this.vitalsFieldErrors.set(apiErrorFields(err));
+      this.vitalsFormError.set(apiErrorMessage(err, 'Could not save your readings.'));
+    } finally {
+      this.savingVitals.set(false);
     }
   }
 

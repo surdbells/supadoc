@@ -72,6 +72,8 @@ use App\Infrastructure\Prescription\PrescriptionService;
 use App\Infrastructure\Prescription\PrescriptionSettings;
 use App\Infrastructure\Prescription\SignatureStore;
 use App\Infrastructure\Storage\FileVault;
+use App\Domain\Repository\VitalReadingRepository;
+use App\Infrastructure\Vitals\VitalsService;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -345,6 +347,34 @@ return [
         $c->get(UserRepository::class),
     ),
 
+    // Doctor onboarding: one-time set-password links (invite / forgot password)
+    // and the checklist → review → approval flow. Outside production, so the flow
+    // is testable without mail, an invite link is returned to the signed-in admin
+    // who sent it, and a reset link is written to the app log — never returned by
+    // the public forgot-password endpoint.
+    \App\Infrastructure\Service\StaffPasswordService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\StaffPasswordService =>
+        new \App\Infrastructure\Service\StaffPasswordService(
+            $c->get(UserRepository::class),
+            $c->get(AuthService::class),
+            $c->get(MailService::class),
+            $c->get(RedisClient::class),
+            ($_ENV['APP_ENV'] ?? 'production') !== 'production',
+            $c->get(LoggerInterface::class),
+        ),
+
+    \App\Infrastructure\Service\DoctorOnboardingService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\DoctorOnboardingService =>
+        new \App\Infrastructure\Service\DoctorOnboardingService(
+            $c->get(SpecialistRepository::class),
+            $c->get(UserRepository::class),
+            $c->get(AvailabilitySlotRepository::class),
+            $c->get(PayoutAccountRepository::class),
+            $c->get(\App\Infrastructure\Service\StaffPasswordService::class),
+            $c->get(MailService::class),
+            $c->get(StaffNotifier::class),
+            // Link in the "doctor ready for review" email to the reviewers.
+            \App\Infrastructure\Service\DoctorOnboardingService::backofficeUrlFromEnv($_ENV),
+        ),
+
     PatientNotifier::class => static fn (ContainerInterface $c): PatientNotifier =>
         new PatientNotifier($c->get(NotificationRepository::class)),
 
@@ -371,6 +401,15 @@ return [
 
     SessionMetricRepository::class => static fn (ContainerInterface $c): SessionMetricRepository =>
         new SessionMetricRepository($c->get(EntityManagerInterface::class)),
+
+    // Patient health readings: append-only history + the latest-per-type cache.
+    VitalReadingRepository::class => static fn (ContainerInterface $c): VitalReadingRepository =>
+        new VitalReadingRepository($c->get(EntityManagerInterface::class)),
+
+    VitalsService::class => static fn (ContainerInterface $c): VitalsService => new VitalsService(
+        $c->get(VitalReadingRepository::class),
+        $c->get(PatientRepository::class),
+    ),
 
     WalletRepository::class => static fn (ContainerInterface $c): WalletRepository =>
         new WalletRepository($c->get(EntityManagerInterface::class)),
@@ -447,6 +486,7 @@ return [
         $c->get(PatientNotifier::class),
         $c->get(MailService::class),
         $c->get(AuditLogger::class),
+        $c->get(VitalsService::class),
         $c->get(DrugCatalogueImporter::class),
     ),
 

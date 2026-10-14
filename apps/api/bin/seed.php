@@ -159,6 +159,8 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
     $s->setYearsExperience($years);
     $s->setLanguages($langs);
     $s->setVerified($verified);
+    // Demo doctors are already through onboarding (listed + bookable).
+    $s->setStatus(App\Domain\Enum\SpecialistStatus::APPROVED);
     $s->setWeeklyHours($hours);
     $s->setGender($gender);
     $s->setOffersInPerson($inPerson);

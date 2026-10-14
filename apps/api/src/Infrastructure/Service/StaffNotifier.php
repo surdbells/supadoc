@@ -30,6 +30,18 @@ final class StaffNotifier
         }
     }
 
+    /** Notify every active staff user who holds a permission (e.g. the admins who review doctors). */
+    public function notifyPermission(string $permission, string $type, string $title, ?string $body = null, ?string $link = null): void
+    {
+        try {
+            foreach ($this->users->withPermission($permission) as $user) {
+                $this->notifications->save(new StaffNotification($user->getId(), $type, $title, $body, $link));
+            }
+        } catch (\Throwable) {
+            // non-fatal
+        }
+    }
+
     /** Notify the doctor login linked to a specialist, if one exists. */
     public function notifyDoctor(string $specialistId, string $type, string $title, ?string $body = null, ?string $link = null): void
     {

@@ -1,13 +1,20 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { StaffUserDto, SuccessResponse } from '@supadoc/models';
+import type {
+  DoctorInviteResultDto,
+  StaffUserDto,
+  SuccessResponse,
+} from '@supadoc/models';
 import { ApiService } from './api.service';
 
 export interface CreateStaffParams {
   email: string;
   first_name: string;
   last_name: string;
-  password: string;
+  /** Temporary password — not needed when `send_invite` is set. */
+  password?: string;
+  /** Doctor logins: email a one-time set-password link instead of a password. */
+  send_invite?: boolean;
   roles?: string[];
   permissions?: string[];
   specialist_id?: string | null;
@@ -33,9 +40,14 @@ export class StaffApi {
     return this.api.get<SuccessResponse<StaffUserDto[]>>('api/staff');
   }
 
-  /** POST /api/staff — create a staff account. */
-  create(params: CreateStaffParams): Observable<SuccessResponse<StaffUserDto>> {
-    return this.api.post<SuccessResponse<StaffUserDto>>('api/staff', params);
+  /** POST /api/staff — create a staff account (`invite` is set when one was emailed). */
+  create(
+    params: CreateStaffParams,
+  ): Observable<SuccessResponse<StaffUserDto & { invite?: DoctorInviteResultDto }>> {
+    return this.api.post<SuccessResponse<StaffUserDto & { invite?: DoctorInviteResultDto }>>(
+      'api/staff',
+      params,
+    );
   }
 
   /** PATCH /api/staff/{id} — update a staff account. */

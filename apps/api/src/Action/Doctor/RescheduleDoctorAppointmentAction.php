@@ -11,6 +11,7 @@ use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\PatientNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
@@ -19,8 +20,9 @@ use App\Domain\Settings\WebUrls;
 
 /**
  * POST /api/doctor/appointments/{id}/reschedule — the assigned doctor moves a
- * booking to a new time. Sets the new time, marks it RESCHEDULED and emails the
- * patient. Doctor-owned only.
+ * booking to a new time. The new time must be one of the doctor's open slots
+ * (the patient booking rules — {@see AvailabilityService::isSlotAvailable()}).
+ * Sets the new time, marks it RESCHEDULED and emails the patient. Doctor-owned only.
  */
 final class RescheduleDoctorAppointmentAction
 {
@@ -30,6 +32,7 @@ final class RescheduleDoctorAppointmentAction
     public function __construct(
         private readonly UserRepository $users,
         private readonly AppointmentRepository $appointments,
+        private readonly AvailabilityService $availability,
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
     ) {
@@ -62,6 +65,14 @@ final class RescheduleDoctorAppointmentAction
         if (!$appointment->getStatus()->canTransitionTo(AppointmentStatus::RESCHEDULED)) {
             return $this->error($response, 'This appointment cannot be rescheduled', 422, [
                 'status' => 'Not reschedulable',
+            ]);
+        }
+
+        // The same guard as a patient booking: lead time, on the schedule, not
+        // blocked, not already taken.
+        if (!$this->availability->isSlotAvailable($appointment->getSpecialist(), $scheduledAt)) {
+            return $this->error($response, 'Validation failed', 422, [
+                'scheduled_at' => 'That time is not open on your schedule — choose an open slot at least an hour ahead (not blocked or already booked)',
             ]);
         }
 

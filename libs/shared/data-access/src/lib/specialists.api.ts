@@ -3,12 +3,15 @@ import { Observable } from 'rxjs';
 import type {
   CreateSpecialistParams,
   DayAvailability,
+  DoctorInviteResultDto,
+  DoctorOnboardingDto,
   ListAppointmentsQuery,
   PaginatedResponse,
   PricingDto,
   SpecialistAdminDto,
   SpecialistDto,
   SpecialistFacets,
+  SpecialistOnboardingReviewDto,
   SpecialtyCount,
   SuccessResponse,
   UpdateSpecialistParams,
@@ -108,6 +111,14 @@ export class SpecialistsApi {
   }
 
   /**
+   * GET /api/specialists/review-queue — how many doctors wait for review (the
+   * back-office "Needs review" badge). Staff-scoped (needs `specialists.manage`).
+   */
+  reviewQueue(): Observable<SuccessResponse<{ pending_review: number }>> {
+    return this.api.get<SuccessResponse<{ pending_review: number }>>('api/specialists/review-queue');
+  }
+
+  /**
    * POST /api/specialists — onboard a new specialist from the back office.
    * Staff-scoped (needs `specialists.manage`).
    */
@@ -132,6 +143,40 @@ export class SpecialistsApi {
     return this.api.patch<SuccessResponse<SpecialistAdminDto>>(
       `api/specialists/${encodeURIComponent(id)}`,
       params,
+    );
+  }
+
+  /**
+   * POST /api/specialists/{id}/invite — email the doctor a one-time link to set
+   * their password (creating / linking their login). Calling again resends.
+   */
+  invite(id: string): Observable<SuccessResponse<DoctorInviteResultDto>> {
+    return this.api.post<SuccessResponse<DoctorInviteResultDto>>(
+      `api/specialists/${encodeURIComponent(id)}/invite`,
+      {},
+    );
+  }
+
+  /** GET /api/specialists/{id}/onboarding — checklist, profile + login (review panel). */
+  onboardingReview(id: string): Observable<SuccessResponse<SpecialistOnboardingReviewDto>> {
+    return this.api.get<SuccessResponse<SpecialistOnboardingReviewDto>>(
+      `api/specialists/${encodeURIComponent(id)}/onboarding`,
+    );
+  }
+
+  /** POST /api/specialists/{id}/approve — list + make bookable (emails the doctor). */
+  approve(id: string): Observable<SuccessResponse<DoctorOnboardingDto>> {
+    return this.api.post<SuccessResponse<DoctorOnboardingDto>>(
+      `api/specialists/${encodeURIComponent(id)}/approve`,
+      {},
+    );
+  }
+
+  /** POST /api/specialists/{id}/reject — send the profile back with a reason. */
+  reject(id: string, reason: string): Observable<SuccessResponse<DoctorOnboardingDto>> {
+    return this.api.post<SuccessResponse<DoctorOnboardingDto>>(
+      `api/specialists/${encodeURIComponent(id)}/reject`,
+      { reason },
     );
   }
 

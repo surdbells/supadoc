@@ -3,13 +3,17 @@ import { Observable } from 'rxjs';
 import type {
   HealthProfileDto,
   HealthProfilePatch,
+  MyVitalsDto,
   PatientProfileDto,
   PatientSettingsDto,
   PatientSettingsPatch,
+  ReadingKey,
+  RecordVitalsInput,
   SessionDto,
   SuccessResponse,
   TwoFactorEnableDto,
   TwoFactorSetupDto,
+  VitalHistoryDto,
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
 import { ApiService } from './api.service';
@@ -187,6 +191,34 @@ export class PatientApi {
     return this.api.patch<SuccessResponse<HealthProfileDto>>(
       'api/portal/me/health-profile',
       patch,
+    );
+  }
+
+  // ----- Vitals -----
+
+  /** GET /api/portal/me/vitals — latest readings, the form catalogue, the reminder. */
+  vitals(): Observable<SuccessResponse<MyVitalsDto>> {
+    return this.api.get<SuccessResponse<MyVitalsDto>>('api/portal/me/vitals');
+  }
+
+  /** GET /api/portal/me/vitals/history — newest first; one reading type when `key` is given. */
+  vitalsHistory(
+    key?: ReadingKey,
+    limit?: number,
+  ): Observable<SuccessResponse<VitalHistoryDto[]>> {
+    return this.api.get<SuccessResponse<VitalHistoryDto[]>>(
+      'api/portal/me/vitals/history',
+      { key, limit },
+    );
+  }
+
+  /** POST /api/portal/me/vitals — add the patient's own readings; returns the new GET body. */
+  recordVitals(
+    input: RecordVitalsInput,
+  ): Observable<SuccessResponse<MyVitalsDto>> {
+    return this.api.post<SuccessResponse<MyVitalsDto>>(
+      'api/portal/me/vitals',
+      input,
     );
   }
 }

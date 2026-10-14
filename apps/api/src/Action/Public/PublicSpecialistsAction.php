@@ -12,6 +12,7 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /api/public/specialists?search=&specialty=&limit= — public specialist
  * search for the homepage autocomplete and browse. Capped and unpaginated.
+ * Lists only approved (or legacy) doctors who are available for booking.
  */
 final class PublicSpecialistsAction
 {
@@ -40,7 +41,7 @@ final class PublicSpecialistsAction
             'name',
             'asc',
             $search === '' ? null : $search,
-            null,
+            true, // only doctors taking bookings (the repository enforces it too)
             $specialty === '' ? null : $specialty,
             $location === '' ? null : $location,
             $language === '' ? null : $language,

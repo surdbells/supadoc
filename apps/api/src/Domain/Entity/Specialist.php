@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
+use App\Domain\Enum\SpecialistStatus;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Ramsey\Uuid\Uuid;
@@ -148,11 +149,35 @@ class Specialist
     #[ORM\Column(name: 'slot_minutes', type: 'integer', options: ['default' => 30])]
     private int $slotMinutes = 30;
 
+    /**
+     * Onboarding / review state ({@see SpecialistStatus}). NULL is a doctor from
+     * before onboarding existed and counts as approved; a new specialist starts
+     * invited and is only listed and bookable once an admin approves them.
+     */
+    #[ORM\Column(type: 'string', length: 20, nullable: true, enumType: SpecialistStatus::class)]
+    private ?SpecialistStatus $status = null;
+
+    /** When the doctor last submitted their profile for review. */
+    #[ORM\Column(name: 'submitted_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $submittedAt = null;
+
+    #[ORM\Column(name: 'approved_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $approvedAt = null;
+
+    /** Staff user id of the admin who approved the doctor. */
+    #[ORM\Column(name: 'approved_by', type: 'uuid', nullable: true)]
+    private ?string $approvedBy = null;
+
+    /** Why the last review sent the profile back — shown to the doctor. */
+    #[ORM\Column(name: 'rejection_reason', type: 'text', nullable: true)]
+    private ?string $rejectionReason = null;
+
     public function __construct(string $name, string $specialty)
     {
         $this->id        = Uuid::uuid4()->toString();
         $this->name      = $name;
         $this->specialty = $specialty;
+        $this->status    = SpecialistStatus::INVITED;
     }
 
     public function getId(): string
@@ -261,6 +286,11 @@ class Specialist
     public function setOffersInPerson(bool $offers): void
     {
         $this->offersInPerson = $offers;
+    }
+
+    public function getBio(): ?string
+    {
+        return $this->bio;
     }
 
     public function setBio(?string $bio): void
@@ -392,6 +422,80 @@ class Specialist
     public function setSlotMinutes(int $minutes): void
     {
         $this->slotMinutes = in_array($minutes, [15, 30, 45, 60], true) ? $minutes : 30;
+    }
+
+    /** The effective onboarding status — a legacy NULL reads as approved. */
+    public function getStatus(): SpecialistStatus
+    {
+        return $this->status ?? SpecialistStatus::APPROVED;
+    }
+
+    public function setStatus(SpecialistStatus $status): void
+    {
+        $this->status = $status;
+    }
+
+    /** Approved (or legacy) — may be listed in the directory. */
+    public function isApproved(): bool
+    {
+        return SpecialistStatus::isListable($this->status);
+    }
+
+    /** Approved AND switched on for bookings by the admin. */
+    public function isBookable(): bool
+    {
+        return $this->isApproved() && $this->available;
+    }
+
+    public function getRejectionReason(): ?string
+    {
+        return $this->rejectionReason;
+    }
+
+    /** The doctor sends their finished profile to an admin for review. */
+    public function submitForReview(?DateTimeImmutable $now = null): void
+    {
+        $this->status          = SpecialistStatus::PENDING_REVIEW;
+        $this->submittedAt     = $now ?? new DateTimeImmutable();
+        $this->rejectionReason = null;
+    }
+
+    /** An admin approves the doctor: listed, bookable, and shown as verified. */
+    public function approve(?string $approvedBy, ?DateTimeImmutable $now = null): void
+    {
+        $this->status          = SpecialistStatus::APPROVED;
+        $this->approvedAt      = $now ?? new DateTimeImmutable();
+        $this->approvedBy      = $approvedBy;
+        $this->rejectionReason = null;
+        $this->verified        = true;
+    }
+
+    /** An admin sends the profile back with a reason the doctor will see. */
+    public function reject(string $reason): void
+    {
+        $this->status          = SpecialistStatus::REJECTED;
+        $this->rejectionReason = trim($reason);
+        $this->approvedAt      = null;
+        $this->approvedBy      = null;
+    }
+
+    /**
+     * Review fields for the back office and the doctor's own onboarding page.
+     * Never part of the public payload.
+     *
+     * @return array<string,mixed>
+     */
+    public function toReviewArray(): array
+    {
+        $status = $this->getStatus();
+
+        return [
+            'status'           => $status->value,
+            'status_label'     => $status->label(),
+            'rejection_reason' => $this->rejectionReason,
+            'submitted_at'     => $this->submittedAt?->format(DATE_ATOM),
+            'approved_at'      => $this->approvedAt?->format(DATE_ATOM),
+        ];
     }
 
     public function toArray(): array

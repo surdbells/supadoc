@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Action\Admin;
 
+use App\Domain\Entity\Specialist;
+use App\Domain\Repository\SpecialistRepository;
+use App\Domain\Repository\UserRepository;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -58,6 +61,28 @@ trait ManagesStaff
             array_map(static fn ($p): string => strtolower(trim((string) $p)), $raw),
             static fn (string $p): bool => in_array($p, self::PERMISSIONS, true),
         )));
+    }
+
+    /**
+     * Why a doctor login can't be linked to this specialist, or null if it can:
+     * the specialist must exist, and may belong to only one login.
+     */
+    private function specialistLinkProblem(
+        SpecialistRepository $specialists,
+        UserRepository $users,
+        string $specialistId,
+        ?string $userId = null,
+    ): ?string {
+        $specialist = $specialists->find($specialistId);
+        if (!$specialist instanceof Specialist || $specialist->isDeleted()) {
+            return 'Choose an existing specialist';
+        }
+        $linked = $users->findBySpecialist($specialistId);
+        if ($linked !== null && $linked->getId() !== $userId) {
+            return 'This specialist is already linked to another login (' . $linked->getEmail() . ')';
+        }
+
+        return null;
     }
 
     /** Whether the signed-in actor holds super_admin (from the token). */

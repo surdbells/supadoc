@@ -7,6 +7,7 @@ namespace App\Infrastructure\Prescription;
 use App\Domain\Entity\Drug;
 use App\Domain\Entity\Prescription;
 use App\Infrastructure\Drug\DrugRoute;
+use App\Infrastructure\Vitals\VitalsForm;
 use DateTimeImmutable;
 
 /**
@@ -23,26 +24,10 @@ use DateTimeImmutable;
  */
 final class PrescriptionForm
 {
-    /** key => [label, unit, min, max] — the ten health-reading boxes (AC7). */
-    public const READINGS = [
-        'temperature'       => ['Temperature', '°C', 30, 45],
-        'heart_rate'        => ['Heart rate', 'beats/min', 20, 250],
-        'blood_pressure'    => ['Blood pressure', 'mmHg', null, null],
-        'respiratory_rate'  => ['Breathing rate', 'breaths/min', 4, 60],
-        'oxygen_saturation' => ['Oxygen level', '%', 50, 100],
-        'blood_sugar'       => ['Blood sugar', 'mmol/L', 1, 40],
-        'weight'            => ['Weight', 'kg', 0.5, 400],
-        'height'            => ['Height', 'cm', 30, 250],
-        'bmi'               => ['BMI', 'kg/m²', 5, 90],
-        'pain_score'        => ['Pain score', '/10', 0, 10],
-    ];
+    /** key => [label, unit, min, max] — the ten health-reading boxes (AC7); see {@see VitalsForm}. */
+    public const READINGS = VitalsForm::READINGS;
 
-    public const READING_SOURCES = [
-        'patient_device' => "Patient's own device",
-        'video'          => 'Seen on video',
-        'clinic'         => 'Clinic',
-        'lab'            => 'Lab',
-    ];
+    public const READING_SOURCES = VitalsForm::DOCTOR_SOURCES;
 
     public const PREGNANCY = [
         'no'             => 'No',
@@ -77,50 +62,11 @@ final class PrescriptionForm
         $errors = [];
         $clean  = [];
 
-        // ----- health readings -----
-        $readings = [];
+        // ----- health readings (shared rules: VitalsForm) -----
         $rawReadings = is_array($in['readings'] ?? null) ? $in['readings'] : [];
-        foreach (self::READINGS as $key => [$label, , $min, $max]) {
-            $value = trim((string) (is_scalar($rawReadings[$key] ?? null) ? $rawReadings[$key] : ''));
-            if ($value === '') {
-                continue;
-            }
-            if ($key === 'blood_pressure') {
-                if (preg_match('/^(\d{2,3})\s*\/\s*(\d{2,3})$/', $value, $m) !== 1
-                    || (int) $m[1] < 50 || (int) $m[1] > 260 || (int) $m[2] < 30 || (int) $m[2] > 160
-                    || (int) $m[2] >= (int) $m[1]) {
-                    $errors["readings.$key"] = 'Enter blood pressure as systolic/diastolic, e.g. 120/80';
-                    continue;
-                }
-                $readings[$key] = (int) $m[1] . '/' . (int) $m[2];
-                continue;
-            }
-            if (!is_numeric($value) || (float) $value < $min || (float) $value > $max) {
-                $errors["readings.$key"] = sprintf('%s must be a number between %s and %s', $label, $min, $max);
-                continue;
-            }
-            $readings[$key] = self::number((float) $value);
-        }
-        if (!isset($readings['bmi']) && isset($readings['weight'], $readings['height']) && (float) $readings['height'] > 0) {
-            $metres          = (float) $readings['height'] / 100;
-            $readings['bmi'] = self::number(round((float) $readings['weight'] / ($metres * $metres), 1));
-        }
-        $source = trim((string) ($rawReadings['source'] ?? ''));
-        if ($source !== '') {
-            if (!array_key_exists($source, self::READING_SOURCES)) {
-                $errors['readings.source'] = 'Choose where the readings came from';
-            } else {
-                $readings['source'] = $source;
-            }
-        }
-        $takenAt = trim((string) ($rawReadings['taken_at'] ?? ''));
-        if ($takenAt !== '') {
-            $at = self::parseDateTime($takenAt);
-            if ($at === null || $at > $today->modify('+1 day')) {
-                $errors['readings.taken_at'] = 'Enter when the readings were taken (not in the future)';
-            } else {
-                $readings['taken_at'] = $at->format(DATE_ATOM);
-            }
+        [$readings, $readingErrors] = VitalsForm::normalize($rawReadings, $today->modify('+1 day'), self::READING_SOURCES);
+        foreach ($readingErrors as $key => $message) {
+            $errors["readings.$key"] = $message;
         }
         $clean['readings'] = $readings;
 
@@ -328,17 +274,4 @@ final class PrescriptionForm
         return $d !== false && $d->format('Y-m-d') === $value ? $d : null;
     }
 
-    private static function parseDateTime(string $value): ?DateTimeImmutable
-    {
-        try {
-            return new DateTimeImmutable($value);
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    private static function number(float $n): string
-    {
-        return rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
-    }
 }
