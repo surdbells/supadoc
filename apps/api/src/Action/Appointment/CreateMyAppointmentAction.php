@@ -8,9 +8,11 @@ use App\Domain\Document\BookingAttachments;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
+use App\Domain\Entity\PaymentIntent;
 use App\Domain\Enum\ConsultationType;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\InsufficientFundsException;
+use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\NotificationRepository;
@@ -23,9 +25,13 @@ use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FollowUpService;
 use App\Infrastructure\Service\GuestInvitations;
+use App\Infrastructure\Service\PaymentIntentService;
+use App\Infrastructure\Service\PaymentUse;
 use App\Infrastructure\Service\PricingService;
+use App\Infrastructure\Service\SlotLock;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Ramsey\Uuid\Uuid;
@@ -50,6 +56,17 @@ use Ramsey\Uuid\Uuid;
  * sees them as this booking's files.
  *
  * A free consultation (amount 0) books without any payment.
+ *
+ * Paid by card (`payment_reference` from pay-init) or from the wallet. The slot
+ * and the money are taken in ONE transaction: the doctor's slot lock
+ * ({@see SlotLock}), the availability check again, the insert, then the
+ * payment — the card payment consumed atomically (it books once: a second use
+ * is 422 "This payment has already been used"; paid above the price → the rest
+ * to the wallet), or the wallet debited. A time taken meanwhile is 409
+ * `errors.scheduled_at` with nothing booked or charged; a card payment for a
+ * booking that can't happen (the time, the doctor or the follow-up went) is
+ * credited to the wallet and the answer says so (`errors.card_payment =
+ * credited_to_wallet`).
  *
  * A follow-up: `parent_appointment_id` names one of the patient's completed
  * consultations with the same doctor. The booking then becomes a follow-up of
@@ -79,6 +96,8 @@ final class CreateMyAppointmentAction
         private readonly AppointmentCheckout $checkout,
         private readonly AppointmentInvites $invites,
         private readonly FollowUpService $followUps,
+        private readonly PaymentIntentService $intents,
+        private readonly SlotLock $slots,
     ) {
     }
 
@@ -136,11 +155,25 @@ final class CreateMyAppointmentAction
         // findOrFail throws → 404 if the specialist id is unknown.
         $specialist = $this->specialists->findOrFail($specialistId);
 
+        // A card payment (Paystack reference from pay-init) pays for exactly this:
+        // this patient, this doctor, as this follow-up or not as one.
+        $reference = trim((string) ($body['payment_reference'] ?? ''));
+        $card      = [
+            'reference' => $reference,
+            'owner'     => $customerId,
+            'context'   => ['specialist_id' => $specialist->getId(), 'parent_appointment_id' => $parentId !== '' ? strtolower($parentId) : null],
+        ];
+
+        // A repeat of a booking this card payment already made (the answer was
+        // lost, or the app's "Complete your paid booking" after a reload): that
+        // booking is the answer — not "time taken", which would invite paying again.
+        if (($done = $this->alreadyBookedWith($reference, $customerId, $specialist->getId(), $scheduledAt)) !== null) {
+            return $this->success($response, $done->toArray(), 'Appointment already booked with this payment');
+        }
+
         // Only an approved doctor who is switched on for bookings can be booked.
         if (!$specialist->isBookable()) {
-            return $this->error($response, 'Validation failed', 422, [
-                'specialist_id' => 'This specialist is not currently available',
-            ]);
+            return $this->refuse($response, $card, ['specialist_id' => 'This specialist is not currently available']);
         }
 
         // A guest is someone else: not the patient, not the doctor, not invited twice.
@@ -155,7 +188,8 @@ final class CreateMyAppointmentAction
             $parent  = $this->appointments->findForPatient($parentId, $customerId);
             $problem = FollowUpService::patientParentProblem($parent, $specialist->getId());
             if ($problem !== null) {
-                return $this->error($response, 'Validation failed', 422, [$problem[0] => $problem[1]]);
+                // Paid as this follow-up, which it can no longer be: the payment goes to the wallet.
+                return $this->refuse($response, $card, [$problem[0] => $problem[1]]);
             }
         }
 
@@ -167,9 +201,8 @@ final class CreateMyAppointmentAction
             ]);
         }
         if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
-            return $this->error($response, 'Validation failed', 422, [
-                'scheduled_at' => 'That time is no longer available — please pick another slot',
-            ]);
+            // A card payment made for it goes to the wallet (the app then books from the wallet).
+            return $this->refuse($response, $card, ['scheduled_at' => 'That time is no longer available — please pick another slot']);
         }
 
         // Checked before any money moves, so a bad attachment never leaves a charge.
@@ -194,54 +227,90 @@ final class CreateMyAppointmentAction
             $appointment->setAmount($this->totalAmount($specialist->getConsultationFee(), count($guests)));
         }
 
-        // Two ways to pay: a verified card payment (Paystack reference) or the
-        // wallet. Card lets the patient pay the fee directly, without funding a
-        // wallet first. A free booking takes the wallet path, which posts nothing.
-        $reference = trim((string) ($body['payment_reference'] ?? ''));
-        $paidByCard = false;
-        if ($reference !== '') {
-            $cardError = $this->checkout->verify($reference, $appointment);
-            if ($cardError !== null) {
-                return $this->error($response, $cardError, 422, ['payment' => $cardError]);
+        // One transaction takes the slot and the money together: the doctor's
+        // slot lock, the availability check again (another booking may have
+        // committed since the check above), the insert with its attachments,
+        // and the payment — a verified card payment, consumed atomically (one
+        // payment books once), or the wallet debit (a free booking posts
+        // nothing). Any refusal or failure leaves no booking and no charge.
+        // The wallet debit's receipt is sent only once all of it committed.
+        $paidByCard = $reference !== '';
+        $receipt    = null;
+        $book       = function (?PaymentIntent $intent) use ($appointment, $specialist, $scheduledAt, $documentIds, $customerId, &$receipt): PaymentUse {
+            $receipt = null;
+            $this->slots->lockDoctor($specialist->getId());
+            if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
+                return PaymentUse::declined('slot', creditToWallet: true);
             }
-            $appointment->payByCard($reference);
-            $paidByCard = true;
-        } else {
-            // Charge the wallet before persisting: debit throws (with no charge)
-            // when the balance is short, so we never create an unpaid appointment.
-            // On success the appointment is marked paid and a receipt is emailed;
-            // a free booking is just marked paid (no posting, no receipt).
-            try {
-                $this->payments->chargeForBooking($appointment);
-            } catch (InsufficientFundsException) {
-                return $this->error(
-                    $response,
-                    'Your wallet balance is too low to book this consultation. Pay by card, or top up your wallet and try again.',
-                    422,
-                    ['wallet' => 'insufficient_funds'],
-                );
+            if ($intent !== null) {
+                $appointment->payByCard($intent->getReference());
             }
-        }
-
-        if ($documentIds === []) {
-            $this->appointments->save($appointment);
-        } elseif (!$this->documents->saveWithAttachments($appointment, $customerId, array_values($documentIds))) {
-            // Another booking took one of the files since the check above, so
-            // nothing was booked: the wallet charge goes straight back (a card
-            // payment's reference was never stored, so it can book again).
-            if (!$paidByCard) {
-                $this->payments->refundForCancellation($appointment);
+            if ($documentIds === []) {
+                $this->appointments->save($appointment);
+            } elseif (!$this->documents->saveWithAttachments($appointment, $customerId, array_values($documentIds))) {
+                // Another booking took one of the files meanwhile: nothing is
+                // booked, and a card payment stays unused for the retry.
+                return PaymentUse::declined('documents');
+            }
+            if ($intent === null) {
+                $receipt = $this->payments->chargeForBooking($appointment, sendReceipt: false);
             }
 
+            return PaymentUse::used($appointment->getId());
+        };
+
+        try {
+            $use = $paidByCard
+                ? $this->intents->consume($reference, PaymentIntent::PURPOSE_BOOKING, $customerId, $appointment->getAmount(), $book, $card['context'])
+                : $this->appointments->transactional(static fn (): PaymentUse => $book(null));
+        } catch (ValidationException $e) {
+            // Two sends of one booking at once: the first booked, this one found the payment used.
+            if ($paidByCard && ($done = $this->alreadyBookedWith($reference, $customerId, $specialist->getId(), $scheduledAt)) !== null) {
+                return $this->success($response, $done->toArray(), 'Appointment already booked with this payment');
+            }
+            throw $e;
+        } catch (InsufficientFundsException) {
             return $this->error(
                 $response,
-                'Validation failed',
+                'Your wallet balance is too low to book this consultation. Pay by card, or top up your wallet and try again.',
                 422,
-                BookingAttachments::problems($documentIds, $this->documents->attachmentStates($customerId, array_values($documentIds)))
-                    ?: ['document_ids' => BookingAttachments::TAKEN],
+                ['wallet' => 'insufficient_funds'],
             );
+        } catch (UniqueConstraintViolationException $e) {
+            if (!SlotLock::isSlotTaken($e)) {
+                throw $e;
+            }
+            // Booked by a path that didn't wait for the slot lock: nothing was
+            // stored or charged; a card payment is still unused.
+            $taken = SlotLock::TAKEN . '.' . ($paidByCard ? $this->keptNote() : '');
+
+            return $this->error($response, $taken, 409, ['scheduled_at' => SlotLock::TAKEN]);
         }
 
+        if (!$use->used) {
+            if ($use->value === 'documents') {
+                return $this->error(
+                    $response,
+                    'Validation failed',
+                    422,
+                    BookingAttachments::problems($documentIds, $this->documents->attachmentStates($customerId, array_values($documentIds)))
+                        ?: ['document_ids' => BookingAttachments::TAKEN],
+                );
+            }
+            $errors  = ['scheduled_at' => SlotLock::TAKEN];
+            $message = SlotLock::TAKEN . '.';
+            if ($use->credited !== null) {
+                $errors['card_payment'] = 'credited_to_wallet';
+                $message .= ' ' . $this->walletNote($use->credited);
+            } elseif ($paidByCard) {
+                $message .= $this->keptNote();
+            }
+
+            return $this->error($response, $message, 409, $errors);
+        }
+
+        // Booked and committed: now the wallet receipt (none for a card or free booking).
+        $this->payments->sendReceipt($receipt);
         if ($paidByCard) {
             $this->checkout->notifyCardPayment($appointment);
         }
@@ -259,7 +328,85 @@ final class CreateMyAppointmentAction
             '/schedule',
         );
 
-        return $this->created($response, $a, 'Appointment booked');
+        $message = 'Appointment booked';
+        if ($use->overpaidCredited !== null) {
+            $message .= sprintf('. You paid %s more than the price — it was added to your VideoMed wallet.', $this->money($use->overpaidCredited));
+        }
+
+        return $this->created($response, $a, $message);
+    }
+
+    /**
+     * A refusal of this booking (422). When it can't be fixed by trying again
+     * with the same card payment — the doctor or the follow-up went, the time
+     * was taken — the patient's payment for it goes to their wallet now, and
+     * the answer says so (`errors.card_payment = credited_to_wallet`).
+     *
+     * @param array{reference:string, owner:string, context:array<string,?string>} $card
+     * @param array<string,string>                                                $errors
+     */
+    private function refuse(ResponseInterface $response, array $card, array $errors): ResponseInterface
+    {
+        $credited = $card['reference'] !== ''
+            ? $this->intents->settleUnusedFor($card['reference'], $card['owner'], PaymentIntent::PURPOSE_BOOKING, $card['context'])
+            : null;
+        if ($credited === null) {
+            return $this->error($response, 'Validation failed', 422, $errors);
+        }
+
+        return $this->error(
+            $response,
+            rtrim((string) reset($errors), '.') . '. ' . $this->walletNote($credited),
+            422,
+            $errors + ['card_payment' => 'credited_to_wallet'],
+        );
+    }
+
+    /**
+     * The patient's open booking with this doctor at this time that card
+     * payment `$reference` already paid for — i.e. this very request, sent
+     * again — or null (no reference, not used, used for something else, or
+     * that booking was moved or is no longer open: then "already used" stands).
+     */
+    private function alreadyBookedWith(string $reference, string $customerId, string $specialistId, DateTimeImmutable $at): ?Appointment
+    {
+        $id = $reference !== '' ? $this->intents->usedFor($reference, $customerId, PaymentIntent::PURPOSE_BOOKING) : null;
+        if ($id === null || !Uuid::isValid($id)) {
+            return null;
+        }
+        $booked = $this->appointments->findForPatient($id, $customerId);
+        if ($booked === null || $booked->getSpecialist()->getId() !== $specialistId || !$booked->getStatus()->isOpenBooking()) {
+            return null;
+        }
+        $when = $booked->getScheduledAt();
+        // The same instant (stored as the wall-clock time the booking was given, so either reading counts).
+        $same = $when->getTimestamp() === $at->getTimestamp() || $when->format('Y-m-d H:i:s') === $at->format('Y-m-d H:i:s');
+
+        return $same ? $booked : null;
+    }
+
+    /** "Your card payment of ₦10,000.00 has been added to your VideoMed wallet — book from your wallet instead." */
+    private function walletNote(string $amount): string
+    {
+        return sprintf('Your card payment of %s has been added to your VideoMed wallet — book from your wallet instead.', $this->money($amount));
+    }
+
+    /** Said when a refused booking leaves its card payment unused (it can still book; else the sweep credits it). */
+    private function keptNote(): string
+    {
+        return sprintf(
+            ' Your card payment is kept for another time — or, if unused, added to your VideoMed wallet automatically within about %d minutes.',
+            $this->intents->creditAfterMinutes(),
+        );
+    }
+
+    /** "₦5,000.00" (display only — amounts stay decimal strings). */
+    private function money(string $amount): string
+    {
+        $currency           = $this->pricing->currency() === 'NGN' ? '₦' : $this->pricing->currency() . ' ';
+        [$whole, $fraction] = array_pad(explode('.', bcadd($amount, '0', 2)), 2, '00');
+
+        return $currency . number_format((int) $whole) . '.' . $fraction;
     }
 
     /**

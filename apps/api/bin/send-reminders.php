@@ -6,7 +6,9 @@ declare(strict_types=1);
  * Send due appointment join reminders (plus prescription expiry housekeeping,
  * closing past consultations nobody closed — completed, never confirmed or
  * missed (PastAppointmentCloser) — expiring / nudging unanswered
- * follow-up proposals, and doctors' licence reminders / expiry). Meant to be
+ * follow-up proposals, doctors' licence reminders / expiry, and reconciling
+ * card payments: re-checking unconfirmed ones with Paystack and crediting
+ * unused ones to the patient's wallet). Meant to be
  * run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
@@ -155,4 +157,41 @@ try {
     );
 } catch (\Throwable $e) {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] licences: ' . $e->getMessage() . "\n");
+}
+
+// Card payments (PaymentIntentService::sweep): a checkout started over 15
+// minutes ago that never confirmed is re-checked with Paystack (so a charge
+// whose webhook never arrived is still found; unpaid after a day it expires),
+// and a paid one nothing used for CARD_INTENT_CREDIT_AFTER_MINUTES (default 30)
+// is credited to the patient's wallet — they get an in-app notice and the
+// wallet receipt. Each credit is decided under the payment's row lock and posts
+// under a fixed reference, so running every 5 minutes (or alongside a booking
+// using the same payment) never pays twice. A failure that closes the entity
+// manager re-runs the pass on a fresh container, skipping what failed; a
+// payment that fails goes to the back of its queue (so failures can't starve
+// the rest), and one that can never be credited automatically is held for
+// review (held_for_review=N; see DEPLOY.md "Card payments to review").
+try {
+    $cards = App\Infrastructure\Service\PaymentIntentService::sweepWithRetries(static function (array $skip, int $attempt) use (&$container, $build): array {
+        if ($attempt > 0 || !$container->get(EntityManagerInterface::class)->isOpen()) {
+            $container = $build();
+        }
+
+        return $container->get(App\Infrastructure\Service\PaymentIntentService::class)->sweep(null, $skip);
+    });
+    printf(
+        "[%s] card payments: reverified=%d paid=%d expired=%d credited=%d credited_total=%s held_for_review=%d errors=%d failed=%s retries=%d\n",
+        gmdate('Y-m-d H:i:s'),
+        $cards['reverified'],
+        $cards['paid'],
+        $cards['expired'],
+        $cards['credited'],
+        $cards['credited_total'],
+        $cards['review'] ?? 0,
+        $cards['errors'],
+        $cards['failed_refs'] !== [] ? implode(',', $cards['failed_refs']) : '-',
+        $cards['retries'],
+    );
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] card payments: ' . $e->getMessage() . "\n");
 }

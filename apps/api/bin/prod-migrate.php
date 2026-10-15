@@ -11,7 +11,7 @@ declare(strict_types=1);
  * in the `prod_migrate.legacy_done` setting; a database an earlier release
  * already migrated is recorded without re-running them), because repeating
  * them would re-multiply a sub-₦1,000 fee, re-grant narrowed admin permissions
- * and reset doctor logins. Steps 3–9 are idempotent — a re-run changes nothing
+ * and reset doctor logins. Steps 3–10 are idempotent — a re-run changes nothing
  * that's already done (the numbers match the steps below):
  *   0. Grants the back-office permissions (settings.manage, specialists.manage,
  *      monitoring.view) to every admin that lacks them.
@@ -51,6 +51,12 @@ declare(strict_types=1);
  *      existed gets 30 days to upload their MDCN certificate and practising
  *      licence (`credentials_due_at`; reminded, flagged in the back office,
  *      never suspended for it). Only doctors with no due date are touched.
+ *  10. Booking backstops: partial unique indexes on appointments — one per
+ *      card payment reference, one live booking per doctor per start time —
+ *      created only when no rows break them; rows that do are reported
+ *      (`unique_indexes_blocked`), never changed or deleted. Plus a read-only
+ *      report of card payments used twice / used and credited / held for
+ *      review (`card_payment_anomalies`).
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
@@ -179,6 +185,7 @@ $required = [
     'appointments'      => ['document_url', 'guests', 'guest_uid_seq'], // steps 7 + 8 (booking attachments, guest identities)
     'medical_documents' => ['appointment_id'],       // step 7 (a join column, so listed by hand)
     'specialist_credentials' => ['specialist_id', 'type', 'status', 'expires_at'], // step 9 (doctors' documents)
+    'payment_intents'   => ['reference', 'status'],  // card payments (the app needs it; step 10 sits beside it)
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
@@ -608,14 +615,58 @@ $report['credentials_due_set'] = (int) $conn->executeStatement(
 );
 $report['completed_steps'][] = 9;
 
+// 10) Booking backstops the entity mapping can't express (RawIndexes): one
+//     appointment per card payment reference, and one live booking (pending /
+//     confirmed / rescheduled, not deleted) per doctor per start time. Each
+//     index is created only when the data already obeys it; otherwise the
+//     offending rows are REPORTED under unique_indexes_blocked (nothing is
+//     changed or deleted — sort them out by hand, e.g. cancel and refund one
+//     of a doubly-booked pair, then re-run; the code paths are already
+//     protected by the payment intents and the per-doctor slot lock). An
+//     existing index is left alone, so a re-run changes nothing. The schema
+//     tool keeps them too (RawIndexes is its listener). Each index is checked
+//     and created in its own short transaction that locks appointments
+//     against writes first (reads go on), so a booking the still-serving old
+//     code commits meanwhile can't fail the step; one that can't get the lock
+//     within RawIndexes::LOCK_TIMEOUT is reported `busy` (re-run). A dry run
+//     only checks ("would be created") and creates nothing.
+//     Then a read-only report of card payments that moved money twice under
+//     the old code — or break the payment-intent invariant — under
+//     card_payment_anomalies (CardPaymentAnomalies; see DEPLOY.md).
+$report['unique_indexes']         = [];
+$report['unique_indexes_blocked'] = [];
+foreach (App\Infrastructure\Persistence\RawIndexes::ensure($conn, $dryRun) as $index => $outcome) {
+    $report['unique_indexes'][$index] = match ($outcome['status']) {
+        'would_create' => 'would be created',
+        'busy'         => 'busy — not created this time (appointments stayed locked by other work); re-run',
+        default        => $outcome['status'],
+    };
+    if ($outcome['status'] === 'blocked') {
+        $report['unique_indexes_blocked'][$index] = $outcome['violations'] ?? [];
+    }
+}
+$report['card_payment_anomalies'] = App\Infrastructure\Persistence\CardPaymentAnomalies::findings(
+    App\Infrastructure\Persistence\CardPaymentAnomalies::report($conn),
+);
+$report['completed_steps'][] = 10;
+$blockedIndexNote = $report['unique_indexes_blocked'] !== []
+    ? "\nNOT created (existing rows break them — nothing was changed): " . implode(', ', array_keys($report['unique_indexes_blocked'])) . ".\n"
+        . "Resolve the rows listed under unique_indexes_blocked by hand (e.g. cancel + refund one of a doubly-booked pair), then re-run.\n"
+    : '';
+if ($report['card_payment_anomalies'] !== []) {
+    $blockedIndexNote .= "\nCard payments to review (nothing was changed): " . implode(', ', array_keys($report['card_payment_anomalies'])) . ".\n"
+        . "See card_payment_anomalies above and DEPLOY.md (\"Card payments to review\").\n";
+}
+
 if ($dryRun) {
     $conn->rollBack();
     printReport($report);
-    fwrite(STDOUT, "\nDry run: nothing was saved or moved. The report shows what --run would change.\n");
+    fwrite(STDOUT, $blockedIndexNote . "\nDry run: nothing was saved or moved. The report shows what --run would change.\n");
     exit(0);
 }
 
 printReport($report);
+fwrite(STDOUT, $blockedIndexNote);
 if ($report['booking_attachments_quarantined'] !== []) {
     fwrite(STDOUT, "\nSome old booking attachments could not be filed and were moved out of the public folder into\n"
         . "var/quarantine/appointment-docs — review them by hand: see booking_attachments_quarantined above.\n");

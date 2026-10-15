@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Entity\Patient;
+use App\Domain\Entity\PaymentIntent;
 use App\Domain\Entity\Specialist;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Exception\ValidationException;
@@ -23,7 +24,9 @@ use Ramsey\Uuid\Uuid;
  * POST /api/portal/appointments/pay-init — start a direct card payment for a
  * consultation (Paystack), so a patient can pay by card instead of funding the
  * wallet. Returns the checkout access code + reference; the booking is created
- * (or the follow-up accepted) only after the reference verifies.
+ * (or the follow-up accepted) only after the reference verifies. The checkout
+ * is recorded first (a PaymentIntent: who pays, for what, how much), so a
+ * payment no booking uses is still found and credited to the wallet.
  *
  * Three ways to price it:
  *   - `{specialist_id, guest_count}` — a new booking (the doctor's fee + guests);
@@ -63,7 +66,8 @@ final class InitAppointmentPaymentAction
 
         $appointmentId = trim((string) ($body['appointment_id'] ?? ''));
         if ($appointmentId !== '') {
-            [$amount, $metadata, $returnPath] = $this->forProposal($appointmentId, $customerId, $body);
+            [$amount, $context, $returnPath] = $this->forProposal($appointmentId, $customerId, $body);
+            $purpose = PaymentIntent::PURPOSE_FOLLOW_UP;
         } else {
             $specialistId = trim((string) ($body['specialist_id'] ?? ''));
             if ($specialistId === '') {
@@ -80,7 +84,17 @@ final class InitAppointmentPaymentAction
             $guestCount = max(0, min(self::MAX_GUESTS, (int) ($body['guest_count'] ?? 0)));
             $fee        = $this->bookingFee($specialist, $customerId, $body);
             $amount     = bcadd($fee, bcmul(number_format($this->pricing->guestFee(), 2, '.', ''), (string) $guestCount, 2), 2);
-            $metadata   = ['specialist_id' => $specialistId, 'purpose' => 'appointment_booking'];
+            $purpose    = PaymentIntent::PURPOSE_BOOKING;
+            // What the payment may book: this doctor, as this follow-up (or not
+            // one). The time is kept for the record only — a slot taken while
+            // paying can be swapped for another of the same doctor's.
+            $parentId   = trim((string) ($body['parent_appointment_id'] ?? ''));
+            $context    = array_filter([
+                'specialist_id'         => $specialist->getId(),
+                'parent_appointment_id' => $parentId !== '' ? strtolower($parentId) : null,
+                'scheduled_at'          => self::slotLabel((string) ($body['scheduled_at'] ?? '')),
+                'guest_count'           => $guestCount,
+            ], static fn (mixed $v): bool => $v !== null);
             $returnPath = '/dashboard/appointments';
         }
 
@@ -93,7 +107,7 @@ final class InitAppointmentPaymentAction
         }
 
         try {
-            $init = $this->checkout->initialize($patient, $amount, $returnPath, $metadata);
+            $init = $this->checkout->initialize($patient, $amount, $returnPath, $purpose, $context);
         } catch (\Throwable $e) {
             error_log('[appointments.pay-init] paystack initialize failed: ' . $e->getMessage());
 
@@ -149,8 +163,26 @@ final class InitAppointmentPaymentAction
 
         return [
             $this->followUps->checkoutAmount($proposal, $start),
-            ['specialist_id' => $proposal->getSpecialist()->getId(), 'appointment_id' => $proposal->getId(), 'purpose' => 'follow_up_acceptance'],
+            array_filter([
+                'appointment_id' => $proposal->getId(),
+                'specialist_id'  => $proposal->getSpecialist()->getId(),
+                'scheduled_at'   => $start?->format(DATE_ATOM),
+            ], static fn (mixed $v): bool => $v !== null),
             '/dashboard/appointments/' . $proposal->getId(),
         ];
+    }
+
+    /** The slot a booking's payment was started for, normalised for the record (null when absent or unreadable). */
+    private static function slotLabel(string $raw): ?string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return null;
+        }
+        try {
+            return (new \DateTimeImmutable($raw))->format(DATE_ATOM);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

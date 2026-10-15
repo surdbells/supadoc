@@ -69,7 +69,14 @@ final class PaystackService
     /**
      * Verify a transaction by reference.
      *
-     * @return array{status:string, amount_minor:int, currency:string, reference:string, gateway_reference:?string}
+     * `amount_minor` is what was paid TO US ({@see paidAmountMinor()}): when the
+     * Paystack business passes its charges on to the customer, `data.amount` is
+     * the amount we initialised PLUS Paystack's fee — that fee is Paystack's,
+     * never money to credit or count as an overpayment. The raw figures are
+     * kept alongside: `gross_amount_minor` (data.amount), `fees_minor`,
+     * `requested_amount_minor`.
+     *
+     * @return array{status:string, amount_minor:int, currency:string, reference:string, gateway_reference:?string, gross_amount_minor:int, fees_minor:?int, requested_amount_minor:?int, metadata:array<string,mixed>, paid_at:?string}
      */
     public function verify(string $reference): array
     {
@@ -80,12 +87,71 @@ final class PaystackService
         }
 
         return [
-            'status'            => (string) ($data['status'] ?? 'failed'),
-            'amount_minor'      => (int) ($data['amount'] ?? 0),
-            'currency'          => strtoupper((string) ($data['currency'] ?? '')),
-            'reference'         => (string) ($data['reference'] ?? $reference),
-            'gateway_reference' => isset($data['id']) ? (string) $data['id'] : null,
+            'status'                 => (string) ($data['status'] ?? 'failed'),
+            'amount_minor'           => self::paidAmountMinor($data),
+            'currency'               => strtoupper((string) ($data['currency'] ?? '')),
+            'reference'              => (string) ($data['reference'] ?? $reference),
+            'gateway_reference'      => isset($data['id']) ? (string) $data['id'] : null,
+            'gross_amount_minor'     => self::minorField($data['amount'] ?? null) ?? 0,
+            'fees_minor'             => self::minorField($data['fees'] ?? null),
+            'requested_amount_minor' => self::minorField($data['requested_amount'] ?? null),
+            // Card payments (PaymentIntentService) also read what the checkout
+            // recorded with Paystack, and when it was paid.
+            'metadata'               => self::metadataOf($data['metadata'] ?? null),
+            'paid_at'                => is_string($data['paid_at'] ?? $data['paidAt'] ?? null) ? (string) ($data['paid_at'] ?? $data['paidAt']) : null,
         ];
+    }
+
+    /**
+     * The checkout's `metadata` as an array — Paystack returns the object we
+     * sent, or (for some integrations) that object as a JSON string.
+     *
+     * @return array<string,mixed>
+     */
+    private static function metadataOf(mixed $metadata): array
+    {
+        if (is_string($metadata) && $metadata !== '') {
+            $metadata = json_decode($metadata, true);
+        }
+
+        return is_array($metadata) ? $metadata : [];
+    }
+
+    /**
+     * The amount (minor units) a verified Paystack transaction paid to us:
+     * `requested_amount` — what we initialised — when the charge covers it
+     * (equal when we bear the fee; `amount` = requested + fee when the customer
+     * bears it), otherwise the charged `amount` (no `requested_amount`, or a
+     * charge below it — which then never matches what was expected). Never
+     * more than was actually charged.
+     *
+     * @param array<string,mixed> $data Paystack's verify `data` object
+     */
+    public static function paidAmountMinor(array $data): int
+    {
+        $charged   = self::minorField($data['amount'] ?? null) ?? 0;
+        $requested = self::minorField($data['requested_amount'] ?? null);
+        if ($requested !== null && $requested > 0 && $requested <= $charged) {
+            return $requested;
+        }
+
+        return $charged;
+    }
+
+    /** A non-negative whole number of minor units from Paystack's JSON, or null. */
+    private static function minorField(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value >= 0 ? $value : null;
+        }
+        if (is_string($value) && preg_match('/^\d{1,18}$/', trim($value)) === 1) {
+            return (int) trim($value);
+        }
+        if (is_float($value) && $value >= 0 && $value < 1e18 && floor($value) === $value) {
+            return (int) $value;
+        }
+
+        return null;
     }
 
     /** Constant-time check of the x-paystack-signature header (HMAC-SHA512). */

@@ -192,14 +192,37 @@ return [
     AppointmentPaymentService::class => static fn (ContainerInterface $c): AppointmentPaymentService =>
         new AppointmentPaymentService($c->get(WalletService::class)),
 
-    // Card checkout (pay-init + verify) shared by booking and accepting a follow-up.
+    // Card checkout (pay-init) shared by booking, accepting a follow-up and inviting a guest.
     AppointmentCheckout::class => static fn (ContainerInterface $c): AppointmentCheckout => new AppointmentCheckout(
         $c->get(PaystackService::class),
         $c->get(PricingService::class),
-        $c->get(AppointmentRepository::class),
         $c->get(PatientNotifier::class),
-        $c->get(AppointmentPaymentService::class),
+        $c->get(\App\Infrastructure\Service\PaymentIntentService::class),
     ),
+
+    // Card payments: one PaymentIntent per Paystack reference — recorded at pay-init,
+    // consumed once (atomically with what it pays for), else credited to the wallet.
+    \App\Domain\Repository\PaymentIntentRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\PaymentIntentRepository =>
+        new \App\Domain\Repository\PaymentIntentRepository($c->get(EntityManagerInterface::class)),
+    \App\Infrastructure\Service\CardPaymentGateway::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\CardPaymentGateway =>
+        new \App\Infrastructure\Service\PaystackCardGateway($c->get(PaystackService::class)),
+    \App\Infrastructure\Service\PaymentIntentService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\PaymentIntentService =>
+        new \App\Infrastructure\Service\PaymentIntentService(
+            $c->get(\App\Domain\Repository\PaymentIntentRepository::class),
+            $c->get(\App\Infrastructure\Service\CardPaymentGateway::class),
+            $c->get(WalletService::class),
+            $c->get(PatientRepository::class),
+            $c->get(AppointmentRepository::class),
+            $c->get(PatientNotifier::class),
+            $c->get(AuditLogger::class),
+            $c->get(WalletMailer::class), // receipts for its wallet credits, sent after the commit
+            $c->get(WalletTransactionRepository::class), // a top-up reference offered as a card payment: credited or not
+            // An unused, paid card payment goes to the wallet after this many minutes (cron sweep).
+            (int) ($_ENV['CARD_INTENT_CREDIT_AFTER_MINUTES'] ?? \App\Infrastructure\Service\PaymentIntentService::DEFAULT_CREDIT_AFTER_MINUTES),
+        ),
+    // The per-doctor advisory lock every slot-taking write holds.
+    \App\Infrastructure\Service\SlotLock::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\SlotLock =>
+        new \App\Infrastructure\Service\SlotLock($c->get(EntityManagerInterface::class)),
 
     // The join-link invite emails sent once a consultation is booked / a follow-up accepted.
     AppointmentInvites::class => static fn (ContainerInterface $c): AppointmentInvites => new AppointmentInvites(
@@ -213,7 +236,7 @@ return [
     GuestInvitations::class => static fn (ContainerInterface $c): GuestInvitations => new GuestInvitations(
         $c->get(AppointmentRepository::class),
         $c->get(AppointmentPaymentService::class),
-        $c->get(AppointmentCheckout::class),
+        $c->get(\App\Infrastructure\Service\PaymentIntentService::class),
         $c->get(PricingService::class),
         $c->get(MailService::class),
         $c->get(JwtService::class),
@@ -244,6 +267,8 @@ return [
         $c->get(StaffNotifier::class),
         $c->get(MailService::class),
         $c->get(AuditLogger::class),
+        $c->get(\App\Infrastructure\Service\PaymentIntentService::class),
+        $c->get(\App\Infrastructure\Service\SlotLock::class),
     ),
 
     ReminderService::class => static fn (ContainerInterface $c): ReminderService => new ReminderService(

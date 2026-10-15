@@ -15,8 +15,10 @@ use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\PatientNotifier;
+use App\Infrastructure\Service\SlotLock;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use App\Domain\Settings\WebUrls;
@@ -41,6 +43,7 @@ final class CreateAppointmentAction
         private readonly AvailabilityService $availability,
         private readonly PatientNotifier $patientNotifier,
         private readonly StaffNotifier $staffNotifier,
+        private readonly SlotLock $slots,
     ) {
     }
 
@@ -108,7 +111,28 @@ final class CreateAppointmentAction
         $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
         // Record the correct fee even though staff bookings aren't paid here.
         $appointment->setAmount($specialist->getConsultationFee());
-        $this->appointments->save($appointment);
+        // Stored under the doctor's slot lock, the slot re-checked there (a
+        // patient may have booked it a moment ago).
+        try {
+            $booked = $this->appointments->transactional(function () use ($appointment, $specialist, $scheduledAt): bool {
+                $this->slots->lockDoctor($specialist->getId());
+                if (!$this->availability->isSlotAvailable($specialist, $scheduledAt, false)) {
+                    return false;
+                }
+                $this->appointments->save($appointment);
+
+                return true;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            if (!SlotLock::isSlotTaken($e)) {
+                throw $e;
+            }
+            $booked = false;
+        }
+        if (!$booked) {
+            // 422 like the check above (the back office refreshes its calendar on it).
+            return $this->error($response, SlotLock::TAKEN, 422, ['scheduled_at' => SlotLock::TAKEN]);
+        }
 
         $this->sendConfirmation($appointment, $patient);
         $this->patientNotifier->appointment($appointment, 'Appointment booked', 'An appointment was booked for you.');

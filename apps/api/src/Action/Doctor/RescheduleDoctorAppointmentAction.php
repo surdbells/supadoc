@@ -15,7 +15,9 @@ use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PatientNotifier;
+use App\Infrastructure\Service\SlotLock;
 use DateTimeImmutable;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use App\Domain\Settings\WebUrls;
@@ -43,6 +45,7 @@ final class RescheduleDoctorAppointmentAction
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
         private readonly GuestInvitations $guests,
+        private readonly SlotLock $slots,
     ) {
     }
 
@@ -93,10 +96,44 @@ final class RescheduleDoctorAppointmentAction
             ]);
         }
 
-        $appointment->setScheduledAt($scheduledAt);
-        $appointment->transitionTo(AppointmentStatus::CONFIRMED);
-        $appointment->setRescheduledBy('doctor');
-        $this->appointments->save($appointment);
+        // Taken under the doctor's slot lock, re-checked there (a patient may
+        // have booked that time a moment ago). The appointment itself is then
+        // locked and re-read, and the checks above run again on what it is NOW:
+        // a cancellation (and its refund) that committed while this request
+        // waited must not be confirmed back to life. (Lock order: the doctor's
+        // slot, then the row — as every slot-taking path.)
+        try {
+            $moved = $this->appointments->transactional(function () use ($appointment, $scheduledAt): bool|string {
+                $this->slots->lockDoctor($appointment->getSpecialist()->getId());
+                $this->appointments->lockAndRefresh($appointment);
+                if ($appointment->isDeleted() || !$appointment->getStatus()->isOpenBooking()) {
+                    return 'This appointment changed meanwhile and can no longer be rescheduled — please reload it';
+                }
+                if (($ended = AppointmentLifecycle::doctorRescheduleProblem($appointment, new DateTimeImmutable())) !== null) {
+                    return $ended;
+                }
+                if (!$this->availability->isSlotAvailable($appointment->getSpecialist(), $scheduledAt, false, ignoreAppointmentId: $appointment->getId())) {
+                    return false;
+                }
+                $appointment->setScheduledAt($scheduledAt);
+                $appointment->transitionTo(AppointmentStatus::CONFIRMED);
+                $appointment->setRescheduledBy('doctor');
+                $this->appointments->save($appointment);
+
+                return true;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            if (!SlotLock::isSlotTaken($e)) {
+                throw $e;
+            }
+            $moved = false;
+        }
+        if (is_string($moved)) {
+            return $this->error($response, $moved, 422, ['status' => $moved]);
+        }
+        if (!$moved) {
+            return $this->error($response, SlotLock::TAKEN, 409, ['scheduled_at' => SlotLock::TAKEN]);
+        }
 
         $this->notify($appointment);
         $this->patientNotifier->appointment(

@@ -10,6 +10,7 @@ use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\UnderscoreNamingStrategy;
 use Doctrine\ORM\ORMSetup;
+use Doctrine\ORM\Tools\ToolEvents;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 
@@ -65,8 +66,11 @@ final class DoctrineEntityManagerFactory
         }
 
         $connection = DriverManager::getConnection($params, $config);
+        $em         = new EntityManager($connection, $config);
+        // Partial unique indexes prod-migrate owns: the schema tool must not drop them (see RawIndexes).
+        $em->getEventManager()->addEventListener([ToolEvents::postGenerateSchema], new RawIndexes());
 
-        return self::$instance = new EntityManager($connection, $config);
+        return self::$instance = $em;
     }
 
     /**

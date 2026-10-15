@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Service;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Entity\PaymentIntent;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\InsufficientFundsException;
@@ -16,6 +17,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
 use DateTimeZone;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 
 /**
  * Follow-up consultations (video, with the same doctor, linked to the
@@ -30,7 +32,9 @@ use DateTimeZone;
  * patient once before that. Every move out of PROPOSED is a compare-and-set
  * ({@see AppointmentRepository::claimProposal()}), so accept / decline /
  * withdraw / a back-office cancel / expiry racing each other settle on one
- * outcome, and money a losing acceptance took goes back to the wallet.
+ * outcome. An acceptance takes its money in the claim's own transaction (no
+ * money moves for a losing one), and a card payment it can't use goes to the
+ * wallet. Proposing and accepting take the doctor's slot lock ({@see SlotLock}).
  *
  * Prices come from {@see PricingService::followUpQuote()}; the final amount is
  * stored on the appointment so refunds use it. Notifications and emails stay
@@ -67,6 +71,8 @@ final class FollowUpService
         private readonly StaffNotifier $staffNotifier,
         private readonly MailService $mail,
         private readonly AuditLogger $audit,
+        private readonly PaymentIntentService $intents,
+        private readonly SlotLock $slots,
     ) {
     }
 
@@ -324,6 +330,9 @@ final class FollowUpService
         // both find it free. A refusal is handed back, not thrown, so the
         // transaction ends cleanly.
         $proposal = $this->appointments->transactional(function () use ($parent, $start, $note, $waiveFee, $now): Appointment|ValidationException {
+            // The doctor's slot lock first (as every slot-taking write), so a
+            // patient booking this time at the same moment can't both succeed.
+            $this->slots->lockDoctor($parent->getSpecialist()->getId());
             $this->appointments->lockForUpdate($parent);
             if ($this->appointments->openProposalFor($parent->getId(), $now) !== null) {
                 $taken = 'This consultation already has a follow-up waiting for the patient. Withdraw it before proposing another time.';
@@ -370,14 +379,16 @@ final class FollowUpService
     /**
      * The patient accepts `$proposal` (theirs — the caller checked), optionally
      * at another open slot of the same doctor, paying `$method` (wallet | card,
-     * with the verified Paystack `$reference`) unless it is free. Returns false
-     * when it had already been accepted (a repeat), so nothing is charged or
-     * sent twice. A card payment made for an acceptance that is then refused
-     * (it closed, or the slot or the doctor went, while the patient paid) is
-     * credited to their wallet ({@see refuse()}; 422 `errors.card_payment =
-     * credited_to_wallet`). So is one a repeat brings that the follow-up wasn't
-     * confirmed with (paid on one device while it was accepted on another),
-     * and one a lost race took: `$creditedToWallet` is then the amount credited.
+     * with the Paystack `$reference` from pay-init) unless it is free. Returns
+     * false when it had already been accepted (a repeat), so nothing is charged
+     * or sent twice. The slot, the claim and the payment commit in one
+     * transaction (the card payment consumed atomically: it pays once). A card
+     * payment made for an acceptance that is then refused (it closed, or the
+     * slot or the doctor went, while the patient paid) is credited to their
+     * wallet ({@see refuse()}; 422 `errors.card_payment = credited_to_wallet`).
+     * So is one a repeat brings that the follow-up wasn't confirmed with (paid
+     * on one device while it was accepted on another), and one a lost race
+     * took: `$creditedToWallet` is then the amount credited.
      *
      * @throws ValidationException
      */
@@ -390,7 +401,7 @@ final class FollowUpService
             // A repeat: nothing is charged again — but a second card payment
             // it brings would otherwise go unused, so it goes to the wallet.
             if (($stray = self::strayCardReference($proposal, $method, $reference)) !== null) {
-                $creditedToWallet = $this->checkout->creditToWallet($stray, $proposal);
+                $creditedToWallet = $this->creditCard($proposal, $stray);
             }
 
             return false;
@@ -413,57 +424,90 @@ final class FollowUpService
             $this->refuse($proposal, $problem[0], $problem[1], $method, $reference);
         }
 
-        // Money first, for the amount at the chosen time, and the proposal itself
-        // is only changed once claimed: the wallet posts (and flushes) in its own
-        // transactions, so a short wallet or a bad card reference must leave the
-        // stored proposal exactly as the doctor made it. Free → marked paid only.
-        if ($free || $method === 'wallet') {
-            try {
-                $this->payments->chargeForBooking($proposal, $amount);
-            } catch (InsufficientFundsException) {
-                $short = 'Your wallet balance is too low to accept this follow-up. Pay by card, or top up your wallet and try again.';
-                throw new ValidationException(['wallet' => 'insufficient_funds'], $short);
-            }
-        } else {
-            if ($reference === '') {
-                throw new ValidationException(['payment_reference' => 'Pay by card first, then confirm with the payment reference']);
-            }
-            if (($cardError = $this->checkout->verify($reference, $proposal, $amount)) !== null) {
-                // Already in the wallet (credited after an earlier refusal): flagged, so the app switches to it.
-                $errors = $cardError === AppointmentCheckout::ALREADY_IN_WALLET
-                    ? ['payment' => $cardError, 'card_payment' => 'credited_to_wallet']
-                    : ['payment' => $cardError];
-                throw new ValidationException($errors, $cardError);
-            }
-        }
         $paidByCard = !$free && $method === 'card';
+        if ($paidByCard && $reference === '') {
+            throw new ValidationException(['payment_reference' => 'Pay by card first, then confirm with the payment reference']);
+        }
 
-        // The claim and what it changes (time, price, payment) commit together:
-        // if the save fails the claim rolls back, the proposal is still open,
-        // and a retry is safe (the wallet debit is keyed on the appointment;
-        // the card reference isn't stored, so it verifies again).
-        $claimed = $this->appointments->transactional(function () use ($proposal, $now, $moved, $start, $price, $paidByCard, $reference): bool {
+        // One transaction takes the slot, the proposal and the money together:
+        // the doctor's slot lock, another time re-checked under it, the claim
+        // (a compare-and-set: of two answers at once, one wins), then the
+        // payment — the wallet debit for the amount at the chosen time (free →
+        // marked paid only), or the card payment consumed atomically around
+        // all of it (it pays once). A refusal, a lost claim or a short wallet
+        // leaves the stored proposal exactly as the doctor made it, with no
+        // money taken; a card payment it can't use goes to the wallet. The
+        // wallet debit's receipt is sent only once all of it committed.
+        $receipt = null;
+        $claim   = function (?PaymentIntent $intent) use ($proposal, $now, $moved, $start, $price, $amount, &$receipt): PaymentUse {
+            $receipt = null;
+            $this->slots->lockDoctor($proposal->getSpecialist()->getId());
+            // The proposal holds its own time until answered: that hold doesn't count against the move.
+            if ($moved && $start !== null && !$this->availability->isSlotAvailable($proposal->getSpecialist(), $start, ignoreAppointmentId: $proposal->getId())) {
+                return PaymentUse::declined(['scheduled_at', 'That time is no longer available — please pick another slot'], creditToWallet: true);
+            }
             if (!$this->appointments->claimProposal($proposal->getId(), AppointmentStatus::CONFIRMED, $now)) {
-                // Drop what this request set in memory before the commit flushes it, and see who won.
+                // See who won (nothing of this request was set on it yet).
                 $this->appointments->refresh($proposal);
 
-                return false;
+                return PaymentUse::declined('lost', creditToWallet: true);
+            }
+            if ($intent === null) {
+                $receipt = $this->payments->chargeForBooking($proposal, $amount, sendReceipt: false);
             }
             if ($moved && $start !== null) {
                 $price !== null ? $proposal->moveProposal($start, $price) : $proposal->setScheduledAt($start);
             }
-            if ($paidByCard) {
-                $proposal->payByCard($reference);
+            if ($intent !== null) {
+                $proposal->payByCard($intent->getReference());
             }
             $proposal->transitionTo(AppointmentStatus::CONFIRMED);
             $this->appointments->save($proposal);
 
-            return true;
-        });
-        if (!$claimed) {
-            return $this->lostAcceptRace($proposal, $free ? null : $amount, $paidByCard ? $reference : null, $creditedToWallet);
+            return PaymentUse::used($proposal->getId());
+        };
+        try {
+            $use = $paidByCard
+                ? $this->intents->consume($reference, PaymentIntent::PURPOSE_FOLLOW_UP, $proposal->getPatient()->getId(), $amount, $claim, ['appointment_id' => $proposal->getId()])
+                : $this->appointments->transactional(static fn (): PaymentUse => $claim(null));
+        } catch (InsufficientFundsException) {
+            $short = 'Your wallet balance is too low to accept this follow-up. Pay by card, or top up your wallet and try again.';
+            throw new ValidationException(['wallet' => 'insufficient_funds'], $short);
+        } catch (ValidationException $e) {
+            // A double submit: the other request accepted it with this very
+            // payment a moment ago — a repeat, not an error.
+            if ($paidByCard && ($e->getErrors()['payment'] ?? null) === PaymentIntentService::ALREADY_USED) {
+                $this->appointments->refresh($proposal);
+                if ($proposal->getStatus() === AppointmentStatus::CONFIRMED && $proposal->getPaymentReference() === $reference) {
+                    return false;
+                }
+            }
+            throw $e;
+        } catch (UniqueConstraintViolationException $e) {
+            if (!SlotLock::isSlotTaken($e)) {
+                throw $e;
+            }
+            // Taken by a write that didn't wait for the slot lock: nothing was stored or charged.
+            $taken = SlotLock::TAKEN . '.' . ($paidByCard ? sprintf(
+                ' Your card payment is kept for another time — or, if unused, added to your VideoMed wallet automatically within about %d minutes.',
+                $this->intents->creditAfterMinutes(),
+            ) : '');
+            throw new ValidationException(['scheduled_at' => SlotLock::TAKEN], $taken);
+        }
+        if (!$use->used) {
+            if ($use->value === 'lost') {
+                return $this->lostAcceptRace($proposal, $use->credited, $creditedToWallet);
+            }
+            [$field, $message] = $use->value;
+            if ($use->credited !== null) {
+                $message .= ' ' . $this->walletCreditNote($use->credited);
+                throw new ValidationException([$field => $message, 'card_payment' => 'credited_to_wallet'], $message);
+            }
+            throw new ValidationException([$field => $message], $message);
         }
 
+        // Confirmed and committed: now the wallet receipt (none for a card or free acceptance).
+        $this->payments->sendReceipt($receipt);
         $this->audit->record(
             self::patientName($proposal),
             'patient',
@@ -764,7 +808,7 @@ final class FollowUpService
     private function refuse(Appointment $proposal, string $field, string $message, string $method, string $reference): never
     {
         if ($method === 'card' && $reference !== '' && $proposal->getProposedBy() === 'doctor') {
-            $credited = $this->checkout->creditToWallet($reference, $proposal);
+            $credited = $this->creditCard($proposal, $reference);
             if ($credited !== null) {
                 $message .= ' ' . $this->walletCreditNote($credited);
                 throw new ValidationException([$field => $message, 'card_payment' => 'credited_to_wallet'], $message);
@@ -795,65 +839,44 @@ final class FollowUpService
     }
 
     /**
-     * Someone else answered `$stored` (its stored state) between our checks
-     * and the claim: the wallet reference under which what this request took
-     * (`$charged`: a wallet debit, or the card payment `$cardReference`; null:
-     * nothing, it was free) goes back, or null when the stored follow-up
-     * carries it:
-     *  - a card payment, unless it is the very one the follow-up was confirmed
-     *    with — credited once per reference ({@see AppointmentCheckout::walletCreditKey()});
-     *  - a wallet debit, unless another wallet acceptance shared it (the debit
-     *    is keyed on the appointment, so both charged once) — so it goes back
-     *    when the proposal closed unaccepted, or was accepted by card or for
-     *    free. Under its own key: `appt_refund_<id>` stays free for refunding
-     *    a later cancellation of the accepted follow-up.
-     */
-    public static function raceRefundKey(Appointment $stored, ?string $charged, ?string $cardReference): ?string
-    {
-        if ($charged === null) {
-            return null;
-        }
-        if ($cardReference !== null) {
-            return $cardReference !== $stored->getPaymentReference() ? AppointmentCheckout::walletCreditKey($cardReference) : null;
-        }
-        // Only an acceptance marks it paid (declining, withdrawing, expiring don't).
-        $acceptedByWallet = $stored->getPaymentStatus() !== 'unpaid' && $stored->getPaymentReference() === null && !$stored->isFree();
-
-        return $acceptedByWallet ? null : 'fu_race_refund_' . $stored->getId();
-    }
-
-    /**
      * Someone else answered between our checks and the claim; `$proposal`
-     * holds the stored state. What this request took goes back to the wallet
-     * unless the stored follow-up carries it ({@see raceRefundKey()}).
-     * Accepted meanwhile → false (a repeat; `$creditedToWallet` is a card
-     * payment that went to the wallet); closed → 422, saying where the money went.
+     * holds the stored state. Nothing was taken from the wallet (the debit
+     * comes after the claim, in its transaction); a card payment this request
+     * brought went to the wallet (`$cardCredited`). Accepted meanwhile → false
+     * (a repeat; `$creditedToWallet` is that card payment); closed → 422,
+     * saying where the money went.
      *
      * @throws ValidationException
      */
-    private function lostAcceptRace(Appointment $proposal, ?string $charged, ?string $cardReference, ?string &$creditedToWallet): bool
+    private function lostAcceptRace(Appointment $proposal, ?string $cardCredited, ?string &$creditedToWallet): bool
     {
-        $returned = null;
-        if ($charged !== null && ($key = self::raceRefundKey($proposal, $charged, $cardReference)) !== null) {
-            $this->payments->creditBack($proposal, $charged, $key);
-            $returned = $charged;
-        }
         if ($proposal->getStatus() === AppointmentStatus::CONFIRMED) {
-            if ($returned !== null && $cardReference !== null) {
-                $creditedToWallet = $returned;
-            }
+            $creditedToWallet = $cardCredited;
 
             return false;
         }
         $gone = 'This follow-up proposal is no longer open.';
-        if ($returned !== null && $cardReference !== null) {
-            $gone .= ' ' . $this->walletCreditNote($returned);
+        if ($cardCredited !== null) {
+            $gone .= ' ' . $this->walletCreditNote($cardCredited);
             throw new ValidationException(['status' => $gone, 'card_payment' => 'credited_to_wallet'], $gone);
         }
-        if ($returned !== null) {
-            $gone .= sprintf(' The %s taken from your wallet has been returned to it.', $this->moneyLabel($returned));
-        }
         throw new ValidationException(['status' => $gone], $gone);
+    }
+
+    /**
+     * Credit the patient's card payment `$reference`, made to accept
+     * `$proposal`, to their wallet — once per payment, and only one made for
+     * this proposal by its patient. Returns the amount, or null when there was
+     * nothing to credit.
+     */
+    private function creditCard(Appointment $proposal, string $reference): ?string
+    {
+        return $this->intents->settleUnusedFor(
+            $reference,
+            $proposal->getPatient()->getId(),
+            PaymentIntent::PURPOSE_FOLLOW_UP,
+            ['appointment_id' => $proposal->getId()],
+        );
     }
 
     /** "Dr X proposed a follow-up" (or, with `$reminder`, "still waiting for your reply") — in-app + email. */

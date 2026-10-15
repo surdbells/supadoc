@@ -3,10 +3,17 @@
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="vendor/autoload.php"
          colors="true"
+         defaultTestSuite="Unit"
          cacheDirectory=".phpunit.cache">
+    <!-- Plain `phpunit` runs Unit (offline). The integration suite (selected with
+         the testsuite option) runs the Postgres-backed tests against the local DB
+         from .env; each test skips itself when the database is unreachable. -->
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="integration">
+            <directory>tests/Integration</directory>
         </testsuite>
     </testsuites>
     <source>

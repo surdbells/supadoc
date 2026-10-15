@@ -451,6 +451,212 @@ download-link lifetime) are editable in the back office → Pricing & settings.
    `doctor_noshow_alert_threshold` (2 in 30 days). Set them before the first
    cron run if the defaults don't suit.
 
+### One-time: the wallet top-up double-credit fix
+
+A top-up is now credited at most once (locked re-read + a compare-and-set that
+also requires the entry never posted), and only when Paystack's verified amount
+**and** currency equal what the top-up asked for; otherwise it is held as
+`review` for support (nothing credited, the patient is told, audited). An entry
+that already moved money (`posted_at` / `balance_after` set) is never credited,
+failed or held again, whatever its status says.
+
+1. **No schema change, no `prod-migrate` step** — the `review` / `resolved`
+   statuses fit the existing `status` varchar, and the verified amount goes in
+   the existing `metadata` column.
+2. **Ships together with the card-payment fix**: `WalletService::settleTopup()`
+   now takes the verified amount + currency, and the webhook calls it that way.
+3. **Paystack fees** — the verified amount is what was paid *to us*: Paystack's
+   `requested_amount` (what we initialised) when the charge covers it, else
+   `amount`. So "pass transaction charges to the customer" on the Paystack
+   dashboard neither blocks top-ups nor credits Paystack's fee (card payments
+   read the same figure). Nothing to change on the dashboard; a top-up keeps
+   the gross amount and fee in `metadata.gateway`.
+4. **`POST /portal/wallet/verify` answers**: `200` credited (or already
+   credited — no second receipt, no second Paystack call), `402` payment not
+   completed (was `200` + `status: failed`), `409` still processing or held for
+   review. A `402`/`409` is only given after re-reading the ledger: if the
+   webhook credited it meanwhile the answer is `200` "already in your wallet".
+5. **Right after deploying**, from `apps/api`, in this order:
+
+   ```bash
+   php bin/wallet-reconcile.php                             # read-only report; exit 1 = findings (see below)
+   php bin/wallet-topup-sweep.php --max-age-days=0          # DRY RUN: asks Paystack about every never-credited top-up, changes nothing
+   php bin/wallet-topup-sweep.php --run --max-age-days=0    # credits the ones Paystack says were paid (once, exact amount only)
+   ```
+
+   The sweep is the fix for top-ups that were **paid but never credited**
+   (the old verify marked a not-yet-final payment `failed`, the old webhook
+   ignored `failed` rows, and Paystack does not resend a webhook). It only
+   touches top-ups that never moved money, credits through `settleTopup()`
+   (receipt + in-app notice), holds a mismatched amount for support, never
+   marks anything failed, and is safe to repeat. Then work through the
+   reconciler's findings (below) until it exits `0`.
+6. **Cron** (both safe to repeat; only the sweep with `--run` writes, and only through `settleTopup()`):
+
+   ```bash
+   # 20 3 * * *  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && php bin/wallet-topup-sweep.php --run >> var/log/wallet-topup-sweep.log 2>&1
+   # 40 3 * * *  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && php bin/wallet-reconcile.php >> var/log/wallet-reconcile.log 2>&1
+   ```
+
+   The nightly sweep makes one Paystack verify call per never-credited top-up
+   started in the last 30 days and at least 15 minutes old (150 ms apart; exit
+   `1` if some could not be checked) — the backstop for a missed or refused
+   webhook.
+
+#### Wallet reconciliation
+
+`bin/wallet-reconcile.php` **never changes data** (it runs in one read-only
+database transaction that is rolled back). For every wallet it compares
+`wallets.balance` with the signed sum of its successful ledger entries and
+lists: references credited more than once (a top-up whose recorded balance
+jumped by a multiple of its amount, or one credited twice around a booking —
+the jump then shows on the booking and the top-up is named), entries that
+moved money but are not marked success (the old late-failure race), Paystack
+transactions credited twice, ledger rows inconsistent with their wallet,
+top-ups held for review, and credited top-ups whose verified amount differs.
+Exit `0` = clean, `1` = findings, `2` = could not run.
+
+**Correcting a finding** — never edit `wallets.balance` and never delete or
+alter ledger rows by hand. Corrections go through `WalletService` (locked,
+idempotent, audited), from `apps/api`; set `W` once per shell:
+
+```bash
+W='require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $w = (new DI\ContainerBuilder())->addDefinitions("config/container.php")->build()->get(App\Infrastructure\Service\WalletService::class);'
+```
+
+Work through them in this order:
+
+1. **Entry that moved money but is not marked success** (`posted_entry_not_success`
+   — a top-up credited, then marked `failed` by the old race). The money **is**
+   in the wallet and the patient paid it once: restore its status — no balance
+   change; refused (nothing changed) if the wallet doesn't hold the money:
+   `php -r "$W"' var_dump($w->restorePostedTopup("<ref>", "Credited <date>; old race left it failed", "Support: <name>")?->toArray());'`
+   Never credit it again, never claw it back as a "duplicate", and don't ask
+   the patient to verify it again. (`recordLedgerDiscrepancy()` refuses while
+   such an entry is unrestored.)
+2. **Balance still differs from its ledger** (e.g. "vmw_… looks credited 2 times"):
+   1. record the difference, so the ledger accounts for the whole balance (the
+      balance itself does not change; a no-op once they agree):
+      `php -r "$W"' var_dump($w->recordLedgerDiscrepancy("<wallet_id>", "Top-up <ref> credited twice (old race)", "Support: <name>")?->toArray());'`
+   2. finance decides what happens to the money. To recover a duplicate the
+      patient still holds (refused if the balance is short):
+      `php -r "$W"' var_dump($w->debit("<patient_id>", "NGN", "<amount>", "adjustment", "clawback_<ref>", "Duplicate top-up credit recovered")->toArray());'`
+      If the balance was *below* the ledger (money lost), make it good with
+      `credit(…, "adjustment", "makegood_<wallet_id>_<ref or YYYYMMDD>", "…")`.
+   Every correction gets **its own** reference: re-running the same command is
+   a no-op, but a reference already used for a different amount/direction/wallet
+   is refused (`LedgerReferenceConflictException`, nothing posted) — never
+   silently ignored.
+3. **Top-up held for review**: find the reference in the Paystack dashboard. If
+   it was refunded there, close it with no credit; otherwise credit what
+   actually arrived (posted as a separate `adjustment`, with a receipt):
+   `php -r "$W"' var_dump($w->resolveHeldTopup("<ref>", null, "Refunded on Paystack <date>", "Support: <name>")?->toArray());'`
+   `php -r "$W"' var_dump($w->resolveHeldTopup("<ref>", "<amount received>", "Paystack shows <amount> received", "Support: <name>")?->toArray());'`
+4. **Anything else** (Paystack transaction credited twice, inconsistent ledger
+   row, verified amount differs): should never happen — check the history first
+   (`SELECT * FROM audit_events WHERE resource_id = '<ref>' ORDER BY created_at;`)
+   and escalate to engineering before changing anything.
+
+**Never `credit()` a top-up by hand** (it is refused for type `topup`). A
+top-up that was paid but never credited is credited by
+`php bin/wallet-topup-sweep.php --run` (it asks Paystack first; add
+`--max-age-days=0` for one older than 30 days); if Paystack shows a different
+amount, the sweep holds it and step 3 applies.
+
+Re-run `php bin/wallet-reconcile.php` until it exits `0`. The `[INFO]` lines
+don't affect the exit code: top-ups never credited and still pending/failed
+after 48 h are mostly abandoned checkouts — the nightly sweep asks Paystack
+about the last 30 days' and credits any that were paid.
+
+### One-time: the card-payment fix (payment intents + slot lock)
+
+Every card checkout (booking, follow-up acceptance, guest) is now recorded at
+pay-init (`payment_intents`) and pays for one thing, once — consumed in the
+same transaction as what it pays for. A paid one nothing uses is credited to
+the patient's wallet. Every slot-taking write holds the doctor's slot lock.
+
+1. **Schema** — the redeploy one-liner's `schema-tool:update` creates the
+   `payment_intents` table (+ 3 indexes; nothing dropped or retyped).
+2. **`prod-migrate` step 10** (the one-liner's `--run`) adds two partial unique
+   indexes on `appointments` — `uniq_appointments_payment_reference` (one
+   booking per card payment) and `uniq_appointments_live_slot` (one live
+   booking per doctor per start time). Each is created only when no existing
+   rows break it; otherwise it is listed under `unique_indexes_blocked` with
+   the appointment ids, nothing is changed, and the deploy carries on (the code
+   is already protected; the indexes are a backstop). Resolve a blocked one by
+   hand — e.g. cancel + refund one of a doubly-booked pair through the back
+   office — and re-run `php bin/prod-migrate.php --run`. Later schema updates
+   keep these indexes (`RawIndexes` is the schema tool's listener). Each index
+   is checked and created in its own short transaction that first locks
+   `appointments` against writes (up to 10 s; reads go on) — if the table
+   stays busy it is reported `busy` and nothing changes: re-run the step.
+   Step 10 also prints `card_payment_anomalies` (read-only — see "Card
+   payments to review" below).
+3. **The Paystack webhook now requires its signature** (401 otherwise) and
+   answers `503` when Paystack can't confirm a charge just then (unreachable,
+   or its verify still says pending / ongoing), so Paystack retries; it is no
+   longer per-IP rate-limited. Check that the Paystack
+   dashboard's webhook URL is `https://api.dosthq.com/api/webhooks/paystack`
+   and that `PAYSTACK_SECRET_KEY` is the same mode (live/test) as the keys the
+   front-ends use — a wrong key now means every event is refused. After
+   deploying, the dashboard's webhook log should show `200`s.
+4. **Cron** — no new job: `bin/send-reminders.php` prints a `card payments:`
+   line. It re-checks unconfirmed checkouts with Paystack (from 15 minutes old:
+   every 15 minutes for two hours, then every two hours; expired after a day),
+   and credits a paid one nothing used for `CARD_INTENT_CREDIT_AFTER_MINUTES`
+   (optional `.env`, default `30`) to the wallet, with an in-app notice and the
+   wallet receipt. One it can't credit automatically is held for review
+   (`held_for_review=N` on that line) and leaves the queue; a payment the
+   sweep fails on goes to the back of the queue, so failures never hold up
+   the others.
+5. **Checkouts in flight at the deploy** (started on the old code) are adopted
+   when their webhook arrives or the patient confirms them — only for the
+   patient Paystack's record names (`metadata.patient_id`), for the purpose it
+   was paid for, and only if it was paid no earlier than 24 hours before the
+   first checkout this release records; never paid out twice. A pre-release
+   **guest** payment on an appointment that had a guest removed (its fee may
+   already have been refunded) is recorded but held for review. Anything else
+   is refused with "contact support". **Card charges orphaned before this
+   release have no record**: once, list successful `vma_…` transactions in the
+   Paystack dashboard; for each, read its metadata (`patient_id`, `purpose`,
+   `appointment_id`) and credit it ONLY if all of these hold:
+   - no booking or guest used it:
+     `SELECT id FROM appointments WHERE payment_reference = '<ref>' OR CAST(guests AS text) LIKE '%<ref>%';` returns nothing;
+   - no wallet credit: `SELECT 1 FROM wallet_transactions WHERE reference = 'fu_card_credit_<ref>';` returns nothing;
+   - no payment record: `SELECT status FROM payment_intents WHERE reference = '<ref>';` returns nothing
+     (if it returns a row, the system already placed it — leave it);
+   - for a guest payment (`purpose` `guest_invite`): its appointment never had
+     a guest removed or refunded — removing a guest deleted the only copy of
+     the reference, so the queries above can't see it:
+     `SELECT 1 FROM audit_events ae WHERE ae.appointment_id = '<metadata.appointment_id>' AND (ae.action = 'appointment.guest_removed' OR (ae.resource_type = 'guest' AND EXISTS (SELECT 1 FROM wallet_transactions wt WHERE wt.reference = 'appt_guest_refund_' || ae.resource_id)));`
+     returns nothing (if it returns a row, escalate — don't credit).
+   Then credit the patient named in the metadata under that same key (so it
+   can never be credited twice; `W` as in the wallet section above):
+   `php -r "$W"' var_dump($w->credit("<metadata.patient_id>", "NGN", "<amount>", "refund", "fu_card_credit_<ref>", "Unused card payment <ref> — added to your wallet")->toArray());'`
+
+#### Card payments to review
+
+Every `prod-migrate` run (dry run too) prints `card_payment_anomalies` —
+read-only; nothing is changed. Each entry needs a person:
+
+- `reference_used_twice` / `used_and_credited` — the old check-then-act code
+  let one card payment pay for two bookings / guests, or be used AND credited
+  to the wallet: money was created. Check the history
+  (`SELECT * FROM audit_events WHERE metadata::text LIKE '%<ref>%' ORDER BY created_at;`)
+  and escalate to finance before changing anything (e.g. a clawback debit
+  under `clawback_<ref>`, as for a duplicate top-up above).
+- `intent_consumed_and_credited` — must never happen with payment intents:
+  escalate to engineering.
+- `intents_in_review` — a paid card payment the system would not place by
+  itself (`failure_reason` says why: a currency the wallet doesn't hold, a
+  wallet key already used differently, a pre-release guest payment that may
+  have been refunded). Decide, then close it — crediting the wallet (once,
+  under `fu_card_credit_<ref>`, with a receipt and an in-app notice) or with no
+  credit when it was settled another way:
+  `P='require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $p = (new DI\ContainerBuilder())->addDefinitions("config/container.php")->build()->get(App\Infrastructure\Service\PaymentIntentService::class);'`
+  `php -r "$P"' var_dump($p->closeReview("<ref>", "<amount to credit>", "Checked: unused, paid <date>", "Support: <name>")?->toArray());'`
+  `php -r "$P"' var_dump($p->closeReview("<ref>", null, "Already refunded as appt_guest_refund_<gid>", "Support: <name>")?->toArray());'`
+
 ---
 
 ## Troubleshooting

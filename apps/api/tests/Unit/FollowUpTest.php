@@ -395,11 +395,11 @@ final class FollowUpTest extends TestCase
         $this->assertNull(FollowUpService::strayCardReference($byCard, 'card', 'ref_theirs'), 'the very payment it was confirmed with');
         $this->assertSame('ref_other', FollowUpService::strayCardReference($byCard, 'card', 'ref_other'));
 
-        // accept() hands a stray payment to the checkout's wallet credit (this
-        // dependency-less checkout fails loudly the moment it is reached)…
+        // accept() hands a stray payment to the payments' wallet credit (this
+        // dependency-less service fails loudly the moment it is reached)…
         $service = $this->service();
-        (new \ReflectionProperty(FollowUpService::class, 'checkout'))
-            ->setValue($service, (new \ReflectionClass(AppointmentCheckout::class))->newInstanceWithoutConstructor());
+        (new \ReflectionProperty(FollowUpService::class, 'intents'))
+            ->setValue($service, (new \ReflectionClass(\App\Infrastructure\Service\PaymentIntentService::class))->newInstanceWithoutConstructor());
 
         $credited = 'untouched';
         $this->assertFalse($service->accept($byCard, 'card', 'ref_theirs', null, $credited), 'the same payment: a plain repeat');
@@ -412,7 +412,7 @@ final class FollowUpTest extends TestCase
             $service->accept($byWallet, 'card', 'ref_second', null, $credited);
             $this->fail('a second card payment must be credited to the wallet');
         } catch (\Error $e) {
-            $this->assertStringContainsString('AppointmentCheckout::$appointments', $e->getMessage(), 'reached creditToWallet()');
+            $this->assertStringContainsString('PaymentIntentService::$intents', $e->getMessage(), 'reached settleUnusedFor()');
         }
     }
 
@@ -486,40 +486,21 @@ final class FollowUpTest extends TestCase
         $this->assertSame('10000.00', $this->service()->checkoutAmount($open, $open->getScheduledAt()), 'its own slot is not "taken"');
     }
 
-    public function testALosingAcceptanceGetsBackOnlyWhatTheFollowUpDoesNotCarry(): void
+    public function testAnUnusedCardPaymentIsCreditedUnderTheKeyItAlwaysHad(): void
     {
-        // Closed unanswered (declined / withdrawn / expired): whatever we took goes back.
-        $closed = $this->proposal();
-        $closed->transitionTo(AppointmentStatus::CANCELLED);
-        $this->assertSame('fu_race_refund_' . $closed->getId(), FollowUpService::raceRefundKey($closed, '10000.00', null));
-        $this->assertSame('fu_card_credit_ref_mine', FollowUpService::raceRefundKey($closed, '10000.00', 'ref_mine'));
-        $this->assertNull(FollowUpService::raceRefundKey($closed, null, null), 'free: nothing was taken');
-
-        // Accepted from the wallet meanwhile: the debit is keyed on the appointment, so it was shared.
-        $byWallet = $this->proposal();
-        $byWallet->transitionTo(AppointmentStatus::CONFIRMED);
-        $byWallet->setPaymentStatus('paid');
-        $this->assertNull(FollowUpService::raceRefundKey($byWallet, '10000.00', null), 'charged once');
-        $this->assertSame('fu_card_credit_ref_mine', FollowUpService::raceRefundKey($byWallet, '10000.00', 'ref_mine'), 'our card payment was extra');
-
-        // Accepted by card meanwhile: our wallet debit was a second, real charge.
-        $byCard = $this->proposal();
-        $byCard->transitionTo(AppointmentStatus::CONFIRMED);
-        $byCard->payByCard('ref_theirs');
-        $this->assertSame('fu_race_refund_' . $byCard->getId(), FollowUpService::raceRefundKey($byCard, '10000.00', null));
-        $this->assertNull(FollowUpService::raceRefundKey($byCard, '10000.00', 'ref_theirs'), 'the very payment it was confirmed with');
-        $this->assertSame('fu_card_credit_ref_mine', FollowUpService::raceRefundKey($byCard, '10000.00', 'ref_mine'));
-
-        // Accepted for free meanwhile (we had moved it to a paid slot): our debit was real.
-        $free = $this->proposal(null, '+2 days', '+1 day', ['amount' => '0.00', 'rule' => 'waived', 'waived' => true]);
-        $free->transitionTo(AppointmentStatus::CONFIRMED);
-        $free->setPaymentStatus('paid');
-        $this->assertSame('fu_race_refund_' . $free->getId(), FollowUpService::raceRefundKey($free, '20000.00', null));
-
-        // Accepted, then cancelled and refunded, all meanwhile: still the shared debit.
-        $byWallet->transitionTo(AppointmentStatus::CANCELLED);
-        $byWallet->setPaymentStatus('refunded');
-        $this->assertNull(FollowUpService::raceRefundKey($byWallet, '10000.00', null), 'its cancellation refunded it already');
+        // An acceptance now takes its wallet money inside the claim's own
+        // transaction, so a losing one takes nothing (the old race refunds are
+        // gone; tests/Integration/Card covers the race). An unused card payment
+        // still goes to the wallet under the reference it always used — so one
+        // credited before payment intents existed can never be credited again.
+        $this->assertSame('fu_card_credit_vma_abc', AppointmentCheckout::walletCreditKey('vma_abc'));
+        $this->assertSame('fu_card_credit_vma_abc', \App\Infrastructure\Service\PaymentIntentService::walletCreditKey('vma_abc'));
+        $this->assertSame('card_overpay_vma_abc', \App\Infrastructure\Service\PaymentIntentService::overpaymentKey('vma_abc'));
+        $this->assertNotSame(
+            \App\Infrastructure\Service\PaymentIntentService::walletCreditKey('vma_abc'),
+            \App\Infrastructure\Service\PaymentIntentService::overpaymentKey('vma_abc'),
+            'a payment used with an overpayment can never also be credited whole',
+        );
     }
 
     public function testRequestedTimesAreStoredOnTheServerClock(): void

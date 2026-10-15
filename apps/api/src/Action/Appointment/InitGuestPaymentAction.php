@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Entity\Appointment;
+use App\Domain\Entity\PaymentIntent;
 use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentCheckout;
@@ -64,10 +65,9 @@ final class InitGuestPaymentAction
         }
 
         try {
-            $init = $this->checkout->initialize($patient, $fee, '/dashboard/appointments/' . $appointment->getId(), [
+            $init = $this->checkout->initialize($patient, $fee, '/dashboard/appointments/' . $appointment->getId(), PaymentIntent::PURPOSE_GUEST, [
                 'appointment_id' => $appointment->getId(),
                 'specialist_id'  => $appointment->getSpecialist()->getId(),
-                'purpose'        => 'guest_invite',
             ]);
         } catch (\Throwable $e) {
             error_log('[guests.pay-init] paystack initialize failed: ' . $e->getMessage());

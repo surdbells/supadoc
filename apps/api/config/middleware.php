@@ -8,6 +8,9 @@ use App\Infrastructure\Middleware\RateLimitMiddleware;
 use App\Infrastructure\Middleware\RequestOriginMiddleware;
 use App\Infrastructure\Middleware\ErrorHandler;
 use Predis\Client as RedisClient;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Slim\App;
 
@@ -23,11 +26,21 @@ return static function (App $app): void {
     $logger    = $container->get(LoggerInterface::class);
 
     // Added 1st → runs LAST.
-    $app->add(new RateLimitMiddleware(
+    $rateLimit = new RateLimitMiddleware(
         $container->get(RedisClient::class),
         (int) ($_ENV['RATE_LIMIT_REQUESTS'] ?? 60),
         (int) ($_ENV['RATE_LIMIT_WINDOW'] ?? 60),
-    ));
+    );
+    // Paystack's webhook is exempt: every event comes from Paystack's few
+    // addresses (a busy minute would be throttled into retries and delays),
+    // and it is gated by its mandatory HMAC signature instead.
+    $app->add(static function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($rateLimit): ResponseInterface {
+        if (rtrim($request->getUri()->getPath(), '/') === '/api/webhooks/paystack') {
+            return $handler->handle($request);
+        }
+
+        return $rateLimit->process($request, $handler);
+    });
 
     $app->add(new JsonBodyParserMiddleware());
 

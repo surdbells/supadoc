@@ -27,7 +27,7 @@ use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
-use App\Infrastructure\Service\AppointmentCheckout;
+use App\Infrastructure\Service\PaymentIntentService;
 use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\CallPresence;
@@ -559,7 +559,7 @@ final class GuestInvitesTest extends TestCase
         $invitations = new GuestInvitations(
             new AppointmentRepository($closed),
             $blank(AppointmentPaymentService::class),
-            $blank(AppointmentCheckout::class),
+            $blank(PaymentIntentService::class),
             $blank(PricingService::class),
             new MailService('', '', '', '', $logger),
             new JwtService(self::SECRET, 900, 1209600),

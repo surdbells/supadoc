@@ -20,6 +20,7 @@ import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, merge, Subscription } from 'rxjs';
 import type { HasUnsavedChanges } from '@supadoc/auth';
 import {
+  ApiService,
   apiErrorFields,
   apiErrorMessage,
   AppointmentsApi,
@@ -38,6 +39,7 @@ import type {
   GuestInvite,
   PricingDto,
   SpecialistDto,
+  SuccessResponse,
 } from '@supadoc/models';
 import {
   AlertComponent,
@@ -96,6 +98,78 @@ const DOC_TOO_BIG = 'File must be 10MB or smaller.';
 const DOC_UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, WEBP, DOCX, DICOM or video.';
 /** The API attaches at most this many documents to one booking. */
 const MAX_DOCS = 10;
+
+/**
+ * A card payment this tab made that no booking has used yet — kept in
+ * sessionStorage (this tab only) from just before the Paystack pop-up opens
+ * until the booking succeeds, so a reload or a dropped connection after paying
+ * can still complete the booking on it.
+ */
+interface PendingCardPayment {
+  readonly reference: string;
+  readonly specialistId: string;
+  /** The chosen time's ISO start. */
+  readonly slot: string;
+  readonly amount: number;
+  /** The completed consultation this was a follow-up of ('' for a regular booking). */
+  readonly parentId: string;
+  /** When it was saved (epoch ms). */
+  readonly savedAt: number;
+}
+
+const PENDING_CARD_KEY = 'videomed.booking.pendingCardPayment';
+/** An unused card payment reaches the wallet automatically after about this long (the API's CARD_INTENT_CREDIT_AFTER_MINUTES). */
+const AUTO_CREDIT_MINUTES = 30;
+
+/**
+ * GET /api/portal/card-payments/{reference} — where one of the patient's own
+ * card payments stands, as the server knows it (it asks Paystack first when
+ * it doesn't know yet). Only `paid` means money was taken and is still unused.
+ */
+interface CardPaymentStatus {
+  readonly reference: string;
+  readonly status: 'paid' | 'not_paid' | 'unconfirmed' | 'used' | 'credited_to_wallet' | 'review';
+  readonly amount: string;
+  readonly currency: string;
+  readonly specialist_id: string | null;
+  readonly used_for: string | null;
+  readonly credited_amount: string | null;
+  /** When an unused paid payment is credited to the wallet (ISO), if it is `paid`. */
+  readonly credit_due_at: string | null;
+  readonly credit_after_minutes: number;
+}
+
+/** A saved card payment the server confirmed as paid and unused — it can complete the booking. */
+type ResumablePayment = PendingCardPayment & { readonly creditDueAt: string | null };
+
+function readPendingCard(storage: Storage | null): PendingCardPayment | null {
+  try {
+    const raw = JSON.parse(storage?.getItem(PENDING_CARD_KEY) ?? 'null') as Partial<PendingCardPayment> | null;
+    if (!raw || typeof raw.reference !== 'string' || typeof raw.specialistId !== 'string' || typeof raw.slot !== 'string') return null;
+    const amount = Number(raw.amount);
+    const savedAt = Number(raw.savedAt);
+    if (!raw.reference || !Number.isFinite(amount) || !Number.isFinite(savedAt)) return null;
+    return {
+      reference: raw.reference,
+      specialistId: raw.specialistId,
+      slot: raw.slot,
+      amount,
+      parentId: typeof raw.parentId === 'string' ? raw.parentId : '',
+      savedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePendingCard(storage: Storage | null, value: PendingCardPayment | null): void {
+  try {
+    if (value) storage?.setItem(PENDING_CARD_KEY, JSON.stringify(value));
+    else storage?.removeItem(PENDING_CARD_KEY);
+  } catch {
+    // Storage unavailable (private mode, quota): the in-page copy still works.
+  }
+}
 
 /** Whole days between two 'YYYY-MM-DD' dates, either way round. */
 function daysApart(a: string, b: string): number {
@@ -217,6 +291,31 @@ function daysApart(a: string, b: string): number {
       }
       @if (unusedPayment() && step() < 7) {
         <sd-alert tone="warning">{{ unusedPayment() }}</sd-alert>
+      }
+
+      <!-- A card payment from before a reload / dropped connection that no booking used yet -->
+      @if (resumable(); as p) {
+        <div
+          class="flex flex-col gap-3 rounded-card border border-cerulean/30 bg-frost/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+        >
+          <p class="flex min-w-0 items-start gap-2 font-sans text-body-sm text-ink">
+            <sd-icon name="credit-card" [size]="18" class="mt-0.5 shrink-0 text-cerulean" />
+            <span>
+              <span class="font-semibold">You've already paid {{ fmt(p.amount) }} by card</span>
+              for {{ openingLabel(p.slot) }}, but the booking wasn't completed. Complete it now
+              without paying again — or, if you don't, the payment is added to your VideoMed
+              wallet automatically {{ creditDueLabel(p.creditDueAt) }}.
+            </span>
+          </p>
+          <div class="flex shrink-0 flex-wrap gap-2">
+            <sd-button variant="outline" size="sm" (click)="dismissResume()">Not now</sd-button>
+            <sd-button size="sm" [disabled]="doctorGone()" (click)="resumePaidBooking()">Complete your paid booking</sd-button>
+          </div>
+        </div>
+      }
+      @if (walletNotice()) {
+        <sd-alert tone="info">{{ walletNotice() }}</sd-alert>
       }
 
       @if (loadError()) {
@@ -1123,6 +1222,8 @@ function daysApart(a: string, b: string): number {
 export class BookConsultation implements OnInit, HasUnsavedChanges {
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly appointments = inject(AppointmentsApi);
+  /** For GET /api/portal/card-payments/{reference} (a saved card payment's status). */
+  private readonly api = inject(ApiService);
   private readonly wallet = inject(WalletApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -1253,19 +1354,26 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       return (
         `Your earlier card payment of ${this.fmt(p.amount)} doesn't cover this time (${this.fmt(now)}). ` +
         `Pick a time that costs ${this.fmt(p.amount)} or less to book on it without paying again — ` +
-        `paying now is a separate charge, so contact support about the earlier payment.`
+        `paying now is a separate charge, and the earlier payment is added to your VideoMed wallet automatically ` +
+        `within about ${AUTO_CREDIT_MINUTES} minutes if no booking uses it.`
       );
     }
     if (now < p.amount) {
       return (
         `Your earlier card payment of ${this.fmt(p.amount)} is more than this time costs (${this.feeLabel(now)}). ` +
-        `This booking uses it — contact support about the ${this.fmt(p.amount - now)} difference.`
+        `This booking uses it, and the ${this.fmt(p.amount - now)} difference is added to your VideoMed wallet.`
       );
     }
     return '';
   });
-  /** A card payment the server wouldn't take for this booking, for support to sort out. */
+  /** A card payment the server wouldn't take for this booking, and where its money goes. */
   protected readonly unusedPayment = signal('');
+  /** A card payment from before a reload that can still complete this booking ("Complete your paid booking"). */
+  protected readonly resumable = signal<ResumablePayment | null>(null);
+  /** Where an earlier card payment's money went (the wallet). */
+  protected readonly walletNotice = signal('');
+  /** The server check of a saved card payment, while it runs (a newer page start cancels it). */
+  private resumeCheck?: Subscription;
   protected readonly topUpAmount = signal('');
 
   private readonly nf = new Intl.NumberFormat('en-NG', {
@@ -1460,6 +1568,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
     this.requestedNext.set(null);
     this.submitError.set('');
     this.fundError.set('');
+    this.walletNotice.set('');
     // A follow-up link holds for this page only.
     this.quoteSub?.unsubscribe();
     this.parent.set(null);
@@ -1476,6 +1585,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       if (kept) {
         this.paid.set(null);
         this.unusedPayment.set(this.unusedPaymentNote(kept));
+        this.forgetPendingCard();
       }
       this.loadSpecialist(id);
       // Another doctor picked from the suggestions: the link that did it is
@@ -1494,6 +1604,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
     const followUpOf = query.get('follow_up') ?? '';
     this.followUpOf.set(followUpOf);
     if (followUpOf) this.checkParent(followUpOf);
+    this.offerResume(id, followUpOf);
 
     this.cal.load(id);
     const tz = this.cal.tz();
@@ -1681,11 +1792,151 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
   private markDoctorGone(): void {
     if (this.doctorGone()) return;
     this.doctorGone.set(true);
+    this.resumable.set(null);
     const kept = this.paid();
     if (kept) {
       this.paid.set(null);
       this.unusedPayment.set(this.unusedPaymentNote(kept));
+      this.forgetPendingCard();
     }
+  }
+
+  // ----- A card payment that outlives the page -----
+
+  private storage(): Storage | null {
+    try {
+      return this.document.defaultView?.sessionStorage ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private rememberPendingCard(value: PendingCardPayment): void {
+    writePendingCard(this.storage(), value);
+  }
+
+  private forgetPendingCard(): void {
+    writePendingCard(this.storage(), null);
+    this.resumable.set(null);
+  }
+
+  /**
+   * On (re)opening the page: a card payment this tab started that no booking
+   * used yet (saved just before the Paystack pop-up opened — so it may never
+   * have been paid: the pop-up closed, or the page reloaded before paying).
+   * Nothing is said until the server confirms what happened to it:
+   *  - paid, still good for this doctor and time → offer "Complete your paid booking";
+   *  - paid, for something this page can't book → say it goes to the wallet, and when;
+   *  - used / credited / held for support → say so;
+   *  - never paid (or unknown) → forgotten, silently;
+   *  - the server can't tell just now → kept, silently, for the next visit.
+   */
+  private offerResume(doctorId: string, followUpOf: string): void {
+    this.resumable.set(null);
+    this.resumeCheck?.unsubscribe();
+    const p = readPendingCard(this.storage());
+    if (!p || p.reference === this.paid()?.reference) return;
+    this.resumeCheck = this.api
+      .get<SuccessResponse<CardPaymentStatus>>(`api/portal/card-payments/${encodeURIComponent(p.reference)}`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.showSavedPayment(p, res.data, doctorId, followUpOf),
+        error: (err) => {
+          // No such payment of theirs: nothing to say. Anything else: ask again next time.
+          if (httpStatus(err) === 404) writePendingCard(this.storage(), null);
+        },
+      });
+  }
+
+  /** What the server said about a saved card payment ({@link offerResume}). */
+  private showSavedPayment(p: PendingCardPayment, s: CardPaymentStatus, doctorId: string, followUpOf: string): void {
+    // The page moved on (another doctor) or the payment was taken up meanwhile: the new start decides.
+    if (this.doctorId() !== doctorId || p.reference === this.paid()?.reference) return;
+    const amount = Number(s.amount) > 0 ? Number(s.amount) : p.amount;
+    const ref = `${this.fmt(amount)} (reference ${p.reference})`;
+    switch (s.status) {
+      case 'paid':
+        if (new Date(p.slot).getTime() > Date.now() && p.specialistId === doctorId && p.parentId === followUpOf) {
+          this.resumable.set({ ...p, amount, creditDueAt: s.credit_due_at });
+          return;
+        }
+        this.walletNotice.set(
+          `Your earlier card payment of ${ref} wasn't used for a booking, so it will be added to your VideoMed wallet automatically ${this.creditDueLabel(s.credit_due_at)}.`,
+        );
+        break;
+      case 'credited_to_wallet':
+        this.walletNotice.set(
+          `Your earlier card payment of ${ref} wasn't used for a booking, so it has been added to your VideoMed wallet.`,
+        );
+        break;
+      case 'used':
+        this.walletNotice.set(
+          `Your earlier card payment of ${ref} has already been used for a booking — check My appointments before paying again.`,
+        );
+        break;
+      case 'review':
+        this.walletNotice.set(
+          `Your earlier card payment of ${ref} is being checked by our support team. Contact support with its reference if you need help.`,
+        );
+        break;
+      case 'unconfirmed':
+        return; // Paystack couldn't be asked just now: keep it, say nothing yet.
+      default:
+        break; // never paid: nothing was charged, nothing to say
+    }
+    writePendingCard(this.storage(), null);
+  }
+
+  /** "within about 25 minutes" / "shortly" — when an unused paid card payment reaches the wallet. */
+  protected creditDueLabel(dueAt: string | null): string {
+    const due = dueAt ? Date.parse(dueAt) : NaN;
+    if (isNaN(due)) return `within about ${AUTO_CREDIT_MINUTES} minutes`;
+    const minutes = Math.ceil((due - Date.now()) / 60_000);
+    return minutes > 1 ? `within about ${minutes} minutes` : 'shortly';
+  }
+
+  /** "Complete your paid booking": the paid time is chosen again and the booking completes on that payment. */
+  protected resumePaidBooking(): void {
+    const p = this.resumable();
+    if (!p) return;
+    this.resumable.set(null);
+    this.walletNotice.set('');
+    this.paid.set({ reference: p.reference, amount: p.amount });
+    this.payMethod.set('card');
+    this.showDay(ymdInZone(p.slot, this.cal.tz()));
+    this.selectedTime.set(p.slot);
+    this.step.set(7);
+  }
+
+  /** "Not now": leave it — the server confirmed it paid and unused, and adds it to the wallet. */
+  protected dismissResume(): void {
+    const p = this.resumable();
+    if (!p) return;
+    this.walletNotice.set(
+      `Your card payment of ${this.fmt(p.amount)} will be added to your VideoMed wallet automatically ` +
+        `${this.creditDueLabel(p.creditDueAt)} — you can use it for any booking.`,
+    );
+    this.forgetPendingCard();
+  }
+
+  /** The API credited the card payment to the wallet: book from the wallet now, and say so. */
+  private cardCreditedToWallet(message: string): void {
+    this.paid.set(null);
+    this.forgetPendingCard();
+    this.unusedPayment.set('');
+    this.walletNotice.set(message);
+    this.payMethod.set('wallet');
+    this.wallet
+      .wallet()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.walletBalance.set(Number(res.data.balance));
+          this.walletLoaded.set(true);
+          this.walletError.set('');
+        },
+        error: () => undefined,
+      });
   }
 
   /**
@@ -2166,11 +2417,25 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
         }),
       );
       this.booked = true;
+      this.forgetPendingCard();
       await this.router.navigate(['/dashboard/appointments'], {
         queryParams: { booked: '1' },
       });
     } catch (err) {
       const fields = apiErrorFields(err);
+      // The card payment can't book this (the time, the doctor or the
+      // follow-up went) and the API has put it in the wallet: say so, and
+      // book from the wallet from here.
+      if (paymentReference && fields['card_payment'] === 'credited_to_wallet') {
+        this.cardCreditedToWallet(apiErrorMessage(err, 'Your card payment has been added to your VideoMed wallet.'));
+        if (fields['scheduled_at']) this.timeRefused(fields['scheduled_at']);
+        else if (fields['specialist_id'])
+          this.recheckDoctor(() => {
+            if (this.parent()) this.dropParent();
+          });
+        else if (this.parent() && fields['parent_appointment_id']) this.dropParent();
+        return;
+      }
       // Backstop: the server rejects an underfunded wallet with a 422 flag —
       // flip the balance to a known-short state so the top-up CTA shows.
       // (`wallet: insufficient_funds` is a flag, so it gets words of its own.)
@@ -2197,7 +2462,17 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       const refused = fields['payment'] ?? '';
       if (paymentReference && kept?.reference === paymentReference && refused && !/try again/i.test(refused)) {
         this.paid.set(null);
-        this.unusedPayment.set(this.unusedPaymentNote(kept, refused));
+        this.forgetPendingCard();
+        // "Already in your wallet" is said as is; "already used" most likely
+        // means this booking went through before the page lost the answer;
+        // anything else says where the money goes.
+        this.unusedPayment.set(
+          /wallet/i.test(refused)
+            ? refused
+            : /already been used/i.test(refused)
+              ? 'This card payment has already been used for a booking — check My appointments before paying again.'
+              : this.unusedPaymentNote(kept, refused),
+        );
         return;
       }
       // A guest the server refused (the patient's own email, the doctor's, …):
@@ -2259,6 +2534,16 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       );
       const Pop = await loadPaystack();
       const popup = new Pop();
+      // Kept for this tab before the pop-up opens: if the page is reloaded or
+      // the connection drops after paying, the booking can still complete on it.
+      this.rememberPendingCard({
+        reference: init.data.reference,
+        specialistId: this.doctorId(),
+        slot: this.selectedTime(),
+        amount: Number(init.data.amount),
+        parentId: parent?.id ?? '',
+        savedAt: Date.now(),
+      });
       popup.resumeTransaction(init.data.access_code, {
         onSuccess: () => {
           this.funding.set(false);
@@ -2270,10 +2555,12 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
         },
         onCancel: () => {
           this.funding.set(false);
+          this.forgetPendingCard();
           this.fundError.set('Payment cancelled. Your booking details are saved — try again when ready.');
         },
         onError: () => {
           this.funding.set(false);
+          this.forgetPendingCard();
           this.fundError.set('The payment could not be completed. Please try again.');
         },
       });
@@ -2310,11 +2597,26 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
     }
   }
 
-  /** What to tell the patient about a card payment no booking used (with the server's reason, if any). */
+  /**
+   * What to tell the patient about a card payment no booking used. Without a
+   * server reason, the payment is one Paystack reported paid (its pop-up's
+   * success, or the server confirmed it) — an unused one reaches the wallet
+   * automatically. With one, only the server says where the money goes: its
+   * reason does when it knows the payment was made ("…added to your VideoMed
+   * wallet automatically…", or "contact support"); otherwise (not completed,
+   * not found, not this patient's…) no wallet credit is promised — nothing
+   * may have been charged at all.
+   */
   private unusedPaymentNote(p: { reference: string; amount: number }, reason = ''): string {
+    const paidNote =
+      `Your earlier card payment of ${this.fmt(p.amount)} (reference ${p.reference}) couldn't be used for this booking` +
+      ` — it will be added to your VideoMed wallet automatically within about ${AUTO_CREDIT_MINUTES} minutes.`;
+    if (!reason) return `${paidNote} You can still book by paying again or from your wallet.`;
+    const said = /wallet automatically|contact support/i.test(reason);
     return (
-      `${reason ? reason + ' ' : ''}Your earlier card payment of ${this.fmt(p.amount)} couldn't be used for this booking — ` +
-      `contact support with reference ${p.reference}. You can still book by paying again or from your wallet.`
+      `${reason.replace(/\.?$/, '.')} ` +
+      (said ? '' : `If your card was charged for reference ${p.reference}, contact support with that reference. `) +
+      'You can still book by paying again or from your wallet.'
     );
   }
 
@@ -2419,7 +2721,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
         title: 'Leave without booking?',
         message:
           `Your card payment of ${this.fmt(paid.amount)} hasn't been used for a booking yet. ` +
-          'If you leave now, contact support with its reference to get it back.',
+          `If you leave now, it will be added to your VideoMed wallet automatically within about ${AUTO_CREDIT_MINUTES} minutes.`,
         details: [
           { label: 'Card payment', value: this.fmt(paid.amount) },
           { label: 'Reference', value: paid.reference },

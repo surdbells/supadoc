@@ -115,9 +115,9 @@ final class FreeBookingTest extends TestCase
             new AppointmentCheckout(
                 new PaystackService('', '', ''), // not configured: reaching it would be a 503
                 $pricing,
-                $appointments,
                 new PatientNotifier(new NotificationRepository($em)),
-                new AppointmentPaymentService($this->untouchedWallet()),
+                // No checkout may even be recorded for a free consultation: a state-less service fails loudly.
+                (new \ReflectionClass(\App\Infrastructure\Service\PaymentIntentService::class))->newInstanceWithoutConstructor(),
             ),
             // Only a follow-up is priced by it — never reached for a plain booking.
             (new \ReflectionClass(FollowUpService::class))->newInstanceWithoutConstructor(),

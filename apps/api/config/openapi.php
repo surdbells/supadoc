@@ -559,10 +559,36 @@ return [
             'post' => ['tags' => ['Wallet'], 'summary' => 'Start a Paystack top-up', 'responses' => ['201' => ['description' => 'Checkout URL']]],
         ],
         '/api/portal/wallet/verify' => [
-            'post' => ['tags' => ['Wallet'], 'summary' => 'Verify + settle a top-up', 'responses' => ['200' => ['description' => 'OK']]],
+            'post' => [
+                'tags'        => ['Wallet'],
+                'summary'     => 'Verify + settle a top-up',
+                'description' => 'Re-verifies the reference with Paystack, then credits the top-up at most once — only when the verified amount and currency equal what it asked for. '
+                    . 'Safe to repeat: an already decided top-up is answered from the ledger without calling Paystack again (no second receipt).',
+                'responses'   => [
+                    '200' => ['description' => 'Credited now (`message`: "Wallet funded") or earlier — `data.status` "success", with the wallet and the transaction'],
+                    '402' => ['description' => 'Paystack says the payment was not completed (failed / abandoned / reversed) — nothing added'],
+                    '404' => ['description' => 'No such top-up for this patient'],
+                    '409' => ['description' => 'Still processing at the bank (credited once Paystack confirms), or paid with a different amount/currency and held for support review — `message` says which'],
+                    '422' => ['description' => 'Missing reference'],
+                    '502' => ['description' => 'Paystack could not be reached — try again'],
+                ],
+            ],
         ],
         '/api/webhooks/paystack' => [
-            'post' => ['tags' => ['Webhooks'], 'summary' => 'Paystack event webhook', 'security' => [], 'responses' => ['200' => ['description' => 'Received']]],
+            'post' => [
+                'tags'        => ['Webhooks'],
+                'summary'     => 'Paystack event webhook',
+                'security'    => [],
+                'description' => 'The `x-paystack-signature` header (HMAC-SHA512 of the raw body with the secret key) is required. '
+                    . '`charge.success` is re-verified with Paystack, then settled by reference: a wallet top-up is credited at most once (only for the verified amount and currency it expected); '
+                    . 'a card checkout (booking / follow-up / guest) is marked paid — used by the patient\'s request, or credited to their wallet by the cron once unused for CARD_INTENT_CREDIT_AFTER_MINUTES. '
+                    . 'Idempotent: repeats change nothing. Other events are acknowledged and ignored. Not rate-limited per IP.',
+                'responses'   => [
+                    '200' => ['description' => 'Received (`data.outcome` says what happened)'],
+                    '401' => ['description' => 'Missing or invalid signature — nothing was read'],
+                    '503' => ['description' => 'Paystack could not confirm the charge just now — Paystack retries the event'],
+                ],
+            ],
         ],
 
         // ----- Consultation: doctor clinical actions -----
@@ -2915,9 +2941,13 @@ return [
                 'summary'     => 'Book a consultation',
                 'description' => 'The patient is taken from the token; the appointment is created with status pending. '
                     . 'Paid by card (`payment_reference`) or from the wallet; a free consultation (amount 0) books with no payment and no wallet posting. '
+                    . 'The slot and the payment are taken in one transaction under the doctor\'s slot lock (availability re-checked there): a time taken meanwhile is 409 `errors.scheduled_at` with nothing booked or charged. '
+                    . 'A card payment is the patient\'s pay-init payment for this doctor (and this follow-up, or none) and books once: a second use is 422 `errors.payment` "This payment has already been used." — '
+                    . 'except a repeat of the booking it made (same patient, doctor and time, booking still open), answered 200 with that booking; '
+                    . 'one paid above the price books and the difference goes to the wallet. A card payment for a booking that can no longer happen (the time, the doctor or the follow-up went) is credited to the wallet: `errors.card_payment = credited_to_wallet`, the message says how much. '
                     . 'Each of `document_ids` must be one of the patient\'s own documents and not attached to another appointment, else 422 (`document_ids.N`, N = its position in the request; another patient\'s id reads as not found). '
                     . 'They are linked in the transaction that stores the appointment, guarded so two bookings can never take the same file: the one that loses gets the same 422 and nothing is booked '
-                    . '(a wallet charge is refunded; a card payment\'s reference stays unused, so the booking can be retried with it). '
+                    . '(nothing is charged; a card payment stays unused, so the booking can be retried with it). '
                     . 'A follow-up: `parent_appointment_id` is one of the patient\'s COMPLETED consultations with the same doctor (422 `errors.parent_appointment_id` when it is not theirs / not completed, `errors.specialist_id` when the doctor differs). '
                     . 'It is then booked as type follow_up, linked to it (`parent_appointment_id`, `proposed_by: patient`) and priced by the follow-up rules for its start time (see Pricing; plus any guest fees); payment, status and emails are as for any booking. '
                     . 'Price it first with GET /portal/appointments/{parentId}/follow-up/quote; a card payment uses pay-init with the same parent_appointment_id + scheduled_at.',
@@ -2948,8 +2978,10 @@ return [
                 ])],
                 'responses'   => [
                     '201' => ['description' => 'Booked', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '200' => ['description' => 'Already booked with this card payment (a repeated request): that booking', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '409' => ['description' => 'That time was just taken (`errors.scheduled_at`); nothing booked or charged — a card payment made for it is credited to the wallet (`errors.card_payment`) or kept for another time', ...$json(['$ref' => '#/components/schemas/Error'])],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
@@ -2963,6 +2995,8 @@ return [
                     . '`{appointment_id, scheduled_at?}` — accepting the doctor\'s follow-up proposal (its price, or re-priced for the other slot `scheduled_at`; 422 `errors.appointment_id` when it is not the patient\'s proposal, `errors.status` when it has closed or expired or closes within 15 minutes (pay from the wallet instead), '
                     . '`errors.specialist_id` when the doctor can no longer be booked, `errors.scheduled_at` when the other slot is no longer open — all checked before the checkout starts). '
                     . 'Then send the returned `reference` as `payment_reference` to POST /portal/appointments or POST /portal/appointments/{id}/follow-up/accept. '
+                    . 'The checkout is recorded first (who pays, for what, how much): the payment can pay only for that, once; one nothing uses is credited to the patient\'s wallet automatically (CARD_INTENT_CREDIT_AFTER_MINUTES, default 30). '
+                    . 'A new booking may also send `scheduled_at` (kept for the record; another time with the same doctor can still use the payment). '
                     . 'A free consultation (amount 0) has nothing to charge: 422 with `errors.payment = "free"` — book / accept it directly.',
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
@@ -2971,7 +3005,7 @@ return [
                         'guest_count'           => ['type' => 'integer', 'minimum' => 0, 'maximum' => 3],
                         'parent_appointment_id' => ['type' => 'string', 'format' => 'uuid', 'description' => 'Booking a follow-up of this completed consultation'],
                         'appointment_id'        => ['type' => 'string', 'format' => 'uuid', 'description' => 'Accepting this follow-up proposal'],
-                        'scheduled_at'          => ['type' => 'string', 'format' => 'date-time', 'description' => 'Required with parent_appointment_id; with appointment_id, another slot than the proposed one'],
+                        'scheduled_at'          => ['type' => 'string', 'format' => 'date-time', 'description' => 'Required with parent_appointment_id; with appointment_id, another slot than the proposed one; optional for a new booking (recorded only)'],
                     ],
                 ])],
                 'responses'   => [
@@ -2985,6 +3019,34 @@ return [
                     '422' => ['description' => 'Validation failed, or the consultation is free (`errors.payment = "free"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
                     '502' => ['description' => 'Paystack refused to start the payment'],
                     '503' => ['description' => 'Card payment not configured'],
+                ],
+            ],
+        ],
+        '/api/portal/card-payments/{reference}' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => "Where one of the patient's own card payments stands",
+                'description' => 'A pay-init `reference` of the signed-in patient (another patient\'s, or an unknown one: 404). A checkout not yet known to be paid is checked with Paystack first. '
+                    . '`status`: `paid` — paid and not used yet: it can still pay for what it was made for, else it is credited to the wallet at `credit_due_at`; '
+                    . '`not_paid` — Paystack shows nothing charged; `unconfirmed` — Paystack could not be asked just now (ask again later); '
+                    . '`used` — it paid for something (`used_for`: the appointment, for a booking or follow-up); `credited_to_wallet` (`credited_amount`); `review` — held for support. '
+                    . 'Lets the app offer "Complete your paid booking" after a reload only for a payment that was really made. Never cached.',
+                'parameters'  => [['name' => 'reference', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'maxLength' => 100]]],
+                'responses'   => [
+                    '200' => ['description' => 'The payment', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'reference'            => ['type' => 'string'],
+                        'status'               => ['type' => 'string', 'enum' => ['paid', 'not_paid', 'unconfirmed', 'used', 'credited_to_wallet', 'review']],
+                        'purpose'              => ['type' => 'string', 'enum' => ['appointment_booking', 'follow_up_accept', 'guest_add']],
+                        'amount'               => ['type' => 'string', 'example' => '10000.00', 'description' => 'What was paid (once confirmed), else what the checkout asked for'],
+                        'currency'             => ['type' => 'string', 'example' => 'NGN'],
+                        'specialist_id'        => ['type' => 'string', 'nullable' => true],
+                        'used_for'             => ['type' => 'string', 'nullable' => true],
+                        'credited_amount'      => ['type' => 'string', 'nullable' => true],
+                        'credit_due_at'        => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                        'credit_after_minutes' => ['type' => 'integer', 'example' => 30],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
             ],
         ],
@@ -3040,6 +3102,7 @@ return [
                     '200' => ['description' => 'Rescheduled', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '409' => ['description' => 'That time was just taken (`errors.scheduled_at`; re-checked under the doctor\'s slot lock) — nothing changed', ...$json(['$ref' => '#/components/schemas/Error'])],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],

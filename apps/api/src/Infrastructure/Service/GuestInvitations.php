@@ -7,6 +7,7 @@ namespace App\Infrastructure\Service;
 use App\Domain\Call\CallAccess;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Patient;
+use App\Domain\Entity\PaymentIntent;
 use App\Domain\Entity\Specialist;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Enum\NotificationType;
@@ -33,9 +34,11 @@ use Ramsey\Uuid\Uuid;
  *
  * Every change to the guest list is a read-modify-write of the appointment's
  * JSON under a row lock ({@see AppointmentRepository::lockAndRefresh()}), so
- * two at once can't lose one. Money moves first (the wallet posts in its own
- * transactions); if the guest then can't be added (a race), it goes back to
- * the wallet. Emails and notices never name the reason for the visit, a
+ * two at once can't lose one. A wallet charge moves first (the wallet posts in
+ * its own transactions); a card payment is consumed inside the guest's own
+ * transaction, so one payment invites one guest, once
+ * ({@see PaymentIntentService::consume()}). If the guest then can't be added
+ * (a race), the money goes to the wallet. Emails and notices never name the reason for the visit, a
  * diagnosis or a medicine, nor any guest's email to anyone but that guest.
  */
 final class GuestInvitations
@@ -53,7 +56,7 @@ final class GuestInvitations
     public function __construct(
         private readonly AppointmentRepository $appointments,
         private readonly AppointmentPaymentService $payments,
-        private readonly AppointmentCheckout $checkout,
+        private readonly PaymentIntentService $intents,
         private readonly PricingService $pricing,
         private readonly MailService $mail,
         private readonly JwtService $jwt,
@@ -298,7 +301,7 @@ final class GuestInvitations
         if ($errors !== []) {
             // Paid by card while the list closed or filled up: nothing the patient
             // can change fixes that, so the payment goes to the wallet (once per
-            // reference). A name / email problem keeps it for the retry.
+            // payment). A name / email problem keeps it for the retry.
             $returned = $method === 'card' && $reference !== '' && (isset($errors['status']) || isset($errors['guests']))
                 ? $this->returnPayment($appointment, 'card', '0', '', $reference)
                 : null;
@@ -312,8 +315,8 @@ final class GuestInvitations
         }
         $gid = Uuid::uuid4()->toString();
 
-        // Money first: the wallet posts (and flushes) in its own transactions,
-        // so a short wallet or a bad card reference leaves the list untouched.
+        // A wallet charge first: the wallet posts (and flushes) in its own
+        // transactions, so a short wallet leaves the list untouched.
         if (!$free && $method === 'wallet') {
             try {
                 $this->payments->chargeGuest($appointment, $fee, $gid);
@@ -321,39 +324,40 @@ final class GuestInvitations
                 $short = 'Your wallet balance is too low to invite a guest. Pay by card, or top up your wallet and try again.';
                 throw new ValidationException(['wallet' => 'insufficient_funds'], $short);
             }
-        } elseif (!$free) {
-            if ($reference === '') {
-                throw new ValidationException(['payment_reference' => 'Pay the guest fee by card first, then confirm with the payment reference']);
-            }
-            if (($cardError = $this->checkout->verify($reference, $appointment, $fee)) !== null) {
-                throw new ValidationException(['payment' => $cardError], $cardError);
-            }
+        } elseif (!$free && $reference === '') {
+            throw new ValidationException(['payment_reference' => 'Pay the guest fee by card first, then confirm with the payment reference']);
         }
         $paidBy = $free ? 'free' : $method;
 
         // Stored under the row lock, re-checked against what is saved now. A
-        // refusal is handed back, not thrown, so the transaction ends cleanly.
-        $stored = $this->appointments->transactional(function () use ($appointment, $now, $name, $email, $fee, $free, $paidBy, $reference, $gid): array {
+        // card payment is consumed in this same transaction (it pays for one
+        // guest, once). A refusal is handed back, not thrown, so the
+        // transaction ends cleanly — and a card payment it took goes to the wallet.
+        $store = function (?PaymentIntent $intent) use ($appointment, $now, $name, $email, $fee, $free, $paidBy, $gid): PaymentUse {
             $this->appointments->lockAndRefresh($appointment);
             if (($problem = self::manageProblem($appointment, $now)) !== null) {
-                return ['problem' => ['status', $problem]];
+                return PaymentUse::declined(['status', $problem], creditToWallet: true);
             }
             if (($errors = self::newGuestProblems($appointment, $name, $email)) !== []) {
-                return ['problem' => [(string) array_key_first($errors), (string) reset($errors)]];
+                return PaymentUse::declined([(string) array_key_first($errors), (string) reset($errors)], creditToWallet: true);
             }
-            $guest = $appointment->addGuest($name, $email, $free ? '0.00' : $fee, $paidBy, $paidBy === 'card' ? $reference : null, $now, $gid);
+            $guest = $appointment->addGuest($name, $email, $free ? '0.00' : $fee, $paidBy, $intent?->getReference(), $now, $gid);
             if (!$free) {
                 $appointment->setAmount(bcadd($appointment->getAmount(), $fee, 2));
             }
             $this->appointments->save($appointment);
 
-            return ['guest' => $guest];
-        });
-        if (isset($stored['problem'])) {
-            [$field, $problem] = $stored['problem'];
-            throw $this->refusal([$field => $problem], $problem, $this->returnPayment($appointment, $paidBy, $fee, $gid, $reference));
+            return PaymentUse::used($gid, $guest);
+        };
+        $stored = $paidBy === 'card'
+            ? $this->intents->consume($reference, PaymentIntent::PURPOSE_GUEST, $appointment->getPatient()->getId(), $fee, $store, ['appointment_id' => $appointment->getId()])
+            : $this->appointments->transactional(static fn (): PaymentUse => $store(null));
+        if (!$stored->used) {
+            [$field, $problem] = $stored->value;
+            $returned = $paidBy === 'card' ? $stored->credited : $this->returnPayment($appointment, $paidBy, $fee, $gid, $reference);
+            throw $this->refusal([$field => $problem], $problem, $returned);
         }
-        $guest = $stored['guest'];
+        $guest = $stored->value;
 
         $this->audit->record(
             self::patientName($appointment),
@@ -711,15 +715,21 @@ final class GuestInvitations
 
     /**
      * Give back the guest fee a refused invitation took: a wallet charge is
-     * credited back; a card payment is credited to the wallet (once per
-     * reference). Returns the amount, or null when nothing was taken.
+     * credited back; a card payment made to invite a guest to this
+     * consultation is credited to the wallet (once per payment). Returns the
+     * amount, or null when nothing was taken.
      */
     private function returnPayment(Appointment $appointment, string $paidBy, string $fee, string $gid, string $reference): ?string
     {
         try {
             return match ($paidBy) {
                 'wallet' => $this->payments->creditBack($appointment, $fee, 'appt_guest_return_' . $gid)->getAmount(),
-                'card'   => $this->checkout->creditToWallet($reference, $appointment),
+                'card'   => $this->intents->settleUnusedFor(
+                    $reference,
+                    $appointment->getPatient()->getId(),
+                    PaymentIntent::PURPOSE_GUEST,
+                    ['appointment_id' => $appointment->getId()],
+                ),
                 default  => null,
             };
         } catch (\Throwable $e) {

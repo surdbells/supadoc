@@ -13,8 +13,9 @@ use App\Domain\Exception\InsufficientFundsException;
  * book, and refund it when a paid booking is cancelled. Both postings are
  * idempotent on a deterministic reference derived from the appointment id (so a
  * retried request can't double-charge or double-refund). The receipt email is
- * sent by {@see WalletService} at the posting point, so this service only moves
- * money and flips the appointment's payment_status. The consultation is priced
+ * sent by {@see WalletService} at the posting point — except a booking's
+ * debit, which its caller sends after the booking commits — so this service
+ * only moves money and flips the appointment's payment_status. The consultation is priced
  * and charged in the wallet's default currency (NGN), matching how the
  * specialist fee is stored.
  *
@@ -33,11 +34,17 @@ final class AppointmentPaymentService
      * A free booking is marked paid (nothing is owed) with no posting, and
      * returns null. `$amount` charges a price not stored on the appointment yet
      * (accepting a follow-up at another slot: the time and price change only
-     * once it is accepted).
+     * once it is accepted). `$sendReceipt` false: no receipt email from the
+     * posting — a caller charging inside its own booking transaction sends it
+     * with {@see sendReceipt()} once that commits (never under its slot lock,
+     * never for a debit it rolled back). The debit's reference is the
+     * appointment's own, and only the transaction that books it (a new
+     * appointment, or the one claim of a proposal) can post it, so a debit
+     * that committed with it is always a new one.
      *
      * @throws InsufficientFundsException when the balance is short (no charge made)
      */
-    public function chargeForBooking(Appointment $appointment, ?string $amount = null): ?WalletTransaction
+    public function chargeForBooking(Appointment $appointment, ?string $amount = null, bool $sendReceipt = true): ?WalletTransaction
     {
         $amount ??= $appointment->getAmount();
         if (bccomp($amount, '0', 2) <= 0) {
@@ -54,11 +61,24 @@ final class AppointmentPaymentService
             WalletTransaction::TYPE_CONSULTATION,
             'appt_debit_' . $appointment->getId(),
             'Consultation with ' . $appointment->getSpecialist()->getName(),
+            $sendReceipt,
         );
 
         $appointment->setPaymentStatus('paid');
 
         return $txn;
+    }
+
+    /**
+     * The receipt email for a {@see chargeForBooking()} debit made with
+     * `$sendReceipt` false — call it only after the booking's transaction
+     * committed. Null (a free booking, or paid by card) sends nothing.
+     */
+    public function sendReceipt(?WalletTransaction $txn): void
+    {
+        if ($txn !== null) {
+            $this->wallets->sendReceipt($txn);
+        }
     }
 
     /**
