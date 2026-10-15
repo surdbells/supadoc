@@ -9,6 +9,17 @@ import type {
   SpecialistDto,
   SpecialistStatus,
 } from './appointment-api';
+import type {
+  DoctorStandingDto,
+  DoctorSuspensionDto,
+  LicenceStateDto,
+  LockedField,
+  PendingChanges,
+  SpecialistCredentialDto,
+  SpecialistReviewSummaryDto,
+  SuspensionCode,
+  TermsStateDto,
+} from './doctor-management';
 
 /** Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end] "HH:MM". */
 export type WeeklyHours = Record<string, [string, string][]>;
@@ -42,17 +53,23 @@ export interface StaffLoginData {
 
 // ----- Doctor onboarding -----
 
-/** One item of the doctor's onboarding checklist. */
+/** One item of the doctor's onboarding checklist, in the order they work through them. */
 export type OnboardingItemKey =
   | 'photo'
   | 'bio'
   | 'qualifications'
   | 'mdcn'
+  /** MDCN full-registration certificate uploaded (waiting or verified). */
+  | 'mdcn_certificate'
+  /** An unexpired annual practising licence uploaded (waiting or verified). */
+  | 'practising_licence'
   | 'signature'
   | 'availability'
-  | 'payout';
+  | 'payout'
+  /** The practitioner terms in force accepted. */
+  | 'terms';
 
-/** GET /api/doctor/onboarding — checklist + review status. */
+/** GET /api/doctor/onboarding — checklist + review status + standing. */
 export interface DoctorOnboardingDto {
   status: SpecialistStatus;
   status_label: string;
@@ -60,15 +77,39 @@ export interface DoctorOnboardingDto {
   rejection_reason: string | null;
   submitted_at: string | null;
   approved_at: string | null;
+  suspended_at?: string | null;
+  suspension_code?: SuspensionCode | null;
+  suspension_reason?: string | null;
+  /** YYYY-MM-DD — last valid day of the current verified licence. */
+  licence_expires_at?: string | null;
+  /** YYYY-MM-DD — a doctor approved before documents existed must upload them by then. */
+  credentials_due_at?: string | null;
+  has_pending_changes?: boolean;
+  terms_version?: string | null;
+  terms_accepted_at?: string | null;
   checklist: Record<OnboardingItemKey, boolean>;
   completed: number;
   total: number;
   /** Every item done — "Submit for review" is allowed. */
   complete: boolean;
+  /** The doctor's documents (the reviewer view also lists replaced ones). */
+  credentials: SpecialistCredentialDto[];
+  /** Fields that change only through a review ([] while onboarding). */
+  locked_fields: LockedField[];
+  /** Requested changes waiting for a reviewer. */
+  pending_changes: PendingChanges | null;
+  pending_changes_submitted_at: string | null;
+  /** Why the last change request was turned down. */
+  changes_review_note: string | null;
+  terms: TermsStateDto;
+  licence: LicenceStateDto;
+  suspension: DoctorSuspensionDto | null;
+  /** Why they may not do clinical work now, or null when they may. */
+  standing: DoctorStandingDto | null;
 }
 
 /** GET /api/specialists/{id}/onboarding — the back-office review panel. */
-export interface SpecialistOnboardingReviewDto extends DoctorOnboardingDto {
+export interface SpecialistOnboardingReviewDto extends SpecialistReviewSummaryDto {
   profile: DoctorProfileDto;
   login: DoctorLoginStateDto | null;
 }
@@ -124,8 +165,18 @@ export interface DoctorProfileUpdate {
 /** A row in the doctor's schedule — an appointment plus join affordances. */
 export interface DoctorAppointmentDto extends AppointmentDto {
   patient_name: string;
-  /** Preauthenticated call link; null on a follow-up proposal the patient hasn't accepted (no call yet). */
+  /**
+   * Preauthenticated call link; null on a follow-up proposal the patient hasn't
+   * accepted (no call yet), and null while `join_blocked` is set.
+   */
   join_url: string | null;
+  /**
+   * Why there is no link while the doctor may not start clinical work (e.g.
+   * terms_required, or doctor_not_approved on the dashboard), else null. Set on
+   * every row of GET /doctor/appointments, GET /doctor/appointments/{id} and
+   * the dashboard's `next` / `agenda` (other lists leave it out).
+   */
+  join_blocked?: DoctorStandingDto | null;
 }
 
 /**
@@ -173,6 +224,13 @@ export interface DoctorProfileDto extends SpecialistAdminDto {
   mdcn_number?: string | null;
   /** Whether a signature picture is saved for prescriptions. */
   has_signature?: boolean;
+  /** Fields that change only through a review once approved ([] while onboarding). */
+  locked_fields?: LockedField[];
+  /** Requested changes to locked fields waiting for a reviewer. */
+  pending_changes?: PendingChanges | null;
+  pending_changes_submitted_at?: string | null;
+  /** Why the last change request was turned down. */
+  changes_review_note?: string | null;
 }
 
 // ----- Doctor availability (date-specific slots) -----
@@ -425,6 +483,8 @@ export interface AuditEventDto {
   id: string;
   actor_name: string;
   actor_role: string;
+  /** The acting user's id, when known (null: the system / older events). */
+  actor_id?: string | null;
   action: string;
   appointment_id: string | null;
   resource_type: string | null;

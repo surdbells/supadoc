@@ -137,6 +137,9 @@ import {
   LucideVolume2,
   LucideCameraOff,
   LucideAudioLines,
+  LucideChevronLeft,
+  LucideSunrise,
+  LucideGlobe,
 } from '@lucide/angular';
 
 /**
@@ -288,6 +291,10 @@ export const SUPADOC_ICONS = [
   LucideVolume2,
   LucideCameraOff,
   LucideAudioLines,
+  // Booking calendar: previous month, the Morning group, the "Times in …" zone.
+  LucideChevronLeft,
+  LucideSunrise,
+  LucideGlobe,
 ];
 
 /**

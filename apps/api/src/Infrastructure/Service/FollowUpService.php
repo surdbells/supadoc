@@ -330,8 +330,9 @@ final class FollowUpService
 
                 return new ValidationException(['follow_up' => $taken], $taken);
             }
-            // The patient booking rules: on the schedule, not blocked, not taken.
-            if (!$this->availability->isSlotAvailable($parent->getSpecialist(), $start)) {
+            // The patient booking rules: on the schedule, not blocked, not taken
+            // (the doctor isn't held to the patient booking window).
+            if (!$this->availability->isSlotAvailable($parent->getSpecialist(), $start, false)) {
                 return new ValidationException(['scheduled_at' => 'That time is not open on your schedule — choose one of your open slots (not blocked or already booked)']);
             }
 
@@ -739,7 +740,12 @@ final class FollowUpService
         if (!$proposal->getSpecialist()->isApproved()) {
             return ['specialist_id', 'This specialist is not currently available'];
         }
-        if ($start !== null && !self::isProposedTime($proposal, $start) && !$this->availability->isSlotAvailable($proposal->getSpecialist(), $start)) {
+        // Another time than the proposed one is a patient booking: held to the booking window.
+        if ($start !== null && !self::isProposedTime($proposal, $start) && $this->availability->isBeyondHorizon($start)) {
+            return ['scheduled_at', 'You can book up to ' . $this->availability->horizonDays() . ' days ahead — please pick an earlier time'];
+        }
+        // The proposal holds its own time until answered: that hold doesn't count against the move.
+        if ($start !== null && !self::isProposedTime($proposal, $start) && !$this->availability->isSlotAvailable($proposal->getSpecialist(), $start, ignoreAppointmentId: $proposal->getId())) {
             return ['scheduled_at', 'That time is no longer available — please pick another slot'];
         }
 

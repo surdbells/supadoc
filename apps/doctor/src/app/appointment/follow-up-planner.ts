@@ -15,15 +15,22 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { catchError, debounceTime, map, type Observable, of, Subject, switchMap, tap } from 'rxjs';
-import { apiErrorFields, apiErrorMessage, DoctorApi, localSlotDays, SpecialistsApi, todayLocal } from '@supadoc/data-access';
+import { catchError, debounceTime, map, of, Subject, switchMap } from 'rxjs';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  AvailabilityCalendarStore,
+  DoctorApi,
+  todayLocal,
+  ymdInZone,
+} from '@supadoc/data-access';
 import type {
   ApiAppointmentStatus,
-  DayAvailability,
+  DaySlotDto,
   DoctorFollowUpDto,
   FollowUpQuoteDto,
 } from '@supadoc/models';
-import { AlertComponent, ButtonComponent, IconComponent, SlotPickerComponent } from '@supadoc/ui';
+import { AlertComponent, BookingCalendarComponent, ButtonComponent, IconComponent, shortDayLabel } from '@supadoc/ui';
 import { isoToLocalInput } from '../prescriptions/rx-shared';
 import {
   CLINICAL_CARD,
@@ -58,23 +65,15 @@ import {
 
 /** The doctor's note to the patient (`FollowUpService::MAX_NOTE_LENGTH`). */
 const MAX_NOTE = 1000;
-/** The slot pills cover what the public slots endpoint returns at most. */
-const SLOT_DAYS = 14;
 const MINUTE = 60_000;
 
 let nextUid = 0;
 
-/** The slots a proposal can use: local days, only times at least 2½ hours ahead. */
-function proposableDays(days: readonly DayAvailability[]): DayAvailability[] {
-  const earliest = Date.now() + PROPOSAL_MIN_LEAD_MINUTES * MINUTE;
-  return localSlotDays(days)
-    .map((d) => ({ ...d, slots: d.slots.filter((s) => new Date(s.iso).getTime() >= earliest) }))
-    .filter((d) => d.slots.length > 0);
-}
-
-/** A local `YYYY-MM-DD` after the days the slot pills cover. */
-function beyondSlotWindow(ymd: string): boolean {
-  return ymd > todayLocal(SLOT_DAYS - 1);
+/** The times a proposal can use: only those at least 2½ hours after `now` (null — not loaded — stays null). */
+export function proposableTimes(slots: readonly DaySlotDto[] | null, now: number): DaySlotDto[] | null {
+  if (slots === null) return null;
+  const earliest = now + PROPOSAL_MIN_LEAD_MINUTES * MINUTE;
+  return slots.filter((s) => new Date(s.iso).getTime() >= earliest);
 }
 
 /** The typed time's earliest value: 2½ hours from now, on the half hour (local datetime-local). */
@@ -90,8 +89,9 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
   new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime();
 
 /**
- * Follow-ups of one consultation: "Schedule follow-up" (one of the doctor's
- * own open slots, an optional note shown to the patient in the app only, an
+ * Follow-ups of one consultation: "Schedule follow-up" (a time from the
+ * doctor's own booking calendar — or a typed one on their availability, e.g.
+ * past the calendar's last day — an optional note shown to the patient in the app only, an
  * optional fee waiver and a live price from the quote endpoint) plus every
  * follow-up of it so far, with Withdraw for an unanswered proposal. Used by
  * the appointment record (Clinical tools → Follow-ups) and the call cockpit's
@@ -104,12 +104,14 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
 @Component({
   selector: 'doc-follow-up-planner',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Its own calendar data (the record page's reschedule has another).
+  providers: [AvailabilityCalendarStore],
   imports: [
     RouterLink,
     AlertComponent,
+    BookingCalendarComponent,
     ButtonComponent,
     IconComponent,
-    SlotPickerComponent,
     ClinicalBadge,
     ClinicalEmpty,
     ClinicalHeader,
@@ -136,19 +138,46 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
           (until {{ when(p.expires_at) }}). Withdraw it below to propose another time.
         </sd-alert>
       } @else {
-        <!-- When: the doctor's own open slots (local time), or a typed time on their availability. -->
+        <!-- When: the doctor's own calendar (their open times, in the viewer's zone), or a typed time on their availability. -->
         <fieldset class="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" [attr.aria-describedby]="fieldError('scheduled_at') ? uid + '-when-error' : null">
           <legend class="mb-1 ${CLINICAL_LABEL}">Date &amp; time <span class="text-alert">*</span></legend>
-          @if (slotsState() === 'loading' && days().length === 0) {
-            <div class="sd-shimmer h-24 rounded-field" aria-hidden="true"></div>
-            <span class="sr-only" role="status">Loading your open slots…</span>
-          } @else if (!useManual()) {
-            <sd-slot-picker [days]="days()" [value]="slot()" (valueChange)="pickSlot($event)" />
+          @if (!useManual()) {
+            @if (cal.error(); as calError) {
+              <!-- A day's times (or another month) didn't load: the calendar stays, with a retry. -->
+              <p class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-alert" role="alert">
+                <span class="flex items-start gap-1.5"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ calError }}</span>
+                <button type="button" class="inline-flex min-h-11 items-center font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="cal.refresh()">Try again</button>
+              </p>
+            }
+            <sd-booking-calendar
+              [days]="cal.days()"
+              [month]="cal.month()"
+              (monthChange)="cal.setMonth($event)"
+              [selectedDate]="cal.selectedDate()"
+              (selectedDateChange)="cal.selectDate($event)"
+              [slots]="proposableSlots()"
+              [value]="slot() || null"
+              (valueChange)="pickSlot($event)"
+              [loading]="cal.loading()"
+              [slotsLoading]="cal.slotsLoading()"
+              [min]="cal.min()"
+              [max]="cal.max()"
+              [nextAvailable]="cal.nextAvailable()"
+              [timeZone]="cal.tz()"
+              [timeZoneLabel]="cal.timeZoneLabel()"
+              [weekStartsOn]="cal.weekStartsOn()"
+              [disabled]="busy()"
+            >
+              <p calendarEmpty class="${CLINICAL_HINT}">
+                Times under 2½ hours away can't be proposed. Need one that isn't open here?
+                <button type="button" class="inline-flex min-h-11 items-center font-semibold text-cerulean hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="toggleManual()">Enter another time</button>
+              </p>
+            </sd-booking-calendar>
           } @else {
-            @if (slotsError()) {
-              <p class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ slotsError() }}</p>
-            } @else if (days().length === 0) {
-              <p class="${CLINICAL_HINT}">You have no open slots in the next two weeks.</p>
+            @if (calendarError()) {
+              <p class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ calendarError() }} Enter a time that is on your availability.</p>
+            } @else if (noOpenTimes()) {
+              <p class="${CLINICAL_HINT}">You have no open times{{ cal.max() ? ' up to ' + day(cal.max()) : '' }}.</p>
             }
             <label class="flex flex-col gap-1.5" [for]="uid + '-manual'">
               <span class="font-sans text-caption font-semibold text-slate">Date &amp; time</span>
@@ -168,10 +197,16 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
           @if (suggestionHint()) {
             <p class="flex items-start gap-1.5 font-sans text-caption text-slate"><sd-icon name="pill" [size]="14" class="mt-0.5 shrink-0 text-cerulean" />{{ suggestionHint() }}</p>
           }
-          @if (slotsState() !== 'loading' && days().length > 0) {
-            <button type="button" class="min-h-11 w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="toggleManual()">
-              {{ manual() ? 'Choose from your open slots' : 'Enter another time' }}
-            </button>
+          @if (!noOpenTimes()) {
+            @if (useManual()) {
+              <button type="button" class="min-h-11 w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="useCalendar()">
+                Choose from your calendar
+              </button>
+            } @else {
+              <button type="button" class="min-h-11 w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="toggleManual()">
+                Enter another time
+              </button>
+            }
           }
           @if (fieldError('scheduled_at'); as m) {
             <p class="font-sans text-caption text-alert" role="alert" [id]="uid + '-when-error'">{{ m }}</p>
@@ -374,7 +409,8 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
 })
 export class FollowUpPlanner {
   private readonly api = inject(DoctorApi);
-  private readonly specialistsApi = inject(SpecialistsApi);
+  /** The doctor's own booking calendar (the times a patient could book). */
+  protected readonly cal = inject(AvailabilityCalendarStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -396,22 +432,31 @@ export class FollowUpPlanner {
   /** Ticks so open / expired proposals re-evaluate without a reload. */
   private readonly now = signal(Date.now());
 
-  // ----- Slots -----
+  // ----- When -----
   private readonly profileSpecialistId = signal('');
-  protected readonly days = signal<DayAvailability[]>([]);
-  protected readonly slotsState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  protected readonly slotsError = signal('');
-  /** The picked slot's ISO start. */
+  /** Looking up the doctor's own id (when not given) failed. */
+  private readonly lookupError = signal('');
+  /**
+   * The calendar (or the lookup before it) could not be loaded at all — no
+   * month ever arrived ('' = fine). A day's times or a later month failing is
+   * shown inline instead, with a retry.
+   */
+  protected readonly calendarError = computed(
+    () => this.lookupError() || (this.cal.max() === null ? (this.cal.error() ?? '') : ''),
+  );
+  /** The calendar loaded and its whole range (about a year) has no open time. */
+  protected readonly noOpenTimes = computed(() => this.cal.range() !== null && this.cal.nextAvailable() === null);
+  /** The chosen day's times a proposal can use (at least 2½ hours ahead); null until loaded. */
+  protected readonly proposableSlots = computed(() => proposableTimes(this.cal.slots(), this.now()));
+  /** The picked time's ISO start ('' = none). */
   protected readonly slot = signal('');
-  /** Typing a time instead (e.g. beyond the two weeks the pills cover). */
+  /** Typing a time instead (e.g. one the calendar doesn't show, or past its last day). */
   protected readonly manual = signal(false);
   /** The typed time — a local datetime-local value. */
   protected readonly manualAt = signal('');
   protected readonly manualMin = signal('');
-  /** The typed input shows when chosen, or when there are no slots to pick. */
-  protected readonly useManual = computed(
-    () => this.manual() || this.slotsState() === 'error' || (this.slotsState() === 'ready' && this.days().length === 0),
-  );
+  /** The typed input shows when chosen, or when the calendar has nothing to pick (or failed to load). */
+  protected readonly useManual = computed(() => this.manual() || this.calendarError() !== '' || this.noOpenTimes());
   /** The chosen start as ISO ('' = none yet). */
   protected readonly chosenIso = computed(() => {
     if (!this.useManual()) return this.slot();
@@ -429,15 +474,18 @@ export class FollowUpPlanner {
   private suggestionApplied = '';
   protected readonly suggestionHint = computed(() => {
     const date = this.suggestedDate();
-    if (!date || this.slotsState() !== 'ready' || date < todayLocal()) return '';
+    if (!date || this.cal.range() === null || date < todayLocal()) return '';
     const asks = `This consultation's prescription asks for a follow-up on ${dayLabel(date)}`;
-    if (beyondSlotWindow(date)) {
-      return `${asks}, after the two weeks of open slots shown here — enter a time that day that is on your availability.`;
+    const last = this.cal.max();
+    if (last && date > last) {
+      return `${asks}, after the last day your calendar shows (${shortDayLabel(last)}) — enter a time that day that is on your availability.`;
     }
     if (this.useManual()) return `${asks}.`;
-    return this.days().some((d) => d.date === date)
-      ? `${asks} — tap that day to see your times.`
-      : `${asks}, but you have no open slot that day here — choose another day or enter a time.`;
+    if (this.cal.selectedDate() !== date) return `${asks} — choose that day below to see your times.`;
+    const times = this.proposableSlots();
+    return times !== null && times.length === 0
+      ? `${asks}, but you have no open time that day — choose another day or enter a time.`
+      : `${asks} — it's selected below; pick a time.`;
   });
 
   // ----- Form -----
@@ -531,18 +579,27 @@ export class FollowUpPlanner {
       untracked(() => this.refresh());
     });
 
-    // A prescription follow-up day past the slot pills opens the typed time (the hint names the day).
+    // A prescription follow-up day: shown on the calendar, or past it the typed time opens (the hint names the day).
     effect(() => {
       const date = this.suggestedDate();
-      if (this.slotsState() !== 'ready') return;
+      if (this.cal.range() === null) return;
       untracked(() => this.applySuggestion(date));
+    });
+
+    // A picked time that has gone (taken, blocked, or now under 2½ hours away) is dropped.
+    effect(() => {
+      const picked = this.slot();
+      const times = this.proposableSlots();
+      if (!picked || times === null || this.cal.slotsLoading()) return;
+      if (this.cal.selectedDate() !== ymdInZone(picked, this.cal.tz())) return;
+      if (!times.some((s) => s.iso === picked)) untracked(() => this.slot.set(''));
     });
   }
 
   private refresh(): void {
     this.now.set(Date.now());
     this.loadFollowUps();
-    this.loadSlots();
+    this.loadCalendar();
     this.loadSuggestion();
   }
 
@@ -575,41 +632,33 @@ export class FollowUpPlanner {
     this.loadFollowUps();
   }
 
-  /** The doctor's open slots — the ones a patient could book, less those under 2½ hours away. */
-  private loadSlots(): void {
-    if (this.slotsState() === 'loading') return;
-    this.slotsState.set('loading');
-    this.slotsError.set('');
+  /**
+   * The doctor's calendar — the times a patient could book (the 2½-hour rule
+   * is applied on top, in `proposableSlots`). Shown again, it is re-read.
+   */
+  private loadCalendar(): void {
     this.manualMin.set(earliestManualInput());
     const known = this.specialistId() || this.profileSpecialistId();
-    const specialist$: Observable<string> = known
-      ? of(known)
-      : this.api.getProfile().pipe(
-          map((r) => r.data.id),
-          tap((id) => this.profileSpecialistId.set(id)),
-        );
-    specialist$
-      .pipe(
-        switchMap((id) => this.specialistsApi.slots(id, SLOT_DAYS)),
-        takeUntilDestroyed(this.destroyRef),
-      )
+    if (known) {
+      this.showCalendar(known);
+      return;
+    }
+    this.lookupError.set('');
+    this.api
+      .getProfile()
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
-          const days = proposableDays(r.data);
-          this.days.set(days);
-          // A picked slot that has gone (taken, blocked, or now too soon) is dropped.
-          const picked = this.slot();
-          if (picked && !days.some((d) => d.slots.some((s) => s.iso === picked))) this.slot.set('');
-          this.slotsState.set('ready');
+          this.profileSpecialistId.set(r.data.id);
+          this.showCalendar(r.data.id);
         },
-        error: (err: unknown) => {
-          this.days.set([]);
-          this.slotsError.set(
-            apiErrorMessage(err, 'Could not load your open slots.') + ' Enter a time that is on your availability.',
-          );
-          this.slotsState.set('error');
-        },
+        error: (err: unknown) => this.lookupError.set(apiErrorMessage(err, 'Could not load your calendar.')),
       });
+  }
+
+  private showCalendar(specialistId: string): void {
+    if (this.cal.specialistId() === specialistId) this.cal.refresh();
+    else this.cal.load(specialistId, undefined, { scope: 'doctor' });
   }
 
   /** The follow-up date on this consultation's prescription (video first, newest first). */
@@ -631,15 +680,21 @@ export class FollowUpPlanner {
   }
 
   /**
-   * Never picks a time: within the pills the hint points at the day; past them
-   * the typed time opens, left empty (a datetime-local can't hold a day alone).
+   * Never picks a time: within the calendar's range it opens on that
+   * day (its times listed); past it the typed time opens, left empty (a
+   * datetime-local can't hold a day alone). Only once, never over a choice.
    */
   private applySuggestion(date: string): void {
     if (!date || this.suggestionApplied === date) return;
     this.suggestionApplied = date;
-    if (this.chosenIso() || this.manual() || date < todayLocal() || !beyondSlotWindow(date)) return;
-    this.manual.set(true);
-    this.manualMin.set(earliestManualInput());
+    if (this.chosenIso() || this.manual() || date < todayLocal()) return;
+    const last = this.cal.max();
+    if (last && date > last) {
+      this.manual.set(true);
+      this.manualMin.set(earliestManualInput());
+      return;
+    }
+    if (!this.cal.selectedDate()) this.cal.selectDate(date);
   }
 
   // ----- The form -----
@@ -657,8 +712,9 @@ export class FollowUpPlanner {
     });
   }
 
-  protected pickSlot(iso: string): void {
-    this.slot.set(iso);
+  /** A time from the calendar (null: the pick was cleared, e.g. another day chosen). */
+  protected pickSlot(iso: string | null): void {
+    this.slot.set(iso ?? '');
     this.clearField('scheduled_at');
   }
 
@@ -678,6 +734,13 @@ export class FollowUpPlanner {
     this.clearField('scheduled_at');
   }
 
+  /** Back from the typed time to the calendar, re-read (so one that failed to load gets another go). */
+  protected useCalendar(): void {
+    this.manual.set(false);
+    this.clearField('scheduled_at');
+    this.loadCalendar();
+  }
+
   protected propose(): void {
     if (this.busy()) return;
     this.error.set('');
@@ -685,7 +748,7 @@ export class FollowUpPlanner {
     const errs: Record<string, string> = {};
     const iso = this.chosenIso();
     if (!iso) {
-      errs['scheduled_at'] = this.useManual() ? 'Choose a date and time.' : 'Pick one of your open slots.';
+      errs['scheduled_at'] = this.useManual() ? 'Choose a date and time.' : 'Pick a day, then one of its open times.';
     } else if (new Date(iso).getTime() < Date.now() + PROPOSAL_MIN_LEAD_MINUTES * MINUTE) {
       errs['scheduled_at'] = 'Choose a time at least 2½ hours from now, so the patient has time to accept.';
     }
@@ -717,7 +780,7 @@ export class FollowUpPlanner {
           this.announce(
             `Follow-up proposed for ${whenLabel(f.scheduled_at)}. ${f.patient_name || 'The patient'} has been told and has until ${whenLabel(f.expires_at)} to accept.`,
           );
-          this.loadSlots(); // that time is now held
+          this.cal.refresh(); // that time is now held
         },
         error: (err: unknown) => {
           const fields = apiErrorFields(err);
@@ -728,7 +791,11 @@ export class FollowUpPlanner {
           this.error.set(Object.keys(mine).length > 0 ? '' : apiErrorMessage(err, 'Could not propose the follow-up.'));
           this.busy.set(false);
           if (fields['follow_up']) this.loadFollowUps(); // another proposal is open — show it
-          if (fields['scheduled_at']) this.loadSlots(); // that time went meanwhile
+          if (fields['scheduled_at'] && !this.useManual()) {
+            // That time went meanwhile: show the day as it is now.
+            this.slot.set('');
+            this.cal.refresh();
+          }
         },
       });
   }
@@ -771,7 +838,7 @@ export class FollowUpPlanner {
             this.announce('This proposal had already closed — the patient declined it or it expired.', 'info');
             this.loadFollowUps();
           }
-          this.loadSlots();
+          this.cal.refresh(); // that time is open again
         },
         error: (err: unknown) => {
           this.withdrawError.set(apiErrorMessage(err, 'Could not withdraw the proposal.'));
@@ -799,6 +866,10 @@ export class FollowUpPlanner {
   }
   protected date(iso: string): string {
     return dateLabel(iso);
+  }
+  /** A calendar date ('YYYY-MM-DD', no zone shift), e.g. "Thu 16 Oct". */
+  protected day(ymd: string | null): string {
+    return ymd ? shortDayLabel(ymd) : '';
   }
   protected money(amount: string, currency: string): string {
     return moneyLabel(amount, currency);

@@ -17,10 +17,19 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
-import { apiErrorFields, apiErrorMessage, DoctorApi } from '@supadoc/data-access';
-import type { DoctorProfileDto, DoctorSignatureDto } from '@supadoc/models';
+import { apiErrorFields, apiErrorMessage, DoctorApi, doctorStandingCode, todayLocal } from '@supadoc/data-access';
+import type {
+  CertificationEntry,
+  CredentialType,
+  DoctorProfileDto,
+  DoctorProfileUpdate,
+  DoctorSignatureDto,
+  LockedField,
+  QualificationEntry,
+} from '@supadoc/models';
 import {
   AlertComponent,
   ButtonComponent,
@@ -31,7 +40,18 @@ import {
   type PublicDoctorProfileData,
   SearchSelectComponent,
 } from '@supadoc/ui';
+import { type CredentialChipState, CredentialStatusChip } from '../onboarding/credential-status';
 import { SignaturePad } from '../prescriptions/signature-pad';
+import { DoctorStandingStore } from '../standing/doctor-standing.store';
+import {
+  CHANGE_FIELD_LABELS,
+  daysUntil,
+  inDaysLabel,
+  latestCredential,
+  licenceDocuments,
+  renewalText,
+  ymdLabel,
+} from '../standing/standing-rules';
 
 /** Date must be a valid, non-future day. */
 function pastDateValidator(c: AbstractControl): ValidationErrors | null {
@@ -51,6 +71,29 @@ const SIGNATURE_MAX_BYTES = 512_000;
 const ROW_INPUT =
   'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
+/** A verified (locked) value in the edit form: shown, not editable. */
+const LOCKED_VALUE =
+  'flex items-center gap-2 rounded-field border border-cloud bg-glacier px-4 py-3 font-sans text-body-sm text-ink';
+/** "Change pending" next to a verified field with a change waiting for review. */
+const PENDING_BADGE =
+  'inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink';
+
+/** One requested change, for the "waiting for review" box. */
+interface PendingRow {
+  readonly label: string;
+  readonly value: string;
+  readonly current: string;
+}
+
+const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] | null | undefined): string =>
+  (rows ?? [])
+    .map((r) => {
+      const head = 'title' in r ? r.title : r.name;
+      const meta = ['institution' in r ? r.institution : r.body, r.year].filter(Boolean).join(' · ');
+      return meta ? `${head} — ${meta}` : head;
+    })
+    .join('; ');
+
 /**
  * The signed-in doctor's profile (route `/profile`): a read view, an edit form,
  * a public-profile preview popup and a success toast — all in one component,
@@ -61,9 +104,11 @@ const ROW_INPUT =
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     AlertComponent,
     ButtonComponent,
     ConfirmDialogComponent,
+    CredentialStatusChip,
     DoctorProfileCardComponent,
     IconComponent,
     InputComponent,
@@ -99,6 +144,46 @@ const ROW_INPUT =
               <p class="font-sans text-body text-slate">Manage your personal information and account details.</p>
             </header>
 
+            <!-- A change to the verified details, waiting for a reviewer (or the last one refused). -->
+            <div aria-live="polite">
+              @if (pending()) {
+                <section class="flex flex-col gap-3 rounded-card border border-cerulean/20 bg-frost/50 p-5" aria-labelledby="pending-title">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div class="flex min-w-0 flex-col gap-1">
+                      <h2 id="pending-title" class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                        <sd-icon name="hourglass" [size]="20" class="text-cerulean" />Change request waiting for review
+                      </h2>
+                      <p class="font-sans text-caption text-slate">
+                        {{ profile()?.pending_changes_submitted_at ? 'Sent ' + date(profile()?.pending_changes_submitted_at) + '. ' : '' }}Patients and your prescriptions show your current details until a reviewer approves it.
+                      </p>
+                    </div>
+                    <sd-button variant="outline" size="sm" [disabled]="withdrawing()" (click)="confirmWithdraw.set(true)">
+                      <sd-icon name="undo-2" [size]="16" />{{ withdrawing() ? 'Withdrawing…' : 'Withdraw request' }}
+                    </sd-button>
+                  </div>
+                  <dl class="flex flex-col divide-y divide-cloud rounded-field border border-cloud bg-white">
+                    @for (row of pendingRows(); track row.label) {
+                      <div class="flex flex-col gap-0.5 px-4 py-3 sm:flex-row sm:gap-4">
+                        <dt class="w-36 shrink-0 font-sans text-caption font-semibold text-slate">{{ row.label }}</dt>
+                        <dd class="min-w-0 break-words font-sans text-body-sm text-ink">
+                          <span class="block">{{ row.value || '—' }}</span>
+                          <span class="block font-sans text-caption text-slate">Now: {{ row.current || '—' }}</span>
+                        </dd>
+                      </div>
+                    }
+                  </dl>
+                  @if (withdrawError()) {
+                    <sd-alert tone="error">{{ withdrawError() }}</sd-alert>
+                  }
+                </section>
+              } @else if (profile()?.changes_review_note && locked()) {
+                <sd-alert tone="warning">
+                  <span class="block font-semibold">Your last change request wasn't approved.</span>
+                  <span class="block whitespace-pre-line break-words text-ink">{{ profile()?.changes_review_note }}</span>
+                </sd-alert>
+              }
+            </div>
+
             <div class="grid gap-6 lg:grid-cols-2">
               <div class="flex flex-col gap-6">
                 <!-- Profile summary -->
@@ -114,6 +199,7 @@ const ROW_INPUT =
                     <div class="flex min-w-0 flex-1 flex-col gap-2 text-center sm:text-left">
                       <div class="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
                         <h2 class="font-heading text-h4 text-ink">{{ profile()?.name }}</h2>
+                        @if (isPending('name')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
                         @if (profile()?.verified) {
                           <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean">
                             <sd-icon name="circle-check" [size]="14" />Verified
@@ -148,7 +234,13 @@ const ROW_INPUT =
                     <sd-icon name="user" [size]="20" class="text-cerulean" />Personal Information
                   </h3>
                   <dl class="flex flex-col divide-y divide-cloud">
-                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Full name</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.name }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3">
+                      <dt class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
+                        Full name
+                        @if (isPending('name')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
+                      </dt>
+                      <dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.name }}</dd>
+                    </div>
                     <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Email address</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.email || '—' }}</dd></div>
                     <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Phone number</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.phone || '—' }}</dd></div>
                     <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Date of birth</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.date_of_birth || '—' }}</dd></div>
@@ -161,21 +253,40 @@ const ROW_INPUT =
               <div class="flex flex-col gap-6">
                 <!-- Professional Information -->
                 <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
-                  <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
-                    <sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information
-                  </h3>
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                      <sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information
+                    </h3>
+                    @if (locked()) {
+                      <sd-button variant="outline" size="sm" (click)="startChanges()">
+                        <sd-icon name="square-pen" [size]="16" />{{ pending() ? 'Update request' : 'Request a change' }}
+                      </sd-button>
+                    }
+                  </div>
+                  @if (locked()) {
+                    <p class="flex items-start gap-2 rounded-field bg-glacier px-3 py-2 font-sans text-caption text-slate">
+                      <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                      Your name, speciality, MDCN number, qualifications and certifications were verified when you were approved. Changes to them go to a reviewer first.
+                    </p>
+                  }
                   <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                    <span class="font-sans text-caption text-slate">Medical Speciality</span>
+                    <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
+                      Medical Speciality
+                      @if (isPending('specialty')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
+                    </span>
                     <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.specialty }}</span>
                   </div>
                   <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                    <span class="font-sans text-caption text-slate">MDCN registration number</span>
+                    <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
+                      MDCN registration number
+                      @if (isPending('mdcn_number')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
+                    </span>
                     @if (profile()?.mdcn_number) {
                       <span class="break-all font-sans text-body-sm font-medium text-ink">{{ profile()?.mdcn_number }}</span>
                     } @else {
                       <span class="flex items-start gap-1.5 font-sans text-body-sm text-warning">
                         <sd-icon name="circle-alert" [size]="16" class="mt-0.5 shrink-0" />
-                        Not added yet. It is printed on your prescriptions — add it with Edit Profile.
+                        {{ locked() ? 'Not added yet. Use “Request a change” to add it — it is printed on your prescriptions.' : 'Not added yet. It is printed on your prescriptions — add it with Edit Profile.' }}
                       </span>
                     }
                   </div>
@@ -199,7 +310,10 @@ const ROW_INPUT =
                   }
                   @if (qualificationRows.length) {
                     <div class="flex flex-col gap-2 border-b border-cloud pb-4">
-                      <span class="font-sans text-caption text-slate">Qualifications</span>
+                      <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
+                        Qualifications
+                        @if (isPending('qualification_entries')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
+                      </span>
                       @for (q of qualificationRows.controls; track $index) {
                         <span class="font-sans text-body-sm text-ink">{{ qualLine(q) }}</span>
                       }
@@ -207,7 +321,10 @@ const ROW_INPUT =
                   }
                   @if (certificationRows.length) {
                     <div class="flex flex-col gap-2 border-b border-cloud pb-4">
-                      <span class="font-sans text-caption text-slate">Certifications</span>
+                      <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
+                        Certifications
+                        @if (isPending('certifications')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
+                      </span>
                       @for (c of certificationRows.controls; track $index) {
                         <span class="font-sans text-body-sm text-ink">{{ certLine(c) }}</span>
                       }
@@ -236,6 +353,11 @@ const ROW_INPUT =
 
                   @if (sigLoading()) {
                     <div class="sd-shimmer h-28 rounded-field" aria-busy="true"><span class="sr-only">Loading your signature…</span></div>
+                  } @else if (sigBlocked()) {
+                    <p class="flex items-start gap-2 rounded-field border border-cloud bg-glacier px-4 py-3 font-sans text-body-sm text-slate">
+                      <sd-icon name="lock" [size]="18" class="mt-0.5 shrink-0" />
+                      Your saved signature is kept, but it can't be viewed or changed while your account is suspended.
+                    </p>
                   } @else if (sigLoadError()) {
                     <div class="flex flex-col items-center gap-3 rounded-field border border-cloud px-4 py-8 text-center">
                       <sd-icon name="wifi-off" [size]="26" class="text-alert" />
@@ -287,18 +409,78 @@ const ROW_INPUT =
                     <sd-alert tone="error">{{ sigError() }}</sd-alert>
                   }
                 </section>
+
+                <!-- Licence, documents and terms: where an approved doctor renews their licence -->
+                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="docs-heading">
+                  <h3 id="docs-heading" class="flex items-center gap-2 font-heading text-body-lg text-ink">
+                    <sd-icon name="file-check" [size]="20" class="text-cerulean" />Licence &amp; documents
+                  </h3>
+                  @if (account(); as o) {
+                    <dl class="flex flex-col divide-y divide-cloud">
+                      <div class="flex flex-wrap items-center justify-between gap-2 py-3">
+                        <dt class="font-sans text-caption text-slate">MDCN full-registration certificate</dt>
+                        <dd><doc-credential-status [status]="docStatus('mdcn_full_registration')" /></dd>
+                      </div>
+                      <div class="flex flex-wrap items-center justify-between gap-2 py-3">
+                        <dt class="font-sans text-caption text-slate">Annual practising licence</dt>
+                        <dd class="flex flex-col items-end gap-1">
+                          <doc-credential-status [status]="docStatus('annual_practising_licence')" />
+                          @if (licenceLine(); as line) { <span class="font-sans text-caption" [class]="line.tone">{{ line.text }}</span> }
+                          @if (licenceRenewal(); as r) {
+                            <!-- A renewal beside the licence in force: said on its own line. -->
+                            <span class="flex items-start gap-1 text-right font-sans text-caption" [class]="r.status === 'rejected' ? 'text-alert' : 'text-slate'">
+                              <sd-icon [name]="r.status === 'rejected' ? 'circle-x' : 'hourglass'" [size]="13" class="mt-0.5 shrink-0" />
+                              <span class="min-w-0 whitespace-pre-line break-words">{{ renewalText(r) }}</span>
+                            </span>
+                          }
+                        </dd>
+                      </div>
+                      <div class="flex flex-wrap items-center justify-between gap-2 py-3">
+                        <dt class="font-sans text-caption text-slate">Practitioner terms</dt>
+                        <dd class="font-sans text-body-sm text-ink">
+                          @if (o.terms.accepted) {
+                            <span class="inline-flex items-center gap-1 text-sage"><sd-icon name="circle-check" [size]="14" />Version {{ o.terms.accepted_version }} accepted</span>
+                          } @else {
+                            <span class="inline-flex items-center gap-1 text-warning"><sd-icon name="circle-alert" [size]="14" />Version {{ o.terms.current_version }} to accept</span>
+                          }
+                        </dd>
+                      </div>
+                    </dl>
+                  } @else {
+                    <p class="font-sans text-body-sm text-slate">Your MDCN certificate, practising licence and the practitioner terms.</p>
+                  }
+                  <div class="flex flex-wrap gap-2">
+                    <a routerLink="/onboarding/credentials" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">
+                      <sd-icon name="upload" [size]="16" />Manage documents
+                    </a>
+                    <a routerLink="/onboarding/terms" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">
+                      <sd-icon name="scroll-text" [size]="16" />Practitioner terms
+                    </a>
+                  </div>
+                </section>
               </div>
             </div>
           }
 
-          @case ('edit') {
+          @default {
+            <!-- 'edit': the whole profile (verified details read-only once approved);
+                 'changes': a request to change the verified details, for a reviewer. -->
+            @let changing = view() === 'changes';
             <header class="flex items-start justify-between gap-4">
-              <h1 class="font-heading text-h3 text-ink">Edit Profile</h1>
-              <button type="button" class="flex shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean" (click)="cancelEdit()">
+              <div class="flex flex-col gap-1">
+                <h1 class="font-heading text-h3 text-ink">{{ changing ? 'Request a change' : 'Edit Profile' }}</h1>
+                @if (changing) {
+                  <p class="max-w-2xl font-sans text-body text-slate">
+                    These details were verified when you were approved. A reviewer checks your change first — until then patients and your prescriptions show your current details.
+                  </p>
+                }
+              </div>
+              <button type="button" class="flex min-h-11 shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean" (click)="cancelEdit()">
                 <sd-icon name="chevron-right" [size]="18" class="rotate-180" />Back
               </button>
             </header>
 
+            @if (!changing) {
             <!-- Photo -->
             <section class="flex flex-col items-center gap-4 rounded-card border border-cloud bg-white p-6 sm:flex-row">
               <div class="relative shrink-0">
@@ -322,12 +504,21 @@ const ROW_INPUT =
                 }
               </div>
             </section>
+            }
 
-            <form class="grid gap-6 lg:grid-cols-2" [formGroup]="form" (ngSubmit)="save()">
+            <form [class]="changing ? 'grid max-w-3xl gap-6' : 'grid gap-6 lg:grid-cols-2'" [formGroup]="form" (ngSubmit)="save()">
+              @if (!changing) {
               <!-- Personal -->
               <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
                 <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="user" [size]="20" class="text-cerulean" />Personal Information</h3>
-                <sd-input label="Full name" [required]="true" formControlName="name" [error]="fieldError('name')" />
+                @if (locked()) {
+                  <div class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-body font-semibold text-ink">Full name</span>
+                    <p class="${LOCKED_VALUE}"><sd-icon name="lock" [size]="16" class="shrink-0 text-slate" /><span class="min-w-0 break-words">{{ profile()?.name }}</span></p>
+                  </div>
+                } @else {
+                  <sd-input label="Full name" [required]="true" formControlName="name" [error]="fieldError('name')" />
+                }
                 <sd-input label="Email address" type="email" formControlName="email" [error]="fieldError('email')" />
                 <sd-input label="Phone number" type="tel" formControlName="phone" />
                 <sd-input label="Date of birth" type="date" formControlName="dob" [max]="today" [error]="dobError()" />
@@ -337,17 +528,37 @@ const ROW_INPUT =
                 </div>
                 <sd-input label="Country / Location" formControlName="country" />
               </section>
+              }
 
               <!-- Professional -->
               <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-6">
-                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information</h3>
-                <sd-input label="Medical Speciality" [required]="true" formControlName="specialty" [error]="fieldError('specialty')" />
-                <div class="flex w-full flex-col gap-1.5">
-                  <sd-input label="MDCN registration number" placeholder="e.g. MDCN/12345" formControlName="mdcn" autocomplete="off" [error]="mdcnError()" />
-                  @if (!mdcnError()) {
-                    <span class="font-sans text-caption text-slate">Printed on your prescriptions. Letters, numbers, / or -.</span>
+                <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="briefcase" [size]="20" class="text-cerulean" />{{ changing ? 'Verified details' : 'Professional Information' }}</h3>
+                @if (identityEditable()) {
+                  @if (changing) {
+                    <sd-input label="Full name" [required]="true" formControlName="name" [error]="fieldError('name')" />
                   }
-                </div>
+                  <sd-input label="Medical Speciality" [required]="true" formControlName="specialty" [error]="fieldError('specialty')" />
+                  <div class="flex w-full flex-col gap-1.5">
+                    <sd-input label="MDCN registration number" placeholder="e.g. MDCN/12345" formControlName="mdcn" autocomplete="off" [error]="mdcnError()" />
+                    @if (!mdcnError()) {
+                      <span class="font-sans text-caption text-slate">Printed on your prescriptions. Letters, numbers, / or -.</span>
+                    }
+                  </div>
+                } @else {
+                  <p class="flex items-start gap-2 rounded-field bg-glacier px-3 py-2 font-sans text-caption text-slate">
+                    <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                    Your name, speciality, MDCN number, qualifications and certifications were verified when you were approved. To change them, save or cancel here, then use “Request a change” on your profile.
+                  </p>
+                  <div class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-body font-semibold text-ink">Medical Speciality</span>
+                    <p class="${LOCKED_VALUE}"><sd-icon name="lock" [size]="16" class="shrink-0 text-slate" /><span class="min-w-0 break-words">{{ profile()?.specialty }}</span></p>
+                  </div>
+                  <div class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-body font-semibold text-ink">MDCN registration number</span>
+                    <p class="${LOCKED_VALUE}"><sd-icon name="lock" [size]="16" class="shrink-0 text-slate" /><span class="min-w-0 break-all">{{ profile()?.mdcn_number || '—' }}</span></p>
+                  </div>
+                }
+                @if (!changing) {
                 <sd-input label="Years of experience" type="number" formControlName="years" />
 
                 <!-- Area of expertise (chips) -->
@@ -386,7 +597,27 @@ const ROW_INPUT =
                   }
                   <input class="${ROW_INPUT}" placeholder="Add a language, press enter" [value]="languageDraft()" (input)="languageDraft.set($any($event.target).value)" (keydown.enter)="addLanguage($event)" />
                 </div>
+                }
 
+                @if (!identityEditable()) {
+                  <!-- Verified entries: read-only once approved -->
+                  <div class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-body font-semibold text-ink">Qualifications</span>
+                    @for (q of qualificationRows.controls; track $index) {
+                      <span class="flex items-start gap-2 font-sans text-body-sm text-ink"><sd-icon name="lock" [size]="14" class="mt-1 shrink-0 text-slate" />{{ qualLine(q) }}</span>
+                    } @empty {
+                      <span class="font-sans text-body-sm text-slate">None added.</span>
+                    }
+                  </div>
+                  <div class="flex w-full flex-col gap-2">
+                    <span class="font-sans text-body font-semibold text-ink">Certifications</span>
+                    @for (c of certificationRows.controls; track $index) {
+                      <span class="flex items-start gap-2 font-sans text-body-sm text-ink"><sd-icon name="lock" [size]="14" class="mt-1 shrink-0 text-slate" />{{ certLine(c) }}</span>
+                    } @empty {
+                      <span class="font-sans text-body-sm text-slate">None added.</span>
+                    }
+                  </div>
+                } @else {
                 <!-- Qualifications -->
                 <div class="flex w-full flex-col gap-3" formArrayName="qualifications">
                   <div class="flex items-center justify-between">
@@ -424,14 +655,17 @@ const ROW_INPUT =
                     </div>
                   }
                 </div>
+                }
               </section>
 
               @if (saveError()) {
-                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert lg:col-span-2">{{ saveError() }}</p>
+                <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert lg:col-span-2" role="alert">{{ saveError() }}</p>
               }
               <div class="flex justify-end gap-3 lg:col-span-2">
                 <sd-button variant="outline" type="button" (click)="cancelEdit()">Cancel</sd-button>
-                <sd-button type="submit" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save changes' }}</sd-button>
+                <sd-button type="submit" [disabled]="saving()">
+                  {{ saving() ? (changing ? 'Sending…' : 'Saving…') : changing ? 'Send for review' : 'Save changes' }}
+                </sd-button>
               </div>
             </form>
           }
@@ -480,6 +714,17 @@ const ROW_INPUT =
       (cancel)="confirmRemoveSig.set(false)"
     />
 
+    <sd-confirm-dialog
+      [open]="confirmWithdraw()"
+      title="Withdraw your change request?"
+      message="Your verified details stay as they are, and the reviewer no longer sees the request."
+      confirmLabel="Withdraw request"
+      cancelLabel="Keep it"
+      icon="undo-2"
+      (confirm)="withdrawChanges()"
+      (cancel)="confirmWithdraw.set(false)"
+    />
+
     <!-- Public profile popup -->
     @if (publicOpen()) {
       <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -496,10 +741,12 @@ export class DoctorProfile implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(DoctorApi);
   private readonly auth = inject(StaffAuthService);
+  private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  protected readonly view = signal<'view' | 'edit'>('view');
+  /** The read view, the edit form, or a change request for the verified (locked) details. */
+  protected readonly view = signal<'view' | 'edit' | 'changes'>('view');
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
   protected readonly saving = signal(false);
@@ -517,8 +764,61 @@ export class DoctorProfile implements OnInit {
   protected readonly drawing = signal(false);
   protected readonly drawn = signal<string | null>(null);
   protected readonly confirmRemoveSig = signal(false);
+  /** Suspended: the signature can't be read or changed (the API refuses it). */
+  protected readonly sigBlocked = signal(false);
 
   protected readonly profile = signal<DoctorProfileDto | null>(null);
+
+  // ----- Verified details (approved doctors): locked, changed only through a review -----
+  /** Approved (or suspended): name, specialty, MDCN number, qualifications and certifications are locked. */
+  protected readonly locked = computed(() => (this.profile()?.locked_fields?.length ?? 0) > 0);
+  /** The verified details are editable here: while onboarding, or in a change request. */
+  protected readonly identityEditable = computed(() => !this.locked() || this.view() === 'changes');
+  /** The change request waiting for a reviewer (null: none). */
+  protected readonly pending = computed(() => {
+    const p = this.profile()?.pending_changes;
+    return p && Object.keys(p).length > 0 ? p : null;
+  });
+  protected readonly pendingRows = computed<PendingRow[]>(() => {
+    const p = this.pending();
+    const now = this.profile();
+    if (!p || !now) return [];
+    const rows: PendingRow[] = [];
+    if (p.name !== undefined) rows.push({ label: CHANGE_FIELD_LABELS['name'], value: p.name, current: now.name });
+    if (p.specialty !== undefined) rows.push({ label: CHANGE_FIELD_LABELS['specialty'], value: p.specialty, current: now.specialty });
+    if (p.mdcn_number !== undefined) {
+      rows.push({ label: CHANGE_FIELD_LABELS['mdcn_number'], value: p.mdcn_number ?? '', current: now.mdcn_number ?? '' });
+    }
+    if (p.qualification_entries !== undefined) {
+      rows.push({ label: 'Qualifications', value: entriesText(p.qualification_entries), current: entriesText(now.qualification_entries) });
+    } else if (p.qualifications !== undefined) {
+      rows.push({ label: 'Qualifications', value: p.qualifications ?? '', current: now.qualifications ?? '' });
+    }
+    if (p.certifications !== undefined) {
+      rows.push({ label: CHANGE_FIELD_LABELS['certifications'], value: entriesText(p.certifications), current: entriesText(now.certifications) });
+    }
+    return rows;
+  });
+  protected readonly confirmWithdraw = signal(false);
+  protected readonly withdrawing = signal(false);
+  protected readonly withdrawError = signal('');
+
+  // ----- Licence & documents (from the onboarding payload) -----
+  protected readonly account = this.standing.onboarding;
+  /** The current licence's expiry, said plainly (with its urgency). */
+  protected readonly licenceLine = computed<{ text: string; tone: string } | null>(() => {
+    const l = this.account()?.licence;
+    if (!l?.expires_at) return null;
+    if (l.status === 'expired') return { text: `Expired ${ymdLabel(l.expires_at)}`, tone: 'text-alert' };
+    if (l.status === 'expiring') {
+      return { text: `Expires ${inDaysLabel(daysUntil(l.expires_at, todayLocal()))} (${ymdLabel(l.expires_at)})`, tone: 'text-warning' };
+    }
+    return { text: `Valid until ${ymdLabel(l.expires_at)}`, tone: 'text-slate' };
+  });
+  /** The licence in force, and a renewal waiting for verification (or turned down) beside it. */
+  private readonly licenceDocs = computed(() => licenceDocuments(this.account()?.credentials, this.account()?.licence));
+  protected readonly licenceRenewal = computed(() => this.licenceDocs().renewal);
+  protected readonly renewalText = renewalText;
   protected readonly photoPath = signal<string | null>(null);
   protected readonly photoSrc = computed(() => this.api.assetUrl(this.photoPath()));
   protected readonly uploadingAvatar = signal(false);
@@ -620,6 +920,8 @@ export class DoctorProfile implements OnInit {
       });
     }
     this.loadSignature();
+    // Licence, documents and terms (the "Licence & documents" card).
+    void this.standing.load();
     this.api
       .getProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -681,19 +983,65 @@ export class DoctorProfile implements OnInit {
     });
   }
 
+  /** The verified fields' controls: read-only (and not validated) in the edit form once approved. */
+  private identityControls(): AbstractControl[] {
+    return [this.form.controls.name, this.form.controls.specialty, this.form.controls.mdcn];
+  }
+
+  private setIdentityEditable(editable: boolean): void {
+    for (const c of this.identityControls()) {
+      if (editable) c.enable({ emitEvent: false });
+      else c.disable({ emitEvent: false });
+    }
+  }
+
   protected startEdit(): void {
     const p = this.profile();
     if (p) this.apply(p);
+    this.setIdentityEditable(!this.locked());
     this.saveError.set('');
     this.serverErrors.set({});
     this.view.set('edit');
   }
 
+  /**
+   * "Request a change": the verified details, starting from the request
+   * already waiting (if any) so editing it updates that request.
+   */
+  protected startChanges(): void {
+    const p = this.profile();
+    if (!p) return;
+    this.apply(p);
+    this.setIdentityEditable(true);
+    const want = this.pending();
+    if (want) {
+      this.form.patchValue({
+        name: want.name ?? p.name ?? '',
+        specialty: want.specialty ?? p.specialty ?? '',
+        mdcn: want.mdcn_number !== undefined ? (want.mdcn_number ?? '') : (p.mdcn_number ?? ''),
+      });
+      if (want.qualification_entries) this.fillEntries(this.qualificationRows, want.qualification_entries, ['title', 'institution', 'year']);
+      if (want.certifications) this.fillEntries(this.certificationRows, want.certifications, ['name', 'body', 'year']);
+    }
+    this.saveError.set('');
+    this.serverErrors.set({});
+    this.view.set('changes');
+  }
+
   protected cancelEdit(): void {
     const p = this.profile();
     if (p) this.apply(p);
+    this.setIdentityEditable(true);
     this.serverErrors.set({});
     this.view.set('view');
+  }
+
+  private fillEntries(arr: FormArray<FormGroup>, rows: readonly object[], keys: readonly string[]): void {
+    arr.clear();
+    for (const row of rows) {
+      const r = row as Record<string, string | undefined>;
+      arr.push(this.fb.group(Object.fromEntries(keys.map((k) => [k, [r[k] ?? '']]))));
+    }
   }
 
   protected fieldError(name: 'name' | 'specialty' | 'email'): string {
@@ -827,8 +1175,33 @@ export class DoctorProfile implements OnInit {
     }
   }
 
+  /** The verified (locked) fields as the form holds them, ready for the API. */
+  private identityValues(): Pick<DoctorProfileUpdate, LockedField> {
+    const v = this.form.getRawValue();
+    return {
+      name: v.name.trim(),
+      specialty: v.specialty.trim(),
+      // Printed on prescriptions; an empty value clears it (the API upper-cases).
+      mdcn_number: v.mdcn.trim(),
+      qualification_entries: this.qualificationRows.controls.map((g) => ({
+        title: String(g.get('title')?.value ?? '').trim(),
+        institution: String(g.get('institution')?.value ?? '').trim(),
+        year: String(g.get('year')?.value ?? '').trim(),
+      })),
+      certifications: this.certificationRows.controls.map((g) => ({
+        name: String(g.get('name')?.value ?? '').trim(),
+        body: String(g.get('body')?.value ?? '').trim(),
+        year: String(g.get('year')?.value ?? '').trim(),
+      })),
+    };
+  }
+
   // ----- Save -----
   protected save(): void {
+    if (this.view() === 'changes') {
+      this.submitChanges();
+      return;
+    }
     this.form.markAllAsTouched();
     if (this.form.invalid) return;
     this.saving.set(true);
@@ -836,12 +1209,12 @@ export class DoctorProfile implements OnInit {
     this.serverErrors.set({});
 
     const v = this.form.getRawValue();
+    // Once approved the verified fields are left out: sending them unchanged would
+    // take back a change request waiting for review (they change through "Request a change").
+    const identity = this.locked() ? {} : this.identityValues();
     this.api
       .updateProfile({
-        name: v.name.trim(),
-        specialty: v.specialty.trim(),
-        // Printed on prescriptions; an empty value clears it (the API upper-cases).
-        mdcn_number: v.mdcn.trim(),
+        ...identity,
         email: v.email.trim(),
         phone: v.phone.trim(),
         date_of_birth: v.dob || null,
@@ -855,21 +1228,12 @@ export class DoctorProfile implements OnInit {
         bio: v.bio.trim(),
         languages: this.languages().join(', '),
         expertise: this.expertise(),
-        qualification_entries: this.qualificationRows.controls.map((g) => ({
-          title: String(g.get('title')?.value ?? '').trim(),
-          institution: String(g.get('institution')?.value ?? '').trim(),
-          year: String(g.get('year')?.value ?? '').trim(),
-        })),
-        certifications: this.certificationRows.controls.map((g) => ({
-          name: String(g.get('name')?.value ?? '').trim(),
-          body: String(g.get('body')?.value ?? '').trim(),
-          year: String(g.get('year')?.value ?? '').trim(),
-        })),
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.apply(res.data);
+          this.setIdentityEditable(true);
           this.saving.set(false);
           this.view.set('view');
           this.showToast('Your Profile has successfully updated');
@@ -882,10 +1246,101 @@ export class DoctorProfile implements OnInit {
       });
   }
 
+  /**
+   * Send the verified details for review: only those fields go, and the API
+   * stages what differs from the approved values in `pending_changes` (a value
+   * set back to the approved one drops out of the request).
+   */
+  private submitChanges(): void {
+    const controls = this.identityControls();
+    for (const c of controls) c.markAsTouched();
+    if (controls.some((c) => c.invalid)) return;
+    const p = this.profile();
+    const next = this.identityValues();
+    const same =
+      !!p &&
+      next.name === (p.name ?? '') &&
+      next.specialty === (p.specialty ?? '') &&
+      (next.mdcn_number ?? '').toUpperCase() === (p.mdcn_number ?? '').toUpperCase() &&
+      JSON.stringify(next.qualification_entries?.filter((q) => q.title || q.institution || q.year)) ===
+        JSON.stringify((p.qualification_entries ?? []).map((q) => ({ title: q.title ?? '', institution: q.institution ?? '', year: q.year ?? '' }))) &&
+      JSON.stringify(next.certifications?.filter((c) => c.name || c.body || c.year)) ===
+        JSON.stringify((p.certifications ?? []).map((c) => ({ name: c.name ?? '', body: c.body ?? '', year: c.year ?? '' })));
+    if (same && !this.pending()) {
+      this.saveError.set('These are your current details — change at least one to send a request.');
+      return;
+    }
+
+    this.saving.set(true);
+    this.saveError.set('');
+    this.serverErrors.set({});
+    this.api
+      .updateProfile(next)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.apply(res.data);
+          this.saving.set(false);
+          this.view.set('view');
+          this.showToast(
+            res.data.pending_changes ? 'Your change was sent for review' : 'Your change request was withdrawn — nothing differs from your verified details',
+          );
+          void this.standing.load(true); // the dashboard's "waiting for review"
+        },
+        error: (err: unknown) => {
+          this.saving.set(false);
+          this.serverErrors.set(apiErrorFields(err));
+          this.saveError.set(apiErrorMessage(err, 'Could not send your change for review.'));
+        },
+      });
+  }
+
+  /** Take back the change request waiting for review. */
+  protected withdrawChanges(): void {
+    this.confirmWithdraw.set(false);
+    if (this.withdrawing()) return;
+    this.withdrawing.set(true);
+    this.withdrawError.set('');
+    this.api
+      .withdrawProfileChanges()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.apply(res.data);
+          this.withdrawing.set(false);
+          this.showToast('Your change request was withdrawn');
+          void this.standing.load(true);
+        },
+        error: (err: unknown) => {
+          this.withdrawing.set(false);
+          this.withdrawError.set(apiErrorMessage(err, 'Could not withdraw your change request.'));
+        },
+      });
+  }
+
+  /** "Change pending" next to a verified field. */
+  protected isPending(field: LockedField): boolean {
+    const p = this.pending();
+    if (!p) return false;
+    return field === 'qualification_entries' ? 'qualification_entries' in p || 'qualifications' in p : field in p;
+  }
+
+  protected docStatus(type: CredentialType): CredentialChipState {
+    const doc =
+      type === 'annual_practising_licence' ? this.licenceDocs().current : latestCredential(this.account()?.credentials, type);
+    return doc?.status ?? 'missing';
+  }
+
+  protected date(iso: string | null | undefined): string {
+    if (!iso) return '';
+    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+  }
+
   // ----- Signature for prescriptions -----
   protected loadSignature(): void {
     this.sigLoading.set(true);
     this.sigLoadError.set('');
+    this.sigBlocked.set(false);
     this.api
       .getSignature()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -895,7 +1350,9 @@ export class DoctorProfile implements OnInit {
           this.sigLoading.set(false);
         },
         error: (err: unknown) => {
-          this.sigLoadError.set(apiErrorMessage(err, 'Could not load your saved signature.'));
+          // Suspended: the signature is kept but closed (said plainly, no "try again").
+          if (doctorStandingCode(err) === 'doctor_suspended') this.sigBlocked.set(true);
+          else this.sigLoadError.set(apiErrorMessage(err, 'Could not load your saved signature.'));
           this.sigLoading.set(false);
         },
       });

@@ -96,7 +96,12 @@ return static function (App $app): void {
         $group->get('/public/specialties', Action\Public\PublicSpecialtiesAction::class);
         $group->get('/public/facets', Action\Public\PublicFacetsAction::class);
         $group->get('/public/specialists', Action\Public\PublicSpecialistsAction::class);
+        // Similar doctors free on a date — before /public/specialists/{id}: FastRoute
+        // refuses a static route shadowed by an earlier variable one.
+        $group->get('/public/specialists/suggestions', Action\Public\SpecialistSuggestionsAction::class);
         $group->get('/public/specialists/{id}/slots', Action\Specialist\GetSpecialistSlotsAction::class);
+        // The booking calendar: per-day status for a 6-week range.
+        $group->get('/public/specialists/{id}/availability', Action\Specialist\GetSpecialistAvailabilityAction::class);
         $group->get('/public/specialists/{id}', Action\Public\GetPublicSpecialistAction::class);
         $group->get('/public/pricing', Action\Public\PublicPricingAction::class);
         // Prescriptions: the signed, short-lived token IS the credential for the
@@ -133,6 +138,12 @@ return static function (App $app): void {
 
             // Staff patient lookup for booking on a patient's behalf.
             $group->get('/patients', Action\Admin\SearchPatientsAction::class)
+                ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
+            // The booking calendar for staff booking on a patient's behalf (not
+            // held to the patient horizon or the doctor's bookings switch).
+            $group->get('/specialists/{id}/availability', Action\Specialist\GetStaffSpecialistAvailabilityAction::class)
+                ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
+            $group->get('/specialists/{id}/slots', Action\Specialist\GetStaffSpecialistSlotsAction::class)
                 ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
 
             // Staff & role management.
@@ -181,6 +192,35 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('specialists.manage'));
             $group->post('/specialists/{id}/reject', Action\Specialist\RejectSpecialistAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
+            // Doctor management: the doctor page and its tabs, documents (view is
+            // audited; verify with an attestation / reject), suspension (preview
+            // first) + reinstatement, and change requests on locked fields.
+            $group->get('/specialists/{id}', Action\Specialist\GetSpecialistAdminAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/appointments', Action\Specialist\ListSpecialistAppointmentsAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/payouts', Action\Specialist\ListSpecialistPayoutsAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/reviews', Action\Specialist\ListSpecialistReviewsAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/history', Action\Specialist\GetSpecialistHistoryAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/credentials/{cid}/file', Action\Specialist\SpecialistCredentialFileAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/credentials/{cid}/verify', Action\Specialist\VerifySpecialistCredentialAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/credentials/{cid}/reject', Action\Specialist\RejectSpecialistCredentialAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/specialists/{id}/suspend/preview', Action\Specialist\PreviewSpecialistSuspensionAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/suspend', Action\Specialist\SuspendSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/reinstate', Action\Specialist\ReinstateSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/changes/approve', Action\Specialist\ApproveSpecialistChangesAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/specialists/{id}/changes/reject', Action\Specialist\RejectSpecialistChangesAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
 
             // Minimal doctor portal — a doctor login (role 'doctor') sees only
             // their own consultations. The action enforces the doctor role.
@@ -213,6 +253,16 @@ return static function (App $app): void {
             $group->post('/doctor/onboarding/submit', Action\Doctor\SubmitDoctorOnboardingAction::class);
             $group->get('/doctor/profile', Action\Doctor\GetDoctorProfileAction::class);
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
+            // Withdraw a change request on the locked fields (still waiting for review).
+            $group->delete('/doctor/profile/changes', Action\Doctor\WithdrawDoctorProfileChangesAction::class);
+            // Licensing documents (MDCN certificate, practising licence, specialist
+            // certificates) — encrypted, owner-only — and the practitioner terms.
+            $group->get('/doctor/credentials', Action\Doctor\ListDoctorCredentialsAction::class);
+            $group->post('/doctor/credentials', Action\Doctor\UploadDoctorCredentialAction::class);
+            $group->delete('/doctor/credentials/{id}', Action\Doctor\DeleteDoctorCredentialAction::class);
+            $group->get('/doctor/credentials/{id}/file', Action\Doctor\DoctorCredentialFileAction::class);
+            $group->get('/doctor/terms', Action\Doctor\GetDoctorTermsAction::class);
+            $group->post('/doctor/terms/accept', Action\Doctor\AcceptDoctorTermsAction::class);
             $group->post('/doctor/avatar', Action\Doctor\UploadDoctorAvatarAction::class);
             $group->delete('/doctor/avatar', Action\Doctor\DeleteDoctorAvatarAction::class);
             // Date-specific availability: publish/remove open slots, block days.
@@ -220,6 +270,10 @@ return static function (App $app): void {
             $group->post('/doctor/availability', Action\Doctor\AddAvailabilityAction::class);
             $group->post('/doctor/availability/block', Action\Doctor\BlockAvailabilityAction::class);
             $group->delete('/doctor/availability/{id}', Action\Doctor\DeleteAvailabilityAction::class);
+            // Their own booking calendar (reschedule / follow-up time pickers): not
+            // held to the patient horizon. Clinical — refused while suspended.
+            $group->get('/doctor/calendar', Action\Doctor\DoctorCalendarAction::class);
+            $group->get('/doctor/calendar/slots', Action\Doctor\DoctorCalendarSlotsAction::class);
             // Earnings + payouts (doctor self-service).
             $group->get('/doctor/earnings', Action\Doctor\DoctorEarningsAction::class);
             $group->get('/doctor/earnings/transactions', Action\Doctor\DoctorEarningsTransactionsAction::class);
@@ -326,6 +380,11 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('settings.manage'));
             $group->patch('/settings/prescriptions', Action\Prescription\PrescriptionSettingsAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
+            // Booking-calendar rules: horizon, minimum notice, "few left" threshold.
+            $group->get('/settings/booking', Action\Settings\BookingSettingsAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
+            $group->patch('/settings/booking', Action\Settings\BookingSettingsAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
 
             // Support desk (back office).
             $group->get('/admin/support/tickets', Action\Admin\ListSupportTicketsAction::class)
@@ -336,7 +395,11 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('support.manage'));
             $group->patch('/admin/support/tickets/{id}', Action\Admin\UpdateSupportTicketAction::class)
                 ->add(new RbacMiddleware('support.manage'));
-        })->add(new AuthMiddleware($jwt, $sessions));
+        })
+            // A suspended / not-yet-approved doctor, or one who owes the terms
+            // acceptance, is kept out of clinical work (runs after the auth below).
+            ->add(\App\Infrastructure\Middleware\DoctorStandingMiddleware::class)
+            ->add(new AuthMiddleware($jwt, $sessions));
 
         // ----- Customer portal (customer audience) -----
         $group->group('/portal', function (RouteCollectorProxy $group): void {

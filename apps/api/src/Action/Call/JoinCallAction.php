@@ -31,7 +31,9 @@ use Psr\Http\Message\ServerRequestInterface;
  * consultation, an unaccepted follow-up (409); a guest no longer invited (410),
  * too early (425 with `starts_at` / `opens_at`) or too late (410); and a guest
  * who hasn't accepted the recording + privacy notice while recording could
- * happen (403, `errors.code = consent_required` — POST .../consent first).
+ * happen (403, `errors.code = consent_required` — POST .../consent first);
+ * and a doctor who may not practise (403 doctor_suspended | doctor_not_approved,
+ * or terms_required before the consultation's start time).
  *
  * Calling it again with the same token returns a fresh RTC token — how a call
  * screen renews on `token-privilege-will-expire`. A guest's lasts

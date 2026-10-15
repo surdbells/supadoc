@@ -13,8 +13,10 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * POST /api/doctor/onboarding/submit — send the finished profile for review.
- * Only allowed once every checklist item is done (else 422 naming what is
- * missing); moves the doctor to pending_review and notifies the admins.
+ * Only allowed once every checklist item is done — the documents uploaded and
+ * the practitioner terms accepted included (else 422 naming what is missing);
+ * moves the doctor to pending_review, records it in their history and the
+ * audit trail, and notifies the admins.
  */
 final class SubmitDoctorOnboardingAction
 {
@@ -38,7 +40,7 @@ final class SubmitDoctorOnboardingAction
         }
 
         // Throws ValidationException (→ 422) when incomplete or not submittable.
-        $this->onboarding->submit($specialist);
+        $this->onboarding->submit($specialist, (string) $request->getAttribute('user_id'));
 
         return $this->success($response, $this->onboarding->summary($specialist), 'Submitted for review');
     }

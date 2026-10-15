@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
@@ -14,8 +15,13 @@ import {
   switchMap,
   tap,
 } from 'rxjs';
-import { ActivatedRoute } from '@angular/router';
-import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
+import { ActivatedRoute, Router } from '@angular/router';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  SpecialistsApi,
+  type ListSpecialistsQuery,
+} from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import {
   ButtonComponent,
@@ -23,33 +29,55 @@ import {
   IconComponent,
   SearchSelectComponent,
 } from '@supadoc/ui';
+import { AvailabilityFallback, type DirectoryFilters } from './availability-fallback';
+import {
+  ANY_WHEN,
+  hasDateFilter,
+  hasWhenFilter,
+  whenDay,
+  whenFromQuery,
+  whenParams,
+  whenQuery,
+  whenText,
+  type WhenFilter,
+} from './booking-helpers';
 import { SpecialistCard } from './specialist-card';
+import { WhenFilterChips } from './when-filter';
 
 interface Criteria {
   search: string;
   specialty: string;
-  available: boolean;
   location: string;
   language: string;
   gender: string;
   mode: 'any' | 'online' | 'in_person';
+  when: WhenFilter;
 }
+
+/** Doctors per page ("Show more" loads the next). */
+const PER_PAGE = 24;
 
 /**
  * Find a Specialist (Figma 311:4126) — wired to GET /api/portal/specialists.
- * Search and the specialty/availability filters run server-side (debounced),
- * with loading, empty and error states. Each result is a `pat-specialist-card`
- * that books inline.
+ * Search, the specialty / location / language / gender / type filters and the
+ * "When" + "Time of day" filters run server-side (debounced), always in the
+ * patient's time zone, and are mirrored in the URL so a search can be shared
+ * or deep-linked (`?specialty=&when=today|tomorrow|week|YYYY-MM-DD&time=`).
+ * Every result carries when the doctor is free, so the cards need no requests
+ * of their own. A day nobody (or hardly anybody) is free on offers the next
+ * open day and similar doctors who are free.
  */
 @Component({
   selector: 'pat-find-specialist',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    AvailabilityFallback,
     ButtonComponent,
     EmptyStateComponent,
     IconComponent,
     SearchSelectComponent,
     SpecialistCard,
+    WhenFilterChips,
   ],
   host: { class: 'block' },
   template: `
@@ -74,6 +102,7 @@ interface Criteria {
               [value]="query()"
               (input)="query.set($any($event.target).value)"
               placeholder="Search by name, speciality or condition..."
+              aria-label="Search specialists"
               class="w-full bg-transparent font-sans text-body text-ink placeholder:text-slate/70 focus:outline-none"
             />
           </span>
@@ -85,6 +114,8 @@ interface Criteria {
                 ? 'border-cerulean text-cerulean'
                 : 'border-cloud'
             "
+            [attr.aria-expanded]="filtersOpen()"
+            aria-controls="specialist-filters"
             (click)="filtersOpen.set(!filtersOpen())"
             aria-label="Filter"
           >
@@ -102,6 +133,7 @@ interface Criteria {
       <!-- Filter panel -->
       @if (filtersOpen()) {
         <div
+          id="specialist-filters"
           class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-5"
         >
           <div class="flex flex-col gap-2">
@@ -117,6 +149,7 @@ interface Criteria {
                     ? 'border-cerulean bg-frost text-cerulean'
                     : 'border-cloud text-slate hover:text-ink'
                 "
+                [attr.aria-pressed]="specialty() === ''"
                 (click)="specialty.set('')"
               >
                 All
@@ -130,6 +163,7 @@ interface Criteria {
                       ? 'border-cerulean bg-frost text-cerulean'
                       : 'border-cloud text-slate hover:text-ink'
                   "
+                  [attr.aria-pressed]="specialty() === s"
                   (click)="specialty.set(s)"
                 >
                   {{ s }}
@@ -138,37 +172,8 @@ interface Criteria {
             </div>
           </div>
 
-          <div class="flex flex-col gap-2">
-            <span class="font-sans text-body-sm font-semibold text-ink"
-              >Availability</span
-            >
-            <div class="flex flex-wrap gap-2">
-              <button
-                type="button"
-                class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
-                [class]="
-                  !availableOnly()
-                    ? 'border-cerulean bg-frost text-cerulean'
-                    : 'border-cloud text-slate hover:text-ink'
-                "
-                (click)="availableOnly.set(false)"
-              >
-                Any time
-              </button>
-              <button
-                type="button"
-                class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
-                [class]="
-                  availableOnly()
-                    ? 'border-cerulean bg-frost text-cerulean'
-                    : 'border-cloud text-slate hover:text-ink'
-                "
-                (click)="availableOnly.set(true)"
-              >
-                Available today
-              </button>
-            </div>
-          </div>
+          <!-- When + time of day (the patient's own calendar and clock) -->
+          <pat-when-filter [(value)]="when" />
 
           <div class="flex flex-col gap-2">
             <span class="font-sans text-body-sm font-semibold text-ink"
@@ -186,6 +191,7 @@ interface Criteria {
                       ? 'bg-frost font-medium text-cerulean'
                       : 'text-slate hover:text-ink'
                   "
+                  [attr.aria-pressed]="mode() === t.value"
                   (click)="mode.set(t.value)"
                 >
                   <sd-icon [name]="t.icon" [size]="16" />{{ t.label }}
@@ -234,7 +240,7 @@ interface Criteria {
             <div class="flex justify-end">
               <button
                 type="button"
-                class="inline-flex items-center gap-1.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
+                class="inline-flex min-h-11 items-center gap-1.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink"
                 (click)="clearFilters()"
               >
                 <sd-icon name="x" [size]="16" />
@@ -245,9 +251,12 @@ interface Criteria {
         </div>
       }
 
+      <!-- Always rendered (the views below are recreated by every search), so each result is announced -->
+      <p class="sr-only" aria-live="polite" aria-atomic="true">{{ resultsAnnouncement() }}</p>
+
       @switch (viewState()) {
         @case ('loading') {
-          <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <div class="grid grid-cols-1 gap-6 xl:grid-cols-2" aria-busy="true">
             @for (n of [1, 2, 3, 4]; track n) {
               <div
                 class="h-72 sd-shimmer rounded-card"
@@ -258,34 +267,80 @@ interface Criteria {
         @case ('error') {
           <sd-empty-state
             tone="error"
-            icon="wifi-off"
-            title="Unable to load specialists"
+            [icon]="dateRefused() ? 'calendar-off' : 'wifi-off'"
+            [title]="dateRefused() ? 'That day can’t be searched' : 'Unable to load specialists'"
             [message]="loadError() || 'Check your connection and try again.'"
           >
-            <sd-button (click)="reload()">Try Again</sd-button>
+            @if (dateRefused()) {
+              <sd-button (click)="anyDay()">Show any day</sd-button>
+            } @else {
+              <sd-button (click)="reload()">Try Again</sd-button>
+            }
           </sd-empty-state>
         }
         @case ('empty') {
-          <sd-empty-state
-            icon="user-x"
-            title="No specialist match your result"
-            message="Try broadening your filters — clear a specialty, expand availability, or search a related condition"
-          >
-            <sd-button (click)="reset()">Reset Filter</sd-button>
-          </sd-empty-state>
+          @if (dateFiltered()) {
+            <!-- Nobody free then: the next open day + similar doctors who are -->
+            <pat-availability-fallback
+              [filters]="fallbackFilters()"
+              [when]="when()"
+              [count]="0"
+              (tryDay)="tryDay($event)"
+              (anyDay)="anyDay()"
+            />
+          } @else {
+            <sd-empty-state
+              icon="user-x"
+              title="No specialist match your result"
+              message="Try broadening your filters — clear a specialty, expand availability, or search a related condition"
+            >
+              <sd-button (click)="reset()">Reset Filter</sd-button>
+            </sd-empty-state>
+          }
         }
         @default {
-          <div class="flex items-center justify-between">
-            <p class="font-sans text-body font-semibold text-ink">
-              {{ all().length }} Specialist found
-            </p>
+          <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <p class="font-sans text-body font-semibold text-ink">{{ countText() }}</p>
+            @if (whenSummary()) {
+              <button
+                type="button"
+                class="inline-flex min-h-11 items-center gap-1.5 font-sans text-body-sm font-semibold text-cerulean hover:underline"
+                (click)="when.set(anyWhen)"
+              >
+                <sd-icon name="x" [size]="16" />Any day or time
+              </button>
+            }
           </div>
 
           <div class="grid grid-cols-1 items-stretch gap-6 xl:grid-cols-2">
             @for (s of all(); track s.id) {
-              <pat-specialist-card [specialist]="s" />
+              <pat-specialist-card [specialist]="s" [date]="filterDay()" />
             }
           </div>
+
+          @if (all().length < total()) {
+            <div class="flex flex-col items-center gap-2">
+              <sd-button variant="outline" [disabled]="loadingMore()" (click)="loadMore()">
+                {{ loadingMore() ? 'Loading…' : 'Show more specialists' }}
+              </sd-button>
+              <p class="font-sans text-caption text-slate">Showing {{ all().length }} of {{ total() }}</p>
+              @if (moreError()) {
+                <p class="font-sans text-caption text-alert" role="alert">{{ moreError() }}</p>
+              }
+            </div>
+          }
+
+          <!-- Hardly anybody free then: more options -->
+          @if (dateFiltered() && total() < 3) {
+            <pat-availability-fallback
+              [filters]="fallbackFilters()"
+              [when]="when()"
+              [count]="total()"
+              [excludeIds]="listedIds()"
+              (tryDay)="tryDay($event)"
+              (anyDay)="anyDay()"
+            />
+          }
         }
       }
     </div>
@@ -294,10 +349,13 @@ interface Criteria {
 export class FindSpecialist {
   private readonly specialists = inject(SpecialistsApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
+  protected readonly anyWhen = ANY_WHEN;
   protected readonly query = signal('');
   protected readonly specialty = signal('');
-  protected readonly availableOnly = signal(false);
+  protected readonly when = signal<WhenFilter>(ANY_WHEN);
   protected readonly location = signal('');
   protected readonly language = signal('');
   protected readonly gender = signal('');
@@ -317,24 +375,49 @@ export class FindSpecialist {
   ];
 
   protected readonly all = signal<SpecialistDto[]>([]);
+  /** How many doctors match in all (meta.total), not just this page. */
+  protected readonly total = signal(0);
   private readonly loading = signal(true);
   /** Why the search failed ('' when it didn't). */
   protected readonly loadError = signal('');
+  /** The API refused the day searched (outside the booking window). */
+  protected readonly dateRefused = signal(false);
   private readonly reloadTick = signal(0);
+  private page = 1;
+  protected readonly loadingMore = signal(false);
+  protected readonly moreError = signal('');
 
   private readonly criteria = computed<Criteria>(() => ({
     search: this.query().trim(),
     specialty: this.specialty(),
-    available: this.availableOnly(),
     location: this.location(),
     language: this.language(),
     gender: this.gender(),
     mode: this.mode(),
+    when: this.when(),
   }));
 
+  protected readonly dateFiltered = computed(() => hasDateFilter(this.when()));
+  /** The one day searched (today / tomorrow / a picked date), for the cards. */
+  protected readonly filterDay = computed(() => whenDay(this.when()));
+  protected readonly whenSummary = computed(() => (hasWhenFilter(this.when()) ? whenText(this.when()) : ''));
+  protected readonly listedIds = computed(() => this.all().map((s) => s.id));
+  protected readonly fallbackFilters = computed<DirectoryFilters>(() => {
+    const c = this.criteria();
+    return {
+      search: c.search || undefined,
+      specialty: c.specialty || undefined,
+      location: c.location || undefined,
+      language: c.language || undefined,
+      gender: c.gender || undefined,
+      mode: c.mode === 'in_person' ? 'in_person' : undefined,
+    };
+  });
+
   constructor() {
-    // Deep links from the homepage discovery section pre-fill the filters
-    // (e.g. /dashboard/specialists?specialty=Cardiology&gender=female).
+    // Deep links (the homepage discovery section, a patient's rebook link, a
+    // shared search) pre-fill the filters, e.g.
+    // /dashboard/specialists?specialty=Cardiology&gender=female&when=tomorrow&time=morning.
     const qp = this.route.snapshot.queryParamMap;
     const sp = qp.get('specialty');
     if (sp) this.specialty.set(sp);
@@ -348,6 +431,7 @@ export class FindSpecialist {
     if (gen) this.gender.set(gen);
     const md = qp.get('mode');
     if (md === 'online' || md === 'in_person') this.mode.set(md);
+    this.when.set(whenFromQuery(qp));
 
     // Populate the filter dropdown options once (public facets endpoint).
     this.specialists
@@ -369,45 +453,136 @@ export class FindSpecialist {
       .pipe(
         debounceTime(250),
         distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
-        tap(() => {
+        tap((c) => {
           this.loading.set(true);
           this.loadError.set('');
+          this.dateRefused.set(false);
+          this.moreError.set('');
+          this.page = 1;
+          this.syncUrl(c);
         }),
         switchMap((c) =>
-          this.specialists
-            .list({
-              per_page: 100,
-              sort_by: 'name',
-              sort_dir: 'asc',
-              search: c.search || undefined,
-              specialty: c.specialty || undefined,
-              available: c.available || undefined,
-              location: c.location || undefined,
-              language: c.language || undefined,
-              gender: c.gender || undefined,
-              mode: c.mode === 'any' ? undefined : c.mode,
-            })
-            .pipe(
-              catchError((err: unknown) => {
-                this.loadError.set(
-                  apiErrorMessage(err, 'Check your connection and try again.'),
-                );
-                return of(null);
-              }),
-            ),
+          this.specialists.list(this.listQuery(c, 1)).pipe(
+            catchError((err: unknown) => {
+              const fields = apiErrorFields(err);
+              this.dateRefused.set(!!(fields['available_on'] || fields['available_within']));
+              this.loadError.set(
+                apiErrorMessage(err, 'Check your connection and try again.'),
+              );
+              return of(null);
+            }),
+          ),
         ),
         takeUntilDestroyed(),
       )
       .subscribe((res) => {
-        if (res) this.all.set(res.data);
+        if (res) {
+          this.all.set(res.data);
+          this.total.set(res.meta?.total ?? res.data.length);
+        }
         this.loading.set(false);
       });
   }
 
+  /** The API query for these criteria (soonest first once a day is filtered on). */
+  private listQuery(c: Criteria, page: number): ListSpecialistsQuery {
+    const dated = hasWhenFilter(c.when);
+    return {
+      page,
+      per_page: PER_PAGE,
+      sort_by: dated ? 'soonest' : 'name',
+      sort_dir: 'asc',
+      search: c.search || undefined,
+      specialty: c.specialty || undefined,
+      location: c.location || undefined,
+      language: c.language || undefined,
+      gender: c.gender || undefined,
+      mode: c.mode === 'any' ? undefined : c.mode,
+      ...whenParams(c.when),
+    };
+  }
+
+  /** The next page, appended (dropped if the search changed meanwhile). */
+  protected loadMore(): void {
+    if (this.loadingMore()) return;
+    const c = this.criteria();
+    const page = this.page + 1;
+    this.loadingMore.set(true);
+    this.moreError.set('');
+    this.specialists
+      .list(this.listQuery(c, page))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.loadingMore.set(false);
+          if (JSON.stringify(c) !== JSON.stringify(this.criteria())) return;
+          this.page = page;
+          const seen = new Set(this.all().map((s) => s.id));
+          this.all.update((list) => [...list, ...res.data.filter((s) => !seen.has(s.id))]);
+          this.total.set(res.meta?.total ?? this.total());
+        },
+        error: (err: unknown) => {
+          this.loadingMore.set(false);
+          this.moreError.set(apiErrorMessage(err, 'Could not load more specialists. Please try again.'));
+        },
+      });
+  }
+
+  /** Mirror the search in the URL (replacing the entry), so it can be shared or reloaded. */
+  private syncUrl(c: Criteria): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      replaceUrl: true,
+      queryParams: {
+        q: c.search || undefined,
+        specialty: c.specialty || undefined,
+        location: c.location || undefined,
+        language: c.language || undefined,
+        gender: c.gender || undefined,
+        mode: c.mode === 'any' ? undefined : c.mode,
+        ...whenQuery(c.when),
+      },
+    });
+  }
+
+  /** "Try {day}" from the fallback: search that day, keeping the time of day. */
+  protected tryDay(date: string): void {
+    this.when.update((w) => ({ ...w, when: 'date', date }));
+  }
+
+  /** "Show any day": drop the day only, keeping the time of day. */
+  protected anyDay(): void {
+    this.when.update((w) => ({ ...ANY_WHEN, time: w.time }));
+  }
+
+  /** "12 specialists free tomorrow" / "12 specialists found". */
+  protected readonly countText = computed(() => {
+    const n = this.total();
+    const summary = this.whenSummary();
+    return `${n} ${n === 1 ? 'specialist' : 'specialists'} ${summary ? `free ${summary}` : 'found'}`;
+  });
+
+  /** What screen readers hear once a search settles ('' while it runs). */
+  protected readonly resultsAnnouncement = computed(() => {
+    switch (this.viewState()) {
+      case 'loading':
+        return '';
+      case 'error':
+        return this.loadError();
+      case 'empty':
+        return this.dateFiltered()
+          ? `No specialists free ${whenText(this.when())}`
+          : 'No specialists match your filters';
+      default:
+        return this.countText();
+    }
+  });
+
   protected readonly activeFilterCount = computed(
     () =>
       (this.specialty() !== '' ? 1 : 0) +
-      (this.availableOnly() ? 1 : 0) +
+      (hasDateFilter(this.when()) ? 1 : 0) +
+      (this.when().time !== 'any' ? 1 : 0) +
       (this.location() !== '' ? 1 : 0) +
       (this.language() !== '' ? 1 : 0) +
       (this.gender() !== '' ? 1 : 0) +
@@ -416,7 +591,7 @@ export class FindSpecialist {
 
   protected clearFilters(): void {
     this.specialty.set('');
-    this.availableOnly.set(false);
+    this.when.set(ANY_WHEN);
     this.location.set('');
     this.language.set('');
     this.gender.set('');

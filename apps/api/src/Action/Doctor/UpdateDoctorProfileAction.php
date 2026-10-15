@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
+use App\Domain\Doctor\DoctorStanding;
+use App\Domain\Entity\Specialist;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\DoctorOnboardingService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -16,6 +19,15 @@ use Psr\Http\Message\ServerRequestInterface;
  * availability, the on/off booking toggle, and weekly availability hours. Only
  * the keys present in the body change. Fee and verified status stay back-office
  * controlled and are ignored here.
+ *
+ * Once approved, the identity fields ({@see Specialist::LOCKED_FIELDS}: name,
+ * specialty, MDCN number, qualifications, qualification entries,
+ * certifications) don't change here: a value that differs waits in
+ * `pending_changes` until a reviewer approves it (reviewers are notified; the
+ * request is audited), and one equal to the current value takes back an
+ * earlier request for it. Everything else saves at once — except that a
+ * suspended doctor may not change their availability (`weekly_hours`,
+ * `slot_minutes`, `available`: 403, `errors.code` doctor_suspended).
  */
 final class UpdateDoctorProfileAction
 {
@@ -25,6 +37,7 @@ final class UpdateDoctorProfileAction
     public function __construct(
         private readonly UserRepository $users,
         private readonly SpecialistRepository $specialists,
+        private readonly DoctorOnboardingService $onboarding,
     ) {
     }
 
@@ -37,15 +50,26 @@ final class UpdateDoctorProfileAction
             return $this->error($response, 'This account is not a doctor profile', 403);
         }
 
-        $body   = (array) $request->getParsedBody();
+        $body = (array) $request->getParsedBody();
+        // A suspended doctor keeps their profile, but not their availability.
+        $refused = DoctorStanding::profileEditProblem($specialist, $body);
+        if ($refused !== null) {
+            return $this->error($response, $refused[1], 403, ['standing' => $refused[1], 'code' => $refused[0]]);
+        }
+
         $errors = [];
+        // Identity fields, validated and normalised like the setters do —
+        // applied at once while onboarding, staged for review once approved.
+        $locked = [];
 
         if (array_key_exists('name', $body)) {
             $name = trim((string) $body['name']);
             if ($name === '') {
                 $errors['name'] = 'Name cannot be empty';
+            } elseif (mb_strlen($name) > 200) {
+                $errors['name'] = 'Keep the name under 200 characters';
             } else {
-                $specialist->setName($name);
+                $locked['name'] = $name;
             }
         }
 
@@ -53,8 +77,10 @@ final class UpdateDoctorProfileAction
             $specialty = trim((string) $body['specialty']);
             if ($specialty === '') {
                 $errors['specialty'] = 'Speciality cannot be empty';
+            } elseif (mb_strlen($specialty) > 120) {
+                $errors['specialty'] = 'Keep the speciality under 120 characters';
             } else {
-                $specialist->setSpecialty($specialty);
+                $locked['specialty'] = $specialty;
             }
         }
 
@@ -86,15 +112,11 @@ final class UpdateDoctorProfileAction
         }
 
         if (array_key_exists('qualification_entries', $body)) {
-            $specialist->setQualificationEntries(
-                $this->cleanEntries($body['qualification_entries'], ['title', 'institution', 'year']),
-            );
+            $locked['qualification_entries'] = $this->cleanEntries($body['qualification_entries'], ['title', 'institution', 'year']);
         }
 
         if (array_key_exists('certifications', $body)) {
-            $specialist->setCertifications(
-                $this->cleanEntries($body['certifications'], ['name', 'body', 'year']),
-            );
+            $locked['certifications'] = $this->cleanEntries($body['certifications'], ['name', 'body', 'year']);
         }
 
         if (array_key_exists('slot_minutes', $body)) {
@@ -177,7 +199,12 @@ final class UpdateDoctorProfileAction
         }
 
         if (array_key_exists('qualifications', $body)) {
-            $specialist->setQualifications(trim((string) $body['qualifications']));
+            $qualifications = trim((string) $body['qualifications']);
+            if (mb_strlen($qualifications) > 300) {
+                $errors['qualifications'] = 'Keep your qualifications under 300 characters';
+            } else {
+                $locked['qualifications'] = $qualifications !== '' ? $qualifications : null;
+            }
         }
 
         // MDCN registration number — printed on prescriptions and shown to
@@ -187,7 +214,7 @@ final class UpdateDoctorProfileAction
             if ($mdcn !== '' && preg_match('/^[A-Z0-9\/\- ]{3,40}$/', $mdcn) !== 1) {
                 $errors['mdcn_number'] = 'Enter your MDCN registration number (letters, numbers, / or -)';
             } else {
-                $specialist->setMdcnNumber($mdcn);
+                $locked['mdcn_number'] = $mdcn !== '' ? $mdcn : null;
             }
         }
 
@@ -195,9 +222,23 @@ final class UpdateDoctorProfileAction
             return $this->error($response, 'Validation failed', 422, $errors);
         }
 
-        $this->specialists->save($specialist);
+        $staged = false;
+        if ($specialist->hasLockedFields()) {
+            $staged = $specialist->stageChanges($locked);
+        } else {
+            $specialist->applyLockedValues($locked);
+        }
 
-        return $this->success($response, $specialist->toPrivateArray(), 'Profile updated');
+        $this->specialists->save($specialist);
+        if ($staged) {
+            $this->onboarding->changesSubmitted($specialist, (string) $request->getAttribute('user_id'));
+        }
+
+        return $this->success(
+            $response,
+            $specialist->toPrivateArray(),
+            $staged ? 'Profile saved. Your changes to your name, specialty or credentials were sent for review.' : 'Profile updated',
+        );
     }
 
     /**

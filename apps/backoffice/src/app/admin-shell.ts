@@ -24,7 +24,7 @@ interface NavItem {
   readonly icon: string;
   readonly link: string;
   readonly permission: string;
-  /** Show the "doctors waiting for review" count next to this item. */
+  /** Show the "waiting for review" count (profiles, change requests, documents) next to this item. */
   readonly reviewBadge?: boolean;
 }
 
@@ -155,13 +155,16 @@ export class AdminShell {
   private readonly router = inject(Router);
   private readonly reviewQueue = inject(ReviewQueue);
 
-  /** Doctors waiting for review (reviewers only; 0 hides the badge). */
+  /**
+   * What waits for a reviewer — profiles in review, change requests and
+   * documents to verify (reviewers only; 0 hides the badge).
+   */
   protected readonly reviewCount = computed(() =>
     this.auth.hasPermission('specialists.manage') ? this.reviewQueue.count() : 0,
   );
   protected readonly reviewLabel = computed(() => {
     const n = this.reviewCount();
-    return `${n} ${n === 1 ? 'doctor' : 'doctors'} waiting for review`;
+    return `${n} ${n === 1 ? 'item' : 'items'} waiting for review`;
   });
 
   protected readonly menuOpen = signal(false);
@@ -184,7 +187,7 @@ export class AdminShell {
 
   constructor() {
     void this.auth.loadMe();
-    // Keep the "Needs review" badge current as the admin moves around.
+    // Keep the review badge current as the admin moves around.
     this.reviewQueue.refresh();
     this.router.events
       .pipe(

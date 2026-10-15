@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { FollowUpFeeMode, PricingDto, SuccessResponse } from '@supadoc/models';
+import type { BookingSettingsDto, FollowUpFeeMode, PricingDto, SuccessResponse } from '@supadoc/models';
 import { ApiService } from './api.service';
 
 export interface UpdatePricingParams {
@@ -34,6 +34,25 @@ export class SettingsApi {
   ): Observable<SuccessResponse<PricingDto>> {
     return this.api.patch<SuccessResponse<PricingDto>>(
       'api/settings/pricing',
+      params,
+    );
+  }
+
+  /** GET /api/settings/booking — horizon, minimum notice, "few left" (needs `settings.manage`). */
+  getBookingSettings(): Observable<SuccessResponse<BookingSettingsDto>> {
+    return this.api.get<SuccessResponse<BookingSettingsDto>>('api/settings/booking');
+  }
+
+  /**
+   * PATCH /api/settings/booking — change any of the booking rules (whole numbers:
+   * horizon_days 7–180, lead_minutes 15–1440, few_left 1–10; else 422). Returns
+   * the full set.
+   */
+  updateBookingSettings(
+    params: Partial<BookingSettingsDto>,
+  ): Observable<SuccessResponse<BookingSettingsDto>> {
+    return this.api.patch<SuccessResponse<BookingSettingsDto>>(
+      'api/settings/booking',
       params,
     );
   }

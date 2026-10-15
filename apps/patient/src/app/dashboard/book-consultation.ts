@@ -16,21 +16,23 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { firstValueFrom, Subscription } from 'rxjs';
+import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
+import { firstValueFrom, merge, Subscription } from 'rxjs';
 import {
   apiErrorFields,
   apiErrorMessage,
   AppointmentsApi,
-  localSlotDays,
+  AvailabilityCalendarStore,
+  slotLabel,
   SpecialistsApi,
-  todayLocal,
   WalletApi,
+  ymdInZone,
+  type SpecialistSuggestionParams,
 } from '@supadoc/data-access';
 import type {
   AppointmentDocumentDto,
   AppointmentDto,
-  DayAvailability,
+  AvailabilityRangeDto,
   FollowUpQuoteDto,
   GuestInvite,
   PricingDto,
@@ -38,14 +40,20 @@ import type {
 } from '@supadoc/models';
 import {
   AlertComponent,
+  BookingCalendarComponent,
   ButtonComponent,
   FileDropComponent,
   IconComponent,
+  isOpenStatus,
+  longDayLabel,
+  shortDayLabel,
   StepperComponent,
   type FileDropRejection,
 } from '@supadoc/ui';
-import { dayLabel, priceNote } from './follow-up';
+import { calendarErrorText, httpStatus, notBookableText } from './booking-helpers';
+import { dayLabel, priceNote, whenLabel } from './follow-up';
 import { loadPaystack } from './paystack';
+import { SimilarDoctors } from './similar-doctors';
 
 type AttachStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -86,18 +94,33 @@ const DOC_UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, WEBP, DOCX, D
 /** The API attaches at most this many documents to one booking. */
 const MAX_DOCS = 10;
 
+/** Whole days between two 'YYYY-MM-DD' dates, either way round. */
+function daysApart(a: string, b: string): number {
+  return Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+}
+
 /**
- * Book a Consultation (Figma) — a 7-step wizard: date/time (in the patient's
- * local time), consultation type, reason, invite guests (up to 3, each adds
- * the guest fee), supporting documents (up to 10, each uploaded as soon as
- * it's added), a booking summary, and a payment step — card or wallet, or
- * nothing for a free consultation — that creates the appointment. Driven by
- * the specialist's real availability and the back-office-configured Naira
- * pricing. `?follow_up=<consultation id>[&date=YYYY-MM-DD]` books a follow-up
- * of one of the patient's completed consultations with this doctor: the
- * suggested day is preselected, each slot is priced by the follow-up quote and
- * the booking is linked to that consultation (a link that doesn't hold falls
- * back to a regular booking, with a note).
+ * Book a Consultation (Figma) — a 7-step wizard: date/time (a month calendar
+ * of the doctor's real availability, in the patient's own time zone),
+ * consultation type, reason, invite guests (up to 3, each adds the guest fee),
+ * supporting documents (up to 10, each uploaded as soon as it's added), a
+ * booking summary, and a payment step — card or wallet, or nothing for a free
+ * consultation — that creates the appointment, priced by the
+ * back-office-configured Naira pricing.
+ *
+ * `?slot=ISO` (a time picked on a card or a suggestion) opens on its day and
+ * selects it while it is still open; `?date=YYYY-MM-DD` opens on that day, or
+ * the nearest open day with a note saying exactly why. Otherwise the doctor's
+ * next open day is shown and no time is chosen for the patient. A day with no
+ * openings says when the doctor is next free and suggests similar doctors free
+ * that day (never for a follow-up). A time taken meanwhile (422) refreshes the
+ * calendar and says so; a doctor who stops taking bookings is said so plainly.
+ *
+ * `?follow_up=<consultation id>[&date=YYYY-MM-DD]` books a follow-up of one of
+ * the patient's completed consultations with this doctor: the suggested day is
+ * preselected, each slot is priced by the follow-up quote and the booking is
+ * linked to that consultation (a link that doesn't hold falls back to a
+ * regular booking, with a note).
  */
 @Component({
   selector: 'pat-book-consultation',
@@ -106,18 +129,21 @@ const MAX_DOCS = 10;
     NgTemplateOutlet,
     RouterLink,
     AlertComponent,
+    BookingCalendarComponent,
     ButtonComponent,
     FileDropComponent,
     IconComponent,
+    SimilarDoctors,
     StepperComponent,
   ],
+  providers: [AvailabilityCalendarStore],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-8 py-2">
       <!-- Header -->
       <div class="flex items-start justify-between gap-4">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Book a Consultation</h1>
+          <h1 #pageTitle tabindex="-1" class="font-heading text-h3 text-ink outline-none">Book a Consultation</h1>
           <p class="font-sans text-body text-slate">
             Schedule an appointment with your preferred specialist
           </p>
@@ -167,14 +193,37 @@ const MAX_DOCS = 10;
         <sd-alert tone="info">{{ parentNotice() }}</sd-alert>
       }
 
+      <!-- The doctor stopped taking bookings while this was open -->
+      @if (doctorGone() && specialist(); as s) {
+        <div
+          class="flex flex-col gap-3 rounded-card border border-alert/30 bg-alert/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          role="alert"
+        >
+          <p class="flex min-w-0 items-start gap-2 font-sans text-body-sm text-ink">
+            <sd-icon name="calendar-off" [size]="18" class="mt-0.5 shrink-0 text-alert" />
+            <span>{{ goneText() }} This booking can't be completed — nothing has been booked.</span>
+          </p>
+          <a
+            routerLink="/dashboard/specialists"
+            [queryParams]="{ specialty: s.specialty }"
+            class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-field border border-cloud bg-white px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+          >
+            Find another {{ s.specialty }} specialist <sd-icon name="arrow-right" [size]="16" />
+          </a>
+        </div>
+      }
+      @if (unusedPayment() && step() < 7) {
+        <sd-alert tone="warning">{{ unusedPayment() }}</sd-alert>
+      }
+
       @if (loadError()) {
         <div class="flex flex-col items-center gap-4 py-16 text-center">
-          <sd-icon name="wifi-off" [size]="36" class="text-alert" />
-          <p class="font-sans text-body-sm text-slate">
+          <sd-icon [name]="loadErrorGone() ? 'calendar-off' : 'wifi-off'" [size]="36" class="text-alert" />
+          <p class="max-w-md font-sans text-body-sm text-slate">
             {{ loadError() }}
           </p>
           <a routerLink="/dashboard/specialists"
-            ><sd-button size="sm">Back to specialists</sd-button></a
+            ><sd-button size="sm">{{ loadErrorGone() ? 'Find another specialist' : 'Back to specialists' }}</sd-button></a
           >
         </div>
       } @else if (specialist(); as s) {
@@ -248,91 +297,115 @@ const MAX_DOCS = 10;
             </div>
           </div>
 
-          <div class="rounded-card border border-cloud bg-white p-6">
-            <h2 class="mb-4 font-heading text-h5 text-cerulean">
+          <div class="flex flex-col gap-4 rounded-card border border-cloud bg-white px-3 py-4 sm:p-6">
+            <h2 class="font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
                 >1</span
               >Choose Date &amp; Time
             </h2>
             @if (dateNotice()) {
-              <p class="mb-4 flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
+              <p class="flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate" role="status">
                 <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />{{ dateNotice() }}
               </p>
             }
-            @if (loadingSlots()) {
-              <div
-                class="sd-shimmer h-28 rounded-card"
-              ></div>
-            } @else if (slotsError()) {
-              <sd-alert tone="error">{{ slotsError() }}</sd-alert>
-            } @else if (days().length === 0) {
-              <div
-                class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
-              >
-                <!-- The slots endpoint looks 3 weeks ahead (AvailabilityService::LOOKAHEAD_DAYS). -->
-                <sd-icon name="calendar-off" [size]="16" />No open times in the
-                next three weeks. Please check back later.
-              </div>
-            } @else {
-              <div class="rounded-card border border-cloud bg-glacier/50 p-4">
-                <div class="mb-3 flex items-center justify-between gap-2">
-                  <span
-                    class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean"
-                    ><sd-icon name="calendar-clock" [size]="16" />Next
-                    Available</span
+            @if (slotNotice()) {
+              <sd-alert tone="warning">{{ slotNotice() }}</sd-alert>
+            }
+            @if (calendarError()) {
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <sd-alert tone="error" class="min-w-0 flex-1">{{ calendarError() }}</sd-alert>
+                @if (!doctorGone()) {
+                  <button
+                    type="button"
+                    class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-cloud bg-white px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                    (click)="cal.refresh()"
                   >
-                  <span class="font-sans text-caption font-medium text-ink">{{
-                    selectedSummary()
-                  }}</span>
-                </div>
-                <!-- Days and times are the patient's local time (localSlotDays). -->
-                <div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Day">
-                  @for (d of days(); track d.date) {
-                    <button
-                      type="button"
-                      class="flex shrink-0 flex-col items-center rounded-field border px-4 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-                      [class]="
-                        selectedDate() === d.date
-                          ? 'border-cerulean bg-cerulean text-white'
-                          : 'border-cloud bg-white text-slate hover:border-cerulean/50'
-                      "
-                      [attr.aria-pressed]="selectedDate() === d.date"
-                      [attr.aria-label]="dayName(d.date)"
-                      (click)="pickDate(d)"
-                    >
-                      <span class="font-sans text-[10px] uppercase">{{
-                        d.weekday
-                      }}</span>
-                      <span class="font-sans text-body-sm font-semibold">{{
-                        d.day
-                      }}</span>
-                    </button>
-                  }
-                </div>
-                <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Time">
-                  @for (t of selectedDaySlots(); track t.iso) {
-                    <button
-                      type="button"
-                      class="min-h-11 rounded-field border px-4 py-1 font-sans text-caption transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-                      [class]="
-                        selectedTime() === t.iso
-                          ? 'border-cerulean bg-cerulean text-white'
-                          : 'border-cloud bg-white text-slate hover:border-cerulean/50'
-                      "
-                      [attr.aria-pressed]="selectedTime() === t.iso"
-                      (click)="selectedTime.set(t.iso)"
-                    >
-                      {{ t.label }}
-                    </button>
-                  }
-                </div>
+                    Try again
+                  </button>
+                }
               </div>
+            }
+
+            @if (noOpenings()) {
+              <!-- Nothing open anywhere in the booking window -->
+              <div class="flex flex-col gap-4">
+                <p class="flex items-start gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-body-sm text-slate">
+                  <sd-icon name="calendar-off" [size]="18" class="mt-0.5 shrink-0" />
+                  <span>
+                    {{ s.name }} has no open times in the next {{ cal.range()?.horizon_days }} days.
+                    {{ followUp() ? 'Message your doctor about a time, or check back later.' : 'Please check back later, or book a similar doctor.' }}
+                  </span>
+                </p>
+                @if (!followUp()) {
+                  <pat-similar-doctors [params]="similarParams()" heading="Similar doctors with open times" />
+                }
+              </div>
+            } @else if (!doctorGone()) {
+              <!-- Days and times are the patient's own calendar and clock (cal.tz) -->
+              <sd-booking-calendar
+                [days]="cal.days()"
+                [month]="cal.month()"
+                (monthChange)="cal.setMonth($event)"
+                [selectedDate]="cal.selectedDate()"
+                (selectedDateChange)="pickDay($event)"
+                [slots]="cal.slots()"
+                [value]="selectedTime() || null"
+                (valueChange)="pickTime($event)"
+                [loading]="cal.loading()"
+                [slotsLoading]="cal.slotsLoading()"
+                [min]="cal.min()"
+                [max]="cal.max()"
+                [nextAvailable]="cal.nextAvailable()"
+                [nextOnEmptyDay]="false"
+                [timeZone]="cal.tz()"
+                [timeZoneLabel]="cal.timeZoneLabel()"
+                [weekStartsOn]="cal.weekStartsOn()"
+              >
+                <!-- The chosen day has no open times: this doctor's next opening (instead of the
+                     calendar's own "Next available") + similar doctors.
+                     (Projected content is created even while the calendar doesn't show it: the
+                     @if keeps the suggestions from loading for days that have times.) -->
+                <div calendarEmpty class="flex flex-col gap-4">
+                  @if (dayEmpty()) {
+                    <div class="flex flex-col gap-3 rounded-card bg-glacier/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p class="font-sans text-body-sm text-ink">
+                        {{ s.name }} isn't available on {{ selectedDayLabel() }}.
+                        @if (nextOpening(); as n) {
+                          <span class="block text-slate">Next opening: <span class="font-semibold text-ink">{{ openingLabel(n) }}</span></span>
+                        }
+                      </p>
+                      @if (nextOpening(); as n) {
+                        <button
+                          type="button"
+                          class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
+                          [attr.aria-label]="'Select ' + openingLabel(n)"
+                          (click)="selectOpening(n)"
+                        >
+                          <sd-icon name="calendar-check" [size]="16" />Select
+                        </button>
+                      }
+                    </div>
+                    <!-- A follow-up stays with the same doctor by design -->
+                    @if (!followUp()) {
+                      <pat-similar-doctors
+                        [params]="similarParams()"
+                        (loaded)="requestedNext.set($event.requested?.next_available_at ?? null)"
+                      />
+                    }
+                  }
+                </div>
+              </sd-booking-calendar>
             }
           </div>
 
-          <div class="flex justify-end">
-            <sd-button [disabled]="!selectedTime()" (click)="next()">
+          <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <p class="font-sans text-body-sm text-slate" aria-live="polite">
+              @if (selectedTime()) {
+                Selected: <span class="font-semibold text-ink">{{ selectedLabel() }}</span>
+              }
+            </p>
+            <sd-button [disabled]="!selectedTime() || doctorGone()" (click)="next()">
               Continue <sd-icon name="arrow-right" [size]="18" />
             </sd-button>
           </div>
@@ -788,7 +861,7 @@ const MAX_DOCS = 10;
               >Back to previous</sd-button
             >
             <!-- A follow-up waits for its price before payment -->
-            <sd-button [disabled]="!priceReady()" (click)="toPayment()">
+            <sd-button [disabled]="!priceReady() || doctorGone()" (click)="toPayment()">
               {{ isFree() ? 'Continue' : 'Continue to payment' }}
               <sd-icon name="arrow-right" [size]="18" />
             </sd-button>
@@ -849,7 +922,7 @@ const MAX_DOCS = 10;
               >Back to previous</sd-button
             >
             <!-- A card payment made earlier on this page is kept on the booking. -->
-            <sd-button [disabled]="submitting()" (click)="confirm(paidReference() || undefined)">
+            <sd-button [disabled]="submitting() || doctorGone()" (click)="confirm(paidReference() || undefined)">
               {{ submitting() ? 'Booking…' : 'Confirm booking' }}
             </sd-button>
           </div>
@@ -1002,7 +1075,7 @@ const MAX_DOCS = 10;
               >Back to previous</sd-button
             >
             @if (payMethod() === 'card') {
-              <sd-button [disabled]="funding() || submitting()" (click)="payWithCard()">
+              <sd-button [disabled]="funding() || submitting() || doctorGone()" (click)="payWithCard()">
                 {{
                   funding() || submitting()
                     ? 'Processing…'
@@ -1013,13 +1086,13 @@ const MAX_DOCS = 10;
                 @if (!funding() && !submitting()) { <sd-icon name="arrow-right" [size]="18" /> }
               </sd-button>
             } @else if (walletLoaded() && !walletError() && !walletSufficient()) {
-              <sd-button [disabled]="funding()" (click)="topUpAndBook()">
+              <sd-button [disabled]="funding() || doctorGone()" (click)="topUpAndBook()">
                 {{ funding() ? 'Processing…' : 'Fund ' + fmt(topUpValue()) + ' & book' }}
                 @if (!funding()) { <sd-icon name="arrow-right" [size]="18" /> }
               </sd-button>
             } @else {
               <sd-button
-                [disabled]="submitting() || !walletLoaded()"
+                [disabled]="submitting() || !walletLoaded() || doctorGone()"
                 (click)="confirm()"
               >
                 {{ submitting() ? 'Booking…' : 'Pay ' + fmt(amount()) + ' from wallet' }}
@@ -1037,7 +1110,7 @@ const MAX_DOCS = 10;
     <ng-template #navRow>
       <div class="flex flex-wrap justify-between gap-3">
         <sd-button variant="outline" (click)="back()">Back to previous</sd-button>
-        <sd-button [disabled]="!canContinue()" (click)="next()">
+        <sd-button [disabled]="!canContinue() || doctorGone()" (click)="next()">
           Continue <sd-icon name="arrow-right" [size]="18" />
         </sd-button>
       </div>
@@ -1055,6 +1128,8 @@ export class BookConsultation implements OnInit {
   private readonly injector = inject(Injector);
   /** Step 5's heading — focus lands here when the control used is removed. */
   private readonly docsTitle = viewChild<ElementRef<HTMLElement>>('docsTitle');
+  /** The page heading — focus lands here when another doctor is picked from the suggestions. */
+  private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
 
   protected readonly steps = [1, 2, 3, 4, 5, 6, 7];
   protected readonly step = signal(1);
@@ -1069,11 +1144,33 @@ export class BookConsultation implements OnInit {
   protected readonly pricing = signal<PricingDto | null>(null);
   /** Why the specialist couldn't be loaded ('' when it loaded fine). */
   protected readonly loadError = signal('');
-  protected readonly days = signal<DayAvailability[]>([]);
-  protected readonly loadingSlots = signal(true);
-  protected readonly slotsError = signal('');
-  protected readonly selectedDate = signal('');
+  /** …because they can't be booked (not listed / not taking bookings), not a network problem. */
+  protected readonly loadErrorGone = signal(false);
+  /** The doctor stopped taking bookings while the patient was booking. */
+  protected readonly doctorGone = signal(false);
+
+  // ----- Date & time: the doctor's month calendar -----
+  protected readonly cal = inject(AvailabilityCalendarStore);
+  /** The chosen time's ISO start ('' = none chosen yet). */
   protected readonly selectedTime = signal('');
+  /** The doctor being booked (the route's `:id`). */
+  private readonly doctorId = signal('');
+  /** The `?follow_up` this page was opened with (suggestions stay hidden for it). */
+  private readonly followUpOf = signal('');
+  /** A time to choose once its day's times have loaded (`?slot=`, or "Select" on the next opening). */
+  private readonly pendingSlot = signal<{ iso: string; focus: boolean } | null>(null);
+  /** `?date=`: the day to open on once the calendar knows the booking window. */
+  private readonly pendingDate = signal<string | null>(null);
+  /** Nothing asked for: open on the doctor's next open day once the calendar shows. */
+  private readonly autoPick = signal(false);
+  /** How `?date=` was resolved when it isn't the day shown (drives `dateNotice`). */
+  private readonly dateResolution = signal<{ want: string; chosen: string; until: string | null } | null>(null);
+  /** Something about the chosen time the patient must know (taken meanwhile, passed). */
+  protected readonly slotNotice = signal('');
+  /** The doctor's next opening on or after the chosen day, from the suggestions call. */
+  protected readonly requestedNext = signal<string | null>(null);
+  /** What `route` was last started for, so a repeated emission doesn't restart. */
+  private startedFor = '';
 
   protected readonly reason = signal('');
   protected readonly guests = signal<GuestInvite[]>([]);
@@ -1166,7 +1263,6 @@ export class BookConsultation implements OnInit {
   protected readonly unusedPayment = signal('');
   protected readonly topUpAmount = signal('');
 
-  private specialistId = '';
   private readonly nf = new Intl.NumberFormat('en-NG', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -1179,8 +1275,6 @@ export class BookConsultation implements OnInit {
   protected readonly parentChecking = signal(false);
   /** Why the booking fell back to a regular one ('' when it didn't). */
   protected readonly parentNotice = signal('');
-  /** Why the doctor's suggested day (`?date`) isn't the one selected. */
-  protected readonly dateNotice = signal('');
   /** The follow-up price, keyed by the slot it was quoted for. */
   private readonly quote = signal<{ iso: string; data: FollowUpQuoteDto } | null>(null);
   protected readonly quoteError = signal('');
@@ -1220,6 +1314,65 @@ export class BookConsultation implements OnInit {
       if (this.paidReference()) untracked(() => this.payMethod.set('card'));
     });
 
+    // A time asked for (`?slot=`, "Select"): chosen once its day's times are
+    // in — or, taken meanwhile, said so.
+    effect(() => {
+      const pending = this.pendingSlot();
+      const slots = this.cal.slots();
+      // A failed load isn't an empty day: wait for "Try again".
+      if (!pending || slots === null || this.cal.slotsLoading() || this.cal.error()) return;
+      untracked(() => {
+        this.pendingSlot.set(null);
+        // The patient picked another day meanwhile.
+        if (this.cal.selectedDate() !== ymdInZone(pending.iso, this.cal.tz())) return;
+        const at = new Date(pending.iso).getTime();
+        const slot = slots.find((s) => new Date(s.iso).getTime() === at);
+        if (!slot) {
+          this.slotNotice.set(`${whenLabel(pending.iso)} is no longer available — please choose another time.`);
+          return;
+        }
+        this.selectedTime.set(slot.iso);
+        if (pending.focus) this.focusChosenTime();
+      });
+    });
+
+    // `?date=`: open on that day, or the nearest open day (and say why).
+    effect(() => {
+      const want = this.pendingDate();
+      const range = this.cal.range();
+      if (!want || !range) return;
+      untracked(() => {
+        const anchor = want > range.bookable_until ? range.bookable_until : want;
+        // Its month isn't the one showing yet: show it, and decide once it's in.
+        if (!range.days.some((d) => d.date === anchor)) {
+          this.cal.setMonth(anchor.slice(0, 7));
+          return;
+        }
+        this.pendingDate.set(null);
+        this.resolveDate(want, anchor, range);
+      });
+    });
+
+    // Nothing asked for: open on the next open day when it's in view (the
+    // calendar's own "Next available" covers one further out). No time is
+    // chosen for the patient.
+    effect(() => {
+      const range = this.cal.range();
+      if (!this.autoPick() || !range) return;
+      untracked(() => {
+        this.autoPick.set(false);
+        const next = range.next_available;
+        if (!next || this.cal.selectedDate()) return;
+        const day = ymdInZone(next, this.cal.tz());
+        if (range.days.some((d) => d.date === day)) this.showDay(day);
+      });
+    });
+
+    // The calendar says the doctor isn't listed any more (its 404).
+    effect(() => {
+      if (/not found/i.test(this.cal.error() ?? '')) untracked(() => this.markDoctorGone());
+    });
+
     // While the documents step is showing, a file dropped just outside the
     // drop zone must not make the browser navigate away to open it (losing
     // the whole booking). The zone cancels its own events first, so anything
@@ -1242,21 +1395,18 @@ export class BookConsultation implements OnInit {
   }
 
   ngOnInit(): void {
-    this.specialistId = this.route.snapshot.paramMap.get('id') ?? '';
-    const query = this.route.snapshot.queryParamMap;
-    const preslot = query.get('slot');
-    const followUpOf = query.get('follow_up') ?? '';
-    // The doctor's suggested follow-up day (a local calendar date).
-    const wantDate = /^\d{4}-\d{2}-\d{2}$/.test(query.get('date') ?? '') ? (query.get('date') as string) : '';
-    if (followUpOf) this.checkParent(followUpOf);
-
-    this.specialistsApi
-      .getPublic(this.specialistId)
+    // A suggested doctor's time links to this same route with another `:id`
+    // (and `?slot=`): the page is reused, so it starts again for each.
+    merge(this.route.paramMap, this.route.queryParamMap)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.specialist.set(res.data),
-        error: (err: unknown) =>
-          this.loadError.set(apiErrorMessage(err, 'Could not load this specialist.')),
+      .subscribe(() => {
+        const snap = this.route.snapshot;
+        const id = snap.paramMap.get('id') ?? '';
+        const q = snap.queryParamMap;
+        const key = [id, q.get('slot'), q.get('date'), q.get('follow_up')].join('|');
+        if (key === this.startedFor) return;
+        this.startedFor = key;
+        this.start(id, q);
       });
 
     this.specialistsApi
@@ -1278,60 +1428,276 @@ export class BookConsultation implements OnInit {
         },
       });
 
-    // A follow-up looks further ahead, so the doctor's suggested day is reachable.
+  }
+
+  /**
+   * (Re)start for doctor `id` with the page's query: the doctor, a follow-up
+   * link, and the calendar opened on `?slot=`'s day, `?date=` (or its nearest
+   * open day), or the next open day. The patient's own entries — reason,
+   * guests, documents — are kept when another doctor is picked from the
+   * suggestions; anything priced or paid for the last doctor is not.
+   */
+  private start(id: string, query: ParamMap): void {
+    const previous = this.doctorId();
+    const sameDoctor = id === previous;
+    this.doctorId.set(id);
+    this.step.set(1);
+    this.selectedTime.set('');
+    this.pendingSlot.set(null);
+    this.pendingDate.set(null);
+    this.autoPick.set(false);
+    this.dateResolution.set(null);
+    this.slotNotice.set('');
+    this.requestedNext.set(null);
+    this.submitError.set('');
+    this.fundError.set('');
+    // A follow-up link holds for this page only.
+    this.quoteSub?.unsubscribe();
+    this.parent.set(null);
+    this.quote.set(null);
+    this.quoteError.set('');
+    this.parentNotice.set('');
+    if (!sameDoctor) {
+      this.specialist.set(null);
+      this.loadError.set('');
+      this.loadErrorGone.set(false);
+      this.doctorGone.set(false);
+      // A card payment made for the last doctor can't book this one.
+      const kept = this.paid();
+      if (kept) {
+        this.paid.set(null);
+        this.unusedPayment.set(this.unusedPaymentNote(kept));
+      }
+      this.loadSpecialist(id);
+      // Another doctor picked from the suggestions: the link that did it is
+      // gone, so start at the top with focus on the heading.
+      if (previous) {
+        afterNextRender(
+          () => {
+            this.document.defaultView?.scrollTo({ top: 0 });
+            this.pageTitle()?.nativeElement.focus();
+          },
+          { injector: this.injector },
+        );
+      }
+    }
+
+    const followUpOf = query.get('follow_up') ?? '';
+    this.followUpOf.set(followUpOf);
+    if (followUpOf) this.checkParent(followUpOf);
+
+    this.cal.load(id);
+    const tz = this.cal.tz();
+    const slot = query.get('slot') ?? '';
+    const slotAt = new Date(slot).getTime();
+    // A doctor's suggested follow-up day, or a day picked in the directory (a local calendar date).
+    const date = query.get('date') ?? '';
+    const want = /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= ymdInZone(new Date(), tz) ? date : '';
+    if (slot && !isNaN(slotAt) && slotAt > Date.now()) {
+      this.pendingSlot.set({ iso: slot, focus: false });
+      this.showDay(ymdInZone(slot, tz));
+    } else if (want) {
+      this.pendingDate.set(want);
+    } else {
+      if (slot && !isNaN(slotAt)) this.slotNotice.set(`${whenLabel(slot)} has already passed — please choose another time.`);
+      this.autoPick.set(true);
+    }
+  }
+
+  private loadSpecialist(id: string): void {
     this.specialistsApi
-      .slots(this.specialistId, followUpOf ? 14 : 7)
+      .getPublic(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          // Regrouped by the patient's local date with local labels (the API's
-          // are UTC), minus any slot that has already started.
-          const days = localSlotDays(res.data);
-          this.days.set(days);
-          const preDay = preslot
-            ? days.find((d) => d.slots.some((s) => s.iso === preslot))
-            : undefined;
-          // The suggested day, else the next open day after it — or, when it is
-          // past the last day open for booking, that last (closest) day.
-          const target = !preDay && wantDate >= todayLocal() ? wantDate : '';
-          const onDate = target ? days.find((d) => d.date === target) : undefined;
-          const after = target && !onDate ? days.find((d) => d.date > target) : undefined;
-          const latest = target && !onDate && !after ? days[days.length - 1] : undefined;
-          if (after) {
-            this.dateNotice.set(
-              `Your doctor suggested ${this.dayName(target)}, but there are no open times that day — the next open day is selected.`,
-            );
-          } else if (latest) {
-            this.dateNotice.set(
-              `Your doctor suggested ${this.dayName(target)}; times can only be booked up to ` +
-                `${this.dayName(latest.date)} right now — the latest open day is selected.`,
-            );
-          }
-          const day = preDay ?? onDate ?? after ?? latest ?? days[0];
-          if (day) {
-            this.selectedDate.set(day.date);
-            this.selectedTime.set(
-              preslot && day.slots.some((s) => s.iso === preslot)
-                ? preslot
-                : (day.slots[0]?.iso ?? ''),
-            );
-          }
-          this.loadingSlots.set(false);
+          if (id === this.doctorId()) this.specialist.set(res.data);
         },
         error: (err: unknown) => {
-          this.slotsError.set(apiErrorMessage(err, 'Could not load available times.'));
-          this.loadingSlots.set(false);
+          if (id !== this.doctorId()) return;
+          // Unlisted, suspended or switched off for bookings: say so, not "not found".
+          const gone = httpStatus(err) === 404;
+          this.loadErrorGone.set(gone);
+          this.loadError.set(
+            gone
+              ? `${notBookableText(null)} Choose another specialist to book with.`
+              : apiErrorMessage(err, 'Could not load this specialist.'),
+          );
         },
       });
   }
 
-  protected readonly selectedDaySlots = computed(
-    () => this.days().find((d) => d.date === this.selectedDate())?.slots ?? [],
+  /**
+   * Open on `want` (the anchor: `want`, or the last bookable day when it is
+   * further off) if it has open times, else on the nearest day that does —
+   * and say exactly which day and why.
+   */
+  private resolveDate(want: string, anchor: string, range: AvailabilityRangeDto): void {
+    const open = range.days.filter((d) => isOpenStatus(d.status)).map((d) => d.date);
+    const nearest = open.includes(anchor)
+      ? anchor
+      : ([...open].sort((a, b) => daysApart(a, anchor) - daysApart(b, anchor) || b.localeCompare(a))[0] ??
+        (range.next_available ? ymdInZone(range.next_available, this.cal.tz()) : ''));
+    this.showDay(nearest || anchor);
+    const beyond = want > range.bookable_until;
+    if (nearest === want) return;
+    this.dateResolution.set({ want, chosen: nearest, until: beyond ? range.bookable_until : null });
+  }
+
+  /** Why the day shown isn't the one asked for (`?date=`), exactly. */
+  protected readonly dateNotice = computed(() => {
+    const r = this.dateResolution();
+    if (!r) return '';
+    const want = longDayLabel(r.want);
+    const chosen = r.chosen ? `${longDayLabel(r.chosen)}, the nearest open day, is selected.` : 'no nearby day has open times right now.';
+    const name = this.specialist()?.name ?? 'This doctor';
+    if (this.followUpOf()) {
+      return r.until
+        ? `Your doctor suggested ${want}, but times can only be booked up to ${longDayLabel(r.until)} right now — ${chosen}`
+        : `Your doctor suggested ${want}, but there are no open times that day — ${chosen}`;
+    }
+    return r.until
+      ? `Times can only be booked up to ${longDayLabel(r.until)} right now — ${chosen}`
+      : `${name} has no open times on ${want} — ${chosen}`;
+  });
+
+  /** A follow-up stays with this doctor: no similar doctors are offered. */
+  protected readonly followUp = computed(() => !!this.followUpOf() && (!!this.parent() || this.parentChecking()));
+
+  /** Nothing open anywhere in the booking window (once the calendar knows). */
+  protected readonly noOpenings = computed(() => {
+    const range = this.cal.range();
+    return !!range && range.next_available === null && !this.cal.error();
+  });
+
+  protected readonly calendarError = computed(() =>
+    calendarErrorText(this.cal.error(), this.specialist()?.name),
   );
 
-  protected pickDate(d: DayAvailability): void {
-    this.selectedDate.set(d.date);
-    this.selectedTime.set(d.slots[0]?.iso ?? '');
+  protected readonly goneText = computed(() => notBookableText(this.specialist()?.name));
+
+  /** Similar doctors (same specialty) free on the chosen day — today when none is chosen. */
+  protected readonly similarParams = computed<SpecialistSuggestionParams>(() => ({
+    like: this.doctorId(),
+    date: this.cal.selectedDate() ?? undefined,
+    tz: this.cal.tz(),
+  }));
+
+  /** The chosen day has no open times (the calendar shows its `[calendarEmpty]` content). */
+  protected readonly dayEmpty = computed(() => {
+    if (!this.cal.selectedDate() || this.cal.slotsLoading()) return false;
+    // Times that failed to load aren't an empty day (the error says so).
+    if (this.cal.error()) return false;
+    const slots = this.cal.slots();
+    if (slots) return slots.length === 0;
+    const status = this.cal.selectedDay()?.status;
+    return status === 'full' || status === 'closed' || status === 'blocked';
+  });
+
+  protected readonly selectedDayLabel = computed(() => {
+    const day = this.cal.selectedDate();
+    return day ? shortDayLabel(day) : '';
+  });
+
+  /**
+   * This doctor's next opening after the chosen (empty) day — never on or
+   * before it: the first the calendar knows of (the next opening at all when
+   * later, else the first open day after it in any month loaded), else the
+   * suggestions' answer (`requested.next_available_at`).
+   */
+  protected readonly nextOpening = computed<string | null>(() => {
+    const sel = this.cal.selectedDate();
+    if (!sel) return null;
+    const known = this.cal.nextAfterSelected();
+    if (known) return known;
+    const asked = this.requestedNext();
+    return asked && ymdInZone(asked, this.cal.tz()) > sel ? asked : null;
+  });
+
+  protected openingLabel(iso: string): string {
+    return whenLabel(iso);
+  }
+
+  /** The patient picked a day on the calendar. */
+  protected pickDay(date: string): void {
+    this.pendingSlot.set(null);
+    this.slotNotice.set('');
+    this.requestedNext.set(null);
+    this.cal.selectDate(date);
+  }
+
+  /** The patient picked a time (null: the calendar dropped it for another day). */
+  protected pickTime(iso: string | null): void {
+    this.selectedTime.set(iso ?? '');
+    if (iso) this.slotNotice.set('');
+  }
+
+  /** "Select" on the next opening: that day, with that time chosen. */
+  protected selectOpening(iso: string): void {
+    this.selectedTime.set('');
+    this.slotNotice.set('');
+    this.requestedNext.set(null);
+    this.pendingSlot.set({ iso, focus: true });
+    this.showDay(ymdInZone(iso, this.cal.tz()));
+  }
+
+  /**
+   * Pick `date` for the patient and show its month — a day in the grid's
+   * trailing week would otherwise be chosen out of sight.
+   */
+  private showDay(date: string): void {
+    this.cal.selectDate(date);
+    this.cal.setMonth(date.slice(0, 7));
+  }
+
+  /** Focus the chosen time's radio (the button that chose it is gone). */
+  private focusChosenTime(): void {
+    afterNextRender(
+      () => this.document.querySelector<HTMLInputElement>('sd-booking-calendar input[type="radio"]:checked')?.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  /**
+   * The server refused the chosen time (taken meanwhile, or past the booking
+   * window): back to step 1 with fresh availability, and say so.
+   */
+  private timeRefused(message: string): void {
+    this.selectedTime.set('');
+    this.cal.refresh();
+    this.slotNotice.set(`${message.replace(/\.?$/, '.')} We've refreshed the calendar with the times still open.`);
+    this.step.set(1);
+  }
+
+  /** The doctor can't be booked any more: say so, and stop any payment for them. */
+  private markDoctorGone(): void {
+    if (this.doctorGone()) return;
+    this.doctorGone.set(true);
+    const kept = this.paid();
+    if (kept) {
+      this.paid.set(null);
+      this.unusedPayment.set(this.unusedPaymentNote(kept));
+    }
+  }
+
+  /**
+   * After a booking refused on the doctor (`specialist_id`): are they still
+   * bookable? Not listed (404) → said so; still listed → `stillBookable`.
+   */
+  private recheckDoctor(stillBookable?: () => void): void {
+    const id = this.doctorId();
+    this.specialistsApi
+      .getPublic(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          if (id === this.doctorId()) stillBookable?.();
+        },
+        error: (err: unknown) => {
+          if (id !== this.doctorId()) return;
+          if (httpStatus(err) === 404) this.markDoctorGone();
+          else stillBookable?.();
+        },
+      });
   }
 
   protected readonly initials = computed(() =>
@@ -1349,38 +1715,24 @@ export class BookConsultation implements OnInit {
     Number(this.specialist()?.rating ?? 0).toFixed(1),
   );
 
-  protected readonly selectedSummary = computed(() => {
-    const day = this.days().find((d) => d.date === this.selectedDate());
-    const slot = day?.slots.find((s) => s.iso === this.selectedTime());
-    return day && slot ? `${day.weekday} ${day.day}, ${slot.label}` : '';
-  });
+  /** The chosen time, e.g. "Thu 16 Oct, 9:30 AM" (the patient's clock). */
+  protected readonly selectedLabel = computed(() => whenLabel(this.selectedTime()));
 
+  /** "Thursday, 16 October 2026" — the chosen time's day on the patient's calendar (the calendar's zone). */
   protected readonly summaryDate = computed(() => {
-    const day = this.days().find((d) => d.date === this.selectedDate());
-    if (!day) return '—';
-    // Use midday to avoid the plain date shifting across the tz boundary.
+    const d = new Date(this.selectedTime());
+    if (isNaN(d.getTime())) return '—';
     return new Intl.DateTimeFormat('en-GB', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
       year: 'numeric',
-    }).format(new Date(`${day.date}T12:00:00`));
+      timeZone: this.cal.tz(),
+    }).format(d);
   });
 
-  // The slot's local label, so the summary matches the picked pill.
-  protected readonly summaryTime = computed(
-    () =>
-      this.selectedDaySlots().find((s) => s.iso === this.selectedTime())
-        ?.label ?? '—',
-  );
-
-  /** "Wednesday, 15 October" for a day pill's local YYYY-MM-DD (read at local noon). */
-  protected dayName(date: string): string {
-    const d = new Date(`${date}T12:00:00`);
-    return isNaN(d.getTime())
-      ? date
-      : new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
-  }
+  /** The chosen time's local label, so the summary matches the picked time. */
+  protected readonly summaryTime = computed(() => slotLabel(this.selectedTime()) || '—');
 
   // ----- Pricing -----
 
@@ -1469,7 +1821,7 @@ export class BookConsultation implements OnInit {
         next: (res) => {
           this.parentChecking.set(false);
           const a = res.data;
-          const sameDoctor = a.specialist.id === this.specialistId;
+          const sameDoctor = a.specialist.id === this.doctorId();
           if (a.status === 'completed' && sameDoctor) this.parent.set(a);
           else if (a.status === 'confirmed' && sameDoctor) {
             // Straight after the call (e.g. from its prescription), before the
@@ -1777,6 +2129,7 @@ export class BookConsultation implements OnInit {
   }
 
   protected async confirm(paymentReference?: string): Promise<void> {
+    if (this.doctorGone()) return;
     if (!this.selectedTime()) {
       this.step.set(1);
       return;
@@ -1792,7 +2145,7 @@ export class BookConsultation implements OnInit {
       const documentIds = this.attachedIds();
       await firstValueFrom(
         this.appointments.book({
-          specialist_id: this.specialistId,
+          specialist_id: this.doctorId(),
           scheduled_at: this.selectedTime(),
           type: 'video',
           notes: this.reason().trim() || undefined,
@@ -1820,6 +2173,13 @@ export class BookConsultation implements OnInit {
         );
         return;
       }
+      // The time was taken meanwhile (or is past the booking window): back to
+      // the calendar, refreshed, saying so. Nothing was charged for it — a card
+      // payment made for this booking is kept for the new time.
+      if (fields['scheduled_at']) {
+        this.timeRefused(fields['scheduled_at']);
+        return;
+      }
       // The server won't take the kept card payment (it doesn't cover the
       // price, or was used already): stop retrying on it, and say what to do.
       // A verification hiccup ("… Please try again.") keeps it for a retry.
@@ -1841,9 +2201,17 @@ export class BookConsultation implements OnInit {
       this.submitError.set(
         apiErrorMessage(err, 'Could not complete your booking. Please try again.'),
       );
-      // The consultation can no longer be followed up: the price is the usual
-      // fee now, so the patient confirms again at that price.
-      if (this.parent() && (fields['parent_appointment_id'] || fields['specialist_id'])) this.dropParent();
+      if (fields['specialist_id']) {
+        // The doctor stopped taking bookings — or, still listed, this just
+        // can't be a follow-up of theirs: whether they are still listed tells.
+        this.recheckDoctor(() => {
+          if (this.parent()) this.dropParent();
+        });
+      } else if (this.parent() && fields['parent_appointment_id']) {
+        // The consultation can no longer be followed up: the price is the usual
+        // fee now, so the patient confirms again at that price.
+        this.dropParent();
+      }
     } finally {
       this.submitting.set(false);
     }
@@ -1854,7 +2222,7 @@ export class BookConsultation implements OnInit {
    * wallet top-up required, and the wizard's details are preserved throughout.
    */
   protected async payWithCard(): Promise<void> {
-    if (this.funding() || this.submitting()) return;
+    if (this.funding() || this.submitting() || this.doctorGone()) return;
     if (!this.selectedTime()) {
       this.step.set(1);
       return;
@@ -1874,7 +2242,7 @@ export class BookConsultation implements OnInit {
       const parent = this.parent();
       const init = await firstValueFrom(
         this.appointments.payInit(
-          this.specialistId,
+          this.doctorId(),
           this.validGuests().length,
           parent ? { parent_appointment_id: parent.id, scheduled_at: this.selectedTime() } : undefined,
         ),
@@ -1912,6 +2280,12 @@ export class BookConsultation implements OnInit {
         return;
       }
       const fields = apiErrorFields(err);
+      if (fields['scheduled_at']) {
+        // The time went before paying: nothing was charged.
+        this.funding.set(false);
+        this.timeRefused(fields['scheduled_at']);
+        return;
+      }
       if (this.parent() && (fields['parent_appointment_id'] || fields['specialist_id'])) {
         // Not a follow-up after all: it is the usual fee now, shown before paying again.
         this.funding.set(false);
@@ -1921,6 +2295,8 @@ export class BookConsultation implements OnInit {
       }
       this.funding.set(false);
       this.fundError.set(apiErrorMessage(err, 'Could not start the card payment. Please try again.'));
+      // "Not currently available": the doctor stopped taking bookings.
+      if (fields['specialist_id']) this.recheckDoctor();
     }
   }
 
@@ -1938,7 +2314,7 @@ export class BookConsultation implements OnInit {
       const parent = this.parent();
       const iso = this.selectedTime();
       const [specialist, pricing, quote] = await Promise.all([
-        firstValueFrom(this.specialistsApi.getPublic(this.specialistId)),
+        firstValueFrom(this.specialistsApi.getPublic(this.doctorId())),
         firstValueFrom(this.specialistsApi.pricing()),
         parent && iso ? firstValueFrom(this.appointments.followUpQuote(parent.id, iso)) : Promise.resolve(null),
       ]);

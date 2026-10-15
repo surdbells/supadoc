@@ -15,6 +15,7 @@ import type {
   PayoutDto,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { DoctorStandingStore } from '../standing/doctor-standing.store';
 
 const FIELD =
   'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
@@ -61,7 +62,12 @@ const STATUS_CLASS: Record<string, string> = {
           @if (summaryError()) {
             <p class="font-sans text-caption text-alert">{{ summaryError() }}</p>
           }
-          @if (summary()?.has_open_payout) {
+          @if (requestsPaused()) {
+            <p class="font-sans text-caption text-slate">
+              {{ standing.code() === 'doctor_suspended' ? 'New payout requests are paused while your account is suspended.' : 'You can request payouts once your profile is approved.' }}
+              Your balance and payout history stay here.
+            </p>
+          } @else if (summary()?.has_open_payout) {
             <p class="font-sans text-caption text-slate">You have a payout in progress — you can request again once it's settled.</p>
           } @else if (!account()) {
             <p class="font-sans text-caption text-slate">Add your payout account below before requesting a withdrawal.</p>
@@ -160,8 +166,11 @@ export class DoctorPayouts implements OnInit {
 
   protected readonly currency = computed(() => this.summary()?.currency ?? '₦');
   protected readonly available = computed(() => this.summary()?.available_balance ?? '0');
+  /** Suspended, or not approved yet: the API refuses new requests (403), so the button is off. */
+  protected readonly standing = inject(DoctorStandingStore);
+  protected readonly requestsPaused = this.standing.blocked;
   protected readonly canRequest = computed(
-    () => !!this.account() && !this.summary()?.has_open_payout && Number(this.available()) > 0,
+    () => !this.requestsPaused() && !!this.account() && !this.summary()?.has_open_payout && Number(this.available()) > 0,
   );
 
   // Request form

@@ -15,9 +15,9 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * POST /api/specialists/{id}/reject {reason} — send a submitted profile back to
- * the doctor with what to change (shown on their onboarding page and emailed).
- * They stay unlisted until they resubmit and are approved. Needs
- * `specialists.manage`.
+ * the doctor with what to change (shown on their onboarding page and emailed;
+ * kept in the doctor's history and the audit trail). They stay unlisted until
+ * they resubmit and are approved. Needs `specialists.manage`.
  */
 final class RejectSpecialistAction
 {
@@ -40,11 +40,13 @@ final class RejectSpecialistAction
         /** @var Specialist $specialist */
         $specialist = $this->specialists->findOrFail((string) ($args['id'] ?? ''));
         $body       = (array) $request->getParsedBody();
+        $reason     = (string) ($body['reason'] ?? '');
+        [$actorId, $actorName] = $this->reviewer($request, $this->users);
 
         // Throws ValidationException (→ 422) for a blank reason or a profile not in review.
-        $this->onboarding->reject($specialist, (string) ($body['reason'] ?? ''));
-        $this->auditReview($request, $this->users, $this->audit, 'specialist.rejected', $specialist);
+        $this->onboarding->reject($specialist, $reason, $actorId, $actorName);
+        $this->auditReview($request, $this->users, $this->audit, 'specialist.rejected', $specialist, ['reason' => trim($reason)]);
 
-        return $this->success($response, $this->onboarding->summary($specialist), 'Sent back to the doctor');
+        return $this->success($response, $this->onboarding->summary($specialist, true), 'Sent back to the doctor');
     }
 }

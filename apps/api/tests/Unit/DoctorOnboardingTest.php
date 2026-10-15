@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Tests\Unit;
 
 use App\Domain\Entity\Specialist;
+use App\Domain\Entity\SpecialistCredential;
 use App\Domain\Entity\User;
+use App\Domain\Settings\PractitionerTerms;
 use App\Domain\Enum\SpecialistStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AvailabilitySlotRepository;
@@ -53,8 +55,23 @@ final class DoctorOnboardingTest extends TestCase
         $s->setMdcnNumber('mdcn/12345');
         $s->setSignatureKey('sig-key');
         $s->setWeeklyHours(['1' => [['09:00', '12:00']]]);
+        $s->acceptTerms(PractitionerTerms::version(), '203.0.113.7');
 
         return $s;
+    }
+
+    /**
+     * The MDCN certificate and a current licence, uploaded (waiting for review).
+     *
+     * @return list<SpecialistCredential>
+     */
+    private function documents(): array
+    {
+        $mdcn = new SpecialistCredential('s-1', SpecialistCredential::TYPE_MDCN, 'credentials/' . str_repeat('a', 32) . '.bin', 'mdcn.pdf', 'application/pdf', 1000, str_repeat('0', 64));
+        $apl  = new SpecialistCredential('s-1', SpecialistCredential::TYPE_LICENCE, 'credentials/' . str_repeat('b', 32) . '.bin', 'apl.pdf', 'application/pdf', 1000, str_repeat('1', 64));
+        $apl->setExpiresAt(new DateTimeImmutable('+1 year'));
+
+        return [$mdcn, $apl];
     }
 
     /** A staff login as it is once saved (timestamps set). */
@@ -138,12 +155,15 @@ final class DoctorOnboardingTest extends TestCase
 
     public function testCompleteProfilePasses(): void
     {
-        $checklist = DoctorOnboardingService::checklistFrom($this->completeSpecialist(), false, true);
+        $checklist = DoctorOnboardingService::checklistFrom($this->completeSpecialist(), false, true, $this->documents());
 
         $this->assertTrue(DoctorOnboardingService::isComplete($checklist), print_r($checklist, true));
         $this->assertFalse(DoctorOnboardingService::isComplete(
-            DoctorOnboardingService::checklistFrom($this->completeSpecialist(), false, false),
+            DoctorOnboardingService::checklistFrom($this->completeSpecialist(), false, false, $this->documents()),
         ), 'the payout account is required');
+        $this->assertFalse(DoctorOnboardingService::isComplete(
+            DoctorOnboardingService::checklistFrom($this->completeSpecialist(), false, true),
+        ), 'the MDCN certificate and practising licence are required');
     }
 
     public function testAvailabilityCountsWeeklyHoursOrPublishedSlots(): void

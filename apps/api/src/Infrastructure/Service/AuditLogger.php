@@ -19,7 +19,18 @@ final class AuditLogger
     }
 
     /**
+     * Whether an event can be recorded now — false once a failed transaction
+     * closed the entity manager for the rest of the request (every write
+     * would throw).
+     */
+    public function isWritable(): bool
+    {
+        return $this->events->isWritable();
+    }
+
+    /**
      * @param array<string,mixed> $metadata
+     * @param string|null         $actorId the acting user's id, when known (null: the system)
      */
     public function record(
         string $actorName,
@@ -29,6 +40,7 @@ final class AuditLogger
         ?string $resourceType = null,
         ?string $resourceId = null,
         array $metadata = [],
+        ?string $actorId = null,
     ): void {
         $this->events->save(new AuditEvent(
             $actorName,
@@ -38,6 +50,7 @@ final class AuditLogger
             $resourceType,
             $resourceId,
             $metadata,
+            $actorId,
         ));
     }
 }

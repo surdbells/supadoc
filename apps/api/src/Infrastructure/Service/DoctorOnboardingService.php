@@ -4,40 +4,61 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Doctor\DoctorCredentials;
+use App\Domain\Doctor\DoctorStanding;
 use App\Domain\Entity\Specialist;
+use App\Domain\Entity\SpecialistCredential;
+use App\Domain\Entity\SpecialistStatusEvent;
 use App\Domain\Entity\User;
 use App\Domain\Enum\SpecialistStatus;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AvailabilitySlotRepository;
 use App\Domain\Repository\PayoutAccountRepository;
+use App\Domain\Repository\SpecialistCredentialRepository;
 use App\Domain\Repository\SpecialistRepository;
+use App\Domain\Repository\SpecialistStatusEventRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\PractitionerTerms;
 use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
 
 /**
- * Doctor onboarding: admin invites → doctor sets a password and completes the
- * checklist → submits for review → admin approves (listed + bookable) or sends
- * it back with a reason. The checklist rule itself is pure ({@see checklistFrom()})
- * so it is unit-tested without a database.
+ * Doctor onboarding: admin invites → doctor sets a password, completes the
+ * checklist (profile, MDCN certificate + practising licence uploaded, terms
+ * accepted) → submits for review → a reviewer verifies the documents and
+ * approves (listed + bookable; what was approved is snapshotted) or sends it
+ * back with a reason. Once approved, the identity fields are locked: the
+ * doctor's edits wait for a reviewer ({@see approveChanges()}). The checklist
+ * and approval rules are pure ({@see checklistFrom()}, {@see approvalProblems()})
+ * so they are unit-tested without a database.
  */
 final class DoctorOnboardingService
 {
     /** Checklist keys, in the order the doctor works through them. */
-    public const ITEMS = ['photo', 'bio', 'qualifications', 'mdcn', 'signature', 'availability', 'payout'];
+    public const ITEMS = [
+        'photo', 'bio', 'qualifications', 'mdcn', 'mdcn_certificate', 'practising_licence',
+        'signature', 'availability', 'payout', 'terms',
+    ];
 
     /** What each missing item asks for, for the "not ready yet" message. */
     private const MISSING_LABELS = [
-        'photo'          => 'a profile photo',
-        'bio'            => 'a short bio',
-        'qualifications' => 'your qualifications',
-        'mdcn'           => 'your MDCN registration number',
-        'signature'      => 'your signature',
-        'availability'   => 'your availability',
-        'payout'         => 'a payout account',
+        'photo'              => 'a profile photo',
+        'bio'                => 'a short bio',
+        'qualifications'     => 'your qualifications',
+        'mdcn'               => 'your MDCN registration number',
+        'mdcn_certificate'   => 'your MDCN full-registration certificate',
+        'practising_licence' => 'your current annual practising licence',
+        'signature'          => 'your signature',
+        'availability'       => 'your availability',
+        'payout'             => 'a payout account',
+        'terms'              => 'your acceptance of the practitioner terms',
     ];
+
+    /** A change-request / send-back reason's limit. */
+    public const MAX_REASON = 2000;
 
     public function __construct(
         private readonly SpecialistRepository $specialists,
@@ -47,6 +68,9 @@ final class DoctorOnboardingService
         private readonly StaffPasswordService $passwords,
         private readonly MailService $mail,
         private readonly StaffNotifier $notifier,
+        private readonly SpecialistCredentialRepository $credentials,
+        private readonly SpecialistStatusEventRepository $statusEvents,
+        private readonly AuditLogger $audit,
         /** Back-office base URL for the reviewers' email ('' = no link, see {@see backofficeUrlFromEnv()}). */
         private readonly string $backofficeUrl = '',
     ) {
@@ -95,25 +119,38 @@ final class DoctorOnboardingService
 
     /**
      * The checklist rule. Availability counts either recurring weekly hours or at
-     * least one published open slot from now on.
+     * least one published open slot from now on. The documents count once
+     * uploaded and not turned down (a reviewer verifies them during the
+     * review); the licence must not have expired. Terms: the version in force.
      *
+     * @param list<SpecialistCredential> $credentials
      * @return array<string,bool> keyed by {@see ITEMS}
      */
-    public static function checklistFrom(Specialist $s, bool $hasOpenSlots, bool $hasPayoutAccount): array
-    {
+    public static function checklistFrom(
+        Specialist $s,
+        bool $hasOpenSlots,
+        bool $hasPayoutAccount,
+        array $credentials = [],
+        ?string $termsVersion = null,
+        ?string $todayYmd = null,
+    ): array {
         $hours = array_filter(
             $s->getWeeklyHours() ?? [],
             static fn (mixed $windows): bool => is_array($windows) && $windows !== [],
         );
+        $today = $todayYmd ?? ClinicTime::todayYmd();
 
         return [
-            'photo'          => ($s->getPhotoUrl() ?? '') !== '',
-            'bio'            => trim((string) $s->getBio()) !== '',
-            'qualifications' => trim((string) $s->getQualifications()) !== '' || $s->getQualificationEntries() !== [],
-            'mdcn'           => ($s->getMdcnNumber() ?? '') !== '',
-            'signature'      => $s->getSignatureKey() !== null,
-            'availability'   => $hours !== [] || $hasOpenSlots,
-            'payout'         => $hasPayoutAccount,
+            'photo'              => ($s->getPhotoUrl() ?? '') !== '',
+            'bio'                => trim((string) $s->getBio()) !== '',
+            'qualifications'     => trim((string) $s->getQualifications()) !== '' || $s->getQualificationEntries() !== [],
+            'mdcn'               => ($s->getMdcnNumber() ?? '') !== '',
+            'mdcn_certificate'   => DoctorCredentials::mdcnProvided($credentials),
+            'practising_licence' => DoctorCredentials::licenceProvided($credentials, $today),
+            'signature'          => $s->getSignatureKey() !== null,
+            'availability'       => $hours !== [] || $hasOpenSlots,
+            'payout'             => $hasPayoutAccount,
+            'terms'              => $s->hasAcceptedTerms($termsVersion ?? PractitionerTerms::version()),
         ];
     }
 
@@ -129,31 +166,136 @@ final class DoctorOnboardingService
         return true;
     }
 
-    /** @return array<string,bool> */
-    public function checklist(Specialist $s): array
+    /**
+     * Why a reviewer can't approve this doctor yet, as field => message (empty
+     * when they can): the profile must be waiting for review with every
+     * checklist item done, the MDCN certificate and a current practising
+     * licence must have been VERIFIED (with an attestation, see
+     * DoctorCredentialService::verify()), the terms in force accepted, and the
+     * reviewer must confirm (`$attested`).
+     *
+     * @param array<string,bool>         $checklist
+     * @param list<SpecialistCredential> $credentials
+     * @return array<string,string>
+     */
+    public static function approvalProblems(
+        Specialist $s,
+        array $checklist,
+        array $credentials,
+        string $termsVersion,
+        string $todayYmd,
+        bool $attested,
+    ): array {
+        $status = $s->getStatus();
+        if ($status === SpecialistStatus::APPROVED) {
+            return ['status' => 'This doctor is already approved'];
+        }
+        if ($status === SpecialistStatus::SUSPENDED) {
+            return ['status' => 'This doctor is suspended. Reinstate them instead.'];
+        }
+        if ($status !== SpecialistStatus::PENDING_REVIEW) {
+            return ['status' => "This doctor hasn't submitted their profile for review yet"];
+        }
+
+        $problems = [];
+        $missing  = array_keys(array_filter(
+            $checklist,
+            static fn (bool $done, string $key): bool => !$done && !in_array($key, ['mdcn_certificate', 'practising_licence', 'terms'], true),
+            ARRAY_FILTER_USE_BOTH,
+        ));
+        if ($missing !== []) {
+            $problems['checklist'] = 'The profile is missing ' . self::humanList(array_map(
+                static fn (string $k): string => str_replace('your ', 'their ', self::MISSING_LABELS[$k] ?? $k),
+                $missing,
+            )) . '.';
+        }
+        if (!DoctorCredentials::hasVerifiedMdcn($credentials)) {
+            $problems['mdcn_certificate'] = 'Verify their MDCN full-registration certificate first.';
+        }
+        if (DoctorCredentials::currentLicence($credentials, $todayYmd) === null) {
+            $problems['practising_licence'] = 'Verify a current annual practising licence first.';
+        }
+        if (!$s->hasAcceptedTerms($termsVersion)) {
+            $problems['terms'] = 'The doctor has not accepted the practitioner terms (version ' . $termsVersion . ') yet.';
+        }
+        if (!$attested) {
+            $problems['attest'] = 'Confirm that you checked their documents against the MDCN register.';
+        }
+
+        return $problems;
+    }
+
+    /**
+     * @param list<SpecialistCredential>|null $credentials (loaded when null)
+     * @return array<string,bool>
+     */
+    public function checklist(Specialist $s, ?array $credentials = null): array
     {
         return self::checklistFrom(
             $s,
             $this->slots->hasOpenSlotsSince($s->getId(), new DateTimeImmutable()),
             $this->payoutAccounts->forSpecialist($s->getId()) !== null,
+            $credentials ?? $this->credentials->forSpecialist($s->getId()),
         );
     }
 
     /**
-     * Everything the onboarding page (doctor) and the review panel (admin) show.
+     * Everything the onboarding page (doctor) and the review panel (admin)
+     * show: the review state, the checklist, the documents, the change request,
+     * the terms, the licence and the doctor's standing. `$forReviewer` adds the
+     * reviewers' view of the documents (attestations, replaced ones) and
+     * whether — or why not — they can approve now.
      *
      * @return array<string,mixed>
      */
-    public function summary(Specialist $s): array
+    public function summary(Specialist $s, bool $forReviewer = false): array
     {
-        $checklist = $this->checklist($s);
+        $credentials = $this->credentials->forSpecialist($s->getId());
+        $checklist   = $this->checklist($s, $credentials);
+        $today       = ClinicTime::todayYmd();
+        $terms       = PractitionerTerms::version();
+        $pending     = $s->getPendingFields();
+        $shown       = $forReviewer
+            ? $credentials
+            : array_values(array_filter($credentials, static fn (SpecialistCredential $c): bool => $c->getStatus() !== SpecialistCredential::STATUS_SUPERSEDED));
 
-        return $s->toReviewArray() + [
-            'checklist' => $checklist,
-            'completed' => count(array_filter($checklist)),
-            'total'     => count($checklist),
-            'complete'  => self::isComplete($checklist),
+        $out = $s->toReviewArray() + [
+            'checklist'       => $checklist,
+            'completed'       => count(array_filter($checklist)),
+            'total'           => count($checklist),
+            'complete'        => self::isComplete($checklist),
+            'credentials'     => array_map(static fn (SpecialistCredential $c): array => $c->toArray($forReviewer), $shown),
+            'locked_fields'   => $s->hasLockedFields() ? Specialist::LOCKED_FIELDS : [],
+            'pending_changes' => $pending !== [] ? $pending : null,
+            'pending_changes_submitted_at' => $pending !== [] ? $s->getPendingChangesSubmittedAt() : null,
+            'changes_review_note' => $s->getChangesReviewNote(),
+            'terms'           => [
+                'current_version'  => $terms,
+                'accepted_version' => $s->getTermsVersion(),
+                'accepted_at'      => $s->getTermsAcceptedAt()?->format(DATE_ATOM),
+                'accepted'         => $s->hasAcceptedTerms($terms),
+            ],
+            'licence'         => [
+                'expires_at' => $s->getLicenceExpiresAt()?->format('Y-m-d'),
+                'status'     => DoctorCredentials::licenceStatus($s->getLicenceExpiresAt()?->format('Y-m-d'), $today),
+            ],
+            'suspension'      => $s->isSuspended() ? [
+                'code'         => $s->getSuspensionCode(),
+                'code_label'   => SpecialistSuspensionService::codeLabel((string) $s->getSuspensionCode()),
+                'reason'       => $s->getSuspensionReason(),
+                'suspended_at' => $s->getSuspendedAt()?->format(DATE_ATOM),
+            ] : null,
+            'standing'        => DoctorStanding::payload($s, $terms),
         ];
+        if ($forReviewer) {
+            $problems           = self::approvalProblems($s, $checklist, $credentials, $terms, $today, true);
+            $out['approval']    = ['ready' => $problems === [], 'problems' => (object) $problems];
+            $out['credentials_missing'] = $s->getCredentialsDueAt() !== null;
+            $out['approved_snapshot']   = $s->getApprovedSnapshot();
+            $out['terms']['accepted_ip'] = $s->getTermsAcceptedIp();
+        }
+
+        return $out;
     }
 
     /**
@@ -219,7 +361,7 @@ final class DoctorOnboardingService
     }
 
     /** The doctor submits a complete checklist for review; admins are notified. */
-    public function submit(Specialist $s): void
+    public function submit(Specialist $s, ?string $actorId = null): void
     {
         $status = $s->getStatus();
         if ($status === SpecialistStatus::APPROVED) {
@@ -239,14 +381,16 @@ final class DoctorOnboardingService
         }
 
         $s->submitForReview();
+        $this->statusEvents->persist(new SpecialistStatusEvent($s->getId(), $status->value, SpecialistStatus::PENDING_REVIEW->value, $actorId, $s->getName()));
         $this->specialists->save($s);
+        $this->recordAudit($s->getName(), 'doctor', 'specialist.submitted', $s, [], $actorId);
 
         $this->notifier->notifyPermission(
             'specialists.manage',
             'onboarding',
             'Doctor ready for review',
             $s->getName() . ' submitted their profile for review.',
-            '/specialists',
+            '/specialists/' . $s->getId(),
         );
 
         // The back office has no notification bell, so the reviewers are also
@@ -264,38 +408,49 @@ final class DoctorOnboardingService
      */
     public function emailReviewers(string $doctorName): int
     {
-        $tpl  = EmailTemplates::doctorReadyForReview($doctorName, $this->backofficeUrl);
-        $sent = 0;
-        try {
-            $reviewers = $this->users->withPermission('specialists.manage');
-        } catch (\Throwable) {
-            return 0;
-        }
-        foreach ($reviewers as $reviewer) {
-            try {
-                if ($this->mail->send($reviewer->getEmail(), $reviewer->getFirstName(), $tpl['subject'], $tpl['html'])) {
-                    $sent++;
-                }
-            } catch (\Throwable) {
-                // non-fatal — the in-app notification and the Needs review count remain.
-            }
-        }
-
-        return $sent;
+        return $this->emailReviewersTemplate(EmailTemplates::doctorReadyForReview($doctorName, $this->backofficeUrl));
     }
 
-    /** An admin approves: the doctor becomes listed and bookable. Emails them. */
-    public function approve(Specialist $s, string $actorId): void
+    /**
+     * Tell the reviewers something about a doctor needs a look — in-app now,
+     * by email after the response. Name and what happened only.
+     */
+    public function notifyReviewers(Specialist $s, string $headline, string $text): void
     {
-        $status = $s->getStatus();
-        if ($status === SpecialistStatus::APPROVED) {
-            throw new ValidationException(['status' => 'This doctor is already approved']);
-        }
-        if ($status !== SpecialistStatus::PENDING_REVIEW && $status !== SpecialistStatus::SUSPENDED) {
-            throw new ValidationException(['status' => "This doctor hasn't submitted their profile for review yet"]);
+        $path = '/specialists/' . $s->getId();
+        $this->notifier->notifyPermission('specialists.manage', 'onboarding', $headline, $text, $path);
+        $tpl = EmailTemplates::reviewerNotice($headline, $text, $this->backofficeUrl, $path);
+        AfterResponse::defer(fn () => $this->emailReviewersTemplate($tpl));
+    }
+
+    /**
+     * A reviewer approves: the doctor becomes listed and bookable, what was
+     * approved is snapshotted, the doctor is emailed. 422 with every reason
+     * when {@see approvalProblems()} finds any.
+     */
+    public function approve(Specialist $s, string $actorId, string $actorName = 'Admin', bool $attested = false, ?string $note = null): void
+    {
+        $credentials = $this->credentials->forSpecialist($s->getId());
+        $today       = ClinicTime::todayYmd();
+        $problems    = self::approvalProblems($s, $this->checklist($s, $credentials), $credentials, PractitionerTerms::version(), $today, $attested);
+        if ($problems !== []) {
+            throw new ValidationException($problems, (string) reset($problems));
         }
 
+        $from    = $s->getStatus()->value;
+        $licence = DoctorCredentials::currentLicence($credentials, $today);
         $s->approve($actorId !== '' ? $actorId : null);
+        $s->setLicenceExpiresAt($licence?->getExpiresAt());
+        $s->setCredentialsDueAt(null);
+        $s->snapshotApproval(DoctorCredentials::verifiedIds($credentials, $today), $actorId !== '' ? $actorId : null, $actorName);
+        $this->statusEvents->persist(new SpecialistStatusEvent(
+            $s->getId(),
+            $from,
+            SpecialistStatus::APPROVED->value,
+            $actorId,
+            $actorName,
+            $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, self::MAX_REASON) : null,
+        ));
         $this->specialists->save($s);
 
         $this->notifier->notifyDoctor($s->getId(), 'onboarding', 'Profile approved', 'Patients can now find and book you.', '/dashboard');
@@ -304,13 +459,13 @@ final class DoctorOnboardingService
     }
 
     /** An admin sends a submitted profile back with a reason. Emails the doctor. */
-    public function reject(Specialist $s, string $reason): void
+    public function reject(Specialist $s, string $reason, ?string $actorId = null, string $actorName = 'Admin'): void
     {
         $reason = trim($reason);
         if ($reason === '') {
             throw new ValidationException(['reason' => 'Tell the doctor what to change']);
         }
-        if (mb_strlen($reason) > 2000) {
+        if (mb_strlen($reason) > self::MAX_REASON) {
             throw new ValidationException(['reason' => 'Keep the reason under 2000 characters']);
         }
         if ($s->getStatus() !== SpecialistStatus::PENDING_REVIEW) {
@@ -318,11 +473,95 @@ final class DoctorOnboardingService
         }
 
         $s->reject($reason);
+        $this->statusEvents->persist(new SpecialistStatusEvent(
+            $s->getId(),
+            SpecialistStatus::PENDING_REVIEW->value,
+            SpecialistStatus::REJECTED->value,
+            $actorId,
+            $actorName,
+            $reason,
+        ));
         $this->specialists->save($s);
 
         $this->notifier->notifyDoctor($s->getId(), 'onboarding', 'Profile needs changes', $reason, '/onboarding');
         $tpl = EmailTemplates::doctorRejected($s->getName(), $reason, WebUrls::forSpecialist($s));
         $this->emailDoctor($s, $tpl);
+    }
+
+    // ----- Change requests (locked fields after approval) -----
+
+    /** The doctor sent (or updated) a change request: reviewers are told and it is audited. */
+    public function changesSubmitted(Specialist $s, ?string $actorId): void
+    {
+        $this->recordAudit($s->getName(), 'doctor', 'specialist.changes_submitted', $s, [
+            'fields'  => array_keys($s->getPendingFields()),
+            'changes' => $s->getPendingFields(),
+        ], $actorId);
+        $this->notifyReviewers(
+            $s,
+            'Profile changes to review: ' . $s->getName(),
+            $s->getName() . ' asked to change ' . self::humanList(array_map(
+                static fn (string $k): string => str_replace('_', ' ', $k),
+                array_keys($s->getPendingFields()),
+            )) . ' on their profile. The changes go live only once approved.',
+        );
+    }
+
+    /**
+     * A reviewer approves the waiting changes: they go live, the approval
+     * snapshot is refreshed, the doctor is told. Returns {before, after}.
+     *
+     * @return array{before: array<string,mixed>, after: array<string,mixed>}
+     */
+    public function approveChanges(Specialist $s, ?string $actorId, string $actorName): array
+    {
+        $after = $s->getPendingFields();
+        if ($after === []) {
+            throw new ValidationException(['changes' => 'There are no changes waiting for review']);
+        }
+        $before      = $s->approvePendingChanges();
+        $credentials = $this->credentials->forSpecialist($s->getId());
+        $s->snapshotApproval(DoctorCredentials::verifiedIds($credentials, ClinicTime::todayYmd()), $actorId, $actorName);
+        $this->specialists->save($s);
+
+        $this->recordAudit($actorName, 'admin', 'specialist.changes_approved', $s, ['before' => $before, 'after' => $after], $actorId);
+        $this->notifier->notifyDoctor($s->getId(), 'onboarding', 'Profile changes approved', 'Your requested profile changes are now live.', '/profile');
+        $this->emailDoctor($s, EmailTemplates::doctorChangesReviewed($s->getName(), true, '', WebUrls::forSpecialist($s)));
+
+        return ['before' => $before, 'after' => $after];
+    }
+
+    /** A reviewer turns the waiting changes down, with a reason the doctor sees. */
+    public function rejectChanges(Specialist $s, string $reason, ?string $actorId, string $actorName): void
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new ValidationException(['reason' => 'Tell the doctor why the changes were not approved']);
+        }
+        if (mb_strlen($reason) > self::MAX_REASON) {
+            throw new ValidationException(['reason' => 'Keep the reason under 2000 characters']);
+        }
+        $fields = $s->getPendingFields();
+        if ($fields === []) {
+            throw new ValidationException(['changes' => 'There are no changes waiting for review']);
+        }
+        $s->rejectPendingChanges($reason);
+        $this->specialists->save($s);
+
+        $this->recordAudit($actorName, 'admin', 'specialist.changes_rejected', $s, ['reason' => $reason, 'rejected' => $fields], $actorId);
+        $this->notifier->notifyDoctor($s->getId(), 'onboarding', 'Profile changes not approved', $reason, '/profile');
+        $this->emailDoctor($s, EmailTemplates::doctorChangesReviewed($s->getName(), false, $reason, WebUrls::forSpecialist($s)));
+    }
+
+    /** The doctor withdraws their waiting changes. */
+    public function withdrawChanges(Specialist $s, ?string $actorId): void
+    {
+        if ($s->getPendingFields() === []) {
+            return;
+        }
+        $s->clearPendingChanges();
+        $this->specialists->save($s);
+        $this->recordAudit($s->getName(), 'doctor', 'specialist.changes_withdrawn', $s, [], $actorId);
     }
 
     /**
@@ -358,7 +597,7 @@ final class DoctorOnboardingService
     }
 
     /** @param list<string> $items */
-    private static function humanList(array $items): string
+    public static function humanList(array $items): string
     {
         if (count($items) <= 1) {
             return $items[0] ?? '';
@@ -366,6 +605,42 @@ final class DoctorOnboardingService
         $last = array_pop($items);
 
         return implode(', ', $items) . ' and ' . $last;
+    }
+
+    /**
+     * Email a template to every reviewer. Best-effort.
+     *
+     * @param array{subject:string, html:string} $tpl
+     */
+    private function emailReviewersTemplate(array $tpl): int
+    {
+        $sent = 0;
+        try {
+            $reviewers = $this->users->withPermission('specialists.manage');
+        } catch (\Throwable) {
+            return 0;
+        }
+        foreach ($reviewers as $reviewer) {
+            try {
+                if ($this->mail->send($reviewer->getEmail(), $reviewer->getFirstName(), $tpl['subject'], $tpl['html'])) {
+                    $sent++;
+                }
+            } catch (\Throwable) {
+                // non-fatal — the in-app notification and the Needs review count remain.
+            }
+        }
+
+        return $sent;
+    }
+
+    /** @param array<string,mixed> $metadata */
+    private function recordAudit(string $actorName, string $role, string $action, Specialist $s, array $metadata, ?string $actorId): void
+    {
+        try {
+            $this->audit->record($actorName, $role, $action, null, 'specialist', $s->getId(), $metadata + ['doctor' => $s->getName()], $actorId);
+        } catch (\Throwable) {
+            // non-fatal — the change itself is saved.
+        }
     }
 
     /** @param array{subject:string, html:string} $tpl */

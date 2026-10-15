@@ -723,6 +723,191 @@ final class EmailTemplates
         ];
     }
 
+    /**
+     * To the reviewers (`specialists.manage`): something about a doctor needs
+     * a look — changed profile details, a new licence, an automatic
+     * suspension. Only the doctor's name and what happened, never the
+     * documents or details themselves. `$path` is the back-office page.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function reviewerNotice(string $headline, string $text, string $backofficeUrl, string $path): array
+    {
+        $url  = rtrim(trim($backofficeUrl), '/');
+        $body = self::heading($headline)
+            . self::lead(self::e($text))
+            . ($url !== '' ? self::button('Open in the back office', $url . '/' . ltrim($path, '/')) : '')
+            . self::note($url !== '' ? 'Sign in to the back office to see the details.' : 'Open the back office and go to Specialists to see the details.');
+
+        return [
+            'subject' => $headline,
+            'html'    => self::layout($headline, $text, $body),
+        ];
+    }
+
+    /**
+     * The doctor was suspended: why, and what it means. The reason is the
+     * reviewer's own words (escaped).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorSuspended(string $doctorName, string $codeLabel, string $reason, string $webUrl): array
+    {
+        $body = self::heading('Your VideoMed account is suspended')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', your VideoMed account has been suspended. While it is suspended you are not listed, patients cannot book you '
+                . 'and you cannot do clinical work. Your upcoming bookings have been cancelled and the patients refunded.')
+            . self::infoCard(['Reason' => $codeLabel, 'Details' => $reason])
+            . self::button('Open your doctor portal', $webUrl . '/onboarding')
+            . self::note('You can still sign in to see this, your earnings and your payout history. If your licence has expired, upload your renewed licence from the onboarding page.');
+
+        return [
+            'subject' => 'Your VideoMed account is suspended',
+            'html'    => self::layout('Account suspended', 'Your VideoMed account has been suspended.', $body),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function doctorReinstated(string $doctorName, string $webUrl): array
+    {
+        $body = self::heading('Your VideoMed account is active again')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', your suspension has been lifted. You are listed again and patients can book you in the times you make available.')
+            . self::button('Open your dashboard', $webUrl . '/dashboard')
+            . self::note('Bookings cancelled while you were suspended are not restored. Check your availability is up to date.');
+
+        return [
+            'subject' => 'Your VideoMed account is active again',
+            'html'    => self::layout('Account reinstated', 'Your VideoMed account is active again.', $body),
+        ];
+    }
+
+    /** A reviewer turned down one of the doctor's documents, with why. @return array{subject: string, html: string} */
+    public static function doctorCredentialRejected(string $doctorName, string $documentLabel, string $reason, string $webUrl): array
+    {
+        $body = self::heading('A document needs replacing')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', our team could not verify the document you uploaded. Please upload a new one.')
+            . self::infoCard(['Document' => $documentLabel, 'Why' => $reason])
+            . self::button('Upload a new document', $webUrl . '/onboarding');
+
+        return [
+            'subject' => 'Your ' . $documentLabel . ' needs replacing',
+            'html'    => self::layout('Document not verified', 'A document you uploaded could not be verified.', $body),
+        ];
+    }
+
+    /**
+     * The doctor's practising licence expires soon (`$daysLeft` 0 = today).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorLicenceExpiring(string $doctorName, int $daysLeft, string $expiresOn, string $webUrl, int $graceDays = 0): array
+    {
+        $when = match (true) {
+            $daysLeft <= 0 => 'today',
+            $daysLeft === 1 => 'tomorrow',
+            default        => 'in ' . $daysLeft . ' days',
+        };
+        $body = self::heading('Your practising licence expires ' . $when)
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', the Annual Practising Licence on your VideoMed profile expires on <strong style="color:' . self::INK . ';">'
+                . self::e($expiresOn) . '</strong>. Upload your renewed licence so our team can verify it in time.')
+            . self::button('Upload your renewed licence', $webUrl . '/onboarding')
+            . self::note('If no current licence has been verified by then, your account is suspended '
+                . ($graceDays > 0 ? $graceDays . ' day' . ($graceDays === 1 ? '' : 's') . ' after it expires' : 'when it expires')
+                . ' and your upcoming bookings are cancelled.');
+
+        return [
+            'subject' => 'Your practising licence expires ' . $when,
+            'html'    => self::layout('Licence expiring', 'Your practising licence expires on ' . $expiresOn . '.', $body),
+        ];
+    }
+
+    /**
+     * A doctor approved before credentials existed must upload them by
+     * `$dueOn`. No suspension is threatened — a reviewer decides.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorCredentialsDue(string $doctorName, int $daysLeft, string $dueOn, string $webUrl): array
+    {
+        $body = self::heading('Please upload your licensing documents')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor')
+                . ', VideoMed now verifies every doctor\'s licensing documents. Please upload your MDCN full-registration certificate '
+                . 'and your current Annual Practising Licence by <strong style="color:' . self::INK . ';">' . self::e($dueOn) . '</strong>'
+                . ($daysLeft > 0 ? ' (' . $daysLeft . ' day' . ($daysLeft === 1 ? '' : 's') . ' from now)' : '') . '.')
+            . self::button('Upload your documents', $webUrl . '/onboarding')
+            . self::note('It takes a couple of minutes: a PDF or a clear photo of each document is fine.');
+
+        return [
+            'subject' => 'Please upload your licensing documents by ' . $dueOn,
+            'html'    => self::layout('Documents needed', 'Upload your MDCN certificate and practising licence by ' . $dueOn . '.', $body),
+        ];
+    }
+
+    /**
+     * A reviewer decided on the doctor's requested profile changes (`$approved`;
+     * a turned-down request carries the reason).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorChangesReviewed(string $doctorName, bool $approved, string $reason, string $webUrl): array
+    {
+        $title = $approved ? 'Your profile changes are approved' : 'Your profile changes were not approved';
+        $body  = self::heading($title)
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor') . ', '
+                . ($approved
+                    ? 'the changes you asked for on your VideoMed profile have been approved and are now live.'
+                    : 'our team reviewed the changes you asked for on your VideoMed profile and could not approve them.'))
+            . (!$approved && $reason !== '' ? self::infoCard(['Why' => $reason]) : '')
+            . self::button('Open your profile', $webUrl . '/profile');
+
+        return [
+            'subject' => $title,
+            'html'    => self::layout('Profile changes', $title . '.', $body),
+        ];
+    }
+
+    /**
+     * To a patient: their consultation (or a follow-up proposal) was cancelled
+     * because the doctor is no longer available on VideoMed. Never says why.
+     * `$refundLabel` is what went back to their wallet ('' when nothing was
+     * paid); `$rebookUrl` lists doctors of the same specialty.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function doctorUnavailableCancellation(
+        string $firstName,
+        string $doctorName,
+        string $specialty,
+        string $whenLabel,
+        string $refundLabel,
+        string $rebookUrl,
+        bool $proposal = false,
+    ): array {
+        $doctor = $doctorName !== '' ? $doctorName : 'Your doctor';
+        $intro  = $proposal
+            ? 'the follow-up consultation ' . $doctor . ' proposed for ' . $whenLabel . ' has been withdrawn because ' . $doctor . ' is no longer available on VideoMed. Nothing was charged.'
+            : 'your consultation with ' . $doctor . ' on ' . $whenLabel . ' has been cancelled because ' . $doctor . ' is no longer available on VideoMed.'
+                . ($refundLabel !== '' ? ' Your payment of ' . $refundLabel . ' has been refunded to your VideoMed wallet.' : '');
+        $rows = ['Doctor' => $doctor, 'Was booked for' => $whenLabel];
+        if ($refundLabel !== '') {
+            $rows['Refunded to your wallet'] = $refundLabel;
+        }
+
+        $body = self::heading($proposal ? 'Follow-up withdrawn' : 'Your consultation was cancelled')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', ' . self::e($intro))
+            . self::infoCard($rows)
+            . self::button($specialty !== '' ? 'Find another ' . $specialty . ' specialist' : 'Find another doctor', $rebookUrl)
+            . self::note('We are sorry for the inconvenience. You can book another doctor at a time that suits you.');
+
+        return [
+            'subject' => $proposal ? 'Your follow-up with ' . $doctor . ' was withdrawn' : 'Your consultation with ' . $doctor . ' was cancelled',
+            'html'    => self::layout('Consultation cancelled', $doctor . ' is no longer available on VideoMed.', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body, ?string $why = null): string

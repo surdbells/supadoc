@@ -8,6 +8,7 @@ use App\Domain\Entity\User;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\SessionService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -16,6 +17,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * permissions, active flag or specialist link (needs `staff.manage`). Only the
  * keys present in the body change. Guardrails: only a super_admin may grant
  * super_admin or edit a super_admin account, and you can't deactivate yourself.
+ * Deactivating a login signs it out everywhere at once.
  */
 final class UpdateStaffAction
 {
@@ -25,6 +27,7 @@ final class UpdateStaffAction
     public function __construct(
         private readonly UserRepository $users,
         private readonly SpecialistRepository $specialists,
+        private readonly SessionService $sessions,
     ) {
     }
 
@@ -104,11 +107,13 @@ final class UpdateStaffAction
             $user->setPermissions($permissions);
         }
 
+        $deactivated = false;
         if (array_key_exists('active', $body)) {
             $active = (bool) $body['active'];
             if (!$active && $user->getId() === $actor) {
                 $errors['active'] = 'You cannot deactivate your own account';
             } else {
+                $deactivated = !$active && $user->isActive();
                 $user->setActive($active);
             }
         }
@@ -131,6 +136,11 @@ final class UpdateStaffAction
         }
 
         $this->users->save($user);
+        // A deactivated login is signed out everywhere now, not when its access
+        // token runs out.
+        if ($deactivated) {
+            $this->sessions->revokeAllStaff($user->getId());
+        }
 
         return $this->success($response, $user->toArray(), 'Staff account updated');
     }

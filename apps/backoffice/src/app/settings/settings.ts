@@ -8,21 +8,25 @@ import {
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
+import { BookingSettingsSection } from './booking-settings';
 
 const FIELD =
   'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
-/** Back-office account settings (route `/settings`) — profile + password. */
+/**
+ * Back-office settings (route `/settings`) — profile + password for everyone,
+ * plus the platform's booking-calendar rules for `settings.manage`.
+ */
 @Component({
   selector: 'bo-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, BookingSettingsSection],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
       <header class="flex flex-col gap-1">
         <h1 class="font-heading text-h3 text-ink">Settings</h1>
-        <p class="font-sans text-body text-slate">Your account and password.</p>
+        <p class="font-sans text-body text-slate">{{ canManageSettings() ? 'Your account and password, and the booking rules.' : 'Your account and password.' }}</p>
       </header>
 
       <section class="flex items-center gap-4 rounded-card border border-cloud bg-white p-6">
@@ -75,6 +79,10 @@ const FIELD =
           {{ saving() ? 'Updating…' : 'Update password' }}
         </button>
       </section>
+
+      @if (canManageSettings()) {
+        <bo-booking-settings />
+      }
     </div>
   `,
 })
@@ -86,6 +94,7 @@ export class AdminSettings {
   protected readonly roles = computed(() => this.auth.roles().join(', '));
   protected readonly permissions = computed(() => this.auth.permissions());
   protected readonly isSuperAdmin = computed(() => this.auth.hasRole('super_admin'));
+  protected readonly canManageSettings = computed(() => this.auth.hasPermission('settings.manage'));
   protected readonly initials = computed(() =>
     this.auth
       .displayName()

@@ -1,4 +1,6 @@
 export * from './lib/alert/alert';
+export * from './lib/booking-calendar/booking-calendar';
+export * from './lib/booking-calendar/booking-calendar.model';
 export * from './lib/button/button';
 export * from './lib/call-presence/call-presence';
 export * from './lib/call-tiles/call-tiles';

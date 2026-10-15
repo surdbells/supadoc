@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 /**
  * Send due appointment join reminders (plus prescription expiry housekeeping,
- * closing consultations a doctor forgot to end, and expiring / nudging
- * unanswered follow-up proposals). Meant to be run by cron every few minutes
+ * closing consultations a doctor forgot to end, expiring / nudging unanswered
+ * follow-up proposals, and doctors' licence reminders / expiry). Meant to be
+ * run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
  *   * / 5 * * * *  cd /path/to/apps/api && php bin/send-reminders.php >> var/log/reminders.log 2>&1
@@ -83,4 +84,27 @@ try {
     printf("[%s] follow-ups: expired=%d nudged=%d\n", gmdate('Y-m-d H:i:s'), $fu['expired'], $fu['nudged']);
 } catch (\Throwable $e) {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] follow-ups: ' . $e->getMessage() . "\n");
+}
+
+// Doctors' practising licences: a reminder at each of LICENCE_REMINDER_DAYS
+// (default 30,14,7,1) before one expires; once it has expired (plus
+// LICENCE_GRACE_DAYS, default 0) a doctor with no other current licence is
+// suspended automatically — their bookings cancelled and refunded. Doctors
+// approved before documents existed get 30 days from the first run to upload
+// them, with reminders (never an automatic suspension). Each stage is
+// recorded before its email goes, so running every 5 minutes is safe.
+try {
+    $lic = $container->get(App\Infrastructure\Service\CredentialExpiryService::class)->run();
+    printf(
+        "[%s] licences: reminders=%d expired=%d suspended=%d incomplete=%d legacy_due_set=%d legacy_reminders=%d\n",
+        gmdate('Y-m-d H:i:s'),
+        $lic['licence_reminders'],
+        $lic['licences_expired'],
+        $lic['suspended'],
+        $lic['suspensions_incomplete'],
+        $lic['legacy_due_set'],
+        $lic['legacy_reminders'],
+    );
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] licences: ' . $e->getMessage() . "\n");
 }

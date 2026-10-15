@@ -18,6 +18,7 @@ import {
 import { provideSupadocIcons } from '@supadoc/ui';
 import { appRoutes } from './app.routes';
 import { DoctorRouteReuseStrategy } from './route-reuse';
+import { doctorStandingInterceptor } from './standing/doctor-standing.interceptor';
 import { environment } from '../environments/environment';
 
 export const appConfig: ApplicationConfig = {
@@ -28,7 +29,8 @@ export const appConfig: ApplicationConfig = {
     // `/appointments/A` → `/appointments/B` re-creates the record page (see the route's data).
     { provide: RouteReuseStrategy, useClass: DoctorRouteReuseStrategy },
     provideHttpClient(
-      withInterceptors([staffAuthInterceptor, httpErrorInterceptor]),
+      // Outermost: sees a standing refusal (403) after any token refresh, already normalised.
+      withInterceptors([doctorStandingInterceptor, staffAuthInterceptor, httpErrorInterceptor]),
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Doctor silo: its own token key, and only `doctor` accounts may sign in.

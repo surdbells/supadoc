@@ -112,6 +112,10 @@ const FINAL: Record<string, { title: string; icon: string }> = {
   ended: { title: 'This consultation has ended', icon: 'circle-check' },
   withdrawn: { title: 'This invitation was withdrawn', icon: 'user-x' },
   not_confirmed: { title: 'This consultation isn’t confirmed yet', icon: 'hourglass' },
+  // A doctor's link refused for their standing (the API's message says what to do).
+  doctor_suspended: { title: 'Your account can no longer take consultations', icon: 'lock' },
+  doctor_not_approved: { title: 'Your account can’t take consultations yet', icon: 'lock' },
+  terms_required: { title: 'Accept the updated practitioner terms first', icon: 'scroll-text' },
 };
 
 const ROLE_LABEL: Record<CallParticipantRole, string> = {

@@ -14,8 +14,10 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/specialists/{id}/onboarding — the back-office review panel: the
- * doctor's profile as submitted, the onboarding checklist, review status and
- * login state. Needs `specialists.manage`.
+ * doctor's profile as submitted, the onboarding checklist, their documents
+ * (reviewer view), the change request, terms, licence, review status, whether
+ * they can be approved now (and why not) and login state. Needs
+ * `specialists.manage`. GET /api/specialists/{id} carries the same and more.
  */
 final class GetSpecialistOnboardingAction
 {
@@ -36,7 +38,7 @@ final class GetSpecialistOnboardingAction
         /** @var Specialist $specialist */
         $specialist = $this->specialists->findOrFail((string) ($args['id'] ?? ''));
 
-        return $this->success($response, $this->onboarding->summary($specialist) + [
+        return $this->success($response, $this->onboarding->summary($specialist, true) + [
             'profile' => $specialist->toPrivateArray(),
             'login'   => $this->onboarding->loginArray($this->users->findBySpecialist($specialist->getId())),
         ]);

@@ -6,7 +6,9 @@ namespace App\Action\Specialist;
 
 use App\Domain\Entity\Specialist;
 use App\Domain\Repository\SpecialistRepository;
+use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\AuditLogger;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -18,13 +20,18 @@ use Psr\Http\Message\ServerRequestInterface;
  * the operator can confirm the created record, including its new id to link a
  * doctor login to. The specialist starts in onboarding: unlisted and unbookable
  * until they are invited, complete their profile and an admin approves them.
+ * `verified` is ignored (it follows approval). The creation is audited.
  */
 final class CreateSpecialistAction
 {
     use ApiResponse;
+    use AuditsSpecialistReview;
 
-    public function __construct(private readonly SpecialistRepository $specialists)
-    {
+    public function __construct(
+        private readonly SpecialistRepository $specialists,
+        private readonly UserRepository $users,
+        private readonly AuditLogger $audit,
+    ) {
     }
 
     public function __invoke(
@@ -105,11 +112,13 @@ final class CreateSpecialistAction
         if (array_key_exists('available', $body)) {
             $specialist->setAvailable((bool) $body['available']);
         }
-        if (array_key_exists('verified', $body)) {
-            $specialist->setVerified((bool) $body['verified']);
-        }
+        // `verified` follows approval now; it is no longer set here.
 
         $this->specialists->save($specialist);
+        $this->auditReview($request, $this->users, $this->audit, 'specialist.created', $specialist, [
+            'specialty' => $specialist->getSpecialty(),
+            'email'     => $specialist->getEmail(),
+        ]);
 
         // A new specialist starts in onboarding (unlisted) with no login yet —
         // the operator invites them next.

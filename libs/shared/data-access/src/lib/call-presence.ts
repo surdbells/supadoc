@@ -6,8 +6,10 @@ import type {
   CallPresenceDto,
   CallPresenceMap,
   CallRefusalCode,
+  DoctorStandingCode,
   SuccessResponse,
 } from '@supadoc/models';
+import { isDoctorStandingCode } from './doctor.api';
 
 export type CallPresenceState = 'in' | 'out';
 
@@ -22,10 +24,12 @@ export interface CallPresenceHandlers {
   onBeat?: (beat: CallPresenceBeatDto) => void;
   /**
    * The API refused the heartbeat: 410 (`cancelled` / `ended` / `withdrawn` —
-   * the consultation is over or this guest was removed: leave the call) or 409
-   * (`not_confirmed`). `message` is the API's, ready to show.
+   * the consultation is over or this guest was removed: leave the call), 409
+   * (`not_confirmed`), or 403 with a doctor-standing code (`doctor_suspended` /
+   * `doctor_not_approved` / `terms_required` — the doctor may no longer take
+   * this call, e.g. suspended mid-call). `message` is the API's, ready to show.
    */
-  onRefused?: (status: number, code: CallRefusalCode | null, message: string) => void;
+  onRefused?: (status: number, code: CallRefusalCode | DoctorStandingCode | null, message: string) => void;
 }
 
 /** How often a call screen says "I'm still here" (the API forgets it after 40 s). */
@@ -46,8 +50,9 @@ export const CALL_PRESENCE_POLL_MS = 15_000;
  * person shows as present until the API forgets them (40 s).
  *
  * An "in" beat's answer goes to `handlers` (see {@link CallPresenceHandlers}):
- * the live presence + participants, or a refusal (410 / 409) that means the
- * call is over for this screen — e.g. a guest the patient just removed.
+ * the live presence + participants, or a refusal (410 / 409, or a doctor's
+ * standing 403) that means the call is over for this screen — e.g. a guest
+ * the patient just removed, or a doctor suspended mid-call.
  */
 export function sendCallPresence(
   url: string,
@@ -84,12 +89,13 @@ async function readBeat(res: Response, handlers: CallPresenceHandlers): Promise<
   const body = (await res.json().catch(() => null)) as {
     data?: CallPresenceBeatDto;
     message?: string;
-    errors?: { code?: CallRefusalCode; call?: string };
+    errors?: { code?: CallRefusalCode | DoctorStandingCode; call?: string };
   } | null;
+  const code = body?.errors?.code ?? null;
   if (res.ok) {
     if (body?.data) handlers.onBeat?.(body.data);
-  } else if (res.status === 410 || res.status === 409) {
-    handlers.onRefused?.(res.status, body?.errors?.code ?? null, body?.errors?.call ?? body?.message ?? '');
+  } else if (res.status === 410 || res.status === 409 || (res.status === 403 && isDoctorStandingCode(code))) {
+    handlers.onRefused?.(res.status, code, body?.errors?.call ?? body?.message ?? '');
   }
 }
 

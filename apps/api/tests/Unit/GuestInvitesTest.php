@@ -25,14 +25,23 @@ use App\Infrastructure\Agora\AgoraKickingService;
 use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\EmailTemplates;
+use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
+use App\Infrastructure\Service\AppointmentCheckout;
+use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\CallPresence;
 use App\Infrastructure\Service\GuestConsent;
 use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\JwtService;
+use App\Infrastructure\Service\PatientNotifier;
+use App\Infrastructure\Service\PricingService;
+use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
 use DI\ContainerBuilder;
+use Doctrine\ORM\Decorator\EntityManagerDecorator;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Exception\EntityManagerClosed;
 use PHPUnit\Framework\TestCase;
 use Predis\Client as RedisClient;
 use Psr\Log\LoggerInterface;
@@ -56,6 +65,7 @@ final class GuestInvitesTest extends TestCase
         $doctor = new Specialist('Dr. Grace Bell', 'General Practice');
         $doctor->setConsultationFee('20000.00');
         $doctor->setStatus(SpecialistStatus::APPROVED);
+        $doctor->acceptTerms(\App\Domain\Settings\PractitionerTerms::version(), null); // may practise: the doctor can join
         $doctor->setEmail('grace.bell@clinic.test');
 
         return $doctor;
@@ -514,6 +524,55 @@ final class GuestInvitesTest extends TestCase
         $unset = new AgoraKickingService('app-id', '', '', null, static fn (): array => throw new \LogicException('must not be called'));
         $this->assertFalse($unset->isConfigured());
         $this->assertFalse($unset->kick('appt-1', 101, 60));
+    }
+
+    public function testGuestsAreToldOfACancellationAfterAFailedBatchClosedTheEntityManager(): void
+    {
+        $appointment = $this->appointment('+5 minutes');
+        $appointment->addGuest('Bola Ade', 'bola@example.test', '0', 'free', null, new DateTimeImmutable());
+        $appointment->addGuest('Chidi Eze', 'chidi@example.test', '0', 'free', null, new DateTimeImmutable());
+        // A later suspension batch failed: the entity manager is closed, though
+        // this cancellation was committed before it.
+        $closed = new class ($this->em()) extends EntityManagerDecorator {
+            public function wrapInTransaction(callable $func): mixed
+            {
+                throw EntityManagerClosed::create();
+            }
+        };
+        $mailed = [];
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->method('info')->willReturnCallback(static function (string $message, array $context = []) use (&$mailed): void {
+            $mailed[] = $context['to'] ?? '';
+        });
+        // Redis down too: presence reads as "nobody", and nothing stops the notices.
+        $redis = new class extends RedisClient {
+            public function __construct()
+            {
+            }
+
+            public function __call($commandID, $arguments): mixed
+            {
+                throw new \RuntimeException('redis unavailable');
+            }
+        };
+        $blank       = static fn (string $class): object => (new \ReflectionClass($class))->newInstanceWithoutConstructor();
+        $invitations = new GuestInvitations(
+            new AppointmentRepository($closed),
+            $blank(AppointmentPaymentService::class),
+            $blank(AppointmentCheckout::class),
+            $blank(PricingService::class),
+            new MailService('', '', '', '', $logger),
+            new JwtService(self::SECRET, 900, 1209600),
+            $blank(AuditLogger::class),
+            $blank(PatientNotifier::class),
+            $blank(StaffNotifier::class),
+            new CallPresence($redis),
+            new AgoraKickingService('app-id', '', ''),
+        );
+
+        $invitations->notifyCancelled($appointment);
+
+        $this->assertSame(['bola@example.test', 'chidi@example.test'], $mailed, 'every guest is still told');
     }
 
     public function testEveryoneSeesWhoIsInTheCallByUidNamesOnly(): void

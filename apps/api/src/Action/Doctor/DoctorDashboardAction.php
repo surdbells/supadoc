@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
+use App\Domain\Call\CallAccess;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Specialist;
 use App\Domain\Enum\AppointmentStatus;
@@ -21,7 +22,9 @@ use App\Domain\Settings\WebUrls;
  * GET /api/doctor/dashboard — headline metrics + today's agenda for the signed-in
  * doctor: counts (today / pending / upcoming / completed this month), distinct
  * patients, this-month earnings snapshot, rating, and the next + today's
- * appointments (each with a join link).
+ * appointments (each with a join link — null, with `join_blocked` {code,
+ * message}, when the call would refuse the doctor: suspended, not approved
+ * yet, or owing the practitioner terms for a consultation not started yet).
  */
 final class DoctorDashboardAction
 {
@@ -66,7 +69,7 @@ final class DoctorDashboardAction
 
         // A follow-up proposal holds its slot but isn't on the day's schedule until accepted.
         $agenda = array_values(array_map(
-            fn (Appointment $a): array => $this->row($a, $specialist, $webUrl),
+            fn (Appointment $a): array => $this->row($a, $specialist, $webUrl, $now),
             array_filter(
                 $this->appointments->forSpecialistBetween($specialistId, $startToday, $endToday),
                 static fn (Appointment $a): bool => $a->getStatus() !== AppointmentStatus::PROPOSED,
@@ -120,7 +123,7 @@ final class DoctorDashboardAction
             'currency'         => '₦',
             'rating'           => $sp['rating'],
             'reviews_count'    => $sp['reviews_count'],
-            'next'             => $next !== null ? $this->row($next, $specialist, $webUrl) : null,
+            'next'             => $next !== null ? $this->row($next, $specialist, $webUrl, $now) : null,
             'agenda'           => $agenda,
         ]);
     }
@@ -135,15 +138,27 @@ final class DoctorDashboardAction
         return (int) round((($cur - $prev) / $prev) * 100);
     }
 
-    /** @return array<string,mixed> */
-    private function row(Appointment $appt, Specialist $specialist, string $webUrl): array
+    /**
+     * One agenda row. A doctor the call would refuse gets no link, with
+     * `join_blocked` saying why: suspended, not approved, or owing the
+     * practitioner terms for a consultation not started yet
+     * ({@see CallAccess::doctorProblem()}).
+     *
+     * @return array<string,mixed>
+     */
+    private function row(Appointment $appt, Specialist $specialist, string $webUrl, DateTimeImmutable $now): array
     {
         $patient = $appt->getPatient()->toArray();
-        $token   = $this->jwt->issueCallAccess($appt->getId(), $specialist->getName(), 'doctor', 2);
+        $blocked = CallAccess::doctorJoinBlocked($appt, $now);
+        $joinUrl = null;
+        if ($blocked === null) {
+            $joinUrl = $webUrl . '/call/join/' . $this->jwt->issueCallAccess($appt->getId(), $specialist->getName(), 'doctor', 2);
+        }
 
         return $appt->toArray() + [
             'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
-            'join_url'     => $webUrl . '/call/join/' . $token,
+            'join_url'     => $joinUrl,
+            'join_blocked' => $blocked,
         ];
     }
 }

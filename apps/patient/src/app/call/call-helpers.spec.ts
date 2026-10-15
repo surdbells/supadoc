@@ -72,6 +72,14 @@ describe('callRefusal', () => {
     expect(httpStatus('nope')).toBe(0);
   });
 
+  it('a doctor refused for their standing gets a final screen', () => {
+    for (const code of ['doctor_suspended', 'doctor_not_approved', 'terms_required'] as const) {
+      const r = callRefusal(apiError(403, { call: 'Your VideoMed account is suspended', code }));
+      expect(r?.code).toBe(code);
+      expect(r && isFinalRefusal(r)).toBe(true);
+    }
+  });
+
   it('a consent refusal is not final — the lobby asks for the notice', () => {
     const r = callRefusal(apiError(403, { call: 'Please accept the notice', code: 'consent_required' }));
     expect(r?.code).toBe('consent_required');

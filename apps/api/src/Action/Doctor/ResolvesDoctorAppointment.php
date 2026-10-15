@@ -12,8 +12,11 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * Shared authorisation for the doctor's in-consultation actions: the signed-in
  * staff user must be a `doctor` linked to a specialist, and that specialist must
- * own the appointment. Returns null when any check fails so the action can answer
- * with a 403 — a doctor can only ever touch their own consultations.
+ * own the appointment and be approved — a suspended doctor, or one still
+ * onboarding, touches no consultation (DoctorStandingMiddleware already refuses
+ * their routes; this is the second lock). Returns null when any check fails so
+ * the action can answer with a 403 — a doctor can only ever touch their own
+ * consultations.
  */
 trait ResolvesDoctorAppointment
 {
@@ -33,7 +36,11 @@ trait ResolvesDoctorAppointment
         }
 
         $appointment = $appointments->find($appointmentId);
-        if ($appointment === null || $appointment->getSpecialist()->getId() !== $user->getSpecialistId()) {
+        if (
+            $appointment === null
+            || $appointment->getSpecialist()->getId() !== $user->getSpecialistId()
+            || !$appointment->getSpecialist()->isApproved()
+        ) {
             return null;
         }
 

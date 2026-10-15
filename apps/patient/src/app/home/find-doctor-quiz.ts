@@ -11,7 +11,8 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
+import { forkJoin, map } from 'rxjs';
+import { apiErrorMessage, SpecialistsApi, viewerTimeZone } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import { IconComponent, StepperComponent } from '@supadoc/ui';
 import { SpecialistCard } from '../dashboard/specialist-card';
@@ -127,13 +128,18 @@ const BODY_AREAS: BodyArea[] = [
 
 const DURATIONS = ['< 24 hours', '2 - 7 days', '1 - 4 weeks', '1+ month', 'Comes and goes'];
 const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
+const GENERAL_PRACTICE = 'General Practice';
+/** Doctors fetched per matching specialty (soonest free first). */
+const PER_SPECIALTY = 6;
 
 /**
  * "Find me a doctor" guided quiz (Figma). A modal that asks 3–4 quick questions
- * — body area, main issue, duration, extras — then matches the answers to a
- * specialty and scores the public specialists client-side, showing the best
- * matches (or a general-practice fallback / no-match state). Booking reuses the
- * shared specialist card, so a visitor is routed through register as usual.
+ * — body area, main issue, duration, extras — then matches the answers to
+ * specialties, searches those specialties' doctors on the server (soonest free
+ * first) and scores them by fit, how soon they're free and rating, showing the
+ * best matches (or a general-practice fallback / no-match state). Booking
+ * reuses the shared specialist card, so a visitor is routed through register
+ * as usual.
  */
 @Component({
   selector: 'pat-find-doctor-quiz',
@@ -419,7 +425,7 @@ const EXTRA_FLAGS = ['Fever', 'Recent Medication'];
                       class="mt-3 rounded-card bg-glacier px-4 py-3 text-center font-sans text-caption text-slate"
                     >
                       Matches are ranked by how closely each specialist's field fits
-                      your answers ({{ summary() }}), then by availability and rating.
+                      your answers ({{ summary() }}), then by how soon they're free and their rating.
                     </p>
                   }
                 </div>
@@ -671,19 +677,39 @@ export class FindDoctorQuiz {
   protected bookGeneralPractice(): void {
     this.open.set(false);
     void this.router.navigate(['/specialists'], {
-      queryParams: { specialty: 'General Practice' },
+      queryParams: { specialty: GENERAL_PRACTICE },
     });
   }
 
+  /**
+   * The matching specialties' doctors, searched on the server — soonest free
+   * first, a few per specialty — plus whether any general practitioner is
+   * listed (the fallback when nothing fits well).
+   */
   private finish(): void {
     this.phase.set('results');
     this.resultState.set('loading');
     this.resultError.set('');
-    this.specialistsApi
-      .publicSearch({ limit: 24 })
+    const weights = this.targetWeights();
+    const specialties = [...new Set([...weights.keys(), GENERAL_PRACTICE])];
+    forkJoin(
+      specialties.map((specialty) =>
+        this.specialistsApi
+          .publicSearch({
+            specialty,
+            sort_by: 'soonest',
+            tz: viewerTimeZone(),
+            limit: weights.has(specialty) ? PER_SPECIALTY : 1,
+          })
+          .pipe(map((res) => res.data ?? [])),
+      ),
+    )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.computeResults(res.data ?? []),
+        next: (lists) => {
+          const byId = new Map(lists.flat().map((s) => [s.id, s] as const));
+          this.computeResults([...byId.values()], weights);
+        },
         error: (err: unknown) => {
           this.resultError.set(apiErrorMessage(err, 'Could not load specialists. Please try again.'));
           this.resultState.set('none');
@@ -691,8 +717,7 @@ export class FindDoctorQuiz {
       });
   }
 
-  private computeResults(all: SpecialistDto[]): void {
-    const weights = this.targetWeights();
+  private computeResults(all: SpecialistDto[], weights: Map<string, number>): void {
     const maxW = Math.max(1, ...weights.values());
     const scored: ScoredSpecialist[] = all
       .map((s) => ({ ...s, match: this.score(s, weights, maxW) }))
@@ -705,7 +730,7 @@ export class FindDoctorQuiz {
     if (strong.length > 0) {
       this.top.set(scored.slice(0, 3));
       this.resultState.set('results');
-    } else if (scored.some((s) => s.specialty === 'General Practice')) {
+    } else if (scored.some((s) => s.specialty === GENERAL_PRACTICE)) {
       this.resultState.set('weak');
     } else {
       this.resultState.set('none');
@@ -732,9 +757,17 @@ export class FindDoctorQuiz {
   private score(s: SpecialistDto, weights: Map<string, number>, maxW: number): number {
     const w = weights.get(s.specialty) ?? 0;
     const specialtyMatch = w > 0 ? 45 + (w / maxW) * 35 : 8;
-    const availability = s.available ? 12 : 0;
     const rating = (Number(s.rating) / 5) * 8;
-    return Math.min(98, Math.round(specialtyMatch + availability + rating));
+    return Math.min(98, Math.round(specialtyMatch + this.soonScore(s) + rating));
+  }
+
+  /** Up to 12 points for how soon the doctor is free (their next opening, from the listing). */
+  private soonScore(s: SpecialistDto): number {
+    const next = s.availability?.next_available_at;
+    const at = next ? new Date(next).getTime() : NaN;
+    if (isNaN(at)) return 0;
+    const days = (at - Date.now()) / 86_400_000;
+    return days <= 1 ? 12 : days <= 3 ? 9 : days <= 7 ? 6 : 3;
   }
 
   private durationPhrase(d: string): string {

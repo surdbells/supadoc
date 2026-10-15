@@ -11,7 +11,8 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/public/facets — filter options for the homepage/directory:
- * specialties (with counts), locations and languages. Public (no auth).
+ * specialties (with counts), locations, languages, genders and the fee range
+ * ({min, max} decimal strings, or null when nobody is listed). Public (no auth).
  */
 final class PublicFacetsAction
 {
@@ -29,6 +30,8 @@ final class PublicFacetsAction
             'specialties' => $this->repo->specialtyCounts(),
             'locations'   => $this->repo->distinctLocations(),
             'languages'   => $this->repo->distinctLanguages(),
+            'genders'     => $this->repo->distinctGenders(),
+            'fee_range'   => $this->repo->feeRange(),
         ]);
     }
 }

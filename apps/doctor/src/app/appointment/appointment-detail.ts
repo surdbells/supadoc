@@ -18,14 +18,14 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { type Observable, tap } from 'rxjs';
 import {
+  apiErrorFields,
   apiErrorMessage,
+  AvailabilityCalendarStore,
   DoctorApi,
   injectCallPresence,
-  localSlotDays,
   nowLocalInput,
   openBlobDocument,
   openClinicalDocument,
-  SpecialistsApi,
   todayLocal,
 } from '@supadoc/data-access';
 import type {
@@ -35,7 +35,6 @@ import type {
   ClinicalNoteDto,
   ConsentDto,
   CopilotDraftDto,
-  DayAvailability,
   DoctorAppointmentDto,
   DoctorPatientRecordDto,
   DoctorRecordingStateDto,
@@ -48,7 +47,14 @@ import type {
   SuccessResponse,
   TranscriptSegmentDto,
 } from '@supadoc/models';
-import { AlertComponent, CallPresenceComponent, IconComponent, MessageThreadComponent, SlotPickerComponent } from '@supadoc/ui';
+import {
+  AlertComponent,
+  BookingCalendarComponent,
+  CallPresenceComponent,
+  IconComponent,
+  MessageThreadComponent,
+  shortDayLabel,
+} from '@supadoc/ui';
 import { MedicationItem, VisitStatusBadge } from '../patients/patient-record-ui';
 import { RxPanel } from '../prescriptions/rx-panel';
 import { ClinicalAi } from './clinical/clinical-ai';
@@ -148,15 +154,17 @@ function timeLeft(ms: number): TimeLeft | null {
 @Component({
   selector: 'doc-appointment-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // The reschedule calendar's data (the follow-up planner has its own).
+  providers: [AvailabilityCalendarStore],
   imports: [
     NgTemplateOutlet,
     RouterLink,
     AlertComponent,
+    BookingCalendarComponent,
     CallPresenceComponent,
     IconComponent,
     MessageThreadComponent,
     RxPanel,
-    SlotPickerComponent,
     ClinicalAi,
     ClinicalBadge,
     ClinicalCarePlan,
@@ -328,6 +336,14 @@ function timeLeft(ms: number): TimeLeft | null {
               @if (joinState().enabled && patientWaiting()) {
                 <p class="rounded-field bg-success/10 px-3 py-2 text-center font-sans text-caption font-semibold text-success" role="status">The patient is waiting in the call</p>
               }
+              @if (a.join_blocked; as blocked) {
+                <p class="flex flex-col gap-1 rounded-field bg-warning/15 px-3 py-2 font-sans text-caption text-ink" role="status">
+                  <span class="flex items-start gap-1.5"><sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />{{ blocked.message }}</span>
+                  <a [routerLink]="blocked.code === 'terms_required' ? '/onboarding/terms' : '/account-status'" class="inline-flex min-h-11 items-center gap-1 font-semibold text-cerulean hover:text-ocean">
+                    {{ blocked.code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}<sd-icon name="chevron-right" [size]="14" />
+                  </a>
+                </p>
+              }
             }
             <!-- A visit that ended without End in the call: close it here (asks first). -->
             @if (canComplete()) {
@@ -365,7 +381,9 @@ function timeLeft(ms: number): TimeLeft | null {
             }
             <div class="flex gap-3">
               @if (canReschedule(a.status)) {
-                <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean" (click)="toggleReschedule()">
+                <button #rescheduleButton type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border px-4 py-2.5 font-sans text-body-sm font-semibold transition-colors hover:border-cerulean hover:text-cerulean"
+                  [class]="rescheduleOpen() ? 'border-cerulean bg-frost/40 text-cerulean' : 'border-cloud text-slate'"
+                  [attr.aria-expanded]="rescheduleOpen()" aria-controls="reschedule-panel" (click)="toggleReschedule()">
                   <sd-icon name="refresh-cw" [size]="16" />Reschedule
                 </button>
               }
@@ -375,40 +393,98 @@ function timeLeft(ms: number): TimeLeft | null {
                 </button>
               }
             </div>
-            @if (rescheduleOpen()) {
-              <div class="flex min-w-0 flex-col gap-3 rounded-field border border-cloud p-3">
-                @if (rescheduleSlotsLoading()) {
-                  <div class="sd-shimmer h-24 rounded-field"></div>
-                } @else if (!rescheduleUseManual()) {
-                  <span class="font-sans text-caption font-semibold text-slate">Your open slots</span>
-                  <sd-slot-picker [days]="rescheduleDays()" [(value)]="rescheduleSlot" />
-                } @else {
-                  @if (rescheduleSlotsError()) {
-                    <p class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ rescheduleSlotsError() }}</p>
-                  } @else if (rescheduleSlotsNote()) {
-                    <p class="font-sans text-caption text-slate">{{ rescheduleSlotsNote() }}</p>
-                  } @else if (rescheduleDays().length === 0) {
-                    <p class="font-sans text-caption text-slate">You have no open slots coming up.</p>
-                  }
-                  <label class="flex flex-col gap-1.5">
-                    <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
-                    <input type="datetime-local" step="1800" class="w-full min-w-0 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [min]="rescheduleMin()" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
-                    <span class="font-sans text-caption text-slate">Must be on your availability, at least an hour from now.</span>
-                  </label>
+            @if (actionError() && !rescheduleOpen()) { <p #actionErrorEl tabindex="-1" role="alert" class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert outline-none">{{ actionError() }}</p> }
+          </div>
+
+          <!-- Reschedule: the doctor's own calendar (the times a patient could book), full width under the summary. -->
+          @if (rescheduleOpen()) {
+            <div id="reschedule-panel" class="flex min-w-0 flex-col gap-4 border-t border-cloud pt-6 lg:col-span-2" role="group" aria-labelledby="reschedule-title">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="flex min-w-0 flex-col gap-1">
+                  <h2 #rescheduleTitle id="reschedule-title" tabindex="-1" class="font-heading text-body-lg text-ink outline-none">Choose a new time</h2>
+                  <p class="font-sans text-caption text-slate">
+                    @if (rescheduleUseManual()) {
+                      Type a time that is on your availability, no sooner than patients can book (usually an hour ahead).
+                    } @else {
+                      Your open times (your lead time, blocks and bookings applied).
+                    }
+                  </p>
+                </div>
+                <button type="button" class="flex min-h-11 items-center gap-1 rounded-field px-3 font-sans text-body-sm font-semibold text-slate transition-colors hover:text-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="toggleReschedule()">
+                  <sd-icon name="x" [size]="16" />Close
+                </button>
+              </div>
+
+              @if (!rescheduleUseManual()) {
+                @if (cal.error(); as calError) {
+                  <!-- A day's times (or another month) didn't load: the calendar stays, with a retry. -->
+                  <p class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-alert" role="alert">
+                    <span class="flex items-start gap-1.5"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ calError }}</span>
+                    <button type="button" class="inline-flex min-h-11 items-center font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="cal.refresh()">Try again</button>
+                  </p>
                 }
-                @if (!rescheduleSlotsLoading() && rescheduleDays().length > 0) {
-                  <button type="button" class="w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean" (click)="rescheduleManual.set(!rescheduleManual())">
-                    {{ rescheduleManual() ? 'Choose from open slots' : 'Enter another time' }}
+                <sd-booking-calendar
+                  [days]="cal.days()"
+                  [month]="cal.month()"
+                  (monthChange)="cal.setMonth($event)"
+                  [selectedDate]="cal.selectedDate()"
+                  (selectedDateChange)="cal.selectDate($event)"
+                  [slots]="cal.slots()"
+                  [(value)]="rescheduleSlot"
+                  [loading]="cal.loading()"
+                  [slotsLoading]="cal.slotsLoading()"
+                  [min]="cal.min()"
+                  [max]="cal.max()"
+                  [nextAvailable]="cal.nextAvailable()"
+                  [timeZone]="cal.tz()"
+                  [timeZoneLabel]="cal.timeZoneLabel()"
+                  [weekStartsOn]="cal.weekStartsOn()"
+                  [disabled]="actionBusy()"
+                >
+                  <p calendarEmpty class="font-sans text-caption text-slate">
+                    Need a time that isn't open here?
+                    <button type="button" class="inline-flex min-h-11 items-center font-semibold text-cerulean hover:text-ocean" (click)="setRescheduleManual(true)">Enter another time</button>
+                  </p>
+                </sd-booking-calendar>
+                @if (cal.max(); as last) {
+                  <p class="font-sans text-caption text-slate">Your calendar shows up to {{ dayLabel(last) }} — for a later time, or one that isn't shown, use “Enter another time”.</p>
+                }
+              } @else {
+                @if (rescheduleCalendarFailed()) {
+                  <p class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ cal.error() }} Enter a time that's on your availability.</p>
+                } @else if (rescheduleNoOpenTimes()) {
+                  <p class="font-sans text-caption text-slate">You have no open times{{ cal.max() ? ' up to ' + dayLabel(cal.max()) : '' }}.</p>
+                }
+                <label class="flex max-w-sm flex-col gap-1.5">
+                  <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
+                  <input type="datetime-local" step="1800" class="min-h-11 w-full min-w-0 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [min]="rescheduleMin()" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
+                  <span class="font-sans text-caption text-slate">Must be on your availability, no sooner than patients can book (usually an hour ahead).</span>
+                </label>
+              }
+              @if (!rescheduleNoOpenTimes()) {
+                @if (rescheduleUseManual()) {
+                  <button type="button" class="min-h-11 w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="useRescheduleCalendar()">
+                    Choose from your calendar
+                  </button>
+                } @else {
+                  <button type="button" class="min-h-11 w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="setRescheduleManual(true)">
+                    Enter another time
                   </button>
                 }
-                @if (a.guests?.length) {
-                  <span class="font-sans text-caption text-slate">The patient and their guests are emailed the new time.</span>
-                }
-                <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy() || rescheduleSlotsLoading()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
+              }
+
+              <div class="flex flex-col gap-3 border-t border-cloud pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p class="font-sans text-caption text-slate" aria-live="polite">
+                  @if (rescheduleChosenLabel(); as chosen) {
+                    New time: <span class="font-semibold text-ink">{{ chosen }}</span>.
+                  }
+                  {{ a.guests?.length ? 'The patient and their guests are emailed the new time.' : 'The patient is emailed the new time.' }}
+                </p>
+                <button type="button" class="min-h-11 shrink-0 rounded-field bg-cerulean px-5 py-2 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
               </div>
-            }
-            @if (actionError()) { <p #actionErrorEl tabindex="-1" role="alert" class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert outline-none">{{ actionError() }}</p> }
-          </div>
+              @if (actionError()) { <p role="alert" class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert">{{ actionError() }}</p> }
+            </div>
+          }
         </section>
 
         <!-- Primary tabs -->
@@ -722,7 +798,8 @@ function timeLeft(ms: number): TimeLeft | null {
 })
 export class DoctorAppointmentDetail implements OnInit {
   private readonly api = inject(DoctorApi);
-  private readonly specialistsApi = inject(SpecialistsApi);
+  /** The doctor's own booking calendar, for Reschedule. */
+  protected readonly cal = inject(AvailabilityCalendarStore);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -783,6 +860,8 @@ export class DoctorAppointmentDetail implements OnInit {
     if (isClosedProposal(a)) return { label: 'Proposal closed', enabled: false, startsIn: null };
     if (a.status === 'completed' || a.status === 'cancelled') return { label: 'Consultation ended', enabled: false, startsIn: null };
     if (a.status === 'proposed') return { label: 'No call until accepted', enabled: false, startsIn: null };
+    // The doctor may not start clinical work now (e.g. owes the practitioner terms): no link.
+    if (a.join_blocked) return { label: 'Join Call', enabled: false, startsIn: null };
     const startsIn = timeLeft(new Date(a.scheduled_at).getTime() - this.now());
     return { label: startsIn ? 'Join Call' : 'Join Call Now', enabled: true, startsIn };
   });
@@ -856,24 +935,37 @@ export class DoctorAppointmentDetail implements OnInit {
   private readonly clinicalPane = viewChild<ElementRef<HTMLElement>>('clinicalPane');
 
   protected readonly rescheduleOpen = signal(false);
-  /** The doctor's own open slots (next 14 days with any), in local time. */
-  protected readonly rescheduleDays = signal<DayAvailability[]>([]);
-  protected readonly rescheduleSlotsLoading = signal(false);
-  protected readonly rescheduleSlotsError = signal('');
-  /** Why there are no slots to pick when that isn't an error (a doctor not approved yet). */
-  protected readonly rescheduleSlotsNote = signal('');
-  /** The picked slot's ISO start. */
-  protected readonly rescheduleSlot = signal('');
-  /** Typing a time instead (e.g. beyond the two weeks the pills cover). */
+  /** The picked time's ISO start, from the calendar (null: none). */
+  protected readonly rescheduleSlot = signal<string | null>(null);
+  /** Typing a time instead (e.g. one the calendar doesn't show, or past its last day). */
   protected readonly rescheduleManual = signal(false);
   /** The typed time — a local datetime-local value. */
   protected readonly rescheduleAt = signal('');
   /** The typed time's earliest value: now, on the half hour. */
   protected readonly rescheduleMin = signal('');
-  /** The typed input shows when chosen, or when there are no slots to pick. */
-  protected readonly rescheduleUseManual = computed(
-    () => this.rescheduleManual() || this.rescheduleSlotsError() !== '' || this.rescheduleDays().length === 0,
+  /** The calendar loaded and its whole range (about a year) has no open time. */
+  protected readonly rescheduleNoOpenTimes = computed(
+    () => this.cal.range() !== null && this.cal.nextAvailable() === null,
   );
+  /**
+   * The calendar couldn't be loaded at all (no month ever arrived). A day's
+   * times or a later month failing is shown inline instead, with a retry.
+   */
+  protected readonly rescheduleCalendarFailed = computed(() => this.cal.error() !== null && this.cal.max() === null);
+  /** The typed input shows when chosen, or when the calendar has nothing to pick (or failed to load). */
+  protected readonly rescheduleUseManual = computed(
+    () => this.rescheduleManual() || this.rescheduleCalendarFailed() || this.rescheduleNoOpenTimes(),
+  );
+  /** The new time as the doctor will read it, e.g. "Thu 16 Oct, 9:30 AM" ('' until one is chosen). */
+  protected readonly rescheduleChosenLabel = computed(() => {
+    const raw = this.rescheduleUseManual() ? this.rescheduleAt() : this.rescheduleSlot();
+    const d = raw ? new Date(raw) : null;
+    return d && !isNaN(d.getTime())
+      ? new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(d)
+      : '';
+  });
+  private readonly rescheduleTitle = viewChild<ElementRef<HTMLElement>>('rescheduleTitle');
+  private readonly rescheduleButton = viewChild<ElementRef<HTMLButtonElement>>('rescheduleButton');
 
   // Clinical tools (nested)
   protected readonly tab = signal<TabKey>('notes');
@@ -1231,37 +1323,38 @@ export class DoctorAppointmentDetail implements OnInit {
   protected toggleReschedule(): void {
     this.rescheduleOpen.update((v) => !v);
     this.actionError.set('');
-    if (this.rescheduleOpen()) this.loadRescheduleSlots();
+    if (this.rescheduleOpen()) {
+      this.loadRescheduleCalendar();
+      afterNextRender(() => this.rescheduleTitle()?.nativeElement.focus(), { injector: this.injector });
+    } else {
+      afterNextRender(() => this.rescheduleButton()?.nativeElement.focus(), { injector: this.injector });
+    }
   }
-  /** Fresh slots on every open — the same ones a patient could book (lead time, blocks and bookings applied). */
-  private loadRescheduleSlots(): void {
+  /**
+   * Fresh times on every open — the doctor's own calendar (lead time, blocks
+   * and bookings applied; up to a year ahead, not held to the patient booking
+   * window, and shown while bookings are switched off); a later or unlisted
+   * time is typed instead.
+   */
+  private loadRescheduleCalendar(): void {
     const a = this.appt();
     if (!a) return;
-    this.rescheduleSlot.set('');
+    this.rescheduleSlot.set(null);
     this.rescheduleAt.set('');
     this.rescheduleManual.set(false);
     this.rescheduleMin.set(nowLocalInput(30));
-    this.rescheduleSlotsError.set('');
-    this.rescheduleSlotsNote.set('');
-    this.rescheduleSlotsLoading.set(true);
-    this.specialistsApi.slots(a.specialist.id, 14).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rescheduleDays.set(localSlotDays(r.data)); this.rescheduleSlotsLoading.set(false); },
-      error: (err: unknown) => {
-        this.rescheduleDays.set([]);
-        const failed = apiErrorMessage(err, 'Could not load your open slots.');
-        // These are the public slots, which answer "not found" for a doctor who
-        // isn't approved. Say that instead; a typed time on the schedule still works.
-        this.api.onboarding().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-          next: (o) => {
-            const status = o.data.status;
-            if (status === 'approved') this.rescheduleSlotsError.set(failed);
-            else this.rescheduleSlotsNote.set(`${status === 'suspended' ? 'Your profile is suspended' : "Your profile hasn't been approved yet"}, so patients can't book your slots and there are none to pick here. Enter a time that's on your availability.`);
-            this.rescheduleSlotsLoading.set(false);
-          },
-          error: () => { this.rescheduleSlotsError.set(failed); this.rescheduleSlotsLoading.set(false); },
-        });
-      },
-    });
+    if (this.cal.specialistId() === a.specialist.id) this.cal.refresh();
+    else this.cal.load(a.specialist.id, undefined, { scope: 'doctor' });
+  }
+  protected setRescheduleManual(manual: boolean): void {
+    this.rescheduleManual.set(manual);
+    this.rescheduleMin.set(nowLocalInput(30));
+    this.actionError.set('');
+  }
+  /** Back from the typed time to the calendar, reloaded (so one that failed to load gets another go). */
+  protected useRescheduleCalendar(): void {
+    this.setRescheduleManual(false);
+    this.cal.refresh();
   }
   protected confirm(): void { this.runAction(this.api.confirm(this.id)); }
   protected askComplete(): void {
@@ -1338,28 +1431,42 @@ export class DoctorAppointmentDetail implements OnInit {
     );
   }
   protected submitReschedule(): void {
-    let iso = this.rescheduleSlot();
-    if (this.rescheduleUseManual()) {
+    let iso = this.rescheduleSlot() ?? '';
+    const manual = this.rescheduleUseManual();
+    if (manual) {
       if (this.rescheduleAt().trim() === '') { this.actionError.set('Choose a new date and time.'); return; }
       const at = new Date(this.rescheduleAt());
       if (isNaN(at.getTime())) { this.actionError.set('Enter a valid date and time.'); return; }
       if (at.getTime() <= Date.now()) { this.actionError.set('Choose a time in the future.'); return; }
       iso = at.toISOString();
     } else if (iso === '') {
-      this.actionError.set('Pick one of your open slots.');
+      this.actionError.set('Pick a day, then one of its open times.');
       return;
     }
-    this.runAction(this.api.reschedule(this.id, iso), () => this.rescheduleOpen.set(false));
+    this.runAction(
+      this.api.reschedule(this.id, iso),
+      () => {
+        this.rescheduleOpen.set(false);
+        afterNextRender(() => this.rescheduleButton()?.nativeElement.focus(), { injector: this.injector });
+      },
+      (err) => {
+        // The time went meanwhile (taken, blocked, too soon): show the calendar as it is now.
+        if (!manual && apiErrorFields(err)['scheduled_at']) {
+          this.rescheduleSlot.set(null);
+          this.cal.refresh();
+        }
+      },
+    );
   }
   private runAction(
     call: Observable<SuccessResponse<AppointmentDto>>,
     onOk?: (res: SuccessResponse<AppointmentDto>) => void,
-    onError?: () => void,
+    onError?: (err: unknown) => void,
   ): void {
     this.actionBusy.set(true); this.actionError.set('');
     call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => { this.appt.update((a) => (a ? { ...a, status: res.data.status, status_label: res.data.status_label, scheduled_at: res.data.scheduled_at, follow_up_outcome: res.data.follow_up_outcome } : a)); this.actionBusy.set(false); onOk?.(res); },
-      error: (err) => { this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.')); this.actionBusy.set(false); onError?.(); },
+      error: (err: unknown) => { this.actionError.set(apiErrorMessage(err, 'Could not update the appointment.')); this.actionBusy.set(false); onError?.(err); },
     });
   }
 
@@ -1395,6 +1502,8 @@ export class DoctorAppointmentDetail implements OnInit {
   protected dateLabel(iso: string): string { return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)); }
   protected time(iso: string): string { return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso)); }
   protected shortDate(iso: string): string { return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)); }
+  /** A calendar date ('YYYY-MM-DD', no zone shift), e.g. "Thu 16 Oct". */
+  protected dayLabel(ymd: string | null): string { return ymd ? shortDayLabel(ymd) : ''; }
   private ageFrom(dob: string | null | undefined): number | null {
     if (!dob) return null;
     const d = new Date(dob);

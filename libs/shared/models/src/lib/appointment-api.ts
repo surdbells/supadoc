@@ -253,6 +253,8 @@ export interface SpecialistDto {
   qualification_entries?: QualificationEntry[];
   certifications?: CertificationEntry[];
   slot_minutes?: number;
+  /** On directory listings and suggestions: when this doctor is free (no extra request needed). */
+  availability?: SpecialistAvailabilitySummary;
 }
 
 /**
@@ -327,6 +329,10 @@ export interface SpecialistFacets {
   specialties: SpecialtyCount[];
   locations: string[];
   languages: string[];
+  /** Genders listed doctors gave, lower-case (absent from older APIs). */
+  genders?: string[];
+  /** Cheapest / dearest listed fee as decimal strings; null when nobody is listed. */
+  fee_range?: { min: string; max: string } | null;
 }
 
 /** A specialty with its specialist count (GET /public/specialties). */
@@ -426,6 +432,110 @@ export interface DayAvailability {
   weekday: string;
   day: string;
   slots: SlotOption[];
+}
+
+/* ---------------------------------------------------------------------------
+ * Booking calendar + availability search (GET /public/specialists/{id}/availability,
+ * /public/specialists/{id}/slots?date=, /public/specialists/suggestions).
+ * Dates are 'YYYY-MM-DD' calendar days in the requested `tz`; instants are ISO UTC.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A calendar day's state: open times left (`available`, or `few` at or under the
+ * "few left" setting), `full` (had times, all taken), `closed` (no hours),
+ * `blocked` (the doctor blocked it), `past` (before today) or `beyond` (after
+ * bookable_until).
+ */
+export type AvailabilityDayStatus = 'available' | 'few' | 'full' | 'closed' | 'blocked' | 'past' | 'beyond';
+
+/** One calendar day of a specialist's availability. */
+export interface AvailabilityDayDto {
+  /** 'YYYY-MM-DD' in the requested time zone. */
+  date: string;
+  status: AvailabilityDayStatus;
+  /** Open times that day (0 unless available / few). */
+  open: number;
+  /** The first open time, ISO UTC, or null. */
+  first: string | null;
+}
+
+/** GET /public/specialists/{id}/availability — one per date in from … to (≤ 42 days). */
+export interface AvailabilityRangeDto {
+  /** The IANA zone the days are in (an unknown `tz` falls back to the clinic's). */
+  tz: string;
+  /** 'YYYY-MM-DD' — today in `tz`. */
+  today: string;
+  /** 'YYYY-MM-DD' — the date of the earliest bookable time (now + lead time). */
+  bookable_from: string;
+  /** 'YYYY-MM-DD' — the date of the last bookable time (now + horizon). */
+  bookable_until: string;
+  horizon_days: number;
+  slot_minutes: number;
+  /** The next open time anywhere in the booking window, ISO UTC, or null. */
+  next_available: string | null;
+  days: AvailabilityDayDto[];
+}
+
+/** Part of the day on the viewer's clock: morning 05–12, afternoon 12–17, evening 17–05. */
+export type PartOfDay = 'morning' | 'afternoon' | 'evening';
+
+/** One open time on a day. */
+export interface DaySlotDto {
+  /** The instant, ISO UTC. */
+  iso: string;
+  /** 'HH:mm' in the requested time zone. */
+  time: string;
+  /** e.g. "9:30 AM" in the requested time zone. */
+  label: string;
+  period: PartOfDay;
+}
+
+/** GET /public/specialists/{id}/slots?date= — the open times on one date. */
+export interface DaySlotsDto {
+  date: string;
+  tz: string;
+  slots: DaySlotDto[];
+}
+
+/**
+ * When a listed doctor is free. `date` is the day described (a filtered date's
+ * first matching opening, else the next opening); `next_available_at` is the
+ * next opening at all.
+ */
+export interface SpecialistAvailabilitySummary {
+  date: string | null;
+  open_slots: number;
+  first_slot_at: string | null;
+  /** Up to three open times that date, ISO UTC. */
+  slots_preview: string[];
+  next_available_at: string | null;
+}
+
+/** Which filter a tier-1 suggestion relaxed. */
+export type SuggestionRelaxedFilter = 'part_of_day' | 'location' | 'gender' | 'language' | 'fee';
+
+/** A similar doctor: 0 = every filter holds, 1 = one filter relaxed, 2 = free within 3 days instead. */
+export interface SpecialistSuggestionDto {
+  specialist: SpecialistDto;
+  availability: SpecialistAvailabilitySummary;
+  /** `relaxed` holds {@link SuggestionRelaxedFilter} values; `reason` e.g. "Same specialty · free 10:00 AM". */
+  match: { tier: number; relaxed: string[]; reason: string };
+}
+
+/** GET /public/specialists/suggestions. `requested` is the `like` doctor (null without one). */
+export interface SpecialistSuggestionsDto {
+  requested: { id: string; available_on_date: boolean; next_available_at: string | null } | null;
+  suggestions: SpecialistSuggestionDto[];
+}
+
+/** GET/PATCH /settings/booking — the booking-calendar rules (settings.manage). */
+export interface BookingSettingsDto {
+  /** How many days ahead patients may book (7–180). */
+  horizon_days: number;
+  /** Minimum notice before a consultation, in minutes (15–1440). */
+  lead_minutes: number;
+  /** A day with this many open times or fewer shows as "few left" (1–10). */
+  few_left: number;
 }
 
 /** Who a call participant is. */

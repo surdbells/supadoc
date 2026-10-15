@@ -13,11 +13,17 @@ use Ramsey\Uuid\Uuid;
  * prescription signed, record shared, consent granted, …). Append-only — there
  * are no setters and no updatedAt: an event, once written, is never changed.
  * See ARCHITECTURE §audit.
+ *
+ * `actor_id` is the user who acted (a staff user or patient id) when known —
+ * NULL for the system and for events recorded before it existed. A resource's
+ * history (e.g. everything done to one doctor) is read by (resource_type,
+ * resource_id), which is indexed.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'audit_events')]
 #[ORM\Index(name: 'idx_audit_appointment', columns: ['appointment_id'])]
 #[ORM\Index(name: 'idx_audit_action', columns: ['action'])]
+#[ORM\Index(name: 'idx_audit_resource', columns: ['resource_type', 'resource_id'])]
 class AuditEvent
 {
     #[ORM\Id]
@@ -30,6 +36,10 @@ class AuditEvent
 
     #[ORM\Column(name: 'actor_role', type: 'string', length: 40)]
     private string $actorRole;
+
+    /** The acting user's id (staff user or patient), or null for the system / older events. */
+    #[ORM\Column(name: 'actor_id', type: 'uuid', nullable: true)]
+    private ?string $actorId;
 
     /** Dotted action key, e.g. "note.finalized", "prescription.signed". */
     #[ORM\Column(type: 'string', length: 60)]
@@ -62,10 +72,12 @@ class AuditEvent
         ?string $resourceType = null,
         ?string $resourceId = null,
         array $metadata = [],
+        ?string $actorId = null,
     ) {
         $this->id            = Uuid::uuid4()->toString();
         $this->actorName     = $actorName;
         $this->actorRole     = $actorRole;
+        $this->actorId       = $actorId !== null && Uuid::isValid($actorId) ? $actorId : null;
         $this->action        = $action;
         $this->appointmentId = $appointmentId;
         $this->resourceType  = $resourceType;
@@ -80,6 +92,7 @@ class AuditEvent
             'id'            => $this->id,
             'actor_name'    => $this->actorName,
             'actor_role'    => $this->actorRole,
+            'actor_id'      => $this->actorId,
             'action'        => $this->action,
             'appointment_id' => $this->appointmentId,
             'resource_type' => $this->resourceType,

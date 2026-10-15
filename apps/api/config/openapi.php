@@ -149,6 +149,60 @@ return [
                     'gender'           => ['type' => 'string', 'nullable' => true, 'enum' => ['male', 'female']],
                     'offers_in_person' => ['type' => 'boolean'],
                     'photo_url'        => ['type' => 'string', 'nullable' => true],
+                    'availability'     => ['$ref' => '#/components/schemas/SpecialistAvailability'],
+                ],
+            ],
+            'SpecialistAvailability' => [
+                'type'        => 'object',
+                'description' => 'On directory listings and suggestions. `date` is the day described (a filtered date\'s first matching opening, else the next opening), in the request\'s `tz`. Never booked counts.',
+                'properties'  => [
+                    'date'              => ['type' => 'string', 'format' => 'date', 'nullable' => true],
+                    'open_slots'        => ['type' => 'integer'],
+                    'first_slot_at'     => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'slots_preview'     => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'date-time'], 'maxItems' => 3],
+                    'next_available_at' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                ],
+            ],
+            'AvailabilityRange' => [
+                'type'       => 'object',
+                'properties' => [
+                    'tz'             => ['type' => 'string', 'example' => 'Africa/Lagos'],
+                    'today'          => ['type' => 'string', 'format' => 'date'],
+                    'bookable_from'  => ['type' => 'string', 'format' => 'date', 'description' => 'Date (in tz) of the earliest bookable time (now + lead)'],
+                    'bookable_until' => ['type' => 'string', 'format' => 'date', 'description' => 'Date (in tz) of the last bookable time (now + horizon)'],
+                    'horizon_days'   => ['type' => 'integer', 'example' => 60],
+                    'slot_minutes'   => ['type' => 'integer', 'example' => 30],
+                    'next_available' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'days'           => ['type' => 'array', 'items' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'date'   => ['type' => 'string', 'format' => 'date'],
+                            'status' => ['type' => 'string', 'enum' => ['available', 'few', 'full', 'closed', 'blocked', 'past', 'beyond']],
+                            'open'   => ['type' => 'integer'],
+                            'first'  => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                        ],
+                    ]],
+                ],
+            ],
+            'DaySlots' => [
+                'type'       => 'object',
+                'properties' => [
+                    'date'  => ['type' => 'string', 'format' => 'date'],
+                    'tz'    => ['type' => 'string'],
+                    'slots' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                        'iso'    => ['type' => 'string', 'format' => 'date-time'],
+                        'time'   => ['type' => 'string', 'example' => '09:30'],
+                        'label'  => ['type' => 'string', 'example' => '9:30 AM'],
+                        'period' => ['type' => 'string', 'enum' => ['morning', 'afternoon', 'evening']],
+                    ]]],
+                ],
+            ],
+            'BookingSettings' => [
+                'type'       => 'object',
+                'properties' => [
+                    'horizon_days' => ['type' => 'integer', 'minimum' => 7, 'maximum' => 180, 'example' => 60],
+                    'lead_minutes' => ['type' => 'integer', 'minimum' => 15, 'maximum' => 1440, 'example' => 60],
+                    'few_left'     => ['type' => 'integer', 'minimum' => 1, 'maximum' => 10, 'example' => 3],
                 ],
             ],
             'Appointment' => [
@@ -414,7 +468,7 @@ return [
                     'message' => ['type' => 'string', 'example' => 'This consultation has ended.'],
                     'errors'  => ['type' => 'object', 'properties' => [
                         'call'        => ['type' => 'string'],
-                        'code'        => ['type' => 'string', 'enum' => ['cancelled', 'ended', 'withdrawn', 'not_confirmed', 'too_early', 'consent_required']],
+                        'code'        => ['type' => 'string', 'enum' => ['cancelled', 'ended', 'withdrawn', 'not_confirmed', 'too_early', 'consent_required', 'doctor_suspended', 'doctor_not_approved', 'terms_required']],
                         'status'      => ['type' => 'string', 'example' => 'proposed'],
                         'starts_at'   => ['type' => 'string', 'format' => 'date-time'],
                         'opens_at'    => ['type' => 'string', 'format' => 'date-time'],
@@ -710,6 +764,16 @@ return [
         '/api/settings/prescriptions' => [
             'get'   => ['tags' => ['Staff'], 'summary' => 'Prescription rules: valid_days, reminder_days, check_max_attempts, check_lock_minutes, link_minutes (settings.manage)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
             'patch' => ['tags' => ['Staff'], 'summary' => 'Update prescription rules (settings.manage)', 'responses' => ['200' => ['description' => 'Updated'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/settings/booking' => [
+            'get'   => ['tags' => ['Staff'], 'summary' => 'Booking-calendar rules: horizon_days, lead_minutes, few_left (settings.manage)', 'responses' => ['200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/BookingSettings']))], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'patch' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Update booking-calendar rules (settings.manage)',
+                'description' => 'Partial update. horizon_days 7–180 (how far ahead patients may book; staff and doctors are not held to it), lead_minutes 15–1440 (minimum notice for everyone), few_left 1–10. Whole numbers; out of range → 422.',
+                'requestBody' => ['required' => true, ...$json(['$ref' => '#/components/schemas/BookingSettings'])],
+                'responses'   => ['200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/BookingSettings']))], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
         ],
         '/api/admin/support/tickets' => [
             'get' => ['tags' => ['Support'], 'summary' => 'Support ticket queue (?status=)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
@@ -1082,7 +1146,7 @@ return [
             'patch' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Update a staff account',
-                'description' => 'Partial. Only a super_admin may grant super_admin or edit a super_admin; you cannot deactivate yourself.',
+                'description' => 'Partial. Only a super_admin may grant super_admin or edit a super_admin; you cannot deactivate yourself. Deactivating a login (`active: false`) signs it out of every session at once.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => [
                     'email' => ['type' => 'string', 'format' => 'email'],
@@ -1148,7 +1212,7 @@ return [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "The signed-in doctor's own profile",
-                'description' => 'Doctor self-service — the linked specialist profile, including the contact email.',
+                'description' => 'Doctor self-service — the linked specialist profile, including the contact email, plus `locked_fields` (the identity fields that change only through a review once approved; [] while onboarding), `pending_changes` ({field: requested value} waiting for review, or null), `pending_changes_submitted_at` and `changes_review_note` (why the last request was turned down).',
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Specialist']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
@@ -1158,7 +1222,9 @@ return [
             'patch' => [
                 'tags'        => ['Staff'],
                 'summary'     => "Update the signed-in doctor's own profile",
-                'description' => 'Doctor self-service: name, specialty, email, phone, date_of_birth, country, photo_url, location, languages, years_experience, gender, expertise, qualification_entries, certifications, slot_minutes, bio, offers_in_person, available, weekly_hours. Fee and verified stay back-office controlled.',
+                'description' => 'Doctor self-service: name, specialty, email, phone, date_of_birth, country, photo_url, location, languages, years_experience, gender, expertise, qualifications, mdcn_number, qualification_entries, certifications, slot_minutes, bio, offers_in_person, available, weekly_hours. Fee and verified stay back-office controlled. '
+                    . 'Once the doctor is approved (or suspended), the locked identity fields — name, specialty, mdcn_number, qualifications, qualification_entries, certifications — do not change here: a differing value is staged in `pending_changes` for a reviewer (reviewers are notified; audited `specialist.changes_submitted`) and the message says so; a value equal to the current one takes back an earlier request for that field. Everything else saves at once. '
+                    . 'A suspended doctor may not change their availability: a body with weekly_hours, slot_minutes or available is refused with 403 (`errors.code` doctor_suspended).',
                 'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => [
                     'name' => ['type' => 'string'],
                     'specialty' => ['type' => 'string'],
@@ -1176,6 +1242,8 @@ return [
                     'certifications' => ['type' => 'array', 'items' => ['type' => 'object']],
                     'slot_minutes' => ['type' => 'integer', 'enum' => [15, 30, 45, 60]],
                     'bio' => ['type' => 'string'],
+                    'qualifications' => ['type' => 'string'],
+                    'mdcn_number' => ['type' => 'string'],
                     'offers_in_person' => ['type' => 'boolean'],
                     'available' => ['type' => 'boolean'],
                     'weekly_hours' => ['type' => 'object'],
@@ -1299,11 +1367,46 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/calendar' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => "The doctor's own booking calendar (reschedule / follow-up picker)",
+                'description' => 'AvailabilityRange for the signed-in doctor, same statuses as /api/public/specialists/{id}/availability, but not held to the patient horizon: the window (bookable_until, horizon_days) reaches 365 days ahead, and times still show while the doctor is switched off for bookings. from … to: at most 42 days, starting between 42 days before today and bookable_until. Clinical: 403 doctor_suspended / doctor_not_approved while the doctor may not practise.',
+                'parameters'  => [
+                    ['name' => 'from', 'in' => 'query', 'description' => 'Default today (in tz)', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'to', 'in' => 'query', 'description' => 'Default from + 41 days', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'description' => 'IANA zone (an unknown one falls back to the clinic zone — use the response tz)', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/AvailabilityRange']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/doctor/calendar/slots' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => "The doctor's own open times on one date",
+                'description' => 'DaySlots {date, tz, slots: [{iso, time, label, period}]} for the signed-in doctor — the times their reschedule and follow-up proposals may use (a follow-up must still be at least 2½ hours away). Not held to the patient horizon (empty after 365 days or before today).',
+                'parameters'  => [
+                    ['name' => 'date', 'in' => 'query', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/DaySlots']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/doctor/appointments' => [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "A doctor's own consultations (minimal doctor portal)",
-                'description' => 'Staff token from a doctor login (role doctor). The schedule, soonest first: the next 100 from a day ago on (all of today and what\'s coming), then, if there is room, the most recent earlier ones — GET /doctor/appointments/{id} loads any one, /doctor/appointments/history pages through the rest. Each row includes a preauthenticated join_url — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet.',
+                'description' => 'Staff token from a doctor login (role doctor). The schedule, soonest first: the next 100 from a day ago on (all of today and what\'s coming), then, if there is room, the most recent earlier ones — GET /doctor/appointments/{id} loads any one, /doctor/appointments/history pages through the rest. Each row includes a preauthenticated join_url — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet, and null with `join_blocked` {code, message} on every row while the doctor may not start clinical work (code terms_required: accept the practitioner terms first — terms_required only blocks a consultation whose start time is still ahead; one already under way keeps its join_url). 403 (`errors.code`) for a suspended / not-approved doctor.',
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope([
                         'type'       => 'object',
@@ -1316,7 +1419,8 @@ return [
                                         ['$ref' => '#/components/schemas/Appointment'],
                                         ['type' => 'object', 'properties' => [
                                             'patient_name' => ['type' => 'string'],
-                                            'join_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'null while the row is an unaccepted follow-up proposal'],
+                                            'join_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'null while the row is an unaccepted follow-up proposal, or while join_blocked is set'],
+                                            'join_blocked' => ['type' => 'object', 'nullable' => true, 'properties' => ['code' => ['type' => 'string', 'example' => 'terms_required'], 'message' => ['type' => 'string']]],
                                         ]],
                                     ],
                                 ],
@@ -1324,15 +1428,16 @@ return [
                         ],
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
-                    '403' => ['description' => 'Not a doctor login'],
+                    '403' => ['description' => 'Not a doctor login, or the doctor is suspended / not approved (`errors.code`)'],
                 ],
             ],
         ],
         '/api/doctor/dashboard' => [
             'get' => [
-                'tags'      => ['Staff'],
-                'summary'   => "Doctor dashboard metrics + today's agenda",
-                'responses' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Doctor dashboard metrics + today's agenda",
+                'description' => 'Counts, deltas, earnings this month, rating, and `next` + `agenda` (today\'s consultations): each the same row as GET /doctor/appointments — `patient_name`, a preauthenticated `join_url`, and `join_blocked` {code, message} (with join_url null) while the doctor may not start clinical work (doctor_not_approved while onboarding, terms_required — terms_required only blocks a consultation whose start time is still ahead; one already under way keeps its join_url). 403 (`errors.code` doctor_suspended) for a suspended doctor.',
+                'responses'   => [
                     '200' => ['description' => 'OK'],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
@@ -1359,7 +1464,7 @@ return [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "One of the doctor's own consultations",
-                'description' => 'The same row GET /doctor/appointments lists, whatever its date (the record page and the links in notices load it by id): the Appointment plus `patient_name` and a preauthenticated `join_url` — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet. 403 when it is not this doctor\'s consultation (or does not exist).',
+                'description' => 'The same row GET /doctor/appointments lists, whatever its date (the record page and the links in notices load it by id): the Appointment plus `patient_name` and a preauthenticated `join_url` — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet, and null with `join_blocked` {code, message} while the doctor may not start clinical work (code terms_required: accept the practitioner terms first — terms_required only blocks a consultation whose start time is still ahead; one already under way keeps its join_url). 403 when it is not this doctor\'s consultation (or does not exist), or the doctor is suspended / not approved (`errors.code`).',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope([
@@ -1367,7 +1472,8 @@ return [
                             ['$ref' => '#/components/schemas/Appointment'],
                             ['type' => 'object', 'properties' => [
                                 'patient_name' => ['type' => 'string'],
-                                'join_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'null while it is an unaccepted follow-up proposal'],
+                                'join_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'null while it is an unaccepted follow-up proposal, or while join_blocked is set'],
+                                'join_blocked' => ['type' => 'object', 'nullable' => true, 'properties' => ['code' => ['type' => 'string', 'example' => 'terms_required'], 'message' => ['type' => 'string']]],
                             ]],
                         ],
                     ]))],
@@ -1437,7 +1543,7 @@ return [
             'get' => ['tags' => ['Staff'], 'summary' => "Doctor earnings summary + available balance", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
         '/api/doctor/earnings/transactions' => [
-            'get' => ['tags' => ['Staff'], 'summary' => 'Earnings lines per completed consultation (paginated)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'get' => ['tags' => ['Staff'], 'summary' => 'Earnings lines per completed consultation (paginated)', 'description' => '{appointment_id, patient_name, date, gross, commission, net} per line. While the doctor is suspended `patient_name` is "Patient" (no patient data).', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
         '/api/doctor/payout-account' => [
             'get' => ['tags' => ['Staff'], 'summary' => "The doctor's payout beneficiary", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
@@ -1445,7 +1551,7 @@ return [
         ],
         '/api/doctor/payouts' => [
             'get'  => ['tags' => ['Staff'], 'summary' => "The doctor's payout requests", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
-            'post' => ['tags' => ['Staff'], 'summary' => 'Request a payout of available earnings', 'responses' => ['201' => ['description' => 'Requested'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
+            'post' => ['tags' => ['Staff'], 'summary' => 'Request a payout of available earnings', 'description' => 'A suspended or not-yet-approved doctor is refused: 403 with `errors.code` doctor_suspended | doctor_not_approved (they can still see earnings and payout history).', 'responses' => ['201' => ['description' => 'Requested'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
         ],
         '/api/admin/payouts' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'All payout requests (paginated, ?status)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing payouts.manage']]],
@@ -1754,7 +1860,7 @@ return [
             'get' => [
                 'tags'       => ['Portal'],
                 'summary'    => 'Specialist directory',
-                'description' => 'Only approved (or legacy) doctors who are available for booking are listed.',
+                'description' => 'Only approved (or legacy) doctors who are available for booking are listed. Every doctor carries `availability` (SpecialistAvailability). With a "when" filter (available_on, available_within, or part_of_day alone = within the booking window) doctors without a matching opening are dropped before paging (up to 500 candidates), so meta.total is exact; the default order is then soonest (first opening, weighted rating, name). Dates are calendar days in `tz` within today … today + horizon_days.',
                 'parameters' => [
                     ...$paginationParams,
                     ['name' => 'search', 'in' => 'query', 'description' => 'Matches name or specialty', 'schema' => ['type' => 'string']],
@@ -1764,10 +1870,18 @@ return [
                     ['name' => 'language', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'gender', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['male', 'female']]],
                     ['name' => 'mode', 'in' => 'query', 'description' => 'in_person to require in-person visits', 'schema' => ['type' => 'string', 'enum' => ['online', 'in_person']]],
+                    ['name' => 'fee_max', 'in' => 'query', 'description' => 'Consultation fee ceiling', 'schema' => ['type' => 'number', 'minimum' => 0]],
+                    ['name' => 'min_rating', 'in' => 'query', 'schema' => ['type' => 'number', 'minimum' => 0, 'maximum' => 5]],
+                    ['name' => 'min_years', 'in' => 'query', 'description' => 'Minimum years in practice', 'schema' => ['type' => 'integer', 'minimum' => 0]],
+                    ['name' => 'available_on', 'in' => 'query', 'description' => 'Free on this date (YYYY-MM-DD in tz); not with available_within', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'available_within', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['today', 'tomorrow', 'week']]],
+                    ['name' => 'part_of_day', 'in' => 'query', 'description' => 'Local morning 05–12, afternoon 12–17, evening 17–05', 'schema' => ['type' => 'string', 'enum' => ['morning', 'afternoon', 'evening', 'any']]],
+                    ['name' => 'tz', 'in' => 'query', 'description' => 'IANA zone of the patient (default: the clinic zone)', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
                 ],
                 'responses'  => [
-                    '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Specialist'))],
+                    '200' => ['description' => 'OK (sort_by also accepts soonest)', ...$json($paginated('#/components/schemas/Specialist'))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],
@@ -1783,7 +1897,7 @@ return [
         '/api/public/facets' => [
             'get' => [
                 'tags'      => ['Public'],
-                'summary'   => 'Filter options: specialties (with counts), locations, languages',
+                'summary'   => 'Filter options: specialties (with counts), locations, languages, genders, fee range',
                 'responses' => [
                     '200' => ['description' => 'OK', ...$json($envelope([
                         'type'       => 'object',
@@ -1791,6 +1905,8 @@ return [
                             'specialties' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'count' => ['type' => 'integer']]]],
                             'locations'   => ['type' => 'array', 'items' => ['type' => 'string']],
                             'languages'   => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'genders'     => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'fee_range'   => ['type' => 'object', 'nullable' => true, 'properties' => ['min' => ['type' => 'string', 'example' => '5000.00'], 'max' => ['type' => 'string', 'example' => '25000.00']]],
                         ],
                     ]))],
                 ],
@@ -1799,8 +1915,8 @@ return [
         '/api/public/specialists' => [
             'get' => [
                 'tags'       => ['Public'],
-                'summary'    => 'Public specialist search (homepage autocomplete)',
-                'description' => 'Only approved (or legacy) doctors who are available for booking are listed; /api/public/facets and /api/public/specialties count the same set.',
+                'summary'    => 'Public specialist search (homepage, directory, quiz)',
+                'description' => 'Only approved (or legacy) doctors who are available for booking are listed; /api/public/facets and /api/public/specialties count the same set. Same filters and `availability` as /api/portal/specialists, paged by `limit` (≤ 24) + `page`; default order name asc.',
                 'parameters' => [
                     ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'specialty', 'in' => 'query', 'schema' => ['type' => 'string']],
@@ -1808,10 +1924,82 @@ return [
                     ['name' => 'language', 'in' => 'query', 'schema' => ['type' => 'string']],
                     ['name' => 'gender', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['male', 'female']]],
                     ['name' => 'mode', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['online', 'in_person']]],
+                    ['name' => 'fee_max', 'in' => 'query', 'schema' => ['type' => 'number', 'minimum' => 0]],
+                    ['name' => 'min_rating', 'in' => 'query', 'schema' => ['type' => 'number', 'minimum' => 0, 'maximum' => 5]],
+                    ['name' => 'min_years', 'in' => 'query', 'schema' => ['type' => 'integer', 'minimum' => 0]],
+                    ['name' => 'available_on', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'available_within', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['today', 'tomorrow', 'week']]],
+                    ['name' => 'part_of_day', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['morning', 'afternoon', 'evening', 'any']]],
+                    ['name' => 'tz', 'in' => 'query', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                    ['name' => 'sort_by', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['name', 'rating', 'consultation_fee', 'years_experience', 'reviews_count', 'soonest'], 'default' => 'name']],
+                    ['name' => 'sort_dir', 'in' => 'query', 'description' => 'Default asc for name/consultation_fee, desc otherwise', 'schema' => ['type' => 'string', 'enum' => ['asc', 'desc']]],
+                    ['name' => 'page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 1]],
                     ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 12, 'maximum' => 24]],
                 ],
                 'responses'  => [
-                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Specialist']]))],
+                    '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Specialist'))],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/public/specialists/suggestions' => [
+            'get' => [
+                'tags'        => ['Public'],
+                'summary'     => 'Similar doctors free on a date (alternative-doctor suggestions)',
+                'description' => 'Same specialty (and in-person when asked), tiered: 0 = every filter holds and free that day; 1 = one filter relaxed at a time (part_of_day → location → gender → language → fee; never specialty or mode); 2 = free within the next 3 days. Within a tier: soonest, weighted rating, fee closest to the `like` doctor, name. `like` excludes that doctor and inherits their specialty and fee (as fee_max); explicit parameters win. `requested` (with `like`): is that doctor free on the date, and their first opening on/after it. A `like` doctor who isn\'t listed (onboarding, rejected, suspended, removed) is a 404; one only switched off for bookings is fine.',
+                'parameters'  => [
+                    ['name' => 'like', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'date', 'in' => 'query', 'description' => 'YYYY-MM-DD in tz (default today), within today … bookable_until', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'part_of_day', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['morning', 'afternoon', 'evening', 'any']]],
+                    ['name' => 'tz', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'specialty', 'in' => 'query', 'description' => 'Required without like', 'schema' => ['type' => 'string']],
+                    ['name' => 'language', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'gender', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'location', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'mode', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['online', 'in_person']]],
+                    ['name' => 'fee_max', 'in' => 'query', 'schema' => ['type' => 'number', 'minimum' => 0]],
+                    ['name' => 'limit', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 4, 'maximum' => 8]],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'type'       => 'object',
+                        'properties' => [
+                            'requested'   => ['type' => 'object', 'nullable' => true, 'properties' => [
+                                'id'                => ['type' => 'string', 'format' => 'uuid'],
+                                'available_on_date' => ['type' => 'boolean'],
+                                'next_available_at' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                            ]],
+                            'suggestions' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                                'specialist'   => ['$ref' => '#/components/schemas/Specialist'],
+                                'availability' => ['$ref' => '#/components/schemas/SpecialistAvailability'],
+                                'match'        => ['type' => 'object', 'properties' => [
+                                    'tier'    => ['type' => 'integer', 'enum' => [0, 1, 2]],
+                                    'relaxed' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => ['part_of_day', 'location', 'gender', 'language', 'fee']]],
+                                    'reason'  => ['type' => 'string', 'example' => 'Same specialty · free 10:00 AM'],
+                                ]],
+                            ]]],
+                        ],
+                    ]))],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/public/specialists/{id}/availability' => [
+            'get' => [
+                'tags'        => ['Public'],
+                'summary'     => "A specialist's booking calendar (per-day status)",
+                'description' => 'One entry per date in from … to (calendar days in tz; at most 42, starting between 42 days before today and bookable_until — else 422 on `from`). status: available | few (≤ few_left open) | full (had times, all taken) | closed (no hours) | blocked | past | beyond (after bookable_until). next_available searches the whole booking window. A doctor switched off for bookings has no open days; one not approved is a 404. Staff use /api/specialists/{id}/availability and the doctor /api/doctor/calendar (not held to the patient horizon).',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'from', 'in' => 'query', 'description' => 'Default today (in tz)', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'to', 'in' => 'query', 'description' => 'Default from + 41 days', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'description' => 'IANA zone (an unknown one falls back to the clinic zone — use the response tz)', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/AvailabilityRange']))],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],
@@ -1829,12 +2017,16 @@ return [
             'get' => [
                 'tags'       => ['Public'],
                 'summary'    => "A specialist's open consultation slots",
+                'description' => 'With `date`: that day\'s open times on `tz`\'s clock — DaySlots {date, tz, slots: [{iso, time, label, period}]} (empty outside today … bookable_until). Without it (legacy): the next `days` days with open times, grouped by UTC date (array below).',
                 'parameters' => [
                     ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
-                    ['name' => 'days', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 7, 'maximum' => 14]],
+                    ['name' => 'date', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                    ['name' => 'days', 'in' => 'query', 'description' => 'Legacy form', 'schema' => ['type' => 'integer', 'default' => 7, 'maximum' => 14]],
                 ],
                 'responses'  => [
-                    '200' => ['description' => 'OK', ...$json($envelope([
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '200' => ['description' => 'OK — DaySlots with `date`, else the legacy array', ...$json($envelope([
                         'type'  => 'array',
                         'items' => [
                             'type'       => 'object',
@@ -1851,6 +2043,45 @@ return [
                         ],
                     ]))],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+        ],
+        '/api/specialists/{id}/availability' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "A specialist's booking calendar for staff booking on a patient's behalf",
+                'description' => 'Requires appointments.create or appointments.book. AvailabilityRange like /api/public/specialists/{id}/availability, but not held to the patient horizon: the window (bookable_until, horizon_days) reaches 365 days ahead, and a doctor switched off for bookings still shows their times (the staff booking guard allows both). A doctor who can\'t practise (onboarding, rejected, suspended) shows no open day; a removed one is a 404. from … to: at most 42 days, starting between 42 days before today and bookable_until.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'from', 'in' => 'query', 'description' => 'Default today (in tz)', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'to', 'in' => 'query', 'description' => 'Default from + 41 days', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'description' => 'IANA zone (an unknown one falls back to the clinic zone — use the response tz)', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/AvailabilityRange']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing appointments.create / appointments.book'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/specialists/{id}/slots' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "A specialist's open times on one date, for staff booking",
+                'description' => 'Requires appointments.create or appointments.book. DaySlots {date, tz, slots: [{iso, time, label, period}]} like the public endpoint\'s `?date=` form, but not held to the patient horizon (empty after 365 days or before today) and shown for a doctor switched off for bookings.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'date', 'in' => 'query', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/DaySlots']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing appointments.create / appointments.book'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],
@@ -1923,7 +2154,7 @@ return [
                         ],
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
-                    '403' => ['description' => 'A guest must accept the notice first (`consent_required`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '403' => ['description' => 'A guest must accept the notice first (`consent_required`); or the doctor may not practise (`doctor_suspended` | `doctor_not_approved`, or `terms_required` before the consultation\'s start time)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '409' => ['description' => 'A follow-up proposal not accepted yet (`not_confirmed`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '410' => ['description' => 'Cancelled, ended, or the guest\'s invitation was withdrawn', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
@@ -2133,7 +2364,8 @@ return [
             'get' => [
                 'tags'        => ['Doctor'],
                 'summary'     => "The signed-in doctor's onboarding checklist and review status",
-                'description' => '`checklist` booleans: photo, bio, qualifications, mdcn, signature, availability (weekly hours or a future open slot), payout. `status`: invited | pending_review | approved | rejected | suspended (a legacy doctor reads as approved); `rejection_reason` when sent back.',
+                'description' => '`checklist` booleans: photo, bio, qualifications, mdcn, mdcn_certificate (MDCN full-registration certificate uploaded, waiting or verified), practising_licence (an unexpired annual practising licence uploaded, waiting or verified), signature, availability (weekly hours or a future open slot), payout, terms (the practitioner terms in force accepted). `status`: invited | pending_review | approved | rejected | suspended (a legacy doctor reads as approved); `rejection_reason` when sent back. '
+                    . 'Also: `credentials` (the doctor\'s documents, replaced ones left out: id, type, type_label, number, issued_at, expires_at, status pending|verified|rejected|expired, status_label, rejection_reason, original_name, mime, size_bytes, reviewed_at, created_at), `locked_fields`, `pending_changes` / `pending_changes_submitted_at` / `changes_review_note`, `terms` {current_version, accepted_version, accepted_at, accepted}, `licence` {expires_at, status valid|expiring|expired|missing}, `suspension` {code, code_label, reason, suspended_at} or null, `standing` {code doctor_suspended|doctor_not_approved|terms_required, message} or null when they may practise, and the review fields suspended_at, suspension_code, suspension_reason, licence_expires_at, credentials_due_at (a doctor approved before documents existed must upload them by then), has_pending_changes, terms_version, terms_accepted_at. Always reachable, whatever the standing.',
                 'operationId' => 'doctorOnboarding',
                 'responses'   => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']],
             ],
@@ -2142,7 +2374,7 @@ return [
             'post' => [
                 'tags'        => ['Doctor'],
                 'summary'     => 'Submit the completed profile for review',
-                'description' => 'Only when every checklist item is done (422 names what is missing) and the profile is onboarding or was sent back. Moves to pending_review and notifies the reviewers (specialists.manage) in-app and by email.',
+                'description' => 'Only when every checklist item is done — documents uploaded and the terms accepted included (422 names what is missing) — and the profile is onboarding or was sent back. Moves to pending_review (recorded as a status event and audited `specialist.submitted`) and notifies the reviewers (specialists.manage) in-app and by email.',
                 'operationId' => 'doctorOnboardingSubmit',
                 'responses'   => ['200' => ['description' => 'Submitted'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
@@ -2160,11 +2392,19 @@ return [
         '/api/specialists/review-queue' => [
             'get' => [
                 'tags'        => ['Staff'],
-                'summary'     => 'How many doctors are waiting for review (back-office badge)',
-                'description' => 'Requires specialists.manage. A count of specialists in pending_review — no names.',
+                'summary'     => 'What is waiting for a reviewer (back-office badge)',
+                'description' => 'Requires specialists.manage. Counts only — no names: profiles in pending_review, change requests (pending_changes), documents waiting for verification from live doctors (credentials_pending), `total` = those three (the badge); plus licences expiring within 30 days, licences expired and doctors still owing their documents (not in total).',
                 'operationId' => 'specialistReviewQueue',
                 'responses'   => [
-                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => ['pending_review' => ['type' => 'integer']]]))],
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'pending_review'      => ['type' => 'integer'],
+                        'pending_changes'     => ['type' => 'integer'],
+                        'credentials_pending' => ['type' => 'integer'],
+                        'total'               => ['type' => 'integer'],
+                        'licences_expiring'   => ['type' => 'integer'],
+                        'licences_expired'    => ['type' => 'integer'],
+                        'credentials_missing' => ['type' => 'integer'],
+                    ]]))],
                     '403' => ['description' => 'Missing specialists.manage'],
                 ],
             ],
@@ -2173,7 +2413,7 @@ return [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "A doctor's onboarding checklist, profile and login state (review panel)",
-                'description' => 'Requires specialists.manage.',
+                'description' => 'Requires specialists.manage. The doctor\'s onboarding payload (see GET /doctor/onboarding) in the reviewer view — documents include replaced ones, `reviewed_by_name`, `attestation` and `sha256` — plus `approval` {ready, problems: {field: message}}, `credentials_missing`, `approved_snapshot`, `terms.accepted_ip`, `profile` and `login`.',
                 'operationId' => 'specialistOnboarding',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
@@ -2183,9 +2423,10 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => "Approve a doctor's submitted profile (listed + bookable)",
-                'description' => 'Requires specialists.manage. Only from pending_review (or suspended, to reinstate); emails the doctor.',
+                'description' => 'Requires specialists.manage. Body {attest: true, note?}. 422 with every reason by field unless: the profile is in pending_review (`status`; a suspended doctor is reinstated with POST .../reinstate), every checklist item is done (`checklist`), the MDCN certificate is verified (`mdcn_certificate`), a current practising licence is verified (`practising_licence`), the terms in force are accepted (`terms`) and the reviewer attests (`attest`). Stores `approved_snapshot` (name, specialty, mdcn_number, qualifications, qualification_entries, certifications, credential_ids, approved_by, approved_by_name, approved_at), records a status event, audits `specialist.approved`, emails the doctor. Returns the reviewer summary.',
                 'operationId' => 'specialistApprove',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['attest'], 'properties' => ['attest' => ['type' => 'boolean', 'example' => true], 'note' => ['type' => 'string', 'maxLength' => 2000]]])],
                 'responses'   => ['200' => ['description' => 'Approved'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
         ],
@@ -2193,7 +2434,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Send a submitted profile back to the doctor with a reason',
-                'description' => 'Requires specialists.manage. Body {reason} (required, ≤ 2000 chars). Only from pending_review; the doctor sees the reason and is emailed.',
+                'description' => 'Requires specialists.manage. Body {reason} (required, ≤ 2000 chars). Only from pending_review; the doctor sees the reason and is emailed. Kept as a status event and audited (`specialist.rejected` with the reason). Returns the reviewer summary.',
                 'operationId' => 'specialistReject',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['reason'], 'properties' => ['reason' => ['type' => 'string']]])],
@@ -2203,26 +2444,51 @@ return [
         '/api/specialists' => [
             'get' => [
                 'tags'        => ['Staff'],
-                'summary'     => 'List specialists with their contact email (back office)',
-                'description' => 'Requires specialists.manage. Includes the normally server-side email so an operator can review and fix it.',
+                'summary'     => 'List specialists with their contact email (back office, server-paginated)',
+                'description' => 'Requires specialists.manage. Every specialist whatever their status, with the normally server-side email, the review fields (status, status_label, rejection_reason, submitted_at, approved_at, suspended_at, suspension_code, suspension_reason, licence_expires_at, credentials_due_at, has_pending_changes, terms_version, terms_accepted_at), `licence_status` (valid|expiring|expired|missing), `credentials_missing`, `credentials_pending` (documents waiting) and `login`. '
+                    . '`q` searches name, specialty, email and MDCN number; `filter`: all | review | changes | onboarding | rejected | approved | suspended | licence_expiring (≤ 30 days) | licence_expired | credentials_missing | credentials_pending (422 otherwise). `sort_by`: name (default, asc) | specialty | created_at | submitted_at | licence_expires_at. '
+                    . 'With none of page / per_page / q / filter it returns everyone (up to 500, by name) in one page, for pickers.',
+                'parameters'  => [
+                    ['name' => 'q', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'filter', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['all', 'review', 'changes', 'onboarding', 'rejected', 'approved', 'suspended', 'licence_expiring', 'licence_expired', 'credentials_missing', 'credentials_pending']]],
+                    ['name' => 'page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 1]],
+                    ['name' => 'per_page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 20, 'maximum' => 100]],
+                    ['name' => 'sort_by', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['name', 'specialty', 'created_at', 'submitted_at', 'licence_expires_at']]],
+                    ['name' => 'sort_dir', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['asc', 'desc'], 'default' => 'asc']],
+                ],
                 'responses'   => [
-                    '200' => ['description' => 'OK', ...$json($envelope([
-                        'type'  => 'array',
-                        'items' => [
-                            'allOf' => [
-                                ['$ref' => '#/components/schemas/Specialist'],
-                                ['type' => 'object', 'properties' => ['email' => ['type' => 'string', 'nullable' => true]]],
+                    '200' => ['description' => 'OK (paginated: `meta`)', ...$json([
+                        'type'       => 'object',
+                        'properties' => [
+                            'status' => ['type' => 'string'],
+                            'data'   => [
+                                'type'  => 'array',
+                                'items' => [
+                                    'allOf' => [
+                                        ['$ref' => '#/components/schemas/Specialist'],
+                                        ['type' => 'object', 'properties' => [
+                                            'email'               => ['type' => 'string', 'nullable' => true],
+                                            'status'              => ['type' => 'string'],
+                                            'licence_status'      => ['type' => 'string', 'enum' => ['valid', 'expiring', 'expired', 'missing']],
+                                            'credentials_missing' => ['type' => 'boolean'],
+                                            'credentials_pending' => ['type' => 'integer'],
+                                            'has_pending_changes' => ['type' => 'boolean'],
+                                        ]],
+                                    ],
+                                ],
                             ],
+                            'meta'   => ['$ref' => '#/components/schemas/PageMeta'],
                         ],
-                    ]))],
+                    ])],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['description' => 'Missing specialists.manage'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Onboard a new specialist (back office)',
-                'description' => 'Requires specialists.manage. Name + specialty required; other fields optional.',
+                'description' => 'Requires specialists.manage. Name + specialty required; other fields optional. `verified` is ignored (it follows approval). Audited `specialist.created`.',
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
                     'required'   => ['name', 'specialty'],
@@ -2238,7 +2504,6 @@ return [
                         'gender'           => ['type' => 'string', 'enum' => ['male', 'female']],
                         'photo_url'        => ['type' => 'string', 'nullable' => true],
                         'available'        => ['type' => 'boolean'],
-                        'verified'         => ['type' => 'boolean'],
                     ],
                 ])],
                 'responses'   => [
@@ -2250,10 +2515,17 @@ return [
             ],
         ],
         '/api/specialists/{id}' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "A doctor's page (back office)",
+                'description' => 'Requires specialists.manage. Everything GET /specialists/{id}/onboarding returns (reviewer summary: checklist, documents with attestations, change request, approved_snapshot, terms, licence, suspension, standing, approval {ready, problems}, profile incl. contact details, login) plus `payout_account` (account numbers masked to the last four digits) and `stats` {appointments_by_status: {status: n}, upcoming, earnings (the earnings summary), reviews {average, count, distribution}}.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
             'patch' => [
                 'tags'        => ['Staff'],
-                'summary'     => "Edit a specialist's contact + booking fields (back office)",
-                'description' => 'Requires specialists.manage. Only the keys present change. The response echoes the (normally server-side) email so the operator can confirm it.',
+                'summary'     => "Edit a specialist's contact, booking and public-profile fields (back office)",
+                'description' => 'Requires specialists.manage. Only the keys present change; each change is audited (`specialist.updated` with before/after). The identity fields (name, specialty, MDCN number, qualifications, certifications) are not edited here, and `verified` is ignored (it follows approval). The response echoes the (normally server-side) email so the operator can confirm it.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
@@ -2262,7 +2534,14 @@ return [
                         'consultation_fee' => ['type' => 'string', 'example' => '15000.00'],
                         'photo_url'        => ['type' => 'string', 'nullable' => true, 'description' => 'Full URL or /uploads path; empty clears it'],
                         'available'        => ['type' => 'boolean'],
-                        'verified'         => ['type' => 'boolean'],
+                        'bio'              => ['type' => 'string', 'maxLength' => 5000],
+                        'location'         => ['type' => 'string', 'maxLength' => 200],
+                        'country'          => ['type' => 'string', 'maxLength' => 120],
+                        'languages'        => ['type' => 'string', 'maxLength' => 200],
+                        'years_experience' => ['type' => 'integer', 'nullable' => true, 'minimum' => 0, 'maximum' => 80],
+                        'gender'           => ['type' => 'string', 'enum' => ['male', 'female', '']],
+                        'offers_in_person' => ['type' => 'boolean'],
+                        'expertise'        => ['type' => 'array', 'items' => ['type' => 'string']],
                     ],
                 ])],
                 'responses'   => [
@@ -2277,6 +2556,219 @@ return [
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
+            ],
+        ],
+        '/api/specialists/{id}/appointments' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "One doctor's consultations (doctor page)",
+                'description' => 'Requires specialists.manage. Paginated, newest first; `status` is a comma list, `search` matches the patient\'s name. Each row is the Appointment (without notes, document_url, follow_up_note, decline_reason) plus `patient_name` — no patient contact details.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string', 'example' => 'confirmed,completed']],
+                    ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
+                    ['name' => 'page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 1]],
+                    ['name' => 'per_page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 20, 'maximum' => 100]],
+                ],
+                'responses'   => ['200' => ['description' => 'OK (paginated)'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/payouts' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "One doctor's earnings and payouts (doctor page)",
+                'description' => 'Requires specialists.manage. {earnings (summary), payouts (newest first, up to 100; each account snapshot masked), payout_account (masked, or null)}. Approving and paying stays on the payouts screen (payouts.manage).',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/reviews' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Patients' reviews of one doctor (doctor page)",
+                'description' => 'Requires specialists.manage. Paginated, newest first; each {id, specialist_id, patient_name, appointment_id, rating, comment, response, responded_at, created_at}.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 1]],
+                    ['name' => 'per_page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 20, 'maximum' => 100]],
+                ],
+                'responses'   => ['200' => ['description' => 'OK (paginated)'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/history' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "One doctor's history (doctor page)",
+                'description' => 'Requires specialists.manage. {status_events: [{id, from_status, to_status, actor_id, actor_name, code, reason, meta, created_at}], audit: [AuditEvent with actor_id]}, each newest first, up to 200. Audit actions include specialist.created, .invited, .updated (before/after), .submitted, .approved, .rejected, .changes_submitted / _approved / _rejected / _withdrawn, .credential_uploaded / _viewed / _verified / _rejected / _deleted, .terms_accepted, .suspended, .suspension_rerun, .reinstated.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/credentials/{cid}/file' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Open one of a doctor's licensing documents (audited)",
+                'description' => 'Requires specialists.manage. The decrypted file (PDF / JPG / PNG) inline, `Cache-Control: private, no-store` — fetch it as a blob and show it from an object URL. Every view is audited (`specialist.credential_viewed`). 404 when the document is not this doctor\'s, or can no longer be read.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'cid', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'   => ['200' => ['description' => 'The file', 'content' => ['application/pdf' => [], 'image/jpeg' => [], 'image/png' => []]], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/credentials/{cid}/verify' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Verify a document against the MDCN register (with an attestation)',
+                'description' => 'Requires specialists.manage. Only a document waiting for review (422 `status`). Body: register_checked (must be true), register_reference (1–120 chars), note (≤ 1000), and for a licence optionally expires_at (YYYY-MM-DD, correcting the uploaded date) and number. A licence must end up with an expiry date that has not passed. The verified document replaces the doctor\'s older verified one of its kind; a licence sets the doctor\'s licence_expires_at; a doctor who owed documents is cleared once the MDCN certificate and a current licence are both verified. Audited `specialist.credential_verified` with the attestation; the doctor is told in-app. Returns the reviewer summary.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'cid', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['register_checked', 'register_reference'], 'properties' => [
+                    'register_checked'   => ['type' => 'boolean', 'example' => true],
+                    'register_reference' => ['type' => 'string', 'maxLength' => 120],
+                    'note'               => ['type' => 'string', 'maxLength' => 1000],
+                    'expires_at'         => ['type' => 'string', 'format' => 'date'],
+                    'number'             => ['type' => 'string', 'maxLength' => 60],
+                ]])],
+                'responses'   => ['200' => ['description' => 'Verified'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/credentials/{cid}/reject' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Turn a document down with a reason',
+                'description' => 'Requires specialists.manage. Body {reason} (1–1000 chars). A document waiting for review, or a verified one found wrong (a rejected licence updates the doctor\'s licence_expires_at). The doctor is told in-app and by email. Audited `specialist.credential_rejected`. Returns the reviewer summary.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'cid', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['reason'], 'properties' => ['reason' => ['type' => 'string', 'maxLength' => 1000]]])],
+                'responses'   => ['200' => ['description' => 'Turned down'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/suspend/preview' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'What suspending this doctor would do (confirm dialog)',
+                'description' => 'Requires specialists.manage. Changes nothing. {already_suspended, bookings (future pending/confirmed/rescheduled to cancel — plus any in progress, its slot not over, with no proof the consultation is taking place), proposals (open follow-up proposals to withdraw), in_progress (consultations taking place now — note, prescription, the doctor on the transcript or both on the call — left to finish; the cron completes them), patients, refunds (paid bookings), refund_total, guests, guest_fees (included in refund_total), currency, codes: [{code, label}]}.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/specialists/{id}/suspend' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Suspend a doctor (stopped practising)',
+                'description' => 'Requires specialists.manage. Body {code: licence_expired|conduct|complaint|admin|other, reason (1–2000 chars, shown to the doctor)}. Only an approved (or already suspended) doctor. Unlists them, refuses all clinical work (403 doctor_suspended), signs them out everywhere, cancels every future pending/confirmed/rescheduled booking (and one in progress with no proof the consultation is taking place) and refunds it to the patient\'s wallet (guest fees included) — one transaction per batch, each booking re-read under its lock, its in-app patient notice saved with it — withdraws open follow-up proposals, and after the response emails each patient (refund and a link to doctors of the same specialty) and each guest. Records a status event; audited `specialist.suspended` (`specialist.suspension_rerun` when run again) before any booking is touched, then `specialist.suspension_bookings` with what was cancelled. Calling it again for a suspended doctor only finishes what is left. '
+                    . 'Returns {summary (reviewer summary), affected: {already_suspended, sessions_revoked, cancelled, refunded_count, refunded_total, guests_notified, proposals_withdrawn, patients_notified, in_progress, failed, incomplete, currency}} — `incomplete` true: call it again; `in_progress`: consultations taking place now, left to finish.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['code', 'reason'], 'properties' => [
+                    'code'   => ['type' => 'string', 'enum' => ['licence_expired', 'conduct', 'complaint', 'admin', 'other']],
+                    'reason' => ['type' => 'string', 'maxLength' => 2000],
+                ]])],
+                'responses'   => ['200' => ['description' => 'Suspended'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/reinstate' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Lift a suspension',
+                'description' => 'Requires specialists.manage. Body {note} (1–2000 chars). 422 unless the doctor is suspended (`status`) and has a verified, unexpired practising licence (`practising_licence`). Back to approved — listed and bookable; cancelled bookings are not restored. Records a status event, audited `specialist.reinstated`, the doctor is emailed. Returns the reviewer summary.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['note'], 'properties' => ['note' => ['type' => 'string', 'maxLength' => 2000]]])],
+                'responses'   => ['200' => ['description' => 'Reinstated'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/changes/approve' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Approve a doctor's requested changes to locked fields",
+                'description' => 'Requires specialists.manage. The pending_changes go live (new prescriptions print them), the approved_snapshot is refreshed, the doctor is told in-app and by email. 422 `changes` when nothing is waiting. Audited `specialist.changes_approved` with before/after. Returns the reviewer summary plus `profile`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'Approved'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/specialists/{id}/changes/reject' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Turn down a doctor's requested changes",
+                'description' => 'Requires specialists.manage. Body {reason} (1–2000 chars, shown to the doctor as changes_review_note until they ask again; emailed). Nothing on the profile changes. 422 for a blank reason or when nothing is waiting. Audited `specialist.changes_rejected`. Returns the reviewer summary.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['reason'], 'properties' => ['reason' => ['type' => 'string', 'maxLength' => 2000]]])],
+                'responses'   => ['200' => ['description' => 'Turned down'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/doctor/profile/changes' => [
+            'delete' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Withdraw a change request still waiting for review',
+                'description' => 'Clears pending_changes (nothing on the profile changes); audited `specialist.changes_withdrawn`. Returns the profile as GET /doctor/profile.',
+                'responses'   => ['200' => ['description' => 'Withdrawn'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']],
+            ],
+        ],
+        '/api/doctor/credentials' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => "The signed-in doctor's licensing documents",
+                'description' => '{credentials: [{id, type, type_label, number, issued_at, expires_at, status pending|verified|rejected|expired, status_label, rejection_reason, original_name, mime, size_bytes, reviewed_at, created_at}] (newest first, replaced ones left out), types: [{type, label, requires_expiry, requires_number}], max_bytes, accepted: [MIME types]}. Reachable whatever the doctor\'s standing.',
+                'responses'   => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']],
+            ],
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Upload a licensing document',
+                'description' => 'multipart/form-data: `file` (PDF, JPG or PNG, ≤ 10MB, checked by content), `type` (mdcn_full_registration | annual_practising_licence | specialist_certificate), `number` and `expires_at` (YYYY-MM-DD, both required for a licence; not already past), optional `issued_at` (not in the future). Stored encrypted (owner and reviewers only). A newer upload replaces an older one of the same kind still waiting; at most 10 waiting at once. A live doctor\'s upload notifies the reviewers. Audited `specialist.credential_uploaded`. 201 with the document; 422 per field; 409 when secure storage is not set up.',
+                'requestBody' => ['required' => true, 'content' => ['multipart/form-data' => ['schema' => [
+                    'type'       => 'object',
+                    'required'   => ['file', 'type'],
+                    'properties' => [
+                        'file'       => ['type' => 'string', 'format' => 'binary'],
+                        'type'       => ['type' => 'string', 'enum' => ['mdcn_full_registration', 'annual_practising_licence', 'specialist_certificate']],
+                        'number'     => ['type' => 'string', 'maxLength' => 60],
+                        'issued_at'  => ['type' => 'string', 'format' => 'date'],
+                        'expires_at' => ['type' => 'string', 'format' => 'date'],
+                    ],
+                ]]]],
+                'responses'   => ['201' => ['description' => 'Uploaded'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login'], '409' => ['description' => 'Secure file storage is not set up'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/doctor/credentials/{id}' => [
+            'delete' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Delete a document still waiting for review',
+                'description' => 'The file is destroyed. A verified or turned-down document stays on record (422 `status`). Audited `specialist.credential_deleted`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'Deleted'], '403' => ['description' => 'Not a doctor login'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/doctor/credentials/{id}/file' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Open one of my licensing documents',
+                'description' => 'The decrypted file inline, never cached (fetch as a blob). 404 for anyone else\'s document.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => ['200' => ['description' => 'The file', 'content' => ['application/pdf' => [], 'image/jpeg' => [], 'image/png' => []]], '403' => ['description' => 'Not a doctor login'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
+        ],
+        '/api/doctor/terms' => [
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'The practitioner terms in force',
+                'description' => '{version (DOCTOR_TERMS_VERSION, default 1.0), title, blocks: [{type h1|h2|h3|p|ul|ol, text}] (plain text — render without HTML), sha256, accepted_version, accepted_at, accepted (this version)}. A doctor who has not accepted the version in force may read but start no clinical work (403 terms_required) — except on a consultation of theirs already under way, which they may finish (notes, prescriptions, completion, call).',
+                'responses'   => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']],
+            ],
+        ],
+        '/api/doctor/terms/accept' => [
+            'post' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Accept the practitioner terms',
+                'description' => 'Body {version, agree: true}. 422 `version` when it is not the version in force (re-read GET /doctor/terms), `agree` when not true. Records the version, time and IP on the doctor and in the audit trail (`specialist.terms_accepted`, with the text\'s sha256); accepting an already-accepted version changes nothing. Returns the same as GET /doctor/terms.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['version', 'agree'], 'properties' => [
+                    'version' => ['type' => 'string', 'example' => '1.0'],
+                    'agree'   => ['type' => 'boolean', 'example' => true],
+                ]])],
+                'responses'   => ['200' => ['description' => 'Accepted'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
         ],
         '/api/settings/pricing' => [
@@ -2677,6 +3169,7 @@ return [
                         'consent'      => ['$ref' => '#/components/schemas/GuestConsentState'],
                     ]]))],
                     '401' => ['description' => 'Invalid or expired join link'],
+                    '403' => ['description' => 'The doctor may not practise (`doctor_suspended` | `doctor_not_approved`, or `terms_required` before the consultation\'s start time)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '409' => ['description' => 'Not confirmed yet', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '410' => ['description' => 'Cancelled, ended or withdrawn — leave the call', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '425' => ['description' => 'A guest\'s window has not opened yet (`too_early`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],

@@ -147,6 +147,24 @@ return [
         new AvailabilityService(
             $c->get(AppointmentRepository::class),
             $c->get(AvailabilitySlotRepository::class),
+            $c->get(\App\Domain\Settings\BookingSettings::class),
+        ),
+
+    // Booking-calendar rules (app_settings), and the directory + alternative-doctor
+    // suggestions built on availability.
+    \App\Domain\Settings\BookingSettings::class => static fn (ContainerInterface $c): \App\Domain\Settings\BookingSettings =>
+        new \App\Domain\Settings\BookingSettings($c->get(AppSettingRepository::class)),
+
+    \App\Infrastructure\Availability\DirectorySearch::class => static fn (ContainerInterface $c): \App\Infrastructure\Availability\DirectorySearch =>
+        new \App\Infrastructure\Availability\DirectorySearch(
+            $c->get(SpecialistRepository::class),
+            $c->get(AvailabilityService::class),
+        ),
+
+    \App\Infrastructure\Availability\SpecialistSuggestions::class => static fn (ContainerInterface $c): \App\Infrastructure\Availability\SpecialistSuggestions =>
+        new \App\Infrastructure\Availability\SpecialistSuggestions(
+            $c->get(SpecialistRepository::class),
+            $c->get(AvailabilityService::class),
         ),
 
     FirebaseIdTokenVerifier::class => static fn (): FirebaseIdTokenVerifier =>
@@ -446,8 +464,80 @@ return [
             $c->get(\App\Infrastructure\Service\StaffPasswordService::class),
             $c->get(MailService::class),
             $c->get(StaffNotifier::class),
+            $c->get(\App\Domain\Repository\SpecialistCredentialRepository::class),
+            $c->get(\App\Domain\Repository\SpecialistStatusEventRepository::class),
+            $c->get(AuditLogger::class),
             // Link in the "doctor ready for review" email to the reviewers.
             \App\Infrastructure\Service\DoctorOnboardingService::backofficeUrlFromEnv($_ENV),
+        ),
+
+    // ----- Doctor management: documents, standing, suspension, licence cron -----
+    \App\Domain\Repository\SpecialistCredentialRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\SpecialistCredentialRepository =>
+        new \App\Domain\Repository\SpecialistCredentialRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Domain\Repository\SpecialistStatusEventRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\SpecialistStatusEventRepository =>
+        new \App\Domain\Repository\SpecialistStatusEventRepository($c->get(EntityManagerInterface::class)),
+
+    // Licensing documents sealed in the vault (resolved lazily, like signatures).
+    \App\Infrastructure\Storage\CredentialStore::class => static fn (ContainerInterface $c): \App\Infrastructure\Storage\CredentialStore =>
+        new \App\Infrastructure\Storage\CredentialStore(
+            static fn (): FileVault => $c->get(FileVault::class),
+            $c->get(LoggerInterface::class),
+        ),
+
+    \App\Infrastructure\Service\DoctorCredentialService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\DoctorCredentialService =>
+        new \App\Infrastructure\Service\DoctorCredentialService(
+            $c->get(\App\Domain\Repository\SpecialistCredentialRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(\App\Infrastructure\Storage\CredentialStore::class),
+            $c->get(AuditLogger::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(UserRepository::class),
+            $c->get(\App\Infrastructure\Service\DoctorOnboardingService::class),
+        ),
+
+    \App\Infrastructure\Service\SpecialistSuspensionService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\SpecialistSuspensionService =>
+        new \App\Infrastructure\Service\SpecialistSuspensionService(
+            $c->get(SpecialistRepository::class),
+            $c->get(AppointmentRepository::class),
+            $c->get(AppointmentPaymentService::class),
+            $c->get(FollowUpService::class),
+            $c->get(GuestInvitations::class),
+            $c->get(PatientNotifier::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(PricingService::class),
+            $c->get(AuditLogger::class),
+            $c->get(\App\Domain\Repository\SpecialistStatusEventRepository::class),
+            $c->get(\App\Domain\Repository\SpecialistCredentialRepository::class),
+            $c->get(SessionService::class),
+            $c->get(UserRepository::class),
+            $c->get(\App\Infrastructure\Service\ConsultationCompleter::class),
+        ),
+
+    // Licence reminders (LICENCE_REMINDER_DAYS, default 30,14,7,1 days before) and
+    // automatic suspension LICENCE_GRACE_DAYS (default 0) after a licence expires.
+    \App\Infrastructure\Service\CredentialExpiryService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\CredentialExpiryService =>
+        new \App\Infrastructure\Service\CredentialExpiryService(
+            $c->get(SpecialistRepository::class),
+            $c->get(\App\Domain\Repository\SpecialistCredentialRepository::class),
+            $c->get(\App\Infrastructure\Service\SpecialistSuspensionService::class),
+            $c->get(\App\Infrastructure\Service\DoctorOnboardingService::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(UserRepository::class),
+            \App\Infrastructure\Service\CredentialExpiryService::cleanStages(explode(',', (string) ($_ENV['LICENCE_REMINDER_DAYS'] ?? '30,14,7,1'))),
+            max(0, (int) ($_ENV['LICENCE_GRACE_DAYS'] ?? 0)),
+        ),
+
+    // Keeps doctors who may not practise out of clinical routes (see DoctorStanding).
+    \App\Infrastructure\Middleware\DoctorStandingMiddleware::class => static fn (ContainerInterface $c): \App\Infrastructure\Middleware\DoctorStandingMiddleware =>
+        new \App\Infrastructure\Middleware\DoctorStandingMiddleware(
+            $c->get(UserRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(AppointmentRepository::class),
+            $c->get(PrescriptionRepository::class),
         ),
 
     PatientNotifier::class => static fn (ContainerInterface $c): PatientNotifier =>

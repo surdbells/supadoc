@@ -118,9 +118,14 @@ final class ReminderService
         };
         $link = fn (string $base, string $name, string $role, int $uid): string => $base . '/call/join/' . $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
 
+        // A doctor who stopped practising (suspended) — or was never approved —
+        // gets no join link: their bookings are being cancelled and the call
+        // would refuse them anyway.
+        $doctorPractises = $specialist->isApproved();
+
         try {
             $send((string) ($p['email'] ?? ''), $patientName, $link($patientBase, $patientName, 'patient', Appointment::PATIENT_UID));
-            if ($specialist->getEmail() !== null) {
+            if ($doctorPractises && $specialist->getEmail() !== null) {
                 $send($specialist->getEmail(), $specialist->getName(), $link($doctorBase, $specialist->getName(), 'doctor', Appointment::DOCTOR_UID));
             }
             // Each guest's own stable link (their guest id + uid); one removed is no longer listed.
@@ -146,6 +151,9 @@ final class ReminderService
         }
 
         // In-app companion notification for the doctor (best-effort).
+        if (!$doctorPractises) {
+            return $count;
+        }
         $this->staff->notifyDoctor(
             $specialist->getId(),
             'appointment',

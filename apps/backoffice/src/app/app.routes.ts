@@ -74,6 +74,13 @@ export const appRoutes: Route[] = [
           import('./specialists/specialists').then((m) => m.AdminSpecialists),
       },
       {
+        // The doctor page: overview, documents, review, appointments, earnings, reviews, history.
+        path: 'specialists/:id',
+        canActivate: [permissionGuard('specialists.manage')],
+        loadComponent: () =>
+          import('./specialists/specialist-detail').then((m) => m.AdminSpecialistDetail),
+      },
+      {
         path: 'staff',
         canActivate: [permissionGuard('staff.manage')],
         loadComponent: () => import('./staff/staff').then((m) => m.AdminStaff),

@@ -13,6 +13,7 @@ import { apiErrorMessage, DoctorApi, injectCallPresence } from '@supadoc/data-ac
 import type { DoctorAppointmentDto } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
 import { doctorStatusLabel, isOpenProposal, whenLabel } from '../appointment/follow-ups';
+import { DoctorStandingStore } from '../standing/doctor-standing.store';
 
 type TabKey = 'upcoming' | 'today' | 'pending';
 
@@ -141,6 +142,7 @@ const STATUS_TEXT: Record<string, string> = {
 export class DoctorSchedule implements OnInit {
   private readonly api = inject(DoctorApi);
   private readonly router = inject(Router);
+  private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal(true);
@@ -229,6 +231,12 @@ export class DoctorSchedule implements OnInit {
   }
 
   protected join(a: DoctorAppointmentDto): void {
+    // The API decides per consultation: owing the terms blocks one that hasn't
+    // started (accept them first), never one already under way.
+    if (a.join_blocked) {
+      void this.router.navigateByUrl(a.join_blocked.code === 'terms_required' ? '/onboarding/terms' : '/account-status');
+      return;
+    }
     // No link on an unaccepted follow-up proposal — there is no call to join yet.
     const url = a.join_url;
     if (!url) return;

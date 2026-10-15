@@ -13,8 +13,11 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/doctor/onboarding — the signed-in doctor's onboarding checklist
- * (photo, bio, qualifications, MDCN number, signature, availability, payout
- * account), review status and, when sent back, the admin's reason.
+ * (photo, bio, qualifications, MDCN number, MDCN certificate, practising
+ * licence, signature, availability, payout account, terms), review status
+ * and, when sent back, the admin's reason; their documents, a change request
+ * waiting for review, the terms they accepted, their licence, a suspension
+ * (code, reason) and their standing — always reachable, even when suspended.
  */
 final class GetDoctorOnboardingAction
 {

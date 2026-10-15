@@ -107,6 +107,16 @@ final class SessionService
     }
 
     /**
+     * Sign a staff user out everywhere at once (a deactivated login, a
+     * suspended doctor): their tokens stop working on the next request instead
+     * of living out the access-token TTL. Returns how many sessions ended.
+     */
+    public function revokeAllStaff(string $userId): int
+    {
+        return $userId === '' ? 0 : $this->staffSessions->revokeAllForUser($userId);
+    }
+
+    /**
      * A patient's live sessions (not revoked, not run out), newest first.
      *
      * @return list<Session>

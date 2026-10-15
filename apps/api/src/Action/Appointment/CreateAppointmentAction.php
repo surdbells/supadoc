@@ -96,7 +96,9 @@ final class CreateAppointmentAction
                     : "This doctor's profile hasn't been approved yet",
             ]);
         }
-        if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
+        // Staff book on the doctor's schedule but aren't held to the patient
+        // booking window (enforceHorizon: false).
+        if (!$this->availability->isSlotAvailable($specialist, $scheduledAt, false)) {
             return $this->error($response, 'Validation failed', 422, [
                 'scheduled_at' => 'That time is not available — please pick another slot',
             ]);

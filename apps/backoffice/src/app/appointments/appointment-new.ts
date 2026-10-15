@@ -13,12 +13,12 @@ import {
   AdminAppointmentsApi,
   AdminPatientsApi,
   apiErrorMessage,
-  localSlotDays,
+  AvailabilityCalendarStore,
   nowLocalInput,
   SpecialistsApi,
 } from '@supadoc/data-access';
-import type { DayAvailability, PatientSummaryDto, SpecialistAdminDto } from '@supadoc/models';
-import { IconComponent, SlotPickerComponent } from '@supadoc/ui';
+import type { PatientSummaryDto, SpecialistAdminDto } from '@supadoc/models';
+import { AlertComponent, BookingCalendarComponent, IconComponent } from '@supadoc/ui';
 
 const FIELD =
   'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
@@ -30,14 +30,30 @@ const TYPES = [
   { value: 'routine', label: 'Routine' },
 ];
 
-/** Book an appointment on a patient's behalf (route `/appointments/new`). */
+const CHOSEN = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/**
+ * Book an appointment on a patient's behalf (route `/appointments/new`). The
+ * time comes from the specialist's staff booking calendar (the openings a
+ * patient sees — lead time, blocks and bookings applied — but reaching a year
+ * ahead, past the patients' booking window, in the viewer's time zone);
+ * "Enter another time" types one instead, which the API still checks is on
+ * the doctor's availability.
+ */
 @Component({
   selector: 'bo-appointment-new',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, SlotPickerComponent],
+  imports: [RouterLink, IconComponent, AlertComponent, BookingCalendarComponent],
+  providers: [AvailabilityCalendarStore],
   host: { class: 'block' },
   template: `
-    <div class="flex max-w-2xl flex-col gap-6 py-2">
+    <div class="flex max-w-4xl flex-col gap-6 py-2">
       <a routerLink="/appointments" class="flex w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean">
         <sd-icon name="chevron-right" [size]="16" class="rotate-180" /> Appointments
       </a>
@@ -47,20 +63,20 @@ const TYPES = [
       </header>
 
       <!-- Patient -->
-      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-6">
         <h2 class="font-heading text-body-lg text-ink">1. Patient</h2>
         @if (patient(); as p) {
           <div class="flex items-center justify-between gap-3 rounded-field border border-cerulean bg-frost/30 px-4 py-3">
-            <div class="flex flex-col">
+            <div class="flex min-w-0 flex-col">
               <span class="font-sans text-body-sm font-semibold text-ink">{{ p.first_name }} {{ p.last_name }}</span>
-              <span class="font-sans text-caption text-slate">{{ p.email }}{{ p.phone ? ' · ' + p.phone : '' }}</span>
+              <span class="break-all font-sans text-caption text-slate">{{ p.email }}{{ p.phone ? ' · ' + p.phone : '' }}</span>
             </div>
-            <button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="clearPatient()">Change</button>
+            <button type="button" class="min-h-11 shrink-0 px-2 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="clearPatient()">Change</button>
           </div>
         } @else {
           <div class="relative">
             <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-            <input class="${FIELD} pl-9" placeholder="Search by name, email or phone…" [value]="patientTerm()" (input)="onPatientInput($any($event.target).value)" />
+            <input class="${FIELD} pl-9" aria-label="Search patients" placeholder="Search by name, email or phone…" [value]="patientTerm()" (input)="onPatientInput($any($event.target).value)" />
           </div>
           @if (searchingPatient()) {
             <p class="font-sans text-caption text-slate">Searching…</p>
@@ -68,12 +84,12 @@ const TYPES = [
             <ul class="flex flex-col divide-y divide-cloud overflow-hidden rounded-field border border-cloud">
               @for (p of patientResults(); track p.id) {
                 <li>
-                  <button type="button" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-glacier" (click)="pickPatient(p)">
-                    <span class="flex flex-col">
+                  <button type="button" class="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-glacier" (click)="pickPatient(p)">
+                    <span class="flex min-w-0 flex-col">
                       <span class="font-sans text-body-sm text-ink">{{ p.first_name }} {{ p.last_name }}</span>
-                      <span class="font-sans text-caption text-slate">{{ p.email }}{{ p.phone ? ' · ' + p.phone : '' }}</span>
+                      <span class="break-all font-sans text-caption text-slate">{{ p.email }}{{ p.phone ? ' · ' + p.phone : '' }}</span>
                     </span>
-                    <sd-icon name="plus" [size]="16" class="text-cerulean" />
+                    <sd-icon name="plus" [size]="16" class="shrink-0 text-cerulean" />
                   </button>
                 </li>
               }
@@ -85,20 +101,20 @@ const TYPES = [
       </section>
 
       <!-- Specialist -->
-      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-6">
         <h2 class="font-heading text-body-lg text-ink">2. Specialist</h2>
         @if (specialist(); as s) {
           <div class="flex items-center justify-between gap-3 rounded-field border border-cerulean bg-frost/30 px-4 py-3">
-            <div class="flex flex-col">
+            <div class="flex min-w-0 flex-col">
               <span class="font-sans text-body-sm font-semibold text-ink">{{ s.name }}</span>
               <span class="font-sans text-caption text-slate">{{ s.specialty }} · {{ money(s.consultation_fee) }}</span>
             </div>
-            <button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="clearSpecialist()">Change</button>
+            <button type="button" class="min-h-11 shrink-0 px-2 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="clearSpecialist()">Change</button>
           </div>
         } @else {
           <div class="relative">
             <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-            <input class="${FIELD} pl-9" placeholder="Search specialist by name or specialty…" [value]="specialistTerm()" (input)="specialistTerm.set($any($event.target).value)" />
+            <input class="${FIELD} pl-9" aria-label="Search specialists" placeholder="Search specialist by name or specialty…" [value]="specialistTerm()" (input)="specialistTerm.set($any($event.target).value)" />
           </div>
           @if (specialistsError()) {
             <p class="font-sans text-caption text-alert">{{ specialistsError() }}</p>
@@ -106,12 +122,12 @@ const TYPES = [
             <ul class="flex flex-col divide-y divide-cloud overflow-hidden rounded-field border border-cloud">
               @for (s of filteredSpecialists(); track s.id) {
                 <li>
-                  <button type="button" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-glacier" (click)="pickSpecialist(s)">
-                    <span class="flex flex-col">
+                  <button type="button" class="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-glacier" (click)="pickSpecialist(s)">
+                    <span class="flex min-w-0 flex-col">
                       <span class="font-sans text-body-sm text-ink">{{ s.name }}</span>
                       <span class="font-sans text-caption text-slate">{{ s.specialty }} · {{ money(s.consultation_fee) }}@if (s.status && s.status !== 'approved') { · {{ s.status_label ?? s.status }} }</span>
                     </span>
-                    <sd-icon name="plus" [size]="16" class="text-cerulean" />
+                    <sd-icon name="plus" [size]="16" class="shrink-0 text-cerulean" />
                   </button>
                 </li>
               }
@@ -123,50 +139,86 @@ const TYPES = [
       </section>
 
       <!-- When -->
-      <section class="flex min-w-0 flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+      <section class="flex min-w-0 flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6">
         <h2 class="font-heading text-body-lg text-ink">3. Schedule</h2>
-        <div class="flex min-w-0 flex-col gap-2">
-          <span class="font-sans text-caption font-semibold text-slate">Date &amp; time</span>
+        <div class="flex min-w-0 flex-col gap-3">
           @if (specialist(); as s) {
             @if (notBookable(s); as why) {
               <p class="font-sans text-caption text-alert">{{ why }}</p>
-            } @else if (loadingSlots()) {
-              <div class="sd-shimmer h-24 rounded-field"></div>
             } @else {
               @if (!useManual()) {
-                <sd-slot-picker [days]="days()" [(value)]="slotIso" />
-              } @else {
-                @if (slotsError()) {
-                  <p class="font-sans text-caption text-alert">{{ slotsError() }}</p>
-                } @else if (days().length === 0) {
-                  <p class="font-sans text-caption text-slate">No open slots coming up for this specialist.</p>
+                <sd-booking-calendar
+                  [days]="cal.days()"
+                  [month]="cal.month()"
+                  (monthChange)="cal.setMonth($event)"
+                  [selectedDate]="cal.selectedDate()"
+                  (selectedDateChange)="cal.selectDate($event)"
+                  [slots]="cal.slots()"
+                  [value]="slotIso()"
+                  (valueChange)="slotIso.set($event)"
+                  [loading]="cal.loading()"
+                  [slotsLoading]="cal.slotsLoading()"
+                  [min]="cal.min()"
+                  [max]="cal.max()"
+                  [nextAvailable]="cal.nextAvailable()"
+                  [timeZone]="cal.tz()"
+                  [timeZoneLabel]="cal.timeZoneLabel()"
+                  [weekStartsOn]="cal.weekStartsOn()"
+                >
+                  <p calendarEmpty class="font-sans text-caption text-slate">
+                    Pick another day, or use “Enter another time” for a time that isn't shown.
+                  </p>
+                </sd-booking-calendar>
+                @if (cal.error(); as e) {
+                  <sd-alert tone="error">{{ e }}</sd-alert>
                 }
-                <input type="datetime-local" step="1800" class="${FIELD} sm:max-w-xs" aria-label="Date and time" [min]="minAt()" [value]="scheduledAt()" (input)="scheduledAt.set($any($event.target).value)" />
-                <span class="font-sans text-caption text-slate">Must be on the specialist's availability, at least an hour from now.</span>
+                <p class="font-sans text-body-sm text-ink" aria-live="polite">
+                  @if (slotIso(); as iso) {
+                    <span class="font-semibold">Chosen:</span> {{ chosenLabel(iso) }}
+                  }
+                </p>
+              } @else {
+                @if (calendarFailed()) {
+                  <sd-alert tone="warning">{{ cal.error() }} You can type the time instead.</sd-alert>
+                }
+                <label class="flex flex-col gap-1.5">
+                  <span class="font-sans text-caption font-semibold text-slate">Date &amp; time ({{ cal.timeZoneLabel() }})</span>
+                  <input type="datetime-local" step="1800" class="${FIELD} sm:max-w-xs" [min]="minAt()" [value]="scheduledAt()" (input)="scheduledAt.set($any($event.target).value)" aria-describedby="bo-appt-manual-hint" />
+                </label>
+                <span id="bo-appt-manual-hint" class="font-sans text-caption text-slate">
+                  Must be on the specialist's availability and after the minimum booking notice. Staff aren't held to the patients' booking window.
+                </span>
               }
-              @if (days().length > 0) {
-                <button type="button" class="w-fit font-sans text-caption font-semibold text-cerulean hover:underline" (click)="manual.set(!manual())">
-                  {{ manual() ? 'Choose from open slots' : 'Enter another time' }}
+              @if (calendarFailed()) {
+                <!-- The typed time shows because the calendar couldn't load: offer it again. -->
+                <button type="button" class="flex min-h-11 w-fit items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="retryCalendar()">
+                  <sd-icon name="refresh-cw" [size]="14" />Try the calendar again
+                </button>
+              } @else {
+                <button type="button" class="min-h-11 w-fit font-sans text-caption font-semibold text-cerulean hover:underline" (click)="toggleManual()">
+                  {{ manual() ? 'Choose from the calendar' : 'Enter another time' }}
                 </button>
               }
             }
           } @else {
-            <p class="font-sans text-caption text-slate">Choose a specialist to see their open slots.</p>
+            <p class="font-sans text-caption text-slate">Choose a specialist to see their booking calendar.</p>
           }
         </div>
         <label class="flex flex-col gap-1.5 sm:max-w-xs">
           <span class="font-sans text-caption font-semibold text-slate">Type</span>
-          <select class="${FIELD}" [value]="type()" (change)="type.set($any($event.target).value)">
-            @for (t of types; track t.value) { <option [value]="t.value">{{ t.label }}</option> }
+          <select class="${FIELD}" (change)="type.set($any($event.target).value)">
+            @for (t of types; track t.value) { <option [value]="t.value" [selected]="type() === t.value">{{ t.label }}</option> }
           </select>
         </label>
       </section>
 
-      @if (error()) {
-        <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert">{{ error() }}</p>
-      }
+      <div aria-live="assertive">
+        @if (error()) {
+          <sd-alert tone="error">{{ error() }}</sd-alert>
+        }
+      </div>
       <div class="flex items-center gap-3">
-        <button type="button" class="flex items-center gap-2 rounded-field bg-cerulean px-6 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!readyToBook() || creating()" (click)="create()">
+        <button type="button" class="flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-6 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!readyToBook() || creating()" (click)="create()">
           {{ creating() ? 'Booking…' : 'Book appointment' }}
         </button>
         <a routerLink="/appointments" class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink">Cancel</a>
@@ -180,6 +232,7 @@ export class AdminAppointmentNew implements OnInit {
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly cal = inject(AvailabilityCalendarStore);
 
   protected readonly types = TYPES;
 
@@ -203,22 +256,19 @@ export class AdminAppointmentNew implements OnInit {
       .slice(0, 8);
   });
 
-  // Schedule — the chosen specialist's open slots (local time), or a typed time.
-  protected readonly days = signal<DayAvailability[]>([]);
-  protected readonly loadingSlots = signal(false);
-  protected readonly slotsError = signal('');
-  /** The picked slot's ISO start. */
-  protected readonly slotIso = signal('');
-  /** Typing a time instead (e.g. beyond the two weeks the pills cover). */
+  // Schedule — a time from the calendar, or a typed one.
+  /** The picked time's ISO start (from the calendar). */
+  protected readonly slotIso = signal<string | null>(null);
+  /** Typing a time instead (e.g. one the calendar doesn't show). */
   protected readonly manual = signal(false);
   /** The typed time — a local datetime-local value. */
   protected readonly scheduledAt = signal('');
   /** The typed time's earliest value: now, on the half hour. */
   protected readonly minAt = signal(nowLocalInput(30));
-  /** The typed input shows when chosen, or when there are no slots to pick. */
-  protected readonly useManual = computed(
-    () => this.manual() || this.slotsError() !== '' || this.days().length === 0,
-  );
+  /** The calendar couldn't load at all (not just one day's times). */
+  protected readonly calendarFailed = computed(() => !!this.cal.error() && !this.cal.range() && !this.cal.loading());
+  /** The typed input shows when chosen, or when the calendar couldn't load. */
+  protected readonly useManual = computed(() => this.manual() || this.calendarFailed());
   protected readonly type = signal('video');
 
   protected readonly creating = signal(false);
@@ -228,7 +278,7 @@ export class AdminAppointmentNew implements OnInit {
     () =>
       this.patient() !== null &&
       this.specialist() !== null &&
-      (this.useManual() ? this.scheduledAt().trim() !== '' : this.slotIso() !== ''),
+      (this.useManual() ? this.scheduledAt().trim() !== '' : !!this.slotIso()),
   );
 
   ngOnInit(): void {
@@ -280,7 +330,9 @@ export class AdminAppointmentNew implements OnInit {
   protected pickSpecialist(s: SpecialistAdminDto): void {
     this.specialist.set(s);
     this.specialistTerm.set('');
-    this.loadSlots(s);
+    this.resetSchedule();
+    // The openings a patient would see (lead time, blocks and bookings applied), a year ahead.
+    if (!this.notBookable(s)) this.cal.load(s.id, undefined, { scope: 'staff' });
   }
   protected clearSpecialist(): void {
     this.specialist.set(null);
@@ -288,18 +340,29 @@ export class AdminAppointmentNew implements OnInit {
   }
 
   private resetSchedule(): void {
-    this.loadingSlots.set(false);
-    this.days.set([]);
-    this.slotsError.set('');
-    this.slotIso.set('');
+    this.slotIso.set(null);
     this.manual.set(false);
     this.scheduledAt.set('');
     this.minAt.set(nowLocalInput(30));
+    this.error.set('');
+  }
+
+  protected toggleManual(): void {
+    this.manual.update((m) => !m);
+    this.minAt.set(nowLocalInput(30));
+    this.error.set('');
+  }
+
+  /** Load the calendar again after it failed (and show it, not the typed input). */
+  protected retryCalendar(): void {
+    this.manual.set(false);
+    this.error.set('');
+    this.cal.refresh();
   }
 
   /**
    * Why `s` can't be booked (the API's own reasons), or '' when they can. The
-   * admin list includes doctors still onboarding, whose public slots are a 404.
+   * admin list includes doctors still onboarding, whose calendar is a 404.
    */
   protected notBookable(s: SpecialistAdminDto): string {
     if (s.status && s.status !== 'approved') {
@@ -310,34 +373,13 @@ export class AdminAppointmentNew implements OnInit {
     return s.available ? '' : "This specialist isn't taking bookings right now.";
   }
 
-  /** The same open slots a patient could book (lead time, blocks and bookings applied). */
-  private loadSlots(s: SpecialistAdminDto): void {
-    this.resetSchedule();
-    if (this.notBookable(s)) return;
-    this.loadingSlots.set(true);
-    this.specialistsApi
-      .slots(s.id, 14)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          if (this.specialist()?.id !== s.id) return; // switched specialist meanwhile
-          this.days.set(localSlotDays(res.data));
-          this.loadingSlots.set(false);
-        },
-        error: (err: unknown) => {
-          if (this.specialist()?.id !== s.id) return;
-          this.slotsError.set(apiErrorMessage(err, 'Could not load open slots.'));
-          this.loadingSlots.set(false);
-        },
-      });
-  }
-
   protected create(): void {
     const patient = this.patient();
     const specialist = this.specialist();
     if (!patient || !specialist || this.creating()) return;
-    let scheduledAt = this.slotIso();
-    if (this.useManual()) {
+    const fromCalendar = !this.useManual();
+    let scheduledAt = this.slotIso() ?? '';
+    if (!fromCalendar) {
       const at = new Date(this.scheduledAt());
       if (this.scheduledAt().trim() === '' || isNaN(at.getTime())) {
         this.error.set('Enter a valid date and time.');
@@ -349,7 +391,7 @@ export class AdminAppointmentNew implements OnInit {
       }
       scheduledAt = at.toISOString();
     } else if (scheduledAt === '') {
-      this.error.set('Pick one of the open slots.');
+      this.error.set('Pick one of the open times.');
       return;
     }
     this.creating.set(true);
@@ -367,8 +409,21 @@ export class AdminAppointmentNew implements OnInit {
         error: (err: unknown) => {
           this.error.set(apiErrorMessage(err, 'Could not book the appointment.'));
           this.creating.set(false);
+          // The time may just have been taken: show the calendar as it is now.
+          // (The http-error interceptor rethrows `{ statusCode }`; a raw HttpErrorResponse has `status`.)
+          const e = err as { statusCode?: number; status?: number } | null;
+          if (fromCalendar && (e?.statusCode ?? e?.status) === 422) {
+            this.slotIso.set(null);
+            this.cal.refresh();
+          }
         },
       });
+  }
+
+  /** "Monday 20 October, 9:30" in the viewer's zone. */
+  protected chosenLabel(iso: string): string {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : `${CHOSEN.format(d)} (${this.cal.timeZoneLabel()})`;
   }
 
   protected money(amount: string): string {

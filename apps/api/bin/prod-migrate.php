@@ -11,7 +11,7 @@ declare(strict_types=1);
  * in the `prod_migrate.legacy_done` setting; a database an earlier release
  * already migrated is recorded without re-running them), because repeating
  * them would re-multiply a sub-₦1,000 fee, re-grant narrowed admin permissions
- * and reset doctor logins. Steps 3–8 are idempotent — a re-run changes nothing
+ * and reset doctor logins. Steps 3–9 are idempotent — a re-run changes nothing
  * that's already done (the numbers match the steps below):
  *   0. Grants the back-office permissions (settings.manage, specialists.manage,
  *      monitoring.view) to every admin that lacks them.
@@ -47,6 +47,10 @@ declare(strict_types=1);
  *   8. Guests: gives every guest invited before guests had identities a stable
  *      id + Agora uid (100+), the uid their already-emailed links carry (so
  *      those keep working while they stay invited), and what they cost.
+ *   9. Doctors' licensing documents: every doctor approved before documents
+ *      existed gets 30 days to upload their MDCN certificate and practising
+ *      licence (`credentials_due_at`; reminded, flagged in the back office,
+ *      never suspended for it). Only doctors with no due date are touched.
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
@@ -174,10 +178,11 @@ $required = [
     'users'             => ['password_token_hash'],  // doctor invite / reset links
     'appointments'      => ['document_url', 'guests', 'guest_uid_seq'], // steps 7 + 8 (booking attachments, guest identities)
     'medical_documents' => ['appointment_id'],       // step 7 (a join column, so listed by hand)
+    'specialist_credentials' => ['specialist_id', 'type', 'status', 'expires_at'], // step 9 (doctors' documents)
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
-foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class, Appointment::class] as $class) {
+foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class, Appointment::class, App\Domain\Entity\SpecialistCredential::class] as $class) {
     $meta             = $em->getClassMetadata($class);
     $table            = $unquote($meta->getTableName());
     $required[$table] = array_merge($required[$table] ?? [], array_map($unquote, $meta->getColumnNames()));
@@ -575,6 +580,33 @@ foreach ($em->createQuery('SELECT a FROM ' . Appointment::class . ' a WHERE a.gu
 }
 $em->flush();
 $report['completed_steps'][] = 8;
+
+// 9) Doctors' licensing documents: every doctor approved before documents
+//    existed (approved or legacy, no approval snapshot) gets 30 days, from the
+//    clinic's today, to upload their MDCN certificate and practising licence
+//    (`credentials_due_at`) — they are reminded and flagged "Credentials
+//    missing" in the back office, never suspended for it. Only doctors with no
+//    due date yet are touched (the licence cron sets the same for any this
+//    misses), and one whose documents are already verified is skipped — safe
+//    to re-run. (Its columns and table were checked at the top.)
+\App\Domain\Settings\ClinicTime::configure(trim((string) ($_ENV['APP_TIMEZONE'] ?? '')));
+$todayYmd = \App\Domain\Settings\ClinicTime::todayYmd();
+$report['credentials_due_set'] = (int) $conn->executeStatement(
+    "UPDATE specialists s SET credentials_due_at = :due
+      WHERE (s.status IS NULL OR s.status = 'approved')
+        AND s.approved_snapshot IS NULL
+        AND s.credentials_due_at IS NULL
+        AND s.deleted_at IS NULL
+        AND NOT (
+            EXISTS (SELECT 1 FROM specialist_credentials c WHERE c.specialist_id = s.id AND c.type = 'mdcn_full_registration' AND c.status = 'verified')
+            AND EXISTS (SELECT 1 FROM specialist_credentials c WHERE c.specialist_id = s.id AND c.type = 'annual_practising_licence' AND c.status = 'verified' AND c.expires_at >= :today)
+        )",
+    [
+        'due'   => (new DateTimeImmutable($todayYmd))->modify('+' . App\Infrastructure\Service\CredentialExpiryService::LEGACY_DUE_DAYS . ' days')->format('Y-m-d'),
+        'today' => $todayYmd,
+    ],
+);
+$report['completed_steps'][] = 9;
 
 if ($dryRun) {
     $conn->rollBack();

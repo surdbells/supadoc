@@ -159,7 +159,13 @@ final class CreateMyAppointmentAction
             }
         }
 
-        // The slot must fall on the specialist's schedule and still be open.
+        // The slot must fall on the specialist's schedule, inside the booking
+        // window, and still be open.
+        if ($this->availability->isBeyondHorizon($scheduledAt)) {
+            return $this->error($response, 'Validation failed', 422, [
+                'scheduled_at' => 'You can book up to ' . $this->availability->horizonDays() . ' days ahead — please pick an earlier time',
+            ]);
+        }
         if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
             return $this->error($response, 'Validation failed', 422, [
                 'scheduled_at' => 'That time is no longer available — please pick another slot',

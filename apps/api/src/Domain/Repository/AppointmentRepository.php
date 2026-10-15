@@ -561,6 +561,60 @@ final class AppointmentRepository extends BaseRepository
             ->getQuery();
     }
 
+    /**
+     * The batched twin of {@see forSpecialistBetween()} for availability: the
+     * start times of several specialists' live appointments in [from, to) as
+     * plain rows (specialist_id, scheduled_at) — same rules (not cancelled, not
+     * deleted, an open proposal holds its time until it expires), no entities.
+     * `$ignoreId`: an appointment being moved — its own time isn't in its way.
+     *
+     * @param list<string> $specialistIds
+     * @return list<array{specialist_id:string, scheduled_at:mixed}>
+     */
+    public function takenStartsFor(
+        array $specialistIds,
+        DateTimeImmutable $from,
+        DateTimeImmutable $to,
+        DateTimeImmutable $now,
+        ?string $ignoreId = null,
+    ): array {
+        if ($specialistIds === []) {
+            return [];
+        }
+
+        return $this->takenStartsForQuery($specialistIds, $from, $to, $now, $ignoreId)->getArrayResult();
+    }
+
+    /** @param list<string> $specialistIds */
+    public function takenStartsForQuery(
+        array $specialistIds,
+        DateTimeImmutable $from,
+        DateTimeImmutable $to,
+        DateTimeImmutable $now,
+        ?string $ignoreId = null,
+    ): Query {
+        $qb = $this->em->createQueryBuilder()
+            ->select('IDENTITY(e.specialist) AS specialist_id', 'e.scheduledAt AS scheduled_at')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist IN (:ids)')
+            ->andWhere('e.scheduledAt >= :from')
+            ->andWhere('e.scheduledAt < :to')
+            ->andWhere('e.status != :cancelled')
+            ->andWhere('e.status != :proposed OR e.expiresAt > :now')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('ids', $specialistIds)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->setParameter('cancelled', AppointmentStatus::CANCELLED->value)
+            ->setParameter('proposed', AppointmentStatus::PROPOSED->value)
+            ->setParameter('now', $now);
+        if ($ignoreId !== null && $ignoreId !== '') {
+            $qb->andWhere('e.id != :ignore')->setParameter('ignore', $ignoreId);
+        }
+
+        return $qb->getQuery();
+    }
+
     // ----- Follow-ups -----
     // Each finder has a public *Query() twin so its DQL compiles in the offline tests.
 

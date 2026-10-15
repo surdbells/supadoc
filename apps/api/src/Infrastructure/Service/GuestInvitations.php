@@ -19,6 +19,7 @@ use App\Infrastructure\Agora\AgoraKickingService;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
+use Doctrine\ORM\Exception\EntityManagerClosed;
 use Ramsey\Uuid\Uuid;
 
 /**
@@ -629,13 +630,23 @@ final class GuestInvitations
     {
         // Re-read under the row lock (the cancellation is saved): a guest given a
         // token a moment ago shows here, and one joining from now on is refused.
-        $this->appointments->transactional(fn () => $this->appointments->lockAndRefresh($appointment));
+        try {
+            $this->appointments->transactional(fn () => $this->appointments->lockAndRefresh($appointment));
+        } catch (EntityManagerClosed) {
+            // A later suspension batch failed and closed the entity manager; this
+            // cancellation was already committed — tell the guests as loaded.
+        }
         $now    = new DateTimeImmutable();
         $inCall = $this->presence->forAppointment($appointment)['guests'];
         foreach ($appointment->getGuests() as $guest) {
             if (isset($guest['id'])) {
-                $this->eject($appointment, $guest, $inCall, $now);
-                $this->presence->clear($appointment, 'guest', (string) $guest['id']);
+                // Putting them out of the call is best effort: they are told either way.
+                try {
+                    $this->eject($appointment, $guest, $inCall, $now);
+                    $this->presence->clear($appointment, 'guest', (string) $guest['id']);
+                } catch (\Throwable $e) {
+                    error_log('[guests] ending a cancelled call for a guest failed: ' . $e->getMessage());
+                }
             }
             $this->sendClosed($appointment, $guest, 'cancelled');
         }

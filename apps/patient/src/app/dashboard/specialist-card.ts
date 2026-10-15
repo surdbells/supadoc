@@ -2,28 +2,48 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   inject,
   input,
-  OnInit,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
-import { apiErrorMessage, localSlotDays, SpecialistsApi } from '@supadoc/data-access';
-import type { DayAvailability, SpecialistDto } from '@supadoc/models';
-import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@supadoc/ui';
+import { Router, RouterLink } from '@angular/router';
+import {
+  slotLabel,
+  SpecialistsApi,
+  todayLocal,
+  viewerTimeZone,
+  ymdInZone,
+  type SpecialistSuggestionParams,
+} from '@supadoc/data-access';
+import type { SpecialistDto } from '@supadoc/models';
+import { ButtonComponent, DoctorProfileCardComponent, IconComponent, shortDayLabel } from '@supadoc/ui';
+import { whenLabel } from './follow-up';
+import { SimilarDoctors } from './similar-doctors';
+
+let nextId = 0;
+
+/** What the card's availability box says. */
+interface WhenVm {
+  readonly title: string;
+  readonly detail: string;
+  /** Up to three open times that day, each a link to booking it. */
+  readonly times: readonly { iso: string; label: string; aria: string }[];
+  /** Not free on the filtered day (or not soon at all): offer similar doctors. */
+  readonly offerSimilar: boolean;
+}
 
 /**
- * One specialist in the directory (Figma 311:4126) with an inline date/time
- * picker driven by the specialist's real availability
- * (GET /portal/specialists/{id}/slots). Choosing a day + slot and hitting Book
- * Consultation creates the appointment and jumps to My Appointments.
+ * One specialist in the directory (Figma 311:4126). When the doctor is free
+ * comes with the listing (`availability`, no request per card): the badge reads
+ * from the next opening, up to three open times link straight to booking them
+ * (`?slot=`), and "See full calendar" opens the booking calendar. With a
+ * filtered day (`date`) a doctor who isn't free then offers "See similar
+ * doctors free that day".
  */
 @Component({
   selector: 'pat-specialist-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, DoctorProfileCardComponent, IconComponent],
+  imports: [ButtonComponent, DoctorProfileCardComponent, IconComponent, RouterLink, SimilarDoctors],
   host: { class: 'block' },
   template: `
     <article
@@ -71,9 +91,9 @@ import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@sup
           }
           <span
             class="rounded-pill px-3 py-1 font-sans text-[10px] font-medium"
-            [class]="availability().class"
+            [class]="badge().class"
           >
-            {{ availability().label }}
+            {{ badge().label }}
           </span>
         </div>
       </div>
@@ -101,7 +121,7 @@ import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@sup
         }
       </div>
 
-      <!-- Scheduling widget -->
+      <!-- When the doctor is free (from the listing — no request per card) -->
       @if (!specialist().available) {
         <div
           class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
@@ -109,97 +129,68 @@ import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@sup
           <sd-icon name="calendar-off" [size]="16" />
           Not accepting bookings right now.
         </div>
-      } @else if (loadingSlots()) {
-        <div
-          class="sd-shimmer h-28 rounded-card"
-        ></div>
-      } @else if (slotsError()) {
-        <div
-          class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-alert"
-        >
-          <sd-icon name="triangle-alert" [size]="16" class="shrink-0" />
-          {{ slotsError() }}
-        </div>
-      } @else if (days().length === 0) {
-        <div
-          class="flex items-center gap-2 rounded-card border border-cloud bg-glacier/60 px-4 py-3 font-sans text-caption text-slate"
-        >
-          <sd-icon name="calendar-off" [size]="16" />
-          No open slots in the next two weeks.
-        </div>
       } @else {
         <div
           class="flex flex-col gap-3 rounded-card border border-cloud bg-glacier/60 p-4"
         >
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <span
               class="flex items-center gap-1.5 font-sans text-caption font-semibold text-cerulean"
             >
-              <sd-icon name="calendar-clock" [size]="16" />Next Available
+              <sd-icon [name]="when().offerSimilar ? 'calendar-off' : 'calendar-clock'" [size]="16" />{{ when().title }}
             </span>
-            <span class="font-sans text-caption font-medium text-ink">{{
-              selectedSummary()
-            }}</span>
+            @if (when().detail) {
+              <span class="font-sans text-caption font-medium text-ink">{{ when().detail }}</span>
+            }
           </div>
 
-          <!-- Collapsible calendar -->
-          <button
-            type="button"
-            class="flex items-center justify-center gap-1 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-cerulean-dark"
-            [attr.aria-expanded]="calendarOpen()"
-            (click)="calendarOpen.set(!calendarOpen())"
-          >
-            {{ calendarOpen() ? 'hide calendar' : 'view calendar' }}
-            <sd-icon
-              name="chevron-down"
-              [size]="16"
-              class="transition-transform"
-              [class.rotate-180]="calendarOpen()"
-            />
-          </button>
-
-          @if (calendarOpen()) {
-            <!-- Dates -->
-            <div class="flex gap-2 overflow-x-auto pb-1">
-              @for (d of days(); track d.date) {
-                <button
-                  type="button"
-                  class="flex shrink-0 flex-col items-center rounded-field border px-3 py-1.5 transition-colors"
-                  [class]="
-                    selectedDate() === d.date
-                      ? 'border-cerulean bg-cerulean text-white'
-                      : 'border-cloud bg-white text-slate hover:border-cerulean/50'
-                  "
-                  (click)="pickDate(d)"
+          @if (when().times.length) {
+            <div class="flex flex-wrap gap-2" role="group" [attr.aria-label]="'Open times with ' + specialist().name">
+              @for (t of when().times; track t.iso) {
+                <a
+                  [routerLink]="bookPath()"
+                  [queryParams]="{ slot: t.iso }"
+                  class="inline-flex min-h-11 items-center rounded-field border border-cloud bg-white px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                  [attr.aria-label]="'Book ' + specialist().name + ', ' + t.aria"
+                  >{{ t.label }}</a
                 >
-                  <span class="font-sans text-[10px] uppercase">{{
-                    d.weekday
-                  }}</span>
-                  <span class="font-sans text-body-sm font-semibold">{{
-                    d.day
-                  }}</span>
-                </button>
-              }
-            </div>
-
-            <!-- Times -->
-            <div class="flex flex-wrap gap-2">
-              @for (t of selectedDaySlots(); track t.iso) {
-                <button
-                  type="button"
-                  class="rounded-field border px-3 py-1 font-sans text-caption transition-colors"
-                  [class]="
-                    selectedTime() === t.iso
-                      ? 'border-cerulean bg-cerulean text-white'
-                      : 'border-cloud bg-white text-slate hover:border-cerulean/50'
-                  "
-                  (click)="selectedTime.set(t.iso)"
-                >
-                  {{ t.label }}
-                </button>
               }
             </div>
           }
+
+          <div class="flex flex-wrap items-center justify-between gap-x-4">
+            <a
+              [routerLink]="bookPath()"
+              [queryParams]="calendarQuery()"
+              class="inline-flex min-h-11 items-center gap-1 font-sans text-caption font-semibold text-cerulean hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              [attr.aria-label]="'See ' + specialist().name + '’s full calendar'"
+            >
+              See full calendar <sd-icon name="arrow-right" [size]="14" />
+            </a>
+            @if (when().offerSimilar) {
+              <button
+                type="button"
+                class="inline-flex min-h-11 items-center gap-1 font-sans text-caption font-semibold text-cerulean hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                [attr.aria-expanded]="similarOpen()"
+                [attr.aria-controls]="similarId"
+                (click)="similarOpen.set(!similarOpen())"
+              >
+                <sd-icon [name]="similarOpen() ? 'chevron-down' : 'users'" [size]="14" [class.rotate-180]="similarOpen()" />
+                {{ similarOpen() ? 'Hide similar doctors' : similarLabel() }}
+              </button>
+            }
+          </div>
+
+          <div [id]="similarId">
+            @if (similarOpen()) {
+              <div class="border-t border-cloud pt-3">
+                <pat-similar-doctors
+                  [params]="similarParams()"
+                  [heading]="date() ? 'Similar doctors free that day' : 'Similar doctors with openings'"
+                />
+              </div>
+            }
+          </div>
         </div>
       }
 
@@ -267,59 +258,78 @@ import { ButtonComponent, DoctorProfileCardComponent, IconComponent } from '@sup
     }
   `,
 })
-export class SpecialistCard implements OnInit {
+export class SpecialistCard {
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly router = inject(Router);
-  private readonly destroyRef = inject(DestroyRef);
 
   readonly specialist = input.required<SpecialistDto>();
   /** Optional "X% Match" badge (the Find-me-a-doctor results). Null hides it. */
   readonly matchPercent = input<number | null>(null);
+  /** The day the directory is filtered on ('YYYY-MM-DD', the viewer's calendar), if any. */
+  readonly date = input<string | null>(null);
 
   protected readonly profileOpen = signal(false);
+  protected readonly similarOpen = signal(false);
+  protected readonly similarId = `pat-card-similar-${++nextId}`;
 
-  protected readonly days = signal<DayAvailability[]>([]);
-  protected readonly loadingSlots = signal(true);
-  protected readonly slotsError = signal('');
-  protected readonly calendarOpen = signal(false);
-  protected readonly selectedDate = signal('');
-  protected readonly selectedTime = signal('');
+  protected readonly bookPath = computed(() => ['/dashboard/appointments/book', this.specialist().id]);
 
-  ngOnInit(): void {
-    if (!this.specialist().available) {
-      this.loadingSlots.set(false);
-      return;
+  /** The listing's `availability`, worded: when, and up to three times to book. */
+  protected readonly when = computed<WhenVm>(() => {
+    const a = this.specialist().availability;
+    const day = this.date();
+    if (!a) return { title: 'Open the calendar to see times', detail: '', times: [], offerSimilar: false };
+    if (day && (a.date !== day || a.open_slots === 0)) {
+      // next_available_at counts from today, so it can come before the filtered day.
+      const next = a.next_available_at;
+      return {
+        title: `Not free on ${shortDayLabel(day)}`,
+        detail: !next
+          ? 'No open times soon'
+          : `${ymdInZone(next) < day ? 'Earliest' : 'Next'}: ${whenLabel(next)}`,
+        times: [],
+        offerSimilar: true,
+      };
     }
-    this.specialistsApi
-      .slots(this.specialist().id, 7)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          // Labels and day grouping in the viewer's local time, never the server's UTC text.
-          const days = localSlotDays(res.data);
-          this.days.set(days);
-          const first = days[0];
-          if (first) {
-            this.selectedDate.set(first.date);
-            this.selectedTime.set(first.slots[0]?.iso ?? '');
-          }
-          this.loadingSlots.set(false);
-        },
-        error: (err: unknown) => {
-          this.slotsError.set(apiErrorMessage(err, 'Could not load available times.'));
-          this.loadingSlots.set(false);
-        },
-      });
-  }
+    const first = a.first_slot_at ?? a.next_available_at;
+    if (!first) return { title: 'No open times soon', detail: '', times: [], offerSimilar: true };
+    return {
+      title: day ? `Free on ${shortDayLabel(day)}` : 'Next available',
+      detail: day ? `${a.open_slots} open ${a.open_slots === 1 ? 'time' : 'times'}` : whenLabel(first),
+      times: a.slots_preview.slice(0, 3).map((iso) => ({ iso, label: slotLabel(iso), aria: whenLabel(iso) })),
+      offerSimilar: false,
+    };
+  });
 
-  protected readonly selectedDaySlots = computed(
-    () => this.days().find((d) => d.date === this.selectedDate())?.slots ?? [],
+  /** The badge, from the next opening — never colour alone: it always says when. */
+  protected readonly badge = computed(() => {
+    const s = this.specialist();
+    if (!s.available) return { label: 'Unavailable', class: 'bg-cloud text-slate' };
+    if (!s.availability) return { label: 'Taking bookings', class: 'bg-sage/15 text-sage' };
+    const next = s.availability.next_available_at;
+    if (!next) return { label: 'No openings soon', class: 'bg-cloud text-slate' };
+    const day = ymdInZone(next);
+    if (day === todayLocal()) return { label: 'Available today', class: 'bg-sage/15 text-sage' };
+    if (day === todayLocal(1)) return { label: 'Available tomorrow', class: 'bg-frost text-cerulean' };
+    return { label: `Next: ${shortDayLabel(day)}`, class: 'bg-frost text-cerulean' };
+  });
+
+  /** The booking calendar opens on the filtered day when the doctor is free then. */
+  protected readonly calendarQuery = computed(() => {
+    const day = this.date();
+    const a = this.specialist().availability;
+    return day && a?.date === day && a.open_slots > 0 ? { date: day } : {};
+  });
+
+  protected readonly similarLabel = computed(() =>
+    this.date() ? 'See similar doctors free that day' : 'See similar doctors',
   );
 
-  protected pickDate(d: DayAvailability): void {
-    this.selectedDate.set(d.date);
-    this.selectedTime.set(d.slots[0]?.iso ?? '');
-  }
+  protected readonly similarParams = computed<SpecialistSuggestionParams>(() => ({
+    like: this.specialist().id,
+    date: this.date() ?? todayLocal(),
+    tz: viewerTimeZone(),
+  }));
 
   protected readonly initials = computed(() =>
     this.specialist()
@@ -350,18 +360,6 @@ export class SpecialistCard implements OnInit {
       ),
   );
 
-  protected readonly availability = computed(() =>
-    this.specialist().available
-      ? { label: 'Available Today', class: 'bg-sage/15 text-sage' }
-      : { label: 'Unavailable', class: 'bg-cloud text-slate' },
-  );
-
-  protected readonly selectedSummary = computed(() => {
-    const day = this.days().find((d) => d.date === this.selectedDate());
-    const slot = day?.slots.find((s) => s.iso === this.selectedTime());
-    return day && slot ? `${day.weekday} ${day.day}, ${slot.label}` : '';
-  });
-
   protected readonly about = computed(() => {
     const s = this.specialist();
     const parts = [
@@ -379,15 +377,12 @@ export class SpecialistCard implements OnInit {
 
   /**
    * Browsing is public, booking needs an account. Everyone heads to the booking
-   * wizard (carrying the picked slot). A visitor is intercepted by the route
-   * guard, which remembers this exact URL — so after they sign in or register
-   * they land back here with their selection intact.
+   * calendar (a time link carries its `?slot=`). A visitor is intercepted by the
+   * route guard, which remembers this exact URL — so after they sign in or
+   * register they land back here with their selection intact.
    */
   protected book(): void {
     if (!this.specialist().available) return;
-    void this.router.navigate(
-      ['/dashboard/appointments/book', this.specialist().id],
-      this.selectedTime() ? { queryParams: { slot: this.selectedTime() } } : {},
-    );
+    void this.router.navigate(this.bookPath(), { queryParams: this.calendarQuery() });
   }
 }

@@ -1,5 +1,5 @@
-import { apiErrorFields, apiErrorMessage } from '@supadoc/data-access';
-import type { CallRefusalCode } from '@supadoc/models';
+import { apiErrorFields, apiErrorMessage, isDoctorStandingCode } from '@supadoc/data-access';
+import type { CallRefusalCode, DoctorStandingCode } from '@supadoc/models';
 
 /**
  * Pure helpers shared by the patient's call screens (the signed-in
@@ -36,10 +36,13 @@ export function deviceProblemText(device: 'camera' | 'microphone', problem: Devi
   }
 }
 
-/** A refused join link / heartbeat (see `CallRefusalCode`). */
+/**
+ * A refused join link / heartbeat (see `CallRefusalCode`) — or, on a doctor's
+ * link, a 403 for their standing (`DoctorStandingCode`, e.g. suspended mid-call).
+ */
 export interface CallRefusal {
   readonly status: number;
-  readonly code: CallRefusalCode | null;
+  readonly code: CallRefusalCode | DoctorStandingCode | null;
   /** The API's own words, ready to show. */
   readonly message: string;
   /** too_early: when joining opens, and the server's clock (for the countdown). */
@@ -59,7 +62,7 @@ export function httpStatus(err: unknown): number {
 export function callRefusal(err: unknown): CallRefusal | null {
   const status = httpStatus(err);
   const fields = apiErrorFields(err);
-  const code = (fields['code'] ?? null) as CallRefusalCode | null;
+  const code = (fields['code'] ?? null) as CallRefusalCode | DoctorStandingCode | null;
   if (!code && status !== 410 && status !== 409 && status !== 425) return null;
   return {
     status,
@@ -70,9 +73,13 @@ export function callRefusal(err: unknown): CallRefusal | null {
   };
 }
 
-/** A refusal that means there is no call for this link (now, or at all): show a final screen. */
-export function isFinalRefusal(r: { status: number; code: CallRefusalCode | null }): boolean {
+/**
+ * A refusal that means there is no call for this link (now, or at all): show a
+ * final screen. A doctor refused for their standing (403) is final too.
+ */
+export function isFinalRefusal(r: { status: number; code: CallRefusalCode | DoctorStandingCode | null }): boolean {
   if (r.code === 'too_early' || r.code === 'consent_required') return false;
+  if (isDoctorStandingCode(r.code)) return true;
   return r.status === 410 || r.status === 409 || r.code === 'cancelled' || r.code === 'ended' || r.code === 'withdrawn' || r.code === 'not_confirmed';
 }
 

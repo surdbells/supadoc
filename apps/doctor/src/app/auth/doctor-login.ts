@@ -7,7 +7,7 @@ import {
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StaffAuthService, consumeSessionNotice } from '@supadoc/auth';
-import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
+import { apiErrorMessage } from '@supadoc/data-access';
 import {
   AlertComponent,
   ButtonComponent,
@@ -15,6 +15,7 @@ import {
   InputComponent,
 } from '@supadoc/ui';
 import { doctorLandingUrl } from '../onboarding/onboarding-landing';
+import { DoctorStandingStore } from '../standing/doctor-standing.store';
 
 /** Doctor sign-in. Only accounts with the `doctor` role are accepted. */
 @Component({
@@ -102,7 +103,7 @@ import { doctorLandingUrl } from '../onboarding/onboarding-landing';
 export class DoctorLogin {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(StaffAuthService);
-  private readonly doctorApi = inject(DoctorApi);
+  private readonly standing = inject(DoctorStandingStore);
   private readonly router = inject(Router);
 
   protected readonly busy = signal(false);
@@ -134,8 +135,12 @@ export class DoctorLogin {
     const { email, password } = this.form.getRawValue();
     try {
       await this.auth.login(email, password);
-      // Until approved, a doctor lands on their onboarding checklist.
-      const target = this.auth.consumeRedirect() ?? (await doctorLandingUrl(this.doctorApi));
+      // Until approved, a doctor lands on their onboarding checklist. The standing is
+      // read afresh even when going back to a remembered page (the guard trusts it),
+      // never from a previous session (idle timeout / expiry don't clear it).
+      this.standing.clear();
+      const landing = await doctorLandingUrl(this.standing);
+      const target = this.auth.consumeRedirect() ?? landing;
       await this.router.navigateByUrl(target);
     } catch (err) {
       this.error.set(

@@ -4,6 +4,7 @@ export * from './lib/user';
 export * from './lib/appointment';
 export * from './lib/appointment-api';
 export * from './lib/staff';
+export * from './lib/doctor-management';
 export * from './lib/message';
 export * from './lib/support';
 export * from './lib/wallet';

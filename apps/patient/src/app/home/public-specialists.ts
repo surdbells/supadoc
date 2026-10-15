@@ -17,7 +17,12 @@ import {
   switchMap,
   tap,
 } from 'rxjs';
-import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  SpecialistsApi,
+  type PublicSpecialistSearchParams,
+} from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
 import {
   ButtonComponent,
@@ -25,9 +30,35 @@ import {
   LogoComponent,
   SearchSelectComponent,
 } from '@supadoc/ui';
+import { AvailabilityFallback, type DirectoryFilters } from '../dashboard/availability-fallback';
+import {
+  ANY_WHEN,
+  hasDateFilter,
+  hasWhenFilter,
+  whenDay,
+  whenFromQuery,
+  whenParams,
+  whenText,
+  type WhenFilter,
+} from '../dashboard/booking-helpers';
 import { SpecialistCard } from '../dashboard/specialist-card';
+import { WhenFilterChips } from '../dashboard/when-filter';
 
 type Mode = 'any' | 'online' | 'in_person';
+type Sort = 'soonest' | 'rating' | 'fee_low' | 'experience';
+
+/** Each sort as the API's `sort_by` / `sort_dir`. */
+const SORTS: Record<Sort, Pick<PublicSpecialistSearchParams, 'sort_by' | 'sort_dir'>> = {
+  soonest: { sort_by: 'soonest' },
+  rating: { sort_by: 'rating', sort_dir: 'desc' },
+  fee_low: { sort_by: 'consultation_fee', sort_dir: 'asc' },
+  experience: { sort_by: 'years_experience', sort_dir: 'desc' },
+};
+
+/** Doctors per page (the public API's most). */
+const PAGE_SIZE = 24;
+/** The fee slider's range until the facets say otherwise. */
+const FEE_RANGE = { min: 5000, max: 20000 };
 
 // Light symptom → specialty hint (mirrors the homepage).
 const SYMPTOMS: { keyword: string; specialty: string }[] = [
@@ -54,21 +85,25 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
 /**
  * Public specialist directory (Figma) — the full "Care that starts with the
  * right specialist" results page, no auth required to browse or filter. A
- * collapsible Filters sidebar (consultation type, specialty, location,
- * language, gender, fee, experience, rating) drives the public search; the
- * server handles the facet filters and fee/experience/rating refine client-side.
- * Booking a card sends a visitor to register.
+ * collapsible Filters sidebar (consultation type, when + time of day,
+ * specialty, location, language, gender, fee, experience, rating) and the
+ * sort all run on the server (GET /public/specialists, paged — "Show more"),
+ * in the visitor's time zone; `?when=&time=` deep-link the "when" filters.
+ * Every doctor carries when they are free. A day nobody is free on offers the
+ * next open day and similar doctors. Booking a card sends a visitor to register.
  */
 @Component({
   selector: 'pat-public-specialists',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,
+    AvailabilityFallback,
     IconComponent,
     ButtonComponent,
     LogoComponent,
     SearchSelectComponent,
     SpecialistCard,
+    WhenFilterChips,
   ],
   host: { class: 'block min-h-screen bg-glacier' },
   template: `
@@ -171,8 +206,9 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               >
             }
           </button>
-          <p class="font-sans text-body font-semibold text-ink">
-            {{ filtered().length }} Specialist found
+          <p class="font-sans text-body font-semibold text-ink" aria-live="polite">
+            {{ total() }} {{ total() === 1 ? 'specialist' : 'specialists' }}
+            {{ whenSummary() ? 'free ' + whenSummary() : 'found' }}
           </p>
         </div>
         <div class="flex items-center gap-3">
@@ -192,7 +228,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               [options]="sortOptions"
               [clearable]="false"
               [value]="sortBy()"
-              (valueChange)="sortBy.set($any($event))"
+              (valueChange)="sortBy.set($any($event) || 'soonest')"
             />
           </div>
         </div>
@@ -240,6 +276,9 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                 }
               </div>
             </div>
+
+            <!-- When + time of day (the visitor's own calendar and clock) -->
+            <pat-when-filter [(value)]="when" [compact]="true" />
 
             <div class="flex flex-col gap-2">
               <span class="font-sans text-caption font-semibold text-slate"
@@ -300,11 +339,13 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               </div>
               <input
                 type="range"
-                min="5000"
-                max="20000"
-                step="1000"
+                [min]="feeRange().min"
+                [max]="feeRange().max"
+                step="500"
                 [value]="feeMax()"
                 (input)="feeMax.set(+$any($event.target).value)"
+                aria-label="Maximum consultation fee"
+                [attr.aria-valuetext]="feeLabel()"
                 class="w-full accent-cerulean"
               />
             </div>
@@ -347,13 +388,26 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             </div>
           } @else if (loadError()) {
             <div class="flex flex-col items-center gap-5 py-20 text-center">
-              <sd-icon name="wifi-off" [size]="40" class="text-alert" />
+              <sd-icon [name]="dateRefused() ? 'calendar-off' : 'wifi-off'" [size]="40" class="text-alert" />
               <p class="font-sans text-body-sm text-slate">
                 {{ loadError() }}
               </p>
-              <sd-button (click)="reload()">Try Again</sd-button>
+              @if (dateRefused()) {
+                <sd-button (click)="anyDay()">Show any day</sd-button>
+              } @else {
+                <sd-button (click)="reload()">Try Again</sd-button>
+              }
             </div>
-          } @else if (filtered().length === 0) {
+          } @else if (all().length === 0 && dateFiltered()) {
+            <!-- Nobody free then: the next open day + similar doctors who are -->
+            <pat-availability-fallback
+              [filters]="fallbackFilters()"
+              [when]="when()"
+              [count]="0"
+              (tryDay)="tryDay($event)"
+              (anyDay)="anyDay()"
+            />
+          } @else if (all().length === 0) {
             <div class="flex flex-col items-center gap-5 py-20 text-center">
               <span
                 class="flex size-24 items-center justify-center rounded-full bg-cloud text-slate"
@@ -373,10 +427,33 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             </div>
           } @else {
             <div class="grid grid-cols-1 items-stretch gap-6 xl:grid-cols-2">
-              @for (s of filtered(); track s.id) {
-                <pat-specialist-card [specialist]="s" />
+              @for (s of all(); track s.id) {
+                <pat-specialist-card [specialist]="s" [date]="filterDay()" />
               }
             </div>
+            @if (all().length < total()) {
+              <div class="mt-6 flex flex-col items-center gap-2">
+                <sd-button variant="outline" [disabled]="loadingMore()" (click)="loadMore()">
+                  {{ loadingMore() ? 'Loading…' : 'Show more specialists' }}
+                </sd-button>
+                <p class="font-sans text-caption text-slate">Showing {{ all().length }} of {{ total() }}</p>
+                @if (moreError()) {
+                  <p class="font-sans text-caption text-alert" role="alert">{{ moreError() }}</p>
+                }
+              </div>
+            }
+            <!-- Hardly anybody free then: more options -->
+            @if (dateFiltered() && total() < 3) {
+              <pat-availability-fallback
+                class="mt-6"
+                [filters]="fallbackFilters()"
+                [when]="when()"
+                [count]="total()"
+                [excludeIds]="listedIds()"
+                (tryDay)="tryDay($event)"
+                (anyDay)="anyDay()"
+              />
+            }
           }
         </div>
       </div>
@@ -395,23 +472,32 @@ export class PublicSpecialists implements OnInit {
   protected readonly language = signal('');
   protected readonly gender = signal('');
   protected readonly mode = signal<Mode>('any');
-  protected readonly feeMax = signal(20000);
+  protected readonly when = signal<WhenFilter>(ANY_WHEN);
+  /** The slider's bounds: the cheapest and dearest listed fee (rounded out), once known. */
+  protected readonly feeRange = signal(FEE_RANGE);
+  /** At the slider's top there is no cap. */
+  protected readonly feeMax = signal(FEE_RANGE.max);
   protected readonly minYears = signal(0);
   protected readonly minRating = signal(0);
-  protected readonly sortBy = signal<
-    'recommended' | 'rating' | 'fee_low' | 'experience'
-  >('recommended');
+  protected readonly sortBy = signal<Sort>('soonest');
   protected readonly sidebarOpen = signal(true);
 
   protected readonly specialties = signal<string[]>([]);
   protected readonly locations = signal<string[]>([]);
   protected readonly languages = signal<string[]>([]);
 
-  private readonly all = signal<SpecialistDto[]>([]);
+  protected readonly all = signal<SpecialistDto[]>([]);
+  /** How many doctors match in all (meta.total), not just the pages shown. */
+  protected readonly total = signal(0);
   protected readonly loading = signal(true);
   /** Why the search failed ('' when it didn't). */
   protected readonly loadError = signal('');
+  /** The API refused the day searched (outside the booking window). */
+  protected readonly dateRefused = signal(false);
   private readonly reloadTick = signal(0);
+  private page = 1;
+  protected readonly loadingMore = signal(false);
+  protected readonly moreError = signal('');
 
   protected readonly consultTypes = [
     { value: 'any' as const, label: 'Any', icon: 'sparkles' },
@@ -423,7 +509,7 @@ export class PublicSpecialists implements OnInit {
     { value: 'male', label: 'Male' },
   ];
   protected readonly sortOptions = [
-    { value: 'recommended', label: 'Recommended' },
+    { value: 'soonest', label: 'Soonest available' },
     { value: 'rating', label: 'Top rated' },
     { value: 'fee_low', label: 'Fee: low to high' },
     { value: 'experience', label: 'Most experienced' },
@@ -439,48 +525,66 @@ export class PublicSpecialists implements OnInit {
     { value: '4.8', label: '4.8+' },
   ];
 
+  /** Everything the search sends but the page (each change starts again at page 1). */
+  private readonly searchParams = computed<PublicSpecialistSearchParams>(() => ({
+    ...this.fallbackFilters(),
+    ...whenParams(this.when()),
+    ...SORTS[this.sortBy()],
+    limit: PAGE_SIZE,
+  }));
+
+  /** The profile filters (no "when", no paging) — also what the fallback searches with. */
+  protected readonly fallbackFilters = computed<DirectoryFilters>(() => {
+    const capped = this.feeMax() < this.feeRange().max;
+    return {
+      search: this.query().trim() || undefined,
+      specialty: this.specialty() || undefined,
+      location: this.location() || undefined,
+      language: this.language() || undefined,
+      gender: this.gender() || undefined,
+      mode: this.mode() === 'in_person' ? 'in_person' : undefined,
+      fee_max: capped ? this.feeMax() : undefined,
+      min_years: this.minYears() > 0 ? this.minYears() : undefined,
+      min_rating: this.minRating() > 0 ? this.minRating() : undefined,
+    };
+  });
+
+  protected readonly dateFiltered = computed(() => hasDateFilter(this.when()));
+  /** The one day searched (today / tomorrow / a picked date), for the cards. */
+  protected readonly filterDay = computed(() => whenDay(this.when()));
+  protected readonly whenSummary = computed(() => (hasWhenFilter(this.when()) ? whenText(this.when()) : ''));
+  protected readonly listedIds = computed(() => this.all().map((s) => s.id));
+
   constructor() {
-    // Server-side facet filters (debounced).
-    toObservable(
-      computed(() => ({
-        search: this.query().trim(),
-        specialty: this.specialty(),
-        location: this.location(),
-        language: this.language(),
-        gender: this.gender(),
-        mode: this.mode(),
-        tick: this.reloadTick(),
-      })),
-    )
+    // Every filter and the sort run on the server (debounced).
+    toObservable(computed(() => ({ params: this.searchParams(), tick: this.reloadTick() })))
       .pipe(
         debounceTime(220),
         distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
         tap(() => {
           this.loading.set(true);
           this.loadError.set('');
+          this.dateRefused.set(false);
+          this.moreError.set('');
+          this.page = 1;
         }),
-        switchMap((c) =>
-          this.specialistsApi
-            .publicSearch({
-              search: c.search || undefined,
-              specialty: c.specialty || undefined,
-              location: c.location || undefined,
-              language: c.language || undefined,
-              gender: c.gender || undefined,
-              mode: c.mode === 'any' ? undefined : c.mode,
-              limit: 24,
-            })
-            .pipe(
-              catchError((err: unknown) => {
-                this.loadError.set(apiErrorMessage(err, 'Unable to load specialists.'));
-                return of(null);
-              }),
-            ),
+        switchMap(({ params }) =>
+          this.specialistsApi.publicSearch({ ...params, page: 1 }).pipe(
+            catchError((err: unknown) => {
+              const fields = apiErrorFields(err);
+              this.dateRefused.set(!!(fields['available_on'] || fields['available_within']));
+              this.loadError.set(apiErrorMessage(err, 'Unable to load specialists.'));
+              return of(null);
+            }),
+          ),
         ),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((res) => {
-        if (res) this.all.set(res.data);
+        if (res) {
+          this.all.set(res.data);
+          this.total.set(res.meta?.total ?? res.data.length);
+        }
         this.loading.set(false);
       });
   }
@@ -498,6 +602,7 @@ export class PublicSpecialists implements OnInit {
     set('gender', this.gender);
     const md = qp.get('mode');
     if (md === 'online' || md === 'in_person') this.mode.set(md);
+    this.when.set(whenFromQuery(qp));
 
     this.specialistsApi
       .publicFacets()
@@ -507,40 +612,54 @@ export class PublicSpecialists implements OnInit {
           this.specialties.set(res.data.specialties.map((s) => s.name));
           this.locations.set(res.data.locations);
           this.languages.set(res.data.languages);
+          // The slider spans the listed fees; an untouched slider stays "no cap".
+          const fees = res.data.fee_range;
+          if (fees) {
+            const min = Math.floor(Number(fees.min) / 1000) * 1000;
+            const max = Math.max(min + 1000, Math.ceil(Number(fees.max) / 1000) * 1000);
+            const uncapped = this.feeMax() >= this.feeRange().max;
+            this.feeRange.set({ min, max });
+            this.feeMax.set(uncapped ? max : Math.min(max, Math.max(min, this.feeMax())));
+          }
         },
       });
   }
 
-  /** Client-side fee/experience/rating refine + sort over the server results. */
-  protected readonly filtered = computed(() => {
-    const feeCap = this.feeMax();
-    const years = this.minYears();
-    const rating = this.minRating();
-    const list = this.all().filter((s) => {
-      if (feeCap < 20000 && Number(s.consultation_fee) > feeCap) return false;
-      if (years > 0 && (s.years_experience ?? 0) < years) return false;
-      if (rating > 0 && Number(s.rating) < rating) return false;
-      return true;
-    });
-    const sorted = [...list];
-    switch (this.sortBy()) {
-      case 'fee_low':
-        sorted.sort(
-          (a, b) => Number(a.consultation_fee) - Number(b.consultation_fee),
-        );
-        break;
-      case 'experience':
-        sorted.sort(
-          (a, b) => (b.years_experience ?? 0) - (a.years_experience ?? 0),
-        );
-        break;
-      case 'rating':
-      case 'recommended':
-      default:
-        sorted.sort((a, b) => Number(b.rating) - Number(a.rating));
-    }
-    return sorted;
-  });
+  /** The next page, appended (dropped if the search changed meanwhile). */
+  protected loadMore(): void {
+    if (this.loadingMore()) return;
+    const params = this.searchParams();
+    const page = this.page + 1;
+    this.loadingMore.set(true);
+    this.moreError.set('');
+    this.specialistsApi
+      .publicSearch({ ...params, page })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.loadingMore.set(false);
+          if (JSON.stringify(params) !== JSON.stringify(this.searchParams())) return;
+          this.page = page;
+          const seen = new Set(this.all().map((s) => s.id));
+          this.all.update((list) => [...list, ...res.data.filter((s) => !seen.has(s.id))]);
+          this.total.set(res.meta?.total ?? this.total());
+        },
+        error: (err: unknown) => {
+          this.loadingMore.set(false);
+          this.moreError.set(apiErrorMessage(err, 'Could not load more specialists. Please try again.'));
+        },
+      });
+  }
+
+  /** "Try {day}" from the fallback: search that day, keeping the time of day. */
+  protected tryDay(date: string): void {
+    this.when.update((w) => ({ ...w, when: 'date', date }));
+  }
+
+  /** "Show any day": drop the day only, keeping the time of day. */
+  protected anyDay(): void {
+    this.when.update((w) => ({ ...ANY_WHEN, time: w.time }));
+  }
 
   protected readonly recommendation = computed<string | null>(() => {
     const q = this.query().trim().toLowerCase();
@@ -556,8 +675,8 @@ export class PublicSpecialists implements OnInit {
     maximumFractionDigits: 0,
   });
   protected readonly feeLabel = computed(() =>
-    this.feeMax() >= 20000
-      ? 'Up to ₦20,000+'
+    this.feeMax() >= this.feeRange().max
+      ? `Up to ₦${this.feeFmt.format(this.feeRange().max)}+`
       : `Up to ₦${this.feeFmt.format(this.feeMax())}`,
   );
 
@@ -568,7 +687,9 @@ export class PublicSpecialists implements OnInit {
       (this.language() !== '' ? 1 : 0) +
       (this.gender() !== '' ? 1 : 0) +
       (this.mode() !== 'any' ? 1 : 0) +
-      (this.feeMax() < 20000 ? 1 : 0) +
+      (hasDateFilter(this.when()) ? 1 : 0) +
+      (this.when().time !== 'any' ? 1 : 0) +
+      (this.feeMax() < this.feeRange().max ? 1 : 0) +
       (this.minYears() > 0 ? 1 : 0) +
       (this.minRating() > 0 ? 1 : 0),
   );
@@ -580,7 +701,8 @@ export class PublicSpecialists implements OnInit {
     this.language.set('');
     this.gender.set('');
     this.mode.set('any');
-    this.feeMax.set(20000);
+    this.when.set(ANY_WHEN);
+    this.feeMax.set(this.feeRange().max);
     this.minYears.set(0);
     this.minRating.set(0);
   }

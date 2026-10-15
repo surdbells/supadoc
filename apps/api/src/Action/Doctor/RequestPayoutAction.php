@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
+use App\Domain\Doctor\DoctorStanding;
 use App\Domain\Entity\Payout;
 use App\Domain\Repository\PayoutAccountRepository;
 use App\Domain\Repository\PayoutRepository;
@@ -18,6 +19,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * POST /api/doctor/payouts — request a payout of available earnings. Requires a
  * saved payout account, no open request, and an amount that is positive and no
  * more than the available balance. The beneficiary is snapshot onto the request.
+ * A suspended or not-yet-approved doctor is refused (403, `errors.code`).
  */
 final class RequestPayoutAction
 {
@@ -40,6 +42,16 @@ final class RequestPayoutAction
         $specialist = $this->doctorSpecialist($request, $this->users, $this->specialists);
         if ($specialist === null) {
             return $this->error($response, 'This account is not a doctor profile', 403);
+        }
+        // A suspended (or not yet approved) doctor can see their earnings but not
+        // ask for a payout; one who owes the terms acceptance still can.
+        $standing = DoctorStanding::problem($specialist);
+        if ($standing !== null && $standing[0] !== DoctorStanding::TERMS) {
+            $message = $standing[0] === DoctorStanding::SUSPENDED
+                ? 'Your account is suspended, so new payout requests are paused. Contact VideoMed support about money you are owed.'
+                : $standing[1];
+
+            return $this->error($response, $message, 403, ['standing' => $message, 'code' => $standing[0]]);
         }
 
         $account = $this->accounts->forSpecialist($specialist->getId());

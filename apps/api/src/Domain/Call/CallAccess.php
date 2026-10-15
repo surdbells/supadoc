@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Call;
 
+use App\Domain\Doctor\DoctorStanding;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Settings\ClinicTime;
@@ -20,11 +21,15 @@ use DateTimeImmutable;
  * the start (425 before that, with `starts_at` / `opens_at` to count down) until
  * GUEST_LATE_MINUTES after the booked slot ends (410 after); one still in a
  * call that runs over keeps it for at most GUEST_OVERRUN_HOURS more. The
- * patient and the doctor keep their own timing (the doctor may join any time).
+ * patient and the doctor keep their own timing (the doctor may join any time),
+ * but a doctor who may not practise ({@see DoctorStanding}) is refused (403) —
+ * except that one owing the practitioner terms may still finish a consultation
+ * whose start time has passed ({@see doctorProblem()}).
  *
  * Problems are [status, message, errors] with `errors.call` (the message — the
  * first field, so a client's apiErrorMessage shows it) and `errors.code`:
- * cancelled | ended | not_confirmed | withdrawn | too_early.
+ * cancelled | ended | not_confirmed | withdrawn | too_early | doctor_suspended |
+ * doctor_not_approved | terms_required.
  */
 final class CallAccess
 {
@@ -43,6 +48,34 @@ final class CallAccess
     public const ENDED     = 'This consultation has ended.';
     public const WITHDRAWN = 'This invitation was withdrawn. Ask the person who invited you if you think this is a mistake.';
     public const NOT_YET   = "This follow-up isn't confirmed yet, so there is no call to join. The patient can accept it in VideoMed.";
+
+    /**
+     * Why the assigned doctor may not join this consultation's call (or renew
+     * their token, or rejoin) at `$now`, as [code, message], or null. A
+     * suspended or not-approved doctor never may. One who owes the
+     * practitioner terms in force (e.g. a new version published mid-call) is
+     * refused only a consultation that hasn't started yet: one whose start
+     * time has passed they may still finish.
+     *
+     * @return array{0:string, 1:string}|null
+     */
+    public static function doctorProblem(Appointment $appointment, DateTimeImmutable $now): ?array
+    {
+        $standing = DoctorStanding::problem($appointment->getSpecialist());
+        if ($standing !== null && $standing[0] === DoctorStanding::TERMS && $appointment->getScheduledAt() <= $now) {
+            return null;
+        }
+
+        return $standing;
+    }
+
+    /** {@see doctorProblem()} as the doctor portal's `join_blocked`: {code, message}, or null (a link is issued). */
+    public static function doctorJoinBlocked(Appointment $appointment, DateTimeImmutable $now): ?array
+    {
+        $problem = self::doctorProblem($appointment, $now);
+
+        return $problem !== null ? ['code' => $problem[0], 'message' => $problem[1]] : null;
+    }
 
     /** When the booked slot ends. */
     public static function endsAt(Appointment $appointment): DateTimeImmutable
@@ -141,6 +174,13 @@ final class CallAccess
         }
         if ($status === AppointmentStatus::PROPOSED) {
             return self::refusal(409, self::NOT_YET, 'not_confirmed', ['status' => 'proposed']);
+        }
+        if (($claims['role'] ?? '') === 'doctor') {
+            // A doctor who may not practise (suspended, not approved) can't join,
+            // whatever link they hold; one owing new terms can't start a call.
+            $standing = self::doctorProblem($appointment, $now);
+
+            return $standing !== null ? self::refusal(403, $standing[1], $standing[0]) : null;
         }
         if (($claims['role'] ?? '') !== 'guest') {
             return null;

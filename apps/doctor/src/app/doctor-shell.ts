@@ -6,21 +6,40 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import {
+  NavigationEnd,
   Router,
   RouterLink,
   RouterLinkActive,
   RouterOutlet,
 } from '@angular/router';
+import { filter, map } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
 import { DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
 import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { DoctorStandingStore } from './standing/doctor-standing.store';
 
 interface NavItem {
   readonly label: string;
   readonly icon: string;
   readonly link: string;
 }
+
+interface StandingBanner {
+  readonly icon: string;
+  readonly title: string;
+  readonly text: string;
+  readonly cta: string;
+  readonly link: string;
+  /** Card border/background classes. */
+  readonly tone: string;
+  /** Icon + call-to-action text colour. */
+  readonly iconTone: string;
+}
+
+/** Pages that explain the doctor's standing themselves (no banner over them). */
+const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
 
 /**
  * Signed-in doctor shell — side nav + header with the active page in the outlet.
@@ -106,6 +125,20 @@ interface NavItem {
 
         <main class="px-5 pb-10 sm:px-6">
           <div class="mx-auto w-full">
+            <!-- The account's standing, on pages that don't explain it themselves. -->
+            @if (standingBanner(); as b) {
+              <a
+                [routerLink]="b.link"
+                class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border px-4 py-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                [class]="b.tone"
+              >
+                <sd-icon [name]="b.icon" [size]="20" class="shrink-0" [class]="b.iconTone" />
+                <span class="min-w-0 flex-1 basis-48 font-sans text-body-sm text-ink"><span class="font-semibold">{{ b.title }}</span> {{ b.text }}</span>
+                <span class="ml-auto flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold" [class]="b.iconTone">
+                  {{ b.cta }}<sd-icon name="chevron-right" [size]="16" />
+                </span>
+              </a>
+            }
             <router-outlet />
           </div>
         </main>
@@ -177,6 +210,51 @@ export class DoctorShell {
   private readonly notificationsApi = inject(StaffNotificationsApi);
   private readonly doctorApi = inject(DoctorApi);
   private readonly router = inject(Router);
+  private readonly standing = inject(DoctorStandingStore);
+
+  /** The current URL, as a signal (the banner depends on the page). */
+  private readonly url = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map((e) => e.urlAfterRedirects),
+    ),
+    { initialValue: this.router.url },
+  );
+
+  /**
+   * Suspended, or owing the practitioner terms: a slim banner on every page
+   * that doesn't explain it itself (an unapproved doctor is working through
+   * their checklist — the dashboard and checklist say enough).
+   */
+  protected readonly standingBanner = computed<StandingBanner | null>(() => {
+    const code = this.standing.code();
+    const path = this.url().split(/[?#]/)[0];
+    if (EXPLAINS_STANDING.some((p) => path === p || path.startsWith(p + '/'))) return null;
+    if (code === 'doctor_suspended') {
+      return {
+        icon: 'ban',
+        title: 'Your account is suspended.',
+        text: 'Patients can’t book you and clinical work is closed.',
+        cta: 'Why, and what next',
+        link: '/account-status',
+        tone: 'border-alert/30 bg-alert/5 hover:bg-alert/10',
+        iconTone: 'text-alert',
+      };
+    }
+    if (code === 'terms_required') {
+      const updated = !!this.standing.onboarding()?.terms?.accepted_version;
+      return {
+        icon: 'scroll-text',
+        title: updated ? 'Accept the updated practitioner terms' : 'Accept the VideoMed practitioner terms',
+        text: 'to join calls and write clinical records.',
+        cta: 'Read and accept',
+        link: '/onboarding/terms',
+        tone: 'border-warning/30 bg-warning/5 hover:bg-warning/10',
+        iconTone: 'text-warning',
+      };
+    }
+    return null;
+  });
 
   protected readonly menuOpen = signal(false);
   protected readonly confirmLogout = signal(false);
@@ -212,6 +290,8 @@ export class DoctorShell {
   constructor() {
     // Refresh roles/permissions in the background (they may have changed).
     void this.auth.loadMe();
+    // The account's standing (suspended / owes the terms) for the banner and the guard.
+    void this.standing.load();
     this.notificationsApi.unread().subscribe({
       next: (res) => this.unread.set(res.data.count),
       error: () => undefined,
@@ -235,6 +315,7 @@ export class DoctorShell {
     this.confirmLogout.set(false);
     this.menuOpen.set(false);
     this.auth.logout();
+    this.standing.clear();
     void this.router.navigateByUrl('/auth/login');
   }
 }

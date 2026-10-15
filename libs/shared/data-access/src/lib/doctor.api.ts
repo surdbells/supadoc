@@ -4,6 +4,7 @@ import type {
   CallPresenceMap,
   AddAvailabilityInput,
   AppointmentDto,
+  AvailabilityRangeDto,
   BlockAvailabilityInput,
   CarePlanDto,
   ClinicalDocumentKind,
@@ -20,6 +21,7 @@ import type {
   DrugDto,
   CreateReferralParams,
   DoctorAppointmentDto,
+  DaySlotsDto,
   DoctorAvailabilityDto,
   DoctorCopilotStateDto,
   DoctorDashboardDto,
@@ -27,6 +29,11 @@ import type {
   FollowUpQuoteDto,
   ProposeFollowUpParams,
   DoctorOnboardingDto,
+  DoctorCredentialsDto,
+  DoctorStandingCode,
+  PractitionerTermsDto,
+  SpecialistCredentialDto,
+  UploadCredentialInput,
   DoctorPatientListItemDto,
   DoctorPatientRecordDto,
   DoctorProfileDto,
@@ -60,7 +67,26 @@ import type {
   TranscriptSegmentDto,
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
+import { apiErrorFields } from './api-error.util';
 import { ApiService, QueryParams } from './api.service';
+
+const STANDING_CODES: readonly DoctorStandingCode[] = ['doctor_suspended', 'doctor_not_approved', 'terms_required'];
+
+/** Whether `code` (e.g. an API `errors.code`) is a doctor-standing refusal. */
+export function isDoctorStandingCode(code: unknown): code is DoctorStandingCode {
+  return typeof code === 'string' && (STANDING_CODES as readonly string[]).includes(code);
+}
+
+/**
+ * The doctor-standing refusal an error carries — a 403 from any doctor route
+ * (or a call join) while the doctor is suspended, not approved yet, or owes the
+ * practitioner terms — else null. Lets a page route to the onboarding / terms
+ * screen instead of showing a generic error.
+ */
+export function doctorStandingCode(err: unknown): DoctorStandingCode | null {
+  const code = apiErrorFields(err)['code'];
+  return isDoctorStandingCode(code) ? code : null;
+}
 
 /**
  * The doctor portal's clinical API — every `/api/doctor/*` endpoint, returning
@@ -319,6 +345,60 @@ export class DoctorApi {
     );
   }
 
+  // ----- Licensing documents + practitioner terms (open whatever the doctor's standing) -----
+
+  /** GET /api/doctor/credentials — my documents (replaced ones left out), the types and upload limits. */
+  credentials(): Observable<SuccessResponse<DoctorCredentialsDto>> {
+    return this.api.get<SuccessResponse<DoctorCredentialsDto>>('api/doctor/credentials');
+  }
+
+  /**
+   * POST /api/doctor/credentials (multipart) — upload a document: PDF / JPG /
+   * PNG ≤ 10MB; a licence needs `number` and `expires_at`. 422 per field.
+   */
+  uploadCredential(input: UploadCredentialInput): Observable<SuccessResponse<SpecialistCredentialDto>> {
+    const form = new FormData();
+    form.append('file', input.file);
+    form.append('type', input.type);
+    if (input.number) form.append('number', input.number);
+    if (input.issued_at) form.append('issued_at', input.issued_at);
+    if (input.expires_at) form.append('expires_at', input.expires_at);
+    return this.api.post<SuccessResponse<SpecialistCredentialDto>>('api/doctor/credentials', form);
+  }
+
+  /** DELETE /api/doctor/credentials/{id} — delete a document still waiting for review. */
+  deleteCredential(id: string): Observable<SuccessResponse<null>> {
+    return this.api.delete<SuccessResponse<null>>(
+      `api/doctor/credentials/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** GET /api/doctor/credentials/{id}/file — one of my documents as a Blob (show from an object URL). */
+  credentialFile(id: string): Observable<Blob> {
+    return this.api.getBlob(`api/doctor/credentials/${encodeURIComponent(id)}/file`);
+  }
+
+  /** GET /api/doctor/terms — the practitioner terms in force, as plain blocks, and whether I accepted them. */
+  terms(): Observable<SuccessResponse<PractitionerTermsDto>> {
+    return this.api.get<SuccessResponse<PractitionerTermsDto>>('api/doctor/terms');
+  }
+
+  /**
+   * POST /api/doctor/terms/accept — accept `version` (the one shown). 422
+   * `version` when the terms changed meanwhile (reload them).
+   */
+  acceptTerms(version: string): Observable<SuccessResponse<PractitionerTermsDto>> {
+    return this.api.post<SuccessResponse<PractitionerTermsDto>>('api/doctor/terms/accept', {
+      version,
+      agree: true,
+    });
+  }
+
+  /** DELETE /api/doctor/profile/changes — withdraw my change request still waiting for review. */
+  withdrawProfileChanges(): Observable<SuccessResponse<DoctorProfileDto>> {
+    return this.api.delete<SuccessResponse<DoctorProfileDto>>('api/doctor/profile/changes');
+  }
+
   /** GET /api/doctor/profile — the doctor's own profile (email + weekly hours). */
   getProfile(): Observable<SuccessResponse<DoctorProfileDto>> {
     return this.api.get<SuccessResponse<DoctorProfileDto>>('api/doctor/profile');
@@ -388,6 +468,34 @@ export class DoctorApi {
   deleteAvailability(id: string): Observable<SuccessResponse<unknown>> {
     return this.api.delete<SuccessResponse<unknown>>(
       `api/doctor/availability/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /**
+   * GET /api/doctor/calendar — the doctor's own booking calendar (reschedule /
+   * follow-up pickers): like the public one, but reaching a year ahead (not
+   * the patient horizon) and shown while switched off for bookings. Use it
+   * through `AvailabilityCalendarStore.load(id, tz, { scope: 'doctor' })`.
+   */
+  calendar(params: {
+    from: string;
+    to: string;
+    tz?: string;
+  }): Observable<SuccessResponse<AvailabilityRangeDto>> {
+    return this.api.get<SuccessResponse<AvailabilityRangeDto>>(
+      'api/doctor/calendar',
+      params,
+    );
+  }
+
+  /** GET /api/doctor/calendar/slots?date= — the doctor's own open times on one date (in `tz`). */
+  calendarSlots(
+    date: string,
+    tz?: string,
+  ): Observable<SuccessResponse<DaySlotsDto>> {
+    return this.api.get<SuccessResponse<DaySlotsDto>>(
+      'api/doctor/calendar/slots',
+      { date, tz },
     );
   }
 

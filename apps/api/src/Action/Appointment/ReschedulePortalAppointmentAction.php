@@ -75,7 +75,14 @@ final class ReschedulePortalAppointmentAction
             ]);
         }
 
-        if (!$this->availability->isSlotAvailable($appointment->getSpecialist(), $scheduledAt)) {
+        // Patients are held to the booking window.
+        if ($this->availability->isBeyondHorizon($scheduledAt)) {
+            return $this->error($response, 'Validation failed', 422, [
+                'scheduled_at' => 'You can book up to ' . $this->availability->horizonDays() . ' days ahead — please pick an earlier time',
+            ]);
+        }
+        // Its own current time doesn't stand in the way of the move.
+        if (!$this->availability->isSlotAvailable($appointment->getSpecialist(), $scheduledAt, ignoreAppointmentId: $appointment->getId())) {
             return $this->error($response, 'Validation failed', 422, [
                 'scheduled_at' => 'That time is no longer available — please pick another slot',
             ]);

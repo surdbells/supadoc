@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Specialist;
 
-use App\Domain\Repository\SpecialistRepository;
+use App\Infrastructure\Availability\DirectorySearch;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -12,15 +12,20 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /api/portal/specialists — the bookable specialist directory, paginated,
  * with optional `?search=`, `?specialty=`, `?location=`, `?language=`,
- * `?gender=` and `?mode=in_person`. Only approved (or legacy) doctors who are
- * available for booking are listed; `?available=` is accepted but no longer
- * widens that.
+ * `?gender=`, `?mode=in_person`, `?fee_max=`, `?min_rating=`, `?min_years=`
+ * and the "when" filters `?available_on=YYYY-MM-DD` | `?available_within=
+ * today|tomorrow|week`, `?part_of_day=morning|afternoon|evening|any` and
+ * `?tz=` (the patient's zone; dates are its calendar days). `?sort_by=soonest`
+ * orders by the first opening — the default once a date is filtered on. Every
+ * doctor carries `availability` ({@see DirectorySearch}). Only approved (or
+ * legacy) doctors who are available for booking are listed; `?available=` is
+ * accepted but no longer widens that.
  */
 final class ListSpecialistsAction
 {
     use ApiResponse;
 
-    public function __construct(private readonly SpecialistRepository $repo)
+    public function __construct(private readonly DirectorySearch $directory)
     {
     }
 
@@ -28,36 +33,10 @@ final class ListSpecialistsAction
         ServerRequestInterface $request,
         ResponseInterface $response,
     ): ResponseInterface {
-        $query = $request->getQueryParams();
-        $p     = $this->getPaginationParams($query);
+        $query  = $request->getQueryParams();
+        $p      = $this->getPaginationParams($query);
+        $result = $this->directory->search($query, $p['offset'], $p['per_page'], $p['sort_by'], $p['sort_dir']);
 
-        $search        = trim((string) ($query['search'] ?? ''));
-        $specialty     = trim((string) ($query['specialty'] ?? ''));
-        $location      = trim((string) ($query['location'] ?? ''));
-        $language      = trim((string) ($query['language'] ?? ''));
-        $gender        = trim((string) ($query['gender'] ?? ''));
-        $inPerson      = strtolower(trim((string) ($query['mode'] ?? ''))) === 'in_person' ? true : null;
-
-        $result = $this->repo->paginated(
-            $p['offset'],
-            $p['per_page'],
-            $p['sort_by'],
-            $p['sort_dir'],
-            $search === '' ? null : $search,
-            true, // only doctors taking bookings, whatever `?available=` says
-            $specialty === '' ? null : $specialty,
-            $location === '' ? null : $location,
-            $language === '' ? null : $language,
-            $gender === '' ? null : $gender,
-            $inPerson,
-        );
-
-        return $this->paginated(
-            $response,
-            array_map(static fn ($s) => $s->toArray(), $result['items']),
-            $result['total'],
-            $p['page'],
-            $p['per_page'],
-        );
+        return $this->paginated($response, $result['items'], $result['total'], $p['page'], $p['per_page']);
     }
 }

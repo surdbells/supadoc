@@ -29,6 +29,8 @@ import {
   apiErrorMessage,
   type CallPresenceState,
   DoctorApi,
+  doctorStandingCode,
+  isDoctorStandingCode,
   participantByUid,
   sendCallPresence,
   startCallPresence,
@@ -41,6 +43,7 @@ import {
   type CallRefusalCode,
   type ConsentDto,
   type CopilotDraftDto,
+  type DoctorStandingCode,
   type JoinInfoDto,
   type LabOrderDto,
   type MedicalCertificateDto,
@@ -307,6 +310,16 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
             <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ callClosed() }}
           </span>
+          @if (joinStanding(); as code) {
+            <!-- Refused mid-call for the doctor's standing: where to put it right. -->
+            <button
+              type="button"
+              class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+              (click)="openStanding()"
+            >
+              {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+            </button>
+          }
           <button
             type="button"
             class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
@@ -542,6 +555,16 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   <sd-icon name="video-off" [size]="28" />
                 </span>
                 <p class="max-w-sm font-sans text-body">{{ errorMessage() }}</p>
+                @if (joinStanding(); as code) {
+                  <!-- Refused for the doctor's standing: where to put it right. -->
+                  <button
+                    type="button"
+                    class="min-h-11 rounded-field bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-abyss transition-colors hover:bg-white/90"
+                    (click)="openStanding()"
+                  >
+                    {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+                  </button>
+                }
                 <button
                   type="button"
                   class="rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
@@ -1544,6 +1567,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   protected readonly status = signal<'loading' | 'in-call' | 'error'>('loading');
   protected readonly errorMessage = signal('');
+  /** The join was refused because of the doctor's standing (suspended, not approved, owes the terms). */
+  protected readonly joinStanding = signal<DoctorStandingCode | null>(null);
   protected readonly micOn = signal(true);
   protected readonly camOn = signal(true);
   protected readonly screenOn = signal(false);
@@ -2188,6 +2213,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.startMetricsReport();
     } catch (err: unknown) {
       this.errorMessage.set(apiErrorMessage(err, 'This join link is invalid or has expired.'));
+      this.joinStanding.set(doctorStandingCode(err));
       this.status.set('error');
       // Joined but could not go on (e.g. no camera): don't sit in the others'
       // call as a silent tile while this screen says it failed.
@@ -2277,9 +2303,20 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     }
   }
 
-  /** A join-call failure that is the API refusing the call (410 / 409): shown as the closed banner. */
+  /**
+   * A join-call failure that is the API refusing the call: 410 / 409, or a 403
+   * for the doctor's standing (suspended mid-call — the token renewal or a
+   * rejoin meets it; a new terms version only refuses a consultation that
+   * hasn't started yet). Shown as the closed banner, which then also points
+   * to the terms or the account status.
+   */
   private refusedBy(err: unknown): boolean {
     const status = (err as { status?: unknown }).status;
+    const standing = status === 403 ? doctorStandingCode(err) : null;
+    if (standing) {
+      this.standingRefused(standing, apiErrorMessage(err, ''));
+      return true;
+    }
     if (status !== 410 && status !== 409) return false;
     const code = (err as { errors?: { code?: CallRefusalCode } }).errors?.code ?? null;
     this.callRefused(code, apiErrorMessage(err, ''));
@@ -2321,7 +2358,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     const url = `${this.base}/api/public/call/${encodeURIComponent(this.token)}/presence`;
     sendCallPresence(url, state, {}, {
       onBeat: (beat) => this.onBeat(beat),
-      onRefused: (_status, code, message) => this.callRefused(code, message),
+      onRefused: (_status, code, message) => {
+        if (isDoctorStandingCode(code)) this.standingRefused(code, message);
+        else this.callRefused(code, message);
+      },
     });
   }
 
@@ -2362,6 +2402,22 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     }
     this.rosterRefreshedAt = Date.now();
     this.sendBeat('in');
+  }
+
+  /**
+   * The API refused the call for the doctor's standing (a 403 on a rejoin, a
+   * token renewal or a heartbeat): the closed banner, pointing to the terms
+   * or the account status.
+   */
+  private standingRefused(standing: DoctorStandingCode, message: string): void {
+    this.joinStanding.set(standing);
+    this.callRefused(
+      null,
+      message ||
+        (standing === 'terms_required'
+          ? 'Accept the updated practitioner terms to continue consultations.'
+          : 'Your account can no longer take consultations.'),
+    );
   }
 
   /**
@@ -2956,6 +3012,15 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     await this.teardown();
     if (to === 'schedule') void this.router.navigate(['/']);
     else this.goToAppointment();
+  }
+
+  /** A join refused for the doctor's standing: the terms to accept, or the account-status page. */
+  protected async openStanding(): Promise<void> {
+    const target = this.joinStanding() === 'terms_required' ? '/onboarding/terms' : '/account-status';
+    if (!this.left && !(await this.confirmDiscardPrescription())) return;
+    await this.flushNote();
+    await this.teardown();
+    void this.router.navigateByUrl(target);
   }
 
   /** The appointment page, or the history when the join never said which visit this is. */

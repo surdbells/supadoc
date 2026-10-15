@@ -7,6 +7,7 @@ namespace App\Domain\Repository;
 use App\Domain\Entity\AvailabilitySlot;
 use App\Domain\Enum\SlotKind;
 use DateTimeImmutable;
+use Doctrine\ORM\Query;
 
 final class AvailabilitySlotRepository extends BaseRepository
 {
@@ -80,5 +81,79 @@ final class AvailabilitySlotRepository extends BaseRepository
         }
 
         return (int) $qb->getQuery()->getSingleScalarResult() > 0;
+    }
+
+    // ----- Batched availability (any number of doctors, one query each) -----
+    // Each finder has a public *Query() twin so its DQL compiles in the offline tests.
+
+    /**
+     * The open slots and blocks of several specialists that start in [from, to),
+     * as plain rows — no entities, and never a block's reason. The source data
+     * for {@see \App\Infrastructure\Service\AvailabilityService}.
+     *
+     * @param list<string> $specialistIds
+     * @return list<array{specialist_id:string, starts_at:mixed, ends_at:mixed, kind:mixed}>
+     */
+    public function rowsForSpecialistsBetween(array $specialistIds, DateTimeImmutable $from, DateTimeImmutable $to): array
+    {
+        if ($specialistIds === []) {
+            return [];
+        }
+
+        return $this->rowsForSpecialistsBetweenQuery($specialistIds, $from, $to)->getArrayResult();
+    }
+
+    /** @param list<string> $specialistIds */
+    public function rowsForSpecialistsBetweenQuery(array $specialistIds, DateTimeImmutable $from, DateTimeImmutable $to): Query
+    {
+        return $this->em->createQueryBuilder()
+            ->select('IDENTITY(e.specialist) AS specialist_id', 'e.startsAt AS starts_at', 'e.endsAt AS ends_at', 'e.kind AS kind')
+            ->from(AvailabilitySlot::class, 'e')
+            ->andWhere('e.specialist IN (:ids)')
+            ->andWhere('e.startsAt >= :from')
+            ->andWhere('e.startsAt < :to')
+            ->setParameter('ids', $specialistIds)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->orderBy('e.startsAt', 'ASC')
+            ->getQuery();
+    }
+
+    /**
+     * Which of these specialists publish an OPEN slot starting in [from, to)?
+     * (A doctor with no weekly hours only gets the weekday default when they
+     * publish nothing in the booking window.)
+     *
+     * @param list<string> $specialistIds
+     * @return array<string,true> specialist id => true
+     */
+    public function specialistIdsWithOpenSlots(array $specialistIds, DateTimeImmutable $from, DateTimeImmutable $to): array
+    {
+        if ($specialistIds === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->specialistIdsWithOpenSlotsQuery($specialistIds, $from, $to)->getScalarResult() as $row) {
+            $out[(string) $row['specialist_id']] = true;
+        }
+
+        return $out;
+    }
+
+    /** @param list<string> $specialistIds */
+    public function specialistIdsWithOpenSlotsQuery(array $specialistIds, DateTimeImmutable $from, DateTimeImmutable $to): Query
+    {
+        return $this->em->createQueryBuilder()
+            ->select('DISTINCT IDENTITY(e.specialist) AS specialist_id')
+            ->from(AvailabilitySlot::class, 'e')
+            ->andWhere('e.specialist IN (:ids)')
+            ->andWhere('e.kind = :open')
+            ->andWhere('e.startsAt >= :from')
+            ->andWhere('e.startsAt < :to')
+            ->setParameter('ids', $specialistIds)
+            ->setParameter('open', SlotKind::OPEN->value)
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery();
     }
 }

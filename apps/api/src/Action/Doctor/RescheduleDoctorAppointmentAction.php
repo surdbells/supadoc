@@ -77,10 +77,11 @@ final class RescheduleDoctorAppointmentAction
         }
 
         // The same guard as a patient booking: lead time, on the schedule, not
-        // blocked, not already taken.
-        if (!$this->availability->isSlotAvailable($appointment->getSpecialist(), $scheduledAt)) {
+        // blocked, not already taken (by anything but this appointment itself)
+        // — but not held to the patient booking window.
+        if (!$this->availability->isSlotAvailable($appointment->getSpecialist(), $scheduledAt, false, ignoreAppointmentId: $appointment->getId())) {
             return $this->error($response, 'Validation failed', 422, [
-                'scheduled_at' => 'That time is not open on your schedule — choose an open slot at least an hour ahead (not blocked or already booked)',
+                'scheduled_at' => 'That time is not open on your schedule — choose an open slot at least ' . $this->availability->leadLabel() . ' ahead (not blocked or already booked)',
             ]);
         }
 

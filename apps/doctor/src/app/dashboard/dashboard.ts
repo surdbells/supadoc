@@ -9,21 +9,24 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
+import { EMPTY } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
 import {
   apiErrorMessage,
   DoctorApi,
   injectCallPresence,
   StaffNotificationsApi,
+  todayLocal,
 } from '@supadoc/data-access';
 import type {
   DoctorAppointmentDto,
   DoctorDashboardDto,
-  DoctorOnboardingDto,
   StaffNotificationDto,
 } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
 import { doctorStatusLabel } from '../appointment/follow-ups';
+import { DoctorStandingStore } from '../standing/doctor-standing.store';
+import { type StandingNotice, standingNotices } from '../standing/standing-rules';
 
 interface Stat {
   readonly label: string;
@@ -36,16 +39,12 @@ interface Stat {
   readonly deltaPeriod?: string;
 }
 
-interface OnboardingBanner {
-  readonly icon: string;
-  readonly title: string;
-  readonly text: string;
-  readonly cta: string;
-  /** Card border/background classes. */
-  readonly tone: string;
-  /** Icon + call-to-action text colour. */
-  readonly iconTone: string;
-}
+/** A standing notice's card border/background, and its icon + call-to-action colour. */
+const NOTICE_TONE: Record<StandingNotice['tone'], { card: string; accent: string }> = {
+  alert: { card: 'border-alert/30 bg-alert/5 hover:bg-alert/10', accent: 'text-alert' },
+  warning: { card: 'border-warning/30 bg-warning/5 hover:bg-warning/10', accent: 'text-warning' },
+  info: { card: 'border-cerulean/20 bg-frost/50 hover:bg-frost', accent: 'text-cerulean' },
+};
 
 interface QuickAction {
   readonly label: string;
@@ -85,27 +84,47 @@ const NOTE_ICON: Record<string, string> = {
         <p class="font-sans text-body text-slate">Here's your Activities for today.</p>
       </header>
 
-      <!-- Onboarding: shown until an admin approves the doctor's profile. -->
-      @if (onboardingBanner(); as b) {
+      <!-- The account: onboarding until approved; then a suspension, the terms, the licence,
+           documents owed and a change request waiting for review. -->
+      @for (b of notices(); track b.key) {
         <a
-          routerLink="/onboarding"
-          class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border px-5 py-4 transition-colors"
-          [class]="b.tone"
+          [routerLink]="b.link"
+          class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border px-5 py-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+          [class]="tone(b).card"
         >
-          <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm" [class]="b.iconTone">
+          <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm" [class]="tone(b).accent">
             <sd-icon [name]="b.icon" [size]="20" />
           </span>
           <span class="flex min-w-0 flex-1 basis-48 flex-col">
             <span class="font-sans text-body-sm font-semibold text-ink">{{ b.title }}</span>
-            <span class="font-sans text-caption text-slate">{{ b.text }}</span>
+            <span class="break-words font-sans text-caption text-slate">{{ b.text }}</span>
           </span>
-          <span class="ml-auto flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold" [class]="b.iconTone">
+          <span class="ml-auto flex shrink-0 items-center gap-1 font-sans text-body-sm font-semibold" [class]="tone(b).accent">
             {{ b.cta }}<sd-icon name="chevron-right" [size]="18" />
           </span>
         </a>
       }
 
-      @if (loading()) {
+      @if (suspended()) {
+        <!-- A suspended doctor's dashboard: no schedule or patients — what still works. -->
+        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="suspended-title">
+          <div class="flex flex-col gap-1">
+            <h2 id="suspended-title" class="font-heading text-body-lg text-ink">While your account is suspended</h2>
+            <p class="font-sans text-body-sm text-slate">You can still see your earnings and payout history, keep your profile up to date and upload your documents.</p>
+          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            @for (q of suspendedLinks; track q.link) {
+              <a [routerLink]="q.link" class="group flex min-h-11 items-center gap-3 rounded-card border border-cloud p-4 transition-colors hover:border-cerulean/50">
+                <span class="flex size-10 shrink-0 items-center justify-center rounded-full" [class]="q.tint"><sd-icon [name]="q.icon" [size]="20" /></span>
+                <span class="flex min-w-0 flex-col">
+                  <span class="font-sans text-body-sm font-semibold text-ink">{{ q.label }}</span>
+                  <span class="font-sans text-caption text-slate">{{ q.subtitle }}</span>
+                </span>
+              </a>
+            }
+          </div>
+        </section>
+      } @else if (loading()) {
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           @for (i of [1,2,3,4,5]; track i) { <div class="sd-shimmer h-28 rounded-card"></div> }
         </div>
@@ -293,6 +312,7 @@ export class DoctorDashboard implements OnInit {
   private readonly auth = inject(StaffAuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly standing = inject(DoctorStandingStore);
 
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -301,53 +321,21 @@ export class DoctorDashboard implements OnInit {
   // The two summary cards are dismissable (matches the design's ✕ affordance).
   protected readonly scheduleOpen = signal(true);
   protected readonly notificationsOpen = signal(true);
-  /** Who is in each consultation's call right now (polled). */
-  protected readonly presence = injectCallPresence(() => this.api.presence());
-  /** Onboarding / review state — drives the banner until the doctor is approved. */
-  protected readonly onboarding = signal<DoctorOnboardingDto | null>(null);
+  /** Who is in each consultation's call right now (polled; not while clinical work is closed to them). */
+  protected readonly presence = injectCallPresence(() => (this.standing.blocked() ? EMPTY : this.api.presence()));
 
-  protected readonly onboardingBanner = computed<OnboardingBanner | null>(() => {
-    const o = this.onboarding();
-    if (!o || o.status === 'approved') return null;
-    switch (o.status) {
-      case 'pending_review':
-        return {
-          icon: 'hourglass',
-          title: 'Your profile is being reviewed',
-          text: "We'll email you once it's approved. Until then patients can't find or book you.",
-          cta: 'View status',
-          tone: 'border-cerulean/20 bg-frost/50 hover:bg-frost',
-          iconTone: 'text-cerulean',
-        };
-      case 'rejected':
-        return {
-          icon: 'circle-alert',
-          title: 'Your profile needs a few changes',
-          text: 'See what to update, then submit your profile for review again.',
-          cta: 'See changes',
-          tone: 'border-warning/30 bg-warning/5 hover:bg-warning/10',
-          iconTone: 'text-warning',
-        };
-      case 'suspended':
-        return {
-          icon: 'ban',
-          title: 'Your account is suspended',
-          text: "Patients can't book you right now. Please contact support.",
-          cta: 'Details',
-          tone: 'border-alert/30 bg-alert/5 hover:bg-alert/10',
-          iconTone: 'text-alert',
-        };
-      default:
-        return {
-          icon: 'list-checks',
-          title: 'Finish setting up your profile',
-          text: `${o.completed} of ${o.total} steps done — patients can book you once your profile is approved.`,
-          cta: 'Continue setup',
-          tone: 'border-cerulean/20 bg-frost/50 hover:bg-frost',
-          iconTone: 'text-cerulean',
-        };
-    }
+  /** What needs the doctor's attention about their account (see `standingNotices`). */
+  protected readonly notices = computed<StandingNotice[]>(() => {
+    const o = this.standing.onboarding();
+    return o ? standingNotices(o, todayLocal()) : [];
   });
+  /** Suspended: no dashboard figures (the API refuses them) — what still works instead. */
+  protected readonly suspended = computed(() => this.standing.code() === 'doctor_suspended');
+  protected readonly suspendedLinks: QuickAction[] = [
+    { label: 'Earnings', subtitle: 'What you have earned', icon: 'banknote', tint: 'bg-sage/15 text-sage', link: '/earnings' },
+    { label: 'Payout history', subtitle: 'Payouts and your account', icon: 'wallet', tint: 'bg-cerulean/10 text-cerulean', link: '/payouts' },
+    { label: 'Licensing documents', subtitle: 'Upload or renew', icon: 'file-check', tint: 'bg-warning/15 text-warning', link: '/onboarding/credentials' },
+  ];
 
   protected readonly greeting = computed(() => {
     const h = new Date().getHours();
@@ -415,6 +403,26 @@ export class DoctorDashboard implements OnInit {
   ];
 
   ngOnInit(): void {
+    // The standing first (fresh: the banners are read here): a suspended doctor's
+    // figures are refused, so they aren't asked for. Unreadable → load anyway.
+    void this.standing.load(true).then((o) => {
+      if (o?.status === 'suspended') {
+        this.loading.set(false);
+        return;
+      }
+      this.loadDashboard();
+    });
+
+    this.notificationsApi
+      .list({ per_page: 5 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.notifications.set(res.data),
+        error: () => undefined,
+      });
+  }
+
+  private loadDashboard(): void {
     this.api
       .dashboard()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -428,23 +436,19 @@ export class DoctorDashboard implements OnInit {
           this.loading.set(false);
         },
       });
+  }
 
-    // Best-effort: without it the dashboard simply shows no onboarding banner.
-    this.api
-      .onboarding()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (res) => this.onboarding.set(res.data), error: () => undefined });
-
-    this.notificationsApi
-      .list({ per_page: 5 })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.notifications.set(res.data),
-        error: () => undefined,
-      });
+  protected tone(n: StandingNotice): { card: string; accent: string } {
+    return NOTICE_TONE[n.tone];
   }
 
   protected join(a: DoctorAppointmentDto): void {
+    // The API decides per consultation: owing the terms blocks one that hasn't
+    // started (accept them first), never one already under way.
+    if (a.join_blocked) {
+      void this.router.navigateByUrl(a.join_blocked.code === 'terms_required' ? '/onboarding/terms' : '/account-status');
+      return;
+    }
     // No link on an unaccepted follow-up proposal — there is no call to join yet.
     const url = a.join_url;
     if (!url) return;

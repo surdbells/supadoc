@@ -16,7 +16,8 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/doctor/earnings/transactions — one line per completed consultation
- * (gross / commission / net), paginated, newest first.
+ * (gross / commission / net), paginated, newest first. While the doctor is
+ * suspended `patient_name` is just "Patient" (no patient data).
  */
 final class DoctorEarningsTransactionsAction
 {
@@ -48,13 +49,20 @@ final class DoctorEarningsTransactionsAction
             [AppointmentStatus::COMPLETED],
         );
 
-        $items = array_map(function (Appointment $a): array {
-            $p     = $a->getPatient()->toArray();
+        // A suspended doctor still sees their earnings, but no patient data.
+        $anonymous = $specialist->isSuspended();
+        $items     = array_map(function (Appointment $a) use ($anonymous): array {
             $gross = $a->getAmount();
+            if ($anonymous) {
+                $name = 'Patient';
+            } else {
+                $p    = $a->getPatient()->toArray();
+                $name = trim(((string) $p['first_name']) . ' ' . ((string) $p['last_name']));
+            }
 
             return [
                 'appointment_id' => $a->getId(),
-                'patient_name'   => trim(((string) $p['first_name']) . ' ' . ((string) $p['last_name'])),
+                'patient_name'   => $name,
                 'date'           => $a->getScheduledAt()->format(DATE_ATOM),
                 'gross'          => $gross,
                 'commission'     => $this->earnings->commission($gross),
