@@ -299,11 +299,15 @@ chown -R www:www var public/uploads   # incl. any new upload subdirs pulled this
 /etc/init.d/php-fpm-84 reload   # clears OPcache — match your PHP version, e.g. php-fpm-84 on api.dosthq.com (or aaPanel → PHP → Reload)
 ```
 
-**The same as one command** (every step is safe to re-run; the schema step
-prints the DDL it applies — releases only ever add tables / nullable columns):
+**The same as one command** (every step is safe to re-run). The schema step
+prints the DDL it is about to apply (also saved to `var/schema-pending.sql`) and
+**stops before applying it** if it would drop a table/column or change a
+column's type — releases only ever add tables / nullable columns, so that means
+something unexpected: back up the database and review it first. `prod-migrate`
+runs its one-time steps (0–2) only once per database; the rest are idempotent:
 
 ```bash
-cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && composer install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql && php bin/doctrine.php orm:schema-tool:update --force && php bin/doctrine.php orm:generate-proxies && php bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload && sleep 2 && echo "--- API check (expect 401):" && curl -s -w " [%{http_code}]\n" -X POST https://api.dosthq.com/api/public/call/check/presence && echo "--- Redis check (expect PONG):" && php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $r = new Predis\Client(["host" => $_ENV["REDIS_HOST"] ?? "127.0.0.1", "port" => (int) ($_ENV["REDIS_PORT"] ?? 6379), "password" => ($_ENV["REDIS_PASSWORD"] ?? "") ?: null]); echo $r->ping(), PHP_EOL;'
+cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && composer install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql | tee var/schema-pending.sql && if grep -qiE 'DROP TABLE|DROP SEQUENCE|ALTER [^ ]+ TYPE ' var/schema-pending.sql || grep -iE 'ALTER TABLE [^ ]+ DROP ' var/schema-pending.sql | grep -qviE 'DROP (CONSTRAINT|INDEX) '; then echo 'STOP: this schema change drops or retypes data (var/schema-pending.sql). Back up the database, review it, then apply by hand.'; false; fi && php bin/doctrine.php orm:schema-tool:update --force && php bin/doctrine.php orm:generate-proxies && php bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload && sleep 2 && echo "--- API check (expect 401):" && curl -s -w " [%{http_code}]\n" -X POST https://api.dosthq.com/api/public/call/check/presence && echo "--- Redis check (expect PONG):" && php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $r = new Predis\Client(["host" => $_ENV["REDIS_HOST"] ?? "127.0.0.1", "port" => (int) ($_ENV["REDIS_PORT"] ?? 6379), "password" => ($_ENV["REDIS_PASSWORD"] ?? "") ?: null]); echo $r->ping(), PHP_EOL;'
 ```
 
 It ends with two checks: the API answers `401` ("This join link is invalid or

@@ -7,8 +7,12 @@ declare(strict_types=1);
  * Unlike bin/seed.php (which refuses in production and creates demo rows), this
  * only ADAPTS existing production data and is safe to run on a live database.
  *
- * It is fully idempotent — re-running it changes nothing that's already done
- * (the numbers match the steps below):
+ * It is safe to run on every deploy. Steps 0–2 run ONCE per database (recorded
+ * in the `prod_migrate.legacy_done` setting; a database an earlier release
+ * already migrated is recorded without re-running them), because repeating
+ * them would re-multiply a sub-₦1,000 fee, re-grant narrowed admin permissions
+ * and reset doctor logins. Steps 3–8 are idempotent — a re-run changes nothing
+ * that's already done (the numbers match the steps below):
  *   0. Grants the back-office permissions (settings.manage, specialists.manage,
  *      monitoring.view) to every admin that lacks them.
  *   1. Ensures the pricing settings exist (currency=NGN, guest_fee, platform_fee)
@@ -205,95 +209,121 @@ if ($dryRun) {
     $conn->beginTransaction();
 }
 
-// 0) Grant the back-office permissions the new endpoints require to any admin,
-//    so pricing + specialist edits work without a reseed. Idempotent merge.
-$backOfficePerms = ['settings.manage', 'specialists.manage', 'monitoring.view'];
-foreach ($em->getRepository(User::class)->findAll() as $user) {
-    if (!in_array('admin', $user->getRoles(), true)) {
-        continue;
-    }
-    $missing = array_diff($backOfficePerms, $user->getPermissions());
-    if ($missing !== []) {
-        $user->setPermissions([...$user->getPermissions(), ...$missing]);
-        $em->persist($user);
-        $report['admins_granted']++;
-    }
+// Steps 0–2 adapted the data of the first releases (USD-era fees to Naira,
+// the first admin grants and doctor logins). They must NOT re-run on every
+// deploy: a fee later set below ₦1,000 would be multiplied by 100, admin
+// permissions narrowed in the back office re-granted, and every doctor login
+// reset to the base role. So they run once per database, recorded in the
+// `prod_migrate.legacy_done` setting. A database an earlier release already
+// migrated (it has the pricing settings step 1 seeds) is recorded without
+// running them again.
+$legacyKey    = 'prod_migrate.legacy_done';
+$settingsRepo = $em->getRepository(AppSetting::class);
+if ($settingsRepo->find($legacyKey) !== null) {
+    $report['legacy_steps'] = 'already done';
+} elseif ($settingsRepo->find('guest_fee') !== null) {
+    $report['legacy_steps'] = 'applied by an earlier release — recorded, not re-run';
+} else {
+    $report['legacy_steps'] = 'ran';
 }
+$runLegacy = $report['legacy_steps'] === 'ran';
 
-// 1) Pricing settings — fill only what's missing (defaults mirror PricingService).
-$defaults = ['currency' => 'NGN', 'guest_fee' => '5000', 'platform_fee' => '200'];
-foreach ($defaults as $key => $value) {
-    if ($em->getRepository(AppSetting::class)->find($key) === null) {
-        $em->persist(new AppSetting($key, $value));
-        $report['settings_seeded'][] = $key;
-    }
-}
-
-// Read from getenv() first — a `VAR=x php …` prefix lands there, whereas $_ENV
-// is only populated when PHP's variables_order includes 'E'. When set, it's also
-// applied to EXISTING doctor logins so you can rotate them all to one password.
-$envPassword     = getenv('DOCTOR_DEFAULT_PASSWORD');
-$defaultPassword = trim((string) ($envPassword !== false ? $envPassword : ($_ENV['DOCTOR_DEFAULT_PASSWORD'] ?? '')));
-
-// 2) Specialists: Naira fees + contact email + doctor login.
-$pendingLogins = []; // reported once saved — a failed flush never lists logins that don't exist
-foreach ($em->getRepository(Specialist::class)->findAll() as $specialist) {
-    // Fee: convert USD-era values to Naira once (×100). Skip anything already ≥1000.
-    if ((float) $specialist->getConsultationFee() < 1000) {
-        $naira = number_format((float) $specialist->getConsultationFee() * 100, 2, '.', '');
-        $specialist->setConsultationFee($naira);
-        $report['fees_migrated']++;
-    }
-
-    if ($specialist->getEmail() === null) {
-        $specialist->setEmail(slugEmail($specialist->getName()));
-        $report['emails_set']++;
-    }
-    $em->persist($specialist);
-
-    // A doctor still in onboarding gets their login from the back-office invite
-    // (they choose their own password) — never a printed one from here.
-    if (!$specialist->isApproved()) {
-        continue;
-    }
-
-    $email = (string) $specialist->getEmail();
-    $user  = $em->getRepository(User::class)->findOneBy(['email' => strtolower($email)]);
-
-    if ($user !== null && !in_array('doctor', $user->getRoles(), true)) {
-        // An existing non-doctor (e.g. admin) shares this email — never clobber it.
-        $report['email_conflicts'][] = $email;
-        continue;
-    }
-
-    if ($user === null) {
-        [$first, $last] = nameParts($specialist->getName());
-        $user     = new User($email, $first, $last);
-        $password = $defaultPassword !== '' ? $defaultPassword : bin2hex(random_bytes(6));
-        $user->setPassword($password);
-        $report['doctors_created']++;
-        $pendingLogins[] = ['email' => $email, 'password' => $password];
-    } else {
-        // Existing doctor login: rotate to the shared password if one was given
-        // (safe — only touches doctor accounts, never admin/other staff).
-        if ($defaultPassword !== '') {
-            $user->setPassword($defaultPassword);
-            $report['passwords_reset'][] = $email;
+if ($runLegacy) {
+    // 0) Grant the back-office permissions the new endpoints require to any admin,
+    //    so pricing + specialist edits work without a reseed. Idempotent merge.
+    $backOfficePerms = ['settings.manage', 'specialists.manage', 'monitoring.view'];
+    foreach ($em->getRepository(User::class)->findAll() as $user) {
+        if (!in_array('admin', $user->getRoles(), true)) {
+            continue;
         }
-        $report['doctors_updated']++;
+        $missing = array_diff($backOfficePerms, $user->getPermissions());
+        if ($missing !== []) {
+            $user->setPermissions([...$user->getPermissions(), ...$missing]);
+            $em->persist($user);
+            $report['admins_granted']++;
+        }
     }
 
-    $user->setRoles(['doctor']);
-    $user->setPermissions(['appointments.view']);
-    $user->setSpecialistId($specialist->getId());
-    $em->persist($user);
+    // 1) Pricing settings — fill only what's missing (defaults mirror PricingService).
+    $defaults = ['currency' => 'NGN', 'guest_fee' => '5000', 'platform_fee' => '200'];
+    foreach ($defaults as $key => $value) {
+        if ($em->getRepository(AppSetting::class)->find($key) === null) {
+            $em->persist(new AppSetting($key, $value));
+            $report['settings_seeded'][] = $key;
+        }
+    }
+
+    // Read from getenv() first — a `VAR=x php …` prefix lands there, whereas $_ENV
+    // is only populated when PHP's variables_order includes 'E'. When set, it's also
+    // applied to EXISTING doctor logins so you can rotate them all to one password.
+    $envPassword     = getenv('DOCTOR_DEFAULT_PASSWORD');
+    $defaultPassword = trim((string) ($envPassword !== false ? $envPassword : ($_ENV['DOCTOR_DEFAULT_PASSWORD'] ?? '')));
+
+    // 2) Specialists: Naira fees + contact email + doctor login.
+    $pendingLogins = []; // reported once saved — a failed flush never lists logins that don't exist
+    foreach ($em->getRepository(Specialist::class)->findAll() as $specialist) {
+        // Fee: convert USD-era values to Naira once (×100). Skip anything already ≥1000.
+        if ((float) $specialist->getConsultationFee() < 1000) {
+            $naira = number_format((float) $specialist->getConsultationFee() * 100, 2, '.', '');
+            $specialist->setConsultationFee($naira);
+            $report['fees_migrated']++;
+        }
+
+        if ($specialist->getEmail() === null) {
+            $specialist->setEmail(slugEmail($specialist->getName()));
+            $report['emails_set']++;
+        }
+        $em->persist($specialist);
+
+        // A doctor still in onboarding gets their login from the back-office invite
+        // (they choose their own password) — never a printed one from here.
+        if (!$specialist->isApproved()) {
+            continue;
+        }
+
+        $email = (string) $specialist->getEmail();
+        $user  = $em->getRepository(User::class)->findOneBy(['email' => strtolower($email)]);
+
+        if ($user !== null && !in_array('doctor', $user->getRoles(), true)) {
+            // An existing non-doctor (e.g. admin) shares this email — never clobber it.
+            $report['email_conflicts'][] = $email;
+            continue;
+        }
+
+        if ($user === null) {
+            [$first, $last] = nameParts($specialist->getName());
+            $user     = new User($email, $first, $last);
+            $password = $defaultPassword !== '' ? $defaultPassword : bin2hex(random_bytes(6));
+            $user->setPassword($password);
+            $report['doctors_created']++;
+            $pendingLogins[] = ['email' => $email, 'password' => $password];
+        } else {
+            // Existing doctor login: rotate to the shared password if one was given
+            // (safe — only touches doctor accounts, never admin/other staff).
+            if ($defaultPassword !== '') {
+                $user->setPassword($defaultPassword);
+                $report['passwords_reset'][] = $email;
+            }
+            $report['doctors_updated']++;
+        }
+
+        $user->setRoles(['doctor']);
+        $user->setPermissions(['appointments.view']);
+        $user->setSpecialistId($specialist->getId());
+        $em->persist($user);
+    }
+
+    $em->flush();
+    // A dry run rolls these logins back, so it never prints a password.
+    $report['new_logins']      = $dryRun
+        ? array_map(static fn (array $login): array => ['email' => $login['email'], 'password' => '(dry run: not created)'], $pendingLogins)
+        : $pendingLogins;
 }
 
-$em->flush();
-// A dry run rolls these logins back, so it never prints a password.
-$report['new_logins']      = $dryRun
-    ? array_map(static fn (array $login): array => ['email' => $login['email'], 'password' => '(dry run: not created)'], $pendingLogins)
-    : $pendingLogins;
+if ($settingsRepo->find($legacyKey) === null) {
+    $em->persist(new AppSetting($legacyKey, (new \DateTimeImmutable())->format(DATE_ATOM)));
+    $em->flush();
+}
 $report['completed_steps'] = [0, 1, 2];
 
 // 3) E-prescribing release: bring prescriptions issued on the old free-text form
