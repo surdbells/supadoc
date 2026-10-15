@@ -4,18 +4,25 @@ import { Observable } from 'rxjs';
 import type {
   AcceptFollowUpParams,
   AcceptFollowUpResponse,
+  AddGuestParams,
+  AddGuestResultDto,
   AppointmentDocumentDto,
   AppointmentDto,
   AppointmentPayInitDto,
   BookAppointmentParams,
   FollowUpQuoteDto,
   PayInitFollowUp,
+  CallLobbyDto,
   CallPresenceMap,
   CallTokenDto,
   ClinicalDocumentKind,
   ConsentDto,
   ConsultationSummaryDto,
+  GuestConsentParams,
+  GuestConsentResultDto,
   JoinInfoDto,
+  PatientGuestListDto,
+  RemoveGuestResultDto,
   LabOrderDto,
   ListAppointmentsQuery,
   MedicalCertificateDto,
@@ -206,7 +213,72 @@ export class AppointmentsApi {
     );
   }
 
-  /** GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials. */
+  // ----- Guests -----
+
+  /**
+   * GET /api/portal/appointments/{id}/guests — the patient's guests on one of
+   * their consultations (email, status, in the call now, personal join link to
+   * copy), the guest fee, and whether the list can change.
+   */
+  guests(id: string): Observable<SuccessResponse<PatientGuestListDto>> {
+    return this.api.get<SuccessResponse<PatientGuestListDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/guests`,
+    );
+  }
+
+  /**
+   * POST /api/portal/appointments/{id}/guests — invite a guest (max 3). The
+   * guest fee (`guest_fee`; "0.00" = free, send no payment) is paid from the
+   * wallet (422 `errors.wallet = 'insufficient_funds'` when short) or by card
+   * with the reference from {@link payInitForGuest}. 422 `errors.status` /
+   * `errors.guests` / `errors.name` / `errors.email` / `errors.payment*`; a
+   * payment taken for a guest that then couldn't be added goes to the wallet
+   * (`errors.payment = 'credited_to_wallet'`). Answers the list + `guest`.
+   */
+  addGuest(id: string, params: AddGuestParams): Observable<SuccessResponse<AddGuestResultDto>> {
+    return this.api.post<SuccessResponse<AddGuestResultDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/guests`,
+      params,
+    );
+  }
+
+  /**
+   * POST /api/portal/appointments/{id}/guests/pay-init — start a card payment
+   * of the guest fee (the checkout returns to /dashboard/appointments/{id};
+   * keep the guest's name + email to send with the reference). 422
+   * `errors.payment = 'free'` when the fee is 0 — add the guest directly.
+   */
+  payInitForGuest(id: string): Observable<SuccessResponse<AppointmentPayInitDto>> {
+    return this.api.post<SuccessResponse<AppointmentPayInitDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/guests/pay-init`,
+      {},
+    );
+  }
+
+  /**
+   * DELETE /api/portal/appointments/{id}/guests/{gid} — remove a guest: their
+   * link stops working at once and they are emailed. Before the consultation
+   * starts a paid fee is refunded to the wallet (`refunded`); after, nothing.
+   */
+  removeGuest(id: string, guestId: string): Observable<SuccessResponse<RemoveGuestResultDto>> {
+    return this.api.delete<SuccessResponse<RemoveGuestResultDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/guests/${encodeURIComponent(guestId)}`,
+    );
+  }
+
+  /**
+   * POST /api/portal/appointments/{id}/guests/{gid}/resend — email the guest
+   * their invitation again; at most every 2 minutes (429 with
+   * `errors.retry_after` seconds).
+   */
+  resendGuestInvite(id: string, guestId: string): Observable<SuccessResponse<PatientGuestListDto>> {
+    return this.api.post<SuccessResponse<PatientGuestListDto>>(
+      `api/portal/appointments/${encodeURIComponent(id)}/guests/${encodeURIComponent(guestId)}/resend`,
+      {},
+    );
+  }
+
+  /** GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials (uid 1) + `participants`. */
   callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
     return this.api.get<SuccessResponse<CallTokenDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/call-token`,
@@ -359,11 +431,41 @@ export class AppointmentsApi {
   /**
    * GET /api/public/call/{token} — resolve a preauthenticated join link (from an
    * invite email) into the meeting details + Agora credentials. No auth: the
-   * signed token in the path is the credential.
+   * signed token in the path is the credential. Call again to renew the RTC
+   * token. Refusals carry `errors.code` ({@link CallRefusalCode}): 410
+   * cancelled / ended / withdrawn, 409 not_confirmed, 425 too_early (guests;
+   * `errors.opens_at`), 403 consent_required (guests; accept the notice first).
    */
   joinInfo(token: string): Observable<SuccessResponse<JoinInfoDto>> {
     return this.api.get<SuccessResponse<JoinInfoDto>>(
       `api/public/call/${encodeURIComponent(token)}`,
+    );
+  }
+
+  /**
+   * GET /api/public/call/{token}/lobby — the pre-join screen without joining:
+   * the consultation, who invited a guest, participants, the guest's notice
+   * state, `can_join` (false until `opens_at` for an early guest) and
+   * `server_time`. Refuses like {@link joinInfo} except too early.
+   */
+  joinLobby(token: string): Observable<SuccessResponse<CallLobbyDto>> {
+    return this.api.get<SuccessResponse<CallLobbyDto>>(
+      `api/public/call/${encodeURIComponent(token)}/lobby`,
+    );
+  }
+
+  /**
+   * POST /api/public/call/{token}/consent — a guest accepts the recording +
+   * privacy notice (and may set the name they show as, 1–60 characters).
+   * Required before joining when `consent.required`.
+   */
+  consentToCall(
+    token: string,
+    params: GuestConsentParams,
+  ): Observable<SuccessResponse<GuestConsentResultDto>> {
+    return this.api.post<SuccessResponse<GuestConsentResultDto>>(
+      `api/public/call/${encodeURIComponent(token)}/consent`,
+      params,
     );
   }
 }

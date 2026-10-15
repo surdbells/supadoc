@@ -12,6 +12,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AvailabilityService;
+use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PatientNotifier;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
@@ -22,7 +23,8 @@ use App\Domain\Settings\WebUrls;
  * POST /api/doctor/appointments/{id}/reschedule — the assigned doctor moves a
  * booking to a new time. The new time must be one of the doctor's open slots
  * (the patient booking rules — {@see AvailabilityService::isSlotAvailable()}).
- * Sets the new time, marks it RESCHEDULED and emails the patient. Doctor-owned only.
+ * Sets the new time, marks it RESCHEDULED and emails the patient, and each guest
+ * the new time with their link. Doctor-owned only.
  */
 final class RescheduleDoctorAppointmentAction
 {
@@ -35,6 +37,7 @@ final class RescheduleDoctorAppointmentAction
         private readonly AvailabilityService $availability,
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
+        private readonly GuestInvitations $guests,
     ) {
     }
 
@@ -87,6 +90,8 @@ final class RescheduleDoctorAppointmentAction
 
         $this->notify($appointment);
         $this->patientNotifier->appointment($appointment, 'Appointment rescheduled', 'Your appointment has been moved to a new time.');
+        // Guests get the new time with a fresh copy of their link.
+        $this->guests->notifyRescheduled($appointment);
 
         return $this->success($response, $appointment->toArray(), 'Appointment rescheduled');
     }

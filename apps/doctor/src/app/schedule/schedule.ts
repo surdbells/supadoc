@@ -92,6 +92,12 @@ const STATUS_TEXT: Record<string, string> = {
                   <div class="flex min-w-0 flex-col">
                     <span class="truncate font-heading text-body-lg text-ink">{{ a.patient_name }}</span>
                     <span class="truncate font-sans text-body-sm text-slate">{{ a.type_label }}</span>
+                    <!-- People the patient invited to the call (names are on the details page). -->
+                    @if (a.guests?.length; as n) {
+                      <span class="flex items-center gap-1 font-sans text-caption text-slate">
+                        <sd-icon name="users" [size]="13" class="shrink-0" />+ {{ n }} {{ n === 1 ? 'guest' : 'guests' }}
+                      </span>
+                    }
                   </div>
                 </div>
                 <div class="flex flex-col gap-1 lg:w-44">

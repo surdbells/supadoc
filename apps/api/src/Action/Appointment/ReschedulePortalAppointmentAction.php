@@ -11,6 +11,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AvailabilityService;
+use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
@@ -22,7 +23,8 @@ use App\Domain\Settings\WebUrls;
  * POST /api/portal/appointments/{id}/reschedule — the signed-in patient moves
  * their own booking to a new time. The new slot must be on the specialist's
  * schedule and still open (no double-booking); the appointment goes to
- * RESCHEDULED and both parties are notified.
+ * RESCHEDULED and both parties are notified — and each guest is emailed the
+ * new time with their link.
  */
 final class ReschedulePortalAppointmentAction
 {
@@ -34,6 +36,7 @@ final class ReschedulePortalAppointmentAction
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
         private readonly StaffNotifier $staffNotifier,
+        private readonly GuestInvitations $guests,
     ) {
     }
 
@@ -83,6 +86,8 @@ final class ReschedulePortalAppointmentAction
         $this->appointments->save($appointment);
 
         $this->notify($appointment);
+        // Guests get the new time with a fresh copy of their link.
+        $this->guests->notifyRescheduled($appointment);
 
         return $this->success($response, $appointment->toArray(), 'Appointment rescheduled');
     }

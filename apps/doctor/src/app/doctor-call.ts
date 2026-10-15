@@ -20,29 +20,49 @@ import { firstValueFrom } from 'rxjs';
 import AgoraRTC, {
   IAgoraRTCClient,
   ICameraVideoTrack,
+  ILocalTrack,
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
 import { SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
 import {
   apiErrorMessage,
+  type CallPresenceState,
   DoctorApi,
+  participantByUid,
   sendCallPresence,
   startCallPresence,
   todayLocal,
 } from '@supadoc/data-access';
-import type {
-  ConsentDto,
-  CopilotDraftDto,
-  JoinInfoDto,
-  LabOrderDto,
-  MedicalCertificateDto,
-  MedicalDocumentDto,
-  ReferralDto,
-  TranscriptSegmentDto,
-  VitalReadingDto,
+import {
+  type CallParticipantDto,
+  type CallPresenceBeatDto,
+  type CallPresenceDto,
+  type CallRefusalCode,
+  type ConsentDto,
+  type CopilotDraftDto,
+  type JoinInfoDto,
+  type LabOrderDto,
+  type MedicalCertificateDto,
+  type MedicalDocumentDto,
+  PATIENT_CALL_UID,
+  type ReferralDto,
+  type TranscriptSegmentDto,
+  type VitalReadingDto,
 } from '@supadoc/models';
-import { ConfirmDialogComponent, IconComponent, SmoothHeightDirective } from '@supadoc/ui';
+import {
+  buildCallTiles,
+  CALL_SELF_VIEW_CLASS_DOCTOR,
+  type CallTilesMode,
+  CallTilesComponent,
+  type CallUid,
+  callTilesMode,
+  ConfirmDialogComponent,
+  IconComponent,
+  type RemoteParticipant,
+  RemoteParticipants,
+  SmoothHeightDirective,
+} from '@supadoc/ui';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import { FollowUpPlanner } from './appointment/follow-up-planner';
@@ -70,6 +90,40 @@ interface SpeechRec {
 }
 type SpeechRecCtor = new () => SpeechRec;
 type RecordsTab = 'documents' | 'imaging' | 'labs';
+
+/**
+ * The uid the cloud recorder joins the channel as while a recording runs
+ * (the API's AgoraRecordingService::RECORDER_UID). Not a person: it never
+ * gets a tile, a participants row or a place in the count.
+ */
+const RECORDER_UID = '525252';
+
+/** At most one extra heartbeat (to refresh the participants) this often. */
+const ROSTER_REFRESH_MS = 3_000;
+
+/**
+ * A token renewal that failed for a passing reason (network, server) is tried
+ * again this often, this many times: Agora warns only once, 30 s before the
+ * token runs out.
+ */
+const RENEW_RETRY_MS = 5_000;
+const RENEW_RETRIES = 5;
+
+/** Someone other than the doctor, as the participants panel lists them. */
+interface CallPerson {
+  readonly key: string;
+  readonly name: string;
+  readonly initials: string;
+  readonly role: 'patient' | 'guest';
+  /** Guests: their guest id (null for one not on the list yet). */
+  readonly id: string | null;
+  /** Connected to the call now (Agora). */
+  readonly inCall: boolean;
+  readonly muted: boolean;
+  readonly cameraOff: boolean;
+  /** Guests: accepted the recording + privacy notice; null when not known yet. */
+  readonly consented: boolean | null;
+}
 
 /** What Tab cycles through inside the cockpit's dialogs (End consultation, unsaved prescription). */
 const FOCUSABLE =
@@ -121,13 +175,14 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
  * Doctor consultation cockpit (route `/call/:token`). The signed call-access JWT
  * from the schedule is the credential — it resolves via the public join endpoint
  * to the Agora room plus the patient's clinical summary. Left: the patient chart.
- * Centre: the video (patient on the main stage, doctor picture-in-picture), call
- * controls and SOAP notes. Right: records and participants.
+ * Centre: the video (one tile per person: 1:1 the patient on the main stage and
+ * the doctor picture-in-picture; with the patient's guests an even grid, patient
+ * first), call controls and SOAP notes. Right: records and participants.
  */
 @Component({
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ConfirmDialogComponent, FollowUpPlanner, IconComponent, RxPanel, SmoothHeightDirective],
+  imports: [CallTilesComponent, ConfirmDialogComponent, FollowUpPlanner, IconComponent, RxPanel, SmoothHeightDirective],
   host: {
     class: 'sd-call block min-h-screen bg-abyss text-white',
     '[attr.data-theme]': 'theme()',
@@ -151,6 +206,12 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          themes. The light theme's global .sd-call .text-white override would
          turn its white-on-colour button text dark — keep it white there. */
       :host([data-theme='light']) ::ng-deep .sd-rx-zone .text-white { color: #ffffff; }
+
+      /* The video stage stays dark in the light theme too (tailwind/theme.css
+         re-asserts most white text there): the tiles' camera-off line and the
+         stage's waiting / connecting text use these two shades as well. */
+      :host([data-theme='light']) ::ng-deep .sd-stage .text-white\\/85 { color: rgb(255 255 255 / 0.85); }
+      :host([data-theme='light']) ::ng-deep .sd-stage .text-white\\/75 { color: rgb(255 255 255 / 0.75); }
     `,
   ],
   template: `
@@ -215,17 +276,22 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </button>
 
           @if (recordingConfigured()) {
+            <!-- Off until the patient AND every guest in the call have agreed (the
+                 whole channel is recorded); the reason is the title and, for screen
+                 readers, the description. -->
             <button
               type="button"
               class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-sans text-caption transition-colors disabled:opacity-50"
               [class]="recordingActive() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-white/5 text-white/70 hover:bg-white/10'"
-              [disabled]="recordingBusy() || (!recordingActive() && !recordingConsent())"
-              [attr.title]="!recordingActive() && !recordingConsent() ? (consentsError() || 'Patient recording consent required') : null"
+              [disabled]="recordingBusy() || recordingBlocked() !== ''"
+              [attr.title]="recordingBlocked() || null"
+              [attr.aria-describedby]="recordingBlocked() ? 'call-recording-blocked' : null"
               (click)="toggleRecording()"
             >
               <span class="size-2 rounded-full" [class]="recordingActive() ? 'animate-pulse bg-alert' : 'bg-white/40'"></span>
               {{ recordingActive() ? 'Recording' : (recordingBusy() ? '…' : 'Record') }}
             </button>
+            <span id="call-recording-blocked" class="sr-only">{{ recordingBlocked() }}</span>
           }
         </div>
       </header>
@@ -233,6 +299,43 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         <p class="border-b border-alert/20 bg-alert/10 px-4 py-2 text-center font-sans text-caption text-alert">
           {{ recordingError() }}
         </p>
+      }
+      <!-- The API stopped taking this call (cancelled, or ended elsewhere): say so,
+           and leave when the doctor is ready (notes and prescriptions stay open). -->
+      @if (callClosed()) {
+        <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-center" role="alert">
+          <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+            <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ callClosed() }}
+          </span>
+          <button
+            type="button"
+            class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+            (click)="leave()"
+          >
+            Leave the call
+          </button>
+        </div>
+      } @else if (rejoining() || connectionLost()) {
+        <!-- Dropped from the video (the call's token ran out and couldn't be renewed):
+             rejoining by itself, else Rejoin. Notes and prescriptions stay as they are. -->
+        <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-center" role="alert">
+          <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+            <sd-icon
+              [name]="rejoining() ? 'loader-circle' : 'circle-alert'"
+              [size]="14"
+              [class]="rejoining() ? 'shrink-0 motion-safe:animate-spin' : 'shrink-0'"
+            />{{ rejoining() ? 'Reconnecting to the call…' : 'You were disconnected from the call.' }}
+          </span>
+          @if (connectionLost()) {
+            <button
+              type="button"
+              class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+              (click)="rejoin()"
+            >
+              Rejoin
+            </button>
+          }
+        </div>
       }
 
       <!-- Cockpit -->
@@ -406,27 +509,18 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           <div class="sd-stage order-1 sticky top-0 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[var(--stage-max)] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] transition-[height,max-height] duration-300 ease-out motion-reduce:transition-none sm:aspect-video xl:relative xl:order-none xl:aspect-auto xl:h-[var(--stage-h)] xl:max-h-none xl:shadow-none"
             [style.--stage-max]="moreRoom() ? '28vh' : '45vh'"
             [style.--stage-h]="moreRoom() ? 'clamp(200px,30vh,340px)' : 'clamp(220px,calc(55.5vh - 150px),560px)'">
-            <div #remoteVideo class="absolute inset-0 bg-ink"></div>
+            <!-- One tile per person, keyed by Agora uid: 1:1 the patient (or whoever
+                 is there) fills the stage with its name tag and the doctor is the
+                 PiP (top-right on a small stage, where the bottom corner would cover
+                 the controls); from a third person an even grid, patient first.
+                 Always rendered: tracks are handed to it by uid (stage().attach). -->
+            <sd-call-tiles
+              [tiles]="tiles()"
+              [selfViewClass]="selfView"
+              [showRole]="showRoles()"
+            />
 
-            <!-- Doctor PiP. Kept in the DOM (hidden until in-call) so the camera
-                 can attach before status flips — otherwise the local tile is black.
-                 Top-right on a small stage, where the bottom corner would cover the controls. -->
-            <div
-              class="absolute right-3 top-3 z-10 h-24 w-[4.5rem] overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg roomy:top-auto roomy:right-4 roomy:bottom-28 roomy:h-40 roomy:w-28"
-              [class.hidden]="status() !== 'in-call'"
-            >
-              <div #localVideo class="h-full w-full"></div>
-              @if (!camOn()) {
-                <div class="absolute inset-0 flex items-center justify-center bg-abyss text-white/60">
-                  <sd-icon name="video-off" [size]="22" />
-                </div>
-              }
-              <span class="absolute bottom-1.5 left-1.5 rounded bg-abyss/70 px-1.5 py-0.5 font-sans text-[10px] text-white/80">
-                You
-              </span>
-            </div>
-
-            @if (!remoteJoined() && status() === 'in-call') {
+            @if (people().length === 0 && status() === 'in-call') {
               <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-16 pl-6 pr-[5.5rem] pt-12 text-center text-white/75 roomy:pb-28 roomy:pr-36">
                 <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 roomy:flex">
                   <sd-icon name="user-round" [size]="30" />
@@ -459,16 +553,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             }
 
             @if (status() === 'in-call') {
-              <!-- Patient name tag -->
-              <div class="absolute left-4 top-4 max-w-[calc(100%-7rem)] rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:max-w-[calc(100%-8rem)]">
-                <span class="block truncate font-sans text-body-sm font-medium text-white">{{ patientName() }}</span>
-              </div>
-              <!-- Connection quality (small stage: the PiP has this corner; the strip under the video,
-                   or the header on desktop, says HD) -->
-              <div class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex" title="HD video · Adaptive · Noise cancellation">
-                <span class="font-label text-caption font-semibold text-white">HD</span>
-                <span class="size-2 rounded-full bg-success"></span>
-              </div>
+              <!-- (The main tile's name tag is the tiles' own.) Connection quality, 1:1 only —
+                   on the grid it would cover a tile (small stage: the PiP has this corner;
+                   the strip under the video, or the header on desktop, says HD) -->
+              @if (stageMode() === 'spotlight') {
+                <div class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex" title="HD video · Adaptive · Noise cancellation">
+                  <span class="font-label text-caption font-semibold text-white">HD</span>
+                  <span class="size-2 rounded-full bg-success"></span>
+                </div>
+              }
 
               <!-- Controls (icon-only and a little smaller on a small stage, so they always fit) -->
               <div class="absolute bottom-3 left-1/2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 rounded-pill bg-abyss/75 px-2 py-2 backdrop-blur roomy:bottom-5 roomy:gap-3 roomy:px-4 roomy:py-2.5">
@@ -1278,31 +1371,65 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="15" [class]="micOn() ? 'text-white/60' : 'text-alert'" />
                 <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="15" [class]="camOn() ? 'text-white/60' : 'text-alert'" />
               </li>
-              <li class="flex items-center gap-3">
-                <span class="flex size-9 items-center justify-center rounded-full bg-white/10 font-heading text-caption font-semibold text-white/80">
-                  {{ patientInitials() }}
-                </span>
-                <span class="flex min-w-0 flex-1 flex-col">
-                  <span class="truncate font-sans text-body-sm text-white">{{ patientName() }}</span>
-                  <span class="font-sans text-caption text-white/45">Patient</span>
-                </span>
-                <span
-                  class="size-2 rounded-full"
-                  [class]="remoteJoined() ? 'bg-success' : 'bg-white/25'"
-                  [attr.title]="remoteJoined() ? 'In the call' : 'Not joined yet'"
-                ></span>
-              </li>
+              <!-- The patient, then their guests (names only), live from the call itself. -->
+              @for (p of others(); track p.key) {
+                <li class="flex items-center gap-3">
+                  <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 font-heading text-caption font-semibold text-white/80">
+                    {{ p.initials }}
+                  </span>
+                  <span class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate font-sans text-body-sm text-white">{{ p.name }}</span>
+                    <span class="truncate font-sans text-caption text-white/45">
+                      {{ p.role === 'patient' ? 'Patient' : 'Guest' }} ·
+                      <span [class]="p.inCall ? 'text-success' : ''">{{ p.inCall ? 'In the call' : 'Not joined yet' }}</span>
+                    </span>
+                    @if (p.role === 'guest' && recordingConfigured() && !legacyRoster()) {
+                      <span class="flex items-center gap-1 font-sans text-[11px]" [class]="p.consented ? 'text-success' : 'text-warning'">
+                        <sd-icon [name]="p.consented ? 'shield-check' : 'shield-alert'" [size]="12" class="shrink-0" />
+                        {{ p.consented ? 'Agreed to recording' : (p.consented === null ? 'Recording consent not known yet' : 'Hasn’t agreed to recording') }}
+                      </span>
+                    }
+                  </span>
+                  @if (p.inCall && p.muted) {
+                    <sd-icon name="mic-off" [size]="15" class="shrink-0 text-alert" aria-hidden="true" />
+                    <span class="sr-only">Microphone off</span>
+                  }
+                  @if (p.inCall && p.cameraOff) {
+                    <sd-icon name="video-off" [size]="15" class="shrink-0 text-alert" aria-hidden="true" />
+                    <span class="sr-only">Camera off</span>
+                  }
+                  <span
+                    class="size-2 shrink-0 rounded-full"
+                    [class]="p.inCall ? 'bg-success' : 'bg-white/25'"
+                    aria-hidden="true"
+                  ></span>
+                </li>
+              }
             </ul>
-            <div class="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
-              @if (consentsError()) {
-                <sd-icon name="shield-check" [size]="15" class="shrink-0 text-alert" />
-                <span class="font-sans text-caption text-alert">{{ consentsError() }}</span>
-              } @else {
-                <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/40'" />
-                <span class="font-sans text-caption text-white/60">
-                  Recording consent:
-                  <span [class]="recordingConsent() ? 'text-success' : 'text-white/50'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
-                </span>
+            <div class="mt-3 flex flex-col gap-2 border-t border-white/10 pt-3">
+              <div class="flex items-center gap-2">
+                @if (consentsError()) {
+                  <sd-icon name="shield-check" [size]="15" class="shrink-0 text-alert" />
+                  <span class="font-sans text-caption text-alert">{{ consentsError() }}</span>
+                } @else {
+                  <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/40'" />
+                  <span class="font-sans text-caption text-white/60">
+                    Recording consent:
+                    <span [class]="recordingConsent() ? 'text-success' : 'text-white/50'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
+                  </span>
+                }
+              </div>
+              <!-- Guests agree in their lobby; the whole channel is recorded, so each one in the call must have. -->
+              @if (recordingConfigured() && hasGuests() && !legacyRoster()) {
+                <div class="flex items-start gap-2">
+                  <sd-icon
+                    [name]="guestsWithoutConsent() ? 'shield-alert' : 'shield-check'"
+                    [size]="15"
+                    class="mt-px shrink-0"
+                    [class]="guestsWithoutConsent() ? 'text-warning' : 'text-white/40'"
+                  />
+                  <span class="font-sans text-caption" [class]="guestsWithoutConsent() ? 'text-warning' : 'text-white/60'">{{ guestConsentLabel() }}</span>
+                </div>
               }
             </div>
           </div>
@@ -1331,8 +1458,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             </span>
             <h2 id="end-consult-title" class="font-heading text-h5 text-ink">End consultation for everyone?</h2>
             <p id="end-consult-desc" class="font-sans text-body-sm text-slate">
-              This marks the visit completed and moves it to your history. {{ patientName() }}’s call ends too,
-              and they can then see what you shared with them and rate the visit.
+              This marks the visit completed and moves it to your history. {{ patientName() }}’s call ends
+              too{{ hasGuests() ? ' (and their guests’)' : '' }}, and they can then see what you shared with them and rate the visit.
             </p>
           </div>
           @if (canDocument() && !noteFinalized()) {
@@ -1411,16 +1538,163 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
-  private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
-  private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
+  /** The video stage: every uid's track is handed to it (attach / detach). */
+  private readonly stage = viewChild.required(CallTilesComponent);
+  protected readonly selfView = CALL_SELF_VIEW_CLASS_DOCTOR;
 
   protected readonly status = signal<'loading' | 'in-call' | 'error'>('loading');
   protected readonly errorMessage = signal('');
   protected readonly micOn = signal(true);
   protected readonly camOn = signal(true);
   protected readonly screenOn = signal(false);
-  protected readonly remoteJoined = signal(false);
   protected readonly elapsed = signal(0);
+
+  // ---- Who is in the call ----
+  /** Everyone else in the channel, per uid (one camera going off never touches another tile). */
+  private readonly remoteList = signal<readonly RemoteParticipant[]>([]);
+  private readonly remotes = new RemoteParticipants((list) => this.remoteList.set(list));
+  private unbindRemotes?: () => void;
+  /** The uid the doctor joined as (Agora's own when the link carries none). */
+  private selfUid: CallUid = 'self';
+  /** The people in the channel — the cloud recorder (a bot) left out. */
+  protected readonly people = computed(() =>
+    this.remoteList().filter((r) => String(r.uid) !== RECORDER_UID),
+  );
+  /** The latest participants from a heartbeat or token renewal (guests added mid-call, consent). */
+  private readonly freshRoster = signal<CallParticipantDto[] | null>(null);
+  /**
+   * The API sends no participants (one from before guest invites, e.g. while a
+   * front-end deploy is ahead of the API's): nobody is named and guests' consent
+   * isn't tracked — that API doesn't gate recording on guests either.
+   */
+  protected readonly legacyRoster = computed(() => !this.freshRoster() && !this.info()?.participants);
+  /**
+   * Everyone who may be in the call, by uid — names only, never emails. Without
+   * participants (legacyRoster) the patient is, as before, whoever else is here:
+   * uid 1 (their emailed link) when connected, else the first to join under an
+   * Agora-assigned uid (the portal's) — an emailed guest link's uid (3–5) stays a guest.
+   */
+  private readonly roster = computed<readonly CallParticipantDto[]>(() => {
+    const list = this.freshRoster() ?? this.info()?.participants;
+    if (list) return list;
+    const uids = this.people()
+      .map((r) => r.uid)
+      .filter((u): u is number => typeof u === 'number');
+    const uid = uids.find((u) => u === PATIENT_CALL_UID) ?? uids.find((u) => u >= 100);
+    return uid === undefined ? [] : [{ uid, role: 'patient', name: this.patientName() }];
+  });
+  /** Who the API counts as in the call (guests by id), from the heartbeat. */
+  private readonly presence = signal<CallPresenceDto | null>(null);
+  private rosterRefreshedAt = 0;
+  /** A participants refresh asked for too soon after the last, sent once allowed. */
+  private rosterRefreshTimer?: ReturnType<typeof setTimeout>;
+  /** Why the API stopped taking this call mid-way (cancelled / ended elsewhere); '' while it is fine. */
+  protected readonly callClosed = signal('');
+  /** Joining the channel again after the RTC token ran out (see rejoin). */
+  protected readonly rejoining = signal(false);
+  /** Out of the channel (the token ran out) and the automatic rejoin failed: the banner offers Rejoin. */
+  protected readonly connectionLost = signal(false);
+  private renewRetry?: ReturnType<typeof setTimeout>;
+  /** The doctor's tracks that were off when a rejoin published the rest — published when turned on. */
+  private readonly heldBack = new Set<ILocalTrack>();
+
+  /** The stage's tiles: the patient first, then guests, the doctor's own last (the PiP 1:1). */
+  protected readonly tiles = computed(() =>
+    buildCallTiles({
+      // Nobody under the connecting / error screens (their tracks play once in the call).
+      remotes: this.status() === 'in-call' ? this.people() : [],
+      roster: this.roster(),
+      self:
+        this.status() === 'in-call'
+          ? {
+              uid: this.selfUid,
+              role: 'doctor',
+              name: this.doctorName(),
+              hasVideo: this.camOn() || this.screenOn(),
+              muted: !this.micOn(),
+            }
+          : null,
+    }),
+  );
+  protected readonly stageMode = computed<CallTilesMode>(() => callTilesMode(this.tiles()));
+  /**
+   * "· Patient" / "· Guest" after the names on the grid, and 1:1 when the one
+   * person there isn't the patient (a guest who joined first). 1:1 with the
+   * patient the name tag is just their name, as always.
+   */
+  protected readonly showRoles = computed(
+    () => this.stageMode() === 'grid' || this.tiles().some((t) => !t.self && t.role !== 'patient'),
+  );
+
+  /** The patient, then each guest (the API's order), then anyone connected the list doesn't know yet. */
+  protected readonly others = computed<CallPerson[]>(() => {
+    const live = new Map(this.people().map((r) => [String(r.uid), r] as const));
+    const roster = this.roster();
+    const person = (
+      key: string,
+      name: string,
+      role: CallPerson['role'],
+      uid: CallUid,
+      id: string | null,
+      consented: boolean | null,
+    ): CallPerson => {
+      const r = live.get(String(uid));
+      return {
+        key,
+        name,
+        initials: this.initials(name),
+        role,
+        id,
+        inCall: !!r,
+        muted: !!r && !r.hasAudio,
+        cameraOff: !!r && !r.hasVideo,
+        consented,
+      };
+    };
+    const patientUid = roster.find((p) => p.role === 'patient')?.uid ?? PATIENT_CALL_UID;
+    const list = [person('patient', this.patientName(), 'patient', patientUid, null, null)];
+    for (const g of roster) {
+      if (g.role === 'guest') list.push(person(`guest:${g.id ?? g.uid}`, g.name, 'guest', g.uid, g.id ?? null, g.consented === true));
+    }
+    const known = new Set([String(patientUid), ...roster.map((p) => String(p.uid))]);
+    for (const r of this.people()) {
+      if (!known.has(String(r.uid))) list.push(person(`uid:${r.uid}`, 'Guest', 'guest', r.uid, null, null));
+    }
+    return list;
+  });
+  protected readonly hasGuests = computed(() => this.others().some((p) => p.role === 'guest'));
+  /**
+   * Guests in the call now — connected, or still counted by the API's presence —
+   * who haven't accepted the recording notice (one not on the list yet counts:
+   * its consent isn't known). The API refuses to start recording while any are.
+   * None for an API without participants: it has no such rule.
+   */
+  protected readonly guestsWithoutConsent = computed(() => {
+    if (this.legacyRoster()) return 0;
+    const present = new Set(this.presence()?.guests ?? []);
+    return this.others().filter(
+      (p) => p.role === 'guest' && p.consented !== true && (p.inCall || (!!p.id && present.has(p.id))),
+    ).length;
+  });
+  protected readonly guestConsentLabel = computed(() => {
+    const n = this.guestsWithoutConsent();
+    if (n === 1) return 'A guest in the call hasn’t agreed to recording yet — you can record once they have.';
+    if (n > 1) return `${n} guests in the call haven’t agreed to recording yet — you can record once they have.`;
+    if (this.others().some((p) => p.role === 'guest' && p.inCall)) return 'Guests in the call have agreed to recording.';
+    // A guest's lobby only asks about recording once the patient has agreed to it.
+    return this.recordingConsent()
+      ? 'Guests agree to recording before they join.'
+      : 'Guests are asked to agree to recording once the patient has.';
+  });
+  /** Why Record is off ('' when it can start, or is running and can stop). */
+  protected readonly recordingBlocked = computed(() => {
+    if (this.recordingActive()) return '';
+    if (!this.recordingConsent()) return this.consentsError() || 'Patient recording consent required';
+    const n = this.guestsWithoutConsent();
+    if (n === 1) return 'A guest in the call hasn’t agreed to recording yet';
+    if (n > 1) return `${n} guests in the call haven’t agreed to recording yet`;
+    return '';
+  });
 
   protected readonly notesTab = signal<NotesTab>('notes');
   protected readonly recordsTab = signal<RecordsTab>('documents');
@@ -1717,7 +1991,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     return 'file-text';
   }
 
-  protected readonly participantCount = computed(() => (this.remoteJoined() ? 2 : 1));
+  /** The doctor plus everyone connected now (live Agora uids, the recorder left out). */
+  protected readonly participantCount = computed(() => 1 + this.people().length);
   protected readonly doctorInitials = computed(() => this.initials(this.doctorName()));
   protected readonly patientInitials = computed(() => this.initials(this.patientName()));
   protected readonly elapsedLabel = computed(() => {
@@ -1859,38 +2134,48 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       this.client = client;
 
+      // Per-uid state (joined, camera / mic on, talking) for the tiles and the
+      // participants panel; the tracks themselves are played below.
+      this.unbindRemotes = this.remotes.bind(client);
       client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-        if (mediaType === 'video') {
-          const el = this.remoteVideo()?.nativeElement;
-          if (el) user.videoTrack?.play(el);
-          this.remoteJoined.set(true);
-        } else if (mediaType === 'audio') {
-          user.audioTrack?.play();
+        try {
+          await client.subscribe(user, mediaType);
+        } catch {
+          return; // they left (or unpublished) in the meantime
         }
+        if (this.left) return;
+        if (mediaType === 'video' && user.videoTrack) this.stage().attach(user.uid, user.videoTrack);
+        else if (mediaType === 'audio') user.audioTrack?.play();
       });
-      client.on('user-unpublished', (_user, mediaType) => {
-        if (mediaType === 'video') this.remoteJoined.set(false);
+      // One person's camera going off (or them leaving) only touches their own tile.
+      client.on('user-unpublished', (user, mediaType) => {
+        if (mediaType === 'video') this.stage().detach(user.uid);
       });
+      client.on('user-left', (user) => this.stage().detach(user.uid));
+      client.on('user-joined', (user) => this.labelNewcomer(user.uid));
       client.on('token-privilege-will-expire', () => void this.renewToken());
+      client.on('token-privilege-did-expire', () => void this.rejoin());
       client.on('network-quality', (s) => {
         this.netUplink = s.uplinkNetworkQuality ?? 0;
         this.netDownlink = s.downlinkNetworkQuality ?? 0;
       });
+      // Who is talking (the grid's green ring).
+      client.enableAudioVolumeIndicator();
 
-      await client.join(
+      const joinedAs = await client.join(
         data.app_id,
         data.channel,
         data.token ?? null,
         data.uid === 0 ? null : (data.uid ?? null),
       );
+      this.selfUid = joinedAs ?? 'self';
       if (this.left) return;
 
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
       this.micTrack = mic;
       this.camTrack = cam;
-      const localEl = this.localVideo()?.nativeElement;
-      if (localEl) cam.play(localEl);
+      // Plays as soon as the doctor's own tile renders (status flips below).
+      this.stage().attach(this.selfUid, cam);
       await client.publish([mic, cam]);
 
       this.status.set('in-call');
@@ -1904,6 +2189,22 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     } catch (err: unknown) {
       this.errorMessage.set(apiErrorMessage(err, 'This join link is invalid or has expired.'));
       this.status.set('error');
+      // Joined but could not go on (e.g. no camera): don't sit in the others'
+      // call as a silent tile while this screen says it failed.
+      if (this.client && !this.left) {
+        this.unbindRemotes?.();
+        this.unbindRemotes = undefined;
+        this.remotes.clear();
+        void this.client.leave().catch(() => undefined);
+      }
+      // ...and don't keep the camera and mic open behind it (e.g. publish failed).
+      if (!this.left) {
+        this.stage().detach(this.selfUid);
+        this.micTrack?.close();
+        this.camTrack?.close();
+        this.micTrack = undefined;
+        this.camTrack = undefined;
+      }
     }
   }
 
@@ -1915,26 +2216,175 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     return body.data as JoinInfoDto;
   }
 
-  private async renewToken(): Promise<void> {
+  /**
+   * token-privilege-will-expire: the same join call answers with a fresh RTC
+   * token (and the current participants). A refusal means the consultation was
+   * cancelled or ended meanwhile — said in the banner. Anything else is tried
+   * again a few times (the SDK warns only once); if the token still runs out,
+   * token-privilege-did-expire rejoins.
+   */
+  private async renewToken(attempt = 0): Promise<void> {
+    this.renewRetry = undefined;
+    if (this.left || this.rejoining()) return;
     try {
       const data = await this.resolveJoin();
+      if (this.left) return;
+      if (data.participants) this.freshRoster.set(data.participants);
       if (data.token) await this.client?.renewToken(data.token);
-    } catch {
-      /* the SDK re-fires the event; a transient failure isn't fatal yet */
+    } catch (err: unknown) {
+      if (this.left || this.refusedBy(err)) return;
+      if (attempt + 1 < RENEW_RETRIES) {
+        this.renewRetry = setTimeout(() => void this.renewToken(attempt + 1), RENEW_RETRY_MS);
+      }
     }
+  }
+
+  /**
+   * token-privilege-did-expire: the token could not be renewed in time and
+   * Agora dropped the doctor from the channel. Fetch a fresh one and join
+   * again with the same tracks (the others' tiles come back as they are
+   * announced again); if that fails too, the banner offers Rejoin. Notes and
+   * prescriptions are untouched. Not for a consultation the API has closed.
+   */
+  protected async rejoin(): Promise<void> {
+    const client = this.client;
+    if (!client || this.left || this.rejoining() || this.callClosed() || this.status() !== 'in-call') return;
+    if (this.renewRetry) clearTimeout(this.renewRetry);
+    this.renewRetry = undefined;
+    this.rejoining.set(true);
+    this.connectionLost.set(false);
+    try {
+      const data = await this.resolveJoin();
+      if (this.left) return;
+      if (data.participants) this.freshRoster.set(data.participants);
+      if (!data.configured || !data.app_id || !data.channel) throw fetchError(0, null);
+      await client.leave().catch(() => undefined);
+      for (const r of this.remotes.list()) this.stage().detach(r.uid);
+      this.remotes.clear();
+      // The same uid as before, so the doctor's own tile (keyed by it) stays put.
+      const uid = typeof this.selfUid === 'number' ? this.selfUid : data.uid ? data.uid : null;
+      await client.join(data.app_id, data.channel, data.token ?? null, uid);
+      if (this.left) {
+        await client.leave().catch(() => undefined);
+        return;
+      }
+      await this.publishOwnTracks();
+    } catch (err: unknown) {
+      if (this.left || this.refusedBy(err)) return;
+      this.connectionLost.set(true);
+    } finally {
+      this.rejoining.set(false);
+    }
+  }
+
+  /** A join-call failure that is the API refusing the call (410 / 409): shown as the closed banner. */
+  private refusedBy(err: unknown): boolean {
+    const status = (err as { status?: unknown }).status;
+    if (status !== 410 && status !== 409) return false;
+    const code = (err as { errors?: { code?: CallRefusalCode } }).errors?.code ?? null;
+    this.callRefused(code, apiErrorMessage(err, ''));
+    return true;
+  }
+
+  /**
+   * After a rejoin: publish the mic and the camera (or the shared screen).
+   * Agora refuses a disabled track, so one that is off is held back and
+   * published when the doctor turns it on (publishHeldBack).
+   */
+  private async publishOwnTracks(): Promise<void> {
+    this.heldBack.clear();
+    const mine = [this.micTrack, this.screenOn() ? this.screenTrack : this.camTrack].filter(
+      (t): t is NonNullable<typeof t> => !!t,
+    );
+    for (const t of mine) if (!t.enabled) this.heldBack.add(t);
+    const live = mine.filter((t) => t.enabled);
+    if (live.length) await this.client?.publish(live);
+  }
+
+  private async publishHeldBack(track: ILocalTrack): Promise<void> {
+    if (!this.heldBack.delete(track)) return;
+    await this.client?.publish(track).catch(() => undefined);
   }
 
   /** Heartbeat "the doctor is in the call" via the join token. Never two at once. */
   private startHeartbeat(): void {
     if (this.heartbeatStop) return;
+    this.heartbeatStop = startCallPresence((s) => this.sendBeat(s));
+  }
+
+  /**
+   * One heartbeat. An "in" beat answers with who is in the call (guests by id)
+   * and the current participants — guests added mid-call, consents given — or
+   * with a refusal once the consultation was cancelled or ended elsewhere.
+   */
+  private sendBeat(state: CallPresenceState): void {
     const url = `${this.base}/api/public/call/${encodeURIComponent(this.token)}/presence`;
-    this.heartbeatStop = startCallPresence((s) => sendCallPresence(url, s));
+    sendCallPresence(url, state, {}, {
+      onBeat: (beat) => this.onBeat(beat),
+      onRefused: (_status, code, message) => this.callRefused(code, message),
+    });
+  }
+
+  private onBeat(beat: CallPresenceBeatDto): void {
+    if (this.left) return;
+    if (beat.presence) this.presence.set(beat.presence);
+    if (beat.participants) this.freshRoster.set(beat.participants);
+  }
+
+  /**
+   * Someone joined the channel whose uid the participants don't have (a guest
+   * the patient invited after this call loaded): fetch the list again now
+   * rather than at the next beat, so their tile and row get a name. Their tile
+   * says "Guest" meanwhile.
+   */
+  private labelNewcomer(uid: CallUid): void {
+    if (String(uid) === RECORDER_UID) return;
+    // Also a guest last seen without consent: they have likely just agreed in
+    // their lobby, and Record would otherwise stay off until the next beat.
+    const known = participantByUid(this.roster(), uid);
+    if (known && (known.role !== 'guest' || known.consented === true)) return;
+    this.refreshRoster();
+  }
+
+  /**
+   * An extra "in" beat for fresh participants — only while the heartbeat runs,
+   * at most every few seconds (one asked for sooner is sent once allowed).
+   */
+  private refreshRoster(): void {
+    if (!this.heartbeatStop || this.left) return;
+    const wait = this.rosterRefreshedAt + ROSTER_REFRESH_MS - Date.now();
+    if (wait > 0) {
+      this.rosterRefreshTimer ??= setTimeout(() => {
+        this.rosterRefreshTimer = undefined;
+        this.refreshRoster();
+      }, wait);
+      return;
+    }
+    this.rosterRefreshedAt = Date.now();
+    this.sendBeat('in');
+  }
+
+  /**
+   * The API no longer takes this call (410 cancelled / ended — e.g. ended from
+   * the appointment page, or cancelled by the clinic). The doctor stays to
+   * finish notes or a prescription; the banner says why and offers Leave.
+   * Not while ending it here (that refusal is expected) or after leaving.
+   */
+  private callRefused(code: CallRefusalCode | null, message: string): void {
+    if (this.left || this.ending() || this.callClosed()) return;
+    this.callClosed.set(
+      message || (code === 'cancelled' ? 'This consultation was cancelled.' : 'This consultation has ended.'),
+    );
+    // Stop saying "the doctor is in the call" for a visit that is over.
+    this.heartbeatStop?.();
+    this.heartbeatStop = undefined;
   }
 
   protected async toggleMic(): Promise<void> {
     if (!this.micTrack) return;
     const on = !this.micOn();
     await this.micTrack.setEnabled(on);
+    if (on) await this.publishHeldBack(this.micTrack);
     this.micOn.set(on);
   }
 
@@ -1942,6 +2392,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (!this.camTrack) return;
     const on = !this.camOn();
     await this.camTrack.setEnabled(on);
+    if (on) await this.publishHeldBack(this.camTrack);
     this.camOn.set(on);
   }
 
@@ -1956,8 +2407,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         }
         if (this.camTrack) {
           await this.client.publish(this.camTrack);
-          const el = this.localVideo()?.nativeElement;
-          if (el) this.camTrack.play(el);
+          this.stage().attach(this.selfUid, this.camTrack);
         }
         this.screenOn.set(false);
       } else {
@@ -1965,8 +2415,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         if (this.camTrack) await this.client.unpublish(this.camTrack);
         this.screenTrack = track;
         await this.client.publish(track);
-        const el = this.localVideo()?.nativeElement;
-        if (el) track.play(el);
+        // The doctor's own tile previews the shared screen (whole, not cropped).
+        this.stage().attach(this.selfUid, track, { fit: 'contain' });
         track.on('track-ended', () => void this.toggleScreen());
         this.screenOn.set(true);
       }
@@ -2486,6 +2936,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.recordingActive.set(!this.recordingActive());
     } catch (err: unknown) {
       this.recordingError.set(apiErrorMessage(err, 'Recording failed.'));
+      // E.g. a guest who hasn't agreed yet joined a moment ago: refresh who is
+      // here, so the button and the participants panel show it too.
+      this.refreshRoster();
     } finally {
       this.recordingBusy.set(false);
     }
@@ -2835,7 +3288,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     if (this.metricsTimer) clearInterval(this.metricsTimer);
     if (this.transcriptPoll) clearInterval(this.transcriptPoll);
+    if (this.renewRetry) clearTimeout(this.renewRetry);
+    if (this.rosterRefreshTimer) clearTimeout(this.rosterRefreshTimer);
+    this.heldBack.clear();
     this.stopRecognition();
+    this.unbindRemotes?.();
+    this.unbindRemotes = undefined;
+    this.remotes.clear();
     try {
       this.micTrack?.close();
       this.camTrack?.close();

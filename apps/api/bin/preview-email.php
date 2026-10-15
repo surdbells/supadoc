@@ -34,6 +34,10 @@ $samples = [
         'Pat',
         $webUrl,
     ),
+    'guest-invite'      => EmailTemplates::guestInvite('Bola', 'Pat', 'Dr. Grace Bell', 'Tue 1 Sep, 11:00 AM WAT', $webUrl . '/call/join/sample'),
+    'guest-rescheduled' => EmailTemplates::guestRescheduled('Bola', 'Pat', 'Dr. Grace Bell', 'Wed 2 Sep, 9:00 AM WAT', $webUrl . '/call/join/sample'),
+    'guest-cancelled'   => EmailTemplates::guestCallClosed('Bola', 'Pat', 'Dr. Grace Bell', 'Tue 1 Sep, 11:00 AM WAT', 'cancelled'),
+    'guest-removed'     => EmailTemplates::guestCallClosed('Bola', 'Pat', 'Dr. Grace Bell', 'Tue 1 Sep, 11:00 AM WAT', 'removed'),
 ];
 
 foreach ($samples as $name => $mail) {

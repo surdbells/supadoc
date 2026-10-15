@@ -12,6 +12,7 @@ use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\FollowUpService;
+use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -25,7 +26,8 @@ use App\Domain\Settings\WebUrls;
  * normalise + validate the target against the enum at the edge (Postgres `=` is
  * case-sensitive — ARCHITECTURE §11), then reject an illegal move with a 422
  * that names the legal next states rather than letting the entity throw a plain
- * DomainException (which the error handler would surface as a 500).
+ * DomainException (which the error handler would surface as a 500). Cancelling
+ * a booking also tells each of its guests (their links stop working).
  */
 final class UpdateAppointmentStatusAction
 {
@@ -37,6 +39,7 @@ final class UpdateAppointmentStatusAction
         private readonly PatientNotifier $patientNotifier,
         private readonly FollowUpService $followUps,
         private readonly UserRepository $users,
+        private readonly GuestInvitations $guests,
     ) {
     }
 
@@ -102,8 +105,12 @@ final class UpdateAppointmentStatusAction
                 return $this->success($response, $appointment->toAdminArray(), 'Follow-up proposal already closed');
             }
         } else {
+            $moved = $current !== $target;
             $appointment->transitionTo($target);
             $this->repo->save($appointment);
+            if ($moved && $target === AppointmentStatus::CANCELLED) {
+                $this->guests->notifyCancelled($appointment);
+            }
         }
 
         $this->notifyPatient($appointment);

@@ -129,6 +129,14 @@ import {
   LucideWeight,
   LucideSquarePen,
   LucideArrowLeft,
+  LucideUserPlus,
+  LucideUserMinus,
+  LucideUserCheck,
+  LucideLink,
+  LucideTimer,
+  LucideVolume2,
+  LucideCameraOff,
+  LucideAudioLines,
 } from '@lucide/angular';
 
 /**
@@ -270,6 +278,16 @@ export const SUPADOC_ICONS = [
   LucideWeight,
   LucideSquarePen,
   LucideArrowLeft,
+  // Guests on calls: invite / remove / joined, copy link, lobby countdown,
+  // speaker + camera-error states, who is talking.
+  LucideUserPlus,
+  LucideUserMinus,
+  LucideUserCheck,
+  LucideLink,
+  LucideTimer,
+  LucideVolume2,
+  LucideCameraOff,
+  LucideAudioLines,
 ];
 
 /**

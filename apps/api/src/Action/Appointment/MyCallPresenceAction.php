@@ -12,7 +12,7 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /api/portal/appointments/presence — who is in the call right now, for the
  * signed-in patient's appointments that have anyone in them:
- * `{ "<appointment id>": { "doctor": true, "patient": false } }`. Polled by the
+ * `{ "<appointment id>": { "doctor": true, "patient": false, "guests": ["<guest id>"] } }`. Polled by the
  * appointment list / page while they are open.
  */
 final class MyCallPresenceAction

@@ -106,6 +106,45 @@ final class AppointmentPaymentService
         );
     }
 
+    /**
+     * Debit the guest fee for one guest invited after booking (`$guestId`, the
+     * id they will get). Idempotent per guest; the caller adds the fee to the
+     * appointment amount once the guest is stored, so a cancellation refund
+     * includes it.
+     *
+     * @throws InsufficientFundsException when the balance is short (no charge made)
+     */
+    public function chargeGuest(Appointment $appointment, string $fee, string $guestId): WalletTransaction
+    {
+        return $this->wallets->debit(
+            $appointment->getPatient()->getId(),
+            $this->wallets->defaultCurrency(),
+            $fee,
+            WalletTransaction::TYPE_CONSULTATION,
+            self::guestChargeReference($appointment, $guestId),
+            'Guest invitation — consultation with ' . $appointment->getSpecialist()->getName(),
+        );
+    }
+
+    /** Refund a removed guest's fee to the wallet (idempotent per guest). The caller takes it off the amount. */
+    public function refundGuest(Appointment $appointment, string $amount, string $guestId): WalletTransaction
+    {
+        return $this->wallets->credit(
+            $appointment->getPatient()->getId(),
+            $this->wallets->defaultCurrency(),
+            $amount,
+            WalletTransaction::TYPE_REFUND,
+            'appt_guest_refund_' . $guestId,
+            'Refund for a withdrawn guest invitation — consultation with ' . $appointment->getSpecialist()->getName(),
+        );
+    }
+
+    /** The ledger reference of a guest's wallet charge (guest ids are unique across appointments). */
+    public static function guestChargeReference(Appointment $appointment, string $guestId): string
+    {
+        return 'appt_guest_' . $guestId;
+    }
+
     /** Whether the wallet ledger already holds an entry under `$reference`. */
     public function isPosted(string $reference): bool
     {

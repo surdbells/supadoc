@@ -179,8 +179,8 @@ return [
                     'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid', 'refunded'], 'description' => 'A free consultation (amount 0) is `paid` from the start — nothing is owed.'],
                     'guests'         => [
                         'type'        => 'array',
-                        'description' => 'Invited third parties (max 3); each adds the guest fee.',
-                        'items'       => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'email' => ['type' => 'string', 'format' => 'email']]],
+                        'description' => 'Invited third parties (max 3) — names only, in every payload (patient, doctor, back office). The patient\'s guest list with emails, status and links is GET /portal/appointments/{id}/guests.',
+                        'items'       => ['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true], 'name' => ['type' => 'string']]],
                     ],
                     'parent_appointment_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true, 'description' => 'Follow-ups: the consultation this one follows on from'],
                     'parent'                => [
@@ -349,6 +349,116 @@ return [
                     'created_at' => ['type' => 'string', 'format' => 'date-time'],
                 ],
             ],
+            // ----- Guests + multi-party calls -----
+            'CallParticipant' => [
+                'type'        => 'object',
+                'description' => 'Someone who may be in the call, by Agora uid — names only, never an email. The patient is uid 1, the doctor uid 2, each guest their own stable uid (100+).',
+                'properties'  => [
+                    'uid'       => ['type' => 'integer', 'example' => 100],
+                    'role'      => ['type' => 'string', 'enum' => ['patient', 'doctor', 'guest']],
+                    'name'      => ['type' => 'string', 'description' => 'A guest: the name they chose in the lobby, else the invitation\'s'],
+                    'id'        => ['type' => 'string', 'format' => 'uuid', 'description' => 'Guests only: their guest id (matches presence.guests)'],
+                    'consented' => ['type' => 'boolean', 'description' => 'Guests only: accepted the recording + privacy notice'],
+                ],
+            ],
+            'CallPresence' => [
+                'type'        => 'object',
+                'description' => 'Who is in the call now (heartbeats younger than 40 s).',
+                'properties'  => [
+                    'doctor'  => ['type' => 'boolean'],
+                    'patient' => ['type' => 'boolean'],
+                    'guests'  => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid'], 'description' => 'Ids of the guests in the call'],
+                ],
+            ],
+            'GuestConsentState' => [
+                'type'        => 'object',
+                'description' => 'A guest\'s recording + privacy notice. `required`: recording could happen (cloud recording is set up and the patient agreed, or one is running) — the guest must POST /public/call/{token}/consent before joining (else 403 consent_required). Otherwise the lobby shows the privacy notice only; accepting it is still worth recording.',
+                'properties'  => [
+                    'required'           => ['type' => 'boolean'],
+                    'recording_possible' => ['type' => 'boolean'],
+                    'recording_active'   => ['type' => 'boolean'],
+                    'given'              => ['type' => 'boolean'],
+                    'consented_at'       => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'version'            => ['type' => 'string', 'example' => '1.0'],
+                ],
+            ],
+            'CallMeeting' => [
+                'type'        => 'object',
+                'description' => 'What every call screen shows. Never health data (except `patient` on the doctor\'s join), never emails.',
+                'properties'  => [
+                    'appointment_id'   => ['type' => 'string', 'format' => 'uuid'],
+                    'scheduled_at'     => ['type' => 'string', 'format' => 'date-time'],
+                    'ends_at'          => ['type' => 'string', 'format' => 'date-time', 'description' => 'scheduled_at + the booked slot length'],
+                    'duration_minutes' => ['type' => 'integer', 'example' => 30],
+                    'status'           => ['type' => 'string'],
+                    'specialist'       => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'specialty' => ['type' => 'string']]],
+                    'you'              => ['type' => 'object', 'properties' => [
+                        'name' => ['type' => 'string'],
+                        'role' => ['type' => 'string', 'enum' => ['patient', 'doctor', 'guest']],
+                        'uid'  => ['type' => 'integer'],
+                        'id'   => ['type' => 'string', 'format' => 'uuid', 'description' => 'Guests only: their guest id'],
+                    ]],
+                    'uid'              => ['type' => 'integer', 'description' => 'The Agora uid to join as (= you.uid)'],
+                    'participants'     => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/CallParticipant']],
+                    'invited_by'       => ['type' => 'object', 'description' => 'Guests only', 'properties' => ['first_name' => ['type' => 'string']]],
+                    'opens_at'         => ['type' => 'string', 'format' => 'date-time', 'description' => 'Guests only: 15 minutes before the start'],
+                    'closes_at'        => ['type' => 'string', 'format' => 'date-time', 'description' => 'Guests only: 60 minutes after the slot ends'],
+                    'consent'          => ['$ref' => '#/components/schemas/GuestConsentState'],
+                ],
+            ],
+            'CallRefusal' => [
+                'type'        => 'object',
+                'description' => 'Why a join link can\'t be used now. `errors.call` is the message (shown by apiErrorMessage); `errors.code`: cancelled | ended | withdrawn (410), not_confirmed (409, also `status: proposed`), too_early (425, with `starts_at`, `opens_at`, `server_time` to count down), consent_required (403, with `consent`).',
+                'properties'  => [
+                    'status'  => ['type' => 'string', 'example' => 'error'],
+                    'message' => ['type' => 'string', 'example' => 'This consultation has ended.'],
+                    'errors'  => ['type' => 'object', 'properties' => [
+                        'call'        => ['type' => 'string'],
+                        'code'        => ['type' => 'string', 'enum' => ['cancelled', 'ended', 'withdrawn', 'not_confirmed', 'too_early', 'consent_required']],
+                        'status'      => ['type' => 'string', 'example' => 'proposed'],
+                        'starts_at'   => ['type' => 'string', 'format' => 'date-time'],
+                        'opens_at'    => ['type' => 'string', 'format' => 'date-time'],
+                        'server_time' => ['type' => 'string', 'format' => 'date-time'],
+                        'consent'     => ['$ref' => '#/components/schemas/GuestConsentState'],
+                    ]],
+                ],
+            ],
+            'PatientGuest' => [
+                'type'        => 'object',
+                'description' => 'One of the patient\'s guests, as the patient sees them.',
+                'properties'  => [
+                    'id'                  => ['type' => 'string', 'format' => 'uuid', 'nullable' => true, 'description' => 'null only before bin/prod-migrate.php has given older guests an identity'],
+                    'uid'                 => ['type' => 'integer', 'nullable' => true],
+                    'name'                => ['type' => 'string'],
+                    'email'               => ['type' => 'string', 'format' => 'email'],
+                    'display_name'        => ['type' => 'string', 'nullable' => true, 'description' => 'The name they chose in the call lobby'],
+                    'status'              => ['type' => 'string', 'enum' => ['invited', 'consented', 'joined']],
+                    'in_call'             => ['type' => 'boolean'],
+                    'fee'                 => ['type' => 'string', 'example' => '5000.00'],
+                    'paid_by'             => ['type' => 'string', 'enum' => ['booking', 'wallet', 'card', 'free']],
+                    'invited_at'          => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'last_sent_at'        => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'resend_available_at' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'joined_at'           => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'consented_at'        => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'join_url'            => ['type' => 'string', 'nullable' => true, 'description' => 'The guest\'s personal join link — a bearer credential; for the patient to copy and share with that guest only'],
+                ],
+            ],
+            'PatientGuestList' => [
+                'type'       => 'object',
+                'properties' => [
+                    'guests'                  => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/PatientGuest']],
+                    'max_guests'              => ['type' => 'integer', 'example' => 3],
+                    'guest_fee'               => ['type' => 'string', 'example' => '5000.00', 'description' => 'What inviting one more costs now (0.00: free)'],
+                    'currency'                => ['type' => 'string', 'example' => 'NGN'],
+                    'can_manage'              => ['type' => 'boolean', 'description' => 'Guests can be added / removed / re-sent (pending, confirmed or rescheduled, before the guest window closes)'],
+                    'can_add'                 => ['type' => 'boolean'],
+                    'manage_problem'          => ['type' => 'string', 'nullable' => true, 'description' => 'Why not, when can_manage is false'],
+                    'refundable_until'        => ['type' => 'string', 'format' => 'date-time', 'description' => 'Removing a paid guest before this refunds their fee to the wallet'],
+                    'window_closes_at'        => ['type' => 'string', 'format' => 'date-time'],
+                    'resend_interval_seconds' => ['type' => 'integer', 'example' => 120],
+                ],
+            ],
         ],
         'responses' => [
             'Unauthorized' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Missing/invalid token'],
@@ -467,13 +577,13 @@ return [
             'get' => ['tags' => ['Doctor'], 'summary' => 'Read the patient consent state', 'responses' => ['200' => ['description' => 'OK']]],
         ],
         '/api/doctor/appointments/{id}/recording' => [
-            'get' => ['tags' => ['Doctor'], 'summary' => 'Recording availability + active session', 'responses' => ['200' => ['description' => 'OK']]],
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Recording availability + active session + `guest_consent: {connected, pending, pending_ids, unknown}` (guests in the call now — by heartbeat, or given a token in the last 10 minutes and not left since — who haven\'t accepted the recording notice; recording waits for them. `unknown`: presence couldn\'t be read, so every invited guest counts)', 'responses' => ['200' => ['description' => 'OK']]],
         ],
         '/api/doctor/appointments/{id}/recording/files' => [
             'get' => ['tags' => ['Doctor'], 'summary' => 'Recording playback/download URLs', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
         '/api/doctor/appointments/{id}/recording/start' => [
-            'post' => ['tags' => ['Doctor'], 'summary' => 'Start cloud recording (consent-gated)', 'responses' => ['201' => ['description' => 'Started']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Start cloud recording (consent-gated)', 'description' => 'Needs the patient\'s recording consent (403) and every guest in the call now to have accepted the recording notice: otherwise 422 "N guest(s) in the call haven\'t agreed to recording yet" with `errors.guests_without_consent` (count), `errors.guest_ids` and `errors.presence_unknown` (true: presence couldn\'t be read, so every invited guest who hasn\'t agreed counts — "We can\'t check who is in the call right now, and N invited guest(s) haven\'t agreed…").', 'responses' => ['201' => ['description' => 'Started'], '403' => ['description' => 'No patient consent'], '422' => ['description' => 'A guest in the call has not consented']]],
         ],
         '/api/doctor/appointments/{id}/recording/stop' => [
             'post' => ['tags' => ['Doctor'], 'summary' => 'Stop cloud recording', 'responses' => ['200' => ['description' => 'OK']]],
@@ -1024,7 +1134,7 @@ return [
                 'summary'     => 'Transition an appointment status',
                 'description' => 'Enforces the state machine; illegal transitions return 422. Nothing moves into `proposed`, and a proposed follow-up can only be cancelled here (the patient accepting it confirms it). '
                     . 'Cancelling a proposal is a compare-and-set, like the doctor withdrawing it: 422 `errors.status` when the patient accepted it a moment earlier (cancel the confirmed appointment instead), 200 "Follow-up proposal already closed" when it had already closed. '
-                    . 'Audited (`appointment.follow_up_withdrawn`, actor role admin); the doctor gets an in-app notice and the patient the usual status email.',
+                    . 'Audited (`appointment.follow_up_withdrawn`, actor role admin); the doctor gets an in-app notice and the patient the usual status email. Cancelling a booking also emails each of its guests.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['status'], 'properties' => ['status' => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'rescheduled', 'completed', 'cancelled']]]])],
                 'responses'   => [
@@ -1270,7 +1380,7 @@ return [
             'post' => [
                 'tags'       => ['Staff'],
                 'summary'     => 'Decline a booking (assigned doctor); refunds if paid',
-                'description' => 'On the doctor\'s own unanswered follow-up proposal it withdraws it instead, like POST .../follow-up/withdraw (message "Follow-up withdrawn").',
+                'description' => 'Each guest is emailed that the consultation was cancelled (their links stop working). On the doctor\'s own unanswered follow-up proposal it withdraws it instead, like POST .../follow-up/withdraw (message "Follow-up withdrawn").',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'  => [
                     '200' => ['description' => 'Declined', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
@@ -1284,7 +1394,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Reschedule a booking (assigned doctor)',
-                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422. 422 `errors.status` on a follow-up proposal — withdraw it and propose the new time.',
+                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422. 422 `errors.status` on a follow-up proposal — withdraw it and propose the new time. Each guest is emailed the new time with their link.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['scheduled_at'], 'properties' => ['scheduled_at' => ['type' => 'string', 'format' => 'date-time']]])],
                 'responses'   => [
@@ -1788,28 +1898,188 @@ return [
             'get' => [
                 'tags'        => ['Public'],
                 'summary'     => 'Resolve a preauthenticated join link into an Agora session',
-                'description' => 'The signed call-access token from the invite email IS the credential — no login. Returns the meeting details plus an Agora token when video is configured. 422 (`errors.status = "proposed"`) for a follow-up proposal the patient has not accepted yet.',
+                'description' => 'The signed call-access token from the invite email IS the credential — no login. Returns the meeting details (CallMeeting: you, uid, participants by uid — names only; a guest\'s also invited_by, opens_at, closes_at, consent) plus Agora credentials when video is configured; the doctor\'s also the patient\'s clinical summary (`patient`). '
+                    . 'Every appointment is its own channel (its id). Refused (CallRefusal): cancelled / completed → 410; an unaccepted follow-up → 409 (`errors.code = not_confirmed`, `errors.status = proposed`); '
+                    . 'a guest no longer on the list → 410 (`withdrawn`), before 15 minutes ahead of the start → 425 (`too_early`, with `starts_at` / `opens_at` / `server_time`), after 60 minutes past the slot\'s end → 410 (`ended`); '
+                    . 'a guest who has not accepted the notice while recording could happen → 403 (`consent_required`, with `consent`). The patient and the doctor have no time window. '
+                    . 'Renewal: call it again with the same token for a fresh RTC token (on token-privilege-will-expire) — the same checks apply, except that a guest in the call now (by heartbeat) renews past the window\'s end (for at most 3 hours more) and, while nothing is being recorded, without having accepted the notice. '
+                    . 'A guest\'s token lasts 600 s (`expires_in`), everyone else\'s 3600 s; a guest removed (or whose consultation is cancelled) mid-call is also put out of the channel.',
                 'security'    => [],
                 'parameters'  => [['name' => 'token', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
                 'responses'   => [
                     '200' => ['description' => 'Ready to join', ...$json($envelope([
-                        'type'       => 'object',
-                        'properties' => [
-                            'appointment_id' => ['type' => 'string', 'format' => 'uuid'],
-                            'scheduled_at'   => ['type' => 'string', 'format' => 'date-time'],
-                            'specialist'     => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'specialty' => ['type' => 'string']]],
-                            'you'            => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'role' => ['type' => 'string', 'enum' => ['patient', 'doctor', 'guest']]]],
-                            'configured'     => ['type' => 'boolean'],
-                            'app_id'         => ['type' => 'string'],
-                            'channel'        => ['type' => 'string'],
-                            'uid'            => ['type' => 'integer'],
-                            'token'          => ['type' => 'string'],
-                            'expires_in'     => ['type' => 'integer', 'example' => 3600],
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/CallMeeting'],
+                            [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'configured' => ['type' => 'boolean'],
+                                    'app_id'     => ['type' => 'string'],
+                                    'channel'    => ['type' => 'string'],
+                                    'token'      => ['type' => 'string', 'nullable' => true],
+                                    'expires_in' => ['type' => 'integer', 'example' => 3600, 'nullable' => true, 'description' => 'Seconds the token lasts: 600 for a guest, 3600 otherwise; null without one'],
+                                ],
+                            ],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'A guest must accept the notice first (`consent_required`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '409' => ['description' => 'A follow-up proposal not accepted yet (`not_confirmed`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '410' => ['description' => 'Cancelled, ended, or the guest\'s invitation was withdrawn', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '425' => ['description' => 'A guest is too early (`too_early`, with `starts_at` / `opens_at`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                ],
+            ],
+        ],
+        '/api/public/call/{token}/lobby' => [
+            'get' => [
+                'tags'        => ['Public'],
+                'summary'     => 'The pre-join lobby for a join link (no Agora credentials)',
+                'description' => 'CallMeeting plus `server_time` and `can_join`; a guest\'s also `consent`. The same refusals as joining except too early: an early guest gets `can_join: false` and `opens_at` to count down to. Never health data or emails.',
+                'security'    => [],
+                'parameters'  => [['name' => 'token', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/CallMeeting'],
+                            ['type' => 'object', 'properties' => ['server_time' => ['type' => 'string', 'format' => 'date-time'], 'can_join' => ['type' => 'boolean']]],
                         ],
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
-                    '422' => ['description' => 'A follow-up proposal not accepted yet (`errors.status = "proposed"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
+                    '409' => ['description' => 'Not confirmed yet', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '410' => ['description' => 'Cancelled, ended or withdrawn', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                ],
+            ],
+        ],
+        '/api/public/call/{token}/consent' => [
+            'post' => [
+                'tags'        => ['Public'],
+                'summary'     => 'A guest accepts the recording + privacy notice',
+                'description' => 'Guest links only (422 `errors.role` otherwise). Body `{accepted: true, display_name?}` (422 `errors.accepted` unless true; `display_name` 1–60 characters, 422 `errors.display_name`) — the name they show as in the call. '
+                    . 'Recorded on their guest entry with the notice version and audited (`call.guest_consented`, guest id only). Required before joining while recording could happen; send it whenever the guest ticks the notice. '
+                    . 'The same refusals as the lobby (410 / 409; not too early).',
+                'security'    => [],
+                'parameters'  => [['name' => 'token', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['accepted'], 'properties' => [
+                    'accepted'     => ['type' => 'boolean', 'enum' => [true]],
+                    'display_name' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 60],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Recorded', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'consent'      => ['$ref' => '#/components/schemas/GuestConsentState'],
+                        'you'          => ['type' => 'object'],
+                        'participants' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/CallParticipant']],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '409' => ['description' => 'Not confirmed yet', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '410' => ['description' => 'Cancelled, ended or withdrawn', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        // ----- The patient's guests -----
+        '/api/portal/appointments/{id}/guests' => [
+            'get' => [
+                'tags'        => ['Portal'],
+                'summary'     => "The patient's guests on consultation {id}",
+                'description' => 'Each guest with email, status (invited / consented / joined), whether in the call now and their personal join link (a bearer credential — for the patient to share with that guest only); plus the guest fee and whether the list can change.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/PatientGuestList']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Invite a guest to consultation {id}',
+                'description' => 'Body `{name, email, payment_method?: wallet|card, payment_reference?}`. Pending / confirmed / rescheduled, until 60 minutes after the slot ends (422 `errors.status`). At most 3 guests (422 `errors.guests`); `name` 1–100 characters (`errors.name`); a valid email that is not the patient\'s, the doctor\'s or an invited guest\'s (`errors.email`). '
+                    . 'The guest fee (GET .../guests `guest_fee`; 0 = free, no payment) is charged: `wallet` (too low → 422 `errors.wallet = insufficient_funds`) or `card` with the `reference` from POST .../guests/pay-init (422 `errors.payment_reference` / `errors.payment`; one reference pays once). '
+                    . 'It is added to the appointment amount, so cancelling the consultation refunds it too. If the guest can\'t be stored after paying (the list closed or filled up meanwhile — `errors.status` / `errors.guests`, also when a card payment is refused for that before it is checked), the payment goes to the wallet and the 422 carries `errors.payment = credited_to_wallet` (a name / email error keeps a card payment for the retry with the same reference). '
+                    . 'The guest is emailed their link ("<first name> invited you to join their video consultation with <doctor> on <time>"), the doctor gets an in-app notice (the guest\'s name only), audited `appointment.guest_added`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['name', 'email'], 'properties' => [
+                    'name'              => ['type' => 'string', 'maxLength' => 100],
+                    'email'             => ['type' => 'string', 'format' => 'email'],
+                    'payment_method'    => ['type' => 'string', 'enum' => ['wallet', 'card'], 'description' => 'Required unless the guest fee is 0'],
+                    'payment_reference' => ['type' => 'string', 'description' => 'With card: the guests/pay-init reference, once paid'],
+                ]])],
+                'responses'   => [
+                    '201' => ['description' => 'Invited', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/PatientGuestList'],
+                            ['type' => 'object', 'properties' => ['guest' => ['$ref' => '#/components/schemas/PatientGuest']]],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/guests/pay-init' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Start a card payment of the guest fee for consultation {id}',
+                'description' => 'Checked first: the guest list must be open (422 `errors.status`) and not full (422 `errors.guests`). A guest fee of 0 → 422 `errors.payment = free` (add the guest directly). Returns to /dashboard/appointments/{id}; then POST .../guests with `payment_method: card` and the `reference`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '201' => ['description' => 'Payment started', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'authorization_url' => ['type' => 'string'],
+                        'access_code'       => ['type' => 'string'],
+                        'reference'         => ['type' => 'string'],
+                        'amount'            => ['type' => 'string', 'example' => '5000.00'],
+                        'currency'          => ['type' => 'string', 'example' => 'NGN'],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '502' => ['description' => 'Paystack refused to start the payment'],
+                    '503' => ['description' => 'Card payment not configured'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/guests/{gid}' => [
+            'delete' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Remove a guest from consultation {id}',
+                'description' => 'Their join link stops working at once (their call screen is refused at its next heartbeat) and they are emailed that the invitation was withdrawn. Removed before the consultation starts, a paid guest fee goes back to the wallet (`refunded`) and off the amount; after the start, nothing is refunded. 422 `errors.status` once the list can\'t change; 404 for an unknown guest. Audited `appointment.guest_removed`.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'gid', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'Removed', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/PatientGuestList'],
+                            ['type' => 'object', 'properties' => [
+                                'removed'  => ['type' => 'object', 'properties' => ['id' => ['type' => 'string'], 'name' => ['type' => 'string']]],
+                                'refunded' => ['type' => 'string', 'nullable' => true, 'example' => '5000.00'],
+                            ]],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/portal/appointments/{id}/guests/{gid}/resend' => [
+            'post' => [
+                'tags'        => ['Portal'],
+                'summary'     => "Re-send a guest's invitation",
+                'description' => 'Emails the guest their invitation again with a fresh copy of their link — at most once every 2 minutes per guest (429 with `errors.retry_after` seconds and Retry-After). 422 `errors.status` once the list can\'t change; 404 for an unknown guest.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'gid', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'Sent', ...$json($envelope(['$ref' => '#/components/schemas/PatientGuestList']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '429' => ['description' => 'Too soon (`errors.retry_after`)'],
                 ],
             ],
         ],
@@ -2104,7 +2374,7 @@ return [
                         'payment_reference' => ['type' => 'string', 'description' => 'Paystack reference from pay-init, to pay by card instead of the wallet'],
                         'guests'        => [
                             'type'        => 'array',
-                            'description' => 'Up to 3 invited third parties; each adds the guest fee to the amount.',
+                            'description' => 'Up to 3 invited third parties; each adds the guest fee to the amount and gets a stable id + Agora uid. Not the patient\'s or the doctor\'s email, none twice (422 `guests.N.email`); name ≤ 100 characters. Each is emailed their own link naming who invited them.',
                             'maxItems'    => 3,
                             'items'       => ['type' => 'object', 'required' => ['name', 'email'], 'properties' => ['name' => ['type' => 'string'], 'email' => ['type' => 'string', 'format' => 'email']]],
                         ],
@@ -2169,7 +2439,7 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Cancel one of the patient\'s own appointments',
-                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee and emails a receipt. On a follow-up proposal (status proposed) it declines it instead, like POST .../follow-up/decline (message "Follow-up declined").',
+                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee (guest fees included) and emails a receipt; each guest is emailed that it was cancelled (their links stop working). On a follow-up proposal (status proposed) it declines it instead, like POST .../follow-up/decline (message "Follow-up declined").',
                 'operationId' => 'portalCancelAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -2184,7 +2454,7 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Reschedule one of the patient\'s own appointments',
-                'description' => 'Moves the booking to a new, still-open slot and notifies both parties. 422 `errors.status` on a follow-up proposal — choose the other time when accepting it (POST .../follow-up/accept `scheduled_at`).',
+                'description' => 'Moves the booking to a new, still-open slot and notifies both parties; each guest is emailed the new time with their link. 422 `errors.status` on a follow-up proposal — choose the other time when accepting it (POST .../follow-up/accept `scheduled_at`).',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
@@ -2393,16 +2663,34 @@ return [
             ],
         ],
         '/api/public/call/{token}/presence' => [
-            'post' => ['tags' => ['Call'], 'summary' => 'Call-screen heartbeat (join token): {state: in|out}', 'security' => [], 'responses' => ['200' => ['description' => 'OK'], '401' => ['description' => 'Invalid or expired join link']]],
+            'post' => [
+                'tags'        => ['Call'],
+                'summary'     => 'Call-screen heartbeat (join token): {state: in|out}',
+                'description' => 'Every ~15 s while in the call ("out" on leaving; `?state=out` works for unload-time requests). A guest is tracked by their guest id; their first heartbeat records `joined_at`, and each (re)join is audited (`call.guest_joined`, guest id only). '
+                    . 'An "in" answers `{state, presence: CallPresence, participants: CallParticipant[]}` plus, to a guest, `consent` (GuestConsentState — when it turns `required` and not `given`, e.g. the patient agreed to recording mid-call, ask the guest: recording waits for them) — so a call screen can label a new uid and show live states — or refuses like joining (410 cancelled / ended / withdrawn — leave the call; 409 not confirmed; 425 before a guest\'s window opens), without the end of the guest window (a call that runs over keeps its guests for at most 3 hours more). "out" is always 200 `{state}`.',
+                'security'    => [],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'state'        => ['type' => 'string', 'enum' => ['in', 'out']],
+                        'presence'     => ['$ref' => '#/components/schemas/CallPresence'],
+                        'participants' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/CallParticipant']],
+                        'consent'      => ['$ref' => '#/components/schemas/GuestConsentState'],
+                    ]]))],
+                    '401' => ['description' => 'Invalid or expired join link'],
+                    '409' => ['description' => 'Not confirmed yet', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '410' => ['description' => 'Cancelled, ended or withdrawn — leave the call', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                    '425' => ['description' => 'A guest\'s window has not opened yet (`too_early`)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
+                ],
+            ],
         ],
         '/api/portal/appointments/presence' => [
-            'get' => ['tags' => ['Portal'], 'summary' => 'Who is in the call now, per appointment of the signed-in patient', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
+            'get' => ['tags' => ['Portal'], 'summary' => 'Who is in the call now, per appointment of the signed-in patient: {"<id>": CallPresence}', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized']]],
         ],
         '/api/portal/appointments/{id}/presence' => [
-            'post' => ['tags' => ['Portal'], 'summary' => 'Patient call-screen heartbeat: {state: in|out}', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '404' => ['description' => 'Not found']]],
+            'post' => ['tags' => ['Portal'], 'summary' => 'Patient call-screen heartbeat: {state: in|out}; an "in" answers {state, presence: CallPresence, participants: CallParticipant[]}', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '404' => ['description' => 'Not found']]],
         ],
         '/api/doctor/appointments/presence' => [
-            'get' => ['tags' => ['Doctor'], 'summary' => 'Who is in the call now, per consultation of the signed-in doctor', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']]],
+            'get' => ['tags' => ['Doctor'], 'summary' => 'Who is in the call now, per consultation of the signed-in doctor: {"<id>": CallPresence} (guests by guest id)', 'responses' => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Not a doctor login']]],
         ],
         '/api/portal/notifications' => [
             'get' => [
@@ -2450,18 +2738,19 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Agora RTC token for the consultation call',
-                'description' => 'Channel is the appointment id; the token is a publisher token valid for 1 hour. 422 (`errors.status = "proposed"`) for a follow-up proposal not accepted yet.',
+                'description' => 'Channel is the appointment id; the token is a publisher token for uid 1 (the patient) valid for 1 hour — call again to renew. `participants` names everyone who may be in the call by uid (names only), so each tile can be labelled. 422 (`errors.status = "proposed"`) for a follow-up proposal not accepted yet.',
                 'operationId' => 'portalCallToken',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
                     '200' => ['description' => 'Token issued', ...$json($envelope([
                         'type'       => 'object',
                         'properties' => [
-                            'app_id'     => ['type' => 'string'],
-                            'channel'    => ['type' => 'string'],
-                            'uid'        => ['type' => 'integer', 'example' => 0],
-                            'token'      => ['type' => 'string'],
-                            'expires_in' => ['type' => 'integer', 'example' => 3600],
+                            'app_id'       => ['type' => 'string'],
+                            'channel'      => ['type' => 'string'],
+                            'uid'          => ['type' => 'integer', 'example' => 1],
+                            'token'        => ['type' => 'string'],
+                            'expires_in'   => ['type' => 'integer', 'example' => 3600],
+                            'participants' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/CallParticipant']],
                         ],
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],

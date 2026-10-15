@@ -14,13 +14,17 @@ use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\GuestConsent;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * POST /api/doctor/appointments/{id}/recording/start — begin cloud recording.
- * Refuses unless the PATIENT has granted recording consent — the app never
- * records silently. Idempotent while a recording is already active.
+ * Refuses unless the PATIENT has granted recording consent (403) and every
+ * guest in the call now has accepted the recording + privacy notice (422,
+ * naming how many haven't; when presence can't be read, every invited guest
+ * counts — `errors.presence_unknown`) — the app never records silently.
+ * Idempotent while a recording is already active.
  */
 final class StartRecordingAction
 {
@@ -35,6 +39,7 @@ final class StartRecordingAction
         private readonly AgoraRecordingService $recorder,
         private readonly AgoraTokenService $agora,
         private readonly AuditLogger $audit,
+        private readonly GuestConsent $guestConsent,
     ) {
     }
 
@@ -62,6 +67,19 @@ final class StartRecordingAction
         $active = $this->recordings->activeForAppointment($id);
         if ($active !== null) {
             return $this->success($response, $active->toArray(), 'Recording already in progress');
+        }
+
+        // …and so must every guest in the call now (the whole channel is recorded).
+        $guests = $this->guestConsent->connectedGuests($appointment);
+        if ($guests['pending'] > 0) {
+            $wait = self::guestsWaitMessage($guests['pending'], $guests['unknown']);
+
+            return $this->error($response, $wait, 422, [
+                'consent'                => $wait,
+                'guests_without_consent' => $guests['pending'],
+                'guest_ids'              => $guests['pending_ids'],
+                'presence_unknown'       => $guests['unknown'],
+            ]);
         }
 
         // Record the channel the participants are actually in, with a matching token.
@@ -104,5 +122,19 @@ final class StartRecordingAction
 
         return $this->success($response, $recording->toArray(), 'Recording started', 201)
             ->withHeader('Cache-Control', 'no-store');
+    }
+
+    /** Why recording waits: `$pending` guests haven't agreed (counting every invited one when presence is unknown). */
+    public static function guestsWaitMessage(int $pending, bool $presenceUnknown): string
+    {
+        if ($presenceUnknown) {
+            return "We can't check who is in the call right now, and "
+                . ($pending === 1 ? "1 invited guest hasn't" : "$pending invited guests haven't")
+                . ' agreed to recording yet.';
+        }
+
+        return $pending === 1
+            ? "1 guest in the call hasn't agreed to recording yet."
+            : "$pending guests in the call haven't agreed to recording yet.";
     }
 }

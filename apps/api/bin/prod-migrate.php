@@ -40,6 +40,9 @@ declare(strict_types=1);
  *      checks, names no patient, or names a different patient than its
  *      appointment) moves to the private var/quarantine/appointment-docs
  *      folder instead and is listed for a look by hand — nothing stays public.
+ *   8. Guests: gives every guest invited before guests had identities a stable
+ *      id + Agora uid (100+), the uid their already-emailed links carry (so
+ *      those keep working while they stay invited), and what they cost.
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
@@ -61,6 +64,7 @@ declare(strict_types=1);
  */
 
 use App\Domain\Entity\AppSetting;
+use App\Domain\Entity\Appointment;
 use App\Domain\Entity\MedicalDocument;
 use App\Domain\Entity\Patient;
 use App\Domain\Entity\Prescription;
@@ -164,12 +168,12 @@ $required = [
     'vital_readings'    => [],                       // step 5 (vitals history)
     'specialists'       => ['status'],               // step 6 (doctor onboarding)
     'users'             => ['password_token_hash'],  // doctor invite / reset links
-    'appointments'      => ['document_url'],         // step 7 (booking attachments)
+    'appointments'      => ['document_url', 'guests', 'guest_uid_seq'], // steps 7 + 8 (booking attachments, guest identities)
     'medical_documents' => ['appointment_id'],       // step 7 (a join column, so listed by hand)
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
-foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class] as $class) {
+foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class, Appointment::class] as $class) {
     $meta             = $em->getClassMetadata($class);
     $table            = $unquote($meta->getTableName());
     $required[$table] = array_merge($required[$table] ?? [], array_map($unquote, $meta->getColumnNames()));
@@ -515,6 +519,32 @@ foreach ($files as $name => $group) {
     $legacyFiles->file($name, $group, $saveAttachment);
 }
 $report['completed_steps'][] = 7;
+
+// 8) Guest identities: every guest invited before guests had ids gets a stable
+//    id (the `gid` in their join links from now on), an Agora uid of their own
+//    (100 and up — the patient is 1, the doctor 2), the uid the links already
+//    emailed to them carry (3, 4, 5 by their place on the list — those links
+//    keep working while that guest stays invited and the join window allows),
+//    and what they cost: the guest fee now, never more than an equal share of
+//    what was paid above the consultation's own price (the follow-up price, else
+//    the doctor's fee), nothing on a free consultation (refunded to the wallet if
+//    the patient removes them before the consultation starts). Guests with an
+//    id are left alone, so a re-run changes nothing. (Its columns were checked
+//    at the top.)
+$report['guests_given_identity']       = 0;
+$report['appointments_guests_updated'] = 0;
+$guestFee = number_format((new App\Infrastructure\Service\PricingService(new App\Domain\Repository\AppSettingRepository($em)))->guestFee(), 2, '.', '');
+$report['legacy_guest_fee'] = $guestFee;
+foreach ($em->createQuery('SELECT a FROM ' . Appointment::class . ' a WHERE a.guests IS NOT NULL')->getResult() as $appointment) {
+    /** @var Appointment $appointment */
+    $given = $appointment->assignGuestIdentities($appointment->legacyGuestFee($guestFee));
+    if ($given > 0) {
+        $report['guests_given_identity'] += $given;
+        $report['appointments_guests_updated']++;
+    }
+}
+$em->flush();
+$report['completed_steps'][] = 8;
 
 if ($dryRun) {
     $conn->rollBack();

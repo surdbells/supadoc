@@ -15,7 +15,7 @@ use Predis\Client as RedisClient;
 use Predis\Response\Status;
 use Psr\Log\LoggerInterface;
 
-/** "In the call" presence: heartbeats, leaving, expiry, the live sets, and Redis being down. */
+/** "In the call" presence: heartbeats, guests, leaving, expiry, the live sets, and Redis being down. */
 final class CallPresenceTest extends TestCase
 {
     private Patient $patient;
@@ -57,7 +57,7 @@ final class CallPresenceTest extends TestCase
         $appointment = $this->appointment();
         $this->presence->mark($appointment, 'patient');
 
-        $expected = [$appointment->getId() => ['doctor' => false, 'patient' => true]];
+        $expected = [$appointment->getId() => ['doctor' => false, 'patient' => true, 'guests' => []]];
         $this->assertSame($expected, $this->presence->forPatient($this->patient->getId()));
         $this->assertSame($expected, $this->presence->forSpecialist($this->doctor->getId()));
         $this->assertSame(CallPresence::TTL, $this->redis->ttls[$this->heartbeatKey($appointment, 'patient')], 'present until the heartbeat is TTL seconds old');
@@ -71,7 +71,7 @@ final class CallPresenceTest extends TestCase
         $this->presence->mark($appointment, 'patient');
         $this->presence->mark($appointment, 'patient'); // a repeat heartbeat changes nothing
 
-        $expected = [$appointment->getId() => ['doctor' => true, 'patient' => true]];
+        $expected = [$appointment->getId() => ['doctor' => true, 'patient' => true, 'guests' => []]];
         $this->assertSame($expected, $this->presence->forPatient($this->patient->getId()));
         $this->assertSame($expected, $this->presence->forSpecialist($this->doctor->getId()));
         $this->assertSame([$appointment->getId()], $this->redis->smembers($this->patientSet()), 'listed once');
@@ -85,7 +85,7 @@ final class CallPresenceTest extends TestCase
 
         $this->presence->clear($appointment, 'doctor');
         $this->assertSame(
-            [$appointment->getId() => ['doctor' => false, 'patient' => true]],
+            [$appointment->getId() => ['doctor' => false, 'patient' => true, 'guests' => []]],
             $this->presence->forSpecialist($this->doctor->getId()),
         );
 
@@ -106,7 +106,7 @@ final class CallPresenceTest extends TestCase
         // The fake never expires keys itself, so "TTL ran out" is a delete.
         $this->redis->del([$this->heartbeatKey($gone, 'patient')]);
 
-        $expected = [$live->getId() => ['doctor' => true, 'patient' => false]];
+        $expected = [$live->getId() => ['doctor' => true, 'patient' => false, 'guests' => []]];
         $this->assertSame($expected, $this->presence->forPatient($this->patient->getId()));
         $this->assertSame([$live->getId()], $this->redis->smembers($this->patientSet()), 'expired appointment is SREM\'d on read');
         // Each set is pruned when it is read, so the doctor's still lists it until then.
@@ -151,16 +151,42 @@ final class CallPresenceTest extends TestCase
     public function testUnknownRolesAreIgnored(): void
     {
         $appointment = $this->appointment();
-        $this->presence->mark($appointment, 'guest');
+        $this->presence->mark($appointment, 'nurse');
+        $this->presence->mark($appointment, 'guest'); // a guest is tracked by their guest id only
         $this->assertSame([], $this->redis->strings);
         $this->assertSame([], $this->redis->sets);
 
         $this->presence->mark($appointment, 'patient');
         $this->presence->clear($appointment, 'guest');
         $this->assertSame(
-            [$appointment->getId() => ['doctor' => false, 'patient' => true]],
+            [$appointment->getId() => ['doctor' => false, 'patient' => true, 'guests' => []]],
             $this->presence->forPatient($this->patient->getId()),
         );
+    }
+
+    public function testGuestsAreTrackedByTheirGuestId(): void
+    {
+        $appointment = $this->appointment();
+        $this->assertTrue($this->presence->mark($appointment, 'guest', 'g-2'), 'a first heartbeat starts a presence');
+        $this->assertFalse($this->presence->mark($appointment, 'guest', 'g-2'), 'a repeat does not');
+        $this->presence->mark($appointment, 'guest', 'g-1');
+
+        $expected = [$appointment->getId() => ['doctor' => false, 'patient' => false, 'guests' => ['g-1', 'g-2']]];
+        $this->assertSame($expected, $this->presence->forPatient($this->patient->getId()), 'a guest alone keeps the call live');
+        $this->assertSame($expected, $this->presence->forSpecialist($this->doctor->getId()));
+        $this->assertSame(['doctor' => false, 'patient' => false, 'guests' => ['g-1', 'g-2']], $this->presence->forAppointment($appointment));
+        $this->assertSame(CallPresence::TTL, $this->redis->ttls["call:presence:{$appointment->getId()}:guest:g-2"]);
+
+        $this->presence->clear($appointment, 'guest', 'g-2');
+        $this->assertSame(['g-1'], $this->presence->forAppointment($appointment)['guests']);
+
+        // An expired guest heartbeat drops out of the guest set when read.
+        $this->redis->del(["call:presence:{$appointment->getId()}:guest:g-1"]);
+        $this->assertSame([], $this->presence->forAppointment($appointment)['guests']);
+        $this->assertSame([], $this->redis->smembers("call:presence:{$appointment->getId()}:guests"));
+        $this->assertSame([], $this->presence->forPatient($this->patient->getId()));
+
+        $this->assertTrue($this->presence->mark($appointment, 'guest', 'g-1'), 'back after the heartbeat expired: a rejoin');
     }
 
     public function testRedisFailuresAreSilentAndLoggedOnce(): void
@@ -171,15 +197,18 @@ final class CallPresenceTest extends TestCase
         $appointment = $this->appointment();
 
         // Neither throws — a call must never break because Redis is down.
-        $presence->mark($appointment, 'patient');
+        $this->assertFalse($presence->mark($appointment, 'patient'));
+        $presence->mark($appointment, 'guest', 'g-1');
         $presence->clear($appointment, 'doctor');
         $this->assertSame([], $presence->forPatient($this->patient->getId()));
         $this->assertSame([], $presence->forSpecialist($this->doctor->getId()));
+        $this->assertSame(['doctor' => false, 'patient' => false, 'guests' => []], $presence->forAppointment($appointment));
+        $this->assertNull($presence->tryForAppointment($appointment), 'for checks that must not take "unknown" for "nobody"');
     }
 
     /**
-     * Just enough Redis for CallPresence, with Predis's reply shapes: MGET gives
-     * null for a missing key, SMEMBERS a list of strings, and a set that loses
+     * Just enough Redis for CallPresence, with Predis's reply shapes: GET and MGET
+     * give null for a missing key, SMEMBERS a list of strings, and a set that loses
      * its last member is deleted. Predis\Client sends every command through
      * __call, so overriding it is the whole fake. TTLs are recorded, not enforced.
      */
@@ -205,6 +234,8 @@ final class CallPresenceTest extends TestCase
                 $list = static fn (array $args): array => array_map('strval', is_array($args[0] ?? null) ? $args[0] : $args);
 
                 switch (strtolower((string) $commandID)) {
+                    case 'get':
+                        return $this->strings[$key] ?? null;
                     case 'setex':
                         $this->strings[$key] = (string) $arguments[2];
                         $this->ttls[$key]    = (int) $arguments[1];

@@ -13,6 +13,7 @@ use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\FollowUpService;
+use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PatientNotifier;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -21,7 +22,7 @@ use App\Domain\Settings\WebUrls;
 /**
  * POST /api/doctor/appointments/{id}/decline — the assigned doctor declines a
  * booking. Cancels it, refunds a paid booking to the patient's wallet, and
- * emails the patient. Declining their own unanswered follow-up proposal
+ * emails the patient (and each guest that it was cancelled). Declining their own unanswered follow-up proposal
  * withdraws it (see POST .../follow-up/withdraw). Doctor-owned only.
  */
 final class DeclineDoctorAppointmentAction
@@ -36,6 +37,7 @@ final class DeclineDoctorAppointmentAction
         private readonly MailService $mail,
         private readonly PatientNotifier $patientNotifier,
         private readonly FollowUpService $followUps,
+        private readonly GuestInvitations $guests,
     ) {
     }
 
@@ -70,6 +72,7 @@ final class DeclineDoctorAppointmentAction
 
         $this->notify($appointment);
         $this->patientNotifier->appointment($appointment, 'Appointment declined', 'Unfortunately your appointment was declined and any payment refunded.');
+        $this->guests->notifyCancelled($appointment);
 
         return $this->success($response, $appointment->toArray(), 'Appointment declined');
     }

@@ -22,6 +22,7 @@ use App\Infrastructure\Service\AppointmentInvites;
 use App\Infrastructure\Service\AppointmentPaymentService;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\FollowUpService;
+use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
@@ -34,10 +35,13 @@ use Ramsey\Uuid\Uuid;
  * The patient is taken from `customer_id` (never the body), so a customer can
  * only ever book for themselves.
  *
- * A booking may invite up to 3 third parties (name + email); each adds the
- * back-office-configured guest fee to the amount. Everyone — patient, doctor and
- * guests — gets a confirmation email with the schedule and a preauthenticated
- * link to join the video call without logging in.
+ * A booking may invite up to 3 third parties (name + email — not the patient's
+ * or the doctor's, none twice: 422 `guests.N.email`); each adds the
+ * back-office-configured guest fee to the amount and gets a stable guest id and
+ * Agora uid. Everyone — patient, doctor and guests — gets a confirmation email
+ * with the schedule and a preauthenticated link to join the video call without
+ * logging in (a guest's names who invited them). Guests can be changed later
+ * (POST/DELETE .../guests).
  *
  * It may also attach up to 10 of the patient's own documents (`document_ids`,
  * uploaded via POST /portal/appointment-documents). Each must be theirs and not
@@ -56,7 +60,7 @@ final class CreateMyAppointmentAction
 {
     use ApiResponse;
 
-    private const MAX_GUESTS = 3;
+    private const MAX_GUESTS = Appointment::MAX_GUESTS;
     public const MAX_DOCUMENTS = 10;
 
     /** The authenticated download route that older clients send back as `document_url`. */
@@ -139,6 +143,12 @@ final class CreateMyAppointmentAction
             ]);
         }
 
+        // A guest is someone else: not the patient, not the doctor, not invited twice.
+        $guestErrors = GuestInvitations::bookingGuestProblems($guests, $patient, $specialist);
+        if ($guestErrors !== []) {
+            return $this->error($response, 'Validation failed', 422, $guestErrors);
+        }
+
         // A follow-up: of one of the patient's own completed consultations, with that doctor.
         $parent = null;
         if ($parentId !== '') {
@@ -164,7 +174,12 @@ final class CreateMyAppointmentAction
 
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
         $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
-        $appointment->setGuests($guests);
+        // Each guest gets a stable id + Agora uid; their fee is part of the booking's amount.
+        $guestFee = number_format($this->pricing->guestFee(), 2, '.', '');
+        $now      = new DateTimeImmutable();
+        foreach ($guests as $guest) {
+            $appointment->addGuest($guest['name'], $guest['email'], $guestFee, 'booking', null, $now);
+        }
         if ($parent !== null) {
             $price = $this->followUps->price($parent, $scheduledAt);
             $appointment->bookAsFollowUpOf($parent, $price);
@@ -275,7 +290,7 @@ final class CreateMyAppointmentAction
         $i      = 0;
         foreach ($raw as $entry) {
             $entry = (array) $entry;
-            $name  = trim((string) ($entry['name'] ?? ''));
+            $name  = trim((string) preg_replace('/\s+/u', ' ', (string) ($entry['name'] ?? '')));
             $email = trim((string) ($entry['email'] ?? ''));
 
             // Skip fully-blank rows the wizard may submit.
@@ -284,8 +299,10 @@ final class CreateMyAppointmentAction
             }
             if ($name === '') {
                 $errors["guests.$i.name"] = 'Guest name is required';
+            } elseif (mb_strlen($name) > 100) {
+                $errors["guests.$i.name"] = 'Keep the guest name to 100 characters or fewer';
             }
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            if (mb_strlen($email) > 190 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $errors["guests.$i.email"] = 'A valid guest email is required';
             }
             if (!isset($errors["guests.$i.name"]) && !isset($errors["guests.$i.email"])) {

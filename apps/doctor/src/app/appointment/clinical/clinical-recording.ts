@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   input,
   output,
 } from '@angular/core';
@@ -21,7 +22,8 @@ import {
 /**
  * Clinical tools → Recording: cloud-recording start / stop and the recorded
  * files. Presentational — the host owns the state, the files and the calls
- * (which the API refuses without the patient's recording consent).
+ * (which the API refuses without the patient's recording consent, or while a
+ * guest in the call hasn't agreed: `state.guest_consent.pending`).
  *
  * Usage:
  * `<doc-clinical-recording [state]="recording()" [files]="recordingFiles()" [busy]="sectionBusy()"
@@ -36,7 +38,7 @@ import {
     <doc-clinical-header
       icon="circle-play"
       heading="Cloud recording"
-      helper="Record the consultation. The patient must grant recording consent first."
+      helper="Record the consultation. The patient must grant recording consent first, and any guest in the call must agree too."
     >
       @if (state(); as rec) {
         @if (!rec.configured) {
@@ -88,6 +90,8 @@ import {
                 }
               </sd-button>
             } @else {
+              <!-- Not disabled for pending guests: the state can be stale (they may have
+                   agreed or left since); the API is the gate, and a refusal refreshes it. -->
               <sd-button [full]="true" class="shrink-0 @xl:w-auto" [disabled]="busy()" (click)="startRecording.emit()">
                 @if (busy()) {
                   <sd-icon name="loader-circle" [size]="18" class="motion-safe:animate-spin" />Starting…
@@ -97,6 +101,10 @@ import {
               </sd-button>
             }
           </div>
+          <!-- The whole call is recorded, so every guest in it must have agreed (in their lobby). -->
+          @if (!rec.active && guestsPending() > 0) {
+            <sd-alert tone="warning">{{ guestsPendingText() }}</sd-alert>
+          }
           @if (error()) {
             <sd-alert tone="error">{{ error() }}</sd-alert>
           }
@@ -157,6 +165,15 @@ export class ClinicalRecording {
 
   readonly startRecording = output<void>();
   readonly stopRecording = output<void>();
+
+  /** Guests in the call now who haven't agreed to recording (absent from older APIs: 0). */
+  protected readonly guestsPending = computed(() => this.state()?.guest_consent?.pending ?? 0);
+  protected readonly guestsPendingText = computed(() => {
+    const n = this.guestsPending();
+    return n === 1
+      ? 'A guest in the call hasn’t agreed to recording yet. You can start once they have.'
+      : `${n} guests in the call haven’t agreed to recording yet. You can start once they have.`;
+  });
 
   protected when(iso: string): string {
     return rxDateTime(iso);

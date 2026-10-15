@@ -46,17 +46,34 @@ final class AppointmentRepository extends BaseRepository
         return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, $sortBy, $sortDir);
     }
 
-    /** True if a card payment reference has already been used to book. */
+    /**
+     * True if a card payment reference has already been used — to book, or to
+     * pay for a guest invited later (kept on that guest's entry).
+     */
     public function existsByPaymentReference(string $reference): bool
     {
-        return (int) $this->em->createQueryBuilder()
+        $booked = (int) $this->em->createQueryBuilder()
             ->select('COUNT(e.id)')
             ->from(Appointment::class, 'e')
             ->andWhere('e.paymentReference = :ref')
             ->setParameter('ref', $reference)
             ->getQuery()
             ->getSingleScalarResult() > 0;
+
+        return $booked || $this->guestPaymentExists($reference);
     }
+
+    /** True if a guest entry of any appointment holds this card payment reference. */
+    public function guestPaymentExists(string $reference): bool
+    {
+        return (int) $this->em->getConnection()->fetchOne(
+            self::GUEST_PAYMENT_SQL,
+            ['needle' => json_encode([['payment_reference' => $reference]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)],
+        ) > 0;
+    }
+
+    /** Guest entries live in the appointments.guests JSON list (a json column; jsonb for containment). */
+    public const GUEST_PAYMENT_SQL = 'SELECT COUNT(*) FROM appointments WHERE guests IS NOT NULL AND CAST(guests AS jsonb) @> CAST(:needle AS jsonb)';
 
     /**
      * Appointment counts grouped by status (for the admin monitoring overview).
@@ -678,5 +695,36 @@ final class AppointmentRepository extends BaseRepository
     public function lockForUpdate(Appointment $appointment): void
     {
         $this->em->lock($appointment, LockMode::PESSIMISTIC_WRITE);
+    }
+
+    /**
+     * Lock `$appointment`'s row and reload it, so a read-modify-write of its
+     * JSON (the guest list) sees what another request just saved and can't
+     * lose it (call inside {@see transactional()}, before changing it).
+     */
+    public function lockAndRefresh(Appointment $appointment): void
+    {
+        $this->em->refresh($appointment, LockMode::PESSIMISTIC_WRITE);
+    }
+
+    /**
+     * Record something about one guest ({@see Appointment::updateGuest()}) under
+     * the row lock, so it can't undo a guest-list change saved a moment ago.
+     * Returns the updated entry, or null when that guest is no longer invited.
+     *
+     * @param array<string,mixed> $changes
+     * @return array<string,mixed>|null
+     */
+    public function updateGuestLocked(Appointment $appointment, string $guestId, array $changes): ?array
+    {
+        return $this->transactional(function () use ($appointment, $guestId, $changes): ?array {
+            $this->lockAndRefresh($appointment);
+            $updated = $appointment->updateGuest($guestId, $changes);
+            if ($updated !== null) {
+                $this->save($appointment);
+            }
+
+            return $updated;
+        });
     }
 }

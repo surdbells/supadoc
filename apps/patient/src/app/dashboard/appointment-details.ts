@@ -61,7 +61,9 @@ import {
   MessageThreadComponent,
   SlotPickerComponent,
 } from '@supadoc/ui';
+import { doctorTitle } from '../call/call-helpers';
 import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './follow-up';
+import { GuestsPanel } from './guests-panel';
 import { loadPaystack } from './paystack';
 
 /** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
@@ -191,6 +193,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
     AlertComponent,
     ButtonComponent,
     CallPresenceComponent,
+    GuestsPanel,
     IconComponent,
     MessageThreadComponent,
     SlotPickerComponent,
@@ -617,6 +620,17 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 }
               </div>
             </section>
+            }
+
+            <!-- Guests: who is invited, their links, add / resend / remove -->
+            @if (!v.isProposal) {
+              <pat-guests-panel
+                [appointmentId]="v.id"
+                [doctorName]="doctorDisplayName()"
+                [liveGuestIds]="presence()[v.id]?.guests ?? []"
+                [version]="guestsVersion()"
+                (changed)="guestsChanged(v.id)"
+              />
             }
 
             <!-- Documents + payment -->
@@ -1656,6 +1670,19 @@ export class AppointmentDetails {
 
   protected joinCall(id: string): void {
     void this.router.navigate(['/dashboard/call', id]);
+  }
+
+  /** "Dr Ada Obi" — named in the guest invitation note. */
+  protected readonly doctorDisplayName = computed(() => doctorTitle(this.appt()?.specialist.name));
+  /** The guest list is read again when the appointment changes (cancelled, rescheduled…). */
+  protected readonly guestsVersion = computed(() => {
+    const a = this.appt();
+    return a ? `${a.status}|${a.scheduled_at}` : '';
+  });
+
+  /** A guest was added or removed: the summary's guest names (and amount) follow. */
+  protected guestsChanged(id: string): void {
+    this.refresh(id);
   }
 
   // Dialogs: focus moves to the heading on open, Tab stays inside, Esc closes,

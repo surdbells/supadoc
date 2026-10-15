@@ -78,10 +78,21 @@ export interface ApiSpecialistRef {
   specialty?: string | null;
 }
 
-/** An invited third party on a consultation (adds the guest fee). */
+/** An invited third party on a consultation (adds the guest fee) — what the patient enters. */
 export interface GuestInvite {
   name: string;
   email: string;
+}
+
+/**
+ * A guest as every appointment payload carries them (patient, doctor, back
+ * office): names only, never an email. `id` is null only for a guest from
+ * before guests had identities, until the API's prod migration has run. The
+ * patient's full guest list is `AppointmentsApi.guests(id)`.
+ */
+export interface AppointmentGuestRef {
+  id: string | null;
+  name: string;
 }
 
 /** Patient identity on the admin appointment payload (Appointment::toAdminArray). */
@@ -114,7 +125,8 @@ export interface AppointmentDto {
   document_url?: string | null;
   /** A free consultation (amount 0) is `paid` from the start — nothing is owed. */
   payment_status?: 'unpaid' | 'pending' | 'paid' | 'refunded';
-  guests?: GuestInvite[];
+  /** Invited guests — names only (see {@link AppointmentGuestRef}). */
+  guests?: AppointmentGuestRef[];
   // ----- Follow-ups (null on an ordinary booking; absent from older APIs) -----
   /** The consultation this follow-up follows on from. */
   parent_appointment_id?: string | null;
@@ -416,10 +428,36 @@ export interface DayAvailability {
   slots: SlotOption[];
 }
 
+/** Who a call participant is. */
+export type CallParticipantRole = 'patient' | 'doctor' | 'guest';
+
+/**
+ * Someone who may be in the call, keyed by the Agora uid they join as — so a
+ * client can label each remote tile. The patient is uid 1, the doctor uid 2,
+ * each guest their own stable uid (100+). Names only, never an email. An
+ * unknown uid (a guest invited after you loaded this) → refresh it from the
+ * next presence heartbeat ({@link CallPresenceBeatDto}).
+ */
+export interface CallParticipantDto {
+  uid: number;
+  role: CallParticipantRole;
+  /** A guest: the name they chose in the lobby, else the invitation's. */
+  name: string;
+  /** Guests only: their guest id (matches {@link CallPresenceDto.guests}). */
+  id?: string;
+  /** Guests only: accepted the recording + privacy notice. */
+  consented?: boolean;
+}
+
+/** The Agora uids of the patient and the doctor; guests get 100 and up. */
+export const PATIENT_CALL_UID = 1;
+export const DOCTOR_CALL_UID = 2;
+
 /**
  * Agora RTC join credentials for a consultation call. `token` is null when the
  * project runs in App-ID-only mode (no App Certificate) — the client then joins
- * token-less.
+ * token-less. The patient joins as uid 1 (`uid`); call again to renew the
+ * token (token-privilege-will-expire).
  */
 export interface CallTokenDto {
   app_id: string;
@@ -427,6 +465,25 @@ export interface CallTokenDto {
   uid: number;
   token: string | null;
   expires_in: number | null;
+  /** Everyone who may be in the call, by uid (absent from older APIs). */
+  participants?: CallParticipantDto[];
+}
+
+/**
+ * A guest's recording + privacy notice (join link / lobby / consent). When
+ * `required` (recording could happen: cloud recording is set up and the
+ * patient agreed, or one is running) the guest must accept it —
+ * `AppointmentsApi.consentToCall` — before joining (else 403
+ * `consent_required`). Otherwise show the privacy notice only; still send the
+ * consent when the guest ticks it, so a recording started later finds them ready.
+ */
+export interface GuestConsentStateDto {
+  required: boolean;
+  recording_possible: boolean;
+  recording_active: boolean;
+  given: boolean;
+  consented_at: string | null;
+  version: string;
 }
 
 /**
@@ -447,23 +504,202 @@ export interface JoinPatientSummary {
   vitals?: VitalReadingDto[];
 }
 
+/** Who you are in the call (join link / lobby). */
+export interface CallYouDto {
+  /** A guest: the name they chose in the lobby, else the invitation's. */
+  name: string;
+  role: CallParticipantRole;
+  /** The Agora uid you join as (absent from older APIs). */
+  uid?: number;
+  /** Guests only: your guest id. */
+  id?: string;
+}
+
 /**
- * Resolved preauthenticated join link (GET /public/call/{token}). Carries the
- * meeting details and, when video is configured, the Agora credentials.
+ * What every call screen shows (join link and lobby): the consultation, who
+ * you are, and everyone who may be in the call by uid. A guest's also say who
+ * invited them, when they can join, and their notice state. Never health data
+ * (except the doctor's `patient` on the join), never emails.
  */
-export interface JoinInfoDto {
+export interface CallMeetingDto {
   appointment_id: string;
   scheduled_at: string;
+  /** scheduled_at + the booked slot length (absent from older APIs). */
+  ends_at?: string;
+  duration_minutes?: number;
+  status?: ApiAppointmentStatus;
   specialist: { name: string; specialty?: string };
-  you: { name: string; role: 'patient' | 'doctor' | 'guest' };
+  you: CallYouDto;
+  /** The uid to join Agora as (= you.uid). */
+  uid?: number;
+  /** Everyone who may be in the call, by uid (absent from older APIs). */
+  participants?: CallParticipantDto[];
+  /** Guests only: the patient who invited them. */
+  invited_by?: { first_name: string };
+  /** Guests only: joining opens 15 minutes before the start… */
+  opens_at?: string;
+  /** …and closes 60 minutes after the slot ends. */
+  closes_at?: string;
+  /** Guests only. */
+  consent?: GuestConsentStateDto;
+}
+
+/**
+ * Resolved preauthenticated join link (GET /public/call/{token}). Carries the
+ * meeting details and, when video is configured, the Agora credentials. Call
+ * it again with the same token to renew (token-privilege-will-expire): the
+ * same checks apply, so a refusal then means leave ({@link CallRefusalCode}).
+ */
+export interface JoinInfoDto extends CallMeetingDto {
   /** Present for the doctor role only — the patient's clinical summary. */
   patient?: JoinPatientSummary;
   configured: boolean;
   app_id?: string;
   channel?: string;
-  uid?: number;
   token?: string | null;
   expires_in?: number | null;
+}
+
+/**
+ * GET /public/call/{token}/lobby — the pre-join screen, without Agora
+ * credentials. An early guest gets it too: `can_join` false until `opens_at`
+ * (count down from `server_time`, so a wrong device clock doesn't matter).
+ */
+export interface CallLobbyDto extends CallMeetingDto {
+  server_time: string;
+  can_join: boolean;
+}
+
+/**
+ * Why a join link can't be used now — `errors.code` on a refused join / lobby /
+ * consent / heartbeat (`errors.call` is the message):
+ *   cancelled, ended, withdrawn → 410 (a final screen; a call in progress leaves),
+ *   not_confirmed → 409 (an unaccepted follow-up; `errors.status = 'proposed'`),
+ *   too_early → 425 (`errors.starts_at`, `errors.opens_at`, `errors.server_time`),
+ *   consent_required → 403 (`errors.consent`: accept the notice, then join).
+ */
+export type CallRefusalCode =
+  | 'cancelled'
+  | 'ended'
+  | 'withdrawn'
+  | 'not_confirmed'
+  | 'too_early'
+  | 'consent_required';
+
+/** The `errors` of a refused join link (see {@link CallRefusalCode}). */
+export interface CallRefusalErrors {
+  call: string;
+  code: CallRefusalCode;
+  status?: 'proposed';
+  starts_at?: string;
+  opens_at?: string;
+  server_time?: string;
+  consent?: GuestConsentStateDto;
+}
+
+/** Body of POST /public/call/{token}/consent (guest links only). */
+export interface GuestConsentParams {
+  accepted: true;
+  /** The name to show as in the call, 1–60 characters. */
+  display_name?: string;
+}
+
+/** Answer of POST /public/call/{token}/consent. */
+export interface GuestConsentResultDto {
+  consent: GuestConsentStateDto;
+  you: CallYouDto;
+  participants: CallParticipantDto[];
+}
+
+/**
+ * The answer to an "in" presence heartbeat (POST /public/call/{token}/presence
+ * or /portal/appointments/{id}/presence): who is in the call now and everyone
+ * who may be. An "out" answers `{state}` only.
+ */
+export interface CallPresenceBeatDto {
+  state: 'in' | 'out';
+  presence?: CallPresenceDto;
+  participants?: CallParticipantDto[];
+  /**
+   * Guest links only: their consent state now. When it turns `required` and
+   * not `given` (the patient agreed to recording mid-call), ask the guest to
+   * accept the notice (POST .../consent) — recording waits for them, and
+   * their next renewal needs it once a recording is running.
+   */
+  consent?: GuestConsentStateDto;
+}
+
+// ----- The patient's guests -----
+
+/** invited → consented (accepted the notice in the lobby) → joined (was in the call). */
+export type PatientGuestStatus = 'invited' | 'consented' | 'joined';
+
+/** How a guest's fee was paid. */
+export type GuestPaidBy = 'booking' | 'wallet' | 'card' | 'free';
+
+/** One of the patient's guests, as the patient sees them (GET .../guests). */
+export interface PatientGuestDto {
+  /** null only for a guest from before guests had identities, until the prod migration. */
+  id: string | null;
+  uid: number | null;
+  name: string;
+  email: string;
+  /** The name they chose in the call lobby. */
+  display_name: string | null;
+  status: PatientGuestStatus;
+  /** In the call right now. */
+  in_call: boolean;
+  /** What inviting them cost (money string). */
+  fee: string;
+  paid_by: GuestPaidBy;
+  invited_at: string | null;
+  last_sent_at: string | null;
+  /** The invitation can be re-sent from then (once every 2 minutes). */
+  resend_available_at: string | null;
+  joined_at: string | null;
+  consented_at: string | null;
+  /** Their personal join link — a bearer credential: share with that guest only. */
+  join_url: string | null;
+}
+
+/** GET /api/portal/appointments/{id}/guests. */
+export interface PatientGuestListDto {
+  guests: PatientGuestDto[];
+  max_guests: number;
+  /** What inviting one more costs now; "0.00" = free (no payment). */
+  guest_fee: string;
+  currency: string;
+  /** Guests can be added / removed / re-sent (pending, confirmed or rescheduled, before the window closes). */
+  can_manage: boolean;
+  can_add: boolean;
+  /** Why not, when `can_manage` is false. */
+  manage_problem: string | null;
+  /** Removing a paid guest before this refunds their fee to the wallet; after it, nothing. */
+  refundable_until: string;
+  window_closes_at: string;
+  resend_interval_seconds: number;
+}
+
+/** Body of POST /api/portal/appointments/{id}/guests. */
+export interface AddGuestParams {
+  name: string;
+  email: string;
+  /** Required unless the guest fee is 0. In-call: wallet (or free) only. */
+  payment_method?: 'wallet' | 'card';
+  /** With card: the reference from `payInitForGuest`, once paid. */
+  payment_reference?: string;
+}
+
+/** Answer of POST .../guests: the whole list plus the new guest. */
+export interface AddGuestResultDto extends PatientGuestListDto {
+  guest: PatientGuestDto;
+}
+
+/** Answer of DELETE .../guests/{gid}: the remaining list, who was removed, and any refund. */
+export interface RemoveGuestResultDto extends PatientGuestListDto {
+  removed: { id: string; name: string };
+  /** Refunded to the wallet (money string), or null. */
+  refunded: string | null;
 }
 
 /** The signed-in patient's profile, from `Patient::toArray()`. */
@@ -729,6 +965,26 @@ export interface DoctorRecordingStateDto {
   configured: boolean;
   active: boolean;
   recording: RecordingDto | null;
+  /**
+   * Guests in the call now (by heartbeat, or given a token in the last 10
+   * minutes and not left since), and how many of them haven't accepted the
+   * recording notice — recording can't start while `pending` > 0 (absent from
+   * older APIs). `unknown`: presence couldn't be read, so every invited guest
+   * counts.
+   */
+  guest_consent?: { connected: number; pending: number; pending_ids: string[]; unknown?: boolean };
+}
+
+/**
+ * `errors` of a 422 from POST .../recording/start when guests haven't agreed
+ * (`consent` is the message).
+ */
+export interface RecordingGuestConsentErrors {
+  consent: string;
+  guests_without_consent: number;
+  guest_ids: string[];
+  /** Presence couldn't be read: every invited guest who hasn't agreed counts. */
+  presence_unknown?: boolean;
 }
 
 /** Patient's recording state (GET .../recordings). */
@@ -822,6 +1078,8 @@ export interface ListAppointmentsQuery {
 export interface CallPresenceDto {
   doctor: boolean;
   patient: boolean;
+  /** Ids of the guests in the call (absent from older APIs). */
+  guests?: string[];
 }
 
 /** Presence by appointment id — only appointments with someone in the call. */

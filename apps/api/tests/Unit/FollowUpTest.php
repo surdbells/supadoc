@@ -19,14 +19,19 @@ use App\Domain\Enum\SpecialistStatus;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AppSettingRepository;
+use App\Domain\Repository\ConsultationConsentRepository;
+use App\Domain\Repository\RecordingRepository;
 use App\Domain\Settings\ClinicTime;
+use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AppointmentCheckout;
 use App\Infrastructure\Service\AppointmentPaymentService;
+use App\Infrastructure\Service\CallPresence;
 use App\Infrastructure\Service\ConsultationCompleter;
 use App\Infrastructure\Service\FollowUpService;
+use App\Infrastructure\Service\GuestConsent;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\WalletService;
@@ -34,6 +39,7 @@ use DateTimeImmutable;
 use DI\ContainerBuilder;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Predis\Client as RedisClient;
 use Slim\Factory\AppFactory;
 use Slim\Psr7\Factory\ResponseFactory;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -545,13 +551,22 @@ final class FollowUpTest extends TestCase
         }
 
         $jwt     = new JwtService(self::SECRET, 900, 1209600);
-        $action  = new JoinCallAction($jwt, new AppointmentRepository($em), new AgoraTokenService('', ''));
+        $consent = new GuestConsent(
+            new ConsultationConsentRepository($em),
+            new RecordingRepository($em),
+            new AgoraRecordingService('', '', '', ['vendor' => 0, 'region' => 0, 'bucket' => '', 'accessKey' => '', 'secretKey' => '']),
+            new CallPresence(new RedisClient()),
+        );
+        $action  = new JoinCallAction($jwt, new AppointmentRepository($em), new AgoraTokenService('', ''), $consent, new CallPresence(new RedisClient()));
         $token   = $jwt->issueCallAccess($proposal->getId(), 'Ada Obi', 'patient', 1);
         $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/public/call/' . $token);
         $res     = $action($request, (new ResponseFactory())->createResponse(), ['token' => $token]);
 
-        $this->assertSame(422, $res->getStatusCode());
-        $this->assertSame('proposed', json_decode((string) $res->getBody(), true)['errors']['status']);
+        $this->assertSame(409, $res->getStatusCode());
+        $errors = json_decode((string) $res->getBody(), true)['errors'];
+        $this->assertSame('proposed', $errors['status']);
+        $this->assertSame('not_confirmed', $errors['code']);
+        $this->assertSame('call', array_key_first($errors), 'the message is the first field, so apiErrorMessage shows it');
     }
 
     // ----- What the patient is told -----

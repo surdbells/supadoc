@@ -34,6 +34,7 @@ use App\Domain\Repository\SessionRepository;
 use App\Domain\Repository\StaffSessionRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Agora\AgoraKickingService;
 use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Document\ClinicalDocumentRenderer;
@@ -58,6 +59,9 @@ use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\MedicalDocumentStorage;
 use App\Infrastructure\Service\PricingService;
 use App\Infrastructure\Service\RecordingStorage;
+use App\Infrastructure\Service\CallPresence;
+use App\Infrastructure\Service\GuestConsent;
+use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\SessionService;
 use App\Infrastructure\Service\SettingsCacheService;
 use App\Infrastructure\Service\PaystackService;
@@ -184,6 +188,30 @@ return [
         $c->get(MailService::class),
         $c->get(JwtService::class),
         $c->get(PricingService::class),
+        $c->get(GuestInvitations::class),
+    ),
+
+    // The patient's guests: invite / remove / re-send after booking, their links and emails.
+    GuestInvitations::class => static fn (ContainerInterface $c): GuestInvitations => new GuestInvitations(
+        $c->get(AppointmentRepository::class),
+        $c->get(AppointmentPaymentService::class),
+        $c->get(AppointmentCheckout::class),
+        $c->get(PricingService::class),
+        $c->get(MailService::class),
+        $c->get(JwtService::class),
+        $c->get(AuditLogger::class),
+        $c->get(PatientNotifier::class),
+        $c->get(StaffNotifier::class),
+        $c->get(CallPresence::class),
+        $c->get(AgoraKickingService::class),
+    ),
+
+    // A guest's acceptance of the recording + privacy notice, and recording's wait for it.
+    GuestConsent::class => static fn (ContainerInterface $c): GuestConsent => new GuestConsent(
+        $c->get(ConsultationConsentRepository::class),
+        $c->get(RecordingRepository::class),
+        $c->get(AgoraRecordingService::class),
+        $c->get(CallPresence::class),
     ),
 
     // Follow-up proposals: propose / accept / decline / withdraw, plus the cron's expiry + nudge.
@@ -235,15 +263,19 @@ return [
         baseUrl:  $_ENV['TERMII_BASE_URL'] ?? 'https://api.ng.termii.com',
     ),
 
-    AgoraTokenService::class => static fn (): AgoraTokenService => new AgoraTokenService(
+    AgoraTokenService::class => static fn (ContainerInterface $c): AgoraTokenService => new AgoraTokenService(
         // trim(): a trailing newline/space pasted into .env silently corrupts the
         // HMAC signature → Agora rejects the token ("invalid token, authorized failed").
         appId:          trim($_ENV['AGORA_APP_ID'] ?? ''),
         appCertificate: trim($_ENV['AGORA_APP_CERTIFICATE'] ?? ''),
         // TEMPORARY stopgap while Agora resolves the certificate desync: a fixed
-        // Console token + its channel. Both blank in normal operation.
+        // Console token + its channel. Both blank in normal operation, and
+        // ignored (with a logged error) in production — one shared channel for
+        // every consultation is a privacy breach.
         staticToken:    trim($_ENV['AGORA_STATIC_TOKEN'] ?? ''),
         staticChannel:  trim($_ENV['AGORA_STATIC_CHANNEL'] ?? ''),
+        production:     ($_ENV['APP_ENV'] ?? 'production') === 'production',
+        logger:         $c->get(LoggerInterface::class),
     ),
 
     // Cloud recording — RESTful API (Customer ID/Secret) + cloud storage config.
@@ -259,6 +291,16 @@ return [
             'accessKey' => trim($_ENV['AGORA_RECORDING_ACCESS_KEY'] ?? ''),
             'secretKey' => trim($_ENV['AGORA_RECORDING_SECRET_KEY'] ?? ''),
         ],
+    ),
+
+    // Puts a removed guest (or the guests of a cancelled consultation) out of the
+    // channel at once — Agora's kicking rule, same Customer ID/Secret as recording.
+    // Blank => does nothing (logged once); their short-lived token then just expires.
+    AgoraKickingService::class => static fn (ContainerInterface $c): AgoraKickingService => new AgoraKickingService(
+        appId:          trim($_ENV['AGORA_APP_ID'] ?? ''),
+        customerId:     trim($_ENV['AGORA_CUSTOMER_ID'] ?? ''),
+        customerSecret: trim($_ENV['AGORA_CUSTOMER_SECRET'] ?? ''),
+        logger:         $c->get(LoggerInterface::class),
     ),
 
     // Resolves recording file keys to playback/download URLs (public/CDN base,

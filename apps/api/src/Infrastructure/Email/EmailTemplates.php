@@ -230,6 +230,120 @@ final class EmailTemplates
         ];
     }
 
+    /**
+     * A guest's invitation (and a re-send of it, `$resend`) with their own join
+     * link, naming who invited them. Deliberately generic: never the reason
+     * for the visit, a diagnosis or a medicine — only who, with whom and when.
+     * Times are pre-formatted on the clinic's clock by the caller.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function guestInvite(
+        string $guestName,
+        string $inviterFirstName,
+        string $doctorName,
+        string $whenLabel,
+        string $joinUrl,
+        bool $resend = false,
+    ): array {
+        $inviter = $inviterFirstName !== '' ? $inviterFirstName : 'A VideoMed patient';
+        $doctor  = $doctorName !== '' ? $doctorName : 'their doctor';
+        $intro   = $inviter . ' invited you to join their video consultation with ' . $doctor . ' on ' . $whenLabel . '.';
+
+        $body = self::heading($resend ? 'Your invitation, again' : "You're invited to a video consultation")
+            . self::lead('Hi ' . self::e($guestName !== '' ? $guestName : 'there') . ', ' . self::e($intro))
+            . self::infoCard([
+                'Invited by'  => $inviter,
+                'Doctor'      => $doctor,
+                'Date & time' => $whenLabel,
+                'Join from'   => '15 minutes before the start',
+            ])
+            . self::button('Join the call', $joinUrl)
+            . self::note("This link is personal to you — please don't forward it. Before you join you can check your camera and microphone and read the privacy notice. No account is needed.");
+
+        return [
+            'subject' => $inviter . ' invited you to a VideoMed video consultation',
+            'html'    => self::layout('Video consultation invitation', $intro, $body, self::guestWhy($inviter)),
+        ];
+    }
+
+    /**
+     * A guest is told the consultation they were invited to moved: the new time
+     * and a fresh personal link. Generic, like {@see guestInvite()}.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function guestRescheduled(
+        string $guestName,
+        string $inviterFirstName,
+        string $doctorName,
+        string $whenLabel,
+        string $joinUrl,
+    ): array {
+        $inviter = $inviterFirstName !== '' ? $inviterFirstName : 'A VideoMed patient';
+        $doctor  = $doctorName !== '' ? $doctorName : 'their doctor';
+        $intro   = 'the video consultation ' . $inviter . ' invited you to, with ' . $doctor . ', has moved to ' . $whenLabel . '.';
+
+        $body = self::heading('New time for your video consultation')
+            . self::lead('Hi ' . self::e($guestName !== '' ? $guestName : 'there') . ', ' . self::e($intro))
+            . self::infoCard([
+                'Invited by'  => $inviter,
+                'Doctor'      => $doctor,
+                'New time'    => $whenLabel,
+                'Join from'   => '15 minutes before the start',
+            ])
+            . self::button('Join the call', $joinUrl)
+            . self::note("Use this new link to join. It is personal to you — please don't forward it.");
+
+        return [
+            'subject' => 'New time: the VideoMed consultation ' . $inviter . ' invited you to',
+            'html'    => self::layout('Consultation moved', 'The consultation moved to ' . $whenLabel . '.', $body, self::guestWhy($inviter)),
+        ];
+    }
+
+    /**
+     * A guest is told the consultation they were invited to was cancelled
+     * (`cancelled`) or that they are no longer invited (`removed`); their link
+     * stops working either way. Generic, like {@see guestInvite()}.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function guestCallClosed(
+        string $guestName,
+        string $inviterFirstName,
+        string $doctorName,
+        string $whenLabel,
+        string $why,
+    ): array {
+        $inviter = $inviterFirstName !== '' ? $inviterFirstName : 'A VideoMed patient';
+        $doctor  = $doctorName !== '' ? $doctorName : 'their doctor';
+        [$title, $intro] = match ($why) {
+            'removed' => [
+                'Invitation withdrawn',
+                $inviter . ' withdrew your invitation to their video consultation with ' . $doctor . ' on ' . $whenLabel . '. Your join link no longer works.',
+            ],
+            default => [
+                'Consultation cancelled',
+                'the video consultation ' . $inviter . ' invited you to, with ' . $doctor . ' on ' . $whenLabel . ', was cancelled. Your join link no longer works.',
+            ],
+        };
+
+        $body = self::heading($title)
+            . self::lead('Hi ' . self::e($guestName !== '' ? $guestName : 'there') . ', ' . self::e($intro))
+            . self::note("You don't need to do anything. If you have questions, ask " . $inviter . '.');
+
+        return [
+            'subject' => $why === 'removed' ? 'Your VideoMed invitation was withdrawn' : 'The VideoMed consultation you were invited to was cancelled',
+            'html'    => self::layout($title, $title . '.', $body, self::guestWhy($inviter)),
+        ];
+    }
+
+    /** The footer line of a guest's email (they have no account). */
+    private static function guestWhy(string $inviter): string
+    {
+        return "You're receiving this because " . $inviter . ' invited you to a VideoMed consultation.';
+    }
+
     /** @return array{subject: string, html: string} */
     public static function verificationCode(string $code, string $purpose): array
     {
@@ -611,9 +725,10 @@ final class EmailTemplates
 
     // ----- Building blocks -----
 
-    private static function layout(string $title, string $preheader, string $body): string
+    private static function layout(string $title, string $preheader, string $body, ?string $why = null): string
     {
-        $c = self::CLOUD;
+        $c   = self::CLOUD;
+        $why ??= "You're receiving this because you have a VideoMed account.";
 
         return '<!DOCTYPE html>'
             . '<html lang="en"><head><meta charset="utf-8">'
@@ -632,7 +747,7 @@ final class EmailTemplates
             . '<tr><td style="padding:32px;">' . $body . '</td></tr>'
             . '<tr><td style="padding:22px 32px;background:#f7f9fb;border-top:1px solid ' . $c . ';">'
             . '<p style="margin:0;font-size:12px;line-height:18px;color:' . self::SLATE . ';">'
-            . "You're receiving this because you have a VideoMed account.<br>"
+            . self::e($why) . '<br>'
             . '© VideoMed — this is an automated message, please don\'t reply.</p>'
             . '</td></tr></table></td></tr></table></body></html>';
     }

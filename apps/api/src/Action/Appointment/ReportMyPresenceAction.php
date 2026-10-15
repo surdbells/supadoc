@@ -16,7 +16,9 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * POST /api/portal/appointments/{id}/presence — the signed-in patient's call
  * screen heartbeat: `{"state":"in"}` every ~15 s while in the call,
- * `{"state":"out"}` on leaving. Scoped by customer_id.
+ * `{"state":"out"}` on leaving. Scoped by customer_id. An "in" answers who is
+ * in the call now and everyone who may be, by Agora uid (names only), so the
+ * call screen can label a guest's tile ({@see CallPresenceAction::beat()}).
  */
 final class ReportMyPresenceAction
 {
@@ -42,10 +44,12 @@ final class ReportMyPresenceAction
         $state = CallPresenceAction::state($request);
         if ($state === 'out') {
             $this->presence->clear($appointment, 'patient');
-        } else {
-            $this->presence->mark($appointment, 'patient');
-        }
 
-        return $this->success($response, ['state' => $state])->withHeader('Cache-Control', 'no-store');
+            return $this->success($response, ['state' => $state])->withHeader('Cache-Control', 'no-store');
+        }
+        $this->presence->mark($appointment, 'patient');
+
+        return $this->success($response, CallPresenceAction::beat($state, $this->presence->forAppointment($appointment), $appointment))
+            ->withHeader('Cache-Control', 'no-store');
     }
 }

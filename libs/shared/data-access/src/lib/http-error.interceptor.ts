@@ -24,10 +24,9 @@ export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
         message: apiErrorMessage(error),
         errors: Object.keys(fields).length > 0 ? fields : undefined,
       };
-      logger.error(
-        `[API ${apiError.statusCode}] ${req.method} ${req.url}`,
-        apiError,
-      );
+      // Call links carry a bearer token in the path — never put it in the console.
+      const safeUrl = req.url.replace(/(\/public\/call\/)[^/?]+/, '$1[redacted]');
+      logger.error(`[API ${apiError.statusCode}] ${req.method} ${safeUrl}`, apiError);
       return throwError(() => apiError);
     }),
   );

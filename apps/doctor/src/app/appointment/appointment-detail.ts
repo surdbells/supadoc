@@ -244,6 +244,27 @@ function timeLeft(ms: number): TimeLeft | null {
               </div>
             }
 
+            <!-- People the patient invited to the call: names only (their emails stay with the patient). -->
+            @if (a.guests?.length) {
+              <div class="flex flex-col gap-2 border-t border-cloud pt-3">
+                <span class="font-sans text-caption text-slate">Guests joining the call ({{ a.guests.length }}):</span>
+                <ul class="flex flex-wrap gap-2">
+                  @for (g of a.guests; track g.id ?? $index) {
+                    <li class="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">
+                      <sd-icon name="user-round" [size]="13" class="shrink-0 text-slate" />
+                      <span class="truncate">{{ g.name }}</span>
+                      @if (guestInCall(a.id, g.id)) {
+                        <span class="inline-flex shrink-0 items-center gap-1 font-semibold text-success">
+                          <span class="size-1.5 rounded-full bg-success" aria-hidden="true"></span>In the call
+                        </span>
+                      }
+                    </li>
+                  }
+                </ul>
+                <span class="font-sans text-caption text-slate">Guests see and hear the call only — never the patient's record.</span>
+              </div>
+            }
+
             @if (a.notes) {
               <div class="flex flex-col gap-1 border-t border-cloud pt-3">
                 <span class="font-sans text-caption text-slate">Reason for Consultation:</span>
@@ -379,6 +400,9 @@ function timeLeft(ms: number): TimeLeft | null {
                   <button type="button" class="w-fit font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean" (click)="rescheduleManual.set(!rescheduleManual())">
                     {{ rescheduleManual() ? 'Choose from open slots' : 'Enter another time' }}
                   </button>
+                }
+                @if (a.guests?.length) {
+                  <span class="font-sans text-caption text-slate">The patient and their guests are emailed the new time.</span>
                 }
                 <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy() || rescheduleSlotsLoading()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
               </div>
@@ -770,6 +794,10 @@ export class DoctorAppointmentDetail implements OnInit {
     const a = this.appt();
     return !!a && this.presence()[a.id]?.patient === true;
   });
+  /** One of the patient's guests is in this consultation's call now (presence lists guests by id). */
+  protected guestInCall(appointmentId: string, guestId: string | null): boolean {
+    return !!guestId && (this.presence()[appointmentId]?.guests ?? []).includes(guestId);
+  }
 
   /** A finished (or cancelled) visit belongs to the history; an open one to the schedule. */
   protected readonly backLink = computed(() => {
@@ -909,6 +937,15 @@ export class DoctorAppointmentDetail implements OnInit {
       if (this.primary() !== 'clinical') return;
       const tab = this.tab();
       untracked(() => this.ensureLoaded(tab));
+    });
+    // The Recording tab's "N guests haven't agreed" goes stale as guests come
+    // and go: re-read it when the guests in this call change (once it has loaded).
+    const guestsHere = computed(() => [...(this.presence()[this.id]?.guests ?? [])].sort().join(','));
+    effect(() => {
+      guestsHere();
+      untracked(() => {
+        if (this.loaded.has('recording')) this.refreshRecording();
+      });
     });
   }
 
@@ -1150,12 +1187,16 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   // ----- Recording -----
+  private refreshRecording(): void {
+    this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined });
+  }
   protected startRecording(): void {
-    this.runSection(this.api.startRecording(this.id), () => this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined }), 'Could not start recording — check the patient has granted recording consent.');
+    // Refreshed on a refusal too: e.g. a guest in the call hasn't agreed yet (shown on the tab).
+    this.runSection(this.api.startRecording(this.id).pipe(tap({ error: () => this.refreshRecording() })), () => this.refreshRecording(), 'Could not start recording — check the patient has granted recording consent.');
   }
   protected stopRecording(): void {
     this.runSection(this.api.stopRecording(this.id), () => {
-      this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined });
+      this.refreshRecording();
       this.api.recordingFiles(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recordingFiles.set(r.data.files), error: () => undefined });
     }, 'Could not stop the recording.');
   }
@@ -1241,7 +1282,9 @@ export class DoctorAppointmentDetail implements OnInit {
     });
   }
   protected decline(): void {
-    if (!window.confirm('Cancel this appointment? Any payment will be refunded to the patient.')) return;
+    const guests = this.appt()?.guests?.length ?? 0;
+    const told = guests ? ` The patient's ${guests === 1 ? 'guest is' : `${guests} guests are`} told it is cancelled too.` : '';
+    if (!window.confirm(`Cancel this appointment? Any payment will be refunded to the patient.${told}`)) return;
     this.runAction(this.api.decline(this.id));
   }
 

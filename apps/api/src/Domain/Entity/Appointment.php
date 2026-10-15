@@ -82,13 +82,30 @@ class Appointment
     private ?string $paymentReference = null;
 
     /**
-     * Invited third parties (up to 3): list of {name, email}. Each adds the
-     * configurable guest fee to the appointment amount.
+     * Invited third parties (up to MAX_GUESTS at once), each an entry of:
+     *   id                stable uuid — the `gid` claim of the guest's join links
+     *   uid               stable Agora uid (>= FIRST_GUEST_UID, never reused after removal)
+     *   name, email       as the patient entered them
+     *   display_name      what the guest chose in the call lobby (null until then)
+     *   fee               what inviting them cost (money string; part of `amount`)
+     *   paid_by           booking | wallet | card | free
+     *   payment_reference the Paystack reference when paid by card on its own
+     *   invited_at, last_sent_at, joined_at, consented_at (ATOM or null)
+     *   consent_version   the notice version the guest accepted
+     *   rtc_issued_at     when they were last given an Agora token (set from their first join)
+     *   left_at           when they last left the call cleanly (set from their first leave)
+     *   legacy_uid        guests invited before ids existed: the uid (3, 4, 5)
+     *                     their older join links carry ({@see findLegacyGuest()})
+     * A removed guest is dropped from the list, so their links stop working.
      *
-     * @var list<array{name:string,email:string}>|null
+     * @var list<array<string,mixed>>|null
      */
     #[ORM\Column(type: 'json', nullable: true)]
     private ?array $guests = null;
+
+    /** The last Agora uid given to a guest, so a removed guest's uid is never handed out again. */
+    #[ORM\Column(name: 'guest_uid_seq', type: 'integer', nullable: true)]
+    private ?int $guestUidSeq = null;
 
     /** The consultation this follow-up follows on from; null for an ordinary booking. */
     #[ORM\ManyToOne(targetEntity: Appointment::class)]
@@ -134,6 +151,17 @@ class Appointment
 
     /** The patient declined it; the doctor (or the back office) withdrew it; it closed unanswered. */
     public const FOLLOW_UP_OUTCOMES = ['declined', 'withdrawn', 'expired'];
+
+    /** The most guests a consultation can have at once. */
+    public const MAX_GUESTS = 3;
+    /** The Agora uids the patient and the doctor join as; guests get FIRST_GUEST_UID and up. */
+    public const PATIENT_UID = 1;
+    public const DOCTOR_UID = 2;
+    public const FIRST_GUEST_UID = 100;
+    /** How a guest's fee was paid: with the booking, from the wallet, by card, or nothing to pay. */
+    public const GUEST_PAID_BY = ['booking', 'wallet', 'card', 'free'];
+    /** The guest-entry fields {@see updateGuest()} may change. */
+    private const GUEST_MUTABLE = ['display_name', 'last_sent_at', 'joined_at', 'consented_at', 'consent_version', 'rtc_issued_at', 'left_at'];
 
     public function __construct(
         Patient $patient,
@@ -355,16 +383,223 @@ class Appointment
         $this->paymentReference = $reference;
     }
 
-    /** @return list<array{name:string,email:string}> */
+    /**
+     * The invited guests' full entries (see the property). Emails are for the
+     * patient's own views and the emails sent to each guest only.
+     *
+     * @return list<array<string,mixed>>
+     */
     public function getGuests(): array
     {
-        return $this->guests ?? [];
+        return array_values($this->guests ?? []);
     }
 
-    /** @param list<array{name:string,email:string}> $guests */
-    public function setGuests(array $guests): void
+    /** @return array<string,mixed>|null the guest with this id, while still invited */
+    public function findGuest(string $id): ?array
     {
-        $this->guests = $guests !== [] ? $guests : null;
+        foreach ($this->getGuests() as $guest) {
+            if ($id !== '' && ($guest['id'] ?? null) === $id) {
+                return $guest;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Invite a guest: a stable id and an Agora uid of their own (never one a
+     * removed guest had). `$fee` is what inviting them cost — the caller has
+     * taken it and adds it to the amount. Returns the new entry.
+     *
+     * @return array<string,mixed>
+     */
+    public function addGuest(
+        string $name,
+        string $email,
+        string $fee,
+        string $paidBy,
+        ?string $paymentReference,
+        DateTimeImmutable $now,
+        ?string $id = null,
+    ): array {
+        if (!in_array($paidBy, self::GUEST_PAID_BY, true)) {
+            throw new \InvalidArgumentException('Unknown guest payment: ' . $paidBy);
+        }
+        $entry = [
+            'id'                => $id ?? Uuid::uuid4()->toString(),
+            'uid'               => $this->nextGuestUid(),
+            'name'              => $name,
+            'email'             => $email,
+            'display_name'      => null,
+            'fee'               => bcadd($fee, '0', 2),
+            'paid_by'           => $paidBy,
+            'payment_reference' => $paymentReference,
+            'invited_at'        => $now->format(DATE_ATOM),
+            'last_sent_at'      => null,
+            'joined_at'         => null,
+            'consented_at'      => null,
+            'consent_version'   => null,
+        ];
+        $this->guests = [...$this->getGuests(), $entry];
+
+        return $entry;
+    }
+
+    /** Remove a guest (their links stop working at once); returns the entry, or null when not invited. */
+    public function removeGuest(string $id): ?array
+    {
+        $guest = $this->findGuest($id);
+        if ($guest === null) {
+            return null;
+        }
+        $left         = array_values(array_filter($this->getGuests(), static fn (array $g): bool => ($g['id'] ?? null) !== $id));
+        $this->guests = $left !== [] ? $left : null;
+
+        return $guest;
+    }
+
+    /**
+     * Record something about a guest (GUEST_MUTABLE fields only — never who
+     * they are or what they paid). Returns the updated entry, or null.
+     *
+     * @param array<string,mixed> $changes
+     * @return array<string,mixed>|null
+     */
+    public function updateGuest(string $id, array $changes): ?array
+    {
+        $changes = array_intersect_key($changes, array_flip(self::GUEST_MUTABLE));
+        $updated = null;
+        $guests  = $this->getGuests();
+        foreach ($guests as $i => $guest) {
+            if ($id !== '' && ($guest['id'] ?? null) === $id) {
+                $guests[$i] = $updated = $changes + $guest;
+            }
+        }
+        if ($updated !== null) {
+            $this->guests = $guests;
+        }
+
+        return $updated;
+    }
+
+    /**
+     * The guest an older join link (minted before guests had ids: uid 3, 4, 5
+     * in invitation order, no `gid`) stands for — only while that same guest
+     * is still invited, matched by the uid recorded when ids were assigned and
+     * by name.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function findLegacyGuest(int $uid, string $name): ?array
+    {
+        $name = mb_strtolower(trim($name));
+        foreach ($this->getGuests() as $guest) {
+            if (
+                isset($guest['legacy_uid'])
+                && (int) $guest['legacy_uid'] === $uid
+                && mb_strtolower(trim((string) ($guest['name'] ?? ''))) === $name
+            ) {
+                return $guest;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Give every guest invited before guests had identities an id, a uid and
+     * the uid their older links carry (3 + their position), plus `$feeEach` as
+     * what they cost. Idempotent (bin/prod-migrate.php): guests with an id are
+     * left alone. Returns how many were given one.
+     */
+    public function assignGuestIdentities(string $feeEach): int
+    {
+        $assigned  = 0;
+        $guests    = $this->getGuests();
+        $invitedAt = (isset($this->createdAt) ? $this->createdAt : new DateTimeImmutable())->format(DATE_ATOM);
+        foreach ($guests as $i => $guest) {
+            if (is_string($guest['id'] ?? null) && $guest['id'] !== '') {
+                continue;
+            }
+            $guests[$i] = [
+                'id'                => Uuid::uuid4()->toString(),
+                'uid'               => $this->nextGuestUid(),
+                'name'              => (string) ($guest['name'] ?? ''),
+                'email'             => (string) ($guest['email'] ?? ''),
+                'display_name'      => null,
+                'fee'               => bcadd($feeEach, '0', 2),
+                'paid_by'           => 'booking',
+                'payment_reference' => null,
+                'invited_at'        => $invitedAt,
+                'last_sent_at'      => null,
+                'joined_at'         => null,
+                'consented_at'      => null,
+                'consent_version'   => null,
+                'legacy_uid'        => 3 + $i,
+            ];
+            $assigned++;
+        }
+        if ($assigned > 0) {
+            $this->guests = $guests;
+        }
+
+        return $assigned;
+    }
+
+    /**
+     * What each guest without an identity is taken to have cost when they are
+     * given one (it is what removing them refunds): the guest fee now
+     * (`$guestFee`), never more than an equal share of what was paid above
+     * the consultation's own price — the follow-up price it was booked at,
+     * else the doctor's fee — and the guests already given one; nothing on a
+     * free consultation or when guests were free at booking.
+     */
+    public function legacyGuestFee(string $guestFee): string
+    {
+        $count = count(array_filter($this->getGuests(), static fn (array $g): bool => !is_string($g['id'] ?? null) || $g['id'] === ''));
+        if ($count === 0 || $this->isFree() || bccomp($guestFee, '0', 2) <= 0) {
+            return '0.00';
+        }
+        $extra = bcsub($this->amount, $this->consultationPrice(), 2);
+        foreach ($this->getGuests() as $guest) {
+            if (is_string($guest['id'] ?? null) && $guest['id'] !== '') {
+                $extra = bcsub($extra, bcadd((string) ($guest['fee'] ?? '0'), '0', 2), 2);
+            }
+        }
+        if (bccomp($extra, '0', 2) <= 0) {
+            return '0.00';
+        }
+        $share = bcdiv($extra, (string) $count, 2);
+
+        return bccomp($guestFee, $share, 2) <= 0 ? bcadd($guestFee, '0', 2) : $share;
+    }
+
+    /** The consultation's own price, guests aside: what a follow-up was priced at, else the doctor's fee now. */
+    private function consultationPrice(): string
+    {
+        $priced = $this->followUpPricing['amount'] ?? null;
+
+        return bcadd(is_numeric($priced) ? (string) $priced : $this->specialist->getConsultationFee(), '0', 2);
+    }
+
+    /** The name a guest shows as in the call: the one they chose in the lobby, else the invitation's. */
+    public static function guestDisplayName(array $guest): string
+    {
+        $chosen = trim((string) ($guest['display_name'] ?? ''));
+
+        return $chosen !== '' ? $chosen : (string) ($guest['name'] ?? 'Guest');
+    }
+
+    /** The next guest uid: above every uid handed out so far (removed guests' too). */
+    private function nextGuestUid(): int
+    {
+        $next = max(self::FIRST_GUEST_UID - 1, $this->guestUidSeq ?? 0, ...array_map(
+            static fn (array $g): int => (int) ($g['uid'] ?? 0),
+            $this->getGuests(),
+        )) + 1;
+        $this->guestUidSeq = $next;
+
+        return $next;
     }
 
     public function setAmount(string $amount): void
@@ -407,7 +642,12 @@ class Appointment
             'notes'          => $this->notes,
             'document_url'   => $this->documentUrl,
             'payment_status' => $this->paymentStatus,
-            'guests'         => $this->getGuests(),
+            // Names only, in every payload (the doctor's and the back office's too):
+            // a guest's email stays on the patient's guest list (GET .../guests).
+            'guests'         => array_map(static fn (array $g): array => [
+                'id'   => isset($g['id']) ? (string) $g['id'] : null,
+                'name' => (string) ($g['name'] ?? ''),
+            ], $this->getGuests()),
             // Follow-ups (all null on an ordinary booking).
             'parent_appointment_id' => $this->parent?->getId(),
             'parent'                => $this->parent !== null ? [

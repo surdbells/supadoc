@@ -178,7 +178,9 @@ final class JwtService
     /**
      * A preauthenticated "join the call" token embedded in the emailed link, so
      * a patient, doctor or guest can join the Agora session without logging in.
-     * Carries the appointment, the display name, the role and an Agora uid.
+     * Carries the appointment, the display name, the role and an Agora uid —
+     * and, for a guest, their stable guest id (`gid`), so the link stops
+     * working the moment they are removed from the guest list.
      */
     public function issueCallAccess(
         string $appointmentId,
@@ -186,10 +188,10 @@ final class JwtService
         string $role,
         int $uid,
         int $ttl = 2592000,
+        ?string $guestId = null,
     ): string {
-        $now = time();
-
-        return JWT::encode([
+        $now     = time();
+        $payload = [
             'apt'   => $appointmentId,
             'name'  => $name,
             'crole' => $role,
@@ -197,11 +199,19 @@ final class JwtService
             'type'  => 'call_access',
             'iat'   => $now,
             'exp'   => $now + $ttl,
-        ], $this->secret, self::ALGO);
+        ];
+        if ($guestId !== null && $guestId !== '') {
+            $payload['gid'] = $guestId;
+        }
+
+        return JWT::encode($payload, $this->secret, self::ALGO);
     }
 
     /**
-     * @return array{appointment_id:string,name:string,role:string,uid:int}|null
+     * `gid` is null on doctor / patient links and on guest links minted before
+     * guests had ids.
+     *
+     * @return array{appointment_id:string,name:string,role:string,uid:int,gid:?string}|null
      */
     public function verifyCallAccess(string $token): ?array
     {
@@ -220,6 +230,7 @@ final class JwtService
             'name'           => (string) ($payload->name ?? ''),
             'role'           => (string) ($payload->crole ?? 'guest'),
             'uid'            => (int) ($payload->uid ?? 0),
+            'gid'            => is_string($payload->gid ?? null) && $payload->gid !== '' ? $payload->gid : null,
         ];
     }
 

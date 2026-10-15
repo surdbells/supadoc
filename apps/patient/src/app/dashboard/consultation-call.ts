@@ -3,10 +3,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   ElementRef,
   inject,
   OnDestroy,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -14,6 +16,7 @@ import { firstValueFrom } from 'rxjs';
 import AgoraRTC, {
   IAgoraRTCClient,
   ICameraVideoTrack,
+  ILocalTrack,
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
   UID,
@@ -31,26 +34,43 @@ import {
   sendCallPresence,
   startCallPresence,
 } from '@supadoc/data-access';
-import type {
-  AllergyRow,
-  AppointmentDto,
-  ConditionRow,
-  ConsentDto,
-  ConsultationSummaryDto,
-  HealthProfileDto,
-  LabOrderDto,
-  MedicalDocumentDto,
-  MedicationRow,
-  PatientCarePlanDto,
-  PatientProfileDto,
-  PrescriptionDto,
-  PrescriptionStatus,
-  ReferralDto,
-  TranscriptSegmentDto,
-  VitalReadingDto,
+import {
+  DOCTOR_CALL_UID,
+  type AllergyRow,
+  type AppointmentDto,
+  type CallParticipantDto,
+  type ConditionRow,
+  type ConsentDto,
+  type ConsultationSummaryDto,
+  type HealthProfileDto,
+  type LabOrderDto,
+  type MedicalDocumentDto,
+  type MedicationRow,
+  type PatientCarePlanDto,
+  type PatientGuestDto,
+  type PatientProfileDto,
+  type PrescriptionDto,
+  type PrescriptionStatus,
+  type ReferralDto,
+  type TranscriptSegmentDto,
+  type VitalReadingDto,
 } from '@supadoc/models';
-import { IconComponent, SmoothHeightDirective } from '@supadoc/ui';
+import {
+  buildCallTiles,
+  CallTilesComponent,
+  callTilesMode,
+  type CallUid,
+  type CallVideoPlayConfig,
+  type CallVideoTrack,
+  IconComponent,
+  type RemoteParticipant,
+  RemoteParticipants,
+  SmoothHeightDirective,
+} from '@supadoc/ui';
+import { type DeviceProblem, deviceProblemText } from '../call/call-helpers';
+import { openLocalMedia } from '../call/call-media';
 import { isOpenProposal, whenLabel } from './follow-up';
+import { InviteGuestDialog } from './invite-guest-dialog';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
@@ -130,9 +150,13 @@ interface RecordItem {
 /**
  * Live consultation cockpit (Agora RTC) — the patient's in-call view.
  *
- * Left: the video stage (doctor on the main stage, patient picture-in-picture)
- * with the call controls, plus the consultation notes tabs and an in-call chat.
- * Right: the patient's own health summary, latest vitals and shared records.
+ * Left: the video stage with the call controls, plus the consultation notes
+ * tabs and an in-call chat. Everyone in the call has their own tile
+ * (`<sd-call-tiles>`, named from the call's `participants`): with one other
+ * person it is today's stage (the doctor big, the patient picture-in-picture),
+ * with guests too an even grid. "Invite someone" adds a guest without leaving
+ * the call. Right: the patient's own health summary, latest vitals and shared
+ * records.
  *
  * The video credentials come from GET .../call-token (server-minted RTC token);
  * the health summary is the signed-in patient's real allergies / conditions /
@@ -141,7 +165,7 @@ interface RecordItem {
 @Component({
   selector: 'pat-consultation-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SmoothHeightDirective],
+  imports: [CallTilesComponent, IconComponent, InviteGuestDialog, SmoothHeightDirective],
   host: { class: 'block' },
   styles: [
     `
@@ -333,11 +357,13 @@ interface RecordItem {
             <div class="flex items-center gap-2">
               <button
                 type="button"
-                class="flex items-center gap-2 rounded-pill border border-white/15 px-3 py-1.5 font-sans text-body-sm text-white/85 transition-colors hover:bg-white/10"
+                class="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-pill border border-white/15 px-3 py-1.5 font-sans text-body-sm text-white/85 transition-colors hover:bg-white/10"
+                aria-haspopup="dialog"
+                aria-label="Invite someone to this call"
                 (click)="invite()"
               >
-                <sd-icon name="users" [size]="16" />
-                <span class="hidden sm:inline">Invite Someone</span>
+                <sd-icon name="user-plus" [size]="16" />
+                <span class="hidden sm:inline" aria-hidden="true">Invite Someone</span>
               </button>
               <button
                 type="button"
@@ -358,38 +384,26 @@ interface RecordItem {
             </div>
           </div>
 
+          <!-- A camera / microphone that isn't in the call (above the stage, never over a tile) -->
+          @if (status() === 'in-call' && deviceNotice()) {
+            <p class="flex items-start gap-2 rounded-card border border-white/10 bg-white/[0.03] px-3 py-2 font-sans text-caption text-white/80" role="status">
+              <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ deviceNotice() }}
+            </p>
+          }
+
           <!-- Video stage — pinned to the top while the notes below are read or
                tabs are switched, so the consultation never scrolls out of view. -->
           <div
             class="sd-stage sticky top-2 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[50vh] w-full overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video lg:aspect-[16/10]"
           >
-            <!-- Remote (doctor) main stage -->
-            <div #remoteVideo class="absolute inset-0 bg-ink"></div>
+            <!-- Everyone's video: the other person big and you picture-in-picture
+                 1:1, an even grid with guests. Always rendered, so a track can be
+                 handed over before its tile appears; each tile has its own name,
+                 camera-off placeholder and muted badge. -->
+            <sd-call-tiles [tiles]="tiles()" [spotlightLabel]="false" [showRole]="true" />
 
-            <!-- Local (patient) picture-in-picture. Kept in the DOM (hidden until
-                 in-call) so the camera can attach before status flips — otherwise
-                 the element doesn't exist yet and the local tile stays black.
-                 Top-right on a small stage; above the controls on a roomy one — never
-                 over them. -->
-            <div
-              class="absolute right-3 top-3 z-10 h-24 w-[4.5rem] overflow-hidden rounded-2xl border border-white/15 bg-abyss shadow-lg roomy:top-auto roomy:right-4 roomy:bottom-32 roomy:h-32 roomy:w-24"
-              [class.hidden]="status() !== 'in-call'"
-            >
-              <div #localVideo class="h-full w-full"></div>
-              @if (!camOn()) {
-                <div class="absolute inset-0 flex items-center justify-center bg-abyss text-white/60">
-                  <sd-icon name="video-off" [size]="22" />
-                </div>
-              }
-              <span
-                class="absolute bottom-1.5 left-1.5 rounded bg-abyss/70 px-1.5 py-0.5 font-sans text-[10px] text-white/80"
-              >
-                You
-              </span>
-            </div>
-
-            <!-- No video from the doctor: not here yet, camera off, or gone -->
-            @if (!remoteJoined() && status() === 'in-call') {
+            <!-- Nobody else here: not yet, or everyone has gone -->
+            @if (!hasRemoteTile() && status() === 'in-call') {
               <div
                 class="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-16 pl-6 pr-[5.5rem] pt-12 text-center text-white/75 roomy:pt-24 roomy:pb-32 roomy:pr-36"
               >
@@ -397,15 +411,10 @@ interface RecordItem {
                   <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
                     <sd-icon name="user-x" [size]="30" />
                   </span>
-                  <p class="font-sans text-body-sm roomy:text-body">{{ doctorName() }} has left the call</p>
+                  <p class="font-sans text-body-sm roomy:text-body">{{ leftText() }}</p>
                   <p class="hidden max-w-sm font-sans text-caption text-white/50 roomy:block">
                     If your consultation is finished, press End to leave.
                   </p>
-                } @else if (remotePresent()) {
-                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
-                    <sd-icon name="video-off" [size]="30" />
-                  </span>
-                  <p class="font-sans text-body-sm roomy:text-body">{{ doctorName() }}’s camera is off</p>
                 } @else {
                   <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
                     <sd-icon name="user-round" [size]="30" />
@@ -503,17 +512,30 @@ interface RecordItem {
               </div>
             }
 
-            <!-- Doctor name tag -->
+            <!-- Name tag of whoever is on the main stage (1:1; the grid labels every tile) -->
             @if (status() === 'in-call') {
               <!-- …with the recording notice beside it (small stage) or under it -->
               <div
                 class="absolute left-4 top-4 z-10 flex max-w-[calc(100%-7rem)] items-center gap-2 roomy:max-w-[calc(100%-8rem)] roomy:flex-col roomy:items-start"
               >
-                <div class="flex min-w-0 max-w-full items-center rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
-                  <span class="truncate font-sans text-body-sm font-medium text-white">
-                    {{ doctorName() }}
-                  </span>
-                </div>
+                @if (stageMode() === 'spotlight') {
+                  <div class="flex min-w-0 max-w-full items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
+                    @if (spotlight()?.muted) {
+                      <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-alert text-white" aria-hidden="true">
+                        <sd-icon name="mic-off" [size]="12" />
+                      </span>
+                    }
+                    <span class="truncate font-sans text-body-sm font-medium text-white">
+                      {{ spotlight()?.name ?? doctorName() }}
+                    </span>
+                  </div>
+                }
+                <!-- A guest is here but the doctor isn't yet (any stage size, 1:1 or grid) -->
+                @if (hasRemoteTile() && !doctorHere()) {
+                  <div class="flex min-w-0 max-w-full items-center rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur" role="status">
+                    <span class="truncate font-sans text-caption text-white/80">Waiting for {{ doctorName() }}…</span>
+                  </div>
+                }
                 @if (recordingActive()) {
                   <div
                     class="flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1.5 font-sans text-caption font-medium text-white shadow-lg roomy:max-w-full roomy:shrink"
@@ -527,13 +549,16 @@ interface RecordItem {
                 }
               </div>
 
-              <!-- HD badge (small stage: the PiP has this corner) -->
-              <div
-                class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex"
-              >
-                <span class="font-label text-caption font-semibold text-white">HD</span>
-                <span class="size-2 rounded-full bg-success"></span>
-              </div>
+              <!-- HD badge (small stage: the PiP has this corner; the grid has tiles there) -->
+              @if (stageMode() === 'spotlight') {
+                <div
+                  class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex"
+                >
+                  <span class="font-label text-caption font-semibold text-white">HD</span>
+                  <span class="size-2 rounded-full bg-success"></span>
+                </div>
+              }
+
 
               <!-- Live captions, always clear of the controls and the PiP (on small
                    stages just the newest line, right above the controls) -->
@@ -555,34 +580,34 @@ interface RecordItem {
                 <button
                   type="button"
                   class="flex flex-col items-center gap-1"
-                  [attr.aria-label]="micOn() ? 'Mute microphone' : 'Unmute microphone'"
+                  [attr.aria-label]="micLive() ? 'Mute microphone' : 'Unmute microphone'"
                   (click)="toggleMic()"
                 >
                   <span
                     class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
-                    [class]="micOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
+                    [class]="micLive() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
                   >
-                    <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="20" />
+                    <sd-icon [name]="micLive() ? 'mic' : 'mic-off'" [size]="20" />
                   </span>
                   <span class="hidden font-sans text-[10px] text-white/70 roomy:block">
-                    {{ micOn() ? 'Mute' : 'Unmute' }}
+                    {{ micLive() ? 'Mute' : 'Unmute' }}
                   </span>
                 </button>
 
                 <button
                   type="button"
                   class="flex flex-col items-center gap-1"
-                  [attr.aria-label]="camOn() ? 'Turn camera off' : 'Turn camera on'"
+                  [attr.aria-label]="camLive() ? 'Turn camera off' : 'Turn camera on'"
                   (click)="toggleCam()"
                 >
                   <span
                     class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
-                    [class]="camOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
+                    [class]="camLive() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
                   >
-                    <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="20" />
+                    <sd-icon [name]="camLive() ? 'video' : 'video-off'" [size]="20" />
                   </span>
                   <span class="hidden font-sans text-[10px] text-white/70 roomy:block">
-                    {{ camOn() ? 'Stop Video' : 'Start Video' }}
+                    {{ camLive() ? 'Stop Video' : 'Start Video' }}
                   </span>
                 </button>
 
@@ -1204,6 +1229,18 @@ interface RecordItem {
         </div>
       </div>
       }
+
+      <!-- Invite someone, without leaving the call (inside .sd-call so it follows the cockpit theme) -->
+      @if (inviteOpen()) {
+        <pat-invite-guest-dialog
+          [appointmentId]="appointmentId"
+          [detailsUrl]="detailsUrl()"
+          [walletUrl]="walletUrl()"
+          [liveGuestIds]="liveGuestIds()"
+          (added)="guestAdded($event)"
+          (closed)="inviteOpen.set(false)"
+        />
+      }
     </div>
   `,
 })
@@ -1219,9 +1256,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** Bearer token for the presence heartbeat (a raw fetch, outside the interceptors). */
   private readonly auth = inject(AuthService);
 
-  private readonly localVideo = viewChild<ElementRef<HTMLDivElement>>('localVideo');
-  private readonly remoteVideo = viewChild<ElementRef<HTMLDivElement>>('remoteVideo');
   private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
+  /** The stage's video tiles (rendered once the patient enters the call). */
+  private readonly stageTiles = viewChild(CallTilesComponent);
 
   // ---- Call state ----
   protected readonly status = signal<'loading' | 'in-call' | 'ended' | 'error'>('loading');
@@ -1231,14 +1268,81 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly micOn = signal(true);
   protected readonly camOn = signal(true);
   protected readonly screenOn = signal(false);
-  /** The doctor's video is on the main stage. */
-  protected readonly remoteJoined = signal(false);
-  /** Someone else (the doctor, a guest) is in the channel, camera on or off. */
-  protected readonly remotePresent = signal(false);
+  /** The microphone / camera opened (a missing or blocked one leaves an audio-only or listen-only call). */
+  private readonly hasMic = signal(false);
+  private readonly hasCam = signal(false);
+  /** Why a camera / microphone isn't in the call ('' when both are). */
+  protected readonly deviceNotice = signal('');
+  /** The microphone / camera is on and actually open (what the call buttons show). */
+  protected readonly micLive = computed(() => this.micOn() && this.hasMic());
+  protected readonly camLive = computed(() => this.camOn() && this.hasCam());
   /** Everyone else who was in the call has left it. */
   protected readonly remoteLeft = signal(false);
+  /** Someone other than the doctor (a guest) has been in this connection. */
+  private readonly guestSeen = signal(false);
   protected readonly moreOpen = signal(false);
   protected readonly elapsed = signal(0);
+
+  // ---- Who is on the stage ----
+  /** Everyone who may be in the call, by Agora uid (names only) — from the call token and each heartbeat. */
+  private readonly participants = signal<readonly CallParticipantDto[]>([]);
+  /** The other people connected (per uid: video, audio, speaking). */
+  private readonly remoteList = signal<readonly RemoteParticipant[]>([]);
+  private readonly remotes = new RemoteParticipants((list) => this.remoteList.set(list));
+  private unbindRemotes?: () => void;
+  /** The uid the patient joined as ('self' when Agora assigned one). */
+  private readonly selfUid = signal<CallUid>('self');
+  /** Video handed to the stage, by uid — replayed if the tiles are (re)created. */
+  private readonly videos = new Map<string, { uid: CallUid; track: CallVideoTrack; config?: CallVideoPlayConfig }>();
+  /** Guest ids in the call now (the heartbeat's presence). */
+  protected readonly liveGuestIds = signal<readonly string[]>([]);
+  protected readonly inviteOpen = signal(false);
+
+  /** Who to name on each tile: the call's participants, or at least the doctor from the appointment. */
+  private readonly roster = computed(() => {
+    const list = this.participants();
+    return list.length ? list : [{ uid: DOCTOR_CALL_UID, role: 'doctor' as const, name: this.doctorName() }];
+  });
+  protected readonly tiles = computed(() =>
+    buildCallTiles({
+      remotes: this.remoteList(),
+      roster: this.roster(),
+      self:
+        this.status() === 'in-call'
+          ? {
+              uid: this.selfUid(),
+              role: 'patient',
+              name: this.patientName(),
+              hasVideo: this.screenOn() || (this.camOn() && this.hasCam()),
+              muted: !(this.micOn() && this.hasMic()),
+            }
+          : null,
+    }),
+  );
+  protected readonly stageMode = computed(() => callTilesMode(this.tiles()));
+  /** The other person on the 1:1 stage (null while nobody else is here). */
+  protected readonly spotlight = computed(() => this.tiles().find((t) => !t.self) ?? null);
+  protected readonly hasRemoteTile = computed(() => this.spotlight() !== null);
+  /** The doctor is connected (by their uid in the participants). */
+  protected readonly doctorHere = computed(() => {
+    const doctorUid = this.roster().find((p) => p.role === 'doctor')?.uid ?? DOCTOR_CALL_UID;
+    return this.remoteList().some((r) => String(r.uid) === String(doctorUid));
+  });
+  protected readonly leftText = computed(() =>
+    this.guestSeen() ? 'Everyone else has left the call' : `${this.doctorName()} has left the call`,
+  );
+  private readonly patientName = computed(() => {
+    const p = this.patient();
+    return [p?.first_name, p?.last_name].filter(Boolean).join(' ') || 'You';
+  });
+  /** The appointment page / wallet, opened from the invite dialog in a new tab (the call keeps running). */
+  protected detailsUrl(): string {
+    return this.router.serializeUrl(this.router.createUrlTree(['/dashboard/appointments', this.appointmentId]));
+  }
+
+  protected walletUrl(): string {
+    return this.router.serializeUrl(this.router.createUrlTree(['/dashboard/wallet']));
+  }
 
   /** Cockpit light/dark theme (chrome only; the video stage stays dark). */
   protected readonly theme = signal<'dark' | 'light'>(this.readTheme());
@@ -1532,7 +1636,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private recognition?: SpeechRec;
   private netUplink = 0;
   private netDownlink = 0;
-  private appointmentId = '';
+  protected appointmentId = '';
   /** The patient pressed End / left the page — final. */
   private left = false;
 
@@ -1554,6 +1658,18 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** Stops the "in the call" heartbeat; set only while one is running. */
   private heartbeatStop?: () => void;
 
+  constructor() {
+    // The stage (and its tiles) appears once the patient enters the call: play
+    // any video handed over before then — or again if the tiles are re-created.
+    effect(() => {
+      const tiles = this.stageTiles();
+      if (!tiles) return;
+      untracked(() => {
+        for (const v of this.videos.values()) tiles.attach(v.uid, v.track, v.config);
+      });
+    });
+  }
+
   ngAfterViewInit(): void {
     this.appointmentId = this.route.snapshot.paramMap.get('id') ?? '';
     window.addEventListener('beforeunload', this.onBeforeUnload);
@@ -1573,37 +1689,39 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private async joinCall(): Promise<void> {
     // A fresh connection (first join, or a rejoin after a drop).
-    this.remoteUids.clear();
-    this.remoteSeen = false;
-    this.firstWaitOver = false;
-    this.remotePresent.set(false);
-    this.remoteLeft.set(false);
-    this.remoteJoined.set(false);
+    this.resetRemotes();
+    this.deviceNotice.set('');
     let client: IAgoraRTCClient | undefined;
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
       if (this.left) return; // left while the token was on its way
+      if (data.participants?.length) this.participants.set(data.participants);
 
       client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       const self = client;
       this.client = self;
+      // Per-uid state for the tiles: one person's camera going off never touches anyone else's.
+      this.unbindRemotes = this.remotes.bind(self);
 
-      // Presence, not just video: the doctor may join with the camera off.
+      // Presence, not just video: the doctor (or a guest) may join with the camera off.
       self.on('user-joined', (user) => this.onRemoteJoined(self, user.uid));
-      self.on('user-left', (user) => this.onRemoteLeft(self, user.uid));
+      self.on('user-left', (user) => {
+        this.hideVideo(user.uid);
+        this.onRemoteLeft(self, user.uid);
+      });
       self.on('user-published', async (user, mediaType) => {
         this.onRemoteJoined(self, user.uid);
-        await self.subscribe(user, mediaType);
-        if (mediaType === 'video') {
-          const el = this.remoteVideo()?.nativeElement;
-          if (el) user.videoTrack?.play(el);
-          this.remoteJoined.set(true);
-        } else if (mediaType === 'audio') {
-          user.audioTrack?.play();
+        try {
+          await self.subscribe(user, mediaType);
+        } catch {
+          return; // they left or unpublished meanwhile
         }
+        if (self !== this.client) return;
+        if (mediaType === 'video' && user.videoTrack) this.showVideo(user.uid, user.videoTrack);
+        else if (mediaType === 'audio') user.audioTrack?.play();
       });
-      self.on('user-unpublished', (_user, mediaType) => {
-        if (mediaType === 'video') this.remoteJoined.set(false);
+      self.on('user-unpublished', (user, mediaType) => {
+        if (mediaType === 'video') this.hideVideo(user.uid);
       });
       // Long consultations outlive a single token — re-mint and renew in place.
       self.on('token-privilege-will-expire', () => void this.renewToken());
@@ -1621,7 +1739,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       });
 
       // uid 0 from the backend means "wildcard token" → join with null so Agora
-      // assigns the uid; any non-zero uid is honoured as-is.
+      // assigns the uid; any non-zero uid (the patient is 1) is honoured as-is.
+      this.selfUid.set(data.uid === 0 ? 'self' : data.uid);
       await self.join(
         data.app_id,
         data.channel,
@@ -1634,20 +1753,26 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.connected = true;
       if (this.remoteUids.size === 0) this.startFirstWait();
       this.syncHold();
+      self.enableAudioVolumeIndicator(); // who is speaking, for the grid's rings
 
-      const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      // Each device on its own when both together fail: a missing or blocked
+      // camera still leaves an audio-only call (and the other way round).
+      const media = await openLocalMedia({ audio: true, video: true });
       if (this.left || this.client !== self) {
         // The call ended while the browser asked for the camera — don't leave it on.
-        mic.close();
-        cam.close();
+        media.mic?.close();
+        media.cam?.close();
         return;
       }
-      this.micTrack = mic;
-      this.camTrack = cam;
+      this.micTrack = media.mic ?? undefined;
+      this.camTrack = media.cam ?? undefined;
+      this.hasMic.set(!!media.mic);
+      this.hasCam.set(!!media.cam);
+      this.deviceNotice.set(this.mediaNotice(media.camProblem, media.micProblem));
 
-      const localEl = this.localVideo()?.nativeElement;
-      if (localEl) cam.play(localEl);
-      await self.publish([mic, cam]);
+      if (this.camTrack) this.showVideo(this.selfUid(), this.camTrack); // plays once your tile renders
+      const tracks = [this.micTrack, this.camTrack].filter((t): t is IMicrophoneAudioTrack | ICameraVideoTrack => !!t);
+      if (tracks.length) await self.publish(tracks);
       if (this.left || this.client !== self) return;
 
       this.status.set('in-call');
@@ -1710,7 +1835,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     if (client !== this.client || !this.connectedOrJoining()) return;
     this.remoteUids.add(uid);
     this.remoteSeen = true;
-    this.remotePresent.set(true);
+    const doctorUid = this.roster().find((p) => p.role === 'doctor')?.uid ?? DOCTOR_CALL_UID;
+    if (String(uid) !== String(doctorUid)) this.guestSeen.set(true);
     this.remoteLeft.set(false);
     this.clearFirstWait();
     this.syncHold();
@@ -1720,8 +1846,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     if (client !== this.client || !this.remoteUids.delete(uid)) return;
     if (this.remoteUids.size > 0) return;
     // Everyone else has gone: the consultation is over unless they come back.
-    this.remotePresent.set(false);
-    this.remoteJoined.set(false);
     this.remoteLeft.set(true);
     this.syncHold();
     if (this.consultationClosed) {
@@ -1803,12 +1927,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.stopCaptions();
     this.client = undefined;
     void this.releaseMedia(client);
-    this.remoteUids.clear();
-    this.remotePresent.set(false);
-    this.remoteLeft.set(false);
-    this.remoteJoined.set(false);
+    this.resetRemotes();
     this.screenOn.set(false);
     this.recordingActive.set(false);
+    this.inviteOpen.set(false);
     this.endedReason.set(reason);
     this.status.set('ended');
     if (reason === 'completed' && wasReviewed(this.appointmentId)) {
@@ -1821,12 +1943,27 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /**
    * Tell the API the patient is in the call, so appointment lists (theirs and
-   * the doctor's) can show it. Restarted after a rejoin; never two at once.
+   * the doctor's) can show it. Each answer names everyone who may be in the
+   * call (a guest invited meanwhile gets their name on their tile) and which
+   * guests are here; a refusal (410 — the consultation was closed) ends the
+   * call once nobody else is in it. Restarted after a rejoin; never two at once.
    */
   private startHeartbeat(): void {
     if (this.heartbeatStop) return;
     const url = this.appointments.presenceUrl(this.appointmentId);
-    this.heartbeatStop = startCallPresence((s) => sendCallPresence(url, s, this.authHeader()));
+    const client = this.client;
+    this.heartbeatStop = startCallPresence((s) =>
+      sendCallPresence(url, s, this.authHeader(), {
+        onBeat: (beat) => {
+          if (client !== this.client) return;
+          if (beat.participants?.length) this.participants.set(beat.participants);
+          this.liveGuestIds.set(beat.presence?.guests ?? []);
+        },
+        onRefused: () => {
+          if (client === this.client) void this.checkConsultationClosed();
+        },
+      }),
+    );
   }
 
   /** Stop the heartbeat, saying "out" (a no-op when none is running). */
@@ -1857,12 +1994,101 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.micTrack = undefined;
     this.camTrack = undefined;
     this.screenTrack = undefined;
+    this.hasMic.set(false);
+    this.hasCam.set(false);
+    this.hideVideo(this.selfUid());
     try {
       for (const t of tracks) t?.close();
       await client?.leave();
     } catch {
       /* releasing devices — nothing actionable on failure */
     }
+  }
+
+  // ---- Video tiles ----
+
+  /** Forget everyone else (a new connection, or the call ended). */
+  private resetRemotes(): void {
+    this.unbindRemotes?.();
+    this.unbindRemotes = undefined;
+    this.remotes.clear();
+    this.remoteUids.clear();
+    this.remoteSeen = false;
+    this.firstWaitOver = false;
+    this.remoteLeft.set(false);
+    this.guestSeen.set(false);
+    this.liveGuestIds.set([]);
+    for (const v of [...this.videos.values()]) {
+      if (String(v.uid) !== String(this.selfUid())) this.hideVideo(v.uid);
+    }
+  }
+
+  /** Play a uid's video in its tile (now, or once the tile renders). */
+  private showVideo(uid: CallUid, track: CallVideoTrack, config?: CallVideoPlayConfig): void {
+    this.videos.set(String(uid), { uid, track, config });
+    this.stageTiles()?.attach(uid, track, config);
+  }
+
+  private hideVideo(uid: CallUid): void {
+    this.videos.delete(String(uid));
+    this.stageTiles()?.detach(uid);
+  }
+
+  /** Why the patient is in the call without their camera and/or microphone ('' when not). */
+  private mediaNotice(cam: DeviceProblem | null, mic: DeviceProblem | null): string {
+    if (cam && mic) return `You joined without camera or microphone. ${deviceProblemText('microphone', mic)}`;
+    if (cam) return `You joined with audio only. ${deviceProblemText('camera', cam)}`;
+    if (mic) return `Your doctor can’t hear you. ${deviceProblemText('microphone', mic)}`;
+    return '';
+  }
+
+  /** Open a device that wasn't available when the call started (the camera / mic button). */
+  private async openMissing(kind: 'mic' | 'cam'): Promise<void> {
+    const client = this.client;
+    const media = await openLocalMedia({ audio: kind === 'mic', video: kind === 'cam' });
+    if (this.left || !client || client !== this.client || !this.connected) {
+      media.mic?.close();
+      media.cam?.close();
+      return;
+    }
+    if (kind === 'mic') {
+      if (!media.mic) {
+        this.deviceNotice.set(deviceProblemText('microphone', media.micProblem ?? 'failed'));
+        this.micOn.set(false);
+        return;
+      }
+      this.micTrack = media.mic;
+      this.hasMic.set(true);
+    } else {
+      if (!media.cam) {
+        this.deviceNotice.set(deviceProblemText('camera', media.camProblem ?? 'failed'));
+        this.camOn.set(false);
+        return;
+      }
+      this.camTrack = media.cam;
+      this.hasCam.set(true);
+      if (!this.screenOn()) this.showVideo(this.selfUid(), media.cam);
+    }
+    this.deviceNotice.set('');
+    // While sharing the screen, the camera waits until sharing stops.
+    const track: ILocalTrack | undefined = kind === 'mic' ? media.mic ?? undefined : this.screenOn() ? undefined : media.cam ?? undefined;
+    try {
+      if (track) await client.publish(track);
+    } catch {
+      this.deviceNotice.set('Your device opened but couldn’t be shared. Switch it off and on to try again.');
+    }
+  }
+
+  /** "Invite someone": the in-call dialog (wallet or free; card on the appointment page). */
+  protected invite(): void {
+    this.inviteOpen.set(true);
+  }
+
+  /** A guest was just invited: name their tile straight away (before the next heartbeat). */
+  protected guestAdded(g: PatientGuestDto): void {
+    if (!g.id || g.uid === null) return;
+    const entry: CallParticipantDto = { uid: g.uid, role: 'guest', name: g.display_name || g.name, id: g.id };
+    this.participants.update((list) => [...(list.length ? list : this.roster()).filter((p) => p.uid !== entry.uid), entry]);
   }
 
   private async loadContext(): Promise<void> {
@@ -2099,6 +2325,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private async renewToken(): Promise<void> {
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
+      if (data.participants?.length) this.participants.set(data.participants);
       if (data.token) await this.client?.renewToken(data.token);
     } catch {
       /* the SDK re-fires the event; a transient failure isn't fatal yet */
@@ -2272,17 +2499,43 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   protected async toggleMic(): Promise<void> {
-    if (!this.micTrack) return;
+    if (!this.micTrack) {
+      // Not available when the call started: try to open it now.
+      if (this.connected) {
+        this.micOn.set(true);
+        await this.openMissing('mic');
+      }
+      return;
+    }
     const on = !this.micOn();
     await this.micTrack.setEnabled(on);
     this.micOn.set(on);
   }
 
   protected async toggleCam(): Promise<void> {
-    if (!this.camTrack) return;
+    const cam = this.camTrack;
+    if (!cam) {
+      if (this.connected) {
+        this.camOn.set(true);
+        await this.openMissing('cam');
+      }
+      return;
+    }
     const on = !this.camOn();
-    await this.camTrack.setEnabled(on);
+    await cam.setEnabled(on);
     this.camOn.set(on);
+    if (!on || this.screenOn()) return;
+    // Back on: play it in your tile again, and share it if it isn't (it was off when sharing stopped).
+    this.hideVideo(this.selfUid());
+    this.showVideo(this.selfUid(), cam);
+    const client = this.client;
+    if (client && !client.localTracks.includes(cam as ILocalTrack)) {
+      try {
+        await client.publish(cam);
+      } catch {
+        /* the next toggle tries again */
+      }
+    }
   }
 
   protected async toggleScreen(): Promise<void> {
@@ -2295,19 +2548,24 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
           this.screenTrack.close();
           this.screenTrack = undefined;
         }
-        if (this.camTrack) {
-          await this.client.publish(this.camTrack);
-          const el = this.localVideo()?.nativeElement;
-          if (el) this.camTrack.play(el);
+        const cam = this.camTrack;
+        if (cam) {
+          // A camera switched off is published when it is switched back on.
+          if (cam.enabled) await this.client.publish(cam);
+          this.showVideo(this.selfUid(), cam);
+        } else {
+          this.hideVideo(this.selfUid());
         }
         this.screenOn.set(false);
       } else {
         const track = (await AgoraRTC.createScreenVideoTrack({}, 'disable')) as ILocalVideoTrack;
-        if (this.camTrack) await this.client.unpublish(this.camTrack);
+        if (this.camTrack && this.client.localTracks.includes(this.camTrack as ILocalTrack)) {
+          await this.client.unpublish(this.camTrack);
+        }
         this.screenTrack = track;
         await this.client.publish(track);
-        const el = this.localVideo()?.nativeElement;
-        if (el) track.play(el);
+        // Your own tile shows what you share (whole, not cropped).
+        this.showVideo(this.selfUid(), track, { fit: 'contain' });
         // The browser's own "Stop sharing" ends the track — mirror it in our UI.
         track.on('track-ended', () => void this.toggleScreen());
         this.screenOn.set(true);
@@ -2350,12 +2608,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.reviewState.set('error');
       this.reviewNote.set(apiErrorMessage(err, 'Could not send your rating. Please try again.'));
     }
-  }
-
-  protected invite(): void {
-    // Guest invites are issued from the appointment (adds the guest fee); until
-    // that flow is wired in-call, send the patient to manage it there.
-    void this.router.navigate(['/dashboard/appointments']);
   }
 
   protected download(r: RecordItem): void {
@@ -2497,6 +2749,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     // Forget the client first, so its own DISCONNECTED event is ignored.
     const client = this.client;
     this.client = undefined;
+    this.resetRemotes();
     await this.releaseMedia(client);
   }
 

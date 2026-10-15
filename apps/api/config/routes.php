@@ -105,7 +105,9 @@ return static function (App $app): void {
         $group->post('/public/prescriptions/check', Action\Prescription\CheckPrescriptionAction::class);
         // Preauthenticated join — the signed token in the path IS the credential.
         $group->get('/public/call/{token}', Action\Call\JoinCallAction::class);
+        $group->get('/public/call/{token}/lobby', Action\Call\CallLobbyAction::class);
         $group->post('/public/call/{token}/presence', Action\Call\CallPresenceAction::class);
+        $group->post('/public/call/{token}/consent', Action\Call\GuestConsentAction::class);
 
         // Paystack webhook (public) — signature-verified + re-verified server-side.
         $group->post('/webhooks/paystack', Action\Wallet\PaystackWebhookAction::class);
@@ -383,6 +385,13 @@ return static function (App $app): void {
             $group->post('/appointments/{id}/follow-up/decline', Action\Appointment\DeclineFollowUpAction::class);
             $group->get('/appointments/{id}/follow-up/quote', Action\Appointment\MyFollowUpQuoteAction::class);
             $group->get('/appointments/{id}/follow-ups', Action\Appointment\MyFollowUpsAction::class);
+            // Guests: list (with each one's personal link), invite (paid: wallet, or card
+            // via guests/pay-init), remove, re-send. pay-init before {gid}: static first.
+            $group->get('/appointments/{id}/guests', Action\Appointment\ListMyGuestsAction::class);
+            $group->post('/appointments/{id}/guests', Action\Appointment\AddMyGuestAction::class);
+            $group->post('/appointments/{id}/guests/pay-init', Action\Appointment\InitGuestPaymentAction::class);
+            $group->delete('/appointments/{id}/guests/{gid}', Action\Appointment\RemoveMyGuestAction::class);
+            $group->post('/appointments/{id}/guests/{gid}/resend', Action\Appointment\ResendMyGuestInviteAction::class);
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->post('/appointments/{id}/presence', Action\Appointment\ReportMyPresenceAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);

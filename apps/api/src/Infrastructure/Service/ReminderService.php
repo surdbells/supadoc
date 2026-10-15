@@ -107,25 +107,27 @@ final class ReminderService
         $doctorBase  = WebUrls::patientAppForSpecialist($specialist);
 
         $count = 0;
-        // uid must be unique per party in the shared Agora channel (matches booking).
-        $send = function (string $email, string $name, string $role, int $uid) use ($appt, $whenLabel, $patientBase, $doctorBase, &$count): void {
+        // uid must be unique per party in the appointment's Agora channel (matches booking).
+        $send = function (string $email, string $name, string $joinUrl) use ($appt, $whenLabel, &$count): void {
             if ($email === '') {
                 return;
             }
-            $token = $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
-            $mail  = EmailTemplates::joinReminder($appt, $name, $whenLabel, ($role === 'doctor' ? $doctorBase : $patientBase) . '/call/join/' . $token);
+            $mail = EmailTemplates::joinReminder($appt, $name, $whenLabel, $joinUrl);
             $this->mail->send($email, $name, $mail['subject'], $mail['html']);
             $count++;
         };
+        $link = fn (string $base, string $name, string $role, int $uid): string => $base . '/call/join/' . $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
 
         try {
-            $send((string) ($p['email'] ?? ''), $patientName, 'patient', 1);
+            $send((string) ($p['email'] ?? ''), $patientName, $link($patientBase, $patientName, 'patient', Appointment::PATIENT_UID));
             if ($specialist->getEmail() !== null) {
-                $send($specialist->getEmail(), $specialist->getName(), 'doctor', 2);
+                $send($specialist->getEmail(), $specialist->getName(), $link($doctorBase, $specialist->getName(), 'doctor', Appointment::DOCTOR_UID));
             }
-            $uid = 3;
+            // Each guest's own stable link (their guest id + uid); one removed is no longer listed.
             foreach ($appointment->getGuests() as $guest) {
-                $send((string) $guest['email'], (string) $guest['name'], 'guest', $uid++);
+                if (isset($guest['id'], $guest['uid'])) {
+                    $send((string) $guest['email'], (string) $guest['name'], GuestInvitations::joinUrl($this->jwt, $appointment, $guest));
+                }
             }
         } catch (\Throwable) {
             // logged inside MailService; keep going / still mark as sent.

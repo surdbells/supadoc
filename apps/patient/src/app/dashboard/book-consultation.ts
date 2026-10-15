@@ -449,32 +449,45 @@ const MAX_DOCS = 10;
             </p>
 
             @for (g of guests(); track $index) {
-              <div
-                class="mb-3 flex flex-col gap-3 rounded-card border border-cloud bg-glacier/40 p-4 sm:flex-row sm:items-center"
-              >
-                <input
-                  type="text"
-                  placeholder="Full name"
-                  [value]="g.name"
-                  (input)="setGuest($index, 'name', $any($event.target).value)"
-                  class="w-full flex-1 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
-                />
-                <input
-                  type="email"
-                  placeholder="Email address"
-                  [value]="g.email"
-                  (input)="setGuest($index, 'email', $any($event.target).value)"
-                  class="w-full flex-1 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
-                  [class.border-alert]="g.email.length > 0 && !emailValid(g.email)"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove guest"
-                  class="flex shrink-0 items-center justify-center rounded-field border border-cloud px-3 py-2 text-slate transition-colors hover:border-alert/50 hover:text-alert"
-                  (click)="removeGuest($index)"
-                >
-                  <sd-icon name="trash-2" [size]="18" />
-                </button>
+              <div class="mb-3 flex flex-col gap-2 rounded-card border border-cloud bg-glacier/40 p-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    placeholder="Full name"
+                    maxlength="100"
+                    [attr.aria-label]="'Guest ' + ($index + 1) + ' full name'"
+                    [attr.aria-invalid]="!!guestError($index).name"
+                    [value]="g.name"
+                    (input)="setGuest($index, 'name', $any($event.target).value)"
+                    class="w-full flex-1 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
+                    [class.border-alert]="!!guestError($index).name"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email address"
+                    maxlength="190"
+                    [attr.aria-label]="'Guest ' + ($index + 1) + ' email address'"
+                    [attr.aria-invalid]="!!guestError($index).email || (g.email.length > 0 && !emailValid(g.email))"
+                    [value]="g.email"
+                    (input)="setGuest($index, 'email', $any($event.target).value)"
+                    class="w-full flex-1 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none"
+                    [class.border-alert]="!!guestError($index).email || (g.email.length > 0 && !emailValid(g.email))"
+                  />
+                  <button
+                    type="button"
+                    [attr.aria-label]="'Remove guest ' + ($index + 1)"
+                    class="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-field border border-cloud px-3 py-2 text-slate transition-colors hover:border-alert/50 hover:text-alert"
+                    (click)="removeGuest($index)"
+                  >
+                    <sd-icon name="trash-2" [size]="18" />
+                  </button>
+                </div>
+                @if (guestError($index).name || guestError($index).email) {
+                  <p class="flex items-start gap-1.5 font-sans text-caption text-alert" role="alert">
+                    <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                    {{ guestError($index).name || guestError($index).email }}
+                  </p>
+                }
               </div>
             }
 
@@ -1064,6 +1077,8 @@ export class BookConsultation implements OnInit {
 
   protected readonly reason = signal('');
   protected readonly guests = signal<GuestInvite[]>([]);
+  /** The server refused a guest row (e.g. the patient's own email), by row. */
+  private readonly guestServerErrors = signal<Record<number, { name?: string; email?: string }>>({});
 
   // Supporting documents — each is filed in the patient's medical documents as
   // it uploads; the booking attaches the uploaded ones by id.
@@ -1525,12 +1540,53 @@ export class BookConsultation implements OnInit {
 
   protected removeGuest(index: number): void {
     this.guests.update((list) => list.filter((_, i) => i !== index));
+    this.guestServerErrors.set({}); // the rows have moved
   }
 
   protected setGuest(index: number, field: keyof GuestInvite, value: string): void {
     this.guests.update((list) =>
       list.map((g, i) => (i === index ? { ...g, [field]: value } : g)),
     );
+    const server = this.guestServerErrors()[index];
+    if (server?.[field]) {
+      this.guestServerErrors.update((all) => ({ ...all, [index]: { ...server, [field]: undefined } }));
+    }
+  }
+
+  /**
+   * What's wrong with a guest row: the server's answer (not the patient's own
+   * or the doctor's email, …), or the same person twice on this list.
+   */
+  protected guestError(index: number): { name?: string; email?: string } {
+    const server = this.guestServerErrors()[index] ?? {};
+    const email = (this.guests()[index]?.email ?? '').trim().toLowerCase();
+    const repeated =
+      email !== '' &&
+      this.emailValid(email) &&
+      this.guests()
+        .slice(0, index)
+        .some((g) => g.email.trim().toLowerCase() === email);
+    return {
+      name: server.name,
+      email: server.email ?? (repeated ? 'This person is already invited' : undefined),
+    };
+  }
+
+  /** The server's `guests.N.name|email` errors, by the row they belong to. */
+  private takeGuestErrors(fields: Record<string, string>): boolean {
+    const valid = this.validGuests();
+    const rows = this.guests();
+    const byRow: Record<number, { name?: string; email?: string }> = {};
+    for (const [key, message] of Object.entries(fields)) {
+      const m = /^guests\.(\d+)\.(name|email)$/.exec(key);
+      if (!m) continue;
+      // N counts the guests sent (blank rows aren't), so find that guest's row.
+      const row = rows.indexOf(valid[Number(m[1])]);
+      if (row < 0) continue;
+      byRow[row] = { ...byRow[row], [m[2]]: message };
+    }
+    this.guestServerErrors.set(byRow);
+    return Object.keys(byRow).length > 0;
   }
 
   /** Per-step "Continue" gate for the shared nav row (steps 2–5). */
@@ -1541,11 +1597,13 @@ export class BookConsultation implements OnInit {
       case 3:
         return this.reason().trim().length > 0;
       case 4:
-        // Every started guest row must be complete + valid.
+        // Every started guest row must be complete + valid, and nobody invited twice.
         return this.guests().every(
-          (g) =>
-            (g.name.trim() === '' && g.email.trim() === '') ||
-            (g.name.trim() !== '' && this.emailValid(g.email)),
+          (g, i) =>
+            ((g.name.trim() === '' && g.email.trim() === '') ||
+              (g.name.trim() !== '' && this.emailValid(g.email))) &&
+            !this.guestError(i).name &&
+            !this.guestError(i).email,
         );
       case 5:
         return !this.docsBusy(); // wait for files still uploading
@@ -1770,6 +1828,14 @@ export class BookConsultation implements OnInit {
       if (paymentReference && kept?.reference === paymentReference && refused && !/try again/i.test(refused)) {
         this.paid.set(null);
         this.unusedPayment.set(this.unusedPaymentNote(kept, refused));
+        return;
+      }
+      // A guest the server refused (the patient's own email, the doctor's, …):
+      // back to the guests step, with the reason on that row — not left behind
+      // on the confirm step once the row is fixed.
+      if (this.takeGuestErrors(fields)) {
+        this.submitError.set('');
+        this.step.set(4);
         return;
       }
       this.submitError.set(
