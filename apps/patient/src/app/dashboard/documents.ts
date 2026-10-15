@@ -29,7 +29,17 @@ import type {
   PrescriptionStatus,
   PrescriptionSummaryDto,
 } from '@supadoc/models';
-import { FileDropComponent, IconComponent, type FileDropRejection } from '@supadoc/ui';
+import type { HasUnsavedChanges } from '@supadoc/auth';
+import {
+  type ConfirmOptions,
+  DialogComponent,
+  DialogService,
+  FileDropComponent,
+  IconComponent,
+  type FileDropRejection,
+  type LeaveCopy,
+  warnBeforeUnload,
+} from '@supadoc/ui';
 
 /** How many recent prescriptions the documents page previews. */
 const RX_PREVIEW = 3;
@@ -84,9 +94,6 @@ const UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, DOCX, DICOM or vi
 const MAX_FILES = 20;
 /** Length of medical_documents.custom_type. */
 const CUSTOM_TYPE_MAX = 120;
-/** What Tab can land on inside the upload dialog. */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Medical documents (route `/dashboard/documents`) — the patient's record
@@ -97,7 +104,7 @@ const FOCUSABLE =
 @Component({
   selector: 'pat-documents',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FileDropComponent, IconComponent, NgTemplateOutlet, RouterLink],
+  imports: [DialogComponent, FileDropComponent, IconComponent, NgTemplateOutlet, RouterLink],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -312,19 +319,17 @@ const FOCUSABLE =
       }
     </ng-template>
 
-    <!-- Upload modal -->
-    @if (modalOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="close()"></button>
-        <div
-          #dialog
-          class="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col gap-6 overflow-y-auto rounded-[16px] bg-white p-5 shadow-[0_4px_24px_rgba(10,22,40,0.16)] outline-none sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="doc-upload-title"
-          tabindex="-1"
-          (keydown)="dialogKeydown($event)"
-        >
+    <!-- Upload modal (the shared dialog: top layer, Esc, scroll lock, focus back to the opener) -->
+    <sd-dialog
+      [open]="uploadOpen()"
+      layout="plain"
+      size="md"
+      labelledBy="doc-upload-title"
+      [busy]="running()"
+      (closed)="requestClose()"
+      (afterClose)="afterUploadClosed()"
+    >
+        <div #dialogBody class="flex flex-col gap-6 p-5 sm:p-6">
           <!-- Batch progress and outcome, announced to screen readers -->
           <p class="sr-only" aria-live="polite" aria-atomic="true">{{ liveStatus() }}</p>
 
@@ -332,10 +337,10 @@ const FOCUSABLE =
             @case ('source') {
               <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
                 <div class="flex flex-col gap-1">
-                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Upload Documents</h3>
+                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">Upload Documents</h3>
                   <p class="font-sans text-body-sm text-slate">Add one or more files to your medical records</p>
                 </div>
-                <button type="button" class="shrink-0 text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
+                <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:text-ink" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
               </div>
               <sd-file-drop
                 [accept]="accept"
@@ -351,17 +356,17 @@ const FOCUSABLE =
               </div>
               <ng-container [ngTemplateOutlet]="skippedNote" />
               <div class="flex gap-3">
-                <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="close()">Cancel</button>
+                <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="requestClose()">Cancel</button>
               </div>
             }
 
             @case ('queue') {
               <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
                 <div class="flex flex-col gap-1">
-                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Document Type</h3>
+                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">Document Type</h3>
                   <p class="font-sans text-body-sm text-slate">Select the type of each document</p>
                 </div>
-                <button type="button" class="shrink-0 text-slate hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="22" /></button>
+                <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:text-ink" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
               </div>
               <ul class="flex flex-col gap-3" aria-label="Documents to upload">
                 @for (item of queue(); track item.key) {
@@ -423,7 +428,7 @@ const FOCUSABLE =
                 </p>
               }
               <div class="flex gap-3">
-                <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="close()">Cancel</button>
+                <button type="button" class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="requestClose()">Cancel</button>
                 <button type="button" class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-50" [disabled]="!canUpload()" (click)="startBatch()">
                   Upload {{ queue().length }} {{ queue().length === 1 ? 'file' : 'files' }}
                 </button>
@@ -432,7 +437,7 @@ const FOCUSABLE =
 
             @case ('uploading') {
               <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">{{ running() ? 'Uploading' : 'Some uploads failed' }}</h3>
+                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">{{ running() ? 'Uploading' : 'Some uploads failed' }}</h3>
                 <p class="font-sans text-body-sm text-slate">{{ doneItems().length }} of {{ queue().length }} uploaded</p>
               </div>
               <ul class="flex flex-col gap-3" aria-label="Upload progress">
@@ -489,7 +494,7 @@ const FOCUSABLE =
               <div class="flex flex-col items-center gap-4 py-4 text-center">
                 <span class="flex size-16 items-center justify-center rounded-full bg-sage text-white"><sd-icon name="check" [size]="34" /></span>
                 <div class="flex flex-col gap-1">
-                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" class="font-heading text-h4 text-ink outline-none">{{ uploadedSummary() }}</h3>
+                  <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h4 text-ink outline-none">{{ uploadedSummary() }}</h3>
                   <p class="font-sans text-body text-slate">{{ doneItems().length === 1 ? 'Your document has' : 'Your documents have' }} been successfully added to your medical records.</p>
                 </div>
                 @if (failedCount() > 0) {
@@ -518,23 +523,22 @@ const FOCUSABLE =
             }
           }
         </div>
-      </div>
-    }
+    </sd-dialog>
   `,
 })
-export class PatientDocuments implements OnInit {
+export class PatientDocuments implements OnInit, HasUnsavedChanges {
   private readonly api = inject(DocumentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
-  private readonly dialog = viewChild<ElementRef<HTMLElement>>('dialog');
+  private readonly dialogs = inject(DialogService);
+  /** The upload dialog's content (focus is kept inside it as steps change). */
+  private readonly dialogBody = viewChild<ElementRef<HTMLElement>>('dialogBody');
   /** The current step's heading (one per step; it names the dialog). */
   private readonly stepTitle = viewChild<ElementRef<HTMLElement>>('stepTitle');
   /** The page-header Upload button — focus goes here when the empty-state opener is gone. */
   private readonly headerUpload = viewChild<ElementRef<HTMLElement>>('headerUpload');
-  /** What had focus before the modal opened — it gets focus back on close. */
-  private opener: HTMLElement | null = null;
 
   protected readonly accept = ACCEPT;
   protected readonly maxBytes = MAX_BYTES;
@@ -571,7 +575,10 @@ export class PatientDocuments implements OnInit {
 
   // Upload modal state
   protected readonly step = signal<Step>('');
-  protected readonly modalOpen = computed(() => this.step() !== '');
+  protected readonly uploadOpen = signal(false);
+  protected readonly modalOpen = computed(() => this.uploadOpen() && this.step() !== '');
+  /** The discard question is up (Esc pressed again must not ask twice). */
+  private confirmingDiscard = false;
   protected readonly queue = signal<QueueItem[]>([]);
   protected readonly skipped = signal<SkippedFile[]>([]);
   /** A file is on the wire — the modal can't be closed mid-request. */
@@ -613,6 +620,9 @@ export class PatientDocuments implements OnInit {
   private needsReload = false;
 
   constructor() {
+    // Closing or reloading the tab with files picked (or still uploading) loses them.
+    warnBeforeUnload(() => this.hasUnsavedChanges());
+
     // While the modal is open, a file dropped anywhere outside a drop zone
     // must not make the browser navigate away to open it. The zones cancel
     // their own events first, so anything still uncancelled here is a miss.
@@ -761,18 +771,35 @@ export class PatientDocuments implements OnInit {
 
   // ----- Upload flow -----
   protected startUpload(): void {
-    // "Upload more" restarts from inside the modal: keep the original opener.
-    if (!this.modalOpen()) {
-      const active = this.document.activeElement;
-      this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
-    }
     this.queue.set([]);
     this.skipped.set([]);
     this.step.set('source');
+    this.uploadOpen.set(true);
+  }
+
+  /**
+   * ×, Cancel, Esc or the scrim. Files picked but not uploaded yet are asked
+   * about first; a batch that is still running can't be closed.
+   */
+  protected async requestClose(): Promise<void> {
+    if (this.running() || this.confirmingDiscard) return;
+    const pending = this.pendingFiles();
+    if (pending > 0) {
+      this.confirmingDiscard = true;
+      const { confirmed } = await this.dialogs.confirm(this.discardCopy(pending));
+      this.confirmingDiscard = false;
+      if (!confirmed) return;
+    }
+    this.close();
   }
 
   protected close(): void {
     if (this.busy()) return; // let the file on the wire finish first
+    this.uploadOpen.set(false);
+  }
+
+  /** The dialog has gone: reset the flow, show what was uploaded, and keep focus on the page. */
+  protected afterUploadClosed(): void {
     this.step.set('');
     this.queue.set([]);
     this.skipped.set([]);
@@ -781,54 +808,61 @@ export class PatientDocuments implements OnInit {
       this.page = 1;
       this.reload();
     }
-    const back = this.opener;
-    this.opener = null;
-    if (back) {
-      afterNextRender(() => {
-        // A first upload removes the empty-state button that opened the modal.
-        if (back.isConnected) back.focus();
-        else this.headerUpload()?.nativeElement.focus();
-      }, { injector: this.injector });
-    }
+    // A first upload removes the empty-state button that opened the modal.
+    setTimeout(() => {
+      const active = this.document.activeElement;
+      if (!active || active === this.document.body) this.headerUpload()?.nativeElement.focus();
+    });
   }
+
+  /** Files picked and typed, not uploaded yet (the Document Type step). */
+  private pendingFiles(): number {
+    return this.step() === 'queue' ? this.queue().length : 0;
+  }
+
+  private discardCopy(n: number): ConfirmOptions {
+    return {
+      tone: 'warning',
+      icon: 'trash-2',
+      title: n === 1 ? 'Discard the selected file?' : `Discard ${n} selected files?`,
+      message: n === 1 ? "It hasn't been uploaded yet." : "They haven't been uploaded yet.",
+      confirmLabel: n === 1 ? 'Discard file' : 'Discard files',
+      cancelLabel: 'Keep them',
+    };
+  }
+
+  /** `unsavedChangesGuard`: leaving with files picked, or a batch still uploading, asks first. */
+  hasUnsavedChanges(): boolean {
+    return this.uploadOpen() && (this.pendingFiles() > 0 || this.running());
+  }
+
+  /** The guard's prompt copy. */
+  readonly leaveCopy = (): LeaveCopy => {
+    if (this.running()) {
+      return {
+        title: 'Leave while uploading?',
+        message: "Files that haven't finished uploading won't be saved.",
+        confirmLabel: 'Leave anyway',
+        cancelLabel: 'Stay',
+      };
+    }
+    const { title, message, confirmLabel, cancelLabel } = this.discardCopy(this.pendingFiles());
+    return { title, message, confirmLabel, cancelLabel };
+  };
 
   /**
    * After the next render, if the control that had focus was destroyed (focus
    * fell back to <body>) or focus is otherwise outside the dialog, move it to
    * the current step's heading. Called whenever an action removes the button
-   * that triggered it — the dialog is aria-modal, so focus must not escape.
-   * `always` (a new step) moves focus to the heading regardless.
+   * that triggered it. `always` (a new step) moves focus to the heading
+   * regardless. (While the dialog is opening, it focuses the heading itself.)
    */
   private keepFocusInDialog(always = false): void {
     afterNextRender(() => {
-      const root = this.dialog()?.nativeElement;
+      const root = this.dialogBody()?.nativeElement;
       if (!root || (!always && root.contains(this.document.activeElement))) return;
-      (this.stepTitle()?.nativeElement ?? root).focus();
+      this.stepTitle()?.nativeElement.focus();
     }, { injector: this.injector });
-  }
-
-  /** Tab and Shift+Tab wrap around inside the dialog instead of leaving it. */
-  protected dialogKeydown(e: KeyboardEvent): void {
-    if (e.key !== 'Tab') return;
-    const root = this.dialog()?.nativeElement;
-    if (!root) return;
-    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.offsetParent !== null,
-    );
-    // Nothing to tab to (e.g. mid-upload): keep focus inside the dialog.
-    if (items.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    // -1: the heading or the dialog itself has focus (both sit before every control).
-    const at = items.indexOf(this.document.activeElement as HTMLElement);
-    if (e.shiftKey && at <= 0) {
-      e.preventDefault();
-      items[items.length - 1].focus();
-    } else if (!e.shiftKey && at === items.length - 1) {
-      e.preventDefault();
-      items[0].focus();
-    }
   }
 
   protected dismissSkipped(): void {

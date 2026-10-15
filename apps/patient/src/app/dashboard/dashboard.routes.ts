@@ -1,10 +1,15 @@
 import { Route } from '@angular/router';
-import { authGuard } from '@supadoc/auth';
+import { authGuard, unsavedChangesGuard } from '@supadoc/auth';
 import { DashboardShell } from './dashboard-shell';
 
 /**
  * Signed-in patient area. The shell (side nav + header) wraps every section;
  * every destination below is a real, fully-wired page.
+ *
+ * `unsavedChangesGuard` asks "Leave …?" (the in-app dialog) before leaving a
+ * page that would lose something — a live call, unsaved medical edits, queued
+ * uploads, a booking with attachments or a payment not used yet. Each of those
+ * pages says when (`canLeave()` / `hasUnsavedChanges()`); signing out always wins.
  */
 export const dashboardRoutes: Route[] = [
   {
@@ -31,6 +36,7 @@ export const dashboardRoutes: Route[] = [
         path: 'appointments/book/:id',
         loadComponent: () =>
           import('./book-consultation').then((m) => m.BookConsultation),
+        canDeactivate: [unsavedChangesGuard],
       },
       {
         path: 'appointments/:id',
@@ -41,11 +47,13 @@ export const dashboardRoutes: Route[] = [
         path: 'call/:id',
         loadComponent: () =>
           import('./consultation-call').then((m) => m.ConsultationCall),
+        canDeactivate: [unsavedChangesGuard],
       },
       {
         path: 'documents',
         loadComponent: () =>
           import('./documents').then((m) => m.PatientDocuments),
+        canDeactivate: [unsavedChangesGuard],
       },
       {
         path: 'history',
@@ -74,6 +82,7 @@ export const dashboardRoutes: Route[] = [
       {
         path: 'profile',
         loadComponent: () => import('./my-profile').then((m) => m.MyProfile),
+        canDeactivate: [unsavedChangesGuard],
       },
       {
         path: 'settings',

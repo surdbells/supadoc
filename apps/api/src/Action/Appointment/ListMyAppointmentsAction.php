@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Settings\BookingSettings;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\CallPresence;
+use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -15,13 +20,28 @@ use Psr\Http\Message\ServerRequestInterface;
  * `customer_id` comes from CustomerAuthMiddleware, so a customer can only ever
  * read their own records. `?status=` (comma-separated, e.g. `proposed`)
  * narrows the list; unknown values are ignored.
+ *
+ * `?when=` splits it by TIME (not status): `upcoming` — still to come or live
+ * (started and not yet 30 minutes past its end, or someone in the call),
+ * soonest first: the Appointments page and the dashboard's next appointment;
+ * `past` — over (completed, cancelled, missed, or ended), newest first: the
+ * History page. With `when` the order is fixed (sort_by / sort_dir ignored).
+ * Any other non-empty `when` is refused (422 errors.when) — never silently
+ * answered with the whole list. `can_reschedule` is false inside the
+ * late-cancellation window (the reschedule would be refused).
  */
 final class ListMyAppointmentsAction
 {
     use ApiResponse;
 
-    public function __construct(private readonly AppointmentRepository $repo)
-    {
+    /** The `?when=` values a patient may ask for. */
+    private const WHEN = ['upcoming', 'past'];
+
+    public function __construct(
+        private readonly AppointmentRepository $repo,
+        private readonly CallPresence $presence,
+        private readonly BookingSettings $settings,
+    ) {
     }
 
     public function __invoke(
@@ -31,6 +51,14 @@ final class ListMyAppointmentsAction
         $customerId = (string) $request->getAttribute('customer_id');
         $query      = $request->getQueryParams();
         $p          = $this->getPaginationParams($query);
+        $rawWhen    = $query['when'] ?? null;
+        $when       = AppointmentRepository::parseWhen($rawWhen, self::WHEN);
+        if ($when === null && (is_array($rawWhen) || trim((string) $rawWhen) !== '')) {
+            return $this->error($response, 'Validation failed', 422, ['when' => 'Use upcoming or past']);
+        }
+        $now        = new DateTimeImmutable();
+        $live       = $when !== null ? CallPresence::liveIds($this->presence->forPatient($customerId)) : [];
+        $lateHours  = $this->settings->get('late_cancel_hours');
 
         $result = $this->repo->paginated(
             $p['offset'],
@@ -39,11 +67,26 @@ final class ListMyAppointmentsAction
             $p['sort_dir'],
             $customerId,
             $this->parseStatuses($query['status'] ?? null),
+            $when,
+            $now,
+            $live,
         );
 
         return $this->paginated(
             $response,
-            array_map(static fn ($a) => $a->toArray(), $result['items']),
+            array_map(static function (Appointment $a) use ($now, $live, $lateHours): array {
+                $row = array_merge(
+                    $a->toArray('patient', $now),
+                    // Someone in the call: it is live, whatever the clock says.
+                    in_array($a->getId(), $live, true) ? $a->lifecycleFields($now, 'patient', true) : [],
+                );
+                // Moving it inside the late-cancellation window is refused (422).
+                if ($row['can_reschedule'] && AppointmentLifecycle::inLateWindow($a, $now, $lateHours)) {
+                    $row['can_reschedule'] = false;
+                }
+
+                return $row;
+            }, $result['items']),
             $result['total'],
             $p['page'],
             $p['per_page'],

@@ -89,6 +89,50 @@ describe('follow-up helpers', () => {
     expect(isClosedProposal({ ...closed, proposed_by: 'patient' })).toBe(false);
   });
 
+  it('labels past bookings by the lifecycle, not the status', () => {
+    const booked = { proposed_by: null, payment_status: 'paid' as const };
+    // A pending request whose time passed: "Not confirmed", never "Pending".
+    expect(
+      doctorStatusLabel(appt({ ...booked, status: 'pending', status_label: 'Pending', display_status: 'not_confirmed', display_label: 'Not confirmed' }), NOW),
+    ).toBe('Not confirmed');
+    // Cancelled by the closer for it (closure_reason expired_unconfirmed), even an unpaid doctor proposal shape.
+    expect(
+      doctorStatusLabel(appt({ status: 'cancelled', status_label: 'Cancelled', display_status: 'not_confirmed', display_label: 'Not confirmed' }), NOW),
+    ).toBe('Not confirmed');
+    expect(
+      doctorStatusLabel(appt({ ...booked, status: 'confirmed', status_label: 'Confirmed', display_status: 'finalising', display_label: 'Being finalised' }), NOW),
+    ).toBe('Being finalised');
+    // Older payloads without the lifecycle fields keep the status label.
+    expect(doctorStatusLabel(appt({ ...booked, status: 'confirmed', status_label: 'Confirmed' }), NOW)).toBe('Confirmed');
+  });
+
+  it('a missed follow-up says who did not come', () => {
+    const missed = appt({
+      proposed_by: 'patient',
+      payment_status: 'paid',
+      status: 'missed',
+      status_label: 'Missed',
+      display_status: 'missed',
+      display_label: 'Missed',
+      display_detail: "Patient didn't join",
+      no_show: 'patient',
+    });
+    expect(followUpState(missed, NOW)).toMatchObject({ label: "Missed — patient didn't join", icon: 'calendar-x', tone: 'warning', open: false });
+    expect(followUpState({ ...missed, no_show: 'doctor', display_detail: "You didn't attend" }, NOW)).toMatchObject({
+      label: "Missed — you didn't attend",
+      tone: 'danger',
+    });
+    expect(followUpState({ ...missed, display_detail: null }, NOW).label).toBe('Missed');
+  });
+
+  it('an open follow-up booking that is over reads as the lifecycle says', () => {
+    const booked = appt({ proposed_by: 'patient', payment_status: 'paid', status: 'confirmed', status_label: 'Confirmed' });
+    expect(followUpState(booked, NOW).label).toBe('Confirmed');
+    expect(followUpState({ ...booked, display_status: 'live' }, NOW).label).toBe('In progress');
+    expect(followUpState({ ...booked, display_status: 'finalising' }, NOW).label).toBe('Being finalised');
+    expect(followUpState({ ...booked, status: 'pending', display_status: 'not_confirmed' }, NOW).label).toBe('Not confirmed in time');
+  });
+
   it('a Withdraw that found the proposal already closed is not a withdrawal', () => {
     expect(withdrewProposal({ message: 'Follow-up withdrawn' })).toBe(true);
     expect(withdrewProposal({ message: PROPOSAL_ALREADY_CLOSED })).toBe(false);

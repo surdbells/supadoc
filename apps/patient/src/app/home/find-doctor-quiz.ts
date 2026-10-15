@@ -14,7 +14,7 @@ import { Router } from '@angular/router';
 import { forkJoin, map } from 'rxjs';
 import { apiErrorMessage, SpecialistsApi, viewerTimeZone } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
-import { IconComponent, StepperComponent } from '@supadoc/ui';
+import { DialogComponent, IconComponent, StepperComponent } from '@supadoc/ui';
 import { SpecialistCard } from '../dashboard/specialist-card';
 
 interface Issue {
@@ -144,7 +144,7 @@ const PER_SPECIALTY = 6;
 @Component({
   selector: 'pat-find-doctor-quiz',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SpecialistCard, NgTemplateOutlet, StepperComponent],
+  imports: [DialogComponent, IconComponent, SpecialistCard, NgTemplateOutlet, StepperComponent],
   template: `
     <!-- 3D doctor render (drop apps/patient/public/find-doctor.png in); falls
          back to a brand icon until the asset is present. -->
@@ -165,23 +165,20 @@ const PER_SPECIALTY = 6;
       }
     </ng-template>
 
-    @if (open()) {
-      <div
-        class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-abyss/40 p-4 backdrop-blur-sm sm:items-center"
-        tabindex="-1"
-        (click)="onBackdrop($event)"
-        (keydown.escape)="close()"
-      >
-        <div
-          class="my-auto w-full max-w-2xl rounded-card border border-frost bg-white p-6 shadow-2xl sm:p-8"
-          role="dialog"
-          aria-modal="true"
-        >
+    <sd-dialog
+      [open]="open()"
+      layout="plain"
+      size="lg"
+      labelledBy="find-doctor-title"
+      (closed)="close()"
+      (afterClose)="reset()"
+    >
+        <div class="p-6 sm:p-8">
           <!-- Header -->
           <div class="flex items-center justify-between gap-4">
-            <span class="flex items-center gap-2 font-heading text-h4 text-cerulean">
+            <h2 id="find-doctor-title" class="flex items-center gap-2 font-heading text-h4 text-cerulean">
               <sd-icon name="sparkles" [size]="24" />Find me a doctor
-            </span>
+            </h2>
             <div class="flex items-center gap-4">
               @if (canSkip()) {
                 <button
@@ -498,8 +495,7 @@ const PER_SPECIALTY = 6;
             }
           }
         </div>
-      </div>
-    }
+    </sd-dialog>
   `,
 })
 export class FindDoctorQuiz {
@@ -657,7 +653,11 @@ export class FindDoctorQuiz {
 
   protected close(): void {
     this.open.set(false);
-    // Reset for next time.
+  }
+
+  /** Once the dialog has gone (after its exit animation): fresh for next time. */
+  protected reset(): void {
+    if (this.open()) return; // reopened meanwhile
     this.phase.set('intro');
     this.step.set(1);
     this.selectedAreaKeys.set([]);
@@ -668,10 +668,6 @@ export class FindDoctorQuiz {
     this.notes.set('');
     this.top.set([]);
     this.showReasoning.set(false);
-  }
-
-  protected onBackdrop(event: MouseEvent): void {
-    if (event.target === event.currentTarget) this.close();
   }
 
   protected bookGeneralPractice(): void {

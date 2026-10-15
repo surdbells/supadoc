@@ -1,13 +1,17 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { tap } from 'rxjs';
 import { AdminSupportApi, apiErrorMessage } from '@supadoc/data-access';
 import type {
   SupportMessageDto,
@@ -15,7 +19,8 @@ import type {
   SupportTicketDto,
 } from '@supadoc/models';
 import type { ThreadMessage } from '@supadoc/ui';
-import { IconComponent, MessageThreadComponent } from '@supadoc/ui';
+import { DialogService, IconComponent, MessageThreadComponent } from '@supadoc/ui';
+import { afterDialogCloses, focusIfLost } from '../shared/after-dialog';
 
 const STATUS_CLASS: Record<string, string> = {
   open: 'bg-warning/15 text-warning',
@@ -116,9 +121,9 @@ type Filter = 'all' | SupportStatus;
                 <button type="button" class="rounded-field border border-sage px-3 py-1.5 font-sans text-caption font-semibold text-sage transition-colors hover:bg-sage/10 disabled:opacity-60" [disabled]="updating()" (click)="setStatus('resolved')">Mark resolved</button>
               }
               @if (t.status !== 'closed') {
-                <button type="button" class="rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:border-slate disabled:opacity-60" [disabled]="updating()" (click)="setStatus('closed')">Close</button>
+                <button type="button" class="rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:border-slate disabled:opacity-60" [disabled]="updating()" (click)="askClose(t)" #closeBtn>Close</button>
               } @else {
-                <button type="button" class="rounded-field border border-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:bg-frost/40 disabled:opacity-60" [disabled]="updating()" (click)="setStatus('open')">Reopen</button>
+                <button type="button" class="rounded-field border border-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:bg-frost/40 disabled:opacity-60" [disabled]="updating()" (click)="setStatus('open')" #reopenBtn>Reopen</button>
               }
             </div>
           </div>
@@ -144,7 +149,12 @@ type Filter = 'all' | SupportStatus;
 })
 export class AdminSupport implements OnInit {
   private readonly api = inject(AdminSupportApi);
+  private readonly dialogs = inject(DialogService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly doc = inject(DOCUMENT);
+  /** The status buttons swap places (Close ↔ Reopen; Mark resolved goes): focus follows. */
+  private readonly closeBtn = viewChild<ElementRef<HTMLButtonElement>>('closeBtn');
+  private readonly reopenBtn = viewChild<ElementRef<HTMLButtonElement>>('reopenBtn');
 
   protected readonly filters: { key: Filter; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -267,6 +277,31 @@ export class AdminSupport implements OnInit {
       });
   }
 
+  /** Closing stops the patient replying: ask first. */
+  protected async askClose(t: SupportTicketDto): Promise<void> {
+    this.error.set('');
+    await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'message-square-x',
+      title: 'Close this ticket?',
+      message: `${t.patient_name || 'The patient'} can't reply to it any more and would need to open a new ticket. You can reopen it later.`,
+      details: [{ label: 'Subject', value: t.subject }],
+      confirmLabel: 'Close ticket',
+      cancelLabel: 'Keep it open',
+      busyLabel: 'Closing…',
+      errorMessage: (err) => apiErrorMessage(err, 'Could not close the ticket.'),
+      action: () =>
+        this.api.setStatus(t.id, 'closed').pipe(
+          tap((res) => {
+            if (this.current()?.id !== res.data.id) return;
+            this.current.set(res.data);
+            // Close was replaced by Reopen: put focus there once the prompt has gone.
+            afterDialogCloses(() => focusIfLost(this.reopenBtn()?.nativeElement, this.doc), this.doc);
+          }),
+        ),
+    });
+  }
+
   protected setStatus(status: SupportStatus): void {
     const t = this.current();
     if (!t) return;
@@ -278,6 +313,8 @@ export class AdminSupport implements OnInit {
         next: (res) => {
           this.current.set(res.data);
           this.updating.set(false);
+          // Reopen and Mark resolved remove themselves: Close is where they were.
+          afterDialogCloses(() => focusIfLost(this.closeBtn()?.nativeElement, this.doc), this.doc);
         },
         error: (err: unknown) => {
           this.error.set(apiErrorMessage(err, 'Could not update the ticket.'));

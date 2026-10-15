@@ -381,7 +381,18 @@ final class AvailabilityEngineTest extends TestCase
     public function testBookingSettingsDefaultsAndValidation(): void
     {
         $settings = new BookingSettings();
-        $this->assertSame(['horizon_days' => 60, 'lead_minutes' => 60, 'few_left' => 3], $settings->all());
+        $this->assertSame([
+            'horizon_days'                         => 60,
+            'lead_minutes'                         => 60,
+            'few_left'                             => 3,
+            'missed_after_hours'                   => 12,
+            'unconfirmed_expiry_minutes_after_end' => 0,
+            'noshow_patient_refund_pct'            => 0,
+            'noshow_both_refund_pct'               => 0,
+            'late_cancel_hours'                    => 0,
+            'late_cancel_refund_pct'               => 100,
+            'doctor_noshow_alert_threshold'        => 2,
+        ], $settings->all());
 
         foreach ([['horizon_days' => 6], ['horizon_days' => 181], ['lead_minutes' => 7.5], ['few_left' => 'lots'], ['lead_minutes' => 1441]] as $patch) {
             try {

@@ -42,9 +42,11 @@ import {
   CallUid,
   CallVideoPlayConfig,
   CallVideoTrack,
+  DialogService,
   IconComponent,
   RemoteParticipant,
   RemoteParticipants,
+  warnBeforeUnload,
 } from '@supadoc/ui';
 import {
   callRefusal,
@@ -654,6 +656,8 @@ export class CallJoin implements AfterViewInit, OnDestroy {
    * a guest who isn't signed in.
    */
   private readonly session = inject(SessionTimeoutService);
+  /** "Leave the call?" before a live call is left. */
+  private readonly dialogs = inject(DialogService);
 
   private readonly preview = viewChild<ElementRef<HTMLDivElement>>('preview');
   private readonly stageTiles = viewChild(CallTilesComponent);
@@ -814,6 +818,8 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   protected readonly hasRemoteTile = computed(() => this.tiles().some((t) => !t.self));
 
   constructor() {
+    // Closing or reloading the tab mid-call drops the guest from it: the browser asks first.
+    warnBeforeUnload(() => this.stage() === 'in-call');
     // The stage's tiles exist from the first render; replay any video handed
     // over before then (or if they are ever re-created).
     effect(() => {
@@ -1697,9 +1703,31 @@ export class CallJoin implements AfterViewInit, OnDestroy {
     this.stopMeter();
   }
 
-  protected leave(): void {
+  /** The red button: asked first, as leaving drops the guest from the consultation. */
+  protected async leave(): Promise<void> {
     if (this.stage() !== 'in-call') return;
-    this.endCall('left');
+    if (!(await this.confirmLeaveCall())) return;
+    if (this.stage() === 'in-call') this.endCall('left');
+  }
+
+  private confirmLeaveCall(): Promise<boolean> {
+    return this.dialogs.confirmLeave({
+      title: 'Leave the call?',
+      message: 'Your invite link still works if you want to rejoin.',
+      confirmLabel: 'Leave call',
+      cancelLabel: 'Stay',
+      tone: 'warning',
+      icon: 'phone-off',
+    });
+  }
+
+  /**
+   * `unsavedChangesGuard` (route `call/join/:token`): the browser's Back
+   * button mid-call asks first (closing or reloading the tab gets the
+   * browser's own prompt — see the constructor).
+   */
+  canLeave(): boolean | Promise<boolean> {
+    return this.stage() === 'in-call' ? this.confirmLeaveCall() : true;
   }
 
   // ---- Video tiles ----

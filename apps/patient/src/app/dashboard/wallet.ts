@@ -11,7 +11,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { apiErrorMessage, WalletApi } from '@supadoc/data-access';
 import type { WalletDto, WalletTransactionDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { DialogComponent, IconComponent } from '@supadoc/ui';
 import { WalletTransactionRow } from './wallet-transaction-row';
 
 const CURRENCY_NAMES: Record<string, string> = {
@@ -40,7 +40,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
 @Component({
   selector: 'pat-wallet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, RouterLink, WalletTransactionRow],
+  imports: [DialogComponent, IconComponent, RouterLink, WalletTransactionRow],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -211,27 +211,18 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
     </div>
 
     <!-- Add funds modal -->
-    @if (fundOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeFund()"></button>
-        <div
-          class="relative z-10 flex w-full max-w-[560px] flex-col gap-6 rounded-[16px] border-[0.5px] border-[#d1e9fd] bg-white px-6 py-8 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
-        >
-          <div class="flex w-full flex-col gap-6">
-            <div class="flex items-center justify-between">
-              <h3 class="font-sans text-h5 font-medium text-ink">Add Funds</h3>
-              <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeFund()">
-                <sd-icon name="x" [size]="24" />
-              </button>
-            </div>
-            <hr class="border-t border-cloud" />
-          </div>
-
-          <div class="flex flex-col gap-8">
+    <sd-dialog
+      [open]="fundOpen()"
+      title="Add Funds"
+      size="md"
+      [busy]="funding()"
+      (closed)="closeFund()"
+    >
+          <form class="flex flex-col gap-8" (submit)="$event.preventDefault(); continueToPayment()">
             <div class="flex flex-col gap-4">
               <div class="flex flex-col gap-2">
                 <label for="wallet-amount" class="font-sans text-body text-ink">Enter Amount</label>
-                <div class="flex items-center justify-center gap-1 rounded-[16px] border-[0.5px] border-slate px-4 py-2.5">
+                <div class="flex items-center justify-center gap-1 rounded-[16px] border-[0.5px] border-slate px-4 py-2.5 focus-within:border-cerulean focus-within:ring-2 focus-within:ring-cerulean/30">
                   <span class="font-sans text-body-lg text-ink">{{ symbol() }}</span>
                   <input
                     id="wallet-amount"
@@ -270,10 +261,9 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
 
             <div class="flex flex-col items-center gap-6">
               <button
-                type="button"
-                class="flex w-full items-center justify-center gap-2 rounded-[16px] bg-cerulean px-4 py-3 font-sans text-body-sm font-medium text-white transition-colors hover:bg-ocean disabled:opacity-60"
+                type="submit"
+                class="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] bg-cerulean px-4 py-3 font-sans text-body-sm font-medium text-white transition-colors hover:bg-ocean disabled:opacity-60"
                 [disabled]="funding() || !amountValid()"
-                (click)="continueToPayment()"
               >
                 {{ funding() ? 'Redirecting…' : 'Continue to payment' }}
               </button>
@@ -281,10 +271,8 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
                 Secured by <span class="font-label font-semibold text-ink">paystack</span>
               </p>
             </div>
-          </div>
-        </div>
-      </div>
-    }
+          </form>
+    </sd-dialog>
   `,
 })
 export class Wallet implements OnInit {

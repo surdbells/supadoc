@@ -14,7 +14,7 @@ import type {
   PayoutAccountDto,
   PayoutDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { DialogService, IconComponent } from '@supadoc/ui';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 
 const FIELD =
@@ -26,6 +26,13 @@ const STATUS_CLASS: Record<string, string> = {
   paid: 'bg-sage/15 text-sage',
   rejected: 'bg-alert/10 text-alert',
 };
+
+/** "GTBank ••1234" — the bank and the last digits of the account (or IBAN). */
+function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' | 'iban'>): string {
+  const digits = (a.account_number || a.iban || '').replace(/\s+/g, '');
+  const bank = (a.bank_name || '').trim() || 'Bank account';
+  return digits ? `${bank} ••${digits.slice(-4)}` : bank;
+}
 
 /** Doctor payouts (route `/payouts`) — beneficiary, request, and history. */
 @Component({
@@ -155,6 +162,7 @@ const STATUS_CLASS: Record<string, string> = {
 export class DoctorPayouts implements OnInit {
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
 
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
@@ -231,10 +239,31 @@ export class DoctorPayouts implements OnInit {
     this.f.update((v) => ({ ...v, [key]: key === 'currency' || key === 'iban' || key === 'swift' ? value.toUpperCase() : value }));
   }
 
-  protected saveAccount(): void {
-    this.savingAccount.set(true);
+  /**
+   * Save the payout account. Replacing an account already on file (another
+   * bank or account number) asks first, showing where payouts go from now on.
+   */
+  protected async saveAccount(): Promise<void> {
+    if (this.savingAccount()) return;
     this.accountNotice.set('');
     const v = this.f();
+    const before = this.account();
+    if (before && accountLabel(before) !== accountLabel(v)) {
+      const { confirmed } = await this.dialogs.confirm({
+        tone: 'warning',
+        icon: 'landmark',
+        title: 'Change where your payouts go?',
+        message: 'Future payouts go to the new account. A payout already requested is paid as it was requested.',
+        details: [
+          { label: 'From', value: accountLabel(before) },
+          { label: 'To', value: accountLabel(v) },
+        ],
+        confirmLabel: 'Change account',
+        cancelLabel: 'Keep the current one',
+      });
+      if (!confirmed) return;
+    }
+    this.savingAccount.set(true);
     this.api
       .savePayoutAccount({
         account_holder: v.account_holder,
@@ -270,29 +299,37 @@ export class DoctorPayouts implements OnInit {
     this.requestOpen.set(true);
   }
 
-  protected submitRequest(): void {
+  /** A summary to check before the request goes in; the request runs in the dialog (inline error). */
+  protected async submitRequest(): Promise<void> {
     const amt = this.amount().trim();
-    if (!amt || Number(amt) <= 0) {
+    if (!amt || !(Number(amt) > 0)) {
       this.requestError.set('Enter an amount greater than zero.');
       return;
     }
-    this.requesting.set(true);
+    if (this.requesting()) return;
     this.requestError.set('');
-    this.api
-      .requestPayout(amt, this.note() || undefined)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.requesting.set(false);
-          this.requestOpen.set(false);
-          this.reloadSummary();
-          this.reloadHistory();
-        },
-        error: (err) => {
-          this.requestError.set(apiErrorMessage(err, 'Could not submit the request.'));
-          this.requesting.set(false);
-        },
-      });
+    const account = this.account();
+    const to = account ? accountLabel(account) : 'your payout account';
+    const note = this.note().trim();
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'info',
+      icon: 'banknote',
+      title: `Request ${this.money(amt)} to ${to}?`,
+      message: "You can't request another payout until this one is settled.",
+      details: [
+        { label: 'Amount', value: this.money(amt) },
+        { label: 'To', value: to },
+        ...(note ? [{ label: 'Note', value: note }] : []),
+      ],
+      confirmLabel: 'Request payout',
+      cancelLabel: 'Not yet',
+      action: () => this.api.requestPayout(amt, note || undefined),
+      errorMessage: (err) => apiErrorMessage(err, 'Could not submit the request.'),
+    });
+    if (!confirmed) return;
+    this.requestOpen.set(false);
+    this.reloadSummary();
+    this.reloadHistory();
   }
 
   protected money(amount: string): string {

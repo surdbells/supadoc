@@ -102,6 +102,7 @@ final class ConsultationCompleter
                 AppointmentStatus::COMPLETED => 'This consultation is already completed',
                 AppointmentStatus::CANCELLED => "This appointment was cancelled, so it can't be marked completed",
                 AppointmentStatus::PROPOSED  => "The patient hasn't accepted this follow-up yet, so it can't be marked completed",
+                AppointmentStatus::MISSED    => 'This consultation was marked missed. If it took place, ask the back office to mark it held',
                 default                      => 'Confirm this appointment before marking the consultation completed',
             };
         }
@@ -117,10 +118,10 @@ final class ConsultationCompleter
      * Is a confirmed visit due for the cron to close: its slot ended more than
      * AUTO_COMPLETE_AFTER_HOURS ago?
      */
-    public static function isOverdue(DateTimeImmutable $scheduledAt, int $slotMinutes, ?DateTimeImmutable $now = null): bool
+    public static function isOverdue(DateTimeImmutable $scheduledAt, int $slotMinutes, ?DateTimeImmutable $now = null, ?int $afterHours = null): bool
     {
         $now ??= new DateTimeImmutable();
-        $minutes = max(self::MIN_SLOT_MINUTES, $slotMinutes) + self::AUTO_COMPLETE_AFTER_HOURS * 60;
+        $minutes = max(self::MIN_SLOT_MINUTES, $slotMinutes) + ($afterHours ?? self::AUTO_COMPLETE_AFTER_HOURS) * 60;
 
         return $scheduledAt->modify('+' . $minutes . ' minutes') <= $now;
     }
@@ -130,6 +131,14 @@ final class ConsultationCompleter
      * Returns false (and records and sends nothing) when it was no longer
      * confirmed — someone else completed or cancelled it first. Either way
      * `$appointment` holds the stored status afterwards.
+     *
+     * `$from`: the statuses it may be completed from — confirmed for the
+     * doctor; the cron and the back office may also complete a visit that took
+     * place unconfirmed (pending / rescheduled) or a missed one that was held
+     * after all ({@see AppointmentStatus::privilegedTransitions()}).
+     * `$closureReason` is stored with it (auto_completed, staff_completed), and
+     * `$extra` runs inside the same transaction once it is claimed (e.g. the
+     * back office clearing a no-show) — it must not throw.
      *
      * The status change and its audit event commit together: if the audit
      * insert fails, the visit stays confirmed and a retry (or the next cron
@@ -145,12 +154,20 @@ final class ConsultationCompleter
         string $auditAction,
         bool $notifyPatient = true,
         array $metadata = [],
+        array $from = [AppointmentStatus::CONFIRMED],
+        ?string $closureReason = null,
+        ?callable $extra = null,
+        ?string $actorId = null,
     ): bool {
-        $claimed = $this->em->wrapInTransaction(function () use ($appointment, $actorName, $actorRole, $auditAction, $metadata): bool {
-            $claimed = (int) $this->claimQuery($appointment->getId())->execute() === 1;
+        $claimed = $this->em->wrapInTransaction(function () use ($appointment, $actorName, $actorRole, $auditAction, $metadata, $from, $closureReason, $extra, $actorId): bool {
+            $claimed = (int) $this->claimQuery($appointment->getId(), $from, $closureReason)->execute() === 1;
             // The UPDATE bypassed the unit of work — load the stored state back.
             $this->em->refresh($appointment);
             if ($claimed) {
+                if ($extra !== null) {
+                    $extra($appointment);
+                    $this->em->flush();
+                }
                 $this->audit->record(
                     $actorName,
                     $actorRole,
@@ -159,6 +176,7 @@ final class ConsultationCompleter
                     'appointment',
                     $appointment->getId(),
                     $metadata,
+                    $actorId,
                 );
             }
 
@@ -176,32 +194,44 @@ final class ConsultationCompleter
     }
 
     /**
-     * The reminders cron's pass: close confirmed visits whose slot ended more
-     * than AUTO_COMPLETE_AFTER_HOURS ago AND that have proof they took place
-     * (see EVIDENCE). Visits without proof (a no-show, a call that never
-     * happened) are left for the doctor or the back office. Idempotent: a
-     * completed visit is no longer a candidate.
+     * The reminders cron's pass: close visits whose slot ended more than
+     * `$afterHours` (default AUTO_COMPLETE_AFTER_HOURS; the booking setting
+     * missed_after_hours via {@see PastAppointmentCloser}) ago AND that have
+     * proof they took place (see EVIDENCE) — confirmed ones, and with
+     * `$statuses` also ones that took place unconfirmed (pending /
+     * rescheduled: audited `appointment.auto_completed_unconfirmed`). Visits
+     * without proof are left alone here (the closer marks them missed or
+     * expired). Idempotent: a completed visit is no longer a candidate.
      *
-     * @return array{completed: int, quiet: int, kinds: array<string,int>}
+     * `$skipIds` are left out (visits that failed in an earlier attempt of this
+     * run — see {@see PastAppointmentCloser::runWithRetries()}); the ids that
+     * fail now are returned in `failed_ids`.
+     *
+     * @param list<AppointmentStatus> $statuses
+     * @param list<string>            $skipIds
+     * @return array{completed: int, quiet: int, kinds: array<string,int>, errors: int, failed_ids: list<string>}
      */
-    public function autoCompleteOverdue(?DateTimeImmutable $now = null): array
+    public function autoCompleteOverdue(?DateTimeImmutable $now = null, ?int $afterHours = null, array $statuses = [AppointmentStatus::CONFIRMED], array $skipIds = []): array
     {
         $now ??= new DateTimeImmutable();
-        $cutoff   = $now->modify('-' . (self::AUTO_COMPLETE_AFTER_HOURS * 60 + self::MIN_SLOT_MINUTES) . ' minutes');
+        $afterHours ??= self::AUTO_COMPLETE_AFTER_HOURS;
+        $cutoff   = $now->modify('-' . ($afterHours * 60 + self::MIN_SLOT_MINUTES) . ' minutes');
         $notifyOn = $now->modify('-' . self::NOTIFY_WITHIN_DAYS . ' days');
 
         /** @var list<Appointment> $candidates */
-        $candidates = $this->overdueQuery($cutoff)->getResult();
+        $candidates = $this->overdueQuery($cutoff, $statuses, $skipIds)->getResult();
         $due = array_values(array_filter(
             $candidates,
-            static fn (Appointment $a): bool => self::isOverdue($a->getScheduledAt(), $a->getSpecialist()->getSlotMinutes(), $now),
+            static fn (Appointment $a): bool => self::isOverdue($a->getScheduledAt(), $a->getSpecialist()->getSlotMinutes(), $now, $afterHours),
         ));
         if ($due === []) {
-            return ['completed' => 0, 'quiet' => 0, 'kinds' => []];
+            return ['completed' => 0, 'quiet' => 0, 'kinds' => [], 'errors' => 0, 'failed_ids' => []];
         }
 
         $kinds     = $this->evidenceKinds(array_map(static fn (Appointment $a): string => $a->getId(), $due));
         $completed = 0;
+        $errors    = 0;
+        $failed    = [];
         $quiet     = 0;
         $tally     = [];
         foreach ($due as $appointment) {
@@ -209,8 +239,32 @@ final class ConsultationCompleter
             if ($found === []) {
                 continue; // its proof went away between the two reads — never close without it
             }
-            $notify = $appointment->getScheduledAt() >= $notifyOn;
-            if ($this->complete($appointment, 'System', 'system', 'appointment.auto_completed', $notify, ['evidence' => $found])) {
+            $notify      = $appointment->getScheduledAt() >= $notifyOn;
+            $unconfirmed = $appointment->getStatus() !== AppointmentStatus::CONFIRMED;
+            try {
+                $closed = $this->complete(
+                    $appointment,
+                    'System',
+                    'system',
+                    $unconfirmed ? 'appointment.auto_completed_unconfirmed' : 'appointment.auto_completed',
+                    $notify,
+                    ['evidence' => $found] + ($unconfirmed ? ['was' => $appointment->getStatus()->value] : []),
+                    $statuses,
+                    'auto_completed',
+                );
+            } catch (\Throwable $e) {
+                // One bad row never stops the rest of the batch — unless it
+                // closed the entity manager; then the cron retries on a fresh
+                // one, skipping it (`failed_ids`).
+                ++$errors;
+                $failed[] = $appointment->getId();
+                error_log('[auto-complete] completing ' . $appointment->getId() . ' failed: ' . $e::class . ': ' . $e->getMessage());
+                if (!$this->em->isOpen()) {
+                    break;
+                }
+                continue;
+            }
+            if ($closed) {
                 ++$completed;
                 if (!$notify) {
                     ++$quiet;
@@ -222,23 +276,38 @@ final class ConsultationCompleter
         }
         ksort($tally);
 
-        return ['completed' => $completed, 'quiet' => $quiet, 'kinds' => $tally];
+        return ['completed' => $completed, 'quiet' => $quiet, 'kinds' => $tally, 'errors' => $errors, 'failed_ids' => $failed];
     }
 
-    /** The compare-and-set behind {@see complete()}: affects one row only while still confirmed. */
-    public function claimQuery(string $appointmentId): Query
+    /**
+     * The compare-and-set behind {@see complete()}: affects one row only while
+     * still in one of `$from` (confirmed by default). Records when it closed,
+     * and why when `$closureReason` is given.
+     *
+     * @param list<AppointmentStatus> $from
+     */
+    public function claimQuery(string $appointmentId, array $from = [AppointmentStatus::CONFIRMED], ?string $closureReason = null): Query
     {
-        return $this->em->createQueryBuilder()
+        $qb = $this->em->createQueryBuilder()
             ->update(Appointment::class, 'a')
             ->set('a.status', ':completed')
             ->set('a.updatedAt', ':now')
+            ->set('a.closedAt', ':now')
             ->where('a.id = :id')
-            ->andWhere('a.status = :confirmed')
             ->setParameter('completed', AppointmentStatus::COMPLETED->value)
-            ->setParameter('confirmed', AppointmentStatus::CONFIRMED->value)
             ->setParameter('now', new DateTimeImmutable())
-            ->setParameter('id', $appointmentId)
-            ->getQuery();
+            ->setParameter('id', $appointmentId);
+        if (count($from) === 1) {
+            $qb->andWhere('a.status = :confirmed')->setParameter('confirmed', $from[0]->value);
+        } else {
+            $qb->andWhere('a.status IN (:confirmed)')
+                ->setParameter('confirmed', array_map(static fn (AppointmentStatus $s): string => $s->value, $from));
+        }
+        if ($closureReason !== null) {
+            $qb->set('a.closureReason', ':reason')->setParameter('reason', $closureReason);
+        }
+
+        return $qb->getQuery();
     }
 
     /**
@@ -249,28 +318,66 @@ final class ConsultationCompleter
      * own rows instead of reading whole tables (an uncorrelated `IN (SELECT …)`
      * under OR can't become a semi-join and would hash every call sample).
      */
-    public function overdueQuery(DateTimeImmutable $cutoff): Query
+    /**
+     * "(EXISTS (…) OR EXISTS (…) …)" — the appointment aliased `$appointment`
+     * has proof it took place (any EVIDENCE kind), correlated per row. Bind
+     * its parameters with {@see bindEvidence()}. Used here and by the closer
+     * (NOT …: the visits with no proof).
+     */
+    public function evidenceExistsDql(string $appointment = 'a'): string
+    {
+        $proof = [];
+        foreach (self::EVIDENCE as [$entity, $alias, $condition]) {
+            $proof[] = 'EXISTS (' . $this->evidenceDql($entity, $alias, "$alias.appointmentId = $appointment.id", $condition) . ')';
+        }
+
+        return '(' . implode(' OR ', $proof) . ')';
+    }
+
+    /**
+     * @param list<AppointmentStatus> $statuses
+     * @param list<string>            $skipIds left out (failed earlier in this run)
+     */
+    public function overdueQuery(DateTimeImmutable $cutoff, array $statuses = [AppointmentStatus::CONFIRMED], array $skipIds = []): Query
     {
         $proof = [];
         foreach (self::EVIDENCE as [$entity, $alias, $condition]) {
             $proof[] = 'EXISTS (' . $this->evidenceDql($entity, $alias, "$alias.appointmentId = a.id", $condition) . ')';
         }
 
-        $query = $this->em->createQueryBuilder()
+        $qb = $this->em->createQueryBuilder()
             ->select('a', 's')
             ->from(Appointment::class, 'a')
             ->join('a.specialist', 's')
-            ->andWhere('a.status = :confirmed')
+            ->andWhere(count($statuses) === 1 ? 'a.status = :confirmed' : 'a.status IN (:confirmed)')
             ->andWhere('a.deletedAt IS NULL')
             ->andWhere('a.scheduledAt < :cutoff')
             ->andWhere(implode(' OR ', $proof))
-            ->setParameter('confirmed', AppointmentStatus::CONFIRMED->value)
-            ->setParameter('cutoff', $cutoff)
-            ->orderBy('a.scheduledAt', 'ASC')
+            ->setParameter('confirmed', count($statuses) === 1
+                ? $statuses[0]->value
+                : array_map(static fn (AppointmentStatus $s): string => $s->value, $statuses))
+            ->setParameter('cutoff', $cutoff);
+        self::excludeIds($qb, $skipIds);
+
+        $query = $qb->orderBy('a.scheduledAt', 'ASC')
             ->setMaxResults(self::BATCH)
             ->getQuery();
 
         return $this->bindEvidence($query);
+    }
+
+    /**
+     * Leave `$ids` out of a query on appointments aliased `a` (no-op when empty).
+     *
+     * @param list<string> $ids
+     */
+    public static function excludeIds(\Doctrine\ORM\QueryBuilder $qb, array $ids): \Doctrine\ORM\QueryBuilder
+    {
+        if ($ids !== []) {
+            $qb->andWhere('a.id NOT IN (:skip)')->setParameter('skip', array_values(array_unique($ids)));
+        }
+
+        return $qb;
     }
 
     /**
@@ -292,13 +399,17 @@ final class ConsultationCompleter
     }
 
     /**
-     * Which evidence kinds each appointment has (for the audit trail).
+     * Which evidence kinds each appointment has (for the audit trail, and the
+     * closer re-checking a visit before it marks it missed).
      *
      * @param list<string> $ids
      * @return array<string, list<string>>
      */
-    private function evidenceKinds(array $ids): array
+    public function evidenceKinds(array $ids): array
     {
+        if ($ids === []) {
+            return [];
+        }
         $out = [];
         foreach ($this->evidenceQueries($ids) as $kind => $query) {
             $rows = $query->getScalarResult();
@@ -318,7 +429,7 @@ final class ConsultationCompleter
     }
 
     /** Bind the EVIDENCE_PARAMS this query uses (Doctrine refuses unused ones). */
-    private function bindEvidence(Query $query): Query
+    public function bindEvidence(Query $query): Query
     {
         foreach (self::EVIDENCE_PARAMS as $name => $value) {
             if (str_contains($query->getDQL() ?? '', ':' . $name)) {

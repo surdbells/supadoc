@@ -8,9 +8,11 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { tap } from 'rxjs';
 import { apiErrorFields, apiErrorMessage, SettingsApi } from '@supadoc/data-access';
 import type { BookingSettingsDto } from '@supadoc/models';
-import { AlertComponent, IconComponent } from '@supadoc/ui';
+import type { ConfirmDetail } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
 
 type Key = keyof BookingSettingsDto;
 
@@ -24,36 +26,141 @@ interface Rule {
   readonly hint: string;
 }
 
-/** Mirrors the API's BookingSettings ranges (enforced server-side too). */
-const RULES: readonly Rule[] = [
+interface RuleGroup {
+  readonly id: string;
+  readonly title: string;
+  readonly icon: string;
+  readonly intro: string;
+  readonly rules: readonly Rule[];
+}
+
+/** Mirrors the API's BookingSettings ranges and defaults (enforced server-side too). */
+const GROUPS: readonly RuleGroup[] = [
   {
-    key: 'horizon_days',
-    label: 'How far ahead patients can book',
-    unit: 'days',
-    min: 7,
-    max: 180,
-    fallback: 60,
-    hint: 'The booking calendar ends here. Staff and doctors can still book or reschedule further out.',
+    id: 'calendar',
+    title: 'Booking calendar',
+    icon: 'calendar-days',
+    intro: 'When patients can book a consultation. Existing bookings are not affected.',
+    rules: [
+      {
+        key: 'horizon_days',
+        label: 'How far ahead patients can book',
+        unit: 'days',
+        min: 7,
+        max: 180,
+        fallback: 60,
+        hint: 'The booking calendar ends here. Staff and doctors can still book or reschedule further out.',
+      },
+      {
+        key: 'lead_minutes',
+        label: 'Minimum notice',
+        unit: 'minutes',
+        min: 15,
+        max: 1440,
+        fallback: 60,
+        hint: 'The earliest a new booking can start, counted from now (1,440 minutes is 24 hours).',
+      },
+      {
+        key: 'few_left',
+        label: '“Few left” at',
+        unit: 'open times or fewer',
+        min: 1,
+        max: 10,
+        fallback: 3,
+        hint: 'A day with this many open times or fewer is marked “few left” on the calendar.',
+      },
+    ],
   },
   {
-    key: 'lead_minutes',
-    label: 'Minimum notice',
-    unit: 'minutes',
-    min: 15,
-    max: 1440,
-    fallback: 60,
-    hint: 'The earliest a new booking can start, counted from now (1,440 minutes is 24 hours).',
+    id: 'closing',
+    title: 'Closing past consultations',
+    icon: 'history',
+    intro: 'An automatic check closes consultations that have ended, so none stays open — or holds the patient’s money — forever.',
+    rules: [
+      {
+        key: 'missed_after_hours',
+        label: 'Close a consultation after',
+        unit: 'hours after its end',
+        min: 1,
+        max: 168,
+        fallback: 12,
+        hint: 'It closes as completed when there is proof it took place; otherwise a confirmed one is marked missed, unless both sides joined but nothing proves it took place; those wait for staff. The wait gives the doctor time to finish their notes.',
+      },
+      {
+        key: 'unconfirmed_expiry_minutes_after_end',
+        label: 'Cancel unconfirmed requests',
+        unit: 'minutes after the end',
+        min: 0,
+        max: 1440,
+        fallback: 0,
+        hint: "A request the doctor never confirmed is cancelled this long after its end, and anything paid is refunded in full. It's never sooner than 30 minutes, while the doctor can still confirm it, so 0–30 all mean 30 minutes. A request both sides joined is left for staff.",
+      },
+    ],
   },
   {
-    key: 'few_left',
-    label: '“Few left” at',
-    unit: 'open times or fewer',
-    min: 1,
-    max: 10,
-    fallback: 3,
-    hint: 'A day with this many open times or fewer is marked “few left” on the calendar.',
+    id: 'noshow',
+    title: 'Missed consultations',
+    icon: 'calendar-x',
+    intro: 'Refunds when someone didn’t come. A doctor no-show always refunds the patient in full, and guest fees always go back.',
+    rules: [
+      {
+        key: 'noshow_patient_refund_pct',
+        label: 'Patient didn’t join — refund',
+        unit: '%',
+        min: 0,
+        max: 100,
+        fallback: 0,
+        hint: 'The doctor was there. The share of the consultation fee that goes back to the patient; the doctor earns the rest.',
+      },
+      {
+        key: 'noshow_both_refund_pct',
+        label: 'Neither joined — refund',
+        unit: '%',
+        min: 0,
+        max: 100,
+        fallback: 0,
+        hint: 'The share of the consultation fee that goes back to the patient. The doctor earns nothing.',
+      },
+      {
+        key: 'doctor_noshow_alert_threshold',
+        label: 'Alert staff when a doctor misses',
+        unit: 'consultations in 30 days',
+        min: 1,
+        max: 20,
+        fallback: 2,
+        hint: 'Staff who manage specialists are alerted when a doctor has missed this many consultations within 30 days.',
+      },
+    ],
+  },
+  {
+    id: 'late',
+    title: 'Late cancellation',
+    icon: 'clock',
+    intro: 'Patients can cancel until the start. Pending requests always refund in full — the doctor hadn’t committed.',
+    rules: [
+      {
+        key: 'late_cancel_hours',
+        label: 'Late window',
+        unit: 'hours before the start',
+        min: 0,
+        max: 168,
+        fallback: 0,
+        hint: 'Cancelling a confirmed consultation within this many hours of its start refunds the share below. 0 turns it off: a full refund until the start.',
+      },
+      {
+        key: 'late_cancel_refund_pct',
+        label: 'Late cancellation — refund',
+        unit: '%',
+        min: 0,
+        max: 100,
+        fallback: 100,
+        hint: 'The share of the consultation fee refunded inside the late window (guest fees always go back).',
+      },
+    ],
   },
 ];
+
+const RULES: readonly Rule[] = GROUPS.flatMap((g) => g.rules);
 
 type FormValues = Record<Key, string>;
 
@@ -65,10 +172,17 @@ function toForm(s: Partial<BookingSettingsDto>): FormValues {
 
 const FIELD_ID = (key: Key) => `bo-booking-${key}`;
 
+/** "12 hours after its end", "30%". */
+function withUnit(n: number | string, unit: string): string {
+  const v = typeof n === 'number' ? n.toLocaleString('en-GB') : n;
+  return unit === '%' ? `${v}%` : `${v} ${unit}`;
+}
+
 /**
- * Booking rules on the Settings page (needs `settings.manage`): how far ahead
- * patients may book, the minimum notice, and when a calendar day shows
- * "few left". Changes apply to every booking calendar straight away.
+ * Booking rules on the Settings page (needs `settings.manage`): the booking
+ * calendar (how far ahead, minimum notice, "few left"), how past
+ * consultations close, the no-show refunds and the late-cancellation window.
+ * Saving shows what changes and asks first — these rules move money.
  */
 @Component({
   selector: 'bo-booking-settings',
@@ -78,9 +192,9 @@ const FIELD_ID = (key: Key) => `bo-booking-${key}`;
     <section class="flex max-w-3xl flex-col gap-5 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="bo-booking-title">
       <div class="flex flex-col gap-1">
         <h2 id="bo-booking-title" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-          <sd-icon name="calendar-days" [size]="20" />Booking calendar
+          <sd-icon name="calendar-days" [size]="20" />Booking rules
         </h2>
-        <p class="font-sans text-body-sm text-slate">Rules for when patients can book a consultation. Existing bookings are not affected.</p>
+        <p class="font-sans text-body-sm text-slate">Rules for booking, cancelling and closing consultations. Changes apply from now on.</p>
       </div>
 
       @if (loading()) {
@@ -94,41 +208,51 @@ const FIELD_ID = (key: Key) => `bo-booking-${key}`;
         </div>
       } @else {
         <form class="flex flex-col gap-5" novalidate (submit)="$event.preventDefault(); save()">
-          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            @for (r of rules; track r.key) {
-              <div class="flex min-w-0 flex-col gap-1.5">
-                <label [for]="fieldId(r.key)" class="font-sans text-caption font-semibold text-slate">{{ r.label }}</label>
-                <div
-                  class="flex items-stretch overflow-hidden rounded-field border bg-white transition-colors focus-within:ring-2"
-                  [class]="errorFor(r.key) ? 'border-alert focus-within:ring-alert/20' : 'border-cloud focus-within:border-cerulean focus-within:ring-cerulean/20'"
-                >
-                  <input
-                    [id]="fieldId(r.key)"
-                    type="number"
-                    inputmode="numeric"
-                    step="1"
-                    [min]="r.min"
-                    [max]="r.max"
-                    [value]="values()[r.key]"
-                    [attr.aria-invalid]="errorFor(r.key) ? 'true' : null"
-                    [attr.aria-describedby]="fieldId(r.key) + '-hint' + (errorFor(r.key) ? ' ' + fieldId(r.key) + '-error' : '')"
-                    class="min-h-11 w-full min-w-0 flex-1 bg-transparent px-4 py-2.5 font-sans text-body-sm text-ink focus:outline-none"
-                    (input)="setValue(r.key, $any($event.target).value)"
-                  />
-                  <span class="flex shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">{{ r.unit }}</span>
-                </div>
-                @if (errorFor(r.key); as msg) {
-                  <p [id]="fieldId(r.key) + '-error'" class="flex items-start gap-1.5 font-sans text-caption text-alert">
-                    <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}
-                  </p>
-                }
-                <p [id]="fieldId(r.key) + '-hint'" class="font-sans text-caption text-slate">
-                  {{ r.hint }}
-                  <span class="block text-slate/80">Allowed {{ range(r) }}. Standard: {{ r.fallback }} {{ r.unit }}.</span>
-                </p>
+          @for (g of groups; track g.id; let first = $first) {
+            <div role="group" [attr.aria-labelledby]="'bo-booking-group-' + g.id" class="flex flex-col gap-4" [class.border-t]="!first" [class.border-cloud]="!first" [class.pt-5]="!first">
+              <div class="flex flex-col gap-1">
+                <h3 [id]="'bo-booking-group-' + g.id" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
+                  <sd-icon [name]="g.icon" [size]="18" class="text-slate" />{{ g.title }}
+                </h3>
+                <p class="font-sans text-caption text-slate">{{ g.intro }}</p>
               </div>
-            }
-          </div>
+              <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                @for (r of g.rules; track r.key) {
+                  <div class="flex min-w-0 flex-col gap-1.5">
+                    <label [for]="fieldId(r.key)" class="font-sans text-caption font-semibold text-slate">{{ r.label }}</label>
+                    <div
+                      class="flex items-stretch overflow-hidden rounded-field border bg-white transition-colors focus-within:ring-2"
+                      [class]="errorFor(r.key) ? 'border-alert focus-within:ring-alert/20' : 'border-cloud focus-within:border-cerulean focus-within:ring-cerulean/20'"
+                    >
+                      <input
+                        [id]="fieldId(r.key)"
+                        type="number"
+                        inputmode="numeric"
+                        step="1"
+                        [min]="r.min"
+                        [max]="r.max"
+                        [value]="values()[r.key]"
+                        [attr.aria-invalid]="errorFor(r.key) ? 'true' : null"
+                        [attr.aria-describedby]="fieldId(r.key) + '-hint' + (errorFor(r.key) ? ' ' + fieldId(r.key) + '-error' : '')"
+                        class="min-h-11 w-full min-w-0 flex-1 bg-transparent px-4 py-2.5 font-sans text-body-sm text-ink focus:outline-none"
+                        (input)="setValue(r.key, $any($event.target).value)"
+                      />
+                      <span class="flex max-w-[55%] shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">{{ r.unit }}</span>
+                    </div>
+                    @if (errorFor(r.key); as msg) {
+                      <p [id]="fieldId(r.key) + '-error'" class="flex items-start gap-1.5 font-sans text-caption text-alert">
+                        <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}
+                      </p>
+                    }
+                    <p [id]="fieldId(r.key) + '-hint'" class="font-sans text-caption text-slate">
+                      {{ r.hint }}
+                      <span class="block text-slate/80">Allowed {{ range(r) }}. Standard: {{ standard(r) }}.</span>
+                    </p>
+                  </div>
+                }
+              </div>
+            </div>
+          }
 
           <div aria-live="polite">
             @if (notice(); as n) {
@@ -157,9 +281,10 @@ const FIELD_ID = (key: Key) => `bo-booking-${key}`;
 })
 export class BookingSettingsSection implements OnInit {
   private readonly api = inject(SettingsApi);
+  private readonly dialogs = inject(DialogService);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly rules = RULES;
+  protected readonly groups = GROUPS;
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
   protected readonly saving = signal(false);
@@ -176,6 +301,11 @@ export class BookingSettingsSection implements OnInit {
     return RULES.some((r) => now[r.key].trim() !== saved[r.key]);
   });
 
+  /** For the Settings page's leave guard: edits that aren't saved yet. */
+  hasUnsavedChanges(): boolean {
+    return this.dirty();
+  }
+
   ngOnInit(): void {
     this.load();
   }
@@ -189,10 +319,7 @@ export class BookingSettingsSection implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          const form = toForm(res.data);
-          this.saved.set(form);
-          this.values.set({ ...form });
-          this.fieldErrors.set({});
+          this.accept(res.data);
           this.loading.set(false);
         },
         error: (err: unknown) => {
@@ -212,7 +339,11 @@ export class BookingSettingsSection implements OnInit {
   }
 
   protected range(r: Rule): string {
-    return `${r.min.toLocaleString('en-GB')}–${r.max.toLocaleString('en-GB')} ${r.unit}`;
+    return r.unit === '%' ? `${r.min}–${r.max}%` : `${r.min.toLocaleString('en-GB')}–${withUnit(r.max, r.unit)}`;
+  }
+
+  protected standard(r: Rule): string {
+    return withUnit(r.fallback, r.unit);
   }
 
   protected setValue(key: Key, raw: string): void {
@@ -227,20 +358,30 @@ export class BookingSettingsSection implements OnInit {
     }
   }
 
-  protected discard(): void {
+  protected async discard(): Promise<void> {
     const saved = this.saved();
     if (!saved) return;
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'undo-2',
+      title: 'Discard changes?',
+      message: 'Your edits to the booking rules will be lost.',
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Keep editing',
+    });
+    if (!confirmed) return;
     this.values.set({ ...saved });
     this.fieldErrors.set({});
     this.notice.set('');
   }
 
-  protected save(): void {
+  protected async save(): Promise<void> {
     const saved = this.saved();
     if (this.saving() || !saved) return;
     this.notice.set('');
     const errors: Record<string, string> = {};
     const patch: Partial<BookingSettingsDto> = {};
+    const changes: ConfirmDetail[] = [];
     const now = this.values();
     for (const r of RULES) {
       const raw = now[r.key].trim();
@@ -249,6 +390,7 @@ export class BookingSettingsSection implements OnInit {
         errors[r.key] = `Enter a whole number from ${this.range(r)}.`;
       } else if (raw !== saved[r.key]) {
         patch[r.key] = n;
+        changes.push({ label: r.label, value: `${withUnit(saved[r.key], r.unit)} → ${withUnit(n, r.unit)}` });
       }
     }
     this.fieldErrors.set(errors);
@@ -257,26 +399,38 @@ export class BookingSettingsSection implements OnInit {
       this.notice.set('Please fix the highlighted boxes, then save again.');
       return;
     }
-    this.saving.set(true);
-    this.api
-      .updateBookingSettings(patch)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          const form = toForm(res.data);
-          this.saved.set(form);
-          this.values.set({ ...form });
-          this.fieldErrors.set({});
-          this.noticeOk.set(true);
-          this.notice.set('Booking rules saved. Every booking calendar uses them from now on.');
-          this.saving.set(false);
-        },
-        error: (err: unknown) => {
-          this.fieldErrors.set(apiErrorFields(err));
-          this.noticeOk.set(false);
-          this.notice.set(apiErrorMessage(err, 'Could not save the booking rules.'));
-          this.saving.set(false);
-        },
-      });
+    if (changes.length === 0) return;
+    const request = this.api.updateBookingSettings(patch).pipe(
+      tap({
+        next: (res) => this.accept(res.data),
+        // Highlight the boxes the API refused; the dialog shows the message.
+        error: (err: unknown) => this.fieldErrors.set(apiErrorFields(err)),
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    );
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'save',
+      title: 'Save the booking rules?',
+      message: 'They apply from now on — to every booking calendar, to cancellations, and to consultations the automatic check closes from now on. Consultations already closed keep their outcome.',
+      details: changes,
+      confirmLabel: 'Save rules',
+      cancelLabel: 'Keep editing',
+      size: 'md',
+      busyLabel: 'Saving…',
+      errorMessage: (err) => apiErrorMessage(err, 'Could not save the booking rules.'),
+      action: () => request,
+    });
+    if (confirmed) {
+      this.noticeOk.set(true);
+      this.notice.set('Booking rules saved. They apply from now on.');
+    }
+  }
+
+  private accept(data: BookingSettingsDto): void {
+    const form = toForm(data);
+    this.saved.set(form);
+    this.values.set({ ...form });
+    this.fieldErrors.set({});
   }
 }

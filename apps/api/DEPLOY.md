@@ -417,6 +417,40 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
 The prescription rules (default validity, reminder lead time, check-page lock-out,
 download-link lifetime) are editable in the back office → Pricing & settings.
 
+### One-time: the past-appointment lifecycle release
+
+1. **Schema** — the redeploy one-liner's `schema-tool:update` adds seven
+   nullable columns to `appointments` (`closure_reason`, `no_show`,
+   `closed_at`, `doctor_first_joined_at`, `patient_first_joined_at`,
+   `rescheduled_by`, `refunded_amount`). The new `missed` status needs no DDL
+   (`status` is a varchar). No `prod-migrate` step: existing rows are left as
+   they are and the cron closes them.
+2. **Cron** — no new job: `bin/send-reminders.php` now runs
+   `PastAppointmentCloser`. Its **first run closes the backlog**: past
+   pending / rescheduled bookings (ended over 30 minutes ago — the doctor's
+   confirm grace; not ones both sides joined the call of) → cancelled
+   (`expired_unconfirmed`) with a full refund of paid ones; confirmed ones
+   past `missed_after_hours` with no proof → missed (refund by the no-show
+   settings); ones with proof → completed. Anything that started over 3 days
+   ago closes quietly (audited, refunded, no notices and no wallet receipt
+   email). Each pass pages through the whole backlog (200 rows a page, up to
+   50 pages a run); a failing row is logged (`[past-appointments]` /
+   `[auto-complete]` in the PHP error log, `errors` in the cron summary) and
+   never stops the others. To see what it will touch first (read-only):
+
+   ```sql
+   SELECT status, payment_status, COUNT(*) FROM appointments a JOIN specialists s ON s.id = a.specialist_id
+   WHERE a.deleted_at IS NULL AND a.status IN ('pending','rescheduled','confirmed')
+     AND a.scheduled_at + (s.slot_minutes || ' minutes')::interval < NOW()
+   GROUP BY 1, 2;
+   ```
+3. **Settings** — back office → Booking settings (GET/PATCH `/api/settings/booking`):
+   `missed_after_hours` (12), `unconfirmed_expiry_minutes_after_end` (0),
+   `noshow_patient_refund_pct` (0), `noshow_both_refund_pct` (0),
+   `late_cancel_hours` (0 = off), `late_cancel_refund_pct` (100),
+   `doctor_noshow_alert_threshold` (2 in 30 days). Set them before the first
+   cron run if the defaults don't suit.
+
 ---
 
 ## Troubleshooting

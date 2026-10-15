@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { RouterLink } from '@angular/router';
 import type { AppointmentDto } from '@supadoc/models';
 import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { statusDetail, statusKey } from '../appointment/appointment-status';
 import { doctorStatusLabel } from '../appointment/follow-ups';
 import { formatDay, formatTime, isUpcomingVisit, VisitStatusBadge } from './patient-record-ui';
 
@@ -43,7 +44,10 @@ import { formatDay, formatTime, isUpcomingVisit, VisitStatusBadge } from './pati
               <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="shrink-0 text-slate" />{{ r.time }}</span>
             </div>
             <div class="flex items-center justify-between gap-3 lg:w-auto lg:justify-end lg:gap-6">
-              <div class="lg:w-36"><doc-visit-status-badge [status]="r.visit.status" [label]="r.label" /></div>
+              <div class="flex flex-col gap-1 lg:w-36">
+                <doc-visit-status-badge [status]="r.key" [label]="r.label" />
+                @if (r.detail) { <span class="font-sans text-caption text-slate">{{ r.detail }}</span> }
+              </div>
               <a
                 [routerLink]="['/appointments', r.visit.id]"
                 class="inline-flex shrink-0 items-center gap-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
@@ -64,13 +68,19 @@ export class PatientVisits {
 
   protected readonly rows = computed(() => {
     const now = Date.now();
-    return this.visits().map((visit) => ({
-      visit,
-      upcoming: isUpcomingVisit(visit, now),
-      // "Awaiting patient" for a follow-up proposal, how an unaccepted one closed, else the API's label.
-      label: doctorStatusLabel(visit, now),
-      day: formatDay(visit.scheduled_at),
-      time: formatTime(visit.scheduled_at),
-    }));
+    return this.visits().map((visit) => {
+      // "Awaiting patient" for a follow-up proposal, how an unaccepted one closed, else the lifecycle label.
+      const label = doctorStatusLabel(visit, now);
+      return {
+        visit,
+        upcoming: isUpcomingVisit(visit, now),
+        key: statusKey(visit),
+        label,
+        // "Patient didn't join", "You didn't confirm in time"…
+        detail: statusDetail(visit, label),
+        day: formatDay(visit.scheduled_at),
+        time: formatTime(visit.scheduled_at),
+      };
+    });
   });
 }

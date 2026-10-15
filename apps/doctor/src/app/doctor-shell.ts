@@ -17,7 +17,8 @@ import {
 import { filter, map } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
 import { DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
-import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { IconComponent } from '@supadoc/ui';
+import { DoctorSignOut } from './sign-out';
 import { DoctorStandingStore } from './standing/doctor-standing.store';
 
 interface NavItem {
@@ -49,7 +50,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
 @Component({
   selector: 'doc-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent, ConfirmDialogComponent],
+  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
@@ -192,17 +193,6 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
         </button>
       </div>
     </ng-template>
-
-    <sd-confirm-dialog
-      [open]="confirmLogout()"
-      title="Sign out?"
-      message="You'll need to sign in again to access your consultations."
-      confirmLabel="Sign out"
-      icon="log-out"
-      [danger]="true"
-      (confirm)="logout()"
-      (cancel)="confirmLogout.set(false)"
-    />
   `,
 })
 export class DoctorShell {
@@ -257,7 +247,6 @@ export class DoctorShell {
   });
 
   protected readonly menuOpen = signal(false);
-  protected readonly confirmLogout = signal(false);
   protected readonly unread = signal(0);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly specialty = signal('');
@@ -306,16 +295,11 @@ export class DoctorShell {
     });
   }
 
+  private readonly signOut = inject(DoctorSignOut);
+
+  /** "Sign out?" (the app's dialog), then out to the sign-in page. */
   protected askLogout(): void {
     this.menuOpen.set(false);
-    this.confirmLogout.set(true);
-  }
-
-  protected logout(): void {
-    this.confirmLogout.set(false);
-    this.menuOpen.set(false);
-    this.auth.logout();
-    this.standing.clear();
-    void this.router.navigateByUrl('/auth/login');
+    void this.signOut.ask();
   }
 }

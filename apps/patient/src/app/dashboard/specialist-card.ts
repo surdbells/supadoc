@@ -16,7 +16,7 @@ import {
   type SpecialistSuggestionParams,
 } from '@supadoc/data-access';
 import type { SpecialistDto } from '@supadoc/models';
-import { ButtonComponent, DoctorProfileCardComponent, IconComponent, shortDayLabel } from '@supadoc/ui';
+import { ButtonComponent, DialogComponent, DoctorProfileCardComponent, IconComponent, shortDayLabel } from '@supadoc/ui';
 import { whenLabel } from './follow-up';
 import { SimilarDoctors } from './similar-doctors';
 
@@ -43,7 +43,7 @@ interface WhenVm {
 @Component({
   selector: 'pat-specialist-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonComponent, DoctorProfileCardComponent, IconComponent, RouterLink, SimilarDoctors],
+  imports: [ButtonComponent, DialogComponent, DoctorProfileCardComponent, IconComponent, RouterLink, SimilarDoctors],
   host: { class: 'block' },
   template: `
     <article
@@ -239,23 +239,32 @@ interface WhenVm {
     </article>
 
     <!-- Profile card pop-up -->
-    @if (profileOpen()) {
-      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="profileOpen.set(false)"></button>
-        <div class="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-y-auto rounded-[20px] border border-[#cfe6fb] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)] sm:p-8">
-          <button type="button" class="absolute right-5 top-5 z-10 text-slate transition-colors hover:text-ink" aria-label="Close" (click)="profileOpen.set(false)">
-            <sd-icon name="x" [size]="22" />
-          </button>
-          <sd-doctor-profile-card [data]="specialist()" [photoUrl]="photoSrc()" />
-          <div class="mt-6 flex flex-col gap-2 border-t border-cloud pt-5">
-            <span class="font-sans text-body-sm text-slate">Consultation fee: <span class="font-semibold text-ink">{{ fee() }}</span></span>
-            <sd-button [full]="true" [disabled]="!specialist().available" (click)="profileOpen.set(false); book()">
-              <sd-icon name="video" [size]="18" /> Book Consultation
-            </sd-button>
-          </div>
+    <sd-dialog
+      [open]="profileOpen()"
+      layout="plain"
+      size="lg"
+      [labelledBy]="profileTitleId"
+      (closed)="profileOpen.set(false)"
+    >
+      <div class="relative flex flex-col p-6 sm:p-8">
+        <h2 [id]="profileTitleId" class="sr-only">{{ specialist().name }} — profile</h2>
+        <button
+          type="button"
+          class="absolute right-3 top-3 z-10 inline-flex size-11 items-center justify-center rounded-full text-slate transition-colors hover:bg-glacier hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+          aria-label="Close"
+          (click)="profileOpen.set(false)"
+        >
+          <sd-icon name="x" [size]="22" />
+        </button>
+        <sd-doctor-profile-card [data]="specialist()" [photoUrl]="photoSrc()" />
+        <div class="mt-6 flex flex-col gap-2 border-t border-cloud pt-5">
+          <span class="font-sans text-body-sm text-slate">Consultation fee: <span class="font-semibold text-ink">{{ fee() }}</span></span>
+          <sd-button [full]="true" [disabled]="!specialist().available" (click)="profileOpen.set(false); book()">
+            <sd-icon name="video" [size]="18" /> Book Consultation
+          </sd-button>
         </div>
       </div>
-    }
+    </sd-dialog>
   `,
 })
 export class SpecialistCard {
@@ -271,6 +280,7 @@ export class SpecialistCard {
   protected readonly profileOpen = signal(false);
   protected readonly similarOpen = signal(false);
   protected readonly similarId = `pat-card-similar-${++nextId}`;
+  protected readonly profileTitleId = `pat-card-profile-${nextId}`;
 
   protected readonly bookPath = computed(() => ['/dashboard/appointments/book', this.specialist().id]);
 

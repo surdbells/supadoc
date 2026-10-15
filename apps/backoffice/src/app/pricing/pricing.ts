@@ -8,9 +8,22 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { tap } from 'rxjs';
+import type { HasUnsavedChanges } from '@supadoc/auth';
 import { apiErrorFields, apiErrorMessage, SettingsApi } from '@supadoc/data-access';
 import type { FollowUpFeeMode, PricingDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import type { ConfirmDetail, LeaveCopy } from '@supadoc/ui';
+import { DialogService, IconComponent } from '@supadoc/ui';
+
+/** The form as text, to tell what changed since it was loaded or saved. */
+interface PricingForm {
+  currency: string;
+  guestFee: string;
+  platformFee: string;
+  mode: FollowUpFeeMode;
+  discount: string;
+  windowDays: string;
+}
 
 /** The follow-up fee modes, as the API spells them. */
 const FEE_MODES: { value: FollowUpFeeMode; label: string; hint: string }[] = [
@@ -164,16 +177,20 @@ const MAX_WINDOW_DAYS = 365;
             <p class="rounded-field px-4 py-2 font-label text-caption" [class]="noticeOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'" [attr.role]="noticeOk() ? 'status' : 'alert'">{{ notice() }}</p>
           }
 
-          <button type="button" class="flex min-h-11 w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving()" (click)="save()">
+          <button type="button" class="flex min-h-11 w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving() || !dirty()" (click)="save()">
             <sd-icon name="check" [size]="18" />{{ saving() ? 'Saving…' : 'Save pricing' }}
           </button>
+          @if (!dirty() && !saving()) {
+            <p class="-mt-2 font-sans text-caption text-slate">Change a value to save.</p>
+          }
         </div>
       }
     </div>
   `,
 })
-export class AdminPricing implements OnInit {
+export class AdminPricing implements OnInit, HasUnsavedChanges {
   private readonly api = inject(SettingsApi);
+  private readonly dialogs = inject(DialogService);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal(true);
@@ -194,6 +211,42 @@ export class AdminPricing implements OnInit {
   protected readonly windowDays = signal(String(DEFAULTS.windowDays));
   /** Field-level problems: the form's own checks, then the API's 422 `errors`. */
   private readonly errors = signal<Record<string, string>>({});
+  /** The pricing as last loaded or saved (null until loaded). */
+  private readonly saved = signal<PricingForm | null>(null);
+  private readonly form = computed<PricingForm>(() => ({
+    currency: this.currency().trim().toUpperCase(),
+    guestFee: String(this.guestFee()).trim(),
+    platformFee: String(this.platformFee()).trim(),
+    mode: this.mode(),
+    discount: String(this.discount()).trim(),
+    windowDays: String(this.windowDays()).trim(),
+  }));
+  /** Edits that aren't saved yet. */
+  protected readonly dirty = computed(() => this.changes().length > 0);
+  /** What changed, old → new, for the save confirmation. */
+  private readonly changes = computed<ConfirmDetail[]>(() => {
+    const before = this.saved();
+    if (!before) return [];
+    const now = this.form();
+    const out: ConfirmDetail[] = [];
+    const num = (v: string) => (v === '' || isNaN(Number(v)) ? v || '—' : Number(v).toLocaleString('en-NG'));
+    if (now.currency !== before.currency) out.push({ label: 'Currency', value: `${before.currency} → ${now.currency}` });
+    if (Number(now.guestFee) !== Number(before.guestFee)) out.push({ label: 'Guest fee', value: `${num(before.guestFee)} → ${num(now.guestFee)}` });
+    if (Number(now.platformFee) !== Number(before.platformFee)) out.push({ label: 'Platform fee', value: `${num(before.platformFee)} → ${num(now.platformFee)}` });
+    if (now.mode !== before.mode) out.push({ label: 'Follow-up fee', value: `${modeLabel(before.mode)} → ${modeLabel(now.mode)}` });
+    if (now.mode === 'percent' && now.discount !== before.discount) out.push({ label: 'Follow-up discount', value: `${before.discount}% → ${now.discount}%` });
+    if (now.windowDays !== before.windowDays) out.push({ label: 'Follow-up window', value: `${before.windowDays} → ${now.windowDays} days` });
+    return out;
+  });
+
+  /** For the route's unsavedChangesGuard. */
+  hasUnsavedChanges(): boolean {
+    return this.dirty() && !this.saving();
+  }
+  readonly leaveCopy: LeaveCopy = {
+    title: 'Leave without saving the pricing?',
+    message: "Your pricing changes haven't been saved. If you leave now, they'll be lost.",
+  };
 
   protected readonly modeHint = computed(
     () => FEE_MODES.find((m) => m.value === this.mode())?.hint ?? '',
@@ -250,7 +303,7 @@ export class AdminPricing implements OnInit {
     this.clearError(key);
   }
 
-  protected save(): void {
+  protected async save(): Promise<void> {
     if (this.saving()) return;
     const discount = wholeNumber(this.discount());
     const windowDays = wholeNumber(this.windowDays());
@@ -269,9 +322,10 @@ export class AdminPricing implements OnInit {
       return;
     }
 
-    this.saving.set(true);
     this.notice.set('');
-    this.api
+    const changes = this.changes();
+    if (changes.length === 0) return;
+    const request = this.api
       .updatePricing({
         currency: this.currency().trim() || 'NGN',
         guest_fee: this.guestFee(),
@@ -281,21 +335,32 @@ export class AdminPricing implements OnInit {
         ...(discount !== null && discount <= 100 ? { follow_up_discount_percent: discount } : {}),
         follow_up_window_days: windowDays as number,
       })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          this.apply(res.data);
-          this.noticeOk.set(true);
-          this.notice.set('Pricing updated.');
-          this.saving.set(false);
-        },
-        error: (err: unknown) => {
-          this.errors.set(apiErrorFields(err));
-          this.noticeOk.set(false);
-          this.notice.set(apiErrorMessage(err, 'Could not update pricing.'));
-          this.saving.set(false);
-        },
-      });
+      .pipe(
+        tap({
+          next: (res) => this.apply(res.data),
+          // Highlight the fields the API refused; the dialog shows the message.
+          error: (err: unknown) => this.errors.set(apiErrorFields(err)),
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      );
+    // Prices are money for every new booking: show exactly what changes.
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'banknote',
+      title: 'Save the new pricing?',
+      message: 'New bookings and follow-up proposals use it straight away. Bookings already made keep their price.',
+      details: changes,
+      confirmLabel: 'Save pricing',
+      cancelLabel: 'Keep editing',
+      size: 'md',
+      busyLabel: 'Saving…',
+      errorMessage: (err) => apiErrorMessage(err, 'Could not update pricing.'),
+      action: () => request,
+    });
+    if (confirmed) {
+      this.noticeOk.set(true);
+      this.notice.set('Pricing updated.');
+    }
   }
 
   /** Fill the form from the API (an older API without the follow-up keys keeps the defaults). */
@@ -307,6 +372,7 @@ export class AdminPricing implements OnInit {
     if (p.follow_up_discount_percent !== undefined) this.discount.set(String(p.follow_up_discount_percent));
     if (p.follow_up_window_days !== undefined) this.windowDays.set(String(p.follow_up_window_days));
     this.errors.set({});
+    this.saved.set(this.form());
   }
 
   private clearError(key: string): void {
@@ -317,6 +383,10 @@ export class AdminPricing implements OnInit {
       return rest;
     });
   }
+}
+
+function modeLabel(mode: FollowUpFeeMode): string {
+  return FEE_MODES.find((m) => m.value === mode)?.label ?? mode;
 }
 
 /** A whole number typed into a field, or null. */

@@ -57,6 +57,9 @@ import { IconComponent } from '@supadoc/ui';
           <div class="rounded-card border border-cloud bg-white p-5">
             <p class="font-sans text-caption text-slate">Consultations</p>
             <p class="mt-1 font-heading text-h4 text-ink">{{ s.completed_count }}</p>
+            @if (s.patient_no_show_count) {
+              <p class="mt-0.5 font-sans text-caption text-slate">+ {{ s.patient_no_show_count }} patient no-show{{ s.patient_no_show_count === 1 ? '' : 's' }}</p>
+            }
           </div>
         </div>
 
@@ -83,7 +86,15 @@ import { IconComponent } from '@supadoc/ui';
                 @for (t of txns(); track t.appointment_id) {
                   <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
                     <td class="px-4 py-3 text-slate">{{ date(t.date) }}</td>
-                    <td class="px-4 py-3">{{ t.patient_name }}</td>
+                    <td class="px-4 py-3">
+                      <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {{ t.patient_name }}
+                        <!-- A missed consultation the patient didn't come to still earns the fee (less any refund). -->
+                        @if (t.status === 'missed') {
+                          <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink"><sd-icon name="user-x" [size]="12" />Patient didn't join</span>
+                        }
+                      </span>
+                    </td>
                     <td class="px-4 py-3 text-right text-slate">{{ money(t.gross) }}</td>
                     <td class="px-4 py-3 text-right text-slate">−{{ money(t.commission) }}</td>
                     <td class="px-4 py-3 text-right font-semibold">{{ money(t.net) }}</td>
@@ -99,7 +110,7 @@ import { IconComponent } from '@supadoc/ui';
                       </td>
                     </tr>
                   } @else {
-                    <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loadingTxns() ? 'Loading…' : 'No completed consultations yet.' }}</td></tr>
+                    <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loadingTxns() ? 'Loading…' : 'No earning consultations yet.' }}</td></tr>
                   }
                 }
               </tbody>

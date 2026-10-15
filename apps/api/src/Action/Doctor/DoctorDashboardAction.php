@@ -20,7 +20,8 @@ use App\Domain\Settings\WebUrls;
 
 /**
  * GET /api/doctor/dashboard — headline metrics + today's agenda for the signed-in
- * doctor: counts (today / pending / upcoming / completed this month), distinct
+ * doctor: counts (today / pending — requests still confirmable / upcoming /
+ * completed this month), distinct
  * patients, this-month earnings snapshot, rating, and the next + today's
  * appointments (each with a join link — null, with `join_blocked` {code,
  * message}, when the call would refuse the doctor: suspended, not approved
@@ -65,6 +66,7 @@ final class DoctorDashboardAction
             AppointmentStatus::CONFIRMED,
             AppointmentStatus::RESCHEDULED,
             AppointmentStatus::COMPLETED,
+            AppointmentStatus::MISSED,
         ];
 
         // A follow-up proposal holds its slot but isn't on the day's schedule until accepted.
@@ -98,8 +100,9 @@ final class DoctorDashboardAction
         $completedMonth     = $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startMonth, $now);
         $completedLastMonth = $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startLastMonth, $lastMonthTo);
 
-        $earningsMonth     = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startMonth, $now);
-        $earningsLastMonth = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startLastMonth, $lastMonthTo);
+        // Earned: completed consultations, and missed ones the patient didn't come to — less refunds.
+        $earningsMonth     = $this->appointments->sumEarnedForSpecialist($specialistId, $startMonth, $now);
+        $earningsLastMonth = $this->appointments->sumEarnedForSpecialist($specialistId, $startLastMonth, $lastMonthTo);
 
         $patients         = $this->appointments->distinctPatientsForSpecialist($specialistId);
         $patientsThisWeek = $this->appointments->distinctPatientsForSpecialist($specialistId, $startWeek, $now);
@@ -111,7 +114,8 @@ final class DoctorDashboardAction
             'today'            => $todayCount,
             'today_completed'  => $todayCompleted,
             'today_delta'      => $this->delta((float) $todayCount, (float) $yesterdayCount),
-            'pending'          => $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::PENDING]),
+            // Requests the doctor can still confirm (pending / rescheduled, not yet 30 min past their end).
+            'pending'          => $this->appointments->countOpenRequestsForSpecialist($specialistId, $now),
             'upcoming'         => $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::CONFIRMED], $now),
             'completed_month'  => $completedMonth,
             'completed_delta'  => $this->delta((float) $completedMonth, (float) $completedLastMonth),
@@ -155,7 +159,7 @@ final class DoctorDashboardAction
             $joinUrl = $webUrl . '/call/join/' . $this->jwt->issueCallAccess($appt->getId(), $specialist->getName(), 'doctor', 2);
         }
 
-        return $appt->toArray() + [
+        return $appt->toArray('doctor', $now) + [
             'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
             'join_url'     => $joinUrl,
             'join_blocked' => $blocked,

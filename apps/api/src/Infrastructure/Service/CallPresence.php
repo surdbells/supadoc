@@ -91,6 +91,26 @@ final class CallPresence
         });
     }
 
+    /**
+     * The appointment ids of a {@see forPatient()} / {@see forSpecialist()}
+     * map that someone is in the call of right now — for the lists that keep
+     * a call running over its time "live" (AppointmentRepository::applyWhen()).
+     *
+     * @param array<string, array{doctor: bool, patient: bool, guests?: list<string>}> $present
+     * @return list<string>
+     */
+    public static function liveIds(array $present): array
+    {
+        $ids = [];
+        foreach ($present as $id => $p) {
+            if (($p['doctor'] ?? false) || ($p['patient'] ?? false) || ($p['guests'] ?? []) !== []) {
+                $ids[] = (string) $id;
+            }
+        }
+
+        return $ids;
+    }
+
     /** @return array<string, array{doctor: bool, patient: bool, guests: list<string>}> */
     public function forPatient(string $patientId): array
     {

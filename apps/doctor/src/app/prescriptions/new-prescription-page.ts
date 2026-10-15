@@ -12,11 +12,12 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorPatientListItemDto, PrescriptionDto } from '@supadoc/models';
-import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { DialogService, IconComponent } from '@supadoc/ui';
 import { debounceTime, Subject, Subscription } from 'rxjs';
 import { RxComposer } from './rx-composer';
 import { rxDate } from './rx-shared';
-import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
+import type { CanLeave } from '@supadoc/auth';
+import { UNSAVED_RX_LEAVE } from './rx-shared';
 
 const PER_PAGE = 20;
 
@@ -28,7 +29,7 @@ const PER_PAGE = 20;
 @Component({
   selector: 'doc-new-prescription-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, ConfirmDialogComponent, IconComponent, RxComposer],
+  imports: [RouterLink, IconComponent, RxComposer],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -157,29 +158,6 @@ const PER_PAGE = 20;
       }
     </div>
 
-    <sd-confirm-dialog
-      [open]="confirmChange()"
-      title="Change patient?"
-      message="Your latest changes to this prescription have not been saved."
-      confirmLabel="Change patient"
-      cancelLabel="Keep editing"
-      icon="triangle-alert"
-      [danger]="true"
-      (confirm)="confirmChange.set(false); clearPatient()"
-      (cancel)="confirmChange.set(false)"
-    />
-
-    <sd-confirm-dialog
-      [open]="leavePrompt.open()"
-      title="Leave without saving?"
-      message="Your latest changes to this prescription have not been saved."
-      confirmLabel="Leave without saving"
-      cancelLabel="Keep editing"
-      icon="triangle-alert"
-      [danger]="true"
-      (confirm)="leavePrompt.answer(true)"
-      (cancel)="leavePrompt.answer(false)"
-    />
   `,
 })
 export class NewPrescriptionPage implements CanLeave {
@@ -192,8 +170,7 @@ export class NewPrescriptionPage implements CanLeave {
 
   protected readonly patientId = signal<string | null>(null);
   protected readonly patientName = signal('');
-  protected readonly confirmChange = signal(false);
-  protected readonly leavePrompt = new LeavePrompt();
+  private readonly dialogs = inject(DialogService);
   private readonly composer = viewChild(RxComposer);
   /** The doctor already confirmed (or nothing is unsaved): skip the leave prompt. */
   private leaving = false;
@@ -232,7 +209,6 @@ export class NewPrescriptionPage implements CanLeave {
     this.destroyRef.onDestroy(() => {
       this.fetchSub?.unsubscribe();
       this.nameSub?.unsubscribe();
-      this.leavePrompt.answer(false);
     });
   }
 
@@ -241,7 +217,7 @@ export class NewPrescriptionPage implements CanLeave {
     // A sign-out (idle timeout, session expiry, signed out elsewhere) must
     // still clear the screen — never hold patient details up behind a prompt.
     if (this.leaving || !this.auth.isAuthenticated()) return true;
-    return this.composer()?.hasUnsavedChanges() ? this.leavePrompt.ask() : true;
+    return this.composer()?.hasUnsavedChanges() ? this.dialogs.confirmLeave(UNSAVED_RX_LEAVE) : true;
   }
 
   /** Navigate without the leave prompt (the composer has already asked). */
@@ -276,9 +252,18 @@ export class NewPrescriptionPage implements CanLeave {
     this.leaveTo(['/prescriptions']);
   }
 
-  protected changePatient(): void {
-    if (this.composer()?.hasUnsavedChanges()) this.confirmChange.set(true);
-    else this.clearPatient();
+  /** Back to the patient picker — asking first when the prescription has unsaved changes. */
+  protected async changePatient(): Promise<void> {
+    if (this.composer()?.hasUnsavedChanges()) {
+      const ok = await this.dialogs.confirmLeave({
+        ...UNSAVED_RX_LEAVE,
+        title: 'Change patient?',
+        message: "Your latest changes to this prescription haven't been saved. Choosing another patient loses them.",
+        confirmLabel: 'Change patient',
+      });
+      if (!ok) return;
+    }
+    this.clearPatient();
   }
 
   protected clearPatient(): void {

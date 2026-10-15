@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Appointment\AppointmentLifecycle;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Settings\BookingSettings;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
@@ -23,8 +25,13 @@ use App\Domain\Settings\WebUrls;
  * POST /api/portal/appointments/{id}/reschedule — the signed-in patient moves
  * their own booking to a new time. The new slot must be on the specialist's
  * schedule and still open (no double-booking); the appointment goes to
- * RESCHEDULED and both parties are notified — and each guest is emailed the
- * new time with their link.
+ * RESCHEDULED (the doctor confirms the new time; rescheduled_by `patient`)
+ * and both parties are notified — and each guest is emailed the new time with
+ * their link. Any open booking (pending, confirmed or rescheduled), only
+ * before its start (422 "This consultation has started" after it) — and a
+ * confirmed one not inside the late-cancellation window (Booking settings
+ * late_cancel_hours > 0: 422 "Too close to the start to move it", so moving
+ * it can't dodge the late share), unless the doctor moved it last.
  */
 final class ReschedulePortalAppointmentAction
 {
@@ -37,6 +44,7 @@ final class ReschedulePortalAppointmentAction
         private readonly PatientNotifier $patientNotifier,
         private readonly StaffNotifier $staffNotifier,
         private readonly GuestInvitations $guests,
+        private readonly BookingSettings $settings,
     ) {
     }
 
@@ -69,10 +77,14 @@ final class ReschedulePortalAppointmentAction
 
             return $this->error($response, $instead, 422, ['status' => $instead]);
         }
-        if (!$appointment->getStatus()->canTransitionTo(AppointmentStatus::RESCHEDULED)) {
+        if (!$appointment->getStatus()->isOpenBooking()) {
             return $this->error($response, 'This appointment can no longer be rescheduled', 422, [
                 'status' => 'Not reschedulable',
             ]);
+        }
+        $problem = AppointmentLifecycle::patientRescheduleProblem($appointment, new DateTimeImmutable(), $this->settings->get('late_cancel_hours'));
+        if ($problem !== null) {
+            return $this->error($response, $problem, 422, ['status' => $problem]);
         }
 
         // Patients are held to the booking window.
@@ -90,6 +102,7 @@ final class ReschedulePortalAppointmentAction
 
         $appointment->setScheduledAt($scheduledAt);
         $appointment->transitionTo(AppointmentStatus::RESCHEDULED);
+        $appointment->setRescheduledBy('patient');
         $this->appointments->save($appointment);
 
         $this->notify($appointment);

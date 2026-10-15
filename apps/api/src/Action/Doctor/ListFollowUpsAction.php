@@ -41,7 +41,7 @@ final class ListFollowUpsAction
         $rows = array_map(static function (Appointment $a): array {
             $patient = $a->getPatient()->toArray();
 
-            return $a->toArray() + [
+            return $a->toArray('doctor') + [
                 'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
             ];
         }, $this->appointments->followUpsOf($parent->getId()));

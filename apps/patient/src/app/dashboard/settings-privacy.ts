@@ -1,10 +1,10 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type { TwoFactorSetupDto } from '@supadoc/models';
-import { IconComponent, ToggleComponent } from '@supadoc/ui';
+import { DialogComponent, IconComponent, ToggleComponent } from '@supadoc/ui';
 
 type Modal = 'none' | 'setup' | 'codes' | 'disable';
 
@@ -16,7 +16,7 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
 @Component({
   selector: 'pat-settings-privacy',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, FormsModule, IconComponent, ToggleComponent],
+  imports: [RouterLink, FormsModule, DialogComponent, IconComponent, ToggleComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -94,68 +94,102 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
       </div>
     </div>
 
-    <!-- Modals -->
-    @if (modal() !== 'none') {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeModal()"></button>
-        <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
-
-          @switch (modal()) {
-            @case ('setup') {
-              <div class="flex items-center justify-between">
-                <h3 class="font-heading text-h5 text-ink">Set up two-factor auth</h3>
-                <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeModal()"><sd-icon name="x" [size]="24" /></button>
+    <!-- Two-factor dialogs (setup → recovery codes; turning it off) -->
+    <sd-dialog
+      #twoFaDialog
+      [open]="modalShown()"
+      [title]="modalTitle()"
+      [subtitle]="modalSubtitle()"
+      size="sm"
+      [busy]="busy()"
+      [dismissible]="modal() !== 'codes'"
+      [dialogRole]="modal() === 'disable' ? 'alertdialog' : 'dialog'"
+      (closed)="closeModal()"
+      (afterClose)="afterModalClosed()"
+    >
+      @switch (modal()) {
+        @case ('setup') {
+          <form class="flex flex-col gap-5" (submit)="$event.preventDefault(); confirmEnable()">
+            <ol class="flex list-decimal flex-col gap-2 pl-4 font-sans text-body-sm text-slate">
+              <li>Open your authenticator app (Google Authenticator, Authy, 1Password…).</li>
+              <li>Add an account and enter this setup key:</li>
+            </ol>
+            @if (setup(); as s) {
+              <div class="flex items-center justify-between gap-2 rounded-field bg-glacier px-4 py-3">
+                <code class="select-all break-all font-mono text-body-sm font-semibold tracking-wider text-ink">{{ s.secret }}</code>
+                <button type="button" class="min-h-11 shrink-0 px-2 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="copySecret(s.secret)">{{ copied() ? 'Copied' : 'Copy' }}</button>
               </div>
-              <ol class="flex list-decimal flex-col gap-2 pl-4 font-sans text-body-sm text-slate">
-                <li>Open your authenticator app (Google Authenticator, Authy, 1Password…).</li>
-                <li>Add an account and enter this setup key:</li>
-              </ol>
-              @if (setup(); as s) {
-                <div class="flex items-center justify-between gap-2 rounded-field bg-glacier px-4 py-3">
-                  <code class="select-all break-all font-mono text-body-sm font-semibold tracking-wider text-ink">{{ s.secret }}</code>
-                  <button type="button" class="shrink-0 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="copySecret(s.secret)">{{ copied() ? 'Copied' : 'Copy' }}</button>
-                </div>
-                <a [href]="s.otpauth_uri" class="font-sans text-caption font-semibold text-cerulean hover:underline">Open in an installed authenticator app</a>
+              <a [href]="s.otpauth_uri" class="font-sans text-caption font-semibold text-cerulean hover:underline">Open in an installed authenticator app</a>
+            } @else if (busy()) {
+              <div class="sd-shimmer h-12 rounded-field" aria-hidden="true"></div>
+            }
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-slate">Enter the 6-digit code to confirm</span>
+              <input
+                name="code"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="6"
+                [(ngModel)]="code"
+                placeholder="123456"
+                [attr.aria-invalid]="!!modalError() || null"
+                [attr.aria-describedby]="modalError() ? 'twofa-error' : null"
+                class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-mono text-body tracking-widest text-ink focus:border-cerulean focus:outline-none"
+              />
+            </label>
+            @if (modalError()) {
+              <p id="twofa-error" class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ modalError() }}
+              </p>
+            }
+            <button type="submit" class="min-h-11 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="busy()">{{ busy() ? 'Verifying…' : 'Verify & enable' }}</button>
+          </form>
+        }
+
+        @case ('codes') {
+          <div class="flex flex-col gap-5">
+            <p class="font-sans text-body-sm text-slate">Store these somewhere safe. Each code can be used once to sign in if you lose your authenticator. They won't be shown again.</p>
+            <ul class="grid grid-cols-2 gap-2 rounded-field bg-glacier p-4" aria-label="Recovery codes">
+              @for (c of backupCodes(); track c) {
+                <li class="select-all text-center font-mono text-body-sm font-semibold tracking-wider text-ink">{{ c }}</li>
               }
-              <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-caption font-semibold text-slate">Enter the 6-digit code to confirm</span>
-                <input inputmode="numeric" maxlength="6" [(ngModel)]="code" placeholder="123456" class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-mono text-body tracking-widest text-ink focus:border-cerulean focus:outline-none" />
-              </label>
-              @if (modalError()) { <p class="font-sans text-caption text-alert">{{ modalError() }}</p> }
-              <button type="button" class="rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="busy()" (click)="confirmEnable()">{{ busy() ? 'Verifying…' : 'Verify & enable' }}</button>
-            }
+            </ul>
+            <button type="button" data-autofocus class="min-h-11 rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="copyCodes()">{{ copied() ? 'Copied' : 'Copy codes' }}</button>
+            <button type="button" class="min-h-11 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="closeModal()">I've saved them</button>
+          </div>
+        }
 
-            @case ('codes') {
-              <div class="flex items-center justify-between">
-                <h3 class="font-heading text-h5 text-ink">Save your recovery codes</h3>
-              </div>
-              <p class="font-sans text-body-sm text-slate">Store these somewhere safe. Each code can be used once to sign in if you lose your authenticator.</p>
-              <ul class="grid grid-cols-2 gap-2 rounded-field bg-glacier p-4">
-                @for (c of backupCodes(); track c) {
-                  <li class="select-all text-center font-mono text-body-sm font-semibold tracking-wider text-ink">{{ c }}</li>
-                }
-              </ul>
-              <button type="button" class="rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="copyCodes()">{{ copied() ? 'Copied' : 'Copy codes' }}</button>
-              <button type="button" class="rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="closeModal()">Done</button>
+        @case ('disable') {
+          <form class="flex flex-col gap-5" (submit)="$event.preventDefault(); confirmDisable()">
+            <p class="flex items-start gap-2 rounded-field bg-warning/10 px-4 py-3 font-sans text-body-sm text-ink">
+              <sd-icon name="shield-off" [size]="18" class="mt-0.5 shrink-0 text-warning" />
+              Your account will be less protected: anyone with your password could sign in.
+            </p>
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-slate">Password</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                [(ngModel)]="password"
+                [attr.aria-invalid]="!!modalError() || null"
+                [attr.aria-describedby]="modalError() ? 'twofa-error' : null"
+                class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
+              />
+            </label>
+            @if (modalError()) {
+              <p id="twofa-error" class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
+                <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ modalError() }}
+              </p>
             }
-
-            @case ('disable') {
-              <div class="flex items-center justify-between">
-                <h3 class="font-heading text-h5 text-ink">Disable two-factor auth</h3>
-                <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeModal()"><sd-icon name="x" [size]="24" /></button>
-              </div>
-              <p class="font-sans text-body-sm text-slate">Enter your password to turn off two-factor authentication. Your account will be less protected.</p>
-              <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-caption font-semibold text-slate">Password</span>
-                <input type="password" autocomplete="current-password" [(ngModel)]="password" class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" />
-              </label>
-              @if (modalError()) { <p class="font-sans text-caption text-alert">{{ modalError() }}</p> }
-              <button type="button" class="rounded-field bg-alert px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60" [disabled]="busy()" (click)="confirmDisable()">{{ busy() ? 'Disabling…' : 'Disable 2FA' }}</button>
-            }
-          }
-        </div>
-      </div>
-    }
+            <div class="flex flex-col-reverse gap-3 sm:flex-row">
+              <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud px-5 py-3 font-sans text-body-sm font-semibold text-slate transition-colors hover:bg-glacier disabled:opacity-60" [disabled]="busy()" (click)="closeModal()">Keep it on</button>
+              <button type="submit" class="min-h-11 flex-1 rounded-field bg-alert px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60" [disabled]="busy()">{{ busy() ? 'Turning off…' : 'Turn off 2FA' }}</button>
+            </div>
+          </form>
+        }
+      }
+    </sd-dialog>
   `,
 })
 export class SettingsPrivacy {
@@ -168,8 +202,25 @@ export class SettingsPrivacy {
   protected readonly biometrics = signal(false);
   protected readonly savingBiometrics = signal(false);
 
-  // Modal state
+  // Modal state: which step shows (kept while the dialog animates out) and whether it is open.
   protected readonly modal = signal<Modal>('none');
+  protected readonly modalShown = signal(false);
+  private readonly twoFaDialog = viewChild<DialogComponent>('twoFaDialog');
+  protected readonly modalTitle = computed(() => {
+    switch (this.modal()) {
+      case 'setup':
+        return 'Set up two-factor auth';
+      case 'codes':
+        return 'Save your recovery codes';
+      case 'disable':
+        return 'Turn off two-factor auth?';
+      default:
+        return '';
+    }
+  });
+  protected readonly modalSubtitle = computed(() =>
+    this.modal() === 'disable' ? 'Enter your password to turn it off.' : '',
+  );
   protected readonly setup = signal<TwoFactorSetupDto | null>(null);
   protected readonly backupCodes = signal<string[]>([]);
   protected readonly busy = signal(false);
@@ -226,6 +277,7 @@ export class SettingsPrivacy {
   protected async openSetup(): Promise<void> {
     this.resetModalState();
     this.modal.set('setup');
+    this.modalShown.set(true);
     this.busy.set(true);
     try {
       const res = await firstValueFrom(this.patients.setupTwoFactor());
@@ -250,6 +302,7 @@ export class SettingsPrivacy {
       this.backupCodes.set(res.data.backup_codes);
       this.twoFaEnabled.set(true);
       this.modal.set('codes');
+      this.twoFaDialog()?.refocus(); // the form (and its focused button) is gone
     } catch (err) {
       this.modalError.set(apiErrorMessage(err, 'That code is incorrect. Try again.'));
     } finally {
@@ -261,6 +314,7 @@ export class SettingsPrivacy {
   protected openDisable(): void {
     this.resetModalState();
     this.modal.set('disable');
+    this.modalShown.set(true);
   }
 
   protected async confirmDisable(): Promise<void> {
@@ -273,7 +327,7 @@ export class SettingsPrivacy {
     try {
       await firstValueFrom(this.patients.disableTwoFactor(this.password));
       this.twoFaEnabled.set(false);
-      this.closeModal();
+      this.modalShown.set(false);
     } catch (err) {
       this.modalError.set(apiErrorMessage(err, 'Could not disable 2FA.'));
     } finally {
@@ -281,7 +335,15 @@ export class SettingsPrivacy {
     }
   }
 
+  /** ×, Esc, the scrim, "Keep it on", "I've saved them" (never mid-request). */
   protected closeModal(): void {
+    if (this.busy()) return;
+    this.modalShown.set(false);
+  }
+
+  /** The dialog has gone: forget the secret, the codes and what was typed. */
+  protected afterModalClosed(): void {
+    if (this.modalShown()) return; // reopened meanwhile
     this.modal.set('none');
     this.resetModalState();
   }

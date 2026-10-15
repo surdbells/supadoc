@@ -10,6 +10,7 @@ use App\Domain\Exception\EntityNotFoundException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\CallPresence;
+use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -48,6 +49,8 @@ final class ReportMyPresenceAction
             return $this->success($response, ['state' => $state])->withHeader('Cache-Control', 'no-store');
         }
         $this->presence->mark($appointment, 'patient');
+        // Durable evidence the patient came (first heartbeat in the window, stored once).
+        $this->appointments->recordPresence($appointment, 'patient', new DateTimeImmutable());
 
         return $this->success($response, CallPresenceAction::beat($state, $this->presence->forAppointment($appointment), $appointment))
             ->withHeader('Cache-Control', 'no-store');

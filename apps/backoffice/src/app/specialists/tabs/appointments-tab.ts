@@ -16,8 +16,8 @@ import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistAppointmentRowDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { appointmentBadge, AppointmentBadge, ATTENTION_BADGE } from '../../shared/appointment-status';
 import {
-  appointmentStatusClass,
   BTN_SECONDARY,
   CARD,
   dateTime,
@@ -33,6 +33,8 @@ const VIEWS: readonly { key: string; label: string; status?: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'upcoming', label: 'Booked', status: 'pending,confirmed,rescheduled' },
   { key: 'completed', label: 'Completed', status: 'completed' },
+  // Closed with someone absent — the badge's detail says who.
+  { key: 'missed', label: 'Missed', status: 'missed' },
   { key: 'cancelled', label: 'Cancelled', status: 'cancelled' },
   { key: 'proposed', label: 'Follow-up proposals', status: 'proposed' },
 ];
@@ -103,7 +105,15 @@ const PAYMENT: Record<string, string> = {
               </div>
               <div class="flex flex-wrap items-center gap-2 sm:justify-end">
                 <span class="font-sans text-caption text-slate">{{ money(a.amount) }}{{ a.payment_status ? ' · ' + paymentLabel(a.payment_status) : '' }}</span>
-                <span class="${PILL}" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                @if (badge(a); as b) {
+                  <span class="${PILL}" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
+                  @if (a.needs_attention) {
+                    <span class="${PILL} ${ATTENTION_BADGE.cls}"><sd-icon name="${ATTENTION_BADGE.icon}" [size]="13" />{{ attention.label }}</span>
+                  }
+                  @if (b.detail) {
+                    <span class="w-full font-sans text-caption text-slate sm:w-auto">{{ b.detail }}</span>
+                  }
+                }
               </div>
             </li>
           } @empty {
@@ -196,8 +206,10 @@ export class SpecialistAppointmentsTab {
       });
   }
 
-  protected statusClass(status: string): string {
-    return appointmentStatusClass(status);
+  /** The server's display label (Missed, Not confirmed, Being finalised…) and its staff-worded detail. */
+  protected readonly attention = ATTENTION_BADGE;
+  protected badge(a: SpecialistAppointmentRowDto): AppointmentBadge {
+    return appointmentBadge(a);
   }
   protected when(iso: string): string {
     return dateTime(iso);

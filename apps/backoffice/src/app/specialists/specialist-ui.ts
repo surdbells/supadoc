@@ -147,21 +147,8 @@ export function credentialBadge(status: CredentialStatus): Badge {
   }
 }
 
-export function appointmentStatusClass(status: string): string {
-  switch (status) {
-    case 'confirmed':
-    case 'completed':
-      return 'bg-sage/15 text-sage';
-    case 'cancelled':
-      return 'bg-alert/10 text-alert';
-    case 'rescheduled':
-      return 'bg-cloud text-slate';
-    case 'proposed':
-      return 'bg-teal/10 text-teal';
-    default:
-      return 'bg-warning/15 text-ink';
-  }
-}
+/** Appointment badges follow the back office's one appointment mapping (incl. `missed`). */
+export { appointmentStatusClass } from '../shared/appointment-status';
 
 const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 const DAY_TIME = new Intl.DateTimeFormat('en-GB', {

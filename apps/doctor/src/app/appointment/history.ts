@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorAppointmentDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { statusDetail, statusLook, type StatusLook } from './appointment-status';
 import { doctorStatusLabel } from './follow-ups';
 
 interface Filter {
@@ -22,20 +23,17 @@ interface Filter {
 const FILTERS: Filter[] = [
   { key: 'all', label: 'All', status: '' },
   { key: 'completed', label: 'Completed', status: 'completed' },
+  { key: 'missed', label: 'Missed', status: 'missed' },
   { key: 'cancelled', label: 'Cancelled', status: 'cancelled' },
 ];
 
-const STATUS_CLASS: Record<string, string> = {
-  // A follow-up waiting for the patient: ink on the amber tint (amber text is below AA on it).
-  proposed: 'bg-warning/15 text-ink',
-  pending: 'bg-warning/15 text-warning',
-  confirmed: 'bg-sage/15 text-sage',
-  rescheduled: 'bg-cloud text-slate',
-  completed: 'bg-sage/15 text-sage',
-  cancelled: 'bg-alert/10 text-alert',
-};
-
-/** Doctor appointment history (route `/appointments/history`) — All / Completed / Cancelled. */
+/**
+ * Doctor appointment history (route `/appointments/history`): every
+ * consultation that is over — closed, or ended (`?when=past`, newest first),
+ * whatever its status — filtered All / Completed / Missed / Cancelled. A past
+ * booking that was never closed shows here as "Being finalised" / "Not
+ * confirmed" until the reminders cron closes it.
+ */
 @Component({
   selector: 'doc-appointment-history',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -48,19 +46,20 @@ const STATUS_CLASS: Record<string, string> = {
         <p class="font-sans text-body text-slate">Review your past consultations.</p>
       </header>
 
-      <!-- Filter bar -->
-      <div class="flex items-center gap-4 rounded-pill border border-cloud bg-white px-2 py-1.5">
-        <div class="flex flex-1 gap-1">
+      <!-- Filter bar (scrolls sideways on a narrow phone rather than wrapping). -->
+      <div class="flex items-center gap-2 rounded-pill border border-cloud bg-white px-1.5 py-1.5 sm:gap-4 sm:px-2">
+        <div class="flex min-w-0 flex-1 gap-1 overflow-x-auto" role="group" aria-label="Filter by outcome">
           @for (f of filters; track f.key) {
             <button type="button"
-              class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors"
+              class="min-h-11 shrink-0 whitespace-nowrap rounded-pill px-3.5 py-2 font-sans text-body-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 sm:px-5"
               [class]="active() === f.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+              [attr.aria-pressed]="active() === f.key"
               (click)="select(f)">
               {{ f.label }}
             </button>
           }
         </div>
-        <button type="button" class="shrink-0 pr-3 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-40" [disabled]="active() === 'all'" (click)="clearAll()">Clear all</button>
+        <button type="button" class="min-h-11 shrink-0 pr-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-40 sm:pr-3" [disabled]="active() === 'all'" (click)="clearAll()">Clear<span class="hidden sm:inline">&nbsp;all</span></button>
       </div>
 
       @if (loading() && items().length === 0) {
@@ -94,9 +93,17 @@ const STATUS_CLASS: Record<string, string> = {
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(a.scheduled_at) }}</span>
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(a.scheduled_at) }}</span>
                 </div>
-                <div class="flex flex-col gap-1.5 lg:w-48">
+                <div class="flex flex-col gap-1.5 lg:w-52">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
-                  <span class="w-fit rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(a.status)">{{ statusLabel(a) }}</span>
+                  @let label = statusLabel(a);
+                  @let look = statusLook(a);
+                  <span class="inline-flex w-fit items-center gap-1 rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="look.pill">
+                    <sd-icon [name]="look.icon" [size]="13" />{{ label }}
+                  </span>
+                  <!-- Who didn't come, or why it never went ahead. -->
+                  @if (detail(a, label); as d) {
+                    <span class="font-sans text-caption text-slate">{{ d }}</span>
+                  }
                 </div>
                 <sd-icon name="chevron-right" [size]="22" class="shrink-0 self-center text-slate" />
               </a>
@@ -158,7 +165,8 @@ export class DoctorAppointmentHistory implements OnInit {
     this.error.set('');
     const status = this.filters.find((f) => f.key === this.active())?.status || undefined;
     this.api
-      .history({ page: this.page, per_page: 20, status })
+      // Over only (the server's default, said explicitly): closed, or ended — newest first.
+      .history({ page: this.page, per_page: 20, status, when: 'past' })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -179,12 +187,15 @@ export class DoctorAppointmentHistory implements OnInit {
   protected initialsFor(name: string): string {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   }
-  protected statusClass(status: string): string {
-    return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
+  protected statusLook(a: DoctorAppointmentDto): StatusLook {
+    return statusLook(a);
   }
-  /** "Awaiting patient" for a follow-up proposal, how an unaccepted one closed, else the API's label. */
+  /** How an unaccepted follow-up proposal closed, else the lifecycle label (Missed, Not confirmed…). */
   protected statusLabel(a: DoctorAppointmentDto): string {
     return doctorStatusLabel(a);
+  }
+  protected detail(a: DoctorAppointmentDto, label: string): string | null {
+    return statusDetail(a, label);
   }
   protected dateLabel(iso: string): string {
     return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));

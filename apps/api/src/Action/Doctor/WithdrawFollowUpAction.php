@@ -44,7 +44,7 @@ final class WithdrawFollowUpAction
 
         return $this->success(
             $response,
-            $proposal->toArray(),
+            $proposal->toArray('doctor'),
             $withdrawn ? 'Follow-up withdrawn' : 'Follow-up proposal already closed',
         );
     }

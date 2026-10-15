@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import {
   apiErrorMessage,
@@ -21,10 +21,12 @@ import {
   EmptyStateComponent,
   IconComponent,
 } from '@supadoc/ui';
-import { isExpiredProposal, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
+import { detailsLink, StatusBadge, statusBadge } from './appointment-status';
+import { isOpenProposal, priceLabel, whenLabel } from './follow-up';
 
 type Status = ApiAppointmentStatus;
-type Tab = 'all' | 'upcoming' | 'completed' | 'cancelled' | 'rescheduled';
+/** Appointments lists what is still to come (or live) only — what is over lives in History. */
+type Tab = 'all' | 'confirmed' | 'pending' | 'rescheduled';
 
 interface Appointment {
   readonly id: string;
@@ -35,9 +37,13 @@ interface Appointment {
   readonly typeIcon: string;
   readonly typeLabel: string;
   readonly status: Status;
-  /** Its tab and status pill — a proposal that closed unanswered reads as such. */
-  readonly tab: Tab;
-  readonly badge: { label: string; class: string };
+  readonly tab: Exclude<Tab, 'all'> | null;
+  /** The server's label ("Confirmed", "In progress"…), its colours and the line under it. */
+  readonly badge: StatusBadge;
+  /** Started (or someone is in the call): the row says so. */
+  readonly live: boolean;
+  /** Its details page (History once it is over — e.g. it ended while this list was open). */
+  readonly link: string[];
 }
 
 /** A follow-up the doctor proposed that is waiting for the patient's answer. */
@@ -53,36 +59,29 @@ interface ProposalCard {
   readonly respondBy: string;
 }
 
-const STATUS: Record<Status, { label: string; class: string }> = {
-  // A doctor's follow-up proposal: not booked until the patient accepts it.
-  proposed: { label: 'Proposed', class: 'bg-teal/10 text-teal' },
-  confirmed: { label: 'Confirmed', class: 'bg-sage/15 text-sage' },
-  pending: { label: 'Pending', class: 'bg-warning/15 text-warning' },
-  completed: { label: 'Completed', class: 'bg-frost text-cerulean' },
-  cancelled: { label: 'Cancelled', class: 'bg-alert/10 text-alert' },
-  rescheduled: { label: 'Rescheduled', class: 'bg-cloud text-slate' },
-};
+/** The "Action needed" cards' pill (a doctor's follow-up proposal: not booked until accepted). */
+const PROPOSED_BADGE = { label: 'Proposed', class: 'bg-teal/10 text-teal' };
 
-const TAB_OF: Record<Status, Tab> = {
-  proposed: 'upcoming',
-  confirmed: 'upcoming',
-  pending: 'upcoming',
+/**
+ * Every status an upcoming row can have, and its tab. Closed ones (completed,
+ * cancelled, missed) are History's and never come back with `when=upcoming`;
+ * an unanswered proposal is an "Action needed" card, not a row.
+ */
+const TAB_OF: Record<Status, Exclude<Tab, 'all'> | null> = {
+  proposed: null,
+  confirmed: 'confirmed',
+  pending: 'pending',
   rescheduled: 'rescheduled',
-  completed: 'completed',
-  cancelled: 'cancelled',
+  completed: null,
+  cancelled: null,
+  missed: null,
 };
-
-/** A proposal past its answer-by time that the server hasn't closed yet: it can't be accepted. */
-const EXPIRED = { label: 'Expired', class: 'bg-cloud text-slate' };
-/** A proposal that was declined, withdrawn or expired — never a consultation. */
-const NOT_TAKEN_UP = { label: 'Not taken up', class: 'bg-cloud text-slate' };
 
 const EMPTY_TAB: Record<Tab, string> = {
   all: 'Nothing else is booked yet.',
-  upcoming: 'No upcoming consultations are booked yet.',
-  completed: 'No completed consultations yet.',
-  cancelled: 'No cancelled appointments.',
-  rescheduled: 'No rescheduled appointments.',
+  confirmed: 'No confirmed consultations coming up.',
+  pending: 'No bookings waiting for your doctor to confirm.',
+  rescheduled: 'No rescheduled consultations waiting for your doctor.',
 };
 
 const TYPE_ICON: Record<string, string> = {
@@ -95,7 +94,7 @@ const TYPE_ICON: Record<string, string> = {
 /** Maps a backend appointment onto the row shape this screen renders. */
 export function toAppointmentRow(a: AppointmentDto): Appointment {
   const when = new Date(a.scheduled_at);
-  const expired = isExpiredProposal(a);
+  const badge = statusBadge(a);
   return {
     id: a.id,
     name: a.specialist.name,
@@ -114,8 +113,10 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
     typeLabel: a.type_label,
     status: a.status,
-    tab: expired ? 'cancelled' : TAB_OF[a.status],
-    badge: expired ? EXPIRED : isUntakenProposal(a) ? NOT_TAKEN_UP : STATUS[a.status],
+    tab: TAB_OF[a.status],
+    badge,
+    live: badge.key === 'live',
+    link: detailsLink(a),
   };
 }
 
@@ -133,7 +134,9 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
 
 /**
  * My Appointments (Figma 497:7793) with inline loading, empty (826:12182) and
- * error (826:12960) states. Data comes from `GET /api/portal/appointments`;
+ * error (826:12960) states. Data comes from `GET /api/portal/appointments?when=upcoming`
+ * — what is still to come or live, soonest first; anything over (completed,
+ * cancelled, missed, or ended) is in History, whatever its status.
  * `?view=empty|error` still forces a state for design QA. Row → details route.
  * Follow-ups the doctor proposed and the patient hasn't answered are pinned on
  * top as "Action needed" cards; each answer is given on the details page.
@@ -142,6 +145,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
   selector: 'pat-appointments',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    RouterLink,
     ButtonComponent,
     CallPresenceComponent,
     EmptyStateComponent,
@@ -155,7 +159,8 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
         <div class="flex flex-col gap-1">
           <h1 class="font-heading text-h3 text-ink">My Appointments</h1>
           <p class="font-sans text-body text-slate">
-            View and manage your scheduled consultations
+            Your upcoming consultations.
+            <a routerLink="/dashboard/history" class="font-semibold text-cerulean hover:underline">Past ones are in your history.</a>
           </p>
         </div>
         <sd-button size="sm" (click)="book()">
@@ -264,13 +269,14 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                 ? 'bg-frost font-medium text-cerulean'
                 : 'text-slate hover:text-ink'
             "
+            [attr.aria-pressed]="activeTab() === t.key"
             (click)="activeTab.set(t.key)"
           >
             {{ t.label }}
-            @if (t.key === 'upcoming' && upcomingCount() > 0) {
+            @if (countOf(t.key) > 0) {
               <span
-                class="flex size-4 items-center justify-center rounded-full bg-cerulean text-[10px] font-semibold text-white"
-                >{{ upcomingCount() }}</span
+                class="flex h-4 min-w-4 items-center justify-center rounded-full bg-cerulean px-1 text-[10px] font-semibold text-white"
+                >{{ countOf(t.key) }}<span class="sr-only"> appointments</span></span
               >
             }
           </button>
@@ -306,13 +312,19 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
         @case ('empty') {
           <sd-empty-state
             icon="calendar-off"
-            title="You have no appointment history"
-            message="Book a consultation with our healthcare professionals to get started"
+            title="No upcoming appointments"
+            message="Book a consultation with our healthcare professionals. Consultations that are over are in your history."
           >
-            <sd-button (click)="book()">
-              <sd-icon name="calendar-days" [size]="18" />
-              Book a Consultation
-            </sd-button>
+            <div class="flex flex-col gap-3 sm:flex-row">
+              <sd-button (click)="book()">
+                <sd-icon name="calendar-days" [size]="18" />
+                Book a Consultation
+              </sd-button>
+              <sd-button variant="outline" routerLink="/dashboard/history">
+                <sd-icon name="history" [size]="18" />
+                View history
+              </sd-button>
+            </div>
           </sd-empty-state>
         }
         @default {
@@ -325,7 +337,8 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
             @for (a of filtered(); track a.id) {
               <button
                 type="button"
-                class="sd-card-hover flex items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/50"
+                class="sd-card-hover flex items-center gap-4 rounded-card border bg-white p-4 text-left hover:border-cerulean/50"
+                [class]="a.live ? 'border-success/50' : 'border-cloud'"
                 (click)="open(a)"
               >
                 <span
@@ -341,25 +354,28 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                   <p class="truncate font-sans text-caption text-slate">
                     {{ a.specialty }}
                   </p>
-                  <!-- Compact meta for mobile (date + status + who's in the call) -->
+                  <!-- Compact meta for narrow screens (date + status + who's in the call) -->
                   <div
-                    class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 sm:hidden"
+                    class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 md:hidden"
                   >
                     <span
-                      class="flex items-center gap-1 font-sans text-caption text-slate"
+                      class="flex items-center gap-1 font-sans text-caption text-slate sm:hidden"
                     >
-                      <sd-icon name="calendar-days" [size]="14" />{{ a.date }}
+                      <sd-icon name="calendar-days" [size]="14" />{{ a.date }}, {{ a.time }}
                     </span>
                     <span
-                      class="rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
-                      [class]="status(a).class"
-                      >{{ status(a).label }}</span
+                      class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
+                      [class]="a.badge.class"
+                      ><sd-icon [name]="a.badge.icon" [size]="12" />{{ a.badge.label }}</span
                     >
                     <sd-call-presence
                       [presence]="presence()[a.id]"
                       viewer="patient"
                     />
                   </div>
+                  @if (a.badge.detail) {
+                    <p class="mt-1 font-sans text-caption text-slate md:hidden">{{ a.badge.detail }}</p>
+                  }
                 </div>
                 <div
                   class="hidden flex-col gap-1 font-sans text-caption text-slate sm:flex"
@@ -378,10 +394,13 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                     <sd-icon [name]="a.typeIcon" [size]="16" />{{ a.typeLabel }}
                   </span>
                   <span
-                    class="rounded-lg px-4 py-1 font-sans text-caption font-medium"
-                    [class]="status(a).class"
-                    >{{ status(a).label }}</span
+                    class="inline-flex items-center gap-1.5 rounded-lg px-4 py-1 font-sans text-caption font-medium"
+                    [class]="a.badge.class"
+                    ><sd-icon [name]="a.badge.icon" [size]="14" />{{ a.badge.label }}</span
                   >
+                  @if (a.badge.detail) {
+                    <span class="max-w-[12rem] font-sans text-caption text-slate">{{ a.badge.detail }}</span>
+                  }
                   <sd-call-presence
                     [presence]="presence()[a.id]"
                     viewer="patient"
@@ -414,16 +433,15 @@ export class Appointments {
   protected readonly activeTab = signal<Tab>('all');
   protected readonly tabs: { key: Tab; label: string }[] = [
     { key: 'all', label: 'All' },
-    { key: 'upcoming', label: 'Upcoming' },
-    { key: 'completed', label: 'Completed' },
-    { key: 'cancelled', label: 'Cancelled' },
+    { key: 'confirmed', label: 'Confirmed' },
+    { key: 'pending', label: 'Pending' },
     { key: 'rescheduled', label: 'Rescheduled' },
   ];
 
   private readonly all = signal<Appointment[]>([]);
   /** Open follow-up proposals — shown as "Action needed" cards, not list rows. */
   protected readonly proposals = signal<ProposalCard[]>([]);
-  protected readonly proposedStatus = STATUS.proposed;
+  protected readonly proposedStatus = PROPOSED_BADGE;
   private readonly loading = signal(true);
   /** The API's reason the list failed to load ('' when it hasn't). */
   protected readonly loadError = signal('');
@@ -439,12 +457,8 @@ export class Appointments {
     this.load();
   }
 
-  protected status(a: Appointment) {
-    return a.badge;
-  }
-
   protected open(a: Appointment): void {
-    void this.router.navigate(['/dashboard/appointments', a.id]);
+    void this.router.navigate(a.link);
   }
 
   /** Answer a proposal on its details page (payment, slots and the decline reason live there). */
@@ -474,9 +488,19 @@ export class Appointments {
     this.load();
   }
 
-  protected readonly upcomingCount = computed(
-    () => this.all().filter((a) => a.tab === 'upcoming').length,
-  );
+  /** Rows per tab (the tab pills' counts). */
+  private readonly counts = computed(() => {
+    const counts: Record<Tab, number> = { all: 0, confirmed: 0, pending: 0, rescheduled: 0 };
+    for (const a of this.all()) {
+      counts.all++;
+      if (a.tab) counts[a.tab]++;
+    }
+    return counts;
+  });
+
+  protected countOf(tab: Tab): number {
+    return this.counts()[tab];
+  }
 
   protected readonly filtered = computed(() => {
     const tab = this.activeTab();
@@ -494,25 +518,30 @@ export class Appointments {
     if (this.view() === 'error' || this.loadError()) return 'error';
     if (this.loading()) return 'loading';
     if (this.view() === 'empty' || this.filtered().length === 0) {
-      // Open proposals but no rows on this tab: the cards above aren't "no
-      // appointment history", so the list says so for this tab instead.
-      return this.view() !== 'empty' && this.proposals().length > 0 ? 'list' : 'empty';
+      // Open proposals, or rows on other tabs: not "no upcoming appointments",
+      // so the list says so for this tab instead.
+      if (this.view() === 'empty') return 'empty';
+      return this.proposals().length > 0 || this.all().length > 0 ? 'list' : 'empty';
     }
     return 'list';
   });
 
+  /**
+   * What is still to come or live (`when=upcoming`, soonest first). Anything
+   * over — whatever its status — is History's, so a stale booking from last
+   * month never sits here.
+   */
   private load(): void {
     this.loading.set(true);
     this.loadError.set('');
     this.appointments
-      .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'asc' })
+      .listMine({ when: 'upcoming', per_page: 100 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           const now = Date.now();
           const open = res.data.filter((a) => isOpenProposal(a, now));
           this.proposals.set(open.map(toProposalCard));
-          // An expired proposal the server hasn't closed yet stays a row ("Expired", under Cancelled).
           this.all.set(
             res.data.filter((a) => !open.includes(a)).map(toAppointmentRow),
           );

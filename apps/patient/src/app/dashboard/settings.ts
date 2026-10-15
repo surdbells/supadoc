@@ -10,7 +10,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
 import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
-import { IconComponent } from '@supadoc/ui';
+import { DialogService, IconComponent } from '@supadoc/ui';
+import { askSignOut } from './sign-out';
 
 interface SettingRow {
   readonly icon: string;
@@ -111,6 +112,7 @@ export class Settings {
   private readonly auth = inject(AuthService);
   private readonly patient = inject(PatientApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
 
   protected readonly name = signal('');
   protected readonly email = signal('');
@@ -182,6 +184,7 @@ export class Settings {
 
   protected async go(row: SettingRow): Promise<void> {
     if (row.action === 'logout') {
+      if (!(await askSignOut(this.dialogs))) return;
       await this.auth.logout();
       await this.router.navigateByUrl('/auth/login');
       return;

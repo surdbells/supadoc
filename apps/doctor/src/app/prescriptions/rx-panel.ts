@@ -4,23 +4,25 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
+  Injector,
   input,
   output,
   signal,
   untracked,
   viewChild,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { CancelPrescriptionResult, PrescriptionSummaryDto } from '@supadoc/models';
 import {
   AlertComponent,
   ButtonComponent,
-  ConfirmDialogComponent,
+  DialogService,
   IconComponent,
 } from '@supadoc/ui';
 import { map, Observable, Subscription } from 'rxjs';
+import { focusAfterDialogs } from '../focus-after-dialog';
 import { RxCancelForm } from './rx-cancel-form';
 import { RxComposer } from './rx-composer';
 import { RxFiles } from './rx-files';
@@ -30,8 +32,9 @@ import {
   RX_ACTION_DANGER,
   rxDate,
   RxStatusBadge,
+  UNSAVED_RX_LEAVE,
 } from './rx-shared';
-import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
+import type { CanLeave } from '@supadoc/auth';
 
 /**
  * A consultation's prescriptions (or, without an appointment, this doctor's
@@ -44,8 +47,8 @@ import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
  * destroy the panel (switch tab, navigate away, end a call) without asking.
  * Either keep it mounted and hide it, or check first:
  * `if (!(await (this.rxPanel()?.canLeave() ?? true))) return;` — `canLeave()`
- * asks with the panel's own dialog (the panel must be on screen); a host that
- * hides the panel should ask with its own dialog using `hasUnsavedChanges()`.
+ * asks with the app's dialog (`DialogService.confirmLeave`); a host with
+ * questions of its own can combine them using `hasUnsavedChanges()`.
  */
 @Component({
   selector: 'doc-rx-panel',
@@ -53,7 +56,6 @@ import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
   imports: [
     AlertComponent,
     ButtonComponent,
-    ConfirmDialogComponent,
     IconComponent,
     RxCancelForm,
     RxComposer,
@@ -95,7 +97,8 @@ import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
         @if (actionError()) {
           <sd-alert tone="error">{{ actionError() }}</sd-alert>
         } @else if (notice()) {
-          <sd-alert tone="success">{{ notice() }}</sd-alert>
+          <!-- Focusable: after a delete it takes focus from the row's button, which went away. -->
+          <sd-alert #noticeEl tabindex="-1" class="outline-none" tone="success">{{ notice() }}</sd-alert>
         }
         @if (blockedPdf(); as b) {
           <!-- The browser blocked the new tab; this page must not be left (e.g. a live call). -->
@@ -175,9 +178,9 @@ import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
                         class="${RX_ACTION_DANGER}"
                         [disabled]="busy() !== '' || disabled()"
                         [attr.aria-label]="'Delete draft ' + rx.number"
-                        (click)="confirmDelete.set(rx)"
+                        (click)="askDelete(rx)"
                       >
-                        <sd-icon name="trash-2" [size]="14" /> {{ busy() === rx.id + ':delete' ? 'Deleting…' : 'Delete draft' }}
+                        <sd-icon name="trash-2" [size]="14" /> Delete draft
                       </button>
                     } @else {
                       <button
@@ -231,35 +234,14 @@ import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
       </section>
     }
 
-    <sd-confirm-dialog
-      [open]="confirmDelete() !== null"
-      title="Delete this draft?"
-      [message]="'Draft ' + (confirmDelete()?.number ?? '') + ' will be removed. This cannot be undone.'"
-      confirmLabel="Delete draft"
-      cancelLabel="Keep it"
-      icon="trash-2"
-      [danger]="true"
-      (confirm)="deleteDraft()"
-      (cancel)="confirmDelete.set(null)"
-    />
-
-    <sd-confirm-dialog
-      [open]="leavePrompt.open()"
-      title="Leave without saving?"
-      message="Your latest changes to this prescription have not been saved."
-      confirmLabel="Leave without saving"
-      cancelLabel="Keep editing"
-      icon="triangle-alert"
-      [danger]="true"
-      (confirm)="leavePrompt.answer(true)"
-      (cancel)="leavePrompt.answer(false)"
-    />
   `,
 })
 export class RxPanel implements CanLeave {
   private readonly api = inject(DoctorApi);
   private readonly files = inject(RxFiles);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
+  private readonly injector = inject(Injector);
 
   readonly patientId = input.required<string>();
   /** The consultation; null lists this doctor's prescriptions for the patient. */
@@ -291,16 +273,15 @@ export class RxPanel implements CanLeave {
   protected readonly composing = signal(false);
   protected readonly composerId = signal<string | null>(null);
   protected readonly cancelFor = signal<string | null>(null);
-  protected readonly confirmDelete = signal<PrescriptionSummaryDto | null>(null);
   /** A PDF whose new tab was blocked during a call — offered as a link. */
   protected readonly blockedPdf = signal<{ number: string; url: string } | null>(null);
-  protected readonly leavePrompt = new LeavePrompt();
   protected readonly emptyText = computed(() =>
     this.appointmentId()
       ? 'No prescriptions yet for this consultation'
       : 'No prescriptions yet for this patient',
   );
   private readonly composer = viewChild(RxComposer);
+  private readonly noticeEl = viewChild<string, ElementRef<HTMLElement>>('noticeEl', { read: ElementRef });
   private sub: Subscription | null = null;
 
   constructor() {
@@ -311,10 +292,7 @@ export class RxPanel implements CanLeave {
       if (this.disabled()) return;
       untracked(() => this.refresh());
     });
-    this.destroyRef.onDestroy(() => {
-      this.sub?.unsubscribe();
-      this.leavePrompt.answer(false);
-    });
+    this.destroyRef.onDestroy(() => this.sub?.unsubscribe());
   }
 
   /** True while the composer is open with edits that have not been saved. */
@@ -324,13 +302,11 @@ export class RxPanel implements CanLeave {
 
   /**
    * Ask before the panel is destroyed: resolves true straight away when
-   * nothing is unsaved, otherwise shows "Leave without saving?" and resolves
-   * with the doctor's answer. The panel must be on screen for the dialog to
-   * show — a host that hides the panel should use `hasUnsavedChanges()` with
-   * its own dialog instead.
+   * nothing is unsaved, otherwise asks "Leave without saving?" (the app's
+   * dialog) and resolves with the doctor's answer.
    */
   canLeave(): boolean | Promise<boolean> {
-    return this.hasUnsavedChanges() ? this.leavePrompt.ask() : true;
+    return this.hasUnsavedChanges() ? this.dialogs.confirmLeave(UNSAVED_RX_LEAVE) : true;
   }
 
   /** Reload the list (keeps the current rows on screen while loading). */
@@ -451,27 +427,26 @@ export class RxPanel implements CanLeave {
     this.refresh();
   }
 
-  protected deleteDraft(): void {
-    const rx = this.confirmDelete();
-    this.confirmDelete.set(null);
-    if (!rx || this.busy() || this.disabled()) return;
+  /** "Delete this draft?" — the delete runs inside the dialog (spinner, inline error), then the list reloads. */
+  protected async askDelete(rx: PrescriptionSummaryDto): Promise<void> {
+    if (this.busy() || this.disabled()) return;
     this.actionError.set('');
     this.notice.set('');
-    this.busy.set(`${rx.id}:delete`);
-    this.api
-      .deletePrescription(rx.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.busy.set('');
-          this.notice.set('Draft deleted.');
-          this.refresh();
-          this.changed.emit();
-        },
-        error: (err: unknown) => {
-          this.busy.set('');
-          this.actionError.set(apiErrorMessage(err, 'Could not delete the draft. Please try again.'));
-        },
-      });
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'trash-2',
+      title: 'Delete this draft?',
+      message: `Draft ${rx.number} will be removed. This can't be undone.`,
+      confirmLabel: 'Delete draft',
+      cancelLabel: 'Keep it',
+      action: () => this.api.deletePrescription(rx.id),
+      errorMessage: (err) => apiErrorMessage(err, 'Could not delete the draft. Please try again.'),
+    });
+    if (!confirmed) return;
+    this.notice.set('Draft deleted.');
+    // The draft's Delete button (the dialog's opener) went with it: focus the notice instead.
+    focusAfterDialogs(this.injector, () => this.noticeEl()?.nativeElement);
+    this.refresh();
+    this.changed.emit();
   }
 }

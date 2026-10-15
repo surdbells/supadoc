@@ -7,10 +7,19 @@ namespace App\Action\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Service\ApiResponse;
+use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
-/** GET /api/appointments — staff list, paginated, optional `?status=` filter. */
+/**
+ * GET /api/appointments — staff list, paginated, optional `?status=` filter
+ * (CSV, e.g. `rescheduled`, `missed`) and `?when=` time split: `upcoming`
+ * (still to come or live, soonest first), `past` (over, newest first) or
+ * `attention` — "needs attention": past and still open (pending / confirmed /
+ * rescheduled after its slot ended), newest first; the cron closes these, or
+ * the back office resolves them (POST /appointments/{id}/resolve). With
+ * `when` the order is fixed (sort_by / sort_dir ignored).
+ */
 final class ListAppointmentsAction
 {
     use ApiResponse;
@@ -33,6 +42,8 @@ final class ListAppointmentsAction
             $p['sort_dir'],
             null,
             $this->parseStatuses($query['status'] ?? null),
+            AppointmentRepository::parseWhen($query['when'] ?? null),
+            new DateTimeImmutable(),
         );
 
         return $this->paginated(

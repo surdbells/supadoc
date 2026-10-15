@@ -58,6 +58,7 @@ import {
 import {
   buildCallTiles,
   CallTilesComponent,
+  DialogService,
   callTilesMode,
   type CallUid,
   type CallVideoPlayConfig,
@@ -67,7 +68,7 @@ import {
   RemoteParticipants,
   SmoothHeightDirective,
 } from '@supadoc/ui';
-import { type DeviceProblem, deviceProblemText } from '../call/call-helpers';
+import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call-helpers';
 import { openLocalMedia } from '../call/call-media';
 import { isOpenProposal, whenLabel } from './follow-up';
 import { InviteGuestDialog } from './invite-guest-dialog';
@@ -1255,6 +1256,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly session = inject(SessionTimeoutService);
   /** Bearer token for the presence heartbeat (a raw fetch, outside the interceptors). */
   private readonly auth = inject(AuthService);
+  /** "Leave the consultation?" before a live call is left. */
+  private readonly dialogs = inject(DialogService);
 
   private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
   /** The stage's video tiles (rendered once the patient enters the call). */
@@ -1898,7 +1901,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     try {
       const res = await firstValueFrom(this.appointments.getMine(this.appointmentId));
       this.appointment.set(res.data);
-      if (res.data.status !== 'completed' && res.data.status !== 'cancelled') return;
+      if (res.data.status !== 'completed' && res.data.status !== 'cancelled' && res.data.status !== 'missed') return;
       this.consultationClosed = true;
       if (this.connected && this.remoteUids.size === 0 && this.client) {
         this.callEnded(this.client, 'completed');
@@ -2634,12 +2637,39 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     void this.router.navigate(['/dashboard/appointments']);
   }
 
+  /** In the live call right now — leaving drops the patient from it. */
+  private inLiveCall(): boolean {
+    return this.status() === 'in-call' && !this.left;
+  }
+
+  /** Asked before a live call is left (End, Back, the sidebar, the browser's Back button). */
+  private confirmLeaveCall(): Promise<boolean> {
+    return this.dialogs.confirmLeave({
+      title: 'Leave the consultation?',
+      message: `You can rejoin while ${doctorTitle(this.appointment()?.specialist?.name)} is still in the call.`,
+      confirmLabel: 'Leave call',
+      cancelLabel: 'Stay',
+      tone: 'warning',
+      icon: 'phone-off',
+    });
+  }
+
   /**
-   * Leave the call. End and the "ended" screen go to this visit in the
-   * consultation history (its summary, prescriptions and rating); Back and the
-   * error screen go back to the appointments.
+   * `unsavedChangesGuard` (route `call/:id`): navigating away mid-call — a
+   * sidebar link, the browser's Back button — asks first. Signing out (or the
+   * idle timeout) always wins over the question.
+   */
+  canLeave(): boolean | Promise<boolean> {
+    return this.inLiveCall() ? this.confirmLeaveCall() : true;
+  }
+
+  /**
+   * Leave the call (asked first while in it). End and the "ended" screen go to
+   * this visit in the consultation history (its summary, prescriptions and
+   * rating); Back and the error screen go back to the appointments.
    */
   protected async leave(to: 'appointments' | 'history' | 'proposal' = 'appointments'): Promise<void> {
+    if (this.inLiveCall() && !(await this.confirmLeaveCall())) return;
     await this.teardown();
     if (to === 'history') {
       void this.router.navigate(this.appointmentId ? ['/dashboard/history', this.appointmentId] : ['/dashboard/history']);

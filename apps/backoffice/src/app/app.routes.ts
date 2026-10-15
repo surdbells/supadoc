@@ -1,5 +1,5 @@
 import { Route } from '@angular/router';
-import { permissionGuard, staffAuthGuard } from '@supadoc/auth';
+import { permissionGuard, staffAuthGuard, unsavedChangesGuard } from '@supadoc/auth';
 
 export const appRoutes: Route[] = [
   {
@@ -77,12 +77,16 @@ export const appRoutes: Route[] = [
         // The doctor page: overview, documents, review, appointments, earnings, reviews, history.
         path: 'specialists/:id',
         canActivate: [permissionGuard('specialists.manage')],
+        // Unsaved Overview (profile) edits ask before leaving.
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () =>
           import('./specialists/specialist-detail').then((m) => m.AdminSpecialistDetail),
       },
       {
         path: 'staff',
         canActivate: [permissionGuard('staff.manage')],
+        // Asks before leaving with the account editor open and edited.
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () => import('./staff/staff').then((m) => m.AdminStaff),
       },
       {
@@ -98,12 +102,14 @@ export const appRoutes: Route[] = [
       {
         path: 'pricing',
         canActivate: [permissionGuard('settings.manage')],
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () => import('./pricing/pricing').then((m) => m.AdminPricing),
       },
       {
         // GVM-RX-02 ground rules the Platform Admin can change without a release.
         path: 'prescription-rules',
         canActivate: [permissionGuard('settings.manage')],
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () =>
           import('./prescription-rules/prescription-rules').then(
             (m) => m.AdminPrescriptionRules,
@@ -112,6 +118,8 @@ export const appRoutes: Route[] = [
       {
         // Account settings — any signed-in staff user (no extra permission).
         path: 'settings',
+        // Unsaved booking-rule edits ask before leaving.
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () => import('./settings/settings').then((m) => m.AdminSettings),
       },
     ],

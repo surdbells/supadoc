@@ -47,7 +47,7 @@ final class CompleteDoctorAppointmentAction
         }
 
         if ($appointment->getStatus() === AppointmentStatus::COMPLETED) {
-            return $this->success($response, $appointment->toArray(), 'Consultation already completed');
+            return $this->success($response, $appointment->toArray('doctor'), 'Consultation already completed');
         }
         $problem = ConsultationCompleter::completionProblem(
             $appointment->getStatus(),
@@ -64,7 +64,7 @@ final class CompleteDoctorAppointmentAction
             // Closed by someone else a moment ago (another tab, the cron, the
             // back office) — `$appointment` now holds the stored status.
             if ($appointment->getStatus() === AppointmentStatus::COMPLETED) {
-                return $this->success($response, $appointment->toArray(), 'Consultation already completed');
+                return $this->success($response, $appointment->toArray('doctor'), 'Consultation already completed');
             }
 
             $gone = 'This appointment can no longer be marked completed';
@@ -72,7 +72,7 @@ final class CompleteDoctorAppointmentAction
             return $this->error($response, $gone, 422, ['status' => $gone]);
         }
 
-        return $this->success($response, $appointment->toArray(), 'Consultation completed');
+        return $this->success($response, $appointment->toArray('doctor'), 'Consultation completed');
     }
 
     /** The doctor's call screen is sending heartbeats for this consultation right now. */

@@ -4,6 +4,7 @@ import type {
   CallPresenceMap,
   AddAvailabilityInput,
   AppointmentDto,
+  AppointmentWhen,
   AvailabilityRangeDto,
   BlockAvailabilityInput,
   CarePlanDto,
@@ -124,11 +125,15 @@ export class DoctorApi {
   /**
    * GET /api/doctor/appointments — the signed-in doctor's schedule: today's
    * and what's coming, then the latest earlier ones. Not every consultation —
-   * load one by id with {@link appointment}.
+   * load one by id with {@link appointment}. With `when` (100 rows) it is split
+   * by time instead: `upcoming` (still to come or live, soonest first — the
+   * Pending / Upcoming tabs), `past` (over, newest first), `attention` (past
+   * and still open, newest first).
    */
-  schedule(): Observable<SuccessResponse<DoctorScheduleDto>> {
+  schedule(when?: AppointmentWhen): Observable<SuccessResponse<DoctorScheduleDto>> {
     return this.api.get<SuccessResponse<DoctorScheduleDto>>(
       'api/doctor/appointments',
+      when ? { when } : undefined,
     );
   }
 
@@ -137,12 +142,18 @@ export class DoctorApi {
     return this.api.get<SuccessResponse<DoctorAppointmentDto>>(this.base(id));
   }
 
-  /** GET /api/doctor/appointments/history — paginated, filterable history. */
+  /**
+   * GET /api/doctor/appointments/history — paginated, filterable history.
+   * `when` defaults to `past` on the server (over: closed, or ended over 30
+   * minutes ago — newest first); `upcoming`, `attention` or `all` otherwise.
+   * `status` CSV, e.g. `missed` for the Missed filter.
+   */
   history(query?: {
     page?: number;
     per_page?: number;
     status?: string;
     search?: string;
+    when?: AppointmentWhen | 'all';
   }): Observable<PaginatedResponse<DoctorAppointmentDto>> {
     return this.api.get<PaginatedResponse<DoctorAppointmentDto>>(
       'api/doctor/appointments/history',
@@ -150,11 +161,15 @@ export class DoctorApi {
     );
   }
 
-  /** POST /api/doctor/appointments/{id}/decline — decline + refund. */
-  decline(id: string): Observable<SuccessResponse<AppointmentDto>> {
+  /**
+   * POST /api/doctor/appointments/{id}/decline — decline + refund. `reason`
+   * (optional, up to 500 characters) is a message to the patient, included
+   * in their email.
+   */
+  decline(id: string, reason?: string): Observable<SuccessResponse<AppointmentDto>> {
     return this.api.post<SuccessResponse<AppointmentDto>>(
       `${this.base(id)}/decline`,
-      {},
+      reason ? { reason } : {},
     );
   }
 

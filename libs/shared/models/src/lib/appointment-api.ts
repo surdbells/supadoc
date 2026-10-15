@@ -13,6 +13,12 @@ import type { VitalReadingDto } from './vitals';
  * reminders). Accepting it → `confirmed`; declining, withdrawal or expiry →
  * `cancelled`. Label it "Proposed" (patient: "Awaiting your reply"; doctor:
  * "Awaiting patient").
+ *
+ * `missed` is a confirmed consultation whose time passed with no proof it took
+ * place — closed by the reminders cron (or the back office); terminal.
+ * `AppointmentDto.no_show` says who didn't come. Don't sort appointments into
+ * Upcoming / History by status: use `phase` (or `?when=`), and show
+ * `display_status` / `display_label` / `display_detail`.
  */
 export type ApiAppointmentStatus =
   | 'proposed'
@@ -20,7 +26,70 @@ export type ApiAppointmentStatus =
   | 'confirmed'
   | 'rescheduled'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'missed';
+
+/**
+ * Where an appointment is in TIME (server-computed): `upcoming` — still to
+ * come; `live` — started and not yet 30 minutes past `ends_at`, or someone is
+ * in the call; `past` — over: closed (completed / cancelled / missed), ended
+ * more than 30 minutes ago, or a proposal past its expiry.
+ */
+export type AppointmentPhase = 'upcoming' | 'live' | 'past';
+
+/**
+ * How every app shows an appointment (server-computed, one mapping):
+ * `upcoming` / `live`; `finalising` — ended, being closed (confirmed, or both
+ * sides came); `completed`; `cancelled` (incl. a declined / withdrawn
+ * proposal); `missed`; `not_confirmed` — the doctor didn't confirm in time;
+ * `expired` — a follow-up proposal not taken up.
+ */
+export type AppointmentDisplayStatus =
+  | 'upcoming'
+  | 'live'
+  | 'finalising'
+  | 'completed'
+  | 'cancelled'
+  | 'missed'
+  | 'not_confirmed'
+  | 'expired';
+
+/** A missed consultation: who didn't come. */
+export type AppointmentNoShow = 'doctor' | 'patient' | 'both';
+
+/**
+ * Why it was closed when not by an ordinary patient / doctor action:
+ * `expired_unconfirmed` (the doctor never confirmed it before it ended —
+ * cancelled, refunded in full), `no_show` (missed), `auto_completed` (closed by
+ * the cron on proof it took place), `staff_cancelled` / `staff_completed`.
+ */
+export type AppointmentClosureReason =
+  | 'expired_unconfirmed'
+  | 'no_show'
+  | 'auto_completed'
+  | 'staff_cancelled'
+  | 'staff_completed';
+
+/** Who moved an appointment last. A doctor's move confirms it; a patient's waits for the doctor. */
+export type AppointmentRescheduledBy = 'patient' | 'doctor' | 'staff';
+
+/**
+ * The lists' `?when=` time split: `upcoming` (still to come or live, soonest
+ * first), `past` (over, newest first), `attention` (staff and doctor lists
+ * only: past and still open — pending / confirmed / rescheduled after it
+ * ended). Patients' lists take upcoming | past.
+ */
+export type AppointmentWhen = 'upcoming' | 'past' | 'attention';
+
+/** GET /portal/appointments/{id} `cancel_policy`: what cancelling now would refund. */
+export interface AppointmentCancelPolicyDto {
+  /** 100, or the late-cancellation share of the consultation fee (guest fees always in full). */
+  refund_percent: number;
+  /** What would go back to the wallet ('0.00' when nothing was paid). */
+  refund_amount: string;
+  /** The late window before the start (0 = none: a full refund until the start). */
+  late_cancel_hours: number;
+}
 
 /** Who created a follow-up: the doctor proposed it, or the patient booked it. */
 export type FollowUpProposedBy = 'doctor' | 'patient';
@@ -150,6 +219,65 @@ export interface AppointmentDto {
    */
   follow_up_outcome?: FollowUpOutcome | null;
   created_at: string;
+
+  // ----- Lifecycle (server-computed; always sent by this API — optional only for older payloads/fixtures) -----
+  /** scheduled_at + the doctor's slot length. */
+  ends_at?: string;
+  /** By TIME — sort lists by this, not by status. */
+  phase?: AppointmentPhase;
+  display_status?: AppointmentDisplayStatus;
+  /**
+   * Badge text: upcoming → the status label (Pending, Confirmed, Rescheduled,
+   * Proposed); else In progress, Being finalised, Completed, Cancelled,
+   * Declined, Withdrawn, Missed, Not confirmed, Expired.
+   */
+  display_label?: string;
+  /**
+   * A line under the badge, worded for the viewer, e.g. patient "You didn't
+   * join" / "Doctor didn't attend" / "Neither joined" / "Doctor didn't confirm
+   * in time" / "Awaiting doctor confirmation" / "Your doctor moved this
+   * consultation"; doctor "Patient didn't join" / "You didn't attend" / "You
+   * didn't confirm in time" / "Awaiting your confirmation". null when none.
+   */
+  display_detail?: string | null;
+  /** Past and still open (pending / confirmed / rescheduled): the cron closes it or the back office resolves it. */
+  needs_attention?: boolean;
+  /** Patient payloads: an open booking before its start (after it: 422 "This consultation has started"). */
+  can_cancel?: boolean;
+  /**
+   * Patient payloads: an open booking before its start (the list and detail also say false inside the
+   * late-cancellation window — the reschedule would be a 422). Doctor payloads: an open booking until 30 min after its end.
+   */
+  can_reschedule?: boolean;
+  /** Doctor payloads: pending / rescheduled and not yet 30 min past its end. */
+  can_confirm?: boolean;
+  /**
+   * Doctor payloads: POST /doctor/appointments/{id}/decline is allowed now — a confirmed booking
+   * before its start; a pending / rescheduled one until 30 min after its end (else 422 errors.status).
+   */
+  can_decline?: boolean;
+  closure_reason?: AppointmentClosureReason | null;
+  /** A missed consultation: who didn't come. */
+  no_show?: AppointmentNoShow | null;
+  /** When it reached completed / cancelled / missed. */
+  closed_at?: string | null;
+  rescheduled_by?: AppointmentRescheduledBy | null;
+  /**
+   * What went back to the wallet for it so far (null: nothing). Partial on a
+   * missed consultation or a late cancellation — payment_status stays `paid`
+   * until all of it went back.
+   */
+  refunded_amount?: string | null;
+  /** Admin payloads: the doctor's / patient's first call heartbeat inside [start − 15 min, end + 30 min]. */
+  doctor_first_joined_at?: string | null;
+  patient_first_joined_at?: string | null;
+  /** GET /portal/appointments/{id} only: set while it can be cancelled (`can_cancel`), else null. */
+  cancel_policy?: AppointmentCancelPolicyDto | null;
+}
+
+/** POST /appointments/{id}/resolve and a staff cancel answer the appointment plus what this call refunded. */
+export interface ResolvedAppointmentDto extends AppointmentDto {
+  refunded_now: string;
 }
 
 /** {@link AppointmentDto.follow_up_outcome}. */
@@ -528,7 +656,7 @@ export interface SpecialistSuggestionsDto {
   suggestions: SpecialistSuggestionDto[];
 }
 
-/** GET/PATCH /settings/booking — the booking-calendar rules (settings.manage). */
+/** GET/PATCH /settings/booking — the booking rules (settings.manage); out-of-range → 422 per field. */
 export interface BookingSettingsDto {
   /** How many days ahead patients may book (7–180). */
   horizon_days: number;
@@ -536,6 +664,67 @@ export interface BookingSettingsDto {
   lead_minutes: number;
   /** A day with this many open times or fewer shows as "few left" (1–10). */
   few_left: number;
+  // ----- Past consultations (absent from older APIs) -----
+  /** A past consultation closes this long after its end: completed on proof, else a confirmed one is marked missed (1–168, default 12). */
+  missed_after_hours?: number;
+  /**
+   * A request the doctor never confirmed is cancelled (refunded in full) this long after its end
+   * (0–1440, default 0) — never inside the doctor's 30-minute confirm grace (effective minimum 30).
+   */
+  unconfirmed_expiry_minutes_after_end?: number;
+  /** Missed, the patient didn't come: % of the fee refunded; the doctor earns the rest (0–100, default 0). */
+  noshow_patient_refund_pct?: number;
+  /** Missed, neither came: % of the fee refunded; the doctor earns nothing (0–100, default 0). A doctor no-show always refunds 100%. */
+  noshow_both_refund_pct?: number;
+  /**
+   * A confirmed consultation cancelled within this many hours of its start refunds late_cancel_refund_pct,
+   * and the patient can no longer move it (0–168; 0 = off, the default). Never a booking the doctor moved.
+   */
+  late_cancel_hours?: number;
+  /** 0–100, default 100. */
+  late_cancel_refund_pct?: number;
+  /** Staff are alerted when a doctor reaches this many no-shows in 30 days (1–20, default 2). */
+  doctor_noshow_alert_threshold?: number;
+}
+
+/**
+ * POST /appointments/{id}/resolve — settle a missed or stale consultation
+ * (appointments.update), audited with `reason` (3–500 characters):
+ *  - `held`: → completed (patient notice, earnings); refund none (default) | full | amount.
+ *  - `no_show`: a past open booking → missed, or change who didn't come;
+ *    `no_show` required; refund policy (default: the no-show rules, topping up,
+ *    never taking back) | full | none | amount.
+ *  - `cancel`: → cancelled; refund full (default, guest fees included) | none | amount.
+ *  - `refund`: give back more of a closed one; refund full (default) | amount.
+ * `amount` (money string) with `refund: 'amount'`, at most what is left (422 `amount`).
+ */
+export type AppointmentResolveAction = 'held' | 'no_show' | 'cancel' | 'refund';
+export type AppointmentRefundMode = 'policy' | 'full' | 'none' | 'amount';
+export interface ResolveAppointmentParams {
+  action: AppointmentResolveAction;
+  reason: string;
+  no_show?: AppointmentNoShow;
+  refund?: AppointmentRefundMode;
+  amount?: string;
+  /**
+   * 8–64 of A–Z a–z 0–9 _ - (e.g. a UUID made when the dialog opens): an
+   * `amount` refund retried or double-submitted with the same key posts once.
+   */
+  idempotency_key?: string;
+}
+
+/**
+ * PATCH /appointments/{id}/status body. `cancelled` refunds in full by default
+ * (`refund: 'none'` needs a `reason`; `'amount'` + `amount`); `completed` goes
+ * through the completer (only once started). `missed` is refused — use resolve.
+ */
+export interface UpdateAppointmentStatusParams {
+  status: Exclude<ApiAppointmentStatus, 'proposed' | 'missed'>;
+  refund?: 'full' | 'none' | 'amount';
+  amount?: string;
+  reason?: string;
+  /** See {@link ResolveAppointmentParams.idempotency_key}. */
+  idempotency_key?: string;
 }
 
 /** Who a call participant is. */
@@ -1182,7 +1371,20 @@ export interface ListAppointmentsQuery {
   status?: string;
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
+  /**
+   * Split by time ({@link AppointmentWhen}); the order is then fixed (upcoming
+   * soonest first, else newest first). Patient lists: upcoming | past.
+   */
+  when?: AppointmentWhen;
 }
+
+/** The time splits a patient's own list accepts (anything else is a 422 `errors.when`). */
+export type PatientAppointmentWhen = Exclude<AppointmentWhen, 'attention'>;
+
+/** Query params of GET /api/portal/appointments (the patient's own list). */
+export type ListMyAppointmentsQuery = Omit<ListAppointmentsQuery, 'when'> & {
+  when?: PatientAppointmentWhen;
+};
 
 /** Who is in an appointment's call right now (from their call screens' heartbeats). */
 export interface CallPresenceDto {

@@ -18,6 +18,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, merge, Subscription } from 'rxjs';
+import type { HasUnsavedChanges } from '@supadoc/auth';
 import {
   apiErrorFields,
   apiErrorMessage,
@@ -48,6 +49,8 @@ import {
   longDayLabel,
   shortDayLabel,
   StepperComponent,
+  type LeaveCopy,
+  warnBeforeUnload,
   type FileDropRejection,
 } from '@supadoc/ui';
 import { calendarErrorText, httpStatus, notBookableText } from './booking-helpers';
@@ -1117,7 +1120,7 @@ function daysApart(a: string, b: string): number {
     </ng-template>
   `,
 })
-export class BookConsultation implements OnInit {
+export class BookConsultation implements OnInit, HasUnsavedChanges {
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly appointments = inject(AppointmentsApi);
   private readonly wallet = inject(WalletApi);
@@ -1217,6 +1220,8 @@ export class BookConsultation implements OnInit {
 
   protected readonly submitting = signal(false);
   protected readonly submitError = signal('');
+  /** The booking went through: leaving (to My Appointments) needs no question. */
+  private booked = false;
 
   // Payment method — card (Paystack, direct) or wallet. Card is the default so
   // patients are never forced to fund a wallet first.
@@ -1301,6 +1306,10 @@ export class BookConsultation implements OnInit {
   });
 
   constructor() {
+    // Closing or reloading the tab would lose a card payment no booking has
+    // used yet (or one still going through), or files still uploading.
+    warnBeforeUnload(() => !this.booked && (!!this.paid() || this.funding() || this.docsBusy()));
+
     // A follow-up's price depends on its date: quote each slot as it is picked.
     effect(() => {
       const parent = this.parent();
@@ -2156,6 +2165,7 @@ export class BookConsultation implements OnInit {
           parent_appointment_id: this.parent()?.id,
         }),
       );
+      this.booked = true;
       await this.router.navigate(['/dashboard/appointments'], {
         queryParams: { booked: '1' },
       });
@@ -2388,4 +2398,68 @@ export class BookConsultation implements OnInit {
     }
   }
 
+  /**
+   * `unsavedChangesGuard`: leaving before the booking is made asks first when
+   * something would be left behind — a card payment no booking has used yet
+   * (or one still going through), files still uploading, or documents
+   * uploaded for this booking.
+   */
+  hasUnsavedChanges(): boolean {
+    if (this.booked) return false;
+    return !!this.paid() || this.funding() || this.docsBusy() || this.attachedIds().length > 0;
+  }
+
+  /** The guard's prompt copy — what leaving would leave behind. */
+  readonly leaveCopy = (): LeaveCopy => {
+    const paid = this.paid();
+    if (paid) {
+      return {
+        tone: 'warning',
+        icon: 'credit-card',
+        title: 'Leave without booking?',
+        message:
+          `Your card payment of ${this.fmt(paid.amount)} hasn't been used for a booking yet. ` +
+          'If you leave now, contact support with its reference to get it back.',
+        details: [
+          { label: 'Card payment', value: this.fmt(paid.amount) },
+          { label: 'Reference', value: paid.reference },
+        ],
+        confirmLabel: 'Leave without booking',
+        cancelLabel: 'Stay and book',
+      };
+    }
+    if (this.funding()) {
+      return {
+        tone: 'warning',
+        icon: 'credit-card',
+        title: 'Leave while paying?',
+        message: "If the payment still goes through, it won't be used for a booking.",
+        confirmLabel: 'Leave anyway',
+        cancelLabel: 'Stay',
+      };
+    }
+    if (this.docsBusy()) {
+      return {
+        tone: 'warning',
+        icon: 'upload',
+        title: 'Leave while uploading?',
+        message: "Files that haven't finished uploading won't be saved, and nothing has been booked yet.",
+        confirmLabel: 'Leave anyway',
+        cancelLabel: 'Stay',
+      };
+    }
+    const n = this.attachedIds().length;
+    return {
+      tone: 'warning',
+      icon: 'calendar-x',
+      title: 'Leave without booking?',
+      message:
+        'Nothing has been booked yet. ' +
+        (n === 1
+          ? 'The document you uploaded stays in your medical documents.'
+          : `The ${n} documents you uploaded stay in your medical documents.`),
+      confirmLabel: 'Leave without booking',
+      cancelLabel: 'Keep booking',
+    };
+  };
 }

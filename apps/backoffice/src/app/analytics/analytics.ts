@@ -11,6 +11,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type { AnalyticsDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { APPOINTMENT_STATUS_COLOR, appointmentStatusLabel } from '../shared/appointment-status';
 
 type Range = AnalyticsDto['range'];
 
@@ -34,22 +35,8 @@ const CHART_W = 640;
 const CHART_H = 200;
 const PAD = { top: 12, right: 12, bottom: 22, left: 44 };
 
-const STATUS_COLOR: Record<string, string> = {
-  proposed: 'text-teal',
-  pending: 'text-warning',
-  confirmed: 'text-sage',
-  rescheduled: 'text-slate',
-  completed: 'text-cerulean',
-  cancelled: 'text-alert',
-};
-const STATUS_LABEL: Record<string, string> = {
-  proposed: 'Proposed',
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  rescheduled: 'Rescheduled',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-};
+/** Status colours and words, shared with every other appointment screen (incl. `missed`). */
+const STATUS_COLOR: Record<string, string> = APPOINTMENT_STATUS_COLOR;
 const NAIRA = new Intl.NumberFormat('en-NG', {
   style: 'currency',
   currency: 'NGN',
@@ -352,7 +339,7 @@ export class AdminAnalytics implements OnInit {
       segs.push({
         d: `M${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)}`,
         colorClass: STATUS_COLOR[key] ?? 'text-slate',
-        label: STATUS_LABEL[key] ?? key,
+        label: appointmentStatusLabel(key),
         value,
         pct: Math.round(frac * 100),
       });

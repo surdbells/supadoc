@@ -8,10 +8,14 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { tap } from 'rxjs';
+import type { HasUnsavedChanges } from '@supadoc/auth';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage, SpecialistsApi, StaffApi } from '@supadoc/data-access';
 import type { SpecialistAdminDto, StaffUserDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import type { LeaveCopy } from '@supadoc/ui';
+import { DialogComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { BTN_GHOST, BTN_PRIMARY } from '../specialists/specialist-ui';
 
 const ROLES = [
   { value: 'admin', label: 'Admin' },
@@ -34,11 +38,15 @@ const PERMISSIONS = [
 const FIELD =
   'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
-/** Staff & role management (route `/staff`, needs staff.manage). */
+/**
+ * Staff & role management (route `/staff`, needs staff.manage). Closing the
+ * editor (or leaving the page) with unsaved edits asks first; deactivating an
+ * account and resetting a password confirm their consequences.
+ */
 @Component({
   selector: 'bo-staff',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, DialogComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -116,14 +124,15 @@ const FIELD =
       }
     </div>
 
-    @if (editorOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="close()"></button>
-        <div class="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col gap-5 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
-          <div class="flex items-center justify-between">
-            <h2 class="font-heading text-h5 text-ink">{{ editing() ? 'Edit staff' : 'New staff' }}</h2>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="24" /></button>
-          </div>
+    <sd-dialog
+      [open]="editorOpen()"
+      [title]="editing() ? 'Edit staff' : 'New staff'"
+      [subtitle]="editorSubtitle()"
+      size="md"
+      [busy]="saving()"
+      (closed)="close()"
+    >
+        <form id="bo-staff-form" class="flex flex-col gap-5" novalidate (submit)="$event.preventDefault(); save()">
 
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="flex flex-col gap-1.5">
@@ -202,33 +211,39 @@ const FIELD =
           }
 
           @if (formError()) {
-            <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ formError() }}</p>
+            <p role="alert" class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ formError() }}</p>
           }
-          <div class="flex items-center gap-3">
-            <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving()" (click)="save()">
-              {{ saving() ? 'Saving…' : (editing() ? 'Save changes' : 'Create account') }}
-            </button>
-            <button type="button" class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink" (click)="close()">Cancel</button>
-          </div>
+        </form>
 
-          @if (editing()) {
-            <div class="flex flex-col gap-2 border-t border-cloud pt-4">
-              <span class="font-sans text-caption font-semibold text-slate">Reset password</span>
-              <div class="flex flex-wrap items-center gap-2">
-                <input type="password" autocomplete="new-password" class="${FIELD} sm:max-w-xs" [value]="resetPw()" (input)="resetPw.set($any($event.target).value)" placeholder="New password (8+ chars)" />
-                <button type="button" class="rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="resetting()" (click)="doResetPassword()">
-                  {{ resetting() ? 'Resetting…' : 'Reset' }}
-                </button>
-              </div>
+        @if (editing()) {
+          <div class="mt-5 flex flex-col gap-2 border-t border-cloud pt-4">
+            <label for="bo-staff-reset" class="font-sans text-caption font-semibold text-slate">Reset password</label>
+            <div class="flex flex-wrap items-center gap-2">
+              <input id="bo-staff-reset" type="password" autocomplete="new-password" class="${FIELD} sm:max-w-xs" [value]="resetPw()" (input)="resetPw.set($any($event.target).value)" placeholder="New password (8+ chars)" />
+              <button type="button" class="min-h-11 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="saving()" (click)="doResetPassword()">
+                Reset
+              </button>
+            </div>
+            <div aria-live="polite">
               @if (resetNotice()) { <p class="font-sans text-caption" [class]="resetOk() ? 'text-sage' : 'text-alert'">{{ resetNotice() }}</p> }
             </div>
+          </div>
+        }
+
+      <div dialogFooter class="flex flex-col-reverse gap-2 border-t border-cloud px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+        <button type="button" class="${BTN_GHOST}" [disabled]="saving()" (click)="close()">Cancel</button>
+        <button type="submit" form="bo-staff-form" class="${BTN_PRIMARY}" [disabled]="saving()">
+          @if (saving()) {
+            <sd-icon name="loader-circle" [size]="18" class="animate-spin" />Saving…
+          } @else {
+            <sd-icon name="save" [size]="18" />{{ editing() ? 'Save changes' : 'Create account' }}
           }
-        </div>
+        </button>
       </div>
-    }
+    </sd-dialog>
   `,
 })
-export class AdminStaff implements OnInit {
+export class AdminStaff implements OnInit, HasUnsavedChanges {
   private readonly api = inject(StaffApi);
   private readonly specialistsApi = inject(SpecialistsApi);
   private readonly auth = inject(StaffAuthService);
@@ -262,9 +277,32 @@ export class AdminStaff implements OnInit {
 
   // Reset password
   protected readonly resetPw = signal('');
-  protected readonly resetting = signal(false);
   protected readonly resetNotice = signal('');
   protected readonly resetOk = signal(false);
+
+  private readonly dialogs = inject(DialogService);
+  /** The editor's fields as they were when it opened. */
+  private readonly baseline = signal('');
+  private readonly formState = computed(() =>
+    JSON.stringify([
+      this.firstName().trim(),
+      this.lastName().trim(),
+      this.email().trim(),
+      this.password(),
+      this.active(),
+      [...this.roles()].sort(),
+      [...this.permissions()].sort(),
+      this.specialistId(),
+      this.sendInvite(),
+      this.resetPw(),
+    ]),
+  );
+  /** The editor is open with edits that aren't saved. */
+  protected readonly dirty = computed(() => this.editorOpen() && this.formState() !== this.baseline());
+  protected readonly editorSubtitle = computed(() => {
+    const u = this.editing();
+    return u ? u.email : 'A login for the console or the doctor portal.';
+  });
 
   /** Only a super admin can grant super_admin. */
   private readonly isSuper = computed(() => this.auth.hasRole('super_admin'));
@@ -329,6 +367,7 @@ export class AdminStaff implements OnInit {
     this.formError.set('');
     this.resetNotice.set('');
     this.resetPw.set('');
+    this.baseline.set(this.formState());
     this.editorOpen.set(true);
   }
 
@@ -345,32 +384,72 @@ export class AdminStaff implements OnInit {
     this.formError.set('');
     this.resetNotice.set('');
     this.resetPw.set('');
+    this.baseline.set(this.formState());
     this.editorOpen.set(true);
   }
 
-  protected close(): void {
+  /** Close the editor — asking first when it holds unsaved edits. */
+  protected async close(): Promise<void> {
+    if (this.saving()) return;
+    if (this.dirty() && !(await this.dialogs.confirmLeave(this.discardCopy()))) return;
     this.editorOpen.set(false);
   }
 
-  protected save(): void {
-    this.saving.set(true);
+  /** For the route's unsavedChangesGuard: the editor is open with unsaved edits. */
+  hasUnsavedChanges(): boolean {
+    return this.dirty();
+  }
+  readonly leaveCopy = (): LeaveCopy => this.discardCopy();
+
+  private discardCopy(): LeaveCopy {
+    const editing = this.editing();
+    return {
+      title: 'Discard changes?',
+      message: editing
+        ? `Your edits to ${this.nameOf(editing)}'s account won't be saved.`
+        : "The new account won't be created.",
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Keep editing',
+    };
+  }
+
+  protected async save(): Promise<void> {
+    if (this.saving()) return;
     this.formError.set('');
     const specialistId = this.hasRole('doctor') ? this.specialistId() || null : null;
     const editing = this.editing();
     if (editing) {
-      this.api
-        .update(editing.id, {
-          email: this.email().trim(),
-          first_name: this.firstName().trim(),
-          last_name: this.lastName().trim(),
-          roles: this.roles(),
-          permissions: this.permissions(),
-          active: this.active(),
-          specialist_id: specialistId,
-        })
+      const request = this.api.update(editing.id, {
+        email: this.email().trim(),
+        first_name: this.firstName().trim(),
+        last_name: this.lastName().trim(),
+        roles: this.roles(),
+        permissions: this.permissions(),
+        active: this.active(),
+        specialist_id: specialistId,
+      });
+      if (editing.active && !this.active()) {
+        // Deactivating signs them out everywhere at once (the API revokes their sessions).
+        const { confirmed } = await this.dialogs.confirm({
+          tone: 'danger',
+          icon: 'user-x',
+          title: `Deactivate ${this.nameOf(editing)}?`,
+          message: "They're signed out everywhere straight away and can't sign in until you reactivate them.",
+          details: [{ label: 'Account', value: editing.email }],
+          confirmLabel: 'Deactivate and save',
+          cancelLabel: 'Keep active',
+          busyLabel: 'Saving…',
+          action: () => request,
+        });
+        if (confirmed) this.afterSave();
+        return;
+      }
+      this.saving.set(true);
+      request
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({ next: () => this.afterSave(), error: (err) => this.onError(err) });
     } else {
+      this.saving.set(true);
       const invite = this.invitingDoctor();
       this.api
         .create({
@@ -414,7 +493,7 @@ export class AdminStaff implements OnInit {
     this.formError.set(apiErrorMessage(err, 'Could not save the account.'));
   }
 
-  protected doResetPassword(): void {
+  protected async doResetPassword(): Promise<void> {
     const editing = this.editing();
     if (!editing) return;
     if (this.resetPw().length < 8) {
@@ -422,23 +501,27 @@ export class AdminStaff implements OnInit {
       this.resetNotice.set('Password must be at least 8 characters.');
       return;
     }
-    this.resetting.set(true);
     this.resetNotice.set('');
-    this.api
-      .resetPassword(editing.id, this.resetPw())
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.resetOk.set(true);
-          this.resetNotice.set('Password reset.');
-          this.resetPw.set('');
-          this.resetting.set(false);
-        },
-        error: (err) => {
-          this.resetOk.set(false);
-          this.resetNotice.set(apiErrorMessage(err, 'Could not reset the password.'));
-          this.resetting.set(false);
-        },
-      });
+    const password = this.resetPw();
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'key-round',
+      title: `Set a new password for ${this.nameOf(editing)}?`,
+      message: 'Their current password stops working straight away. Tell them the new one securely — never by email or chat.',
+      details: [{ label: 'Account', value: editing.email }],
+      confirmLabel: 'Set new password',
+      cancelLabel: 'Cancel',
+      busyLabel: 'Resetting…',
+      errorMessage: (err) => apiErrorMessage(err, 'Could not reset the password.'),
+      action: () => this.api.resetPassword(editing.id, password).pipe(tap(() => this.resetPw.set(''))),
+    });
+    if (confirmed) {
+      this.resetOk.set(true);
+      this.resetNotice.set('Password reset. Tell them the new one securely.');
+    }
+  }
+
+  private nameOf(u: StaffUserDto): string {
+    return `${u.first_name} ${u.last_name}`.trim() || u.email;
   }
 }

@@ -69,6 +69,14 @@ final class GetSpecialistAdminAction
                 ),
                 'earnings'               => $this->earnings->summary($id),
                 'reviews'                => $this->reviews->summaryForSpecialist($id),
+                // Consultations this doctor didn't attend (missed, no_show doctor): all time and the
+                // alert window (Booking settings doctor_noshow_alert_threshold counts the latter).
+                'doctor_no_shows'        => $this->appointments->countDoctorNoShows($id, new DateTimeImmutable('2000-01-01'), new DateTimeImmutable()),
+                'doctor_no_shows_30d'    => $this->appointments->countDoctorNoShows(
+                    $id,
+                    new DateTimeImmutable('-' . \App\Domain\Settings\BookingSettings::DOCTOR_NOSHOW_WINDOW_DAYS . ' days'),
+                    new DateTimeImmutable(),
+                ),
             ],
         ]);
     }

@@ -140,6 +140,15 @@ import {
   LucideChevronLeft,
   LucideSunrise,
   LucideGlobe,
+  LucideCalendarX,
+  LucideImageOff,
+  LucideShieldOff,
+  LucideFlaskConical,
+  LucideCircleStop,
+  LucideLandmark,
+  LucideKeyRound,
+  LucideMessageSquareX,
+  LucideDoorOpen,
 } from '@lucide/angular';
 
 /**
@@ -295,6 +304,17 @@ export const SUPADOC_ICONS = [
   LucideChevronLeft,
   LucideSunrise,
   LucideGlobe,
+  // Confirmation dialogs: cancel appointment, remove photo, turn off 2FA, lab
+  // order, stop recording, payout account, reset password, close ticket, leave.
+  LucideCalendarX,
+  LucideImageOff,
+  LucideShieldOff,
+  LucideFlaskConical,
+  LucideCircleStop,
+  LucideLandmark,
+  LucideKeyRound,
+  LucideMessageSquareX,
+  LucideDoorOpen,
 ];
 
 /**

@@ -2,9 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
@@ -12,7 +15,9 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
 import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type { SessionDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { ButtonComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { afterDialogsClose } from '../dialog-helpers';
+import { askSignOut, askSignOutDevice } from './sign-out';
 
 /**
  * Settings › Privacy & Security › Login Activity (Figma 916:18056). Lists the
@@ -28,7 +33,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
     <div class="flex flex-col gap-6 py-2">
       <div class="flex items-start justify-between gap-4">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Login Activity</h1>
+          <h1 #pageTitle tabindex="-1" class="font-heading text-h3 text-ink outline-none">Login Activity</h1>
           <p class="font-sans text-body text-slate">
             Devices currently signed in to your account.
           </p>
@@ -59,9 +64,6 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           <sd-button size="sm" (click)="load()">Try Again</sd-button>
         </div>
       } @else {
-        @if (revokeError()) {
-          <p class="font-sans text-body-sm text-alert" role="alert">{{ revokeError() }}</p>
-        }
         <div class="flex flex-col gap-4">
           @for (s of sessions(); track s.id) {
             <div
@@ -102,7 +104,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
                   type="button"
                   class="shrink-0 font-sans text-body-sm font-medium text-alert transition-colors hover:brightness-95 disabled:opacity-50"
                   [disabled]="revokingId() === s.id"
-                  (click)="revoke(s.id)"
+                  (click)="revoke(s)"
                 >
                   {{ revokingId() === s.id ? 'Signing out…' : 'Sign out' }}
                 </button>
@@ -129,13 +131,15 @@ export class SettingsLoginActivity implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
+  private readonly injector = inject(Injector);
+  private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
 
   protected readonly sessions = signal<SessionDto[]>([]);
   protected readonly loading = signal(true);
   /** Why the session list failed to load ('' when it didn't). */
   protected readonly error = signal('');
   protected readonly revokingId = signal('');
-  protected readonly revokeError = signal('');
 
   ngOnInit(): void {
     this.load();
@@ -159,21 +163,31 @@ export class SettingsLoginActivity implements OnInit {
       });
   }
 
-  protected async revoke(id: string): Promise<void> {
-    this.revokingId.set(id);
-    this.revokeError.set('');
-    try {
-      await firstValueFrom(this.patient.revokeSession(id));
-      this.sessions.update((list) => list.filter((s) => s.id !== id));
-    } catch (err) {
-      // Leave the session listed, but say why it couldn't be signed out.
-      this.revokeError.set(apiErrorMessage(err, 'Could not sign out that device.'));
-    } finally {
-      this.revokingId.set('');
-    }
+  /**
+   * Asked first; the dialog shows the request's progress and why it failed, if
+   * it did. The signed-out row's button is gone, so focus lands on the heading.
+   */
+  protected async revoke(s: SessionDto): Promise<void> {
+    if (this.revokingId()) return;
+    const signedOut = await askSignOutDevice(
+      this.dialogs,
+      s.device,
+      async () => {
+        this.revokingId.set(s.id);
+        try {
+          await firstValueFrom(this.patient.revokeSession(s.id));
+          this.sessions.update((list) => list.filter((x) => x.id !== s.id));
+        } finally {
+          this.revokingId.set('');
+        }
+      },
+      'Could not sign out that device.',
+    );
+    if (signedOut) afterDialogsClose(this.dialogs, this.injector, () => this.pageTitle()?.nativeElement.focus());
   }
 
   protected async signOutCurrent(): Promise<void> {
+    if (!(await askSignOut(this.dialogs))) return;
     await this.auth.logout();
     await this.router.navigateByUrl('/auth/login');
   }

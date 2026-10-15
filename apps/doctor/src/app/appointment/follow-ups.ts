@@ -86,8 +86,11 @@ export function proposalExpiry(startMs: number, now: number): number {
  */
 export function doctorStatusLabel(a: AppointmentDto, now = Date.now()): string {
   if (a.status === 'proposed') return isOpenProposal(a, now) ? AWAITING_PATIENT : 'Expired';
+  // Cancelled because the doctor never confirmed it in time.
+  if (a.display_status === 'not_confirmed') return a.display_label ?? 'Not confirmed';
   if (isClosedProposal(a)) return followUpState(a, now).label;
-  return a.status_label;
+  // The lifecycle label — In progress, Being finalised, Missed… (older payloads: the status's).
+  return a.display_label ?? a.status_label;
 }
 
 /** How a follow-up stands, for the doctor's follow-up lists (icon + text, never colour alone). */
@@ -128,19 +131,50 @@ export function followUpState(f: AppointmentDto, now: number, withdrawn?: Readon
         ? { label: 'Proposed — awaiting patient', icon: 'hourglass', tone: 'warning', open: true }
         : { label: 'Expired', icon: 'clock', tone: 'neutral', open: false };
     case 'pending':
-      return { label: f.status_label, icon: 'hourglass', tone: 'warning', open: false };
     case 'rescheduled':
-      return { label: f.status_label, icon: 'refresh-cw', tone: 'neutral', open: false };
     case 'confirmed':
-      return { label: 'Confirmed', icon: 'circle-check', tone: 'success', open: false };
+      return openBookingState(f);
     case 'completed':
       return { label: 'Completed', icon: 'calendar-check', tone: 'brand', open: false };
+    case 'missed':
+      return {
+        label: f.display_detail ? `Missed — ${f.display_detail.charAt(0).toLowerCase()}${f.display_detail.slice(1)}` : 'Missed',
+        icon: 'calendar-x',
+        tone: f.no_show === 'patient' ? 'warning' : 'danger',
+        open: false,
+      };
     case 'cancelled':
+      if (f.display_status === 'not_confirmed') return { label: 'Not confirmed in time', icon: 'calendar-off', tone: 'neutral', open: false };
       if (f.follow_up_outcome && CLOSED_AS[f.follow_up_outcome]) return CLOSED_AS[f.follow_up_outcome];
       if (!neverAccepted(f)) return { label: 'Cancelled', icon: 'ban', tone: 'danger', open: false };
       if (f.decline_reason) return { label: 'Declined', icon: 'circle-x', tone: 'danger', open: false };
       if (withdrawn?.has(f.id)) return { label: 'Withdrawn', icon: 'undo-2', tone: 'neutral', open: false };
       return { label: 'Not accepted', icon: 'circle-x', tone: 'neutral', open: false };
+  }
+}
+
+/**
+ * A booked follow-up (pending / rescheduled / confirmed) by where it is in
+ * time: still to come → its status; live → "In progress"; over but not closed
+ * yet → the lifecycle's "Not confirmed in time" / "Being finalised" until the
+ * reminders cron closes it.
+ */
+function openBookingState(f: AppointmentDto): FollowUpState {
+  switch (f.display_status) {
+    case 'live':
+      return { label: 'In progress', icon: 'video', tone: 'brand', open: false };
+    case 'not_confirmed':
+      return { label: 'Not confirmed in time', icon: 'calendar-off', tone: 'neutral', open: false };
+    case 'finalising':
+      return { label: 'Being finalised', icon: 'hourglass', tone: 'neutral', open: false };
+  }
+  switch (f.status) {
+    case 'confirmed':
+      return { label: 'Confirmed', icon: 'circle-check', tone: 'success', open: false };
+    case 'rescheduled':
+      return { label: f.status_label, icon: 'refresh-cw', tone: 'neutral', open: false };
+    default:
+      return { label: f.status_label, icon: 'hourglass', tone: 'warning', open: false };
   }
 }
 

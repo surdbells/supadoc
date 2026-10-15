@@ -203,6 +203,13 @@ return [
                     'horizon_days' => ['type' => 'integer', 'minimum' => 7, 'maximum' => 180, 'example' => 60],
                     'lead_minutes' => ['type' => 'integer', 'minimum' => 15, 'maximum' => 1440, 'example' => 60],
                     'few_left'     => ['type' => 'integer', 'minimum' => 1, 'maximum' => 10, 'example' => 3],
+                    'missed_after_hours'                   => ['type' => 'integer', 'minimum' => 1, 'maximum' => 168, 'example' => 12, 'description' => 'A past consultation is closed this long after its slot ended: completed on proof it took place (confirmed or not), else a confirmed one is marked missed'],
+                    'unconfirmed_expiry_minutes_after_end' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 1440, 'example' => 0, 'description' => 'A request the doctor never confirmed is cancelled (refunded in full, closure_reason expired_unconfirmed) this long after its slot ended — never inside the doctor\'s 30-minute confirm grace (effective minimum 30). One both sides joined the call of is left for proof / the back office.'],
+                    'noshow_patient_refund_pct'            => ['type' => 'integer', 'minimum' => 0, 'maximum' => 100, 'example' => 0, 'description' => 'Missed, the patient didn\'t come: share of the consultation fee refunded (the doctor earns the rest). Guest fees always go back.'],
+                    'noshow_both_refund_pct'               => ['type' => 'integer', 'minimum' => 0, 'maximum' => 100, 'example' => 0, 'description' => 'Missed, neither came: share of the fee refunded (the doctor earns nothing). A doctor no-show always refunds 100%.'],
+                    'late_cancel_hours'                    => ['type' => 'integer', 'minimum' => 0, 'maximum' => 168, 'example' => 0, 'description' => 'A confirmed consultation cancelled by the patient within this many hours of its start refunds late_cancel_refund_pct, and can no longer be moved by the patient (0 = off: a full refund until the start). Never applies to a booking the doctor moved (rescheduled_by doctor).'],
+                    'late_cancel_refund_pct'               => ['type' => 'integer', 'minimum' => 0, 'maximum' => 100, 'example' => 100],
+                    'doctor_noshow_alert_threshold'        => ['type' => 'integer', 'minimum' => 1, 'maximum' => 20, 'example' => 2, 'description' => 'Staff (specialists.manage) are alerted when a doctor reaches this many no-shows in 30 days'],
                 ],
             ],
             'Appointment' => [
@@ -223,14 +230,15 @@ return [
                     'type_label'   => ['type' => 'string'],
                     'status'       => [
                         'type'        => 'string',
-                        'enum'        => ['proposed', 'pending', 'confirmed', 'rescheduled', 'completed', 'cancelled'],
-                        'description' => '`proposed`: a follow-up the doctor offered that the patient has not answered — it holds the slot until `expires_at` but is not a booking (no reminders, call, completion or earnings). Accepting moves it to confirmed; declining, withdrawal or expiry to cancelled.',
+                        'enum'        => ['proposed', 'pending', 'confirmed', 'rescheduled', 'completed', 'cancelled', 'missed'],
+                        'description' => '`proposed`: a follow-up the doctor offered that the patient has not answered — it holds the slot until `expires_at` but is not a booking (no reminders, call, completion or earnings). Accepting moves it to confirmed; declining, withdrawal or expiry to cancelled. '
+                            . '`missed`: a confirmed consultation whose time passed with no proof it took place (closed by the reminders cron, or the back office) — terminal; `no_show` says who didn\'t come. Show lists by `phase` / `display_status`, not by status.',
                     ],
                     'status_label' => ['type' => 'string'],
                     'amount'         => ['type' => 'string', 'example' => '150.00'],
                     'notes'          => ['type' => 'string', 'nullable' => true],
                     'document_url'   => ['type' => 'string', 'nullable' => true, 'deprecated' => true, 'description' => 'Legacy public attachment URL; always null once bin/prod-migrate.php has run. Booking attachments are medical documents — list them with GET /portal/documents?appointment_id='],
-                    'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid', 'refunded'], 'description' => 'A free consultation (amount 0) is `paid` from the start — nothing is owed.'],
+                    'payment_status' => ['type' => 'string', 'enum' => ['unpaid', 'pending', 'paid', 'refunded'], 'description' => 'A free consultation (amount 0) is `paid` from the start — nothing is owed. `refunded` once everything paid went back; a partial refund leaves it `paid` (see refunded_amount).'],
                     'guests'         => [
                         'type'        => 'array',
                         'description' => 'Invited third parties (max 3) — names only, in every payload (patient, doctor, back office). The patient\'s guest list with emails, status and links is GET /portal/appointments/{id}/guests.',
@@ -254,7 +262,25 @@ return [
                     'expires_at'        => ['type' => 'string', 'format' => 'date-time', 'nullable' => true, 'description' => 'A proposal closes then (2h before it starts, at most 72h after proposing). Meaningful while status is proposed.'],
                     'decline_reason'    => ['type' => 'string', 'nullable' => true, 'description' => "The patient's reason for declining a proposal (patient and doctor payloads only)"],
                     'follow_up_outcome' => ['type' => 'string', 'enum' => ['declined', 'withdrawn', 'expired'], 'nullable' => true, 'description' => 'How a doctor\'s proposal closed unaccepted (status cancelled): declined by the patient, withdrawn by the doctor or the back office, or expired unanswered. null while open, once accepted, on an ordinary booking, and on proposals closed before it was recorded.'],
+                    'closure_reason'    => ['type' => 'string', 'nullable' => true, 'enum' => ['expired_unconfirmed', 'no_show', 'auto_completed', 'staff_cancelled', 'staff_completed'], 'description' => 'Why it was closed when not by an ordinary patient / doctor action: expired_unconfirmed (the doctor never confirmed it before it ended — cancelled, refunded in full), no_show (missed), auto_completed (closed by the cron on proof it took place), staff_cancelled / staff_completed (the back office).'],
+                    'no_show'           => ['type' => 'string', 'nullable' => true, 'enum' => ['doctor', 'patient', 'both'], 'description' => 'A missed consultation: who didn\'t come'],
+                    'closed_at'         => ['type' => 'string', 'format' => 'date-time', 'nullable' => true, 'description' => 'When it reached completed / cancelled / missed (null on rows closed before it was recorded)'],
+                    'rescheduled_by'    => ['type' => 'string', 'nullable' => true, 'enum' => ['patient', 'doctor', 'staff'], 'description' => 'Who moved it last. A doctor\'s move confirms it at once; a patient\'s waits for the doctor (status rescheduled).'],
+                    'refunded_amount'   => ['type' => 'string', 'nullable' => true, 'example' => '5000.00', 'description' => 'What went back to the wallet for it so far (null: nothing). Partial on a missed consultation or a late cancellation — payment_status stays paid until all of it went back.'],
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
+                    // Lifecycle (server-computed — one mapping for every app).
+                    'ends_at'           => ['type' => 'string', 'format' => 'date-time', 'description' => 'scheduled_at + the doctor\'s slot length'],
+                    'phase'             => ['type' => 'string', 'enum' => ['upcoming', 'live', 'past'], 'description' => 'By TIME: upcoming (still to come), live (started and not yet 30 min past ends_at, or someone in the call — lists that know it), past (over: closed — completed / cancelled / missed — or ended over 30 min ago, or an expired proposal)'],
+                    'display_status'    => ['type' => 'string', 'enum' => ['upcoming', 'live', 'finalising', 'completed', 'cancelled', 'missed', 'not_confirmed', 'expired'], 'description' => 'How to show it: upcoming / live; finalising (ended, being closed — confirmed, or both sides came); completed; cancelled (incl. a declined / withdrawn proposal); missed; not_confirmed (the doctor didn\'t confirm in time); expired (a proposal not taken up)'],
+                    'display_label'     => ['type' => 'string', 'example' => 'Missed', 'description' => 'Upcoming: the status label (Pending, Confirmed, Rescheduled, Proposed); else In progress, Being finalised, Completed, Cancelled, Declined, Withdrawn, Missed, Not confirmed, Expired'],
+                    'display_detail'    => ['type' => 'string', 'nullable' => true, 'example' => "You didn't join", 'description' => 'Worded for the viewer — missed: patient "You didn\'t join" / "Doctor didn\'t attend" / "Neither joined" (doctor: "Patient didn\'t join" / "You didn\'t attend"); not_confirmed: "Doctor didn\'t confirm in time" (doctor: "You didn\'t confirm in time"); upcoming: "Awaiting doctor confirmation", "Awaiting your reply", "Your doctor moved this consultation"…'],
+                    'needs_attention'   => ['type' => 'boolean', 'description' => 'Past and still open (pending / confirmed / rescheduled): the cron closes it, or the back office resolves it'],
+                    'can_cancel'        => ['type' => 'boolean', 'description' => 'Patient payloads: an open booking before its start'],
+                    'can_reschedule'    => ['type' => 'boolean', 'description' => 'Patient payloads: an open booking before its start (GET /portal/appointments and /{id}: false inside the late-cancellation window). Doctor payloads: an open booking until 30 min after its end'],
+                    'can_confirm'       => ['type' => 'boolean', 'description' => 'Doctor payloads: pending / rescheduled and not yet 30 min past its end'],
+                    'can_decline'       => ['type' => 'boolean', 'description' => 'Doctor payloads: POST .../decline is allowed now — a confirmed booking before its start; a pending / rescheduled one until 30 min after its end'],
+                    'doctor_first_joined_at'  => ['type' => 'string', 'format' => 'date-time', 'nullable' => true, 'description' => 'Admin payloads: the doctor\'s first call heartbeat inside [start − 15 min, end + 30 min] (from 2026-10 on)'],
+                    'patient_first_joined_at' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true, 'description' => 'Admin payloads: the patient\'s first call heartbeat inside the same window'],
                 ],
             ],
             'Pricing' => [
@@ -766,7 +792,7 @@ return [
             'patch' => ['tags' => ['Staff'], 'summary' => 'Update prescription rules (settings.manage)', 'responses' => ['200' => ['description' => 'Updated'], '403' => ['$ref' => '#/components/responses/Forbidden'], '422' => ['$ref' => '#/components/responses/Validation']]],
         ],
         '/api/settings/booking' => [
-            'get'   => ['tags' => ['Staff'], 'summary' => 'Booking-calendar rules: horizon_days, lead_minutes, few_left (settings.manage)', 'responses' => ['200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/BookingSettings']))], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'get'   => ['tags' => ['Staff'], 'summary' => 'Booking rules: calendar (horizon_days, lead_minutes, few_left) and past consultations (missed_after_hours, unconfirmed_expiry_minutes_after_end, noshow_patient_refund_pct, noshow_both_refund_pct, late_cancel_hours, late_cancel_refund_pct, doctor_noshow_alert_threshold) (settings.manage)', 'responses' => ['200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/BookingSettings']))], '403' => ['$ref' => '#/components/responses/Forbidden']]],
             'patch' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Update booking-calendar rules (settings.manage)',
@@ -1055,7 +1081,8 @@ return [
                 'summary'    => 'List appointments',
                 'parameters' => [
                     ...$paginationParams,
-                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses'],
+                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses (e.g. rescheduled, missed)'],
+                    ['name' => 'when', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['upcoming', 'past', 'attention']], 'description' => 'By time (see Appointment.phase): upcoming (soonest first), past (newest first), attention — "needs attention": past and still open (pending / confirmed / rescheduled), newest first. With `when` the order is fixed.'],
                 ],
                 'responses'  => [
                     '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Appointment'))],
@@ -1198,11 +1225,51 @@ return [
                 'summary'     => 'Transition an appointment status',
                 'description' => 'Enforces the state machine; illegal transitions return 422. Nothing moves into `proposed`, and a proposed follow-up can only be cancelled here (the patient accepting it confirms it). '
                     . 'Cancelling a proposal is a compare-and-set, like the doctor withdrawing it: 422 `errors.status` when the patient accepted it a moment earlier (cancel the confirmed appointment instead), 200 "Follow-up proposal already closed" when it had already closed. '
-                    . 'Audited (`appointment.follow_up_withdrawn`, actor role admin); the doctor gets an in-app notice and the patient the usual status email. Cancelling a booking also emails each of its guests.',
+                    . 'Audited (`appointment.follow_up_withdrawn`, actor role admin); the doctor gets an in-app notice and the patient the usual status email. '
+                    . 'Cancelling a booking (or a missed consultation) refunds by default — in full, guest fees included (`refund` full) — or keeps the money with `refund: none` and a `reason` (422 `errors.reason` without), or refunds `amount` (`refund: amount`); closure_reason staff_cancelled; audited `appointment.cancelled_by_staff` {from, refund, refunded, reason}; the patient, the doctor and (while their links still work) the guests are told. The response adds `refunded_now`. '
+                    . '`completed` goes through the consultation completer (audit `appointment.completed_by_staff`, the patient\'s notice, earnings; closure_reason staff_completed) — only once its time has come, and also from pending / rescheduled (took place unconfirmed) or missed (held after all). '
+                    . '`missed` is refused here (422) — use POST /appointments/{id}/resolve (who didn\'t come). Other moves are audited `appointment.status_changed`.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
-                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['status'], 'properties' => ['status' => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'rescheduled', 'completed', 'cancelled']]]])],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['status'], 'properties' => [
+                    'status' => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'rescheduled', 'completed', 'cancelled']],
+                    'refund' => ['type' => 'string', 'enum' => ['full', 'none', 'amount'], 'default' => 'full', 'description' => 'status cancelled only'],
+                    'amount' => ['type' => 'string', 'example' => '5000.00', 'description' => 'With refund amount: at most what is left to refund'],
+                    'reason' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 500, 'description' => 'Required with refund none; kept in the audit trail'],
+                    'idempotency_key' => ['type' => 'string', 'pattern' => '^[A-Za-z0-9_-]{8,64}$', 'description' => 'Makes an amount refund safe to retry'],
+                ]])],
                 'responses'   => [
                     '200' => ['description' => 'Updated', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/appointments/{id}/resolve' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Settle a missed or stale consultation (appointments.update)',
+                'description' => 'For "needs attention" rows (past and still open) and missed ones; audited with the staff member and `reason` (required, 3–500 characters). '
+                    . '`action` held: mark it held → completed through the consultation completer (patient notice, earnings; closure_reason staff_completed; no_show cleared; audit `appointment.completed_by_staff`) — once its time has come; `refund` none (default) | full | amount. '
+                    . 'no_show: a past open booking → missed, or change who didn\'t come to a missed one (`no_show` doctor | patient | both; closure_reason no_show; audit `appointment.no_show_set`); `refund` policy (default: the no-show rules for that party, topping up what already went back, never taking any back) | full | none | amount; both sides are told, and a doctor no-show counts towards the repeated no-show alert. '
+                    . 'cancel: an open booking or a missed one → cancelled (closure_reason staff_cancelled; audit `appointment.cancelled_by_staff`); `refund` full (default, guest fees included) | none | amount. '
+                    . 'refund: give back more of a closed one (completed / missed / cancelled); `refund` full (default: all that is left) | amount (audit `appointment.refunded_by_staff`). '
+                    . '`amount` is never more than is left to refund (422 `errors.amount`); send `idempotency_key` (8–64 of A–Z a–z 0–9 _ -) so a retry or double submit of an amount refund posts once (`full` / `policy` only ever top up, so repeating them refunds nothing more). Answers the appointment (admin shape) plus `refunded_now`.',
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['action', 'reason'], 'properties' => [
+                    'action'  => ['type' => 'string', 'enum' => ['held', 'no_show', 'cancel', 'refund']],
+                    'no_show' => ['type' => 'string', 'enum' => ['doctor', 'patient', 'both'], 'description' => 'action no_show'],
+                    'refund'  => ['type' => 'string', 'enum' => ['policy', 'full', 'none', 'amount']],
+                    'amount'  => ['type' => 'string', 'example' => '5000.00'],
+                    'reason'  => ['type' => 'string', 'minLength' => 3, 'maxLength' => 500],
+                    'idempotency_key' => ['type' => 'string', 'pattern' => '^[A-Za-z0-9_-]{8,64}$', 'description' => 'Makes an amount refund safe to retry'],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Settled', ...$json($envelope(['allOf' => [
+                        ['$ref' => '#/components/schemas/Appointment'],
+                        ['type' => 'object', 'properties' => ['refunded_now' => ['type' => 'string', 'example' => '15000.00']]],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing appointments.update'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
@@ -1406,7 +1473,10 @@ return [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "A doctor's own consultations (minimal doctor portal)",
-                'description' => 'Staff token from a doctor login (role doctor). The schedule, soonest first: the next 100 from a day ago on (all of today and what\'s coming), then, if there is room, the most recent earlier ones — GET /doctor/appointments/{id} loads any one, /doctor/appointments/history pages through the rest. Each row includes a preauthenticated join_url — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet, and null with `join_blocked` {code, message} on every row while the doctor may not start clinical work (code terms_required: accept the practitioner terms first — terms_required only blocks a consultation whose start time is still ahead; one already under way keeps its join_url). 403 (`errors.code`) for a suspended / not-approved doctor.',
+                'parameters'  => [
+                    ['name' => 'when', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['upcoming', 'past', 'attention']], 'description' => 'Split by time instead (100 rows): upcoming (still to come or live, soonest first — the Pending / Upcoming tabs), past (over, newest first), attention (past and still open, newest first)'],
+                ],
+                'description' => 'Staff token from a doctor login (role doctor). The schedule, soonest first: the next 100 from a day ago on (all of today and what\'s coming), then, if there is room, the most recent earlier ones — GET /doctor/appointments/{id} loads any one, /doctor/appointments/history pages through the rest. Rows carry the doctor-worded lifecycle fields (phase, display_*, can_confirm, can_reschedule). Each row includes a preauthenticated join_url — null on a follow-up proposal (status proposed) the patient hasn\'t accepted yet, and null with `join_blocked` {code, message} on every row while the doctor may not start clinical work (code terms_required: accept the practitioner terms first — terms_required only blocks a consultation whose start time is still ahead; one already under way keeps its join_url). 403 (`errors.code`) for a suspended / not-approved doctor.',
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope([
                         'type'       => 'object',
@@ -1450,7 +1520,8 @@ return [
                 'summary'    => "A doctor's appointment history (paginated)",
                 'parameters' => [
                     ...$paginationParams,
-                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses'],
+                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses (e.g. missed)'],
+                    ['name' => 'when', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['past', 'upcoming', 'attention', 'all'], 'default' => 'past'], 'description' => 'past (default: over — closed, or ended over 30 min ago with nobody in the call; newest first), upcoming (soonest first), attention (past and still open), all (everything, newest first)'],
                     ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Patient name or email'],
                 ],
                 'responses'  => [
@@ -1486,8 +1557,9 @@ return [
             'post' => [
                 'tags'       => ['Staff'],
                 'summary'     => 'Decline a booking (assigned doctor); refunds if paid',
-                'description' => 'Each guest is emailed that the consultation was cancelled (their links stop working). On the doctor\'s own unanswered follow-up proposal it withdraws it instead, like POST .../follow-up/withdraw (message "Follow-up withdrawn").',
+                'description' => 'Each guest is emailed that the consultation was cancelled (their links stop working). On the doctor\'s own unanswered follow-up proposal it withdraws it instead, like POST .../follow-up/withdraw (message "Follow-up withdrawn"). A confirmed booking only before its start (422 `errors.status` "This consultation has started, so it can no longer be cancelled — it closes as completed or missed"); a pending / rescheduled one until 30 minutes after its slot ended (422 `errors.status` "This consultation has ended, so it can no longer be declined"; the cron expires it). The payload\'s `can_decline` says whether it is allowed now. Runs under the row lock, so it never cancels or refunds over the cron closing it. Optional `reason`: a message to the patient (trimmed, ≤ 500 chars, else 422 `errors.reason`), included in their email — not stored, and never in the in-app notice.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => ['reason' => ['type' => 'string', 'maxLength' => 500, 'description' => 'Optional message to the patient, shown in their email']]])],
                 'responses'  => [
                     '200' => ['description' => 'Declined', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
@@ -1500,7 +1572,7 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Reschedule a booking (assigned doctor)',
-                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422. 422 `errors.status` on a follow-up proposal — withdraw it and propose the new time. Each guest is emailed the new time with their link.',
+                'description' => 'The new time must be one of the doctor\'s open slots under the patient booking rules (1h lead, on the schedule, not blocked or booked); otherwise 422. The moved booking is CONFIRMED at once (rescheduled_by doctor): the patient is told and may still move or cancel it (in full) before it starts. Any open booking (pending, confirmed, rescheduled); 422 `errors.status` once it ended over 30 minutes ago, and on a follow-up proposal — withdraw it and propose the new time. Each guest is emailed the new time with their link.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['scheduled_at'], 'properties' => ['scheduled_at' => ['type' => 'string', 'format' => 'date-time']]])],
                 'responses'   => [
@@ -1543,7 +1615,7 @@ return [
             'get' => ['tags' => ['Staff'], 'summary' => "Doctor earnings summary + available balance", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
         '/api/doctor/earnings/transactions' => [
-            'get' => ['tags' => ['Staff'], 'summary' => 'Earnings lines per completed consultation (paginated)', 'description' => '{appointment_id, patient_name, date, gross, commission, net} per line. While the doctor is suspended `patient_name` is "Patient" (no patient data).', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'get' => ['tags' => ['Staff'], 'summary' => 'Earnings lines per earning consultation (paginated)', 'description' => '{appointment_id, patient_name, date, status, no_show, gross, commission, net} per line — completed consultations and missed ones the patient didn\'t come to; gross is the amount less any refund. While the doctor is suspended `patient_name` is "Patient" (no patient data).', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
         '/api/doctor/payout-account' => [
             'get' => ['tags' => ['Staff'], 'summary' => "The doctor's payout beneficiary", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
@@ -2518,7 +2590,7 @@ return [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "A doctor's page (back office)",
-                'description' => 'Requires specialists.manage. Everything GET /specialists/{id}/onboarding returns (reviewer summary: checklist, documents with attestations, change request, approved_snapshot, terms, licence, suspension, standing, approval {ready, problems}, profile incl. contact details, login) plus `payout_account` (account numbers masked to the last four digits) and `stats` {appointments_by_status: {status: n}, upcoming, earnings (the earnings summary), reviews {average, count, distribution}}.',
+                'description' => 'Requires specialists.manage. Everything GET /specialists/{id}/onboarding returns (reviewer summary: checklist, documents with attestations, change request, approved_snapshot, terms, licence, suspension, standing, approval {ready, problems}, profile incl. contact details, login) plus `payout_account` (account numbers masked to the last four digits) and `stats` {appointments_by_status: {status: n} (incl. missed), upcoming, earnings (the earnings summary), reviews {average, count, distribution}, doctor_no_shows (missed consultations this doctor did not attend, all time), doctor_no_shows_30d}.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => ['200' => ['description' => 'OK'], '401' => ['$ref' => '#/components/responses/Unauthorized'], '403' => ['description' => 'Missing specialists.manage'], '404' => ['$ref' => '#/components/responses/NotFound']],
             ],
@@ -2830,10 +2902,12 @@ return [
                 'parameters' => [
                     ...$paginationParams,
                     ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated statuses, e.g. `proposed` for follow-ups awaiting an answer (unknown values are ignored)'],
+                    ['name' => 'when', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['upcoming', 'past']], 'description' => 'By time (see Appointment.phase): upcoming — still to come or live, soonest first (the Appointments page; per_page=1 is the dashboard\'s next appointment); past — over (completed, cancelled, missed or ended), newest first (History). With `when` the order is fixed. Any other non-empty value: 422 `errors.when`.'],
                 ],
                 'responses'  => [
                     '200' => ['description' => 'OK', ...$json($paginated('#/components/schemas/Appointment'))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
             'post' => [
@@ -2918,10 +2992,18 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => "One of the patient's own appointments",
+                'description' => 'Adds `cancel_policy` {refund_percent, refund_amount, late_cancel_hours} while it can still be cancelled (can_cancel), else null: what cancelling now would refund (100%, or the late-cancellation share; guest fees always in full).',
                 'operationId' => 'portalGetAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
-                    '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/Appointment']))],
+                    '200' => ['description' => 'OK', ...$json($envelope(['allOf' => [
+                        ['$ref' => '#/components/schemas/Appointment'],
+                        ['type' => 'object', 'properties' => ['cancel_policy' => ['type' => 'object', 'nullable' => true, 'properties' => [
+                            'refund_percent'    => ['type' => 'integer', 'example' => 100],
+                            'refund_amount'     => ['type' => 'string', 'example' => '15000.00'],
+                            'late_cancel_hours' => ['type' => 'integer', 'example' => 0],
+                        ]]]],
+                    ]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
@@ -2931,7 +3013,8 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Cancel one of the patient\'s own appointments',
-                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee (guest fees included) and emails a receipt; each guest is emailed that it was cancelled (their links stop working). On a follow-up proposal (status proposed) it declines it instead, like POST .../follow-up/decline (message "Follow-up declined").',
+                'description' => 'Cancels the booking and, if it was paid from the wallet, refunds the fee (guest fees included) and emails a receipt; each guest is emailed that it was cancelled (their links stop working). On a follow-up proposal (status proposed) it declines it instead, like POST .../follow-up/decline (message "Follow-up declined"). '
+                    . 'Only before the start: 422 `errors.status` "This consultation has started" after it (its outcome is decided by completion or the missed rules), and on a completed / missed one. A confirmed booking cancelled inside the Booking settings\' late window (late_cancel_hours, 0 = off) refunds late_cancel_refund_pct of the fee (guest fees in full) — see GET .../{id} cancel_policy.',
                 'operationId' => 'portalCancelAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -2946,7 +3029,7 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Reschedule one of the patient\'s own appointments',
-                'description' => 'Moves the booking to a new, still-open slot and notifies both parties; each guest is emailed the new time with their link. 422 `errors.status` on a follow-up proposal — choose the other time when accepting it (POST .../follow-up/accept `scheduled_at`).',
+                'description' => 'Moves the booking to a new, still-open slot (status rescheduled — the doctor confirms the new time; rescheduled_by patient) and notifies both parties; each guest is emailed the new time with their link. Any open booking (pending, confirmed, rescheduled), only before its start: 422 `errors.status` "This consultation has started" after it. A confirmed one inside the late-cancellation window (Booking settings late_cancel_hours > 0, unless the doctor moved it last): 422 `errors.status` "Too close to the start to move it" (the payload\'s `can_reschedule` is false then). 422 `errors.status` on a follow-up proposal — choose the other time when accepting it (POST .../follow-up/accept `scheduled_at`).',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
@@ -2979,7 +3062,7 @@ return [
             'post' => [
                 'tags'        => ['Doctor'],
                 'summary'     => 'Confirm a pending appointment (assigned doctor)',
-                'description' => 'Moves the appointment to CONFIRMED and emails the patient. Only the assigned doctor may confirm. A follow-up proposal is confirmed only by the patient accepting it: 422 `errors.status`.',
+                'description' => 'Moves the appointment to CONFIRMED and emails the patient. Only the assigned doctor may confirm, and only until 30 minutes after its slot ended (422 `errors.status` after that — the cron cancels it as not confirmed and refunds the patient, never before then). A follow-up proposal is confirmed only by the patient accepting it: 422 `errors.status`.',
                 'operationId' => 'doctorConfirmAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -3231,7 +3314,7 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => 'Agora RTC token for the consultation call',
-                'description' => 'Channel is the appointment id; the token is a publisher token for uid 1 (the patient) valid for 1 hour — call again to renew. `participants` names everyone who may be in the call by uid (names only), so each tile can be labelled. 422 (`errors.status = "proposed"`) for a follow-up proposal not accepted yet.',
+                'description' => 'Channel is the appointment id; the token is a publisher token for uid 1 (the patient) valid for 1 hour — call again to renew. `participants` names everyone who may be in the call by uid (names only), so each tile can be labelled. 422 (`errors.status = "proposed"`) for a follow-up proposal not accepted yet; 410 for a cancelled, completed or missed consultation (as joining refuses it).',
                 'operationId' => 'portalCallToken',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [
@@ -3248,6 +3331,7 @@ return [
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '410' => ['description' => 'No call any more: cancelled (`errors.code` cancelled) or completed / missed (`errors.code` ended)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '422' => ['description' => 'A follow-up proposal not accepted yet (`errors.status = "proposed"`)', ...$json(['$ref' => '#/components/schemas/Error'])],
                     '503' => ['description' => 'Video calling not configured'],
                 ],

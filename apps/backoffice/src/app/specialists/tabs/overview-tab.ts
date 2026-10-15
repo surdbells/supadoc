@@ -19,7 +19,7 @@ import type {
   DoctorInviteResultDto,
   SpecialistDetailDto,
 } from '@supadoc/models';
-import { AlertComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -254,6 +254,7 @@ function toForm(d: SpecialistDetailDto): Form {
 export class SpecialistOverviewTab {
   private readonly api = inject(SpecialistsApi);
   private readonly auth = inject(StaffAuthService);
+  private readonly dialogs = inject(DialogService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly detail = input.required<SpecialistDetailDto>();
@@ -322,9 +323,23 @@ export class SpecialistOverviewTab {
     }
   }
 
-  protected discard(): void {
+  /** For the doctor page's leave guard and tab switch: profile edits that aren't saved yet. */
+  hasUnsavedChanges(): boolean {
+    return this.dirty() && !this.saving();
+  }
+
+  protected async discard(): Promise<void> {
     const saved = this.saved();
     if (!saved) return;
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'undo-2',
+      title: 'Discard changes?',
+      message: "Your edits to this doctor's profile will be lost.",
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Keep editing',
+    });
+    if (!confirmed) return;
     this.form.set({ ...saved });
     this.errors.set({});
     this.notice.set('');

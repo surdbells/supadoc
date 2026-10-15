@@ -11,12 +11,24 @@ import type {
   ReadingKey,
   ReadingSource,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { IconComponent, type LeaveCopy } from '@supadoc/ui';
 
 /**
  * Shared bits for the doctor's e-prescribing screens (GVM-RX-02): status
  * badge, field classes, date helpers and fallback labels.
  */
+
+/**
+ * "Leave without saving?" for a half-written prescription — the copy every
+ * prescribing screen passes to `DialogService.confirmLeave()`.
+ */
+export const UNSAVED_RX_LEAVE: LeaveCopy = {
+  tone: 'danger',
+  title: 'Leave without saving?',
+  message: "Your latest changes to this prescription haven't been saved. Leaving now loses them.",
+  confirmLabel: 'Leave without saving',
+  cancelLabel: 'Keep editing',
+};
 
 /** Base field treatment (border colour comes from {@link RX_OK} / {@link RX_BAD}). */
 export const RX_FIELD =

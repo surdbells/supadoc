@@ -15,7 +15,7 @@ use DateTimeImmutable;
  * right now, and who is in the call. Pure — the caller resolves the token and
  * loads the appointment.
  *
- * Every role: a cancelled or completed consultation has no call (410), nor an
+ * Every role: a cancelled, completed or missed consultation has no call (410), nor an
  * unaccepted follow-up proposal (409). Guests also: they must still be on the
  * guest list (410 once removed) and may join from GUEST_EARLY_MINUTES before
  * the start (425 before that, with `starts_at` / `opens_at` to count down) until
@@ -169,7 +169,7 @@ final class CallAccess
         if ($status === AppointmentStatus::CANCELLED) {
             return self::refusal(410, self::CANCELLED, 'cancelled');
         }
-        if ($status === AppointmentStatus::COMPLETED) {
+        if ($status === AppointmentStatus::COMPLETED || $status === AppointmentStatus::MISSED) {
             return self::refusal(410, self::ENDED, 'ended');
         }
         if ($status === AppointmentStatus::PROPOSED) {

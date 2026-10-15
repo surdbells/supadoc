@@ -9,9 +9,11 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
+import { StaffAuthService } from '@supadoc/auth';
+import { AdminAppointmentsApi, apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type { MonitoringOverviewDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { appointmentStatusClass, appointmentStatusLabel } from '../shared/appointment-status';
 
 interface Stat {
   readonly label: string;
@@ -20,15 +22,6 @@ interface Stat {
   readonly hint?: string;
   readonly hintClass?: string;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  proposed: 'Proposed',
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  rescheduled: 'Rescheduled',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-};
 
 /** Back-office overview (route `/dashboard`) — platform totals at a glance. */
 @Component({
@@ -53,6 +46,16 @@ const STATUS_LABEL: Record<string, string> = {
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
         </div>
       } @else if (overview(); as o) {
+        @if (attentionCount() > 0) {
+          <a routerLink="/appointments" [queryParams]="{ when: 'attention' }" class="flex min-h-11 items-center gap-3 rounded-card border border-warning/40 bg-warning/10 px-5 py-4 transition-colors hover:bg-warning/15">
+            <sd-icon name="triangle-alert" [size]="20" class="shrink-0 text-warning" />
+            <span class="flex min-w-0 flex-col">
+              <span class="font-sans text-body-sm font-semibold text-ink">{{ attentionCount() }} past consultation{{ attentionCount() === 1 ? '' : 's' }} still open</span>
+              <span class="font-sans text-caption text-slate">They ended but are still pending, confirmed or rescheduled. Review and settle them.</span>
+            </span>
+            <sd-icon name="chevron-right" [size]="18" class="ml-auto shrink-0 text-ink" />
+          </a>
+        }
         @if (o.recordings.active > 0) {
           <a routerLink="/monitoring" class="flex items-center gap-3 rounded-card border border-alert/30 bg-alert/5 px-5 py-4 transition-colors hover:bg-alert/10">
             <span class="size-2.5 animate-pulse rounded-full bg-alert"></span>
@@ -95,8 +98,12 @@ const STATUS_LABEL: Record<string, string> = {
 })
 export class AdminDashboard implements OnInit {
   private readonly api = inject(MonitoringApi);
+  private readonly appointments = inject(AdminAppointmentsApi);
+  private readonly auth = inject(StaffAuthService);
   private readonly destroyRef = inject(DestroyRef);
 
+  /** Past consultations still open (staff who may see appointments only). */
+  protected readonly attentionCount = signal(0);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly overview = signal<MonitoringOverviewDto | null>(null);
@@ -125,12 +132,18 @@ export class AdminDashboard implements OnInit {
     if (!o) return [];
     return Object.entries(o.appointments.by_status).map(([key, count]) => ({
       key,
-      label: STATUS_LABEL[key] ?? key,
+      label: appointmentStatusLabel(key),
       count,
     }));
   });
 
   ngOnInit(): void {
+    if (this.auth.hasPermission('appointments.view')) {
+      this.appointments
+        .list({ when: 'attention', per_page: 1 })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (res) => this.attentionCount.set(res.meta.total), error: () => undefined });
+    }
     this.api
       .overview()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -147,14 +160,6 @@ export class AdminDashboard implements OnInit {
   }
 
   protected statusClass(status: string): string {
-    const map: Record<string, string> = {
-      proposed: 'bg-teal/10 text-teal',
-      pending: 'bg-warning/15 text-warning',
-      confirmed: 'bg-sage/15 text-sage',
-      rescheduled: 'bg-cloud text-slate',
-      completed: 'bg-frost text-cerulean',
-      cancelled: 'bg-alert/10 text-alert',
-    };
-    return map[status] ?? 'bg-cloud text-slate';
+    return appointmentStatusClass(status);
   }
 }

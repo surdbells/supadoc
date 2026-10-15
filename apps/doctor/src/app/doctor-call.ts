@@ -6,7 +6,6 @@ import {
   computed,
   DestroyRef,
   effect,
-  ElementRef,
   inject,
   Injector,
   OnDestroy,
@@ -24,7 +23,7 @@ import AgoraRTC, {
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
-import { SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
+import { type CanLeave, SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
 import {
   apiErrorMessage,
   type CallPresenceState,
@@ -60,17 +59,28 @@ import {
   CallTilesComponent,
   type CallUid,
   callTilesMode,
-  ConfirmDialogComponent,
+  DialogComponent,
+  DialogService,
+  type LeaveCopy,
   IconComponent,
   type RemoteParticipant,
   RemoteParticipants,
+  shortDayLabel,
   SmoothHeightDirective,
 } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import { FollowUpPlanner } from './appointment/follow-up-planner';
 import { RxPanel } from './prescriptions/rx-panel';
-import { CanLeave, LeavePrompt } from './prescriptions/unsaved-changes.guard';
+import { UNSAVED_RX_LEAVE } from './prescriptions/rx-shared';
+import {
+  certificatePrompt,
+  finalizeNotePrompt,
+  labOrderPrompt,
+  carePlanPrompt,
+  referralPrompt,
+  STOP_RECORDING_PROMPT,
+} from './appointment/clinical/clinical-prompts';
 
 /** Load state of something the editor must not overwrite before it has loaded. */
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -128,30 +138,11 @@ interface CallPerson {
   readonly consented: boolean | null;
 }
 
-/** What Tab cycles through inside the cockpit's dialogs (End consultation, unsaved prescription). */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/** Keep Tab / Shift+Tab cycling inside a modal dialog. */
-function trapTab(e: KeyboardEvent, root: HTMLElement): void {
-  if (e.key !== 'Tab') return;
-  const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement,
-  );
-  // Nothing to tab to (e.g. while ending): keep focus inside the dialog.
-  if (items.length === 0) {
-    e.preventDefault();
-    return;
-  }
-  const at = items.indexOf(document.activeElement as HTMLElement);
-  if (e.shiftKey && at <= 0) {
-    e.preventDefault();
-    items[items.length - 1].focus();
-  } else if (!e.shiftKey && (at === -1 || at === items.length - 1)) {
-    e.preventDefault();
-    items[0].focus();
-  }
-}
+/** A button in the End consultation dialog (the confirm dialog's look; `aria-disabled` keeps it focusable while busy). */
+const END_BUTTON =
+  'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-field px-4 py-3 font-sans text-body font-semibold ' +
+  'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring) focus-visible:ring-offset-2 ' +
+  'focus-visible:ring-offset-(--sd-dialog-surface) aria-disabled:cursor-not-allowed aria-disabled:opacity-60';
 
 /**
  * A failed raw-`fetch()` call shaped like an API error (HTTP status + the parsed
@@ -185,7 +176,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 @Component({
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CallTilesComponent, ConfirmDialogComponent, FollowUpPlanner, IconComponent, RxPanel, SmoothHeightDirective],
+  imports: [CallTilesComponent, DialogComponent, FollowUpPlanner, IconComponent, RxPanel, SmoothHeightDirective],
   host: {
     class: 'sd-call block min-h-screen bg-abyss text-white',
     '[attr.data-theme]': 'theme()',
@@ -1461,95 +1452,84 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     </div>
 
     <!-- End consultation: close the visit for everyone, or just leave (can rejoin).
-         In .sd-rx-zone so the light theme keeps the white button text. -->
-    @if (endOpen()) {
-      <div class="sd-rx-zone fixed inset-0 z-[60] flex items-end justify-center p-4 sm:items-center">
-        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/60" aria-label="Cancel" (click)="cancelEnd()"></button>
-        <div
-          #endDialog
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="end-consult-title"
-          aria-describedby="end-consult-desc"
-          tabindex="-1"
-          class="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col gap-5 overflow-y-auto rounded-[16px] bg-white p-6 text-ink shadow-[0_8px_40px_rgba(10,22,40,0.2)] outline-none"
-          (keydown)="endDialogKeydown($event)"
-        >
-          <div class="flex flex-col items-center gap-3 text-center">
-            <span class="flex size-14 items-center justify-center rounded-full bg-alert/10 text-alert">
-              <sd-icon name="phone-off" [size]="26" />
-            </span>
-            <h2 id="end-consult-title" class="font-heading text-h5 text-ink">End consultation for everyone?</h2>
-            <p id="end-consult-desc" class="font-sans text-body-sm text-slate">
-              This marks the visit completed and moves it to your history. {{ patientName() }}’s call ends
-              too{{ hasGuests() ? ' (and their guests’)' : '' }}, and they can then see what you shared with them and rate the visit.
-            </p>
-          </div>
-          @if (canDocument() && !noteFinalized()) {
-            <p class="flex items-start gap-2 rounded-field bg-warning/10 px-3 py-2.5 font-sans text-caption text-ink">
-              <sd-icon name="file-text" [size]="16" class="mt-0.5 shrink-0 text-warning" />
-              Your consultation note isn’t finalized yet — you can finish it on the appointment page.
-            </p>
-          }
-          @if (!portalSignedIn()) {
-            <div class="flex flex-col gap-2 rounded-field bg-frost px-3 py-2.5 font-sans text-caption text-ink">
-              <p>Sign in to the doctor portal to end the consultation from here — or just leave and mark it completed later from the appointment page.</p>
-              <button type="button" class="min-h-11 w-fit rounded-field px-2 font-semibold text-cerulean underline underline-offset-2 hover:text-ocean" (click)="openPortalSignIn()">
-                Sign in (opens a new tab)
-              </button>
-            </div>
-          }
-          @if (endError()) {
-            <p class="flex items-start gap-2 rounded-field bg-alert/10 px-3 py-2.5 font-sans text-caption text-alert" role="alert">
-              <sd-icon name="circle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ endError() }}
-            </p>
-          }
-          <div class="flex flex-col gap-2">
-            <button
-              type="button"
-              class="min-h-11 w-full rounded-field bg-alert px-4 py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60"
-              [disabled]="ending() || !portalSignedIn()"
-              (click)="endConsultation()"
-            >
-              {{ ending() ? 'Ending…' : 'End consultation' }}
-            </button>
-            <button
-              type="button"
-              class="min-h-11 w-full rounded-field border border-cloud px-4 py-3 font-sans text-body font-semibold text-ink transition-colors hover:bg-glacier disabled:opacity-60"
-              [disabled]="ending()"
-              (click)="leaveFromEndDialog()"
-            >
-              Just leave — I’ll come back
-            </button>
-            <button
-              type="button"
-              class="min-h-11 w-full rounded-field px-4 py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier disabled:opacity-60"
-              [disabled]="ending()"
-              (click)="cancelEnd()"
-            >
-              Cancel
-            </button>
-          </div>
+         The design-system dialog (top layer, focus kept inside, Esc / scrim = Cancel,
+         nothing closes it while ending); its own colour tokens, so the cockpit's
+         light / dark theme overrides never reach it. -->
+    <sd-dialog
+      [open]="endOpen()"
+      layout="plain"
+      size="sm"
+      dialogRole="alertdialog"
+      labelledBy="end-consult-title"
+      describedBy="end-consult-desc"
+      [busy]="ending()"
+      (closed)="cancelEnd()"
+    >
+      <div class="flex flex-col gap-4 px-5 pt-6 pb-2 sm:px-6" [attr.aria-busy]="ending() || null">
+        <div class="flex flex-col items-center gap-3 text-center">
+          <span class="flex size-14 items-center justify-center rounded-full bg-(--sd-dialog-danger-soft) text-(--sd-dialog-danger-text)" aria-hidden="true">
+            <sd-icon name="phone-off" [size]="26" />
+          </span>
+          <h2 id="end-consult-title" class="font-heading text-h5 text-(--sd-dialog-strong)">End consultation for everyone?</h2>
+          <p id="end-consult-desc" class="font-sans text-body-sm text-(--sd-dialog-muted)">
+            This marks the visit completed and moves it to your history. {{ patientName() }}’s call ends
+            too{{ hasGuests() ? ' (and their guests’)' : '' }}, and they can then see what you shared with them and rate the visit.
+          </p>
         </div>
+        @if (canDocument() && !noteFinalized()) {
+          <p class="flex items-start gap-2 rounded-[12px] bg-(--sd-dialog-warning-soft) px-3.5 py-2.5 font-sans text-caption text-(--sd-dialog-text)">
+            <sd-icon name="file-text" [size]="16" class="mt-0.5 shrink-0 text-(--sd-dialog-warning-text)" />
+            Your consultation note isn’t finalized yet — you can finish it on the appointment page.
+          </p>
+        }
+        @if (!portalSignedIn()) {
+          <div class="flex flex-col gap-1 rounded-[12px] bg-(--sd-dialog-info-soft) px-3.5 py-2.5 font-sans text-caption text-(--sd-dialog-text)">
+            <p>Sign in to the doctor portal to end the consultation from here — or just leave and mark it completed later from the appointment page.</p>
+            <button type="button" class="min-h-11 w-fit rounded-field px-1 font-semibold text-(--sd-dialog-info-text) underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring)" (click)="openPortalSignIn()">
+              Sign in (opens a new tab)
+            </button>
+          </div>
+        }
+        @if (endError()) {
+          <p class="flex items-start gap-2 rounded-[12px] bg-(--sd-dialog-danger-soft) px-3.5 py-2.5 font-sans text-body-sm text-(--sd-dialog-danger-text)" role="alert">
+            <sd-icon name="circle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ endError() }}
+          </p>
+        }
+        <p class="sr-only" aria-live="polite">{{ ending() ? 'Ending the consultation…' : '' }}</p>
       </div>
-    }
-
-    <!-- In .sd-rx-zone so the light theme keeps the dialog's white button text.
-         The shared dialog has no keyboard handling of its own: focus is moved in
-         and kept there, and Esc means "Keep editing" (leavePromptKeydown). -->
-    <div #leavePromptZone class="sd-rx-zone outline-none" tabindex="-1" (keydown)="leavePromptKeydown($event)">
-      <sd-confirm-dialog
-        [open]="leavePrompt.open()"
-        title="Leave with an unsaved prescription?"
-        message="Your latest changes to the prescription have not been saved. Leaving now loses them."
-        confirmLabel="Leave without saving"
-        cancelLabel="Keep editing"
-        icon="triangle-alert"
-        [danger]="true"
-        (confirm)="leavePrompt.answer(true)"
-        (cancel)="leavePrompt.answer(false)"
-      />
-    </div>
+      <div dialogFooter class="flex shrink-0 flex-col gap-2 px-5 pt-4 pb-5 sm:px-6 sm:pb-6">
+        <button
+          type="button"
+          class="${END_BUTTON} bg-(--sd-dialog-danger) text-(--sd-dialog-on-accent) hover:bg-(--sd-dialog-danger-hover)"
+          [attr.aria-disabled]="ending() || !portalSignedIn() || null"
+          (click)="endConsultation()"
+        >
+          @if (ending()) {
+            <sd-icon name="loader-circle" [size]="18" class="motion-safe:animate-spin" />Ending…
+          } @else {
+            End consultation
+          }
+        </button>
+        <button
+          type="button"
+          class="${END_BUTTON} border border-(--sd-dialog-field) bg-(--sd-dialog-surface) text-(--sd-dialog-text) hover:bg-(--sd-dialog-hover)"
+          [attr.aria-disabled]="ending() || null"
+          (click)="leaveFromEndDialog()"
+        >
+          Just leave — I’ll come back
+        </button>
+        <!-- The safe choice takes focus (an urgent, destructive prompt). -->
+        <button
+          type="button"
+          data-autofocus
+          class="${END_BUTTON} border border-(--sd-dialog-border) bg-(--sd-dialog-surface) text-(--sd-dialog-muted) hover:bg-(--sd-dialog-hover) hover:text-(--sd-dialog-text)"
+          [attr.aria-disabled]="ending() || null"
+          (click)="cancelEnd()"
+        >
+          Cancel
+        </button>
+      </div>
+    </sd-dialog>
   `,
 })
 export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
@@ -1795,18 +1775,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.followUpKeep() ||
       (this.notesTab() === 'followup' && this.portalSignedIn() && !!this.rxAppointmentId()),
   );
-  /** "Leave with an unsaved prescription?" (End call, Back, browser Back). */
-  protected readonly leavePrompt = new LeavePrompt();
-  private readonly leavePromptZone = viewChild<ElementRef<HTMLDivElement>>('leavePromptZone');
+  /** "Leave the call?" / "…with an unsaved prescription?" and the clinical confirmations (rendered by the app's outlet). */
+  private readonly dialogs = inject(DialogService);
+  /** Leave questions open (End waits for them rather than stacking on top). */
+  private asking = 0;
 
-  // End consultation ("End consultation for everyone?").
+  // End consultation ("End consultation for everyone?") — focus returns to the opener by itself.
   protected readonly endOpen = signal(false);
   protected readonly ending = signal(false);
   /** Why the visit could not be closed — the doctor stays in the call. */
   protected readonly endError = signal('');
-  private readonly endDialog = viewChild<ElementRef<HTMLDivElement>>('endDialog');
-  /** The control that opened the dialog, focused again when it closes. */
-  private endOpener: HTMLElement | null = null;
 
   // Lab orders builder + list.
   protected readonly labTests = signal('');
@@ -1821,6 +1799,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly carePlanBusy = signal(false);
   protected readonly carePlanSaved = signal('');
   protected readonly carePlanError = signal('');
+  /** A plan was published before (the confirmation then says "Update"). */
+  private readonly carePlanPublished = signal(false);
   /** Until the published plan has loaded, "Save & publish" could replace it — stay read-only. */
   protected readonly carePlanLoad = signal<LoadState>('idle');
   protected readonly carePlanEditable = computed(
@@ -2070,7 +2050,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     // The idle timeout is paused while in the call; always resume it on exit.
     this.destroyRef.onDestroy(() => {
       this.session.release('call');
-      this.leavePrompt.answer(false);
       this.clearDocLink();
     });
 
@@ -2654,6 +2633,11 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       return;
     }
     this.certError.set('');
+    // Signed in the doctor's name and downloadable at once: ask first.
+    const kind = this.certType();
+    const period = kind === 'sick_leave' ? `${shortDayLabel(this.certFrom())} – ${shortDayLabel(this.certTo())}` : null;
+    if (!(await this.dialogs.confirm(certificatePrompt(this.patientName(), kind, period))).confirmed) return;
+    if (this.certBusy()) return;
     this.certBusy.set(true);
     try {
       await this.noteFetch(
@@ -2772,6 +2756,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (!this.appointmentId || !this.doctorToken() || this.finalizing()) return;
     // Never lock in a note that may be blank only because it failed to load.
     if (this.noteLoad() !== 'ready') return;
+    // Signing locks it for good and shares the summary: ask first.
+    if (!(await this.dialogs.confirm(finalizeNotePrompt(this.patientName()))).confirmed) return;
+    if (this.finalizing() || this.noteLoad() !== 'ready') return;
     this.finalizing.set(true);
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     try {
@@ -2815,6 +2802,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       return;
     }
     this.labError.set('');
+    if (!(await this.dialogs.confirm(labOrderPrompt(this.patientName(), tests.length, this.labPriority()))).confirmed) return;
+    if (this.labBusy()) return;
     this.labBusy.set(true);
     try {
       await this.noteFetch(
@@ -2851,7 +2840,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       );
       const items: string[] = Array.isArray(body?.data?.items) ? body.data.items : [];
       this.carePlanItems.set(items.length ? items : ['']);
-      if (body?.data?.published) this.carePlanSaved.set('Published');
+      if (body?.data?.published) {
+        this.carePlanSaved.set('Published');
+        this.carePlanPublished.set(true);
+      }
       this.carePlanLoad.set('ready');
     } catch (err: unknown) {
       // Not silent, and read-only until a retry succeeds: an empty editor here
@@ -2886,6 +2878,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (!this.appointmentId || !this.doctorToken() || this.carePlanBusy()) return;
     if (this.carePlanLoad() !== 'ready') return;
     const items = this.carePlanItems().map((s) => s.trim()).filter(Boolean);
+    if (!(await this.dialogs.confirm(carePlanPrompt(this.patientName(), items.length, this.carePlanPublished()))).confirmed) return;
+    if (this.carePlanBusy()) return;
     this.carePlanBusy.set(true);
     this.carePlanSaved.set('Saving…');
     this.carePlanError.set('');
@@ -2895,6 +2889,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         { method: 'PUT', body: JSON.stringify({ items }) },
       );
       this.carePlanSaved.set('Published to patient');
+      this.carePlanPublished.set(true);
     } catch (err: unknown) {
       this.carePlanSaved.set('Could not save — retry');
       this.carePlanError.set(apiErrorMessage(err, 'Could not publish the care plan.'));
@@ -2924,6 +2919,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       return;
     }
     this.refError.set('');
+    if (!(await this.dialogs.confirm(referralPrompt(this.patientName(), this.refTarget().trim(), this.refPriority()))).confirmed) return;
+    if (this.refBusy()) return;
     this.refBusy.set(true);
     try {
       await this.noteFetch(
@@ -2981,15 +2978,22 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   protected async toggleRecording(): Promise<void> {
     if (!this.appointmentId || !this.doctorToken() || this.recordingBusy()) return;
+    // What the click meant, fixed before any prompt: a state refresh while the
+    // question is open must never turn "Stop recording" into a start.
+    const stopping = this.recordingActive();
+    // Stopping closes this file (starting again makes another one): ask first.
+    if (stopping && !(await this.dialogs.confirm(STOP_RECORDING_PROMPT)).confirmed) return;
+    // Busy meanwhile, or the state changed under the prompt (stopped elsewhere): do nothing.
+    if (this.recordingBusy() || this.recordingActive() !== stopping) return;
     this.recordingError.set('');
     this.recordingBusy.set(true);
-    const path = this.recordingActive() ? 'recording/stop' : 'recording/start';
+    const path = stopping ? 'recording/stop' : 'recording/start';
     try {
       await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/${path}`,
         { method: 'POST' },
       );
-      this.recordingActive.set(!this.recordingActive());
+      this.recordingActive.set(!stopping);
     } catch (err: unknown) {
       this.recordingError.set(apiErrorMessage(err, 'Recording failed.'));
       // E.g. a guest who hasn't agreed yet joined a moment ago: refresh who is
@@ -3001,13 +3005,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   /**
-   * Leave WITHOUT ending (Back, "Just leave"): the visit stays open, so the
-   * doctor can rejoin — to the appointment page, where the note and
-   * prescriptions can be finished (or the schedule, from the error screen).
-   * Asks first if a prescription is half-written.
+   * Leave WITHOUT ending (Back, "Leave the call", "Just leave"): the visit
+   * stays open, so the doctor can rejoin — to the appointment page, where the
+   * note and prescriptions can be finished (or the schedule, from the error
+   * screen). Asks first while in the call, or with a half-written prescription.
    */
-  protected async leave(to: 'appointment' | 'schedule' = 'appointment', discardAsked = false): Promise<void> {
-    if (!this.left && !discardAsked && !(await this.confirmDiscardPrescription())) return;
+  protected async leave(to: 'appointment' | 'schedule' = 'appointment', asked = false): Promise<void> {
+    if (!this.left && !asked && !(await this.confirmLeaveCall())) return;
     await this.flushNote();
     await this.teardown();
     if (to === 'schedule') void this.router.navigate(['/']);
@@ -3017,7 +3021,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** A join refused for the doctor's standing: the terms to accept, or the account-status page. */
   protected async openStanding(): Promise<void> {
     const target = this.joinStanding() === 'terms_required' ? '/onboarding/terms' : '/account-status';
-    if (!this.left && !(await this.confirmDiscardPrescription())) return;
+    if (!this.left && !(await this.confirmLeaveCall())) return;
     await this.flushNote();
     await this.teardown();
     void this.router.navigateByUrl(target);
@@ -3036,33 +3040,23 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * visit. (The dialog is modal, so nothing can be edited between the two.)
    */
   protected async askEnd(): Promise<void> {
-    if (this.endOpen() || this.leavePrompt.open() || this.left) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (this.endOpen() || this.asking > 0 || this.left) return;
     if (!(await this.confirmDiscardPrescription())) return;
     if (this.endOpen() || this.left) return;
-    this.endOpener = opener;
     this.endError.set('');
     this.endOpen.set(true);
-    afterNextRender(() => this.endDialog()?.nativeElement.focus(), { injector: this.injector });
   }
 
+  /** Cancel, Esc or the scrim (ignored while ending); focus goes back to End by itself. */
   protected cancelEnd(): void {
     if (this.ending()) return;
     this.endOpen.set(false);
-    const back = this.endOpener;
-    this.endOpener = null;
-    if (back) {
-      afterNextRender(() => {
-        if (back.isConnected) back.focus();
-      }, { injector: this.injector });
-    }
   }
 
   /** "Just leave — I'll come back": the visit stays open. */
   protected async leaveFromEndDialog(): Promise<void> {
     if (this.ending()) return;
     this.endOpen.set(false);
-    this.endOpener = null;
     // An unsaved prescription was already asked about when End was pressed.
     await this.leave('appointment', true);
   }
@@ -3083,8 +3077,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.endError.set('Sign in to the doctor portal to end the consultation.');
       return;
     }
-    // The buttons are disabled while this runs — keep focus in the dialog.
-    this.endDialog()?.nativeElement.focus();
+    // While this runs the dialog can't be dismissed and its buttons do nothing (focus stays put).
     this.ending.set(true);
     this.endError.set('');
     await this.flushNote();
@@ -3094,45 +3087,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       if (!/already completed/i.test(apiErrorMessage(err, ''))) {
         this.endError.set(apiErrorMessage(err, 'Could not end the consultation. Please try again.'));
         this.ending.set(false);
-        afterNextRender(() => this.endDialog()?.nativeElement.focus(), { injector: this.injector });
         return;
       }
     }
     this.ending.set(false);
     this.endOpen.set(false);
-    this.endOpener = null;
     await this.teardown();
     this.goToAppointment();
-  }
-
-  /**
-   * Tab stays inside the End dialog; Esc cancels it. Not while the unsaved-
-   * prescription prompt is up on top of it (the browser Back guard can raise
-   * it then): the keys belong to that prompt.
-   */
-  protected endDialogKeydown(e: KeyboardEvent): void {
-    if (this.leavePrompt.open()) return;
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      this.cancelEnd();
-      return;
-    }
-    const root = this.endDialog()?.nativeElement;
-    if (root) trapTab(e, root);
-  }
-
-  /** The unsaved-prescription prompt: Esc = "Keep editing"; Tab stays inside it. */
-  protected leavePromptKeydown(e: KeyboardEvent): void {
-    if (!this.leavePrompt.open()) return;
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      this.leavePrompt.answer(false);
-      return;
-    }
-    const dialog = this.leavePromptZone()?.nativeElement.querySelector<HTMLElement>('[role="dialog"]');
-    if (dialog) trapTab(e, dialog);
   }
 
   /** Save a pending (debounced) note edit now, so leaving never drops the last words. */
@@ -3143,30 +3104,66 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (this.noteEditable()) await this.saveNote();
   }
 
-  /** Route guard hook (e.g. the browser Back button) — same question as leave(). */
+  /** Route guard hook (e.g. the browser Back button) — the same question as Leave. */
   canLeave(): boolean | Promise<boolean> {
-    return this.left ? true : this.confirmDiscardPrescription();
+    return this.left ? true : this.confirmLeaveCall();
+  }
+
+  /** In the live call (connected, and the API still takes it). */
+  private inLiveCall(): boolean {
+    return this.status() === 'in-call' && !this.left && !this.callClosed();
   }
 
   /**
-   * True when it is fine to destroy the prescribing panel: nothing unsaved, or
-   * the doctor chose to leave anyway. Asked with the cockpit's own dialog, as
-   * the panel itself may be hidden behind another tab.
+   * One question before leaving — never two stacked: "Leave the call?" while
+   * in it (the visit stays open, they can rejoin), worded for an unsaved
+   * prescription too when there is one; just the prescription question once
+   * the call is over. True to leave.
+   */
+  private confirmLeaveCall(): boolean | Promise<boolean> {
+    if (this.left) return true;
+    const rx = !!this.rxPanel()?.hasUnsavedChanges();
+    if (!this.inLiveCall()) return rx ? this.ask(UNSAVED_RX_LEAVE) : true;
+    return this.ask(
+      rx
+        ? {
+            tone: 'danger',
+            icon: 'phone-off',
+            title: 'Leave the call with an unsaved prescription?',
+            message:
+              "Your latest changes to the prescription haven't been saved, and leaving loses them. The visit stays open — you can rejoin from the appointment page.",
+            confirmLabel: 'Leave without saving',
+            cancelLabel: 'Stay in the call',
+          }
+        : {
+            tone: 'warning',
+            icon: 'door-open',
+            title: 'Leave the call?',
+            message: `The visit stays open — you can rejoin from the appointment page while ${this.patientName()} is still there.`,
+            confirmLabel: 'Leave call',
+            cancelLabel: 'Stay',
+          },
+    );
+  }
+
+  /**
+   * True when it is fine to destroy the prescribing panel (End): nothing
+   * unsaved, or the doctor chose to leave anyway. Asked by the cockpit, as the
+   * panel itself may be hidden behind another tab.
    */
   private confirmDiscardPrescription(): boolean | Promise<boolean> {
     if (!this.rxPanel()?.hasUnsavedChanges()) return true;
-    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const answer = this.leavePrompt.ask();
-    // The shared dialog doesn't take focus itself: start on "Keep editing" (the
-    // safe choice), and give focus back if the doctor stays.
-    afterNextRender(
-      () => this.leavePromptZone()?.nativeElement.querySelector<HTMLElement>('[role="dialog"] button')?.focus(),
-      { injector: this.injector },
-    );
-    return answer.then((ok) => {
-      if (!ok && back?.isConnected) back.focus();
-      return ok;
-    });
+    return this.ask(UNSAVED_RX_LEAVE);
+  }
+
+  /** A leave question through the app's dialog outlet (a newer one answers an older one "stay"). */
+  private async ask(copy: LeaveCopy): Promise<boolean> {
+    this.asking++;
+    try {
+      return await this.dialogs.confirmLeave(copy);
+    } finally {
+      this.asking--;
+    }
   }
 
   /** Open the patient's full record in a NEW tab — without leaving the live call. */

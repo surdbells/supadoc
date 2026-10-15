@@ -33,8 +33,10 @@ import type {
 import {
   AlertComponent,
   ButtonComponent,
-  ConfirmDialogComponent,
+  DialogComponent,
+  DialogService,
   DoctorProfileCardComponent,
+  type LeaveCopy,
   IconComponent,
   InputComponent,
   type PublicDoctorProfileData,
@@ -107,8 +109,8 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
     RouterLink,
     AlertComponent,
     ButtonComponent,
-    ConfirmDialogComponent,
     CredentialStatusChip,
+    DialogComponent,
     DoctorProfileCardComponent,
     IconComponent,
     InputComponent,
@@ -157,7 +159,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                         {{ profile()?.pending_changes_submitted_at ? 'Sent ' + date(profile()?.pending_changes_submitted_at) + '. ' : '' }}Patients and your prescriptions show your current details until a reviewer approves it.
                       </p>
                     </div>
-                    <sd-button variant="outline" size="sm" [disabled]="withdrawing()" (click)="confirmWithdraw.set(true)">
+                    <sd-button variant="outline" size="sm" [disabled]="withdrawing()" (click)="askWithdraw()">
                       <sd-icon name="undo-2" [size]="16" />{{ withdrawing() ? 'Withdrawing…' : 'Withdraw request' }}
                     </sd-button>
                   </div>
@@ -489,14 +491,14 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                 } @else {
                   <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean">{{ initials() || 'DR' }}</span>
                 }
-                <button type="button" class="absolute bottom-0 right-0 flex size-9 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-white transition-opacity disabled:opacity-60" [disabled]="uploadingAvatar()" aria-label="Change photo" (click)="avatarModalOpen.set(true)">
+                <button type="button" class="absolute bottom-0 right-0 flex size-9 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-white transition-opacity disabled:opacity-60" [disabled]="uploadingAvatar()" aria-label="Change photo" (click)="openAvatar()">
                   @if (uploadingAvatar()) {
                     <span class="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
                   } @else { <sd-icon name="camera" [size]="16" /> }
                 </button>
               </div>
               <div class="flex flex-col items-center gap-3 sm:flex-row">
-                <button type="button" class="font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean" (click)="avatarModalOpen.set(true)">Replace photo</button>
+                <button type="button" class="font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean" (click)="openAvatar()">Replace photo</button>
                 @if (photoSrc()) {
                   <button type="button" class="flex items-center gap-1.5 rounded-field border border-alert/40 px-4 py-2 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="uploadingAvatar()" (click)="deletePhoto()">
                     <sd-icon name="trash-2" [size]="16" />Delete photo
@@ -673,18 +675,14 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
       }
     </div>
 
-    <!-- Avatar upload modal -->
-    @if (avatarModalOpen()) {
-      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="avatarModalOpen.set(false)"></button>
-        <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
-          <div class="flex items-start justify-between">
-            <div class="flex flex-col gap-1">
-              <h3 class="font-heading text-h5 text-ink">Update profile photo</h3>
-              <p class="font-sans text-body-sm text-slate">Drag an image here, or choose a file.</p>
-            </div>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="avatarModalOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
-          </div>
+    <!-- Avatar upload (the design-system dialog; nothing closes it while uploading). -->
+    <sd-dialog
+      [open]="avatarModalOpen()"
+      title="Update profile photo"
+      subtitle="Drag an image here, or choose a file."
+      [busy]="uploadingAvatar()"
+      (closed)="avatarModalOpen.set(false)"
+    >
           <div class="flex flex-col items-center gap-3 rounded-card border-2 border-dashed px-6 py-10 text-center transition-colors" [class]="avatarDragging() ? 'border-cerulean bg-frost/40' : 'border-cloud bg-glacier/40'"
             (dragover)="$event.preventDefault(); avatarDragging.set(true)" (dragleave)="avatarDragging.set(false)" (drop)="onAvatarDrop($event)">
             @if (uploadingAvatar()) {
@@ -694,47 +692,25 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
               <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
               <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
               <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
-              <button type="button" class="mt-1 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="avatarInput.click()">Choose from file</button>
+              <button type="button" data-autofocus class="mt-1 min-h-11 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2" (click)="avatarInput.click()">Choose from file</button>
             }
           </div>
           <input #avatarInput type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" (change)="onAvatarSelected($event)" />
-        </div>
-      </div>
-    }
+          @if (avatarError()) {
+            <p role="alert" class="mt-4 rounded-field bg-alert/10 px-4 py-2 font-sans text-caption text-alert">{{ avatarError() }}</p>
+          }
+    </sd-dialog>
 
-    <sd-confirm-dialog
-      [open]="confirmRemoveSig()"
-      title="Remove your signature?"
-      message="You will need to draw your signature each time you send a prescription, until you save a new one."
-      confirmLabel="Remove signature"
-      cancelLabel="Keep it"
-      icon="trash-2"
-      [danger]="true"
-      (confirm)="removeSignature()"
-      (cancel)="confirmRemoveSig.set(false)"
-    />
-
-    <sd-confirm-dialog
-      [open]="confirmWithdraw()"
-      title="Withdraw your change request?"
-      message="Your verified details stay as they are, and the reviewer no longer sees the request."
-      confirmLabel="Withdraw request"
-      cancelLabel="Keep it"
-      icon="undo-2"
-      (confirm)="withdrawChanges()"
-      (cancel)="confirmWithdraw.set(false)"
-    />
-
-    <!-- Public profile popup -->
-    @if (publicOpen()) {
-      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="publicOpen.set(false)"></button>
-        <div class="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-y-auto rounded-[20px] border border-[#cfe6fb] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)] sm:p-8">
-          <button type="button" class="absolute right-5 top-5 z-10 text-slate transition-colors hover:text-ink" aria-label="Close" (click)="publicOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
-          <sd-doctor-profile-card [data]="publicData()" [photoUrl]="photoSrc()" />
-        </div>
-      </div>
-    }
+    <!-- Public profile preview: what patients see. -->
+    <sd-dialog
+      [open]="publicOpen()"
+      title="Your public profile"
+      subtitle="This is how patients see you when they book."
+      size="xl"
+      (closed)="publicOpen.set(false)"
+    >
+      <sd-doctor-profile-card [data]="publicData()" [photoUrl]="photoSrc()" />
+    </sd-dialog>
   `,
 })
 export class DoctorProfile implements OnInit {
@@ -743,6 +719,9 @@ export class DoctorProfile implements OnInit {
   private readonly auth = inject(StaffAuthService);
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
+  /** The edit form as it was when editing started (to tell real changes from none). */
+  private editSnapshot: string | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** The read view, the edit form, or a change request for the verified (locked) details. */
@@ -763,7 +742,6 @@ export class DoctorProfile implements OnInit {
   protected readonly sigError = signal('');
   protected readonly drawing = signal(false);
   protected readonly drawn = signal<string | null>(null);
-  protected readonly confirmRemoveSig = signal(false);
   /** Suspended: the signature can't be read or changed (the API refuses it). */
   protected readonly sigBlocked = signal(false);
 
@@ -799,7 +777,6 @@ export class DoctorProfile implements OnInit {
     }
     return rows;
   });
-  protected readonly confirmWithdraw = signal(false);
   protected readonly withdrawing = signal(false);
   protected readonly withdrawError = signal('');
 
@@ -823,6 +800,11 @@ export class DoctorProfile implements OnInit {
   protected readonly photoSrc = computed(() => this.api.assetUrl(this.photoPath()));
   protected readonly uploadingAvatar = signal(false);
   protected readonly avatarModalOpen = signal(false);
+  /**
+   * Why the chosen photo wasn't used (wrong type, too large, upload failed) —
+   * shown inside the dialog: the page's toast sits under the modal, unseen.
+   */
+  protected readonly avatarError = signal('');
   protected readonly avatarDragging = signal(false);
   protected readonly publicOpen = signal(false);
 
@@ -1002,6 +984,7 @@ export class DoctorProfile implements OnInit {
     this.saveError.set('');
     this.serverErrors.set({});
     this.view.set('edit');
+    this.editSnapshot = this.formSnapshot();
   }
 
   /**
@@ -1026,14 +1009,54 @@ export class DoctorProfile implements OnInit {
     this.saveError.set('');
     this.serverErrors.set({});
     this.view.set('changes');
+    this.editSnapshot = this.formSnapshot();
   }
 
-  protected cancelEdit(): void {
+  /** Cancel / Back out of the edit form — asking first when something was changed. */
+  protected async cancelEdit(): Promise<void> {
+    if (this.hasUnsavedChanges() && !(await this.dialogs.confirmLeave(this.discardCopy()))) return;
+    this.discardEdit();
+  }
+
+  private discardEdit(): void {
     const p = this.profile();
     if (p) this.apply(p);
     this.setIdentityEditable(true);
     this.serverErrors.set({});
     this.view.set('view');
+    this.editSnapshot = null;
+  }
+
+  /**
+   * Route guard hook (`unsavedChangesGuard`): the edit or change-request form
+   * holds changes that haven't been saved or sent.
+   */
+  hasUnsavedChanges(): boolean {
+    return this.view() !== 'view' && this.editSnapshot !== null && this.formSnapshot() !== this.editSnapshot;
+  }
+
+  /** The guard's question (and Cancel's), worded for the form that is open. */
+  readonly leaveCopy = (): LeaveCopy => this.discardCopy();
+
+  private discardCopy(): LeaveCopy {
+    return this.view() === 'changes'
+      ? {
+          title: 'Discard your change request?',
+          message: "The changes you've made to your verified details won't be sent for review.",
+          confirmLabel: 'Discard changes',
+          cancelLabel: 'Keep editing',
+        }
+      : {
+          title: 'Discard changes?',
+          message: "The changes you've made to your profile won't be saved.",
+          confirmLabel: 'Discard changes',
+          cancelLabel: 'Keep editing',
+        };
+  }
+
+  /** Everything the edit form changes, as one comparable string. */
+  private formSnapshot(): string {
+    return JSON.stringify({ form: this.form.getRawValue(), expertise: this.expertise(), languages: this.languages() });
   }
 
   private fillEntries(arr: FormArray<FormGroup>, rows: readonly object[], keys: readonly string[]): void {
@@ -1139,13 +1162,18 @@ export class DoctorProfile implements OnInit {
     const file = event.dataTransfer?.files?.[0];
     if (file) void this.processAvatar(file);
   }
+  protected openAvatar(): void {
+    this.avatarError.set('');
+    this.avatarModalOpen.set(true);
+  }
   private async processAvatar(file: File): Promise<void> {
+    this.avatarError.set('');
     if (!/^image\/(png|jpe?g|webp|gif)$/.test(file.type)) {
-      this.showToast('Use a PNG, JPG, WEBP or GIF image.');
+      this.avatarError.set('Use a PNG, JPG, WEBP or GIF image.');
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      this.showToast('Image must be 2MB or smaller.');
+      this.avatarError.set('Image must be 2MB or smaller.');
       return;
     }
     this.uploadingAvatar.set(true);
@@ -1156,23 +1184,29 @@ export class DoctorProfile implements OnInit {
       this.avatarModalOpen.set(false);
       this.showToast('Profile photo updated successfully');
     } catch (err) {
-      this.showToast(apiErrorMessage(err, 'Could not upload your photo.'));
+      this.avatarError.set(apiErrorMessage(err, 'Could not upload your photo.'));
     } finally {
       this.uploadingAvatar.set(false);
     }
   }
+  /** "Remove your photo?" — removed inside the dialog (spinner, inline error). */
   protected async deletePhoto(): Promise<void> {
-    this.uploadingAvatar.set(true);
-    try {
-      const res = await firstValueFrom(this.api.removeAvatar());
-      this.profile.set(res.data);
-      this.photoPath.set(null);
-      this.showToast('Profile photo removed');
-    } catch (err) {
-      this.showToast(apiErrorMessage(err, 'Could not remove your photo.'));
-    } finally {
-      this.uploadingAvatar.set(false);
-    }
+    if (this.uploadingAvatar()) return;
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'image-off',
+      title: 'Remove your photo?',
+      message: 'Patients will see your initials on your public profile instead.',
+      confirmLabel: 'Remove photo',
+      cancelLabel: 'Keep it',
+      action: async () => {
+        const res = await firstValueFrom(this.api.removeAvatar());
+        this.profile.set(res.data);
+        this.photoPath.set(null);
+      },
+      errorMessage: (err) => apiErrorMessage(err, 'Could not remove your photo.'),
+    });
+    if (confirmed) this.showToast('Profile photo removed');
   }
 
   /** The verified (locked) fields as the form holds them, ready for the API. */
@@ -1295,27 +1329,30 @@ export class DoctorProfile implements OnInit {
       });
   }
 
-  /** Take back the change request waiting for review. */
-  protected withdrawChanges(): void {
-    this.confirmWithdraw.set(false);
+  /** Take back the change request waiting for review — asked first; withdrawn inside the dialog. */
+  protected async askWithdraw(): Promise<void> {
     if (this.withdrawing()) return;
-    this.withdrawing.set(true);
     this.withdrawError.set('');
-    this.api
-      .withdrawProfileChanges()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          this.apply(res.data);
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'undo-2',
+      title: 'Withdraw your change request?',
+      message: 'Your verified details stay as they are, and the reviewer no longer sees the request.',
+      confirmLabel: 'Withdraw request',
+      cancelLabel: 'Keep it',
+      action: async () => {
+        this.withdrawing.set(true);
+        try {
+          this.apply((await firstValueFrom(this.api.withdrawProfileChanges())).data);
+        } finally {
           this.withdrawing.set(false);
-          this.showToast('Your change request was withdrawn');
-          void this.standing.load(true);
-        },
-        error: (err: unknown) => {
-          this.withdrawing.set(false);
-          this.withdrawError.set(apiErrorMessage(err, 'Could not withdraw your change request.'));
-        },
-      });
+        }
+      },
+      errorMessage: (err) => apiErrorMessage(err, 'Could not withdraw your change request.'),
+    });
+    if (!confirmed) return;
+    this.showToast('Your change request was withdrawn');
+    void this.standing.load(true);
   }
 
   /** "Change pending" next to a verified field. */
@@ -1405,30 +1442,28 @@ export class DoctorProfile implements OnInit {
     this.storeSignature(dataUrl, 'draw');
   }
 
-  protected askRemoveSignature(): void {
+  /** "Remove your signature?" — removed inside the dialog (spinner, inline error), never closed first. */
+  protected async askRemoveSignature(): Promise<void> {
     if (this.sigBusy()) return;
     this.sigError.set('');
-    this.confirmRemoveSig.set(true);
-  }
-
-  protected removeSignature(): void {
-    this.confirmRemoveSig.set(false);
-    if (this.sigBusy()) return;
-    this.sigBusy.set('remove');
-    this.api
-      .deleteSignature()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          this.applySignature(res.data);
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'trash-2',
+      title: 'Remove your signature?',
+      message: "You'll need to draw your signature each time you send a prescription, until you save a new one.",
+      confirmLabel: 'Remove signature',
+      cancelLabel: 'Keep it',
+      action: async () => {
+        this.sigBusy.set('remove');
+        try {
+          this.applySignature((await firstValueFrom(this.api.deleteSignature())).data);
+        } finally {
           this.sigBusy.set('');
-          this.showToast('Your signature was removed');
-        },
-        error: (err: unknown) => {
-          this.sigBusy.set('');
-          this.sigError.set(apiErrorMessage(err, 'Could not remove your signature. Please try again.'));
-        },
-      });
+        }
+      },
+      errorMessage: (err) => apiErrorMessage(err, 'Could not remove your signature. Please try again.'),
+    });
+    if (confirmed) this.showToast('Your signature was removed');
   }
 
   private storeSignature(source: File | string, mode: 'upload' | 'draw'): void {

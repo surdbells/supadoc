@@ -169,6 +169,9 @@ return static function (App $app): void {
 
             $group->patch('/appointments/{id}/status', Action\Appointment\UpdateAppointmentStatusAction::class)
                 ->add(new RbacMiddleware('appointments.update'));
+            // Settle a missed / stale consultation: held, no-show, cancel, refund (audited).
+            $group->post('/appointments/{id}/resolve', Action\Appointment\ResolveAppointmentAction::class)
+                ->add(new RbacMiddleware('appointments.update'));
 
             $group->patch('/settings/pricing', Action\Settings\UpdatePricingAction::class)
                 ->add(new RbacMiddleware('settings.manage'));

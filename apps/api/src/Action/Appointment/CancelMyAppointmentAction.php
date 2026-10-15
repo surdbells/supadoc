@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Appointment\AppointmentLifecycle;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Settings\BookingSettings;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
@@ -15,6 +17,7 @@ use App\Infrastructure\Service\FollowUpService;
 use App\Infrastructure\Service\GuestInvitations;
 use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\StaffNotifier;
+use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use App\Domain\Settings\WebUrls;
@@ -26,6 +29,14 @@ use App\Domain\Settings\WebUrls;
  * and each guest a "consultation cancelled" one (their links stop working).
  * Cancelling a follow-up proposal the patient hasn't accepted declines it
  * (see POST .../follow-up/decline): nothing was paid, the doctor is told.
+ *
+ * Only before the start (422 "This consultation has started" after it: the
+ * outcome is then decided by the consultation being completed or marked
+ * missed). A request the doctor hasn't confirmed refunds in full; a confirmed
+ * one too — unless the Booking settings' late window applies
+ * (late_cancel_hours before the start, 0 = off), which refunds
+ * late_cancel_refund_pct of the fee (guest fees always in full) under
+ * `appt_late_cancel_refund_<id>`.
  */
 final class CancelMyAppointmentAction
 {
@@ -39,6 +50,7 @@ final class CancelMyAppointmentAction
         private readonly StaffNotifier $staffNotifier,
         private readonly FollowUpService $followUps,
         private readonly GuestInvitations $guests,
+        private readonly BookingSettings $settings,
     ) {
     }
 
@@ -68,13 +80,35 @@ final class CancelMyAppointmentAction
             ]);
         }
 
+        $now = new DateTimeImmutable();
+        if (($started = AppointmentLifecycle::patientChangeProblem($appointment, $now)) !== null) {
+            return $this->error($response, $started, 422, ['status' => $started]);
+        }
+        $percent = AppointmentLifecycle::cancelRefundPercent(
+            $appointment,
+            $now,
+            $this->settings->get('late_cancel_hours'),
+            $this->settings->get('late_cancel_refund_pct'),
+        );
+
         $appointment->transitionTo(AppointmentStatus::CANCELLED);
-        // Refund the wallet if it was paid (sets payment_status='refunded').
-        $this->payments->refundForCancellation($appointment);
+        if ($percent >= 100) {
+            // Refund the wallet if it was paid (sets payment_status='refunded').
+            $this->payments->refundForCancellation($appointment);
+        } else {
+            $this->payments->refundPart(
+                $appointment,
+                AppointmentLifecycle::partialRefund($appointment, $percent),
+                'appt_late_cancel_refund_' . $appointment->getId(),
+                'Refund for a late cancellation — consultation with ' . $appointment->getSpecialist()->getName(),
+            );
+        }
         $this->appointments->save($appointment);
 
         $this->notifyCancelled($appointment);
-        $this->patientNotifier->appointment($appointment, 'Appointment cancelled', 'Your appointment was cancelled and any wallet payment refunded.');
+        $this->patientNotifier->appointment($appointment, 'Appointment cancelled', $percent >= 100
+            ? 'Your appointment was cancelled and any wallet payment refunded.'
+            : 'Your appointment was cancelled. Under the late-cancellation policy, part of your payment was refunded to your wallet.');
         $this->notifyDoctor($appointment);
         $this->guests->notifyCancelled($appointment);
 

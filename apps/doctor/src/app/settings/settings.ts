@@ -4,10 +4,10 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Router } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage } from '@supadoc/data-access';
 import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { DoctorSignOut } from '../sign-out';
 
 const FIELD =
   'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
@@ -63,7 +63,7 @@ const FIELD =
 })
 export class DoctorSettings {
   private readonly auth = inject(StaffAuthService);
-  private readonly router = inject(Router);
+  private readonly signOut = inject(DoctorSignOut);
 
   protected readonly currentPw = signal('');
   protected readonly newPw = signal('');
@@ -100,8 +100,8 @@ export class DoctorSettings {
     }
   }
 
+  /** The same "Sign out?" as the menu's Log Out (and the account's standing is forgotten too). */
   protected logout(): void {
-    this.auth.logout();
-    void this.router.navigateByUrl('/auth/login');
+    void this.signOut.ask();
   }
 }

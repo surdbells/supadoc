@@ -10,8 +10,12 @@ use App\Domain\Repository\PayoutRepository;
 use DateTimeImmutable;
 
 /**
- * Computes a doctor's earnings from their completed consultations. Gross is the
- * sum of completed appointment amounts; the platform keeps a configurable
+ * Computes a doctor's earnings from their consultations. Gross is what they
+ * earned: every completed consultation, and a missed one the patient didn't
+ * come to (the doctor waited; the fee is theirs) — each less what was refunded
+ * for it (guest fees, a no-show refund percentage, a back-office refund). A
+ * consultation the doctor missed, or neither side came to, earns nothing. The
+ * platform keeps a configurable
  * commission (DOCTOR_COMMISSION_PERCENT); net is the remainder. The available
  * payout balance is net earned minus payouts already committed (pending /
  * approved / paid). All money is bcmath decimal-string, scale 2.
@@ -50,8 +54,8 @@ final class EarningsService
         $now        = new DateTimeImmutable();
         $startMonth = $now->modify('first day of this month')->setTime(0, 0, 0);
 
-        $gross       = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED]);
-        $grossMonth  = $this->appointments->sumAmountForSpecialist($specialistId, [AppointmentStatus::COMPLETED], $startMonth, $now);
+        $gross       = $this->appointments->sumEarnedForSpecialist($specialistId);
+        $grossMonth  = $this->appointments->sumEarnedForSpecialist($specialistId, $startMonth, $now);
         $commission  = $this->commission($gross);
         $net         = bcsub($gross, $commission, self::SCALE);
         $committed   = $this->payouts->committedTotalForSpecialist($specialistId);
@@ -71,6 +75,8 @@ final class EarningsService
             'gross_month'        => $grossMonth,
             'net_month'          => $this->net($grossMonth),
             'completed_count'    => $this->appointments->countForSpecialist($specialistId, [AppointmentStatus::COMPLETED]),
+            // Missed consultations the patient didn't come to (they count towards gross).
+            'patient_no_show_count' => $this->appointments->countPatientNoShowsForSpecialist($specialistId),
             'has_open_payout'    => $this->payouts->hasOpenRequest($specialistId),
         ];
     }

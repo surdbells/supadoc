@@ -51,7 +51,7 @@ final class ProposeFollowUpAction
 
         $patient = $proposal->getPatient()->toArray();
 
-        return $this->created($response, $proposal->toArray() + [
+        return $this->created($response, $proposal->toArray('doctor') + [
             'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
         ], 'Follow-up proposed');
     }

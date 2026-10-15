@@ -36,7 +36,8 @@ import type {
 import {
   AlertComponent,
   ButtonComponent,
-  ConfirmDialogComponent,
+  DialogComponent,
+  DialogService,
   IconComponent,
 } from '@supadoc/ui';
 import { forkJoin, map, Observable, of, Subscription, switchMap } from 'rxjs';
@@ -131,9 +132,6 @@ function isDialogKey(key: string): boolean {
   return ['confirm', 'signature'].some((d) => key === d || key.startsWith(`${d}.`));
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 const LABEL = 'font-sans text-caption font-semibold text-ink';
 const HINT = 'font-sans text-caption text-slate';
 const ERR = 'font-sans text-caption text-alert';
@@ -193,7 +191,7 @@ function nullIfBlank(v: string): string | null {
     RouterLink,
     AlertComponent,
     ButtonComponent,
-    ConfirmDialogComponent,
+    DialogComponent,
     IconComponent,
     RxDrugSearch,
     RxSidePanel,
@@ -936,33 +934,19 @@ function nullIfBlank(v: string): string | null {
     }
     </div>
 
-    <!-- Send dialog -->
-    @if (sendOpen()) {
-      <div class="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="dismissSend()"></button>
-        <div
-          #sendDialog
-          role="dialog"
-          aria-modal="true"
-          tabindex="-1"
-          class="relative z-10 flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-[16px] bg-white shadow-[0_8px_40px_rgba(10,22,40,0.2)] sm:rounded-[16px]"
-          [attr.aria-labelledby]="id('send-title')"
-          [attr.aria-describedby]="id('send-sub')"
-          (keydown)="dialogKeydown($event)"
-        >
-          <header class="flex items-start justify-between gap-3 border-b border-cloud px-5 py-4">
-            <div class="flex min-w-0 flex-col">
-              <h2 class="font-heading text-h5 text-ink" [id]="id('send-title')">{{ sendDone() ? 'Prescription sent' : 'Send to patient' }}</h2>
-              <p class="break-all ${HINT}" [id]="id('send-sub')">{{ rx()?.number ?? 'New prescription' }}</p>
-            </div>
-            <button type="button" class="shrink-0 rounded-field p-1 text-slate transition-colors hover:text-ink disabled:opacity-50" aria-label="Close" [disabled]="busy() === 'send'" (click)="dismissSend()">
-              <sd-icon name="x" [size]="20" />
-            </button>
-          </header>
-
-          <div class="flex-1 overflow-y-auto px-5 py-4" data-dialog-body>
+    <!-- Send dialog: the design-system dialog (top layer, focus kept inside and
+         returned to Send, Esc / scrim / × close it — not while sending). -->
+    <sd-dialog
+      [open]="sendOpen()"
+      [title]="sendDone() ? 'Prescription sent' : 'Send to patient'"
+      [subtitle]="rx()?.number ?? 'New prescription'"
+      size="md"
+      [busy]="busy() === 'send'"
+      (closed)="dismissSend()"
+    >
             @if (sendDone()) {
-              <div class="flex flex-col items-center gap-3 py-6 text-center" role="status">
+              <!-- Focus lands here when the step changes, so the result is read out. -->
+              <div class="flex flex-col items-center gap-3 py-6 text-center outline-none" role="status" tabindex="-1" data-autofocus>
                 <span class="flex size-16 items-center justify-center rounded-full bg-sage/15 text-sage">
                   <sd-icon name="circle-check" [size]="32" />
                 </span>
@@ -1066,9 +1050,8 @@ function nullIfBlank(v: string): string | null {
                 }
               </div>
             }
-          </div>
 
-          <footer class="flex flex-col-reverse gap-2 border-t border-cloud px-5 py-4 sm:flex-row sm:justify-end">
+          <footer dialogFooter class="flex shrink-0 flex-col-reverse gap-2 border-t border-cloud px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
             @if (sendDone()) {
               <sd-button variant="secondary" [full]="true" [disabled]="busy() === 'pdf' || disabled()" (click)="viewPdf()">
                 <sd-icon name="file-text" [size]="18" /> {{ busy() === 'pdf' ? 'Opening…' : 'View PDF' }}
@@ -1081,21 +1064,7 @@ function nullIfBlank(v: string): string | null {
               </sd-button>
             }
           </footer>
-        </div>
-      </div>
-    }
-
-    <sd-confirm-dialog
-      [open]="confirmClose()"
-      title="Close without saving?"
-      message="Your latest changes have not been saved."
-      confirmLabel="Close without saving"
-      cancelLabel="Keep editing"
-      icon="triangle-alert"
-      [danger]="true"
-      (confirm)="confirmClose.set(false); closed.emit()"
-      (cancel)="confirmClose.set(false)"
-    />
+    </sd-dialog>
   `,
 })
 export class RxComposer {
@@ -1200,7 +1169,6 @@ export class RxComposer {
   protected readonly busy = signal<Busy>('');
   protected readonly infoOpen = signal(false);
   protected readonly mdcnDismissed = signal(false);
-  protected readonly confirmClose = signal(false);
   private readonly savedJson = signal('');
   /** Row keys (in payload order) of the last request — maps `items.N.*` errors back to rows. */
   private lastRowKeys: number[] = [];
@@ -1219,8 +1187,8 @@ export class RxComposer {
   protected readonly saveDrawn = signal(false);
   protected readonly sigPreview = signal<string | null>(null);
   protected readonly sigPreviewState = signal<'idle' | 'loading' | 'error'>('idle');
-  private readonly sendDialog = viewChild<ElementRef<HTMLElement>>('sendDialog');
-  private lastFocus: HTMLElement | null = null;
+  private readonly sendDialog = viewChild(DialogComponent);
+  private readonly dialogs = inject(DialogService);
   private sentEmitted = false;
   private loadSub: Subscription | null = null;
 
@@ -2039,10 +2007,21 @@ export class RxComposer {
     );
   }
 
-  protected requestClose(): void {
+  protected async requestClose(): Promise<void> {
     if (this.busy()) return;
-    if (this.dirty()) this.confirmClose.set(true);
-    else this.closed.emit();
+    if (
+      this.dirty() &&
+      !(await this.dialogs.confirmLeave({
+        tone: 'danger',
+        title: 'Close without saving?',
+        message: "Your latest changes to this prescription haven't been saved. Closing now loses them.",
+        confirmLabel: 'Close without saving',
+        cancelLabel: 'Keep editing',
+      }))
+    ) {
+      return;
+    }
+    this.closed.emit();
   }
 
   protected onBeforeUnload(e: BeforeUnloadEvent): void {
@@ -2125,10 +2104,9 @@ export class RxComposer {
     this.sendError.set('');
     this.sendFields.set({});
     this.sendDone.set(false);
-    this.lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The dialog focuses the first checklist box, and Send again when it closes.
     this.sendOpen.set(true);
     if (hasSaved) this.loadSignaturePreview();
-    this.afterRender(() => this.focusFirstInDialog());
   }
 
   private loadSignaturePreview(): void {
@@ -2212,7 +2190,8 @@ export class RxComposer {
             this.sigPreview.set(null);
             this.sigPreviewState.set('idle');
           }
-          this.afterRender(() => this.focusFirstInDialog());
+          // The form step's controls are gone: focus the result.
+          this.sendDialog()?.refocus();
         },
         error: (err: unknown) => {
           this.busy.set('');
@@ -2265,49 +2244,7 @@ export class RxComposer {
   }
 
   private closeSendDialog(): void {
+    // Focus goes back to whatever opened it (the dialog does that).
     this.sendOpen.set(false);
-    const back = this.lastFocus;
-    this.lastFocus = null;
-    if (back) {
-      this.afterRender(() => {
-        if (document.contains(back)) back.focus();
-      });
-    }
-  }
-
-  private focusFirstInDialog(): void {
-    const root = this.sendDialog()?.nativeElement;
-    if (!root) return;
-    // Success screen: focus "View PDF"/"Done"; otherwise the first checklist box.
-    const inBody = this.sendDone()
-      ? null
-      : root.querySelector('[data-dialog-body]')?.querySelector<HTMLElement>(FOCUSABLE);
-    const footer = Array.from(root.querySelectorAll<HTMLElement>('footer button:not([disabled])'));
-    (inBody ?? footer[footer.length - 1] ?? root).focus();
-  }
-
-  protected dialogKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      this.dismissSend();
-      return;
-    }
-    if (e.key !== 'Tab') return;
-    const root = this.sendDialog()?.nativeElement;
-    if (!root) return;
-    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.offsetParent !== null || el === document.activeElement,
-    );
-    if (items.length === 0) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
   }
 }

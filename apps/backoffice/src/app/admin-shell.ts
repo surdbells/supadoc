@@ -15,7 +15,7 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
-import { ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { DialogService, IconComponent } from '@supadoc/ui';
 import { filter } from 'rxjs';
 import { ReviewQueue } from './specialists/review-queue';
 
@@ -47,7 +47,7 @@ const NAV: NavItem[] = [
 @Component({
   selector: 'bo-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent, ConfirmDialogComponent],
+  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
@@ -137,23 +137,13 @@ const NAV: NavItem[] = [
         </button>
       </div>
     </ng-template>
-
-    <sd-confirm-dialog
-      [open]="confirmLogout()"
-      title="Sign out?"
-      message="You'll need to sign in again to access the console."
-      confirmLabel="Sign out"
-      icon="log-out"
-      [danger]="true"
-      (confirm)="logout()"
-      (cancel)="confirmLogout.set(false)"
-    />
   `,
 })
 export class AdminShell {
   private readonly auth = inject(StaffAuthService);
   private readonly router = inject(Router);
   private readonly reviewQueue = inject(ReviewQueue);
+  private readonly dialogs = inject(DialogService);
 
   /**
    * What waits for a reviewer — profiles in review, change requests and
@@ -168,7 +158,6 @@ export class AdminShell {
   });
 
   protected readonly menuOpen = signal(false);
-  protected readonly confirmLogout = signal(false);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly roleLabel = computed(() => this.auth.roles()[0] ?? 'staff');
   protected readonly visibleNav = computed(() =>
@@ -197,13 +186,20 @@ export class AdminShell {
       .subscribe(() => this.reviewQueue.refresh());
   }
 
-  protected askLogout(): void {
+  protected async askLogout(): Promise<void> {
     this.menuOpen.set(false);
-    this.confirmLogout.set(true);
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'log-out',
+      title: 'Sign out?',
+      message: "You'll need to sign in again to use the console.",
+      confirmLabel: 'Sign out',
+      cancelLabel: 'Stay signed in',
+    });
+    if (confirmed) this.logout();
   }
 
-  protected logout(): void {
-    this.confirmLogout.set(false);
+  private logout(): void {
     this.menuOpen.set(false);
     this.auth.logout();
     void this.router.navigateByUrl('/auth/login');

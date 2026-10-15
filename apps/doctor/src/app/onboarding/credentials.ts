@@ -13,16 +13,18 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { finalize, tap } from 'rxjs';
 import { apiErrorFields, apiErrorMessage, DoctorApi, openBlobDocument, todayLocal } from '@supadoc/data-access';
 import type { CredentialType, DoctorCredentialsDto, SpecialistCredentialDto } from '@supadoc/models';
 import {
   AlertComponent,
   ButtonComponent,
-  ConfirmDialogComponent,
+  DialogService,
   type FileDropRejection,
   FileDropComponent,
   IconComponent,
 } from '@supadoc/ui';
+import { focusAfterDialogs } from '../focus-after-dialog';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import { latestCredential, licenceDocuments, renewalText, ymdLabel } from '../standing/standing-rules';
 import { CredentialStatusChip } from './credential-status';
@@ -70,7 +72,6 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
     RouterLink,
     AlertComponent,
     ButtonComponent,
-    ConfirmDialogComponent,
     CredentialStatusChip,
     FileDropComponent,
     IconComponent,
@@ -317,7 +318,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
                     </button>
                     @if (c.status === 'pending') {
                       <!-- Only before a reviewer has looked at it. -->
-                      <button type="button" class="${ACTION} text-alert hover:border-alert" [disabled]="deletingId() === c.id" (click)="deleteTarget.set(c)">
+                      <button type="button" class="${ACTION} text-alert hover:border-alert" [disabled]="deletingId() === c.id" (click)="askDelete(c)">
                         <sd-icon name="trash-2" [size]="16" />{{ deletingId() === c.id ? 'Deleting…' : 'Delete' }}<span class="sr-only"> {{ c.type_label }}</span>
                       </button>
                     }
@@ -329,18 +330,6 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
         </section>
       }
     </div>
-
-    <sd-confirm-dialog
-      [open]="deleteTarget() !== null"
-      title="Delete this document?"
-      [message]="(deleteTarget()?.type_label ?? 'It') + ' (' + (deleteTarget()?.original_name ?? '') + ') will be removed before anyone reviews it. You can upload it again.'"
-      confirmLabel="Delete"
-      cancelLabel="Keep it"
-      icon="trash-2"
-      [danger]="true"
-      (confirm)="confirmDelete()"
-      (cancel)="deleteTarget.set(null)"
-    />
   `,
 })
 export class DoctorCredentials implements OnInit {
@@ -369,7 +358,7 @@ export class DoctorCredentials implements OnInit {
   protected readonly notice = signal('');
 
   // ----- The list -----
-  protected readonly deleteTarget = signal<SpecialistCredentialDto | null>(null);
+  private readonly dialogs = inject(DialogService);
   protected readonly deletingId = signal<string | null>(null);
   protected readonly actionError = signal('');
 
@@ -570,34 +559,41 @@ export class DoctorCredentials implements OnInit {
     openBlobDocument(this.api.credentialFile(c.id));
   }
 
-  protected confirmDelete(): void {
-    const c = this.deleteTarget();
-    this.deleteTarget.set(null);
-    if (!c || this.deletingId()) return;
-    this.deletingId.set(c.id);
+  /** "Delete this document?" — deleted inside the dialog (spinner, inline error); the list then reloads. */
+  protected async askDelete(c: SpecialistCredentialDto): Promise<void> {
+    if (this.deletingId()) return;
     this.actionError.set('');
     this.notice.set('');
-    this.api
-      .deleteCredential(c.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.deletingId.set(null);
-          this.data.update((d) => (d ? { ...d, credentials: d.credentials.filter((x) => x.id !== c.id) } : d));
-          this.announce(`${c.type_label} deleted.`);
-          this.refresh();
-        },
-        error: (err: unknown) => {
-          this.deletingId.set(null);
-          this.actionError.set(apiErrorMessage(err, 'Could not delete the document.'));
-          this.refresh(); // e.g. it was reviewed meanwhile
-        },
-      });
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'trash-2',
+      title: 'Delete this document?',
+      message: `${c.type_label} (${c.original_name}) will be removed before anyone reviews it. You can upload it again.`,
+      confirmLabel: 'Delete document',
+      cancelLabel: 'Keep it',
+      action: () => {
+        this.deletingId.set(c.id);
+        // A refusal (e.g. it was reviewed meanwhile) reloads the list behind the dialog.
+        return this.api.deleteCredential(c.id).pipe(
+          tap({ error: () => this.refresh() }),
+          finalize(() => this.deletingId.set(null)),
+        );
+      },
+      errorMessage: (err) => apiErrorMessage(err, 'Could not delete the document.'),
+    });
+    if (!confirmed) return;
+    this.data.update((d) => (d ? { ...d, credentials: d.credentials.filter((x) => x.id !== c.id) } : d));
+    // Its Delete button (the dialog's opener) is gone: once the dialog has closed, focus the notice.
+    this.announce(`${c.type_label} deleted.`, true);
+    this.refresh();
   }
 
-  private announce(text: string): void {
+  /** Show `text` and move focus to it (`afterDialog`: once the confirmation dialog has fully closed). */
+  private announce(text: string, afterDialog = false): void {
     this.notice.set(text);
-    afterNextRender(() => this.noticeEl()?.nativeElement.focus(), { injector: this.injector });
+    const focus = (): HTMLElement | undefined => this.noticeEl()?.nativeElement;
+    if (afterDialog) focusAfterDialogs(this.injector, focus);
+    else afterNextRender(() => focus()?.focus(), { injector: this.injector });
   }
 
   // ----- Display -----

@@ -1,6 +1,5 @@
 import { Route } from '@angular/router';
-import { staffAuthGuard } from '@supadoc/auth';
-import { unsavedChangesGuard } from './prescriptions/unsaved-changes.guard';
+import { staffAuthGuard, unsavedChangesGuard } from '@supadoc/auth';
 import { doctorStandingGuard } from './standing/doctor-standing.guard';
 
 export const appRoutes: Route[] = [
@@ -156,6 +155,8 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'profile',
+        // Asks before leaving the edit / change-request form with unsaved changes.
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () =>
           import('./profile/doctor-profile').then((m) => m.DoctorProfile),
       },

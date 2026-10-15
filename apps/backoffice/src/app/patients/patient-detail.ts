@@ -21,6 +21,7 @@ import type {
   PrescriptionSummaryDto,
 } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
+import { appointmentBadge, AppointmentBadge, ATTENTION_BADGE } from '../shared/appointment-status';
 
 /** Every status reads as icon + words — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
@@ -79,7 +80,16 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                     <a [routerLink]="['/appointments', a.id]" class="font-sans text-body-sm font-medium text-ink hover:text-cerulean">{{ a.specialist.name }}</a>
                     <span class="font-sans text-caption text-slate">{{ when(a.scheduled_at) }} · {{ a.type_label }}</span>
                   </div>
-                  <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                  <span class="flex shrink-0 flex-col items-end gap-1">
+                    @if (badge(a); as b) {
+                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
+                      @if (a.needs_attention) {
+                        <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold ${ATTENTION_BADGE.cls}"><sd-icon name="${ATTENTION_BADGE.icon}" [size]="13" />{{ attention.label }}</span>
+                      } @else if (b.detail) {
+                        <span class="font-sans text-caption text-slate">{{ b.detail }}</span>
+                      }
+                    }
+                  </span>
                 </li>
               }
             </ul>
@@ -283,20 +293,10 @@ export class AdminPatientDetail implements OnInit {
     return `${d.patient.first_name?.[0] ?? ''}${d.patient.last_name?.[0] ?? ''}`.toUpperCase() || '?';
   }
 
-  protected statusClass(status: AppointmentDto['status']): string {
-    switch (status) {
-      case 'confirmed':
-      case 'completed':
-        return 'bg-sage/15 text-sage';
-      case 'cancelled':
-        return 'bg-alert/10 text-alert';
-      case 'rescheduled':
-        return 'bg-cloud text-slate';
-      case 'proposed':
-        return 'bg-teal/10 text-teal';
-      default:
-        return 'bg-warning/15 text-warning';
-    }
+  /** The appointment's badge: the server's display label (Missed, Not confirmed…) + its detail. */
+  protected readonly attention = ATTENTION_BADGE;
+  protected badge(a: AppointmentDto): AppointmentBadge {
+    return appointmentBadge(a);
   }
 
   protected when(iso: string): string {

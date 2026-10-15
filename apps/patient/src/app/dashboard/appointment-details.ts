@@ -26,6 +26,7 @@ import {
   startWith,
   Subscription,
   switchMap,
+  tap,
 } from 'rxjs';
 import {
   apiErrorFields,
@@ -56,10 +57,15 @@ import {
   BookingCalendarComponent,
   ButtonComponent,
   CallPresenceComponent,
+  ConfirmDetail,
+  DialogComponent,
+  DialogService,
   IconComponent,
   MessageThreadComponent,
 } from '@supadoc/ui';
 import { doctorTitle } from '../call/call-helpers';
+import { afterDialogsClose } from '../dialog-helpers';
+import { detailsLink, isPast, nairaLabel, OPEN_STATUSES, phaseOf, StatusBadge, statusBadge } from './appointment-status';
 import { calendarErrorText } from './booking-helpers';
 import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './follow-up';
 import { GuestsPanel } from './guests-panel';
@@ -81,24 +87,8 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
   cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
 };
 
-/** What Tab can land on inside a dialog. */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function isRadio(el: Element | null): el is HTMLInputElement {
-  return el instanceof HTMLInputElement && el.type === 'radio';
-}
-
-/** One Tab stop: the same control, or radios of one named group (Tab leaves a group in one step). */
-function sameTabStop(a: Element, b: Element | null): boolean {
-  return a === b || (isRadio(a) && isRadio(b) && a.name !== '' && a.name === b.name);
-}
-
-/** Where Tab lands on `el`'s stop: a radio group's checked radio, else `el` itself. */
-function tabStopOf(items: readonly HTMLElement[], el: HTMLElement): HTMLElement {
-  if (!isRadio(el) || el.name === '') return el;
-  return items.find((i) => isRadio(i) && i.name === el.name && i.checked) ?? el;
-}
+/** How long after its start an ended consultation nobody has closed yet can still be rejoined. */
+const REJOIN_WINDOW_MS = 12 * 60 * 60_000;
 
 interface DetailsVm {
   readonly id: string;
@@ -109,14 +99,27 @@ interface DetailsVm {
   readonly time: string;
   readonly typeLabel: string;
   readonly typeIcon: string;
-  readonly statusLabel: string;
-  readonly statusClass: string;
+  /** The server's label, colours, icon and the line under it ("Awaiting doctor confirmation"). */
+  readonly badge: StatusBadge;
   readonly amount: string;
   readonly guests: string[];
+  /** Before its start only (`can_cancel`); after it: 422 "This consultation has started". */
   readonly canCancel: boolean;
+  /** Before its start only (`can_reschedule`). */
+  readonly canReschedule: boolean;
+  /** Open, started, and no longer cancellable or movable — said next to the actions. */
+  readonly started: boolean;
   readonly canReview: boolean;
-  /** A cancelled appointment (a declined follow-up among them) has no call to join. */
+  /** Open and not over (or ended and not closed yet, within the rejoin window) — a closed one has no call to join. */
   readonly canJoin: boolean;
+  /** In progress now. */
+  readonly live: boolean;
+  /** Over — the back link goes to History. */
+  readonly past: boolean;
+  /** Over and a real booking (not a proposal never taken up): its record is on its History page. */
+  readonly inHistory: boolean;
+  /** The line pointing to History — a cancelled booking never took place, so no "summary" there. */
+  readonly historyNote: string;
   /** A doctor's follow-up proposal (answered with the panel, not Join / Cancel). */
   readonly isProposal: boolean;
   /** The consultation this follows up ('' when it isn't a follow-up). */
@@ -141,15 +144,6 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
   maximumFractionDigits: 2,
 });
 
-const STATUS_CLASS: Record<string, string> = {
-  proposed: 'bg-teal/10 text-teal',
-  pending: 'bg-warning/15 text-warning',
-  confirmed: 'bg-sage/15 text-sage',
-  rescheduled: 'bg-cloud text-slate',
-  completed: 'bg-frost text-cerulean',
-  cancelled: 'bg-alert/10 text-alert',
-};
-
 const TYPE_ICON: Record<string, string> = {
   video: 'video',
   follow_up: 'refresh-cw',
@@ -157,8 +151,27 @@ const TYPE_ICON: Record<string, string> = {
   routine: 'calendar-check',
 };
 
-function toDetails(a: AppointmentDto): DetailsVm {
+/** Why an appointment that is over has its record in History — worded for how it ended. */
+function historyNote(a: AppointmentDto, badge: StatusBadge): string {
+  if (a.status === 'cancelled') return 'This appointment was cancelled. Its payment and any refund are in your history.';
+  if (a.status === 'missed') return 'This consultation was closed as missed. What happened and any refund are in your history.';
+  if (badge.key === 'not_confirmed') {
+    return "Your doctor didn't confirm this consultation in time. Its payment and any refund are in your history.";
+  }
+  return 'This consultation is over. Its summary, documents and payment are in your history.';
+}
+
+function toDetails(a: AppointmentDto, now: number): DetailsVm {
   const when = new Date(a.scheduled_at);
+  const badge = statusBadge(a);
+  const open = OPEN_STATUSES.includes(a.status);
+  const phase = phaseOf(a);
+  // The server's flags (open and not started when read) — and the start not
+  // reached since, as the page ticks; an older payload has only the latter.
+  const beforeStart = now < when.getTime();
+  const canCancel = (a.can_cancel ?? open) && beforeStart;
+  const canReschedule = (a.can_reschedule ?? open) && beforeStart;
+  const rejoinable = badge.key === 'finalising' && now < when.getTime() + REJOIN_WINDOW_MS;
   return {
     id: a.id,
     specialistId: a.specialist.id,
@@ -177,14 +190,19 @@ function toDetails(a: AppointmentDto): DetailsVm {
     }).format(when),
     typeLabel: a.type_label,
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
-    statusLabel: a.status_label,
-    statusClass: STATUS_CLASS[a.status] ?? 'bg-cloud text-slate',
+    badge,
     // A free consultation reads "Free", never "₦0.00".
     amount: Number(a.amount) > 0 ? `₦${NAIRA.format(Number(a.amount))}` : 'Free',
     guests: (a.guests ?? []).map((g) => g.name),
-    canCancel: ['pending', 'confirmed', 'rescheduled'].includes(a.status),
+    canCancel,
+    canReschedule,
+    started: open && !beforeStart,
     canReview: a.status === 'completed',
-    canJoin: a.status !== 'cancelled',
+    canJoin: open && (phase !== 'past' || rejoinable),
+    live: badge.key === 'live',
+    past: isPast(a),
+    inHistory: detailsLink(a)[0] === '/dashboard/history',
+    historyNote: historyNote(a, badge),
     isProposal: a.status === 'proposed',
     parentId: a.parent_appointment_id ?? '',
     parentDate: dayLabel(a.parent?.scheduled_at),
@@ -199,6 +217,11 @@ function toDetails(a: AppointmentDto): DetailsVm {
  * Accept, or Decline with an optional reason. `?respond=accept|time|decline`
  * (from the appointments list) jumps straight to that step. Rescheduling picks
  * the new time on the same calendar, in a dialog.
+ *
+ * Cancel and Reschedule are offered only before the start (`can_cancel` /
+ * `can_reschedule`; the API answers 422 "This consultation has started" after
+ * it). Cancelling asks first, saying what goes back to the wallet
+ * (`cancel_policy`). A consultation that is over points to its History page.
  */
 @Component({
   selector: 'pat-appointment-details',
@@ -209,6 +232,7 @@ function toDetails(a: AppointmentDto): DetailsVm {
     BookingCalendarComponent,
     ButtonComponent,
     CallPresenceComponent,
+    DialogComponent,
     GuestsPanel,
     IconComponent,
     MessageThreadComponent,
@@ -223,11 +247,11 @@ function toDetails(a: AppointmentDto): DetailsVm {
       <div class="flex items-start justify-between gap-4">
         <div class="flex flex-col gap-1">
           <a
-            routerLink="/dashboard/appointments"
-            class="mb-1 flex w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean"
+            [routerLink]="vm()?.past ? '/dashboard/history' : '/dashboard/appointments'"
+            class="mb-1 flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean sm:min-h-0"
           >
             <sd-icon name="chevron-right" [size]="16" class="rotate-180" />
-            My Appointments
+            {{ vm()?.past ? 'Consultation History' : 'My Appointments' }}
           </a>
           <h1 #pageTitle tabindex="-1" class="font-heading text-h3 text-ink outline-none">Appointment Details</h1>
           <p class="font-sans text-body text-slate">
@@ -326,10 +350,13 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 <!-- Status + who's in the call; wraps under the dates on narrow phones -->
                 <div class="ml-auto flex flex-col items-end gap-2">
                   <span
-                    class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium"
-                    [class]="v.statusClass"
-                    >{{ v.statusLabel }}</span
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium"
+                    [class]="v.badge.class"
+                    ><sd-icon [name]="v.badge.icon" [size]="16" />{{ v.badge.label }}</span
                   >
+                  @if (v.badge.detail) {
+                    <span class="max-w-[14rem] text-right font-sans text-caption text-slate">{{ v.badge.detail }}</span>
+                  }
                   <sd-call-presence
                     [presence]="presence()[v.id]"
                     viewer="patient"
@@ -338,6 +365,22 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 </div>
               </div>
             </section>
+
+            <!-- Over: its summary, documents and payment live in History -->
+            @if (v.inHistory) {
+              <section class="flex flex-col gap-3 rounded-card border border-cloud bg-glacier p-5 sm:flex-row sm:items-center sm:justify-between">
+                <p class="flex items-start gap-3 font-sans text-body-sm text-ink">
+                  <sd-icon name="history" [size]="20" class="mt-0.5 shrink-0 text-cerulean" />
+                  {{ v.historyNote }}
+                </p>
+                <a
+                  [routerLink]="['/dashboard/history', v.id]"
+                  class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field border border-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:bg-frost/30"
+                >
+                  View in history<sd-icon name="chevron-right" [size]="16" />
+                </a>
+              </section>
+            }
 
             <!-- A follow-up the doctor proposed: accept (paying unless free), another time, or decline -->
             @if (proposal(); as fp) {
@@ -586,8 +629,8 @@ function toDetails(a: AppointmentDto): DetailsVm {
               </section>
             }
 
-            <!-- Instructions + actions -->
-            @if (!v.isProposal) {
+            <!-- Instructions + actions (not once it is over and there is nothing left to do) -->
+            @if (!v.isProposal && (!v.past || v.canJoin || v.canReview)) {
             <section
               class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 lg:flex-row lg:justify-between"
             >
@@ -618,18 +661,20 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 @if (v.canJoin) {
                   <sd-button
                     [full]="true"
-                    [class]="doctorInCall() ? 'rounded-field ring-4 ring-success/25' : ''"
+                    [class]="doctorInCall() || v.live ? 'rounded-field ring-4 ring-success/25' : ''"
                     (click)="joinCall(v.id)"
                   >
                     <sd-icon name="video" [size]="18" />
                     {{
                       doctorInCall()
                         ? 'Join now — your doctor is in the call'
-                        : 'Join Consultation'
+                        : v.live
+                          ? 'Join now — it has started'
+                          : 'Join Consultation'
                     }}
                   </sd-button>
                 }
-                @if (v.canCancel) {
+                @if (v.canReschedule) {
                   <sd-button variant="outline" [full]="true" (click)="openReschedule(v)"
                     >Reschedule Appointment</sd-button
                   >
@@ -637,13 +682,23 @@ function toDetails(a: AppointmentDto): DetailsVm {
                 @if (v.canCancel) {
                   <button
                     type="button"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60"
-                    [disabled]="cancelling()"
-                    (click)="cancel(v.id)"
+                    class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 aria-busy:opacity-70"
+                    [attr.aria-busy]="cancelChecking() || null"
+                    (click)="cancel()"
                   >
-                    <sd-icon name="trash-2" [size]="18" />
-                    {{ cancelling() ? 'Cancelling…' : 'Cancel Appointment' }}
+                    <!-- Not [disabled] while checking: that would drop focus, and the prompt returns focus here. -->
+                    <sd-icon [name]="cancelChecking() ? 'loader-circle' : 'calendar-x'" [size]="18" [class.animate-spin]="cancelChecking()" />
+                    Cancel Appointment
                   </button>
+                  @if (cancelHint(); as hint) {
+                    <p class="font-sans text-caption text-slate">{{ hint }}</p>
+                  }
+                }
+                @if (v.started) {
+                  <p class="flex items-start gap-1.5 font-sans text-caption text-slate">
+                    <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                    This consultation has started, so it can no longer be cancelled or moved.
+                  </p>
                 }
                 @if (v.canReview && !reviewed()) {
                   <sd-button variant="outline" [full]="true" (click)="openReview()">
@@ -857,182 +912,138 @@ function toDetails(a: AppointmentDto): DetailsVm {
       }
     </div>
 
-    @if (reviewOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeReview()"></button>
-        <div
-          #reviewDialog
-          class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="review-title"
-          tabindex="-1"
-          (keydown.escape)="closeReview()"
-          (keydown)="trapTab($event, reviewDialog)"
-        >
-          <div class="flex items-center justify-between">
-            <h3 #reviewTitle id="review-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Rate your consultation</h3>
-            <button type="button" class="inline-flex size-11 items-center justify-center text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeReview()"><sd-icon name="x" [size]="24" /></button>
-          </div>
-          <div class="flex justify-center gap-2">
-            @for (i of [1,2,3,4,5]; track i) {
-              <button type="button" (click)="reviewRating.set(i)" [attr.aria-label]="i + ' stars'">
-                <sd-icon name="star" [size]="32" [class]="i <= reviewRating() ? 'text-warning' : 'text-cloud'" />
-              </button>
-            }
-          </div>
-          <textarea rows="3" class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" placeholder="Share how it went (optional)" [value]="reviewComment()" (input)="reviewComment.set($any($event.target).value)"></textarea>
-          @if (reviewError()) { <p class="font-sans text-caption text-alert">{{ reviewError() }}</p> }
-          <sd-button [full]="true" [disabled]="reviewing()" (click)="submitReview()">
-            {{ reviewing() ? 'Submitting…' : 'Submit review' }}
-          </sd-button>
+    <!-- Rate a completed consultation -->
+    <sd-dialog
+      [open]="reviewOpen()"
+      title="Rate your consultation"
+      [subtitle]="'How was your consultation with ' + (vm()?.name ?? 'your doctor') + '?'"
+      size="sm"
+      [busy]="reviewing()"
+      (closed)="closeReview()"
+      (afterClose)="focusTitleIfLost()"
+    >
+      <div class="flex flex-col gap-5">
+        <div class="flex justify-center gap-1" role="group" aria-label="Your rating, 1 to 5 stars">
+          @for (i of [1, 2, 3, 4, 5]; track i) {
+            <button
+              type="button"
+              class="flex size-11 items-center justify-center rounded-field transition-colors hover:bg-(--sd-dialog-hover) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring)"
+              [attr.data-autofocus]="i === reviewRating() ? '' : null"
+              [attr.aria-label]="i + (i === 1 ? ' star' : ' stars')"
+              [attr.aria-pressed]="i === reviewRating()"
+              [disabled]="reviewing()"
+              (click)="reviewRating.set(i)"
+            >
+              <sd-icon name="star" [size]="30" [class]="i <= reviewRating() ? 'text-warning' : 'text-cloud'" />
+            </button>
+          }
         </div>
-      </div>
-    }
-
-    @if (rescheduleOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeReschedule()"></button>
-        <div
-          #rescheduleDialog
-          class="relative z-10 flex max-h-[90vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-4 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none sm:p-6 md:max-w-3xl"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="reschedule-title"
-          aria-describedby="reschedule-desc"
-          tabindex="-1"
-          (keydown.escape)="closeReschedule()"
-          (keydown)="trapTab($event, rescheduleDialog)"
-        >
-          <div class="flex items-center justify-between">
-            <h3 #rescheduleTitle id="reschedule-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Reschedule appointment</h3>
-            <button type="button" class="inline-flex size-11 items-center justify-center text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeReschedule()"><sd-icon name="x" [size]="24" /></button>
-          </div>
-          @if (vm(); as v) {
-            <p id="reschedule-desc" class="font-sans text-body-sm text-slate">
-              Now {{ v.date }} at {{ v.time }}. Choose a new time with {{ v.name }}.
-            </p>
-          }
-
-          @if (calendarError()) {
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <sd-alert tone="error" class="min-w-0 flex-1">{{ calendarError() }}</sd-alert>
-              <button
-                type="button"
-                class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-cloud bg-white px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
-                (click)="cal.refresh()"
-              >
-                Try again
-              </button>
-            </div>
-          }
-          @if (noOpenings()) {
-            <p class="font-sans text-body-sm text-slate">
-              This specialist has no open times in the next {{ cal.range()?.horizon_days }} days. Please try again later.
-            </p>
-          } @else {
-            <!-- The patient's own calendar and clock (cal.tz) -->
-            <sd-booking-calendar
-              [days]="cal.days()"
-              [month]="cal.month()"
-              (monthChange)="cal.setMonth($event)"
-              [selectedDate]="cal.selectedDate()"
-              (selectedDateChange)="cal.selectDate($event)"
-              [slots]="cal.slots()"
-              [value]="selectedIso() || null"
-              (valueChange)="selectedIso.set($event ?? '')"
-              [loading]="cal.loading()"
-              [slotsLoading]="cal.slotsLoading()"
-              [min]="cal.min()"
-              [max]="cal.max()"
-              [nextAvailable]="cal.nextAvailable()"
-              [timeZone]="cal.tz()"
-              [timeZoneLabel]="cal.timeZoneLabel()"
-              [weekStartsOn]="cal.weekStartsOn()"
-              [disabled]="rescheduling()"
-            />
-          }
-
-          @if (rescheduleError()) {
-            <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rescheduleError() }}
-            </p>
-          }
-          <div class="flex flex-col gap-2 border-t border-cloud pt-4 sm:flex-row sm:items-center sm:justify-end">
-            <p class="font-sans text-body-sm text-slate sm:mr-auto" aria-live="polite">
-              @if (selectedIso()) {
-                New time: <span class="font-semibold text-ink">{{ newTimeLabel() }}</span>
-              }
-            </p>
-            <sd-button [disabled]="rescheduling() || !selectedIso()" (click)="submitReschedule()">
-              {{ rescheduling() ? 'Rescheduling…' : 'Confirm new time' }}
-            </sd-button>
-          </div>
-        </div>
-      </div>
-    }
-
-    @if (declineOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeDecline()"></button>
-        <div
-          #declineDialog
-          class="relative z-10 flex w-full max-w-md flex-col gap-4 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="decline-title"
-          aria-describedby="decline-desc"
-          tabindex="-1"
-          (keydown.escape)="closeDecline()"
-          (keydown)="trapTab($event, declineDialog)"
-        >
-          <div class="flex items-center justify-between">
-            <h3 #declineTitle id="decline-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">Decline this follow-up?</h3>
-            <button type="button" class="inline-flex size-11 items-center justify-center text-slate transition-colors hover:text-ink" aria-label="Close" (click)="closeDecline()"><sd-icon name="x" [size]="24" /></button>
-          </div>
-          <p id="decline-desc" class="font-sans text-body-sm text-slate">
-            Nothing has been charged. The time is released and your doctor is told
-            you declined. You can still book a follow-up later.
+        <label class="flex flex-col gap-1.5">
+          <span class="font-sans text-caption font-semibold text-(--sd-dialog-muted)">Comment (optional)</span>
+          <textarea
+            rows="3"
+            maxlength="1000"
+            class="w-full rounded-field border border-(--sd-dialog-field) bg-(--sd-dialog-surface) px-4 py-3 font-sans text-body-sm text-(--sd-dialog-text) focus:border-(--sd-dialog-primary) focus:outline-none"
+            placeholder="Share how it went"
+            [disabled]="reviewing()"
+            [value]="reviewComment()"
+            (input)="reviewComment.set($any($event.target).value)"
+          ></textarea>
+        </label>
+        @if (reviewError()) {
+          <p class="flex items-start gap-2 font-sans text-caption text-(--sd-dialog-danger-text)" role="alert">
+            <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ reviewError() }}
           </p>
-          <label class="flex flex-col gap-1.5">
-            <span class="font-sans text-caption font-semibold text-slate">Reason for your doctor (optional)</span>
-            <textarea
-              rows="3"
-              maxlength="500"
-              class="w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
-              placeholder="For example: I'm feeling better, or the time doesn't suit me"
-              [disabled]="declining()"
-              [value]="declineReason()"
-              (input)="declineReason.set($any($event.target).value)"
-            ></textarea>
-            <span class="text-right font-sans text-caption text-slate">{{ declineReason().length }}/500</span>
-          </label>
-          @if (declineError()) {
-            <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ declineError() }}
-            </p>
+        }
+      </div>
+      <div dialogFooter class="flex flex-col-reverse gap-3 border-t border-(--sd-dialog-border) px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+        <button
+          type="button"
+          class="inline-flex min-h-11 items-center justify-center rounded-field border border-(--sd-dialog-border) px-5 py-2.5 font-sans text-body-sm font-semibold text-(--sd-dialog-muted) transition-colors hover:bg-(--sd-dialog-hover) disabled:opacity-60"
+          [disabled]="reviewing()"
+          (click)="closeReview()"
+        >
+          Not now
+        </button>
+        <sd-button [disabled]="reviewing()" (click)="submitReview()">
+          @if (reviewing()) {
+            <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
           }
-          <div class="flex flex-col-reverse gap-3 sm:flex-row">
+          {{ reviewing() ? 'Submitting…' : 'Submit review' }}
+        </sd-button>
+      </div>
+    </sd-dialog>
+
+    <!-- Move the booking to another open time of the same doctor -->
+    <sd-dialog
+      [open]="rescheduleOpen()"
+      title="Reschedule appointment"
+      [subtitle]="rescheduleSubtitle()"
+      size="xl"
+      [busy]="rescheduling()"
+      (closed)="closeReschedule()"
+    >
+      <div class="flex flex-col gap-4">
+        @if (calendarError()) {
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <sd-alert tone="error" class="min-w-0 flex-1">{{ calendarError() }}</sd-alert>
             <button
               type="button"
-              class="inline-flex min-h-11 flex-1 items-center justify-center rounded-field border border-cloud px-4 py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier"
-              [disabled]="declining()"
-              (click)="closeDecline()"
+              class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-(--sd-dialog-border) px-4 font-sans text-body-sm font-semibold text-(--sd-dialog-primary) transition-colors hover:border-(--sd-dialog-primary)"
+              (click)="cal.refresh()"
             >
-              Keep it
-            </button>
-            <button
-              type="button"
-              class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field bg-alert px-4 py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60"
-              [disabled]="declining()"
-              (click)="submitDecline()"
-            >
-              {{ declining() ? 'Declining…' : 'Decline follow-up' }}
+              Try again
             </button>
           </div>
-        </div>
+        }
+        @if (noOpenings()) {
+          <p class="font-sans text-body-sm text-(--sd-dialog-muted)">
+            This specialist has no open times in the next {{ cal.range()?.horizon_days }} days. Please try again later.
+          </p>
+        } @else {
+          <!-- The patient's own calendar and clock (cal.tz) -->
+          <sd-booking-calendar
+            [days]="cal.days()"
+            [month]="cal.month()"
+            (monthChange)="cal.setMonth($event)"
+            [selectedDate]="cal.selectedDate()"
+            (selectedDateChange)="cal.selectDate($event)"
+            [slots]="cal.slots()"
+            [value]="selectedIso() || null"
+            (valueChange)="selectedIso.set($event ?? '')"
+            [loading]="cal.loading()"
+            [slotsLoading]="cal.slotsLoading()"
+            [min]="cal.min()"
+            [max]="cal.max()"
+            [nextAvailable]="cal.nextAvailable()"
+            [timeZone]="cal.tz()"
+            [timeZoneLabel]="cal.timeZoneLabel()"
+            [weekStartsOn]="cal.weekStartsOn()"
+            [disabled]="rescheduling()"
+          />
+        }
+        @if (rescheduleError()) {
+          <p class="flex items-start gap-2 font-sans text-caption text-(--sd-dialog-danger-text)" role="alert">
+            <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rescheduleError() }}
+          </p>
+        }
       </div>
-    }
+      <div dialogFooter class="flex flex-col gap-3 border-t border-(--sd-dialog-border) px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6">
+        <p class="font-sans text-body-sm text-(--sd-dialog-muted) sm:mr-auto" aria-live="polite">
+          @if (selectedIso()) {
+            New time: <span class="font-semibold text-(--sd-dialog-strong)">{{ newTimeLabel() }}</span>
+          } @else {
+            Pick a day, then a time.
+          }
+        </p>
+        <sd-button [disabled]="rescheduling() || !selectedIso()" (click)="submitReschedule()">
+          @if (rescheduling()) {
+            <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
+          }
+          {{ rescheduling() ? 'Rescheduling…' : 'Confirm new time' }}
+        </sd-button>
+      </div>
+    </sd-dialog>
   `,
 })
 export class AppointmentDetails {
@@ -1042,13 +1053,10 @@ export class AppointmentDetails {
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly documentsApi = inject(DocumentsApi);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
+  private readonly dialogs = inject(DialogService);
+  private readonly doc = inject(DOCUMENT);
   private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
-  private readonly reviewTitle = viewChild<ElementRef<HTMLElement>>('reviewTitle');
-  private readonly rescheduleTitle = viewChild<ElementRef<HTMLElement>>('rescheduleTitle');
-  /** What had focus before a dialog opened — it gets focus back on close. */
-  private opener: HTMLElement | null = null;
 
   /** Who is in my appointments' calls right now — polled while the page is open. */
   protected readonly presence = injectCallPresence(() =>
@@ -1060,7 +1068,6 @@ export class AppointmentDetails {
     return !!id && !!this.presence()[id]?.doctor;
   });
 
-  protected readonly cancelling = signal(false);
   protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
 
   // Secure messaging
@@ -1086,7 +1093,6 @@ export class AppointmentDetails {
 
   // ----- Follow-up proposal (status `proposed`) -----
   private readonly walletApi = inject(WalletApi);
-  private readonly declineTitle = viewChild<ElementRef<HTMLElement>>('declineTitle');
   private readonly respondPanel = viewChild<ElementRef<HTMLElement>>('respondPanel');
   /** The `?respond=` step to jump to once the proposal has loaded (used once). */
   private pendingRespond = this.route.snapshot.queryParamMap.get('respond');
@@ -1218,12 +1224,6 @@ export class AppointmentDetails {
     return this.paidReference() ? 'Complete acceptance' : `Pay ${this.priceText()} by card & accept`;
   });
 
-  // Declining (optional reason for the doctor).
-  protected readonly declineOpen = signal(false);
-  protected readonly declineReason = signal('');
-  protected readonly declining = signal(false);
-  protected readonly declineError = signal('');
-
   constructor() {
     // Load the thread + documents whenever the appointment id in the route changes.
     this.route.paramMap
@@ -1275,7 +1275,7 @@ export class AppointmentDetails {
         // Drop the param so a reload or Back doesn't jump again.
         void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
         if (fp.open && step === 'decline') {
-          this.openDecline();
+          void this.openDecline();
           return;
         }
         if (fp.open && step === 'time' && !this.slotsOpen()) this.toggleSlots(specialistId);
@@ -1509,49 +1509,53 @@ export class AppointmentDetails {
     this.acceptError.set('');
   }
 
-  protected openDecline(): void {
-    this.rememberOpener();
-    this.declineError.set('');
-    this.declineOpen.set(true);
-    this.focusAfterRender(() => this.declineTitle()?.nativeElement);
-  }
-
-  protected closeDecline(): void {
-    if (this.declining()) return; // let the request finish first
-    this.declineOpen.set(false);
-    this.returnFocus();
-  }
-
-  protected submitDecline(): void {
+  /**
+   * Decline the doctor's proposal (an optional reason goes to them). Asked in
+   * the shared dialog, which shows the request's progress and any failure.
+   */
+  protected async openDecline(): Promise<void> {
     const id = this.appt()?.id;
-    if (!id || this.declining()) return;
-    this.declining.set(true);
-    this.declineError.set('');
-    this.appointments
-      .declineFollowUp(id, this.declineReason().trim() || undefined)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          this.declining.set(false);
-          this.declineReason.set('');
-          this.resetProposalState();
-          this.override.set(res.data);
-          // Withdrawn by the doctor or expired while the dialog was open: a 200 all the same.
-          this.notice.set({
-            ok: true,
-            text:
-              res.message === 'Follow-up declined'
-                ? 'Follow-up declined. We’ve let your doctor know.'
-                : 'This follow-up proposal had already been closed.',
-          });
-          this.closeDecline(); // focus falls back to the page heading (the panel is gone)
-        },
-        error: (err: unknown) => {
-          this.declining.set(false);
-          this.declineError.set(apiErrorMessage(err, 'Could not decline the follow-up. Please try again.'));
-          if (apiErrorFields(err)['status']) this.refresh(id);
-        },
-      });
+    if (!id) return;
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'circle-x',
+      title: 'Decline this follow-up?',
+      message:
+        'Nothing has been charged. The time is released and your doctor is told you declined. ' +
+        'You can still book a follow-up later.',
+      reason: {
+        label: 'Reason for your doctor',
+        placeholder: "For example: I'm feeling better, or the time doesn't suit me",
+        maxLength: 500,
+      },
+      confirmLabel: 'Decline follow-up',
+      cancelLabel: 'Keep it',
+      busyLabel: 'Declining…',
+      size: 'md',
+      action: (reason) =>
+        this.appointments.declineFollowUp(id, reason || undefined).pipe(
+          tap({
+            next: (res) => {
+              this.resetProposalState();
+              this.override.set(res.data);
+              // Withdrawn by the doctor or expired while the dialog was open: a 200 all the same.
+              this.notice.set({
+                ok: true,
+                text:
+                  res.message === 'Follow-up declined'
+                    ? 'Follow-up declined. We’ve let your doctor know.'
+                    : 'This follow-up proposal had already been closed.',
+              });
+            },
+            error: (err: unknown) => {
+              if (apiErrorFields(err)['status']) this.refresh(id);
+            },
+          }),
+        ),
+      errorMessage: (err) => apiErrorMessage(err, 'Could not decline the follow-up. Please try again.'),
+    });
+    // The panel (and the Decline button that opened the dialog) is gone.
+    if (confirmed) afterDialogsClose(this.dialogs, this.injector, () => this.pageTitle()?.nativeElement.focus());
   }
 
   /** The booking's attachments, in the order they were added. */
@@ -1737,67 +1741,35 @@ export class AppointmentDetails {
     this.refresh(id);
   }
 
-  // Dialogs: focus moves to the heading on open, Tab stays inside, Esc closes,
-  // and focus goes back to the button that opened it.
-
-  private rememberOpener(): void {
-    const active = this.document.activeElement;
-    this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
-  }
-
   private focusAfterRender(target: () => HTMLElement | undefined): void {
     afterNextRender(() => target()?.focus(), { injector: this.injector });
   }
 
-  /** Back to the opener — or the page heading when it is gone (e.g. after reviewing). */
-  private returnFocus(): void {
-    const back = this.opener;
-    this.opener = null;
-    this.focusAfterRender(() => (back?.isConnected ? back : this.pageTitle()?.nativeElement));
-  }
-
-  /** Tab and Shift+Tab wrap around inside the dialog instead of leaving it. */
-  protected trapTab(e: KeyboardEvent, root: HTMLElement): void {
-    if (e.key !== 'Tab') return;
-    // (:disabled also catches controls inside a disabled fieldset.)
-    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.offsetParent !== null && !el.matches(':disabled'),
-    );
-    if (items.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    const first = items[0];
-    const last = items[items.length - 1];
-    const active = this.document.activeElement as HTMLElement | null;
-    // Not in the list: the heading or the dialog itself has focus (both sit before every control).
-    const outside = !active || !items.includes(active);
-    if (e.shiftKey && (outside || sameTabStop(first, active))) {
-      e.preventDefault();
-      tabStopOf(items, last).focus();
-    } else if (!e.shiftKey && sameTabStop(last, active)) {
-      e.preventDefault();
-      tabStopOf(items, first).focus();
-    }
+  /**
+   * A dialog closed and the control that opened it is gone (e.g. "Leave a
+   * review" after reviewing): put focus on the page heading rather than
+   * dropping it on the page body. Runs after the dialog's own focus return.
+   */
+  protected focusTitleIfLost(): void {
+    setTimeout(() => {
+      const active = this.doc.activeElement;
+      if (!active || active === this.doc.body) this.pageTitle()?.nativeElement.focus();
+    });
   }
 
   protected openReview(): void {
-    this.rememberOpener();
     this.reviewError.set('');
     this.reviewOpen.set(true);
-    this.focusAfterRender(() => this.reviewTitle()?.nativeElement);
   }
 
   protected closeReview(): void {
     if (this.reviewing()) return; // let the request finish first
     this.reviewOpen.set(false);
-    this.returnFocus();
   }
 
   protected closeReschedule(): void {
     if (this.rescheduling()) return; // let the request finish first
     this.rescheduleOpen.set(false);
-    this.returnFocus();
   }
 
   // Reschedule
@@ -1807,11 +1779,16 @@ export class AppointmentDetails {
   protected readonly newTimeLabel = computed(() => whenLabel(this.selectedIso()));
   protected readonly rescheduling = signal(false);
   protected readonly rescheduleError = signal('');
+  /** The dialog's line under its title: the current time, and that the doctor confirms the new one. */
+  protected readonly rescheduleSubtitle = computed(() => {
+    const v = this.vm();
+    return v
+      ? `Now ${v.date} at ${v.time}. Choose a new time with ${v.name} — they'll confirm it.`
+      : 'Choose a new time.';
+  });
 
   protected openReschedule(v: DetailsVm): void {
-    this.rememberOpener();
     this.rescheduleOpen.set(true);
-    this.focusAfterRender(() => this.rescheduleTitle()?.nativeElement);
     this.rescheduleError.set('');
     this.selectedIso.set('');
     // The doctor's calendar (kept if it is already loaded), no day picked yet.
@@ -1831,22 +1808,33 @@ export class AppointmentDetails {
       .subscribe({
         next: (res) => {
           this.override.set(res.data);
+          // The reschedule reply has no `cancel_policy` (and the new time changes it): re-read the booking.
+          this.refresh(id);
           // The old time is free again and the new one taken: no cached calendar.
           this.cal.refresh();
           this.rescheduling.set(false);
           this.closeReschedule();
-          this.notice.set({ ok: true, text: 'Appointment rescheduled to your new time.' });
+          this.notice.set({
+            ok: true,
+            text:
+              res.data.status === 'rescheduled'
+                ? `Appointment moved to ${whenLabel(res.data.scheduled_at)}. Your doctor will confirm the new time.`
+                : `Appointment moved to ${whenLabel(res.data.scheduled_at)}.`,
+          });
         },
         error: (err) => {
           this.rescheduling.set(false);
+          const fields = apiErrorFields(err);
           const message = apiErrorMessage(err, 'Could not reschedule. Please pick another slot.');
           // The time went meanwhile (or is past the booking window): fresh times, said so.
-          if (apiErrorFields(err)['scheduled_at']) {
+          if (fields['scheduled_at']) {
             this.selectedIso.set('');
             this.cal.refresh();
             this.rescheduleError.set(`${message.replace(/\.?$/, '.')} We've refreshed the calendar with the times still open.`);
             return;
           }
+          // Started (or closed) meanwhile: it can't be moved any more — the page catches up.
+          if (fields['status']) this.refresh(id);
           this.rescheduleError.set(message);
         },
       });
@@ -1873,33 +1861,130 @@ export class AppointmentDetails {
       });
   }
 
-  protected cancel(id: string): void {
-    if (this.cancelling()) return;
-    if (!window.confirm('Cancel this appointment? Any payment will be refunded to your wallet.')) {
+  /**
+   * One line under Cancel on what cancelling now gives back ('' when nothing
+   * was paid) — from the server's `cancel_policy`.
+   */
+  protected readonly cancelHint = computed(() => {
+    const a = this.appt();
+    const policy = a?.cancel_policy;
+    if (!a || !policy) return '';
+    const refund = nairaLabel(policy.refund_amount);
+    const hours = policy.late_cancel_hours;
+    // Late window first: a part refund that rounds to nothing still needs saying why.
+    if (policy.refund_percent < 100) {
+      if (refund) {
+        return `Cancelling now refunds ${refund} — ${policy.refund_percent}% of the consultation fee, plus any guest fees.`;
+      }
+      return a.payment_status === 'paid'
+        ? `Cancelling within ${hours} hours of the start refunds ${policy.refund_percent}% of the consultation fee — nothing goes back to your wallet.`
+        : '';
+    }
+    if (!refund) return '';
+    const lateWindow = a.status === 'confirmed' && hours > 0;
+    // The policy was read with the page: once the late window has opened since, the amount above no longer holds.
+    if (lateWindow && this.clock() >= new Date(a.scheduled_at).getTime() - hours * 3_600_000) {
+      return `You're now within ${hours} hours of the start, so less is refunded — the amount is shown before you confirm.`;
+    }
+    const late = lateWindow ? ` Less is refunded within ${hours} hours of the start.` : '';
+    return `Cancelling now refunds ${refund} to your wallet.${late}`;
+  });
+
+  /** Re-reading the booking for an up-to-date refund before the cancel prompt opens. */
+  protected readonly cancelChecking = signal(false);
+
+  /**
+   * Cancel the booking — asked first, with the time, the doctor and what goes
+   * back to the wallet (the server's `cancel_policy`). The dialog shows the
+   * request's progress; a refusal (e.g. 422 "This consultation has started")
+   * is shown in it, and the page re-reads the booking.
+   */
+  protected async cancel(): Promise<void> {
+    const current = this.appt();
+    if (!current || !this.vm()?.canCancel || this.cancelChecking()) return;
+    this.notice.set(null);
+    // The refund depends on how close to the start it is NOW, not when the page
+    // loaded (late-cancel window): re-read the booking's `cancel_policy` first.
+    this.cancelChecking.set(true);
+    try {
+      const res = await firstValueFrom(this.appointments.getMine(current.id));
+      if (res.data.id !== this.appt()?.id) return;
+      this.override.set(res.data);
+    } catch {
+      // Keep the policy read with the page — the server applies the real one anyway.
+    } finally {
+      this.cancelChecking.set(false);
+    }
+    const a = this.appt();
+    const v = this.vm();
+    if (!a || !v || a.id !== current.id) return;
+    if (!v.canCancel) {
+      // Started or closed meanwhile — the page now says so next to the actions.
+      this.notice.set({ ok: false, text: 'This appointment can no longer be cancelled.' });
       return;
     }
-    this.cancelling.set(true);
-    this.notice.set(null);
-    this.appointments
-      .cancel(id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          this.override.set(res.data);
-          this.cancelling.set(false);
-          this.notice.set({
-            ok: true,
-            text:
-              res.data.payment_status === 'refunded'
-                ? 'Appointment cancelled. Your payment has been refunded to your wallet.'
-                : 'Appointment cancelled.',
-          });
-        },
-        error: (err) => {
-          this.cancelling.set(false);
-          this.notice.set({ ok: false, text: apiErrorMessage(err, 'Could not cancel the appointment.') });
-        },
-      });
+    const doctor = doctorTitle(a.specialist.name);
+    const policy = a.cancel_policy ?? null;
+    const paid = a.payment_status === 'paid';
+    // `cancel_policy` is sent with the booking; an older payload refunds a paid one in full.
+    const refund = nairaLabel(policy ? policy.refund_amount : paid ? a.amount : 0);
+    const guests = (a.guests ?? []).length;
+    let money: string;
+    if (policy && policy.refund_percent < 100) {
+      // Inside the late window: say why less (or nothing) comes back.
+      const share = `cancelling within ${policy.late_cancel_hours} hours of the start refunds ${policy.refund_percent}% of the consultation fee`;
+      money = refund
+        ? `${refund} goes back to your wallet straight away — ${share} (guest fees in full).`
+        : paid
+          ? `Nothing goes back to your wallet — ${share}.`
+          : "Nothing was paid, so there's nothing to refund.";
+    } else if (!refund) {
+      money = paid ? 'Nothing is refunded.' : "Nothing was paid, so there's nothing to refund.";
+    } else {
+      money = `${refund} goes back to your wallet straight away.`;
+    }
+    const details: ConfirmDetail[] = [
+      { label: 'Doctor', value: doctor },
+      { label: 'When', value: `${v.date}, ${v.time}` },
+      { label: 'Refund to wallet', value: refund || 'None' },
+    ];
+    if (guests > 0) details.push({ label: 'Guests', value: `${guests} — their links stop working` });
+
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'calendar-x',
+      title: `Cancel your appointment with ${doctor}?`,
+      message: `${money}${guests > 0 ? ' Your guests are told too.' : ''} This can't be undone.`,
+      details,
+      confirmLabel: 'Cancel appointment',
+      cancelLabel: 'Keep it',
+      busyLabel: 'Cancelling…',
+      size: 'md',
+      action: () =>
+        this.appointments.cancel(a.id).pipe(
+          tap({
+            next: (res) => {
+              this.override.set(res.data);
+              const back =
+                nairaLabel(res.data.refunded_amount) ||
+                (res.data.payment_status === 'refunded' ? nairaLabel(res.data.amount) : '');
+              this.notice.set({
+                ok: true,
+                text: back
+                  ? `Appointment cancelled. ${back} has been refunded to your wallet.`
+                  : 'Appointment cancelled.',
+              });
+            },
+            error: (err: unknown) => {
+              // Started or closed meanwhile: the page catches up (Cancel goes).
+              if (apiErrorFields(err)['status']) this.refresh(a.id);
+            },
+          }),
+        ),
+      errorMessage: (err) => apiErrorMessage(err, 'Could not cancel the appointment.'),
+    });
+    // The Cancel button is gone once the booking is cancelled: land on the page heading, not <body>.
+    if (confirmed) afterDialogsClose(this.dialogs, this.injector, () => this.pageTitle()?.nativeElement.focus());
   }
 
   /** Booking starts at the specialist directory (same as the dashboard CTA). */
@@ -1949,6 +2034,6 @@ export class AppointmentDetails {
 
   protected readonly vm = computed<DetailsVm | null>(() => {
     const appt = this.appt();
-    return appt ? toDetails(appt) : null;
+    return appt ? toDetails(appt, this.clock()) : null;
   });
 }

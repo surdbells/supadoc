@@ -1,13 +1,11 @@
 import { DOCUMENT } from '@angular/common';
 import {
-  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
   ElementRef,
   inject,
-  Injector,
   signal,
   viewChild,
 } from '@angular/core';
@@ -25,8 +23,10 @@ import type { AppointmentDto, VitalsReminderDto } from '@supadoc/models';
 import {
   ButtonComponent,
   CallPresenceComponent,
+  DialogComponent,
   IconComponent,
 } from '@supadoc/ui';
+import { isPast, OPEN_STATUSES, statusBadge } from './appointment-status';
 import { isOpenProposal, whenLabel } from './follow-up';
 
 interface QuickAction {
@@ -82,6 +82,10 @@ interface UpcomingVm {
   readonly typeIcon: string;
   readonly statusLabel: string;
   readonly badgeClass: string;
+  /** "Awaiting doctor confirmation" / "Your doctor moved this consultation" ('' when none). */
+  readonly detail: string;
+  /** Started: the button says "Join now". */
+  readonly live: boolean;
 }
 
 const TYPE_ICON: Record<string, string> = {
@@ -113,10 +117,8 @@ function vitalsReminderKey(r: VitalsReminderDto): string {
 const remindedThisLoad = new Set<string>();
 
 /** Another dialog, drawer or full-screen overlay is up — the pop-up waits for it. */
-const OTHER_OVERLAY = '[aria-modal="true"], .fixed.inset-0';
+const OTHER_OVERLAY = 'dialog[open], [aria-modal="true"], .fixed.inset-0';
 
-/** Controls the pop-up's Tab key cycles through. */
-const FOCUSABLE = 'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), [tabindex="0"]';
 
 function readSessionFlag(key: string): boolean {
   try {
@@ -144,7 +146,7 @@ function greetingFor(now: Date): string {
 @Component({
   selector: 'pat-dashboard-home',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ButtonComponent, CallPresenceComponent],
+  imports: [IconComponent, ButtonComponent, CallPresenceComponent, DialogComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -359,6 +361,9 @@ function greetingFor(now: Date): string {
                   <sd-icon name="clock" [size]="16" />
                   <span class="font-sans text-caption">{{ u.time }}</span>
                 </span>
+                @if (u.detail) {
+                  <span class="font-sans text-caption text-slate">{{ u.detail }}</span>
+                }
               </div>
               <div class="flex gap-3">
                 <sd-button
@@ -368,9 +373,14 @@ function greetingFor(now: Date): string {
                   (click)="viewAppointments()"
                   >View All</sd-button
                 >
-                <sd-button size="sm" [full]="true" (click)="joinCall(u.id)">
+                <sd-button
+                  size="sm"
+                  [full]="true"
+                  [class]="u.live ? 'rounded-field ring-4 ring-success/25' : ''"
+                  (click)="joinCall(u.id)"
+                >
                   <sd-icon name="video" [size]="18" />
-                  Join Call
+                  {{ u.live ? 'Join now' : 'Join Call' }}
                 </sd-button>
               </div>
             } @else {
@@ -542,72 +552,46 @@ function greetingFor(now: Date): string {
     </div>
 
     <!-- "Keep Vitals Updated" (Figma 2234:39857): once a session while the reminder is due -->
-    @if (reminderOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <sd-dialog
+      [open]="reminderOpen()"
+      title="Keep Vitals Updated"
+      subtitle="Keeping your vitals updated helps specialists"
+      size="sm"
+      closeLabel="Dismiss the vitals reminder"
+      (closed)="dismissReminder()"
+      (afterClose)="focusWelcomeIfLost()"
+    >
+      <div class="flex flex-col gap-4">
+        <ul class="flex flex-col gap-2">
+          @for (b of reminderBenefits; track b) {
+            <li class="flex items-center gap-4 font-sans text-caption text-(--sd-dialog-muted)">
+              <sd-icon name="check" [size]="16" class="shrink-0 text-(--sd-dialog-success-text)" />
+              {{ b }}
+            </li>
+          }
+        </ul>
+        <p class="flex items-start gap-2 font-sans text-caption text-(--sd-dialog-muted)">
+          <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+          Always update vitals 24-48 hours before every consultation
+        </p>
+      </div>
+      <div dialogFooter class="flex gap-3 border-t border-(--sd-dialog-border) px-5 py-4 sm:px-6">
         <button
           type="button"
-          tabindex="-1"
-          class="absolute inset-0 cursor-default bg-abyss/40"
-          aria-label="Dismiss the vitals reminder"
+          class="flex min-h-11 flex-1 items-center justify-center rounded-field border border-(--sd-dialog-border) px-4 font-sans text-body-sm font-medium text-(--sd-dialog-muted) transition-colors hover:bg-(--sd-dialog-hover) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring)"
           (click)="dismissReminder()"
-        ></button>
-        <!-- tabindex -1: a click on the card's text keeps focus (and so Esc / the Tab trap) in the dialog -->
-        <div
-          #reminderDialog
-          tabindex="-1"
-          class="relative z-10 flex w-full max-w-[22rem] flex-col gap-4 rounded-[16px] bg-white p-6 shadow-[0_4px_4px_2px_rgba(21,101,192,0.1)] outline-none"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="vitals-reminder-title"
-          aria-describedby="vitals-reminder-desc"
-          (keydown)="reminderKeydown($event)"
         >
-          <div class="flex flex-col gap-1">
-            <h2
-              #reminderTitle
-              id="vitals-reminder-title"
-              tabindex="-1"
-              class="flex items-center gap-2 font-sans text-body font-semibold text-abyss outline-none"
-            >
-              <sd-icon name="info" [size]="16" class="shrink-0" />
-              Keep Vitals Updated
-            </h2>
-            <p id="vitals-reminder-desc" class="font-sans text-caption text-slate">
-              Keeping your vitals updated helps specialist
-            </p>
-          </div>
-          <ul class="flex flex-col gap-2">
-            @for (b of reminderBenefits; track b) {
-              <li class="flex items-center gap-4 font-sans text-caption text-slate">
-                <sd-icon name="check" [size]="16" class="shrink-0" />
-                {{ b }}
-              </li>
-            }
-          </ul>
-          <div class="flex flex-col gap-2">
-            <p class="font-sans text-[10px] font-light leading-[18px] tracking-[0.3px] text-slate">
-              Always update vitals 24-48 hours before every consultation
-            </p>
-            <div class="flex gap-4">
-              <button
-                type="button"
-                class="flex min-h-11 flex-1 items-center justify-center rounded-field border-[0.5px] border-ash bg-white px-4 font-sans text-caption font-medium text-slate transition-colors hover:bg-glacier focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-                (click)="dismissReminder()"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                class="flex min-h-11 flex-1 items-center justify-center rounded-field bg-cerulean px-4 font-sans text-caption font-medium text-white transition-colors hover:bg-cerulean-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
-                (click)="updateVitalsFromReminder()"
-              >
-                Update Vitals
-              </button>
-            </div>
-          </div>
-        </div>
+          Not now
+        </button>
+        <button
+          type="button"
+          class="flex min-h-11 flex-1 items-center justify-center rounded-field bg-(--sd-dialog-primary) px-4 font-sans text-body-sm font-semibold text-(--sd-dialog-on-accent) transition-colors hover:bg-(--sd-dialog-primary-hover) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring) focus-visible:ring-offset-2"
+          (click)="updateVitalsFromReminder()"
+        >
+          Update Vitals
+        </button>
       </div>
-    }
+    </sd-dialog>
   `,
 })
 export class DashboardHome {
@@ -696,13 +680,9 @@ export class DashboardHome {
   // "Keep Vitals Updated" — from GET /api/portal/me/vitals' reminder (no
   // readings yet, a consultation within 48 hours, or out of date). Shown once a
   // session per reason (per consultation for "upcoming").
-  private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
-  private readonly reminderDialog = viewChild<ElementRef<HTMLElement>>('reminderDialog');
-  private readonly reminderTitle = viewChild<ElementRef<HTMLElement>>('reminderTitle');
   private readonly welcomeHeading = viewChild<ElementRef<HTMLElement>>('welcomeHeading');
   protected readonly reminderOpen = signal(false);
-  private reminderOpener: HTMLElement | null = null;
   private overlayWatch?: MutationObserver;
   private reminderTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly shownAt = Date.now();
@@ -715,8 +695,7 @@ export class DashboardHome {
 
   /**
    * Due and not yet shown this session: open it as soon as no other overlay is
-   * up. Not before the page's entry animation has finished — while it runs, the
-   * animated page (not the viewport) would anchor a fixed overlay.
+   * up. Not before the page's entry animation has finished.
    */
   private considerReminder(r: VitalsReminderDto | null | undefined): void {
     if (!r?.due || !r.reason) return;
@@ -729,10 +708,7 @@ export class DashboardHome {
           // Once a session, however it is closed.
           remindedThisLoad.add(key);
           writeSessionFlag(key);
-          const active = this.document.activeElement;
-          this.reminderOpener = active instanceof HTMLElement && active !== this.document.body ? active : null;
           this.reminderOpen.set(true);
-          afterNextRender(() => this.reminderTitle()?.nativeElement.focus(), { injector: this.injector });
         }),
       wait,
     );
@@ -752,55 +728,29 @@ export class DashboardHome {
       this.overlayWatch = undefined;
       open();
     });
-    this.overlayWatch.observe(this.document.body, { childList: true, subtree: true });
+    this.overlayWatch.observe(this.document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] });
+  }
+
+  /** Not now, Esc, × or the scrim: gone for this session. */
+  protected dismissReminder(): void {
+    this.reminderOpen.set(false);
   }
 
   /**
-   * Cancel, Esc or the backdrop: gone for this session. Focus goes back to
-   * whatever had it, or — the usual case, as the pop-up opens by itself — to
-   * the welcome heading rather than being dropped on <body>.
+   * The pop-up opens by itself, so usually nothing had focus before it: focus
+   * the welcome heading rather than leaving it on the page body. (Runs after
+   * the dialog's own return of focus to whatever had it.)
    */
-  protected dismissReminder(): void {
-    this.reminderOpen.set(false);
-    const back = this.reminderOpener;
-    this.reminderOpener = null;
-    afterNextRender(() => {
-      const target = back?.isConnected ? back : this.welcomeHeading()?.nativeElement;
-      target?.focus();
-    }, { injector: this.injector });
+  protected focusWelcomeIfLost(): void {
+    setTimeout(() => {
+      const active = this.document.activeElement;
+      if (!active || active === this.document.body) this.welcomeHeading()?.nativeElement.focus();
+    });
   }
 
   protected updateVitalsFromReminder(): void {
     this.reminderOpen.set(false);
-    this.reminderOpener = null;
     void this.router.navigate(['/dashboard/profile'], { queryParams: { section: 'vitals' } });
-  }
-
-  /** Esc closes; Tab and Shift+Tab wrap around inside the dialog. */
-  protected reminderKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      this.dismissReminder();
-      return;
-    }
-    if (e.key !== 'Tab') return;
-    const root = this.reminderDialog()?.nativeElement;
-    if (!root) return;
-    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
-    if (items.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    // -1: the title (tabindex -1) has focus — it sits before both buttons.
-    const at = items.indexOf(this.document.activeElement as HTMLElement);
-    if (e.shiftKey && at <= 0) {
-      e.preventDefault();
-      items[items.length - 1].focus();
-    } else if (!e.shiftKey && at === items.length - 1) {
-      e.preventDefault();
-      items[0].focus();
-    }
   }
 
   constructor() {
@@ -844,8 +794,10 @@ export class DashboardHome {
           ),
       });
 
+    // The next booking still to come (or live) — never one whose time has
+    // passed, never a proposal (no call yet): `when=upcoming` is soonest first.
     this.appointments
-      .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'asc' })
+      .listMine({ when: 'upcoming', status: 'pending,confirmed,rescheduled', per_page: 1 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -930,16 +882,13 @@ export class DashboardHome {
     void this.router.navigate(['/dashboard/appointments', id]);
   }
 
-  /** The soonest appointment still in an upcoming (non-terminal) state — never a proposal (no call yet). */
+  /** The soonest open booking that isn't over yet — never a proposal (no call yet). */
   private pickUpcoming(list: AppointmentDto[]): UpcomingVm | null {
-    const next = list.find(
-      (a) =>
-        a.status === 'pending' ||
-        a.status === 'confirmed' ||
-        a.status === 'rescheduled',
-    );
+    const next = list.find((a) => OPEN_STATUSES.includes(a.status) && !isPast(a));
     if (!next) return null;
     const when = new Date(next.scheduled_at);
+    const badge = statusBadge(next);
+    const live = badge.key === 'live';
     return {
       id: next.id,
       name: next.specialist.name,
@@ -957,8 +906,10 @@ export class DashboardHome {
       }).format(when),
       typeLabel: next.type_label,
       typeIcon: TYPE_ICON[next.type] ?? 'video',
-      statusLabel: next.status_label,
-      badgeClass: UPCOMING_BADGE[next.status] ?? 'bg-slate',
+      statusLabel: badge.label,
+      badgeClass: live ? 'bg-success' : (UPCOMING_BADGE[next.status] ?? 'bg-slate'),
+      detail: badge.detail,
+      live,
     };
   }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
+use App\Domain\Appointment\AppointmentLifecycle;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Enum\ConsultationType;
 use DateTimeImmutable;
@@ -148,6 +149,45 @@ class Appointment
      */
     #[ORM\Column(name: 'follow_up_outcome', type: 'string', length: 10, nullable: true)]
     private ?string $followUpOutcome = null;
+
+    // ----- Lifecycle closure ({@see AppointmentLifecycle}; all nullable, set from 2026-10 on) -----
+
+    /**
+     * Why it was closed when not by an ordinary patient / doctor action
+     * (AppointmentLifecycle::CLOSURE_REASONS): expired_unconfirmed, no_show,
+     * auto_completed, staff_cancelled, staff_completed.
+     */
+    #[ORM\Column(name: 'closure_reason', type: 'string', length: 30, nullable: true)]
+    private ?string $closureReason = null;
+
+    /** A missed consultation: who didn't come — doctor | patient | both. */
+    #[ORM\Column(name: 'no_show', type: 'string', length: 10, nullable: true)]
+    private ?string $noShow = null;
+
+    /** When it reached a closed status (completed, cancelled, missed). */
+    #[ORM\Column(name: 'closed_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $closedAt = null;
+
+    /** The doctor's first call heartbeat inside the presence window ({@see AppointmentLifecycle::presenceWindow()}). */
+    #[ORM\Column(name: 'doctor_first_joined_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $doctorFirstJoinedAt = null;
+
+    /** The patient's first call heartbeat inside the presence window. */
+    #[ORM\Column(name: 'patient_first_joined_at', type: 'datetime_immutable', nullable: true)]
+    private ?DateTimeImmutable $patientFirstJoinedAt = null;
+
+    /** Who moved it last: patient | doctor | staff (null: never moved). */
+    #[ORM\Column(name: 'rescheduled_by', type: 'string', length: 10, nullable: true)]
+    private ?string $rescheduledBy = null;
+
+    /**
+     * What went back to the patient's wallet for it so far (consultation and
+     * guest fees — a cancellation, no-show or back-office refund), money
+     * string; null when nothing was refunded or on rows from before it was
+     * kept (a `refunded` payment_status then means the whole amount).
+     */
+    #[ORM\Column(name: 'refunded_amount', type: 'decimal', precision: 12, scale: 2, nullable: true)]
+    private ?string $refundedAmount = null;
 
     /** The patient declined it; the doctor (or the back office) withdrew it; it closed unanswered. */
     public const FOLLOW_UP_OUTCOMES = ['declined', 'withdrawn', 'expired'];
@@ -340,8 +380,18 @@ class Appointment
         return $this->scheduledAt;
     }
 
+    /**
+     * Move it. A real move clears both first-join stamps: they belonged to the
+     * old slot, and the presence stamp is only ever written once
+     * ({@see \App\Domain\Repository\AppointmentRepository::recordPresence()}),
+     * so keeping them would leave the new slot with no stamps at all.
+     */
     public function setScheduledAt(DateTimeImmutable $scheduledAt): void
     {
+        if ($scheduledAt != $this->scheduledAt) {
+            $this->doctorFirstJoinedAt  = null;
+            $this->patientFirstJoinedAt = null;
+        }
         $this->scheduledAt = $scheduledAt;
     }
 
@@ -607,13 +657,18 @@ class Appointment
         $this->amount = $amount;
     }
 
-    /** Enforces the state machine; illegal transitions can't be expressed. */
-    public function transitionTo(AppointmentStatus $target): void
+    /**
+     * Enforces the state machine; illegal transitions can't be expressed.
+     * `$privileged`: the system or the back office is moving it, which allows
+     * {@see AppointmentStatus::privilegedTransitions()} too. Reaching a closed
+     * status records when (closed_at).
+     */
+    public function transitionTo(AppointmentStatus $target, bool $privileged = false): void
     {
         if ($this->status === $target) {
             return;
         }
-        if (!$this->status->canTransitionTo($target)) {
+        if (!$this->status->canTransitionTo($target, $privileged)) {
             throw new DomainException(sprintf(
                 'This appointment is %s and can no longer be marked %s.',
                 str_replace('_', ' ', $this->status->value),
@@ -621,10 +676,188 @@ class Appointment
             ));
         }
         $this->status = $target;
+        if ($target->isTerminal()) {
+            $this->closedAt = new DateTimeImmutable();
+        }
     }
 
-    public function toArray(): array
+    // ----- Lifecycle closure -----
+
+    public function getClosureReason(): ?string
     {
+        return $this->closureReason;
+    }
+
+    /** One of AppointmentLifecycle::CLOSURE_REASONS, or null. */
+    public function setClosureReason(?string $reason): void
+    {
+        if ($reason !== null && !in_array($reason, AppointmentLifecycle::CLOSURE_REASONS, true)) {
+            throw new \InvalidArgumentException('Unknown closure reason: ' . $reason);
+        }
+        $this->closureReason = $reason;
+    }
+
+    public function getNoShow(): ?string
+    {
+        return $this->noShow;
+    }
+
+    /** doctor | patient | both (a missed consultation), or null. */
+    public function setNoShow(?string $noShow): void
+    {
+        if ($noShow !== null && !in_array($noShow, AppointmentLifecycle::NO_SHOWS, true)) {
+            throw new \InvalidArgumentException('Unknown no-show party: ' . $noShow);
+        }
+        $this->noShow = $noShow;
+    }
+
+    public function getClosedAt(): ?DateTimeImmutable
+    {
+        return $this->closedAt;
+    }
+
+    public function getDoctorFirstJoinedAt(): ?DateTimeImmutable
+    {
+        return $this->doctorFirstJoinedAt;
+    }
+
+    public function getPatientFirstJoinedAt(): ?DateTimeImmutable
+    {
+        return $this->patientFirstJoinedAt;
+    }
+
+    /** The first-join stamp of `$role` (patient | doctor), or null. */
+    public function getFirstJoinedAt(string $role): ?DateTimeImmutable
+    {
+        return match ($role) {
+            'doctor'  => $this->doctorFirstJoinedAt,
+            'patient' => $this->patientFirstJoinedAt,
+            default   => null,
+        };
+    }
+
+    /** Record (in memory) `$role`'s first join — the repository stores it once ({@see \App\Domain\Repository\AppointmentRepository::stampFirstJoin()}). */
+    public function markFirstJoined(string $role, DateTimeImmutable $at): void
+    {
+        if ($role === 'doctor') {
+            $this->doctorFirstJoinedAt ??= $at;
+        } elseif ($role === 'patient') {
+            $this->patientFirstJoinedAt ??= $at;
+        }
+    }
+
+    public function getRescheduledBy(): ?string
+    {
+        return $this->rescheduledBy;
+    }
+
+    /** patient | doctor | staff. */
+    public function setRescheduledBy(string $who): void
+    {
+        if (!in_array($who, AppointmentLifecycle::RESCHEDULERS, true)) {
+            throw new \InvalidArgumentException('Unknown rescheduler: ' . $who);
+        }
+        $this->rescheduledBy = $who;
+    }
+
+    /**
+     * What went back to the wallet for it so far: the recorded refunds, or —
+     * on a row from before they were kept — the whole amount when it reads
+     * `refunded`.
+     */
+    public function getRefundedAmount(): string
+    {
+        if ($this->refundedAmount !== null) {
+            return bcadd($this->refundedAmount, '0', 2);
+        }
+
+        return $this->paymentStatus === 'refunded' ? bcadd($this->amount, '0', 2) : '0.00';
+    }
+
+    /**
+     * Record `$amount` more refunded to the wallet; once everything paid went
+     * back, payment_status becomes `refunded`.
+     */
+    public function recordRefund(string $amount): void
+    {
+        $total                = bcadd($this->getRefundedAmount(), $amount, 2);
+        $this->refundedAmount = $total;
+        if (bccomp($total, $this->amount, 2) >= 0) {
+            $this->paymentStatus = 'refunded';
+        }
+    }
+
+    /** What is left to refund: what was paid less what went back (nothing unless paid). */
+    public function refundableAmount(): string
+    {
+        if (!in_array($this->paymentStatus, ['paid', 'refunded'], true) || $this->isFree()) {
+            return '0.00';
+        }
+        $left = bcsub($this->amount, $this->getRefundedAmount(), 2);
+
+        return bccomp($left, '0', 2) > 0 ? $left : '0.00';
+    }
+
+    /**
+     * The guest fees taken for it (each invited guest's recorded fee), never
+     * more than the amount — what a missed consultation always refunds.
+     */
+    public function guestFeesTotal(): string
+    {
+        $total = '0.00';
+        foreach ($this->getGuests() as $guest) {
+            $fee = bcadd((string) ($guest['fee'] ?? '0'), '0', 2);
+            if (bccomp($fee, '0', 2) > 0 && ($guest['paid_by'] ?? 'booking') !== 'free') {
+                $total = bcadd($total, $fee, 2);
+            }
+        }
+
+        return bccomp($total, $this->amount, 2) <= 0 ? $total : bcadd($this->amount, '0', 2);
+    }
+
+    /**
+     * The lifecycle fields every payload carries (see {@see AppointmentLifecycle}):
+     * ends_at, phase, display_status / display_label / display_detail,
+     * needs_attention, and for a patient or doctor which changes they may make
+     * now. `$inCall`: someone is in the call right now (a list that knows it).
+     *
+     * @return array<string,mixed>
+     */
+    public function lifecycleFields(DateTimeImmutable $now, string $audience = 'patient', bool $inCall = false): array
+    {
+        [$display, $label, $detail] = AppointmentLifecycle::display($this, $now, $audience, $inCall);
+        $open    = $this->status->isOpenBooking();
+        $started = AppointmentLifecycle::hasStarted($this, $now);
+        $fields  = [
+            'ends_at'         => AppointmentLifecycle::endsAt($this)->format(DATE_ATOM),
+            'phase'           => AppointmentLifecycle::phase($this, $now, $inCall),
+            'display_status'  => $display,
+            'display_label'   => $label,
+            'display_detail'  => $detail,
+            'needs_attention' => AppointmentLifecycle::needsAttention($this, $now, $inCall),
+        ];
+        if ($audience === 'patient') {
+            $fields['can_cancel']     = $open && !$started;
+            $fields['can_reschedule'] = $open && !$started;
+        } elseif ($audience === 'doctor') {
+            $fields['can_confirm']    = in_array($this->status, [AppointmentStatus::PENDING, AppointmentStatus::RESCHEDULED], true)
+                && AppointmentLifecycle::doctorConfirmProblem($this, $now) === null;
+            $fields['can_reschedule'] = $open && AppointmentLifecycle::doctorRescheduleProblem($this, $now) === null;
+            $fields['can_decline']    = $open && AppointmentLifecycle::doctorDeclineProblem($this, $now) === null;
+        }
+
+        return $fields;
+    }
+
+    /**
+     * The payload. `$audience` (patient | doctor | staff) words the display
+     * detail for the viewer and picks which allowed-change flags are added
+     * (patient: can_cancel / can_reschedule; doctor: can_confirm / can_reschedule / can_decline).
+     */
+    public function toArray(string $audience = 'patient', ?DateTimeImmutable $now = null): array
+    {
+        $now ??= new DateTimeImmutable();
+
         return [
             'id'           => $this->id,
             'patient_id'   => $this->patient->getId(),
@@ -662,8 +895,14 @@ class Appointment
             'expires_at'            => $this->expiresAt?->format(DATE_ATOM),
             'decline_reason'        => $this->declineReason,
             'follow_up_outcome'     => $this->followUpOutcome,
+            // Lifecycle closure (null until it applies).
+            'closure_reason'        => $this->closureReason,
+            'no_show'               => $this->noShow,
+            'closed_at'             => $this->closedAt?->format(DATE_ATOM),
+            'rescheduled_by'        => $this->rescheduledBy,
+            'refunded_amount'       => $this->refundedAmount !== null || $this->paymentStatus === 'refunded' ? $this->getRefundedAmount() : null,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
-        ];
+        ] + $this->lifecycleFields($now, $audience);
     }
 
     /**
@@ -677,7 +916,7 @@ class Appointment
     {
         $p = $this->patient->toArray();
         // What the doctor and the patient wrote each other about a follow-up stays between them.
-        $base = $this->toArray();
+        $base = $this->toArray('staff');
         unset($base['follow_up_note'], $base['decline_reason']);
 
         return $base + [
@@ -687,6 +926,9 @@ class Appointment
                 'email' => $p['email'] ?? null,
                 'phone' => $p['phone'] ?? null,
             ],
+            // Presence evidence, for resolving a missed or stale consultation.
+            'doctor_first_joined_at'  => $this->doctorFirstJoinedAt?->format(DATE_ATOM),
+            'patient_first_joined_at' => $this->patientFirstJoinedAt?->format(DATE_ATOM),
         ];
     }
 }

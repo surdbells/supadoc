@@ -4,9 +4,12 @@ import {
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
+import type { HasUnsavedChanges } from '@supadoc/auth';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage } from '@supadoc/data-access';
+import type { LeaveCopy } from '@supadoc/ui';
 import { IconComponent } from '@supadoc/ui';
 import { BookingSettingsSection } from './booking-settings';
 
@@ -15,7 +18,9 @@ const FIELD =
 
 /**
  * Back-office settings (route `/settings`) — profile + password for everyone,
- * plus the platform's booking-calendar rules for `settings.manage`.
+ * plus the platform's booking rules (calendar, closing past consultations,
+ * no-show refunds, late cancellation) for `settings.manage`. Leaving with
+ * unsaved booking-rule edits asks first.
  */
 @Component({
   selector: 'bo-settings',
@@ -86,8 +91,18 @@ const FIELD =
     </div>
   `,
 })
-export class AdminSettings {
+export class AdminSettings implements HasUnsavedChanges {
   private readonly auth = inject(StaffAuthService);
+  private readonly booking = viewChild(BookingSettingsSection);
+
+  /** For the route's unsavedChangesGuard. */
+  hasUnsavedChanges(): boolean {
+    return this.booking()?.hasUnsavedChanges() ?? false;
+  }
+  readonly leaveCopy: LeaveCopy = {
+    title: 'Leave without saving the booking rules?',
+    message: "Your changes to the booking rules haven't been saved. If you leave now, they'll be lost.",
+  };
 
   protected readonly name = computed(() => this.auth.displayName());
   protected readonly email = computed(() => this.auth.user()?.email ?? '');

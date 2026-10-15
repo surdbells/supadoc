@@ -4,15 +4,19 @@ import {
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { AvailabilitySlotDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { ButtonComponent, DialogComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { focusAfterDialogs } from '../focus-after-dialog';
 
 interface DayCell {
   readonly date: string; // YYYY-MM-DD (UTC)
@@ -37,7 +41,7 @@ const LAST_MINUTE = 23 * 60 + 59;
 @Component({
   selector: 'doc-availability',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, ButtonComponent, IconComponent],
+  imports: [NgTemplateOutlet, ButtonComponent, DialogComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -138,6 +142,14 @@ const LAST_MINUTE = 23 * 60 + 59;
     <ng-template #dayDetail>
       <section class="flex h-fit flex-col gap-4 rounded-card border border-cloud bg-white p-6">
         <h2 class="font-heading text-h5 text-ink">{{ selectedLabel() }}</h2>
+        <!-- Removed here: said, and focused (the Remove button that asked went away with the time). -->
+        @if (removed(); as r) {
+          @if (r.date === selectedDate()) {
+            <p #removedNote tabindex="-1" role="status" class="flex items-center gap-2 rounded-field bg-sage/10 px-4 py-2.5 font-sans text-caption font-semibold text-sage outline-none">
+              <sd-icon name="circle-check" [size]="16" class="shrink-0" />{{ r.text }}
+            </p>
+          }
+        }
         @if (loading()) {
           <div class="sd-shimmer h-40 rounded-field"></div>
         } @else if (selectedBlock(); as blk) {
@@ -166,7 +178,7 @@ const LAST_MINUTE = 23 * 60 + 59;
                   <div class="flex items-center gap-2">
                     <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
                     @if (s.status !== 'booked' && !isSynthetic(s)) {
-                      <button type="button" class="text-slate transition-colors hover:text-alert disabled:opacity-50" aria-label="Remove" [disabled]="busyId() === s.id" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
+                      <button type="button" class="flex min-h-11 min-w-11 items-center justify-center rounded-field text-slate transition-colors hover:text-alert focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:opacity-50" [attr.aria-label]="'Remove ' + slotRange(s)" [disabled]="busyId() === s.id" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
                     }
                   </div>
                 </li>
@@ -189,19 +201,12 @@ const LAST_MINUTE = 23 * 60 + 59;
       </section>
     </ng-template>
 
-    <!-- Add Availability modal -->
-    @if (addOpen()) {
-      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="addOpen.set(false)"></button>
-        <div class="relative z-10 flex w-full max-w-sm flex-col gap-5 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
-          <div class="flex items-center justify-between">
-            <h3 class="font-heading text-h5 text-ink">Add Availability</h3>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="addOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
-          </div>
-
-          <div class="flex rounded-pill border border-cloud bg-white p-1">
-            <button type="button" class="flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="addRecurring() ? 'text-slate' : 'bg-frost text-cerulean'" (click)="addRecurring.set(false)">One-time</button>
-            <button type="button" class="flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="addRecurring() ? 'bg-frost text-cerulean' : 'text-slate'" (click)="addRecurring.set(true)">Recurring</button>
+    <!-- Add Availability (the design-system dialog: bottom sheet on phones, focus kept inside, Esc closes). -->
+    <sd-dialog [open]="addOpen()" title="Add Availability" size="sm" [busy]="busy()" (closed)="addOpen.set(false)">
+        <div class="flex flex-col gap-5">
+          <div class="flex rounded-pill border border-cloud bg-white p-1" role="group" aria-label="How often">
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="addRecurring() ? 'text-slate' : 'bg-frost text-cerulean'" [attr.aria-pressed]="!addRecurring()" (click)="addRecurring.set(false)">One-time</button>
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="addRecurring() ? 'bg-frost text-cerulean' : 'text-slate'" [attr.aria-pressed]="addRecurring()" (click)="addRecurring.set(true)">Recurring</button>
           </div>
 
           <label class="flex flex-col gap-2">
@@ -237,30 +242,25 @@ const LAST_MINUTE = 23 * 60 + 59;
             </div>
           </div>
 
-          @if (addError()) { <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ addError() }}</p> }
-          <sd-button [full]="true" [disabled]="busy()" (click)="submitAdd()">{{ busy() ? 'Saving…' : 'Save Availability' }}</sd-button>
+          @if (addError()) { <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert" role="alert">{{ addError() }}</p> }
         </div>
-      </div>
-    }
+        <div dialogFooter class="flex shrink-0 border-t border-cloud px-5 py-4 sm:px-6">
+          <sd-button class="w-full" [full]="true" [disabled]="busy()" (click)="submitAdd()">{{ busy() ? 'Saving…' : 'Save Availability' }}</sd-button>
+        </div>
+    </sd-dialog>
 
-    <!-- Block Availability modal -->
-    @if (blockOpen()) {
-      <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="blockOpen.set(false)"></button>
-        <div class="relative z-10 flex w-full max-w-sm flex-col gap-5 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
-          <div class="flex items-center justify-between">
-            <h3 class="font-heading text-h5 text-ink">Block Availability</h3>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="blockOpen.set(false)"><sd-icon name="x" [size]="22" /></button>
-          </div>
+    <!-- Block Availability -->
+    <sd-dialog [open]="blockOpen()" title="Block Availability" subtitle="Patients can't book blocked times." size="sm" [busy]="busy()" (closed)="blockOpen.set(false)">
+        <div class="flex flex-col gap-5">
 
           <label class="flex flex-col gap-2">
             <span class="font-sans text-body font-semibold text-ink">Date</span>
             <input type="date" class="${TIME_INPUT}" [min]="today()" [value]="blockDate()" (input)="blockDate.set($any($event.target).value)" />
           </label>
 
-          <div class="flex rounded-pill border border-cloud bg-white p-1">
-            <button type="button" class="flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="blockEntire() ? 'bg-frost text-cerulean' : 'text-slate'" (click)="blockEntire.set(true)">Entire day</button>
-            <button type="button" class="flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="blockEntire() ? 'text-slate' : 'bg-frost text-cerulean'" (click)="blockEntire.set(false)">Specific time</button>
+          <div class="flex rounded-pill border border-cloud bg-white p-1" role="group" aria-label="What to block">
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="blockEntire() ? 'bg-frost text-cerulean' : 'text-slate'" [attr.aria-pressed]="blockEntire()" (click)="blockEntire.set(true)">Entire day</button>
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="blockEntire() ? 'text-slate' : 'bg-frost text-cerulean'" [attr.aria-pressed]="!blockEntire()" (click)="blockEntire.set(false)">Specific time</button>
           </div>
 
           @if (!blockEntire()) {
@@ -279,18 +279,21 @@ const LAST_MINUTE = 23 * 60 + 59;
             <input type="text" class="${TIME_INPUT}" placeholder="e.g. Vacation, personal leave" [value]="blockReason()" (input)="blockReason.set($any($event.target).value)" />
           </label>
 
-          @if (blockError()) { <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ blockError() }}</p> }
-          <button type="button" class="flex items-center justify-center gap-2 rounded-field bg-alert px-5 py-3 font-sans text-body font-semibold text-white transition-colors hover:brightness-95 disabled:opacity-60" [disabled]="busy()" (click)="submitBlock()">
-            <sd-icon name="ban" [size]="18" />{{ busy() ? 'Blocking…' : 'Block this day' }}
+          @if (blockError()) { <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert" role="alert">{{ blockError() }}</p> }
+        </div>
+        <div dialogFooter class="flex shrink-0 border-t border-cloud px-5 py-4 sm:px-6">
+          <button type="button" class="flex min-h-11 w-full items-center justify-center gap-2 rounded-field bg-alert px-5 py-3 font-sans text-body font-semibold text-white transition-colors hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 focus-visible:ring-offset-2 disabled:opacity-60" [disabled]="busy()" (click)="submitBlock()">
+            <sd-icon name="ban" [size]="18" />{{ busy() ? 'Blocking…' : blockEntire() ? 'Block this day' : 'Block these times' }}
           </button>
         </div>
-      </div>
-    }
+    </sd-dialog>
   `,
 })
 export class DoctorAvailability implements OnInit {
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
+  private readonly injector = inject(Injector);
 
   protected readonly weekdayLabels = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
   protected readonly durations = DURATIONS;
@@ -306,6 +309,9 @@ export class DoctorAvailability implements OnInit {
   protected readonly busy = signal(false);
   protected readonly busyId = signal<string | null>(null);
   protected readonly notice = signal('');
+  /** What Remove just took off, on which day (shown on that day's panel). */
+  protected readonly removed = signal<{ date: string; text: string } | null>(null);
+  private readonly removedNote = viewChild<ElementRef<HTMLElement>>('removedNote');
   protected readonly slots = signal<AvailabilitySlotDto[]>([]);
   protected readonly slotMinutes = signal(30);
 
@@ -541,6 +547,7 @@ export class DoctorAvailability implements OnInit {
     this.addEnd.set(end);
     this.addWeeks.set(8);
     this.addError.set('');
+    this.removed.set(null);
     this.addOpen.set(true);
   }
 
@@ -555,6 +562,7 @@ export class DoctorAvailability implements OnInit {
     this.blockEnd.set(end);
     this.blockReason.set('');
     this.blockError.set('');
+    this.removed.set(null);
     this.blockOpen.set(true);
   }
 
@@ -685,17 +693,47 @@ export class DoctorAvailability implements OnInit {
     }
   }
 
+  /** Remove an open time or a block — asked first; the request runs in the dialog (inline error). */
   protected async removeSlot(s: AvailabilitySlotDto): Promise<void> {
-    this.busyId.set(s.id);
+    if (this.busyId()) return;
     this.notice.set('');
+    this.removed.set(null);
+    const block = s.kind === 'block' || s.status === 'blocked';
+    const date = this.selectedDate();
+    const day = this.dayName(s.starts_at);
+    this.busyId.set(s.id);
     try {
-      await firstValueFrom(this.api.deleteAvailability(s.id));
-      this.slots.update((list) => list.filter((x) => x.id !== s.id));
-    } catch (err) {
-      this.notice.set(apiErrorMessage(err, 'Could not remove that slot.'));
+      const { confirmed } = await this.dialogs.confirm({
+        tone: 'warning',
+        icon: block ? 'calendar-check' : 'trash-2',
+        title: block
+          ? this.isFullDayBlock(s) ? `Remove the block on ${day}?` : `Remove the ${this.slotRange(s)} block on ${day}?`
+          : `Remove ${this.slotRange(s)}?`,
+        message: block
+          ? 'Patients can book your open times on this day again.'
+          : `It comes off your availability on ${day}, and patients can no longer book it.`,
+        confirmLabel: block ? 'Remove block' : 'Remove time',
+        cancelLabel: 'Keep it',
+        action: () => this.api.deleteAvailability(s.id),
+        errorMessage: (err) => apiErrorMessage(err, block ? 'Could not remove the block.' : 'Could not remove that time.'),
+      });
+      if (confirmed) {
+        this.slots.update((list) => list.filter((x) => x.id !== s.id));
+        this.removed.set({
+          date,
+          text: block ? 'Block removed — patients can book this day again.' : `${this.slotRange(s)} removed from your availability.`,
+        });
+        // Its Remove button (the dialog's opener) went with it: focus what happened instead.
+        focusAfterDialogs(this.injector, () => this.removedNote()?.nativeElement);
+      }
     } finally {
       this.busyId.set(null);
     }
+  }
+
+  /** "Thu 16 Oct" for a slot's start (UTC wall-clock, like the rest of this editor). */
+  private dayName(iso: string): string {
+    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(iso));
   }
 
   private firstOfMonth(d: Date): Date {

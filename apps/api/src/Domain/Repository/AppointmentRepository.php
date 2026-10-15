@@ -23,8 +23,22 @@ final class AppointmentRepository extends BaseRepository
         return ['scheduledAt', 'createdAt', 'updatedAt', 'status', 'id'];
     }
 
+    /** `?when=` values the appointment lists accept ({@see applyWhen()}). */
+    public const WHEN = ['upcoming', 'past', 'attention'];
+
+    /** A `?when=` query value, normalised: upcoming | past | attention, or null (anything else). */
+    public static function parseWhen(mixed $raw, array $allowed = self::WHEN): ?string
+    {
+        $when = is_string($raw) ? strtolower(trim($raw)) : '';
+
+        return in_array($when, $allowed, true) ? $when : null;
+    }
+
     /**
      * @param list<AppointmentStatus>|null $statuses
+     * @param string|null                  $when    upcoming | past | attention ({@see applyWhen()}) —
+     *                                              then sorted by start: upcoming soonest first, else newest first
+     * @param list<string>                 $liveIds appointments someone is in the call of right now
      * @return array{items: list<Appointment>, total: int}
      */
     public function paginated(
@@ -34,7 +48,32 @@ final class AppointmentRepository extends BaseRepository
         string $sortDir = 'desc',
         ?string $patientId = null,
         ?array $statuses = null,
+        ?string $when = null,
+        ?DateTimeImmutable $now = null,
+        array $liveIds = [],
     ): array {
+        $qb = $this->paginatedBuilder($patientId, $statuses, $when, $now ?? new DateTimeImmutable(), $liveIds);
+        if ($when !== null) {
+            [$sortBy, $sortDir] = ['scheduledAt', $when === 'upcoming' ? 'asc' : 'desc'];
+        }
+
+        return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, $sortBy, $sortDir);
+    }
+
+    /**
+     * {@see paginated()}'s filters as a builder (public so its DQL compiles in
+     * the offline tests).
+     *
+     * @param list<AppointmentStatus>|null $statuses
+     * @param list<string>                 $liveIds
+     */
+    public function paginatedBuilder(
+        ?string $patientId,
+        ?array $statuses,
+        ?string $when,
+        DateTimeImmutable $now,
+        array $liveIds = [],
+    ): \Doctrine\ORM\QueryBuilder {
         $qb = $this->qb()->andWhere('e.deletedAt IS NULL');
 
         if ($patientId !== null) {
@@ -48,8 +87,52 @@ final class AppointmentRepository extends BaseRepository
                     $statuses,
                 ));
         }
+        if ($when !== null) {
+            $this->applyWhen($qb, 'e', $when, $now, $liveIds);
+        }
 
-        return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, $sortBy, $sortDir);
+        return $qb;
+    }
+
+    /**
+     * Split a list by TIME ({@see \App\Domain\Appointment\AppointmentLifecycle::phase()}):
+     *  - upcoming:  not closed (completed / cancelled / missed) and still to
+     *               come or live — its slot ends after now − LIVE_GRACE_MINUTES,
+     *               or someone is in its call (`$liveIds`); a proposal only
+     *               while unexpired;
+     *  - past:      everything else — closed, or ended over the grace ago;
+     *  - attention: past bookings still open (pending / confirmed /
+     *               rescheduled) — what the cron closes or the back office resolves.
+     * Joins the specialist (as `w_s`) for the slot length.
+     *
+     * @param list<string> $liveIds
+     */
+    public function applyWhen(\Doctrine\ORM\QueryBuilder $qb, string $alias, string $when, DateTimeImmutable $now, array $liveIds = []): void
+    {
+        $qb->join("$alias.specialist", 'w_s');
+        $ended   = "DATE_ADD($alias.scheduledAt, w_s.slotMinutes, 'minute') <= :w_grace";
+        $expired = "($alias.status = :w_proposed AND $alias.expiresAt <= :w_now)";
+        $closed  = "$alias.status IN (:w_closed)";
+        $live    = $liveIds !== [] ? " AND $alias.id NOT IN (:w_live)" : '';
+
+        $grace = $now->modify('-' . \App\Domain\Appointment\AppointmentLifecycle::LIVE_GRACE_MINUTES . ' minutes');
+        if ($when === 'attention') {
+            $qb->andWhere("$alias.status IN (:w_open)")
+                ->andWhere($ended . $live)
+                ->setParameter('w_open', array_map(static fn (AppointmentStatus $s): string => $s->value, AppointmentStatus::openBookings()))
+                ->setParameter('w_grace', $grace);
+        } else {
+            // past = closed OR ((ended OR an expired proposal) AND nobody in the call)
+            $past = "$closed OR (($ended OR $expired)$live)";
+            $qb->andWhere($when === 'upcoming' ? "NOT ($past)" : $past)
+                ->setParameter('w_closed', array_map(static fn (AppointmentStatus $s): string => $s->value, AppointmentStatus::terminal()))
+                ->setParameter('w_proposed', AppointmentStatus::PROPOSED->value)
+                ->setParameter('w_now', $now)
+                ->setParameter('w_grace', $grace);
+        }
+        if ($liveIds !== []) {
+            $qb->setParameter('w_live', array_values($liveIds));
+        }
     }
 
     /**
@@ -111,7 +194,10 @@ final class AppointmentRepository extends BaseRepository
      * fields only (no hydration) so a wide range stays cheap; aggregation into
      * time-series/top-lists happens in PHP (DB-portable, no vendor date funcs).
      *
-     * @return list<array{created_at: DateTimeImmutable, amount: string, payment_status: string, status: string, type: string, specialist_id: string, specialist_name: string}>
+     * `refunded_amount` is what went back to the wallet for a still-`paid` row
+     * (a partial refund: a missed consultation, a late cancellation).
+     *
+     * @return list<array{created_at: DateTimeImmutable, amount: string, refunded_amount: string, payment_status: string, status: string, type: string, specialist_id: string, specialist_name: string}>
      */
     public function analyticsRows(DateTimeImmutable $from, DateTimeImmutable $to): array
     {
@@ -124,6 +210,7 @@ final class AppointmentRepository extends BaseRepository
             return [
                 'created_at'     => $r['created_at'],
                 'amount'         => (string) ($r['amount'] ?? '0.00'),
+                'refunded_amount' => bcadd((string) ($r['refunded_amount'] ?? '0'), '0', 2),
                 'payment_status' => (string) ($r['payment_status'] ?? ''),
                 'status'         => is_object($status) ? $status->value : (string) $status,
                 'type'           => is_object($type) ? $type->value : (string) $type,
@@ -146,6 +233,7 @@ final class AppointmentRepository extends BaseRepository
             ->select(
                 'e.createdAt AS created_at',
                 'e.amount AS amount',
+                'e.refundedAmount AS refunded_amount',
                 'e.paymentStatus AS payment_status',
                 'e.status AS status',
                 'e.type AS type',
@@ -206,12 +294,19 @@ final class AppointmentRepository extends BaseRepository
      * schedule, soonest first: the soonest `$limit` from a day ago on (so all of
      * today, whatever the doctor's timezone, and what's coming), then — if there
      * is room — the most recent earlier ones. Never the oldest `$limit` of a
-     * long history (one consultation is loaded by id instead).
+     * long history (one consultation is loaded by id instead). With `$when`
+     * (upcoming | past | attention) the list is split by time instead
+     * ({@see scheduleWhenQuery()}).
      *
+     * @param list<string> $liveIds appointments someone is in the call of right now (for `$when`)
      * @return list<Appointment>
      */
-    public function forSpecialist(string $specialistId, int $limit = 100, ?DateTimeImmutable $now = null): array
+    public function forSpecialist(string $specialistId, int $limit = 100, ?DateTimeImmutable $now = null, ?string $when = null, array $liveIds = []): array
     {
+        if ($when !== null) {
+            /** @var list<Appointment> */
+            return $this->scheduleWhenQuery($specialistId, $when, $now ?? new DateTimeImmutable(), $limit, $liveIds)->getResult();
+        }
         $since = self::scheduleSince($now ?? new DateTimeImmutable());
         /** @var list<Appointment> $coming */
         $coming = $this->scheduleQuery($specialistId, $since, true, $limit)->getResult();
@@ -249,6 +344,26 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * The doctor's schedule split by time ({@see applyWhen()}): upcoming
+     * (incl. live) soonest first, past / attention newest first, `$limit` rows.
+     *
+     * @param list<string> $liveIds
+     */
+    public function scheduleWhenQuery(string $specialistId, string $when, DateTimeImmutable $now, int $limit = 100, array $liveIds = []): Query
+    {
+        $qb = $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+        $this->applyWhen($qb, 'e', $when, $now, $liveIds);
+
+        return $qb->orderBy('e.scheduledAt', $when === 'upcoming' ? 'ASC' : 'DESC')
+            ->addOrderBy('e.id', 'ASC')
+            ->setMaxResults($limit)
+            ->getQuery();
+    }
+
+    /**
      * Upcoming, still-active appointments whose start falls in [from, to) —
      * the reminder cron's due window. Excludes cancelled and completed bookings,
      * and follow-up proposals the patient hasn't accepted yet.
@@ -267,6 +382,7 @@ final class AppointmentRepository extends BaseRepository
             ->setParameter('done', [
                 AppointmentStatus::CANCELLED->value,
                 AppointmentStatus::COMPLETED->value,
+                AppointmentStatus::MISSED->value,
                 AppointmentStatus::PROPOSED->value,
             ])
             ->orderBy('e.scheduledAt', 'ASC')
@@ -356,7 +472,7 @@ final class AppointmentRepository extends BaseRepository
             ->setParameter('specialist', $specialistId)
             ->setParameter('patient', $patientId)
             ->setParameter('completed', AppointmentStatus::COMPLETED)
-            ->setParameter('notHeld', [AppointmentStatus::CANCELLED->value, AppointmentStatus::PROPOSED->value])
+            ->setParameter('notHeld', [AppointmentStatus::CANCELLED->value, AppointmentStatus::PROPOSED->value, AppointmentStatus::MISSED->value])
             ->setParameter('cutoff', $now->modify("+{$leadMinutes} minutes"))
             ->getQuery()
             ->getSingleScalarResult();
@@ -459,7 +575,7 @@ final class AppointmentRepository extends BaseRepository
             ->andWhere('e.deletedAt IS NULL')
             ->setParameter('specialist', $specialistId)
             ->setParameter('now', $now)
-            ->setParameter('done', [AppointmentStatus::CANCELLED->value, AppointmentStatus::COMPLETED->value, AppointmentStatus::PROPOSED->value])
+            ->setParameter('done', [AppointmentStatus::CANCELLED->value, AppointmentStatus::COMPLETED->value, AppointmentStatus::MISSED->value, AppointmentStatus::PROPOSED->value])
             ->orderBy('e.scheduledAt', 'ASC')
             ->setMaxResults(1)
             ->getQuery()
@@ -468,9 +584,12 @@ final class AppointmentRepository extends BaseRepository
 
     /**
      * Paginated appointment history for a specialist, newest first, optionally
-     * filtered by status and a patient-name search.
+     * filtered by status, a patient-name search and the time split
+     * (`$when` upcoming | past | attention — {@see applyWhen()}; upcoming is
+     * soonest first).
      *
      * @param list<AppointmentStatus>|null $statuses
+     * @param list<string>                 $liveIds
      * @return array{items: list<Appointment>, total: int}
      */
     public function paginatedForSpecialist(
@@ -479,7 +598,30 @@ final class AppointmentRepository extends BaseRepository
         string $specialistId,
         ?array $statuses = null,
         ?string $search = null,
+        ?string $when = null,
+        ?DateTimeImmutable $now = null,
+        array $liveIds = [],
     ): array {
+        $qb = $this->specialistListBuilder($specialistId, $statuses, $search, $when, $now ?? new DateTimeImmutable(), $liveIds);
+
+        return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, 'scheduledAt', $when === 'upcoming' ? 'asc' : 'desc');
+    }
+
+    /**
+     * {@see paginatedForSpecialist()}'s filters as a builder (public so its
+     * DQL compiles in the offline tests).
+     *
+     * @param list<AppointmentStatus>|null $statuses
+     * @param list<string>                 $liveIds
+     */
+    public function specialistListBuilder(
+        string $specialistId,
+        ?array $statuses,
+        ?string $search,
+        ?string $when,
+        DateTimeImmutable $now,
+        array $liveIds = [],
+    ): \Doctrine\ORM\QueryBuilder {
         $qb = $this->qb()
             ->andWhere('e.specialist = :specialist')
             ->andWhere('e.deletedAt IS NULL')
@@ -494,8 +636,197 @@ final class AppointmentRepository extends BaseRepository
                 ->andWhere("LOWER(CONCAT(p.firstName, ' ', p.lastName)) LIKE :q OR LOWER(p.email) LIKE :q")
                 ->setParameter('q', '%' . strtolower(trim($search)) . '%');
         }
+        if ($when !== null) {
+            $this->applyWhen($qb, 'e', $when, $now, $liveIds);
+        }
+
+        return $qb;
+    }
+
+    /**
+     * Requests the doctor can still confirm: pending or rescheduled, and not
+     * yet CONFIRM_GRACE_MINUTES past their end (the dashboard's pending count).
+     */
+    public function countOpenRequestsForSpecialist(string $specialistId, DateTimeImmutable $now): int
+    {
+        return (int) $this->openRequestsCountQuery($specialistId, $now)->getSingleScalarResult();
+    }
+
+    public function openRequestsCountQuery(string $specialistId, DateTimeImmutable $now): Query
+    {
+        return $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->join('e.specialist', 'r_s')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->andWhere('e.status IN (:requests)')
+            ->andWhere("DATE_ADD(e.scheduledAt, r_s.slotMinutes, 'minute') > :cutoff")
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('requests', [AppointmentStatus::PENDING->value, AppointmentStatus::RESCHEDULED->value])
+            ->setParameter('cutoff', $now->modify('-' . \App\Domain\Appointment\AppointmentLifecycle::CONFIRM_GRACE_MINUTES . ' minutes'))
+            ->getQuery();
+    }
+
+    /**
+     * What the doctor earned (gross, before commission) from consultations in
+     * an optional [from, to) start window: every completed one, and a missed
+     * one the patient didn't come to (the fee is the doctor's) — each less
+     * what was refunded for it (money string, scale 2).
+     */
+    public function sumEarnedForSpecialist(string $specialistId, ?DateTimeImmutable $from = null, ?DateTimeImmutable $to = null): string
+    {
+        $value = $this->earnedSumQuery($specialistId, $from, $to)->getSingleScalarResult();
+
+        return number_format((float) $value, 2, '.', '');
+    }
+
+    public function earnedSumQuery(string $specialistId, ?DateTimeImmutable $from = null, ?DateTimeImmutable $to = null): Query
+    {
+        $qb = $this->em->createQueryBuilder()
+            ->select('COALESCE(SUM(e.amount - COALESCE(e.refundedAmount, 0)), 0)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+        $this->applyEarned($qb, 'e');
+        $this->applyStatusWindow($qb, null, $from, $to);
+
+        return $qb->getQuery();
+    }
+
+    /**
+     * The consultations that earned the doctor something, newest first — the
+     * earnings transactions list ({@see sumEarnedForSpecialist()}'s rows).
+     *
+     * @return array{items: list<Appointment>, total: int}
+     */
+    public function paginatedEarnedForSpecialist(int $offset, int $perPage, string $specialistId): array
+    {
+        $qb = $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->setParameter('specialist', $specialistId);
+        $this->applyEarned($qb, 'e');
 
         return $this->paginatedQuery($qb, $this->alias(), $offset, $perPage, 'scheduledAt', 'desc');
+    }
+
+    /** completed, or missed with the patient the one who didn't come. */
+    private function applyEarned(\Doctrine\ORM\QueryBuilder $qb, string $alias): void
+    {
+        $qb->andWhere("$alias.status = :earn_completed OR ($alias.status = :earn_missed AND $alias.noShow = :earn_patient)")
+            ->setParameter('earn_completed', AppointmentStatus::COMPLETED->value)
+            ->setParameter('earn_missed', AppointmentStatus::MISSED->value)
+            ->setParameter('earn_patient', 'patient');
+    }
+
+    /**
+     * A doctor's no-shows (missed, `no_show` doctor) whose start falls in
+     * [from, to) — for the back office's repeated no-show alert.
+     */
+    public function countDoctorNoShows(string $specialistId, DateTimeImmutable $from, DateTimeImmutable $to): int
+    {
+        return (int) $this->doctorNoShowsQuery($specialistId, $from, $to)->getSingleScalarResult();
+    }
+
+    public function doctorNoShowsQuery(string $specialistId, DateTimeImmutable $from, DateTimeImmutable $to): Query
+    {
+        return $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->andWhere('e.status = :missed')
+            ->andWhere('e.noShow = :doctor')
+            ->andWhere('e.scheduledAt >= :from')
+            ->andWhere('e.scheduledAt < :to')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('missed', AppointmentStatus::MISSED->value)
+            ->setParameter('doctor', 'doctor')
+            ->setParameter('from', $from)
+            ->setParameter('to', $to)
+            ->getQuery();
+    }
+
+    /** A specialist's missed consultations the patient didn't come to (they earn the doctor the fee). */
+    public function countPatientNoShowsForSpecialist(string $specialistId): int
+    {
+        return (int) $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(Appointment::class, 'e')
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.deletedAt IS NULL')
+            ->andWhere('e.status = :missed')
+            ->andWhere('e.noShow = :patient')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('missed', AppointmentStatus::MISSED->value)
+            ->setParameter('patient', 'patient')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * A call heartbeat from `$role` (patient | doctor): store their first one
+     * inside the presence window ({@see \App\Domain\Appointment\AppointmentLifecycle::presenceWindow()})
+     * of an open booking, once — durable evidence of who came, for the closer.
+     * Cheap: nothing is written once the stamp is set (or outside the window).
+     */
+    public function recordPresence(Appointment $appointment, string $role, DateTimeImmutable $now): bool
+    {
+        if (
+            !in_array($role, ['patient', 'doctor'], true)
+            || $appointment->getFirstJoinedAt($role) !== null
+            || !$appointment->getStatus()->isOpenBooking()
+            || !\App\Domain\Appointment\AppointmentLifecycle::inPresenceWindow($appointment, $now)
+        ) {
+            return false;
+        }
+        try {
+            return $this->stampFirstJoin($appointment, $role, $now);
+        } catch (\Throwable $e) {
+            error_log('[presence] first-join stamp failed: ' . $e->getMessage());
+
+            return false; // best effort: a heartbeat never fails over it
+        }
+    }
+
+    /**
+     * Store `$role`'s (patient | doctor) first call heartbeat — once: a
+     * compare-and-set on the still-empty column, so concurrent heartbeats
+     * write it once and later ones never move it. True when this call stored it.
+     */
+    public function stampFirstJoin(Appointment $appointment, string $role, DateTimeImmutable $at): bool
+    {
+        $query = $this->firstJoinStampQuery($appointment->getId(), $role, $at);
+        if ($query === null) {
+            return false;
+        }
+        $stored = (int) $query->execute() === 1;
+        $appointment->markFirstJoined($role, $at);
+
+        return $stored;
+    }
+
+    public function firstJoinStampQuery(string $appointmentId, string $role, DateTimeImmutable $at): ?Query
+    {
+        $field = match ($role) {
+            'doctor'  => 'doctorFirstJoinedAt',
+            'patient' => 'patientFirstJoinedAt',
+            default   => null,
+        };
+        if ($field === null) {
+            return null;
+        }
+
+        return $this->em->createQueryBuilder()
+            ->update(Appointment::class, 'a')
+            ->set("a.$field", ':at')
+            ->where('a.id = :id')
+            ->andWhere("a.$field IS NULL")
+            ->setParameter('at', $at)
+            ->setParameter('id', $appointmentId)
+            ->getQuery();
     }
 
     /**

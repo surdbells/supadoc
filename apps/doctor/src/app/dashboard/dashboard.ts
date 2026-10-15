@@ -24,6 +24,7 @@ import type {
   StaffNotificationDto,
 } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
+import { isOpenBooking, isPast, statusLook } from '../appointment/appointment-status';
 import { doctorStatusLabel } from '../appointment/follow-ups';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import { type StandingNotice, standingNotices } from '../standing/standing-rules';
@@ -53,15 +54,6 @@ interface QuickAction {
   readonly tint: string;
   readonly link: string;
 }
-
-const STATUS_CLASS: Record<string, string> = {
-  proposed: 'bg-warning/15 text-ink',
-  pending: 'bg-warning/15 text-warning',
-  confirmed: 'bg-sage/15 text-sage',
-  rescheduled: 'bg-cloud text-slate',
-  completed: 'bg-frost text-cerulean',
-  cancelled: 'bg-alert/10 text-alert',
-};
 
 const NOTE_ICON: Record<string, string> = {
   appointment: 'calendar-clock',
@@ -139,7 +131,7 @@ const NOTE_ICON: Record<string, string> = {
         </div>
       } @else if (data(); as d) {
         @if (d.pending > 0) {
-          <a routerLink="/schedule" class="flex items-center gap-3 rounded-card border border-warning/30 bg-warning/5 px-5 py-4 transition-colors hover:bg-warning/10">
+          <a routerLink="/schedule" [queryParams]="{ tab: 'pending' }" class="flex items-center gap-3 rounded-card border border-warning/30 bg-warning/5 px-5 py-4 transition-colors hover:bg-warning/10">
             <sd-icon name="triangle-alert" [size]="20" class="text-warning" />
             <span class="font-sans text-body-sm font-semibold text-warning">{{ d.pending }} booking{{ d.pending === 1 ? '' : 's' }} awaiting your confirmation</span>
             <sd-icon name="chevron-right" [size]="18" class="ml-auto text-warning" />
@@ -203,12 +195,12 @@ const NOTE_ICON: Record<string, string> = {
                       <span class="truncate font-sans text-caption text-slate">{{ a.type_label }}</span>
                     </div>
                     <div class="flex flex-col items-end gap-0.5">
-                      <span class="font-sans text-caption font-semibold" [class]="statusText(a.status)">{{ statusLabel(a) }}</span>
+                      <span class="font-sans text-caption font-semibold" [class]="statusText(a)">{{ statusLabel(a) }}</span>
                       <span class="font-sans text-caption text-slate">{{ time(a.scheduled_at) }}</span>
                     </div>
                     <!-- Join the first consultation, and any whose patient is already waiting in the call
                          (never a follow-up proposal: no call until the patient accepts it). -->
-                    @if ((i === 0 || patientWaiting(a.id)) && a.status !== 'proposed') {
+                    @if ((i === firstJoinable() || patientWaiting(a.id)) && joinable(a)) {
                       <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">Join</button>
                     } @else {
                       <a [routerLink]="['/appointments', a.id]" class="ml-1 flex shrink-0 items-center rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean">View</a>
@@ -466,19 +458,17 @@ export class DoctorDashboard implements OnInit {
   protected absDelta(delta: number): number {
     return Math.abs(delta);
   }
-  protected statusClass(status: string): string {
-    return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
+  /** The agenda's status colour, from the lifecycle (In progress, Being finalised, Missed…). */
+  protected statusText(a: DoctorAppointmentDto): string {
+    return statusLook(a).text;
   }
-  protected statusText(status: string): string {
-    return status === 'confirmed'
-      ? 'text-sage'
-      : status === 'pending' || status === 'rescheduled'
-        ? 'text-warning'
-        : status === 'cancelled'
-          ? 'text-alert'
-          : 'text-slate';
+  /** A booking still to come or under way — not a proposal, nor one that is over. */
+  protected joinable(a: DoctorAppointmentDto): boolean {
+    return isOpenBooking(a) && !isPast(a);
   }
-  /** "Awaiting patient" for a follow-up proposal (the API leaves them off the agenda), else the API's label. */
+  /** The agenda row that gets the Join button: the first still joinable one. */
+  protected readonly firstJoinable = computed(() => (this.data()?.agenda ?? []).findIndex((a) => this.joinable(a)));
+  /** "Awaiting patient" for a follow-up proposal (the API leaves them off the agenda), else the lifecycle label. */
   protected statusLabel(a: DoctorAppointmentDto): string {
     return doctorStatusLabel(a);
   }

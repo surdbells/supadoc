@@ -346,13 +346,24 @@ export interface EarningsSummaryDto {
   gross_month: string;
   net_month: string;
   completed_count: number;
+  /** Missed consultations the patient didn't come to — they count towards gross (absent from older APIs). */
+  patient_no_show_count?: number;
   has_open_payout: boolean;
 }
 
+/**
+ * One earning consultation: completed, or missed with the patient the one who
+ * didn't come. `gross` is its amount less any refund (guest fees, a no-show
+ * refund share).
+ */
 export interface EarningsTxnDto {
   appointment_id: string;
   patient_name: string;
   date: string;
+  /** completed | missed (absent from older APIs). */
+  status?: 'completed' | 'missed';
+  /** 'patient' on a missed one; null otherwise. */
+  no_show?: 'doctor' | 'patient' | 'both' | null;
   gross: string;
   commission: string;
   net: string;

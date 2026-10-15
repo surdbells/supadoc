@@ -58,7 +58,7 @@ final class ListSpecialistAppointmentsAction
         );
 
         $rows = array_map(static function (Appointment $a): array {
-            $row = $a->toArray();
+            $row = $a->toArray('staff');
             unset($row['follow_up_note'], $row['decline_reason'], $row['notes'], $row['document_url']);
             $p = $a->getPatient()->toArray();
 

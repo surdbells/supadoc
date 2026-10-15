@@ -14,7 +14,8 @@ import type {
   RecordingDto,
   RecordingFileDto,
 } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { DialogComponent, IconComponent } from '@supadoc/ui';
+import { appointmentStatusClass } from '../shared/appointment-status';
 
 type TabKey = 'consultations' | 'quality' | 'recordings';
 
@@ -22,7 +23,7 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
 @Component({
   selector: 'bo-monitoring',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, DialogComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -199,42 +200,36 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
       }
     </div>
 
-    @if (filesOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="filesOpen.set(false)"></button>
-        <div class="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
-          <div class="flex items-center justify-between">
-            <h2 class="font-heading text-h5 text-ink">Recording files</h2>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="filesOpen.set(false)"><sd-icon name="x" [size]="24" /></button>
-          </div>
-          @if (filesLoading()) {
-            <div class="sd-shimmer h-16 rounded-field"></div>
-          } @else {
-            @for (f of files(); track f.key) {
-              <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-2.5">
-                <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
-                  <sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" />
-                  <span class="truncate">{{ f.name }}</span>
-                </span>
-                @if (f.url) {
-                  <a [href]="f.url" target="_blank" rel="noopener" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline">
-                    <sd-icon name="download" [size]="16" />Download
-                  </a>
-                } @else {
-                  <span class="shrink-0 font-sans text-caption text-slate">Storage not configured</span>
-                }
-              </div>
-            } @empty {
-              @if (filesError()) {
-                <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ filesError() }}</p>
+    <sd-dialog [open]="filesOpen()" title="Recording files" size="md" (closed)="filesOpen.set(false)">
+      <div class="flex flex-col gap-3" [attr.aria-busy]="filesLoading() || null">
+        @if (filesLoading()) {
+          <div class="sd-shimmer h-16 rounded-field" aria-hidden="true"></div>
+          <p class="sr-only">Loading the recording files…</p>
+        } @else {
+          @for (f of files(); track f.key) {
+            <div class="flex items-center justify-between gap-3 rounded-field border border-cloud px-4 py-2.5">
+              <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
+                <sd-icon name="file-text" [size]="18" class="shrink-0 text-slate" />
+                <span class="truncate">{{ f.name }}</span>
+              </span>
+              @if (f.url) {
+                <a [href]="f.url" target="_blank" rel="noopener" class="flex min-h-11 shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" [attr.aria-label]="'Download ' + f.name">
+                  <sd-icon name="download" [size]="16" />Download
+                </a>
               } @else {
-                <p class="font-sans text-body-sm text-slate">No files.</p>
+                <span class="shrink-0 font-sans text-caption text-slate">Storage not configured</span>
               }
+            </div>
+          } @empty {
+            @if (filesError()) {
+              <p role="alert" class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ filesError() }}</p>
+            } @else {
+              <p class="font-sans text-body-sm text-slate">No files.</p>
             }
           }
-        </div>
+        }
       </div>
-    }
+    </sd-dialog>
   `,
 })
 export class AdminMonitoring implements OnInit {
@@ -357,8 +352,7 @@ export class AdminMonitoring implements OnInit {
     return isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(d);
   }
   protected statusClass(status: string): string {
-    const map: Record<string, string> = { proposed: 'bg-teal/10 text-teal', pending: 'bg-warning/15 text-warning', confirmed: 'bg-sage/15 text-sage', rescheduled: 'bg-cloud text-slate', completed: 'bg-frost text-cerulean', cancelled: 'bg-alert/10 text-alert' };
-    return map[status] ?? 'bg-cloud text-slate';
+    return appointmentStatusClass(status);
   }
   protected recStatusClass(status: string): string {
     const map: Record<string, string> = { recording: 'bg-alert/10 text-alert', stopped: 'bg-frost text-cerulean', failed: 'bg-cloud text-slate' };

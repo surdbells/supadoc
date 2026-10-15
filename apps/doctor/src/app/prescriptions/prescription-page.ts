@@ -17,7 +17,7 @@ import type {
   PrescriptionOptionsDto,
   ReadingKey,
 } from '@supadoc/models';
-import { AlertComponent, ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
 import { catchError, forkJoin, map, of, Subscription } from 'rxjs';
 import { RxCancelForm } from './rx-cancel-form';
 import { RxComposer } from './rx-composer';
@@ -34,7 +34,8 @@ import {
   RxStatusBadge,
   withUnit,
 } from './rx-shared';
-import { CanLeave, LeavePrompt } from './unsaved-changes.guard';
+import type { CanLeave } from '@supadoc/auth';
+import { UNSAVED_RX_LEAVE } from './rx-shared';
 
 interface ReadingLine {
   readonly key: string;
@@ -70,7 +71,6 @@ const DD = 'font-sans text-body-sm text-ink break-words';
   imports: [
     RouterLink,
     AlertComponent,
-    ConfirmDialogComponent,
     IconComponent,
     RxCancelForm,
     RxComposer,
@@ -336,18 +336,6 @@ const DD = 'font-sans text-body-sm text-ink break-words';
         }
       }
     </div>
-
-    <sd-confirm-dialog
-      [open]="leavePrompt.open()"
-      title="Leave without saving?"
-      message="Your latest changes to this prescription have not been saved."
-      confirmLabel="Leave without saving"
-      cancelLabel="Keep editing"
-      icon="triangle-alert"
-      [danger]="true"
-      (confirm)="leavePrompt.answer(true)"
-      (cancel)="leavePrompt.answer(false)"
-    />
   `,
 })
 export class PrescriptionPage implements CanLeave {
@@ -358,7 +346,7 @@ export class PrescriptionPage implements CanLeave {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly composer = viewChild(RxComposer);
-  protected readonly leavePrompt = new LeavePrompt();
+  private readonly dialogs = inject(DialogService);
   /** The doctor already confirmed in the composer: skip the leave prompt. */
   private leaving = false;
 
@@ -395,10 +383,7 @@ export class PrescriptionPage implements CanLeave {
       this.leaving = false;
       this.load(p.get('id') ?? '');
     });
-    this.destroyRef.onDestroy(() => {
-      this.sub?.unsubscribe();
-      this.leavePrompt.answer(false);
-    });
+    this.destroyRef.onDestroy(() => this.sub?.unsubscribe());
   }
 
   /** Route guard hook: ask before a navigation throws away an unsaved draft. */
@@ -406,7 +391,7 @@ export class PrescriptionPage implements CanLeave {
     // A sign-out (idle timeout, session expiry, signed out elsewhere) must
     // still clear the screen — never hold patient details up behind a prompt.
     if (this.leaving || !this.auth.isAuthenticated()) return true;
-    return this.composer()?.hasUnsavedChanges() ? this.leavePrompt.ask() : true;
+    return this.composer()?.hasUnsavedChanges() ? this.dialogs.confirmLeave(UNSAVED_RX_LEAVE) : true;
   }
 
   protected load(id: string): void {

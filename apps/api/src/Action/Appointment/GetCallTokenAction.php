@@ -11,6 +11,7 @@ use App\Domain\Exception\EntityNotFoundException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Service\ApiResponse;
+use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -20,6 +21,8 @@ use Psr\Http\Message\ServerRequestInterface;
  * guests join the same room; the patient joins as uid 1, and `participants`
  * names everyone who may be in the call by uid (names only) so each tile can
  * be labelled. Scoped to the signed-in patient (a foreign id → 404).
+ * Refused: an unaccepted follow-up (422 errors.status `proposed`); a cancelled
+ * (410 errors.code `cancelled`), completed or missed (410 `ended`) one.
  */
 final class GetCallTokenAction
 {
@@ -50,6 +53,11 @@ final class GetCallTokenAction
             $notYet = "Accept this follow-up first — there is no call to join until you do.";
 
             return $this->error($response, $notYet, 422, ['status' => 'proposed']);
+        }
+        // A cancelled, completed or missed consultation has no call (410
+        // cancelled / ended, as joining refuses it — CallAccess::problem()).
+        if (($problem = CallAccess::problem($appointment, ['role' => 'patient'], null, new DateTimeImmutable())) !== null) {
+            return $this->error($response, $problem[1], $problem[0], $problem[2]);
         }
         if (!$this->agora->hasAppId()) {
             return $this->error($response, 'Video calling is not configured', 503);

@@ -10,6 +10,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\UserRepository;
 use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\CallPresence;
 use App\Infrastructure\Service\JwtService;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
@@ -25,6 +26,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * `join_blocked` ({code, message}) says why there is no link when the call
  * would refuse the doctor ({@see CallAccess::doctorProblem()}: suspended, not
  * approved, or terms_required for a consultation that hasn't started yet).
+ * The lifecycle fields count a call running over its time as live, like the lists.
  */
 final class GetDoctorAppointmentAction
 {
@@ -35,6 +37,7 @@ final class GetDoctorAppointmentAction
         private readonly UserRepository $users,
         private readonly AppointmentRepository $appointments,
         private readonly JwtService $jwt,
+        private readonly CallPresence $presence,
     ) {
     }
 
@@ -48,11 +51,12 @@ final class GetDoctorAppointmentAction
             return $this->error($response, 'Appointment not found', 403);
         }
 
+        $now        = new DateTimeImmutable();
         $specialist = $appt->getSpecialist();
         $patient    = $appt->getPatient()->toArray();
         // A doctor the call would refuse gets no link: suspended, not approved,
         // or owing the practitioner terms for a consultation not started yet.
-        $blocked = CallAccess::doctorJoinBlocked($appt, new DateTimeImmutable());
+        $blocked = CallAccess::doctorJoinBlocked($appt, $now);
         // An unaccepted follow-up proposal has no call yet: no link.
         $joinUrl = null;
         if ($appt->getStatus() !== AppointmentStatus::PROPOSED && $blocked === null) {
@@ -60,7 +64,14 @@ final class GetDoctorAppointmentAction
             $joinUrl = $webUrl . '/call/join/' . $this->jwt->issueCallAccess($appt->getId(), $specialist->getName(), 'doctor', 2);
         }
 
-        return $this->success($response, $appt->toArray() + [
+        $data = $appt->toArray('doctor', $now);
+        // Someone in the call: it is live, whatever the clock says (as the lists show it).
+        $p = $this->presence->forAppointment($appt);
+        if ($p['doctor'] || $p['patient'] || $p['guests'] !== []) {
+            $data = array_merge($data, $appt->lifecycleFields($now, 'doctor', true));
+        }
+
+        return $this->success($response, $data + [
             'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
             'join_url'     => $joinUrl,
             'join_blocked' => $blocked,

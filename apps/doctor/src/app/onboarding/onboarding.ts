@@ -11,7 +11,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { apiErrorMessage, DoctorApi, todayLocal } from '@supadoc/data-access';
 import type { CredentialType, DoctorOnboardingDto, OnboardingItemKey, SpecialistCredentialDto } from '@supadoc/models';
-import { AlertComponent, ButtonComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, ButtonComponent, DialogService, IconComponent } from '@supadoc/ui';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import {
   changedFieldsLabel,
@@ -285,6 +285,7 @@ export class DoctorOnboarding implements OnInit {
   private readonly api = inject(DoctorApi);
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
 
   protected readonly items = ITEMS;
   protected readonly loading = signal(true);
@@ -350,7 +351,20 @@ export class DoctorOnboarding implements OnInit {
       });
   }
 
-  protected submit(): void {
+  /** "Submit for review?" first — then sent; any failure shows under the button as before. */
+  protected async submit(): Promise<void> {
+    if (this.submitting()) return;
+    const again = this.data()?.status === 'rejected';
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'info',
+      icon: 'send',
+      title: again ? 'Send your profile for review again?' : 'Submit your profile for review?',
+      message:
+        "An admin reviews your profile and verifies your documents, usually within a few working days. We'll email you as soon as it's approved — you can keep updating your details meanwhile.",
+      confirmLabel: 'Submit for review',
+      cancelLabel: 'Not yet',
+    });
+    if (!confirmed || this.submitting()) return;
     this.submitting.set(true);
     this.submitError.set('');
     this.api

@@ -1,16 +1,27 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { Observable } from 'rxjs';
+import { tap } from 'rxjs';
 import { AdminPayoutsApi, apiErrorMessage } from '@supadoc/data-access';
-import type { PayoutDto, SuccessResponse } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import type { PayoutDto } from '@supadoc/models';
+import type { ConfirmDetail } from '@supadoc/ui';
+import { AlertComponent, DialogComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { afterDialogCloses } from '../shared/after-dialog';
+import {
+  BTN_DANGER_OUTLINE,
+  BTN_GHOST,
+  BTN_SECONDARY,
+  BTN_SUCCESS,
+} from '../specialists/specialist-ui';
 
 interface Filter {
   readonly key: string;
@@ -26,18 +37,22 @@ const FILTERS: Filter[] = [
   { key: 'all', label: 'All', status: '' },
 ];
 
-const STATUS_CLASS: Record<string, string> = {
-  pending: 'bg-warning/15 text-warning',
-  approved: 'bg-frost text-cerulean',
-  paid: 'bg-sage/15 text-sage',
-  rejected: 'bg-alert/10 text-alert',
+const STATUS: Record<string, { label: string; icon: string; cls: string }> = {
+  pending: { label: 'Pending', icon: 'hourglass', cls: 'bg-warning/15 text-ink' },
+  approved: { label: 'Approved', icon: 'circle-check', cls: 'bg-frost text-cerulean' },
+  paid: { label: 'Paid', icon: 'landmark', cls: 'bg-sage/15 text-sage' },
+  rejected: { label: 'Rejected', icon: 'ban', cls: 'bg-alert/10 text-alert' },
 };
 
-/** Back-office payouts (route `/payouts`, needs payouts.manage). */
+/**
+ * Back-office payouts (route `/payouts`, needs payouts.manage). Approving,
+ * marking paid (with the transfer reference) and rejecting (with the reason
+ * the doctor is emailed) each ask first, showing the amount and the account.
+ */
 @Component({
   selector: 'bo-payouts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, AlertComponent, DialogComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -68,9 +83,9 @@ const STATUS_CLASS: Record<string, string> = {
               <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
                 <td class="px-4 py-3 font-medium">{{ p.specialist_name }}</td>
                 <td class="px-4 py-3 text-right font-semibold">{{ money(p.amount, p.currency) }}</td>
-                <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(p.status)">{{ p.status }}</span></td>
+                <td class="px-4 py-3"><span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(p.status)"><sd-icon [name]="statusIcon(p.status)" [size]="13" />{{ statusLabel(p.status) }}</span></td>
                 <td class="px-4 py-3 text-slate">{{ date(p.requested_at) }}</td>
-                <td class="px-4 py-3 text-right"><button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="open(p)">Review</button></td>
+                <td class="px-4 py-3 text-right"><button type="button" class="min-h-11 font-sans text-caption font-semibold text-cerulean hover:underline" [attr.aria-label]="'Review the payout of ' + p.specialist_name" (click)="open(p)">Review</button></td>
               </tr>
             } @empty {
               <tr>
@@ -102,21 +117,26 @@ const STATUS_CLASS: Record<string, string> = {
       }
     </div>
 
-    @if (selected(); as p) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="close()"></button>
-        <div class="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)]">
-          <div class="flex items-center justify-between">
-            <h2 class="font-heading text-h5 text-ink">Payout — {{ p.specialist_name }}</h2>
-            <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="close()"><sd-icon name="x" [size]="24" /></button>
-          </div>
-
-          <div class="flex items-center justify-between rounded-field bg-glacier px-4 py-3">
+    <sd-dialog
+      [open]="dialogOpen()"
+      [title]="dialogTitle()"
+      [subtitle]="dialogSubtitle()"
+      size="md"
+      (closed)="close()"
+      (afterClose)="current.set(null)"
+    >
+      @if (current(); as p) {
+        <div class="flex flex-col gap-4">
+          <div class="flex items-center justify-between gap-3 rounded-field bg-glacier px-4 py-3">
             <span class="font-heading text-h4 text-ink">{{ money(p.amount, p.currency) }}</span>
-            <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(p.status)">{{ p.status }}</span>
+            <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(p.status)">
+              <sd-icon [name]="statusIcon(p.status)" [size]="13" />{{ statusLabel(p.status) }}
+            </span>
           </div>
 
-          @if (p.note) { <p class="font-sans text-body-sm text-slate"><span class="font-semibold text-ink">Doctor's note:</span> {{ p.note }}</p> }
+          @if (p.note) {
+            <p class="font-sans text-body-sm text-slate"><span class="font-semibold text-ink">Doctor's note:</span> {{ p.note }}</p>
+          }
 
           @if (p.account; as acc) {
             <div class="flex flex-col gap-1.5 rounded-field border border-cloud p-4 font-sans text-body-sm">
@@ -126,35 +146,46 @@ const STATUS_CLASS: Record<string, string> = {
                 <span class="text-slate">Bank: <span class="text-ink">{{ acc.bank_name }}</span></span>
                 <span class="text-slate">Country: <span class="text-ink">{{ acc.country }}</span></span>
                 <span class="text-slate">Currency: <span class="text-ink">{{ acc.currency }}</span></span>
-                @if (acc.iban) { <span class="text-slate">IBAN: <span class="text-ink">{{ acc.iban }}</span></span> }
+                @if (acc.iban) { <span class="break-all text-slate">IBAN: <span class="text-ink">{{ acc.iban }}</span></span> }
                 @if (acc.account_number) { <span class="text-slate">Account #: <span class="text-ink">{{ acc.account_number }}</span></span> }
                 @if (acc.swift) { <span class="text-slate">SWIFT: <span class="text-ink">{{ acc.swift }}</span></span> }
                 @if (acc.routing_number) { <span class="text-slate">Routing: <span class="text-ink">{{ acc.routing_number }}</span></span> }
               </div>
             </div>
+          } @else {
+            <sd-alert tone="warning">No payout account was on file when this was requested.</sd-alert>
           }
 
-          @if (p.status === 'pending' || p.status === 'approved') {
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Note / payment reference (optional)</span>
-              <input class="w-full rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [value]="noteInput()" (input)="noteInput.set($any($event.target).value)" />
-            </label>
-            @if (actionError()) { <p class="font-sans text-caption text-alert">{{ actionError() }}</p> }
-            <div class="flex flex-wrap gap-2">
-              @if (p.status === 'pending') {
-                <button type="button" class="rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="busy()" (click)="approve(p)">Approve</button>
-              }
-              <button type="button" class="rounded-field bg-sage px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-60" [disabled]="busy()" (click)="markPaid(p)">Mark paid</button>
-              <button type="button" class="rounded-field border border-alert px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="busy()" (click)="reject(p)">Reject</button>
-            </div>
-          } @else {
+          @if (p.status === 'paid' || p.status === 'rejected') {
             <p class="font-sans text-body-sm text-slate">
               {{ p.status === 'paid' ? 'Settled' : 'Rejected' }} by {{ p.decided_by || '—' }}{{ p.reference ? ' · ref ' + p.reference : '' }}{{ p.admin_note ? ' · ' + p.admin_note : '' }}.
             </p>
+          } @else if (p.status === 'approved') {
+            <p class="font-sans text-body-sm text-slate">
+              Approved by {{ p.decided_by || '—' }}{{ p.admin_note ? ' · ' + p.admin_note : '' }}. Mark it paid once the transfer has gone out.
+            </p>
           }
+
+          <div aria-live="polite">
+            @if (notice()) {
+              <sd-alert tone="success">{{ notice() }}</sd-alert>
+            }
+          </div>
         </div>
+      }
+      <div dialogFooter class="flex flex-col-reverse gap-2 border-t border-cloud px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+        <button type="button" class="${BTN_GHOST}" data-autofocus (click)="close()">Close</button>
+        @if (current(); as p) {
+          @if (p.status === 'pending' || p.status === 'approved') {
+            <button type="button" class="${BTN_DANGER_OUTLINE}" (click)="reject(p)"><sd-icon name="ban" [size]="18" />Reject</button>
+            @if (p.status === 'pending') {
+              <button type="button" class="${BTN_SECONDARY}" (click)="approve(p)"><sd-icon name="circle-check" [size]="18" />Approve</button>
+            }
+            <button type="button" class="${BTN_SUCCESS}" (click)="markPaid(p)"><sd-icon name="landmark" [size]="18" />Mark paid</button>
+          }
+        }
       </div>
-    }
+    </sd-dialog>
   `,
 })
 export class AdminPayouts implements OnInit {
@@ -169,10 +200,25 @@ export class AdminPayouts implements OnInit {
   protected readonly hasMore = signal(false);
   private page = 1;
 
-  protected readonly selected = signal<PayoutDto | null>(null);
-  protected readonly noteInput = signal('');
-  protected readonly busy = signal(false);
-  protected readonly actionError = signal('');
+  private readonly dialogs = inject(DialogService);
+  private readonly doc = inject(DOCUMENT);
+  /** The review dialog, to put focus back in it after a decision removed the button that was used. */
+  private readonly review = viewChild(DialogComponent);
+
+  /** The review dialog is showing. */
+  protected readonly dialogOpen = signal(false);
+  /** The payout in the dialog (kept while it animates out). */
+  protected readonly current = signal<PayoutDto | null>(null);
+  /** What the last decision did (inside the dialog). */
+  protected readonly notice = signal('');
+  protected readonly dialogTitle = computed(() => {
+    const p = this.current();
+    return p ? `Payout — ${p.specialist_name}` : 'Payout';
+  });
+  protected readonly dialogSubtitle = computed(() => {
+    const p = this.current();
+    return p ? `Requested ${this.date(p.requested_at)}` : '';
+  });
 
   ngOnInit(): void {
     this.fetch();
@@ -213,39 +259,99 @@ export class AdminPayouts implements OnInit {
   }
 
   protected open(p: PayoutDto): void {
-    this.selected.set(p);
-    this.noteInput.set('');
-    this.actionError.set('');
+    this.current.set(p);
+    this.notice.set('');
+    this.dialogOpen.set(true);
   }
   protected close(): void {
-    this.selected.set(null);
+    this.dialogOpen.set(false);
   }
 
-  protected approve(p: PayoutDto): void {
-    this.run(this.api.approve(p.id, this.noteInput() || undefined));
-  }
-  protected markPaid(p: PayoutDto): void {
-    this.run(this.api.markPaid(p.id, this.noteInput() || undefined));
-  }
-  protected reject(p: PayoutDto): void {
-    if (!window.confirm('Reject this payout request?')) return;
-    this.run(this.api.reject(p.id, this.noteInput() || undefined));
-  }
-
-  private run(call: Observable<SuccessResponse<PayoutDto>>): void {
-    this.busy.set(true);
-    this.actionError.set('');
-    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => {
-        this.items.update((list) => list.map((x) => (x.id === res.data.id ? res.data : x)));
-        this.selected.set(res.data);
-        this.busy.set(false);
-      },
-      error: (err: unknown) => {
-        this.actionError.set(apiErrorMessage(err, 'Could not update the payout.'));
-        this.busy.set(false);
-      },
+  protected async approve(p: PayoutDto): Promise<void> {
+    const amount = this.money(p.amount, p.currency);
+    await this.dialogs.confirm({
+      tone: 'info',
+      icon: 'circle-check',
+      title: `Approve ${amount} for ${p.specialist_name}?`,
+      message: "They're told it's approved and on its way. Mark it paid once the transfer has gone out.",
+      details: this.details(p),
+      reason: { label: 'Note for the doctor', maxLength: 500, hint: 'Included in the email to the doctor.' },
+      confirmLabel: 'Approve payout',
+      cancelLabel: 'Not now',
+      size: 'md',
+      busyLabel: 'Approving…',
+      action: (note) => this.api.approve(p.id, note).pipe(tap((res) => this.applied(res.data, 'Approved. The doctor has been told.'))),
     });
+  }
+
+  protected async markPaid(p: PayoutDto): Promise<void> {
+    const amount = this.money(p.amount, p.currency);
+    await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'landmark',
+      title: `Mark ${amount} as paid to ${this.accountLabel(p)}?`,
+      message: "Only after the transfer has gone out — this can't be undone. The doctor is emailed the reference.",
+      details: this.details(p),
+      reason: { label: 'Payment reference', placeholder: 'e.g. the bank transfer ID', required: true, maxLength: 120 },
+      confirmLabel: 'Mark as paid',
+      cancelLabel: 'Not yet',
+      size: 'md',
+      busyLabel: 'Saving…',
+      action: (reference) => this.api.markPaid(p.id, reference).pipe(tap((res) => this.applied(res.data, 'Marked paid. The doctor has been emailed the reference.'))),
+    });
+  }
+
+  protected async reject(p: PayoutDto): Promise<void> {
+    const amount = this.money(p.amount, p.currency);
+    await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'ban',
+      title: `Reject ${p.specialist_name}'s ${amount} payout?`,
+      message: "They're emailed your reason and can request again.",
+      details: this.details(p),
+      reason: { label: 'Reason for rejecting', placeholder: 'e.g. The account name does not match the doctor.', required: true, minLength: 3, maxLength: 500, hint: 'Sent to the doctor.' },
+      confirmLabel: 'Reject payout',
+      cancelLabel: 'Keep it',
+      size: 'md',
+      busyLabel: 'Rejecting…',
+      action: (reason) => this.api.reject(p.id, reason).pipe(tap((res) => this.applied(res.data, 'Rejected. The doctor has been emailed your reason.'))),
+    });
+  }
+
+  private applied(next: PayoutDto, message: string): void {
+    this.items.update((list) => list.map((x) => (x.id === next.id ? next : x)));
+    if (this.current()?.id === next.id) {
+      this.current.set(next);
+      this.notice.set(message);
+      // The confirmation's opener (Approve, Reject, Mark paid) is gone or moved:
+      // once it has closed, focus the review dialog's Close button rather than
+      // leave it on the page body.
+      afterDialogCloses(() => {
+        if (this.dialogOpen()) this.review()?.refocus();
+      }, this.doc);
+    }
+  }
+
+  /** What to check before deciding: amount, doctor, where the money goes. */
+  private details(p: PayoutDto): ConfirmDetail[] {
+    const out: ConfirmDetail[] = [
+      { label: 'Amount', value: this.money(p.amount, p.currency) },
+      { label: 'Doctor', value: p.specialist_name },
+    ];
+    if (p.account) {
+      out.push({ label: 'Account', value: this.accountLabel(p) });
+      out.push({ label: 'Holder', value: p.account.account_holder });
+    }
+    out.push({ label: 'Requested', value: this.date(p.requested_at) });
+    return out;
+  }
+
+  /** "GTBank ••1234" (the last four of the account number or IBAN). */
+  private accountLabel(p: PayoutDto): string {
+    const acc = p.account;
+    if (!acc) return 'their account';
+    const digits = (acc.account_number || acc.iban || '').replace(/\s+/g, '');
+    return digits ? `${acc.bank_name} ••${digits.slice(-4)}` : acc.bank_name;
   }
 
   protected money(amount: string, currency: string): string {
@@ -257,6 +363,12 @@ export class AdminPayouts implements OnInit {
     return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
   }
   protected statusClass(status: string): string {
-    return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
+    return STATUS[status]?.cls ?? 'bg-cloud text-slate';
+  }
+  protected statusLabel(status: string): string {
+    return STATUS[status]?.label ?? status;
+  }
+  protected statusIcon(status: string): string {
+    return STATUS[status]?.icon ?? 'circle-help';
   }
 }

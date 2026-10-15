@@ -54,7 +54,7 @@ final class DoctorPatientDetailAction
 
         $p       = $patient->toArray();
         $history = array_map(
-            static fn (Appointment $a): array => $a->toArray(),
+            static fn (Appointment $a): array => $a->toArray('doctor'),
             $this->appointments->forSpecialistAndPatient($specialist->getId(), $patientId),
         );
 

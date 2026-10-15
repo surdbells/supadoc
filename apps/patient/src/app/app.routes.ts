@@ -1,4 +1,5 @@
 import { Route } from '@angular/router';
+import { unsavedChangesGuard } from '@supadoc/auth';
 
 export const appRoutes: Route[] = [
   {
@@ -19,9 +20,10 @@ export const appRoutes: Route[] = [
   },
   {
     // Preauthenticated join link from the invite email — no auth: the signed
-    // token in the URL is the credential.
+    // token in the URL is the credential. Leaving mid-call asks first.
     path: 'call/join/:token',
     loadComponent: () => import('./call/call-join').then((m) => m.CallJoin),
+    canDeactivate: [unsavedChangesGuard],
   },
   {
     path: 'auth',

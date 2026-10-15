@@ -3,16 +3,21 @@ import {
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type { SessionDto } from '@supadoc/models';
-import { ButtonComponent, IconComponent } from '@supadoc/ui';
+import { ButtonComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { afterDialogsClose } from '../dialog-helpers';
+import { askSignOutDevice } from './sign-out';
 
 /**
  * Settings › Privacy & Security › Connected Device (Figma 1034:45955). Lists the
@@ -28,7 +33,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
     <div class="flex flex-col gap-6 py-2">
       <div class="flex items-start justify-between gap-4">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Connected Device</h1>
+          <h1 #pageTitle tabindex="-1" class="font-heading text-h3 text-ink outline-none">Connected Device</h1>
           <p class="font-sans text-body text-slate">{{ subtitle() }}</p>
         </div>
         <a
@@ -57,9 +62,6 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
           <sd-button size="sm" (click)="load()">Try Again</sd-button>
         </div>
       } @else {
-        @if (revokeError()) {
-          <p class="font-sans text-body-sm text-alert" role="alert">{{ revokeError() }}</p>
-        }
         <div class="flex flex-col gap-4">
           @for (d of sessions(); track d.id) {
             <div
@@ -91,7 +93,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
                   type="button"
                   class="shrink-0 font-sans text-body-sm font-medium text-alert transition-colors hover:brightness-95 disabled:opacity-50"
                   [disabled]="revokingId() === d.id"
-                  (click)="revoke(d.id)"
+                  (click)="revoke(d)"
                 >
                   {{ revokingId() === d.id ? 'Removing…' : 'Remove' }}
                 </button>
@@ -106,13 +108,15 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
 export class SettingsDevices implements OnInit {
   private readonly patient = inject(PatientApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialogs = inject(DialogService);
+  private readonly injector = inject(Injector);
+  private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
 
   protected readonly sessions = signal<SessionDto[]>([]);
   protected readonly loading = signal(true);
   /** Why the device list failed to load ('' when it didn't). */
   protected readonly error = signal('');
   protected readonly revokingId = signal('');
-  protected readonly revokeError = signal('');
 
   protected readonly subtitle = computed(() => {
     const n = this.sessions().length;
@@ -141,18 +145,27 @@ export class SettingsDevices implements OnInit {
       });
   }
 
-  protected async revoke(id: string): Promise<void> {
-    this.revokingId.set(id);
-    this.revokeError.set('');
-    try {
-      await firstValueFrom(this.patient.revokeSession(id));
-      this.sessions.update((list) => list.filter((s) => s.id !== id));
-    } catch (err) {
-      // Leave the device listed, but say why it couldn't be removed.
-      this.revokeError.set(apiErrorMessage(err, 'Could not remove that device.'));
-    } finally {
-      this.revokingId.set('');
-    }
+  /**
+   * Asked first; the dialog shows the request's progress and why it failed, if
+   * it did. The removed row's button is gone, so focus lands on the heading.
+   */
+  protected async revoke(d: SessionDto): Promise<void> {
+    if (this.revokingId()) return;
+    const removed = await askSignOutDevice(
+      this.dialogs,
+      d.device,
+      async () => {
+        this.revokingId.set(d.id);
+        try {
+          await firstValueFrom(this.patient.revokeSession(d.id));
+          this.sessions.update((list) => list.filter((s) => s.id !== d.id));
+        } finally {
+          this.revokingId.set('');
+        }
+      },
+      'Could not remove that device.',
+    );
+    if (removed) afterDialogsClose(this.dialogs, this.injector, () => this.pageTitle()?.nativeElement.focus());
   }
 
   protected when(iso: string): string {

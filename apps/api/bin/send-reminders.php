@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 /**
  * Send due appointment join reminders (plus prescription expiry housekeeping,
- * closing consultations a doctor forgot to end, expiring / nudging unanswered
+ * closing past consultations nobody closed — completed, never confirmed or
+ * missed (PastAppointmentCloser) — expiring / nudging unanswered
  * follow-up proposals, and doctors' licence reminders / expiry). Meant to be
  * run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
@@ -16,20 +17,30 @@ declare(strict_types=1);
  */
 
 use App\Infrastructure\Persistence\SettingsRegistry;
+use App\Infrastructure\Service\PastAppointmentCloser;
 use App\Infrastructure\Service\ReminderService;
 use App\Infrastructure\Service\SettingsCacheService;
+use DI\Container;
 use DI\ContainerBuilder;
+use Doctrine\ORM\EntityManagerInterface;
 
 require __DIR__ . '/../vendor/autoload.php';
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
-$builder = new ContainerBuilder();
-$builder->addDefinitions(__DIR__ . '/../config/container.php');
-$container = $builder->build();
+// A fresh container — and with it a fresh entity manager once the last one
+// was closed by a failure (DoctrineEntityManagerFactory reuses one only while open).
+$build = static function (): Container {
+    $builder = new ContainerBuilder();
+    $builder->addDefinitions(__DIR__ . '/../config/container.php');
+    $container = $builder->build();
 
-// Static handle for code that can't take DI (mirrors public/index.php).
-SettingsRegistry::set($container->get(SettingsCacheService::class));
+    // Static handle for code that can't take DI (mirrors public/index.php).
+    SettingsRegistry::set($container->get(SettingsCacheService::class));
+
+    return $container;
+};
+$container = $build();
 
 $reminders = $container->get(ReminderService::class);
 $result    = $reminders->run();
@@ -51,27 +62,64 @@ try {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] prescriptions: ' . $e->getMessage() . "\n");
 }
 
-// Consultations the doctor forgot to end: confirmed visits whose slot ended over
-// 12 hours ago and that have proof they happened (a note, prescription,
-// certificate, referral, lab order, the doctor's words on the transcript, or both
-// sides on the call at the same time) are marked completed. No proof (e.g. a
-// no-show, or a patient who waited alone) → left alone. A completed visit is
-// never picked again, so running every 5 minutes is safe.
+// Past consultations nobody closed (PastAppointmentCloser; the windows are
+// Booking settings): a visit whose slot ended over missed_after_hours (12)
+// ago with proof it happened (a note, prescription, certificate, referral,
+// lab order, the doctor's words on the transcript, or both sides on the call
+// at the same time) is marked completed — confirmed or not; a request the
+// doctor never confirmed is cancelled once its slot ended (+
+// unconfirmed_expiry_minutes_after_end) and refunded in full; a confirmed
+// visit with no proof is marked missed (who didn't come from each side's
+// presence) and refunded by the no-show rules. Visits that started over 3
+// days ago close quietly. A closed visit is never picked again and every
+// refund posts under a fixed reference, so running every 5 minutes is safe.
+// A failure that closes the entity manager (any exception inside a row's
+// transaction) would stop the rest of the run, and the next run would meet the
+// same row first: so the run is repeated on a fresh container, skipping the
+// visits that failed, at most PastAppointmentCloser::RETRIES times.
 try {
-    $done = $container->get(App\Infrastructure\Service\ConsultationCompleter::class)->autoCompleteOverdue();
+    $past = PastAppointmentCloser::runWithRetries(static function (array $skipIds, int $attempt) use (&$container, $build): array {
+        if ($attempt > 0) {
+            $container = $build();
+        }
+        $result = $container->get(PastAppointmentCloser::class)->run(null, $skipIds);
+
+        return [$result, $container->get(EntityManagerInterface::class)->isOpen()];
+    });
     $kinds = [];
-    foreach ($done['kinds'] as $kind => $count) {
+    foreach ($past['kinds'] as $kind => $count) {
         $kinds[] = $kind . '=' . $count;
     }
     printf(
-        "[%s] consultations: auto_completed=%d quiet=%d evidence=%s\n",
+        "[%s] consultations: auto_completed=%d quiet=%d evidence=%s expired_unconfirmed=%d missed=doctor:%d,patient:%d,both:%d ambiguous=%d closed_quietly=%d refunded=%s alerts=%d errors=%d failed=%s retries=%d\n",
         gmdate('Y-m-d H:i:s'),
-        $done['completed'],
-        $done['quiet'],
+        $past['completed'],
+        $past['completed_quiet'],
         $kinds !== [] ? implode(',', $kinds) : '-',
+        $past['expired'],
+        $past['missed']['doctor'],
+        $past['missed']['patient'],
+        $past['missed']['both'],
+        $past['ambiguous'],
+        $past['quiet'],
+        $past['refunded'],
+        $past['alerts'],
+        $past['errors'],
+        $past['failed_ids'] !== [] ? implode(',', $past['failed_ids']) : '-',
+        $past['retries'],
     );
 } catch (\Throwable $e) {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] consultations: ' . $e->getMessage() . "\n");
+}
+
+// The jobs below need a usable entity manager: if the last attempt above
+// still left it closed, start them on a fresh one.
+try {
+    if (!$container->get(EntityManagerInterface::class)->isOpen()) {
+        $container = $build();
+    }
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] container: ' . $e->getMessage() . "\n");
 }
 
 // Follow-up proposals the patient hasn't answered: past their expiry (2 hours

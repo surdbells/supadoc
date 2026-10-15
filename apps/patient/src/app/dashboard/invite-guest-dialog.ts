@@ -17,7 +17,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage, AppointmentsApi, WalletApi } from '@supadoc/data-access';
 import type { PatientGuestDto, PatientGuestListDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { DialogComponent, IconComponent } from '@supadoc/ui';
 import {
   addGuestErrors,
   cleanGuestName,
@@ -30,45 +30,33 @@ import {
   newGuestProblems,
 } from './guests';
 
-/** What Tab can land on inside the dialog. */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /**
  * "Invite someone" during the call: who is invited already (and in the call
  * now), each guest's link to copy, and adding one more — free, or paid from
  * the wallet (a card checkout would take the patient away from the call, so
  * card payment is on the appointment page, opened in a new tab). Shows the new
- * guest's personal link to copy as well as emailing it. Rendered while open;
- * focus goes to its heading, Tab stays inside, Esc closes, and focus returns
- * to the button that opened it.
+ * guest's personal link to copy as well as emailing it. Rendered while open,
+ * on the shared dialog (top layer, focus to its heading, Esc, focus back to
+ * the button that opened it) in the call's dark colours.
  */
 @Component({
   selector: 'pat-invite-guest-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [DialogComponent, IconComponent],
   template: `
-    <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-      <button
-        type="button"
-        tabindex="-1"
-        class="absolute inset-0 cursor-default bg-black/50"
-        aria-label="Close"
-        (click)="close()"
-      ></button>
-      <div
-        #dialog
-        class="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-[20px] border border-white/10 bg-abyss p-5 text-white shadow-[0_12px_40px_rgba(0,0,0,0.45)] outline-none sm:rounded-[16px] sm:p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="invite-title"
-        aria-describedby="invite-desc"
-        tabindex="-1"
-        (keydown.escape)="close()"
-        (keydown)="trapTab($event)"
-      >
+    <!-- The call's dark theme, painted over the shared dialog's surface -->
+    <sd-dialog
+      [open]="true"
+      layout="plain"
+      size="sm"
+      labelledBy="invite-title"
+      describedBy="invite-desc"
+      [busy]="busy()"
+      (closed)="close()"
+    >
+      <div class="flex min-h-full flex-col gap-4 bg-abyss p-5 text-white sm:p-6">
         <div class="flex items-center justify-between gap-3">
-          <h2 #title id="invite-title" tabindex="-1" class="flex items-center gap-2 font-heading text-h5 text-white outline-none">
+          <h2 #title id="invite-title" tabindex="-1" data-autofocus class="flex items-center gap-2 font-heading text-h5 text-white outline-none">
             <sd-icon name="user-plus" [size]="22" class="text-frost" />
             Invite someone
           </h2>
@@ -260,7 +248,7 @@ const FOCUSABLE =
 
         <p class="sr-only" aria-live="polite" aria-atomic="true">{{ liveStatus() }}</p>
       </div>
-    </div>
+    </sd-dialog>
   `,
 })
 export class InviteGuestDialog implements OnInit {
@@ -280,7 +268,6 @@ export class InviteGuestDialog implements OnInit {
   /** A guest was invited (so the call can name their tile straight away). */
   readonly added = output<PatientGuestDto>();
 
-  private readonly dialog = viewChild<ElementRef<HTMLElement>>('dialog');
   private readonly title = viewChild<ElementRef<HTMLElement>>('title');
   private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
   private readonly emailField = viewChild<ElementRef<HTMLInputElement>>('emailField');
@@ -301,8 +288,6 @@ export class InviteGuestDialog implements OnInit {
   private readonly walletBalance = signal<number | null>(null);
   protected readonly walletFailed = signal(false);
   private copiedTimer?: ReturnType<typeof setTimeout>;
-  /** Focus goes back here on close. */
-  private readonly opener: HTMLElement | null;
 
   protected readonly free = computed(() => guestIsFree(this.list()));
   protected readonly feeLabel = computed(() => {
@@ -330,8 +315,6 @@ export class InviteGuestDialog implements OnInit {
   });
 
   constructor() {
-    const active = this.document.activeElement;
-    this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
     // Back from topping up the wallet (or paying by card on the appointment
     // page) in the other tab: read the balance and the guests again.
     const onVisible = (): void => {
@@ -343,14 +326,11 @@ export class InviteGuestDialog implements OnInit {
     this.destroyRef.onDestroy(() => {
       this.document.removeEventListener('visibilitychange', onVisible);
       clearTimeout(this.copiedTimer);
-      // Back to the button that opened the dialog.
-      if (this.opener?.isConnected) this.opener.focus();
     });
   }
 
   ngOnInit(): void {
     this.load();
-    afterNextRender(() => this.title()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected load(): void {
@@ -461,24 +441,5 @@ export class InviteGuestDialog implements OnInit {
   protected close(): void {
     if (this.busy()) return; // let the request finish first
     this.closed.emit();
-  }
-
-  /** Tab and Shift+Tab wrap around inside the dialog instead of leaving it. */
-  protected trapTab(e: KeyboardEvent): void {
-    const root = this.dialog()?.nativeElement;
-    if (e.key !== 'Tab' || !root) return;
-    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
-    if (items.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    const at = items.indexOf(this.document.activeElement as HTMLElement);
-    if (e.shiftKey && at <= 0) {
-      e.preventDefault();
-      items[items.length - 1].focus();
-    } else if (!e.shiftKey && at === items.length - 1) {
-      e.preventDefault();
-      items[0].focus();
-    }
   }
 }

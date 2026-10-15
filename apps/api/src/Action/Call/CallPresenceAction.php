@@ -83,6 +83,8 @@ final class CallPresenceAction
         }
 
         $joined = $this->presence->mark($appointment, $claims['role'], $guestId);
+        // Durable evidence the doctor / patient came (first heartbeat in the window, stored once).
+        $this->appointments->recordPresence($appointment, $claims['role'], $now);
         if ($guest !== null) {
             $this->guests->markJoined($appointment, $guest, $joined);
         }

@@ -10,12 +10,12 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
+import type { AppointmentDisplayStatus, AppointmentDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { detailsLink, StatusBadge, statusBadge } from './appointment-status';
 import { isUntakenProposal } from './follow-up';
 
-type Status = 'completed' | 'cancelled';
-type Tab = 'all' | 'completed' | 'cancelled';
+type Tab = 'all' | 'completed' | 'missed' | 'cancelled';
 
 interface Consultation {
   readonly id: string;
@@ -23,20 +23,58 @@ interface Consultation {
   readonly specialty: string;
   readonly date: string;
   readonly time: string;
-  readonly status: Status;
+  readonly typeIcon: string;
+  readonly typeLabel: string;
+  /** Its filter ('all' only: ended, being finalised). */
+  readonly tab: Tab;
+  readonly badge: StatusBadge;
+  readonly link: string[];
 }
 
-const STATUS: Record<Status, { label: string; class: string }> = {
-  completed: { label: 'Completed', class: 'bg-sage/15 text-sage' },
-  cancelled: { label: 'Cancelled', class: 'bg-alert/10 text-alert' },
+/** Which filter each display status belongs to. */
+const TAB_OF: Record<AppointmentDisplayStatus, Tab> = {
+  completed: 'completed',
+  missed: 'missed',
+  cancelled: 'cancelled',
+  not_confirmed: 'cancelled',
+  expired: 'cancelled',
+  finalising: 'all',
+  live: 'all',
+  upcoming: 'all',
 };
 
-/** History is the terminal appointments — the ones that have already happened. */
-function toConsultation(a: AppointmentDto): Consultation | null {
-  if (a.status !== 'completed' && a.status !== 'cancelled') return null;
-  // A follow-up proposal that was declined, withdrawn or expired was never a consultation.
-  if (isUntakenProposal(a)) return null;
+const EMPTY_TAB: Record<Tab, string> = {
+  all: 'No past consultations yet.',
+  completed: 'No completed consultations yet.',
+  missed: 'No missed consultations.',
+  cancelled: 'No cancelled consultations.',
+};
+
+const TYPE_ICON: Record<string, string> = {
+  video: 'video',
+  follow_up: 'refresh-cw',
+  urgent: 'zap',
+  routine: 'calendar-check',
+};
+
+const PAGE_SIZE = 50;
+
+/**
+ * History is every consultation that is over — completed, cancelled, missed,
+ * or ended and still being closed — whatever its status (`when=past`).
+ */
+/**
+ * The consultations among a page of past bookings — a doctor's follow-up
+ * proposal that was never taken up (expired, declined, withdrawn) or is still
+ * a proposal was never a consultation: it shows on its visit's History page.
+ */
+function consultationsOf(list: readonly AppointmentDto[]): Consultation[] {
+  return list.filter((a) => a.status !== 'proposed' && !isUntakenProposal(a)).map(toConsultation);
+}
+
+function toConsultation(a: AppointmentDto): Consultation {
   const when = new Date(a.scheduled_at);
+  const badge = statusBadge(a);
   return {
     id: a.id,
     name: a.specialist.name,
@@ -52,11 +90,21 @@ function toConsultation(a: AppointmentDto): Consultation | null {
       minute: '2-digit',
       hour12: true,
     }).format(when),
-    status: a.status,
+    typeIcon: TYPE_ICON[a.type] ?? 'video',
+    typeLabel: a.type_label,
+    tab: TAB_OF[badge.key],
+    badge,
+    link: detailsLink(a),
   };
 }
 
-/** Consultation History (Figma 497:7880) + inline empty state (808:13294). */
+/**
+ * Consultation History (Figma 497:7880) + inline empty state (808:13294):
+ * `GET /api/portal/appointments?when=past`, newest first, with filters for
+ * completed, missed and cancelled ones (a booking the doctor never confirmed
+ * reads "Not confirmed", under Cancelled). Each row shows the server's label
+ * and, where it helps, what happened ("Doctor didn't attend").
+ */
 @Component({
   selector: 'pat-history',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,7 +115,7 @@ function toConsultation(a: AppointmentDto): Consultation | null {
       <div class="flex flex-col gap-1">
         <h1 class="font-heading text-h3 text-ink">Consultation History</h1>
         <p class="font-sans text-body text-slate">
-          View your consultation in one place.
+          Your past consultations in one place.
         </p>
       </div>
 
@@ -93,9 +141,11 @@ function toConsultation(a: AppointmentDto): Consultation | null {
         </a>
       </nav>
 
-      <!-- Tabs -->
+      <!-- Filters -->
       <div
         class="flex items-center gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-2"
+        role="group"
+        aria-label="Filter consultations"
       >
         @for (t of tabs; track t.key) {
           <button
@@ -106,18 +156,12 @@ function toConsultation(a: AppointmentDto): Consultation | null {
                 ? 'bg-frost font-medium text-cerulean'
                 : 'text-slate hover:text-ink'
             "
+            [attr.aria-pressed]="activeTab() === t.key"
             (click)="activeTab.set(t.key)"
           >
             {{ t.label }}
           </button>
         }
-        <button
-          type="button"
-          class="ml-auto shrink-0 px-3 font-sans text-body-sm text-cerulean hover:underline"
-          (click)="activeTab.set('all')"
-        >
-          Show all
-        </button>
       </div>
 
       @switch (viewState()) {
@@ -127,12 +171,10 @@ function toConsultation(a: AppointmentDto): Consultation | null {
               <div
                 class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4"
               >
-                <div
-                  class="size-14 shrink-0 animate-pulse rounded-full bg-cloud"
-                ></div>
+                <div class="sd-shimmer size-14 shrink-0 rounded-full"></div>
                 <div class="flex flex-1 flex-col gap-2">
-                  <div class="h-3 w-40 animate-pulse rounded bg-cloud"></div>
-                  <div class="h-3 w-24 animate-pulse rounded bg-cloud"></div>
+                  <div class="sd-shimmer h-3 w-40 rounded"></div>
+                  <div class="sd-shimmer h-3 w-24 rounded"></div>
                 </div>
               </div>
             }
@@ -152,16 +194,26 @@ function toConsultation(a: AppointmentDto): Consultation | null {
           <sd-empty-state
             icon="calendar-off"
             title="No consultation history yet"
-            message="You haven't completed any consultations yet. Once you do, they'll show up here."
+            message="Consultations show up here once they're over. Upcoming ones are in My Appointments."
           >
-            <sd-button (click)="book()">
-              <sd-icon name="calendar-days" [size]="18" />
-              Book a Consultation
-            </sd-button>
+            <div class="flex flex-col gap-3 sm:flex-row">
+              <sd-button (click)="book()">
+                <sd-icon name="calendar-days" [size]="18" />
+                Book a Consultation
+              </sd-button>
+              <sd-button variant="outline" routerLink="/dashboard/appointments">
+                My Appointments
+              </sd-button>
+            </div>
           </sd-empty-state>
         }
         @default {
           <div class="flex flex-col gap-4">
+            @if (filtered().length === 0) {
+              <p class="rounded-card border border-cloud bg-white p-6 text-center font-sans text-body-sm text-slate">
+                {{ emptyTabText() }}
+              </p>
+            }
             @for (c of filtered(); track c.id) {
               <button
                 type="button"
@@ -179,21 +231,24 @@ function toConsultation(a: AppointmentDto): Consultation | null {
                   <p class="truncate font-sans text-caption text-slate">
                     {{ c.specialty }}
                   </p>
-                  <!-- Compact meta for mobile (date + status) -->
+                  <!-- Compact meta for narrow screens (date + status) -->
                   <div
-                    class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 sm:hidden"
+                    class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 md:hidden"
                   >
                     <span
-                      class="flex items-center gap-1 font-sans text-caption text-slate"
+                      class="flex items-center gap-1 font-sans text-caption text-slate sm:hidden"
                     >
                       <sd-icon name="calendar-days" [size]="14" />{{ c.date }}
                     </span>
                     <span
-                      class="rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
-                      [class]="status(c).class"
-                      >{{ status(c).label }}</span
+                      class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
+                      [class]="c.badge.class"
+                      ><sd-icon [name]="c.badge.icon" [size]="12" />{{ c.badge.label }}</span
                     >
                   </div>
+                  @if (c.badge.detail) {
+                    <p class="mt-1 font-sans text-caption text-slate md:hidden">{{ c.badge.detail }}</p>
+                  }
                 </div>
                 <div
                   class="hidden flex-col gap-1 font-sans text-caption text-slate sm:flex"
@@ -209,13 +264,16 @@ function toConsultation(a: AppointmentDto): Consultation | null {
                   <span
                     class="flex items-center gap-2 font-sans text-caption text-slate"
                   >
-                    <sd-icon name="video" [size]="16" />Video Consultation
+                    <sd-icon [name]="c.typeIcon" [size]="16" />{{ c.typeLabel }}
                   </span>
                   <span
-                    class="rounded-lg px-4 py-1 font-sans text-caption font-medium"
-                    [class]="status(c).class"
-                    >{{ status(c).label }}</span
+                    class="inline-flex items-center gap-1.5 rounded-lg px-4 py-1 font-sans text-caption font-medium"
+                    [class]="c.badge.class"
+                    ><sd-icon [name]="c.badge.icon" [size]="14" />{{ c.badge.label }}</span
                   >
+                  @if (c.badge.detail) {
+                    <span class="max-w-[12rem] font-sans text-caption text-slate">{{ c.badge.detail }}</span>
+                  }
                 </div>
                 <sd-icon
                   name="chevron-right"
@@ -223,6 +281,22 @@ function toConsultation(a: AppointmentDto): Consultation | null {
                   class="shrink-0 text-cerulean"
                 />
               </button>
+            }
+            @if (hasMore()) {
+              <sd-button
+                variant="outline"
+                class="self-center"
+                [disabled]="loadingMore()"
+                (click)="loadMore()"
+              >
+                @if (loadingMore()) {
+                  <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
+                }
+                {{ loadingMore() ? 'Loading…' : 'Show older consultations' }}
+              </sd-button>
+            }
+            @if (moreError()) {
+              <p class="text-center font-sans text-caption text-alert" role="alert">{{ moreError() }}</p>
             }
           </div>
         }
@@ -240,6 +314,7 @@ export class History {
   protected readonly tabs: { key: Tab; label: string }[] = [
     { key: 'all', label: 'All' },
     { key: 'completed', label: 'Completed' },
+    { key: 'missed', label: 'Missed' },
     { key: 'cancelled', label: 'Cancelled' },
   ];
 
@@ -250,6 +325,13 @@ export class History {
   protected readonly loadErrorFallback =
     "We couldn't retrieve your consultation history. Check your connection and try again.";
 
+  // "Show older consultations" — the next page of the newest-first list.
+  private readonly page = signal(1);
+  private readonly totalPages = signal(1);
+  protected readonly loadingMore = signal(false);
+  protected readonly moreError = signal('');
+  protected readonly hasMore = computed(() => this.page() < this.totalPages());
+
   private readonly view = toSignal(
     this.route.queryParamMap.pipe(map((p) => p.get('view'))),
     { initialValue: null },
@@ -259,12 +341,8 @@ export class History {
     this.load();
   }
 
-  protected status(c: Consultation) {
-    return STATUS[c.status];
-  }
-
   protected open(c: Consultation): void {
-    void this.router.navigate(['/dashboard/history', c.id]);
+    void this.router.navigate(c.link);
   }
 
   protected initials(name: string): string {
@@ -291,36 +369,68 @@ export class History {
     const tab = this.activeTab();
     const all = this.all();
     if (tab === 'all') return all;
-    return all.filter((c) => c.status === tab);
+    return all.filter((c) => c.tab === tab);
   });
+
+  protected readonly emptyTabText = computed(() => EMPTY_TAB[this.activeTab()]);
 
   protected readonly viewState = computed<
     'loading' | 'list' | 'empty' | 'error'
   >(() => {
     if (this.view() === 'error' || this.loadError()) return 'error';
-    if (this.loading()) return 'loading';
-    if (this.view() === 'empty' || this.filtered().length === 0) return 'empty';
+    // Still paging past untaken proposals for a first consultation to show.
+    if (this.loading() || (this.all().length === 0 && this.loadingMore())) return 'loading';
+    if (this.view() === 'empty' || this.all().length === 0) return 'empty';
     return 'list';
   });
 
+  /** Everything over (`when=past`), newest first. */
   private load(): void {
     this.loading.set(true);
     this.loadError.set('');
+    this.moreError.set('');
+    this.page.set(1);
     this.appointments
-      .listMine({ per_page: 100, sort_by: 'scheduled_at', sort_dir: 'desc' })
+      .listMine({ when: 'past', per_page: PAGE_SIZE, page: 1 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.all.set(
-            res.data
-              .map(toConsultation)
-              .filter((c): c is Consultation => c !== null),
-          );
+          this.all.set(consultationsOf(res.data));
+          this.totalPages.set(res.meta?.total_pages ?? 1);
           this.loading.set(false);
+          // A first page of nothing but untaken proposals: fetch on rather than say "none yet".
+          if (this.all().length === 0 && this.hasMore()) this.loadMore();
         },
         error: (err: unknown) => {
           this.loadError.set(apiErrorMessage(err, this.loadErrorFallback));
           this.loading.set(false);
+        },
+      });
+  }
+
+  protected loadMore(): void {
+    if (this.loadingMore() || !this.hasMore()) return;
+    const next = this.page() + 1;
+    this.loadingMore.set(true);
+    this.moreError.set('');
+    this.appointments
+      .listMine({ when: 'past', per_page: PAGE_SIZE, page: next })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.page.set(next);
+          this.totalPages.set(res.meta?.total_pages ?? next);
+          // A visit that ended meanwhile shifts the pages by one: never list it twice.
+          const seen = new Set(this.all().map((c) => c.id));
+          this.all.update((list) => [...list, ...consultationsOf(res.data.filter((a) => !seen.has(a.id)))]);
+          this.loadingMore.set(false);
+          if (this.all().length === 0 && this.hasMore()) this.loadMore();
+        },
+        error: (err: unknown) => {
+          // Nothing listed yet: the whole page failed, not just the older ones.
+          if (this.all().length === 0) this.loadError.set(apiErrorMessage(err, this.loadErrorFallback));
+          else this.moreError.set(apiErrorMessage(err, 'Could not load older consultations. Please try again.'));
+          this.loadingMore.set(false);
         },
       });
   }

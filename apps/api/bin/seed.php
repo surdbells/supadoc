@@ -213,25 +213,35 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
 }
 
 // A spread of appointments for the patient so the wired portal UI has real
-// content across the Upcoming / Completed / Cancelled tabs.
+// content in Appointments (upcoming) and History (past). Dates are RELATIVE
+// to today (+N days), so the seed never goes stale: an "upcoming" demo row
+// can't drift into the past and sit there as an open booking.
 if (count($em->getRepository(Appointment::class)->findBy(['patient' => $patient])) === 0) {
-    $book = static function (string $when, ConsultationType $type, array $advance)
+    $book = static function (string $when, ConsultationType $type, array $advance, ?callable $close = null)
     use ($patient, $specialist, $em): void {
-        $appt = new Appointment($patient, $specialist, new DateTimeImmutable($when), $type);
+        $appt = new Appointment($patient, $specialist, (new DateTimeImmutable('now'))->modify($when), $type);
         foreach ($advance as $status) {
-            $appt->transitionTo($status);
+            // The seed plays the cron / back office too (e.g. a missed visit).
+            $appt->transitionTo($status, true);
+        }
+        if ($close !== null) {
+            $close($appt);
         }
         $em->persist($appt);
     };
 
-    // Upcoming
-    $book('2026-09-01 10:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED]);
-    $book('2026-09-05 14:30', ConsultationType::FOLLOW_UP, []); // pending
-    $book('2026-09-10 13:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::RESCHEDULED]);
-    // Past (history)
-    $book('2026-07-15 09:00', ConsultationType::ROUTINE, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
-    $book('2026-07-20 16:00', ConsultationType::URGENT, [AppointmentStatus::CANCELLED]);
-    $book('2026-06-28 11:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
+    // Upcoming (Appointments)
+    $book('+2 days 10:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED]);
+    $book('+5 days 14:30', ConsultationType::FOLLOW_UP, []); // pending
+    $book('+9 days 13:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::RESCHEDULED]);
+    // Past (History)
+    $book('-30 days 09:00', ConsultationType::ROUTINE, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
+    $book('-25 days 16:00', ConsultationType::URGENT, [AppointmentStatus::CANCELLED]);
+    $book('-47 days 11:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::COMPLETED]);
+    $book('-12 days 15:00', ConsultationType::VIDEO, [AppointmentStatus::CONFIRMED, AppointmentStatus::MISSED], static function (Appointment $a): void {
+        $a->setNoShow('patient');
+        $a->setClosureReason('no_show');
+    });
 }
 
 // Notifications for the patient (a mix of unread/read across types).
@@ -245,7 +255,7 @@ if (count($em->getRepository(Notification::class)->findBy(['patient' => $patient
         $em->persist($n);
     };
 
-    $notify(NotificationType::APPOINTMENT, 'Appointment confirmed', 'Your consultation with Dr. Grace Bell is confirmed for 1 Sep, 11:00 AM.', false);
+    $notify(NotificationType::APPOINTMENT, 'Appointment confirmed', 'Your consultation with Dr. Grace Bell is confirmed for ' . (new DateTimeImmutable('+2 days 10:00'))->format('j M, g:i A') . '.', false);
     $notify(NotificationType::PRESCRIPTION, 'Prescription ready', 'Your prescription from Dr. Grace Bell is ready for pickup.', false);
     $notify(NotificationType::PAYMENT, 'Payment received', 'We received your ₦15,000.00 payment for a video consultation.', true);
     $notify(NotificationType::SYSTEM, 'Welcome to VideoMed', 'Complete your profile to get the most out of VideoMed.', true);

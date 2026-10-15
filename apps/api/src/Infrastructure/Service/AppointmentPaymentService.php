@@ -62,13 +62,23 @@ final class AppointmentPaymentService
     }
 
     /**
-     * Refund a paid booking back to the wallet (idempotent). No-op unless the
-     * appointment is currently marked paid — and for a free booking, which had
-     * nothing to refund (it stays `paid`: nothing was ever owed).
+     * Refund a paid booking back to the wallet (idempotent): what is left of
+     * it — all of it, unless part already went back (a no-show or back-office
+     * refund). No-op unless the appointment is currently marked paid — and for
+     * a free booking, which had nothing to refund (it stays `paid`: nothing
+     * was ever owed). Records the refund on the appointment (refunded_amount;
+     * payment_status `refunded`). `$sendReceipt` false: no wallet receipt
+     * email (the cron's quiet backlog).
      */
-    public function refundForCancellation(Appointment $appointment): ?WalletTransaction
+    public function refundForCancellation(Appointment $appointment, bool $sendReceipt = true): ?WalletTransaction
     {
         if ($appointment->getPaymentStatus() !== 'paid' || $appointment->isFree()) {
+            return null;
+        }
+        $left = $appointment->refundableAmount();
+        if (bccomp($left, '0', 2) <= 0) {
+            $appointment->setPaymentStatus('refunded');
+
             return null;
         }
 
@@ -76,15 +86,51 @@ final class AppointmentPaymentService
         $txn      = $this->wallets->credit(
             $appointment->getPatient()->getId(),
             $currency,
-            $appointment->getAmount(),
+            $left,
             WalletTransaction::TYPE_REFUND,
             'appt_refund_' . $appointment->getId(),
             'Refund for cancelled consultation with ' . $appointment->getSpecialist()->getName(),
+            $sendReceipt,
         );
 
+        $appointment->recordRefund($left);
         $appointment->setPaymentStatus('refunded');
 
         return $txn;
+    }
+
+    /**
+     * Refund part of a paid booking — `$amount`, never more than is left to
+     * refund ({@see Appointment::refundableAmount()}) — under `$reference`
+     * (idempotent: a retry posts nothing twice and records nothing twice), and
+     * record it on the appointment. Returns what was refunded ('0.00' when
+     * nothing was: unpaid, free, already all refunded, or `$amount` ≤ 0).
+     * `$reference` must not be `appt_refund_<id>` (a later cancellation's).
+     * `$sendReceipt` false: no wallet receipt email (the cron's quiet backlog).
+     */
+    public function refundPart(Appointment $appointment, string $amount, string $reference, string $description, bool $sendReceipt = true): string
+    {
+        $left   = $appointment->refundableAmount();
+        $amount = bcadd($amount, '0', 2);
+        if (bccomp($amount, $left, 2) > 0) {
+            $amount = $left;
+        }
+        if (bccomp($amount, '0', 2) <= 0 || $this->wallets->hasPosting($reference)) {
+            return '0.00';
+        }
+
+        $this->wallets->credit(
+            $appointment->getPatient()->getId(),
+            $this->wallets->defaultCurrency(),
+            $amount,
+            WalletTransaction::TYPE_REFUND,
+            $reference,
+            $description,
+            $sendReceipt,
+        );
+        $appointment->recordRefund($amount);
+
+        return $amount;
     }
 
     /**

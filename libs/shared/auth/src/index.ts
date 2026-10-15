@@ -12,3 +12,4 @@ export * from './lib/session/session-auth';
 export * from './lib/session/session-notice';
 export * from './lib/session/session-timeout.service';
 export * from './lib/session/session-timeout-dialog';
+export * from './lib/unsaved-changes.guard';

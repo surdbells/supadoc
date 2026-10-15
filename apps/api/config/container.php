@@ -389,6 +389,38 @@ return [
         (float) ($_ENV['DOCTOR_COMMISSION_PERCENT'] ?? 0),
     ),
 
+    // Past consultations nobody closed (the reminders cron): completed on proof,
+    // never-confirmed requests expired + refunded, no-shows marked missed.
+    \App\Infrastructure\Service\PastAppointmentCloser::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\PastAppointmentCloser =>
+        new \App\Infrastructure\Service\PastAppointmentCloser(
+            $c->get(EntityManagerInterface::class),
+            $c->get(AppointmentRepository::class),
+            $c->get(\App\Infrastructure\Service\ConsultationCompleter::class),
+            $c->get(AppointmentPaymentService::class),
+            $c->get(\App\Domain\Settings\BookingSettings::class),
+            $c->get(AuditLogger::class),
+            $c->get(PatientNotifier::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(PricingService::class),
+            $c->get(CallPresence::class),
+        ),
+
+    // The back office closing / correcting a consultation (cancel, held, no-show, refund), audited.
+    \App\Infrastructure\Service\AppointmentResolver::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\AppointmentResolver =>
+        new \App\Infrastructure\Service\AppointmentResolver(
+            $c->get(AppointmentRepository::class),
+            $c->get(AppointmentPaymentService::class),
+            $c->get(\App\Infrastructure\Service\ConsultationCompleter::class),
+            $c->get(\App\Infrastructure\Service\PastAppointmentCloser::class),
+            $c->get(GuestInvitations::class),
+            $c->get(AuditLogger::class),
+            $c->get(PatientNotifier::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(PricingService::class),
+        ),
+
     // ----- Repositories -----
     UserRepository::class => static fn (ContainerInterface $c): UserRepository =>
         new UserRepository($c->get(EntityManagerInterface::class)),

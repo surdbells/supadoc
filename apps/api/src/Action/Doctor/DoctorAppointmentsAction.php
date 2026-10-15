@@ -11,6 +11,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
+use App\Infrastructure\Service\CallPresence;
 use App\Infrastructure\Service\JwtService;
 use DateTimeImmutable;
 use Psr\Http\Message\ResponseInterface;
@@ -29,6 +30,12 @@ use App\Domain\Settings\WebUrls;
  * message}) when the call would refuse the doctor
  * ({@see CallAccess::doctorProblem()}: suspended, not approved, or
  * terms_required for a consultation that hasn't started yet).
+ *
+ * `?when=` splits the schedule by time instead (100 rows): `upcoming` — still
+ * to come or live (started, not yet 30 minutes past its end, or someone in the
+ * call), soonest first: the Pending / Upcoming tabs; `past` — over (closed, or
+ * ended), newest first; `attention` — past and still open (pending /
+ * confirmed / rescheduled: the cron closes it), newest first.
  */
 final class DoctorAppointmentsAction
 {
@@ -39,6 +46,7 @@ final class DoctorAppointmentsAction
         private readonly SpecialistRepository $specialists,
         private readonly AppointmentRepository $appointments,
         private readonly JwtService $jwt,
+        private readonly CallPresence $presence,
     ) {
     }
 
@@ -62,7 +70,9 @@ final class DoctorAppointmentsAction
         // A doctor the call would refuse gets no link: suspended, not approved,
         // or owing the practitioner terms for a consultation not started yet.
         $now  = new DateTimeImmutable();
-        $rows = array_map(function (Appointment $appt) use ($specialist, $webUrl, $now): array {
+        $when = AppointmentRepository::parseWhen($request->getQueryParams()['when'] ?? null);
+        $live = $when !== null ? CallPresence::liveIds($this->presence->forSpecialist($specialist->getId())) : [];
+        $rows = array_map(function (Appointment $appt) use ($specialist, $webUrl, $now, $live): array {
             $patient = $appt->getPatient()->toArray();
             $blocked = CallAccess::doctorJoinBlocked($appt, $now);
             // An unaccepted follow-up proposal has no call yet: no link (the
@@ -74,12 +84,17 @@ final class DoctorAppointmentsAction
                 2,
             );
 
-            return $appt->toArray() + [
-                'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
-                'join_url'     => $token !== null ? $webUrl . '/call/join/' . $token : null,
-                'join_blocked' => $blocked,
-            ];
-        }, $this->appointments->forSpecialist($specialist->getId()));
+            // Someone in the call: it is live, whatever the clock says.
+            return array_merge(
+                $appt->toArray('doctor', $now),
+                in_array($appt->getId(), $live, true) ? $appt->lifecycleFields($now, 'doctor', true) : [],
+                [
+                    'patient_name' => trim(((string) $patient['first_name']) . ' ' . ((string) $patient['last_name'])),
+                    'join_url'     => $token !== null ? $webUrl . '/call/join/' . $token : null,
+                    'join_blocked' => $blocked,
+                ],
+            );
+        }, $this->appointments->forSpecialist($specialist->getId(), 100, $now, $when, $live));
 
         return $this->success($response, [
             'specialist'   => $specialist->toArray(),

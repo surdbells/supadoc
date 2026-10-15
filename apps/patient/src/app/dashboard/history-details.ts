@@ -30,6 +30,15 @@ import type {
   PrescriptionStatus,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import {
+  detailsLink,
+  isPast,
+  nairaLabel,
+  OPEN_STATUSES,
+  outcomeNote,
+  StatusBadge,
+  statusBadge,
+} from './appointment-status';
 import { dayLabel, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
@@ -64,16 +73,12 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
   maximumFractionDigits: 2,
 });
 
-const STATUS_CLASS: Record<string, string> = {
-  proposed: 'bg-teal/10 text-teal',
-  pending: 'bg-warning/15 text-warning',
-  confirmed: 'bg-sage/15 text-sage',
-  rescheduled: 'bg-cloud text-slate',
-  completed: 'bg-sage/15 text-sage',
-  cancelled: 'bg-alert/10 text-alert',
-};
-
-/** Consultation details (Figma 808:13576) — wired to GET /api/portal/appointments/{id}. */
+/**
+ * Consultation details (Figma 808:13576) — wired to GET /api/portal/appointments/{id}.
+ * Everything History lists opens here: a completed visit (summary, documents,
+ * rating, follow-ups), a missed or cancelled one (what happened and what went
+ * back to the wallet), or one that ended and isn't closed yet.
+ */
 @Component({
   selector: 'pat-history-details',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -131,16 +136,40 @@ const STATUS_CLASS: Record<string, string> = {
                     </a>
                   }
                 </div>
-                <span class="shrink-0 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium" [class]="statusClass(a.status)">{{ a.status_label }}</span>
+                @if (badge(); as b) {
+                  <div class="flex flex-col items-end gap-1.5">
+                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium" [class]="b.class">
+                      <sd-icon [name]="b.icon" [size]="16" />{{ b.label }}
+                    </span>
+                    @if (b.detail) {
+                      <span class="max-w-[14rem] text-right font-sans text-caption text-slate">{{ b.detail }}</span>
+                    }
+                  </div>
+                }
               </div>
             </section>
 
-            <!-- Right after leaving a call the doctor may not have closed the visit yet. -->
-            @if (a.status === 'confirmed') {
-              <section class="flex flex-col gap-4 rounded-card border border-warning/30 bg-warning/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <!-- Over (or live) but not closed yet: the doctor, or the reminders cron, closes it. -->
+            @if (isOpen()) {
+              <section
+                class="flex flex-col gap-4 rounded-card border p-5 sm:flex-row sm:items-center sm:justify-between"
+                [class]="badge()?.key === 'not_confirmed' ? 'border-cloud bg-glacier' : 'border-warning/30 bg-warning/5'"
+              >
                 <p class="flex items-start gap-3 font-sans text-body-sm text-ink">
-                  <sd-icon name="hourglass" [size]="20" class="mt-0.5 shrink-0 text-warning" />
-                  Your doctor hasn't closed this consultation yet — summaries and prescriptions appear here once issued.
+                  @switch (badge()?.key) {
+                    @case ('live') {
+                      <sd-icon name="video" [size]="20" class="mt-0.5 shrink-0 text-success" />
+                      Your consultation is still open — you can rejoin while it's in progress. Summaries and prescriptions appear here once your doctor issues them.
+                    }
+                    @case ('not_confirmed') {
+                      <sd-icon name="calendar-off" [size]="20" class="mt-0.5 shrink-0 text-slate" />
+                      Your doctor didn't confirm this consultation in time. If it didn't take place, it will be cancelled and any payment refunded to your wallet in full.
+                    }
+                    @default {
+                      <sd-icon name="hourglass" [size]="20" class="mt-0.5 shrink-0 text-warning" />
+                      Your doctor hasn't closed this consultation yet — summaries and prescriptions appear here once issued.
+                    }
+                  }
                 </p>
                 @if (canRejoin()) {
                   <a
@@ -150,6 +179,14 @@ const STATUS_CLASS: Record<string, string> = {
                     <sd-icon name="video" [size]="18" />Rejoin consultation
                   </a>
                 }
+              </section>
+            }
+
+            <!-- How it ended, when that needs saying (missed, not confirmed, cancelled — and what went back to the wallet). -->
+            @if (outcome(); as o) {
+              <section class="flex items-start gap-3 rounded-card border border-cloud bg-white p-5" role="note" aria-label="What happened">
+                <sd-icon [name]="badge()?.icon ?? 'info'" [size]="20" class="mt-0.5 shrink-0 text-slate" />
+                <p class="font-sans text-body-sm text-ink">{{ o }}</p>
               </section>
             }
 
@@ -206,29 +243,31 @@ const STATUS_CLASS: Record<string, string> = {
               </section>
             }
 
-            <!-- Summary + Note -->
-            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-                <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="clipboard-list" [size]="20" />Consultation Summary</h2>
-                @if (summary()?.available) {
-                  <div class="flex flex-col gap-3 font-sans text-body-sm text-slate">
-                    @if (summary()?.subjective) { <p>{{ summary()?.subjective }}</p> }
-                    @if (summary()?.assessment) { <p><span class="font-semibold text-ink">Assessment: </span>{{ summary()?.assessment }}</p> }
-                  </div>
-                } @else {
-                  <p class="font-sans text-body-sm text-slate">The consultation summary isn't available yet.</p>
-                }
-              </section>
+            <!-- Summary + Note (not for a visit that never took place — cancelled or missed — unless one was recorded anyway) -->
+            @if (summary()?.available || summary()?.plan || (a.status !== 'cancelled' && a.status !== 'missed')) {
+              <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                  <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="clipboard-list" [size]="20" />Consultation Summary</h2>
+                  @if (summary()?.available) {
+                    <div class="flex flex-col gap-3 font-sans text-body-sm text-slate">
+                      @if (summary()?.subjective) { <p>{{ summary()?.subjective }}</p> }
+                      @if (summary()?.assessment) { <p><span class="font-semibold text-ink">Assessment: </span>{{ summary()?.assessment }}</p> }
+                    </div>
+                  } @else {
+                    <p class="font-sans text-body-sm text-slate">The consultation summary isn't available yet.</p>
+                  }
+                </section>
 
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-                <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="clipboard-list" [size]="20" />Care Plan</h2>
-                @if (summary()?.plan) {
-                  <p class="font-sans text-body-sm text-ink">{{ summary()?.plan }}</p>
-                } @else {
-                  <p class="font-sans text-body-sm text-slate">No care plan was recorded for this consultation.</p>
-                }
-              </section>
-            </div>
+                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                  <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="clipboard-list" [size]="20" />Care Plan</h2>
+                  @if (summary()?.plan) {
+                    <p class="font-sans text-body-sm text-ink">{{ summary()?.plan }}</p>
+                  } @else {
+                    <p class="font-sans text-body-sm text-slate">No care plan was recorded for this consultation.</p>
+                  }
+                </section>
+              </div>
+            }
 
             <!-- Follow-ups of this visit: the doctor's proposal to answer, or book one with the same doctor -->
             @if (a.status === 'completed' || followUps().length > 0) {
@@ -373,11 +412,16 @@ const STATUS_CLASS: Record<string, string> = {
                 <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="credit-card" [size]="20" />Payment Status</h2>
                 <div class="flex flex-wrap items-center justify-between gap-4">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="credit-card" [size]="20" class="text-slate" />Amount: ₦{{ money(a.amount) }}</span>
-                  <span class="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1 font-sans text-caption font-medium" [class]="a.payment_status === 'paid' ? 'bg-sage/15 text-sage' : a.payment_status === 'refunded' ? 'bg-frost text-cerulean' : 'bg-warning/15 text-warning'">
-                    <sd-icon [name]="a.payment_status === 'paid' ? 'circle-check' : 'clock'" [size]="14" />
-                    {{ paymentLabel(a.payment_status) }}
+                  <span class="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1 font-sans text-caption font-medium" [class]="paymentClass(a)">
+                    <sd-icon [name]="a.payment_status === 'paid' && !partlyRefunded(a) ? 'circle-check' : a.payment_status === 'refunded' || partlyRefunded(a) ? 'undo-2' : 'clock'" [size]="14" />
+                    {{ partlyRefunded(a) ? 'Partly refunded' : paymentLabel(a.payment_status) }}
                   </span>
                 </div>
+                @if (refundedText(a); as r) {
+                  <span class="flex items-center gap-2 font-sans text-body-sm text-ink">
+                    <sd-icon name="wallet" [size]="20" class="text-slate" />Refunded to your wallet: {{ r }}
+                  </span>
+                }
               </section>
             </div>
           }
@@ -478,16 +522,40 @@ export class HistoryDetails {
   protected readonly loadError = computed(() => this.result().error);
   protected readonly parentDate = computed(() => dayLabel(this.appt()?.parent?.scheduled_at));
 
-  /** The history lists closed visits only — an open one goes back to the appointments. */
-  protected readonly backLink = computed(() => {
-    const s = this.appt()?.status;
-    return s && s !== 'completed' && s !== 'cancelled' ? '/dashboard/appointments' : '/dashboard/history';
+  /** The badge (server label, colours, icon) and the line under it. */
+  protected readonly badge = computed<StatusBadge | null>(() => {
+    const a = this.appt();
+    return a ? statusBadge(a) : null;
   });
 
-  /** Not closed yet and still within the rejoin window. */
+  /** Still open (pending / confirmed / rescheduled): live, or over and waiting to be closed. */
+  protected readonly isOpen = computed(() => {
+    const a = this.appt();
+    return !!a && OPEN_STATUSES.includes(a.status);
+  });
+
+  /** What happened to a closed one, and what went back to the wallet ('' when nothing to add). */
+  protected readonly outcome = computed(() => {
+    const a = this.appt();
+    return a && !this.isOpen() ? outcomeNote(a) : '';
+  });
+
+  /** History lists what is over — one still to come goes back to the appointments. */
+  protected readonly backLink = computed(() => {
+    const a = this.appt();
+    return a && !isPast(a) ? '/dashboard/appointments' : '/dashboard/history';
+  });
+
+  /**
+   * In progress, or ended and not closed yet (the doctor may still be in it) —
+   * within the rejoin window. Never one the doctor didn't confirm in time.
+   */
   protected readonly canRejoin = computed(() => {
     const a = this.appt();
-    return !!a && a.status === 'confirmed' && this.now() < new Date(a.scheduled_at).getTime() + REJOIN_WINDOW_MS;
+    const key = this.badge()?.key;
+    if (!a || !this.isOpen()) return false;
+    if (key === 'live') return true;
+    return key === 'finalising' && this.now() < new Date(a.scheduled_at).getTime() + REJOIN_WINDOW_MS;
   });
 
   /** Completed and not rated from this browser yet (or rated just now — keep the thanks in view). */
@@ -507,17 +575,20 @@ export class HistoryDetails {
     this.destroyRef.onDestroy(() => clearInterval(timer));
   }
 
+  /** While it is still open, look for it being closed (or its live / ended state changing). */
   private pollStatus(): void {
     const a = this.appt();
-    if (!a || a.status !== 'confirmed') return;
+    if (!a || !OPEN_STATUSES.includes(a.status)) return;
     this.api
       .getMine(a.id)
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((res) => {
         const fresh = res?.data;
-        if (!fresh || fresh.id !== this.appt()?.id || fresh.status === 'confirmed') return;
+        const shown = this.appt();
+        if (!fresh || fresh.id !== shown?.id) return;
+        if (fresh.status === shown.status && fresh.display_status === shown.display_status) return;
         this.refreshed.set(fresh);
-        this.loadExtras(fresh.id);
+        if (fresh.status !== shown.status) this.loadExtras(fresh.id);
       });
   }
 
@@ -688,32 +759,40 @@ export class HistoryDetails {
   protected timeLabel(iso: string): string {
     return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
   }
-  protected statusClass(status: string): string {
-    return STATUS_CLASS[status] ?? 'bg-cloud text-slate';
-  }
   /** "Tue 21 Oct, 3:00 PM", local time. */
   protected when(iso: string): string {
     return whenLabel(iso);
   }
   /**
-   * A follow-up that has happened (or won't) lives in the history; one still
-   * ahead in the appointments — as does a proposal never taken up, which the
-   * history leaves out.
+   * A follow-up that is over lives in the history; one still ahead in the
+   * appointments — as does a proposal (open or never taken up), answered or
+   * shown as closed on its appointment page.
    */
   protected followUpLink(f: AppointmentDto): string {
-    if (isUntakenProposal(f)) return '/dashboard/appointments';
-    return f.status === 'completed' || f.status === 'cancelled' ? '/dashboard/history' : '/dashboard/appointments';
+    return detailsLink(f)[0];
   }
   protected followUpStatus(f: AppointmentDto): string {
     if (isOpenProposal(f, this.now())) return 'Awaiting your reply';
-    if (isUntakenProposal(f)) return 'Not taken up';
-    return f.status === 'proposed' ? 'Expired' : f.status_label;
+    if (isUntakenProposal(f) && !f.display_label) return 'Not taken up';
+    return statusBadge(f).label;
   }
   protected followUpStatusClass(f: AppointmentDto): string {
-    return isUntakenProposal(f) ? 'bg-cloud text-slate' : this.statusClass(f.status);
+    return statusBadge(f).class;
   }
   protected money(amount: string): string {
     return NAIRA.format(Number(amount) || 0);
+  }
+  /** Some of it went back (a missed visit, a late cancellation) but not all. */
+  protected partlyRefunded(a: AppointmentDto): boolean {
+    return a.payment_status === 'paid' && Number(a.refunded_amount) > 0;
+  }
+  /** "₦5,000.00" refunded so far ('' when nothing was). */
+  protected refundedText(a: AppointmentDto): string {
+    return nairaLabel(a.refunded_amount);
+  }
+  protected paymentClass(a: AppointmentDto): string {
+    if (a.payment_status === 'refunded' || this.partlyRefunded(a)) return 'bg-frost text-cerulean';
+    return a.payment_status === 'paid' ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning';
   }
   protected paymentLabel(status: string | undefined): string {
     switch (status) {

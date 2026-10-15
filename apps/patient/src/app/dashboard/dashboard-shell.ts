@@ -16,8 +16,9 @@ import {
 } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
 import { NotificationsApi, PatientApi } from '@supadoc/data-access';
-import { ConfirmDialogComponent, IconComponent, LogoComponent } from '@supadoc/ui';
+import { DialogService, IconComponent, LogoComponent } from '@supadoc/ui';
 import { ThemeService } from '../theme.service';
+import { askSignOut } from './sign-out';
 
 interface NavItem {
   readonly label: string;
@@ -42,7 +43,6 @@ interface NavItem {
     RouterLinkActive,
     IconComponent,
     LogoComponent,
-    ConfirmDialogComponent,
   ],
   template: `
     <div class="flex min-h-screen bg-glacier">
@@ -247,17 +247,6 @@ interface NavItem {
         </button>
       </div>
     </ng-template>
-
-    <sd-confirm-dialog
-      [open]="confirmLogout()"
-      title="Log out?"
-      message="You'll need to sign in again to access your dashboard."
-      confirmLabel="Log out"
-      icon="log-out"
-      [danger]="true"
-      (confirm)="logOut()"
-      (cancel)="confirmLogout.set(false)"
-    />
   `,
 })
 export class DashboardShell {
@@ -267,6 +256,7 @@ export class DashboardShell {
   private readonly notificationsApi = inject(NotificationsApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly themeSvc = inject(ThemeService);
+  private readonly dialogs = inject(DialogService);
 
   protected readonly isDark = computed(() => this.themeSvc.theme() === 'dark');
   protected toggleTheme(): void {
@@ -274,7 +264,6 @@ export class DashboardShell {
   }
 
   protected readonly menuOpen = signal(false);
-  protected readonly confirmLogout = signal(false);
   protected readonly unread = signal(0);
   /** Desktop sidebar collapsed to an icon rail; persisted across sessions. */
   protected readonly collapsed = signal(this.readCollapsed());
@@ -367,14 +356,13 @@ export class DashboardShell {
       .toUpperCase(),
   );
 
-  /** Ask before logging out — prevents accidental one-tap sign-outs. */
-  protected askLogout(): void {
+  /** Ask before logging out — prevents accidental one-tap sign-outs (the Settings row asks the same). */
+  protected async askLogout(): Promise<void> {
     this.menuOpen.set(false);
-    this.confirmLogout.set(true);
+    if (await askSignOut(this.dialogs)) await this.logOut();
   }
 
-  protected async logOut(): Promise<void> {
-    this.confirmLogout.set(false);
+  private async logOut(): Promise<void> {
     this.menuOpen.set(false);
     await this.auth.logout();
     // Land on the public home (a signed-out visitor), not a dead-end login page.

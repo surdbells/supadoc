@@ -284,10 +284,15 @@ export interface SpecialistDetailDto extends SpecialistReviewSummaryDto {
   /** Account numbers masked to the last four digits. */
   payout_account: PayoutAccountDto | null;
   stats: {
+    /** Includes `missed`. */
     appointments_by_status: Record<string, number>;
     upcoming: number;
     earnings: EarningsSummaryDto;
     reviews: ReviewSummaryDto;
+    /** Missed consultations this doctor didn't attend (no_show doctor), all time (absent from older APIs). */
+    doctor_no_shows?: number;
+    /** …in the last 30 days — the window doctor_noshow_alert_threshold counts. */
+    doctor_no_shows_30d?: number;
   };
 }
 

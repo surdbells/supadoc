@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
+use App\Domain\Appointment\AppointmentLifecycle;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
@@ -23,8 +24,12 @@ use App\Domain\Settings\WebUrls;
  * POST /api/doctor/appointments/{id}/reschedule — the assigned doctor moves a
  * booking to a new time. The new time must be one of the doctor's open slots
  * (the patient booking rules — {@see AvailabilityService::isSlotAvailable()}).
- * Sets the new time, marks it RESCHEDULED and emails the patient, and each guest
- * the new time with their link. Doctor-owned only.
+ * Sets the new time and CONFIRMS it — the doctor chose it, so there is nothing
+ * left to confirm (rescheduled_by `doctor`); the patient is told and can still
+ * cancel (in full, before the start) or move it if it doesn't suit. Each guest
+ * is emailed the new time with their link. Any open booking (pending,
+ * confirmed, rescheduled), until AppointmentLifecycle::CONFIRM_GRACE_MINUTES
+ * after its slot ended. Doctor-owned only.
  */
 final class RescheduleDoctorAppointmentAction
 {
@@ -70,10 +75,13 @@ final class RescheduleDoctorAppointmentAction
 
             return $this->error($response, $instead, 422, ['status' => $instead]);
         }
-        if (!$appointment->getStatus()->canTransitionTo(AppointmentStatus::RESCHEDULED)) {
+        if (!$appointment->getStatus()->isOpenBooking()) {
             return $this->error($response, 'This appointment cannot be rescheduled', 422, [
                 'status' => 'Not reschedulable',
             ]);
+        }
+        if (($ended = AppointmentLifecycle::doctorRescheduleProblem($appointment, new DateTimeImmutable())) !== null) {
+            return $this->error($response, $ended, 422, ['status' => $ended]);
         }
 
         // The same guard as a patient booking: lead time, on the schedule, not
@@ -86,15 +94,20 @@ final class RescheduleDoctorAppointmentAction
         }
 
         $appointment->setScheduledAt($scheduledAt);
-        $appointment->transitionTo(AppointmentStatus::RESCHEDULED);
+        $appointment->transitionTo(AppointmentStatus::CONFIRMED);
+        $appointment->setRescheduledBy('doctor');
         $this->appointments->save($appointment);
 
         $this->notify($appointment);
-        $this->patientNotifier->appointment($appointment, 'Appointment rescheduled', 'Your appointment has been moved to a new time.');
+        $this->patientNotifier->appointment(
+            $appointment,
+            'Appointment moved by your doctor',
+            "Your doctor moved your appointment to a new time and it's confirmed. If the new time doesn't suit you, you can reschedule or cancel it for a full refund before it starts.",
+        );
         // Guests get the new time with a fresh copy of their link.
         $this->guests->notifyRescheduled($appointment);
 
-        return $this->success($response, $appointment->toArray(), 'Appointment rescheduled');
+        return $this->success($response, $appointment->toArray('doctor'), 'Appointment rescheduled');
     }
 
     private function notify(Appointment $appointment): void

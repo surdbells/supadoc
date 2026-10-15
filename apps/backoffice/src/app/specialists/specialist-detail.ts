@@ -14,9 +14,11 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Params, Router, RouterLink } from '@angular/router';
 import type { Subscription } from 'rxjs';
+import type { HasUnsavedChanges } from '@supadoc/auth';
 import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDetailDto } from '@supadoc/models';
-import { AlertComponent, IconComponent } from '@supadoc/ui';
+import type { LeaveCopy } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
 import { ReviewQueue } from './review-queue';
 import { SpecialistAppointmentsTab } from './tabs/appointments-tab';
 import { SpecialistCredentialsTab } from './tabs/credentials-tab';
@@ -25,6 +27,7 @@ import { SpecialistHistoryTab } from './tabs/history-tab';
 import { SpecialistOverviewTab } from './tabs/overview-tab';
 import { SpecialistReviewTab } from './tabs/review-tab';
 import { SpecialistReviewsTab } from './tabs/reviews-tab';
+import { afterDialogCloses } from '../shared/after-dialog';
 import { ReinstateDialog } from './dialogs/reinstate-dialog';
 import { SuspendDialog } from './dialogs/suspend-dialog';
 import {
@@ -245,8 +248,10 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
     </div>
   `,
 })
-export class AdminSpecialistDetail implements OnInit {
+export class AdminSpecialistDetail implements OnInit, HasUnsavedChanges {
   private readonly api = inject(SpecialistsApi);
+  private readonly dialogs = inject(DialogService);
+  private readonly overviewTab = viewChild(SpecialistOverviewTab);
   private readonly doc = inject(DOCUMENT);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -295,6 +300,9 @@ export class AdminSpecialistDetail implements OnInit {
     if (d.pending_changes) out.push({ label: 'Changes pending', icon: 'square-pen', cls: 'bg-warning/15 text-ink' });
     if (d.credentials_missing) out.push({ label: 'Credentials missing', icon: 'badge-alert', cls: 'bg-alert/10 text-alert' });
     if (!d.profile.available && d.status === 'approved') out.push({ label: 'Bookings paused', icon: 'calendar-off', cls: 'bg-cloud text-slate' });
+    // Consultations they didn't attend in the alert window (Booking settings: doctor no-show alert).
+    const noShows = d.stats.doctor_no_shows_30d ?? 0;
+    if (noShows > 0) out.push({ label: `${plural(noShows, 'missed consultation')} in 30 days`, icon: 'calendar-x', cls: 'bg-alert/10 text-alert' });
     return out;
   });
 
@@ -369,7 +377,19 @@ export class AdminSpecialistDetail implements OnInit {
     return 0;
   }
 
-  protected selectTab(key: DoctorTab, focusPanel = false): void {
+  /** For the route's unsavedChangesGuard: unsaved edits on the Overview tab. */
+  hasUnsavedChanges(): boolean {
+    return this.overviewTab()?.hasUnsavedChanges() ?? false;
+  }
+  readonly leaveCopy: LeaveCopy = {
+    title: 'Leave without saving the profile?',
+    message: "Your edits to this doctor's profile haven't been saved. If you leave now, they'll be lost.",
+  };
+
+  /** Show a tab; resolves false when the person chose to keep editing the Overview instead. */
+  protected async selectTab(key: DoctorTab, focusPanel = false): Promise<boolean> {
+    // Switching tabs drops the Overview form: ask when it holds unsaved edits.
+    if (this.asksBeforeLeaving(key) && !(await this.dialogs.confirmLeave(this.leaveCopy))) return false;
     this.tab.set(key);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -381,8 +401,10 @@ export class AdminSpecialistDetail implements OnInit {
     });
     if (focusPanel) {
       const i = TABS.findIndex((t) => t.key === key);
-      setTimeout(() => this.tabButtons()[i]?.nativeElement.focus());
+      // After any dialog that led here has gone (the page is inert while one closes).
+      afterDialogCloses(() => this.tabButtons()[i]?.nativeElement.focus(), this.doc);
     }
+    return true;
   }
 
   protected onTabKeydown(event: KeyboardEvent, index: number): void {
@@ -395,8 +417,21 @@ export class AdminSpecialistDetail implements OnInit {
       : -1;
     if (next < 0) return;
     event.preventDefault();
-    this.selectTab(TABS[next].key);
-    this.tabButtons()[next]?.nativeElement.focus();
+    if (!this.asksBeforeLeaving(TABS[next].key)) {
+      void this.selectTab(TABS[next].key);
+      this.tabButtons()[next]?.nativeElement.focus();
+      return;
+    }
+    // Focus moves only once the leave prompt is answered — to the new tab, or
+    // back to this one on "Keep editing" — and after the prompt has closed.
+    void this.selectTab(TABS[next].key).then((ok) =>
+      afterDialogCloses(() => this.tabButtons()[ok ? next : index]?.nativeElement.focus(), this.doc),
+    );
+  }
+
+  /** Leaving the Overview with unsaved edits asks first. */
+  private asksBeforeLeaving(key: DoctorTab): boolean {
+    return key !== this.tab() && this.tab() === 'overview' && this.hasUnsavedChanges();
   }
 
   protected tabId(key: DoctorTab): string {

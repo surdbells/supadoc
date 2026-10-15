@@ -20,7 +20,7 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { apiErrorFields, apiErrorMessage, AppointmentsApi, WalletApi } from '@supadoc/data-access';
 import type { AddGuestParams, PatientGuestDto, PatientGuestListDto } from '@supadoc/models';
-import { AlertComponent, ButtonComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, ButtonComponent, ConfirmDetail, ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
 import { httpStatus } from '../call/call-helpers';
 import {
   addGuestErrors,
@@ -38,10 +38,6 @@ import {
 } from './guests';
 import { loadPaystack } from './paystack';
 
-/** What Tab can land on inside a dialog. */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /** How long "Link copied" stays on a button (ms). */
 const COPIED_MS = 3000;
 
@@ -58,7 +54,7 @@ const COPIED_MS = 3000;
 @Component({
   selector: 'pat-guests-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AlertComponent, ButtonComponent, IconComponent],
+  imports: [RouterLink, AlertComponent, ButtonComponent, ConfirmDialogComponent, IconComponent],
   host: { class: 'block' },
   template: `
     <section
@@ -354,65 +350,22 @@ const COPIED_MS = 3000;
     </section>
 
     <!-- Remove a guest: confirmed first, with what happens to their fee -->
-    @if (removing(); as g) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button type="button" tabindex="-1" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="closeRemove()"></button>
-        <div
-          #removeDialog
-          class="relative z-10 flex w-full max-w-md flex-col gap-4 rounded-[16px] border border-cloud bg-white p-6 shadow-[0_4px_24px_rgba(10,22,40,0.12)] outline-none"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="remove-guest-title"
-          aria-describedby="remove-guest-desc"
-          tabindex="-1"
-          (keydown.escape)="closeRemove()"
-          (keydown)="trapTab($event, removeDialog)"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <h3 #removeTitle id="remove-guest-title" tabindex="-1" class="font-heading text-h5 text-ink outline-none">
-              Remove {{ g.name }}?
-            </h3>
-            <button
-              type="button"
-              class="inline-flex size-11 shrink-0 items-center justify-center text-slate transition-colors hover:text-ink"
-              aria-label="Close"
-              (click)="closeRemove()"
-            >
-              <sd-icon name="x" [size]="24" />
-            </button>
-          </div>
-          <div id="remove-guest-desc" class="flex flex-col gap-2 font-sans text-body-sm text-slate">
-            <p>Their link stops working straight away, and we’ll email them that the invitation was withdrawn.</p>
-            @if (refundNote()) {
-              <p class="font-semibold text-ink">{{ refundNote() }}</p>
-            }
-          </div>
-          @if (removeError()) {
-            <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ removeError() }}
-            </p>
-          }
-          <div class="flex flex-col-reverse gap-3 sm:flex-row">
-            <button
-              type="button"
-              class="inline-flex min-h-11 flex-1 items-center justify-center rounded-field border border-cloud px-4 py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier"
-              [disabled]="removeBusy()"
-              (click)="closeRemove()"
-            >
-              Keep guest
-            </button>
-            <button
-              type="button"
-              class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field bg-alert px-4 py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60"
-              [disabled]="removeBusy()"
-              (click)="confirmRemove()"
-            >
-              {{ removeBusy() ? 'Removing…' : 'Remove guest' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    }
+    <sd-confirm-dialog
+      [open]="removeOpen()"
+      tone="danger"
+      icon="user-x"
+      [title]="'Remove ' + (removing()?.name ?? 'this guest') + '?'"
+      [message]="removeMessage()"
+      [details]="removeDetails()"
+      confirmLabel="Remove guest"
+      cancelLabel="Keep guest"
+      busyLabel="Removing…"
+      [busy]="removeBusy()"
+      [error]="removeError() || null"
+      (confirm)="confirmRemove()"
+      (cancel)="closeRemove()"
+      (afterClose)="afterRemoveClosed()"
+    />
   `,
 })
 export class GuestsPanel {
@@ -436,7 +389,6 @@ export class GuestsPanel {
 
   private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
   private readonly emailField = viewChild<ElementRef<HTMLInputElement>>('emailField');
-  private readonly removeTitle = viewChild<ElementRef<HTMLElement>>('removeTitle');
   private readonly revealedLink = viewChild<ElementRef<HTMLInputElement>>('revealedLink');
 
   protected readonly nameMax = GUEST_NAME_MAX;
@@ -473,7 +425,11 @@ export class GuestsPanel {
   private opener: HTMLElement | null = null;
 
   // Remove
+  /** The guest being asked about (kept while the dialog animates out). */
   protected readonly removing = signal<PatientGuestDto | null>(null);
+  protected readonly removeOpen = signal(false);
+  /** The removal went through: their row (the dialog's opener) is gone. */
+  private removeGone = false;
   protected readonly removeBusy = signal(false);
   protected readonly removeError = signal('');
 
@@ -502,10 +458,23 @@ export class GuestsPanel {
     if (this.payMethod() === 'wallet') return `Pay ${this.feeLabel()} from wallet & invite`;
     return this.paidRef() ? 'Finish inviting' : `Pay ${this.feeLabel()} by card & invite`;
   });
-  protected readonly refundNote = computed(() => {
+  /** What removing them does — with what happens to a paid fee (refunded before the consultation starts). */
+  protected readonly removeMessage = computed(() => {
     const g = this.removing();
     const l = this.list();
-    return g && l ? removalRefundNote(g, l, this.clock()) : '';
+    const refund = g && l ? removalRefundNote(g, l, this.clock()) : '';
+    return `Their link stops working straight away, and we’ll email them that the invitation was withdrawn.${refund ? ` ${refund}` : ''}`;
+  });
+  /** The guest, and their fee when they paid one. */
+  protected readonly removeDetails = computed<ConfirmDetail[]>(() => {
+    const g = this.removing();
+    const l = this.list();
+    if (!g) return [];
+    const details: ConfirmDetail[] = [{ label: 'Guest', value: g.email ? `${g.name} (${g.email})` : g.name }];
+    if (l && Number(g.fee) > 0 && g.paid_by !== 'free') {
+      details.push({ label: 'Guest fee', value: guestMoney(g.fee, l.currency) });
+    }
+    return details;
   });
 
   constructor() {
@@ -793,19 +762,18 @@ export class GuestsPanel {
       });
   }
 
-  // ---- Remove ----
+  // ---- Remove (the shared confirm dialog: focus, Esc, busy and errors are its own) ----
 
   protected askRemove(g: PatientGuestDto): void {
-    this.rememberOpener();
     this.removeError.set('');
+    this.removeGone = false;
     this.removing.set(g);
-    afterNextRender(() => this.removeTitle()?.nativeElement.focus(), { injector: this.injector });
+    this.removeOpen.set(true);
   }
 
   protected closeRemove(): void {
     if (this.removeBusy()) return;
-    this.removing.set(null);
-    this.returnFocus();
+    this.removeOpen.set(false);
   }
 
   protected confirmRemove(): void {
@@ -828,10 +796,10 @@ export class GuestsPanel {
               ? `${res.data.removed.name} was removed and ${refunded} was refunded to your wallet. Their link no longer works.`
               : `${res.data.removed.name} was removed. Their link no longer works.`,
           });
-          this.removing.set(null);
-          this.opener = null;
+          // Their row (and its Remove button, which opened the dialog) is gone.
+          this.removeGone = true;
+          this.removeOpen.set(false);
           this.changed.emit();
-          afterNextRender(() => this.document.getElementById('guests-title')?.focus(), { injector: this.injector });
         },
         error: (err: unknown) => {
           this.removeBusy.set(false);
@@ -841,35 +809,19 @@ export class GuestsPanel {
       });
   }
 
-  // ---- Dialog focus: to the heading on open, Tab stays inside, Esc closes, back to the opener ----
+  /** The dialog has gone: forget the guest, and say where things are when their row went with it. */
+  protected afterRemoveClosed(): void {
+    this.removing.set(null);
+    if (!this.removeGone) return;
+    this.removeGone = false;
+    setTimeout(() => {
+      const active = this.document.activeElement;
+      if (!active || active === this.document.body) this.document.getElementById('guests-title')?.focus();
+    });
+  }
 
   private rememberOpener(): void {
     const active = this.document.activeElement;
     this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
-  }
-
-  private returnFocus(): void {
-    const back = this.opener;
-    this.opener = null;
-    afterNextRender(() => (back?.isConnected ? back : this.document.getElementById('guests-title'))?.focus(), {
-      injector: this.injector,
-    });
-  }
-
-  protected trapTab(e: KeyboardEvent, root: HTMLElement): void {
-    if (e.key !== 'Tab') return;
-    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
-    if (items.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    const at = items.indexOf(this.document.activeElement as HTMLElement);
-    if (e.shiftKey && at <= 0) {
-      e.preventDefault();
-      items[items.length - 1].focus();
-    } else if (!e.shiftKey && at === items.length - 1) {
-      e.preventDefault();
-      items[0].focus();
-    }
   }
 }

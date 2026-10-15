@@ -175,10 +175,12 @@ final class WalletService
     /**
      * Credit a wallet immediately (e.g. a consultation refund). Idempotent on
      * $reference. Creates the wallet if the patient has none for this currency.
+     * `$sendReceipt` false posts it without the receipt email (a quiet backlog
+     * refund from the cron — the ledger entry is still there).
      */
-    public function credit(string $patientId, string $currency, string $amount, string $type, string $reference, ?string $description = null): WalletTransaction
+    public function credit(string $patientId, string $currency, string $amount, string $type, string $reference, ?string $description = null, bool $sendReceipt = true): WalletTransaction
     {
-        return $this->apply($patientId, $currency, $amount, WalletTransaction::DIR_CREDIT, $type, $reference, $description);
+        return $this->apply($patientId, $currency, $amount, WalletTransaction::DIR_CREDIT, $type, $reference, $description, $sendReceipt);
     }
 
     /**
@@ -198,6 +200,7 @@ final class WalletService
         string $type,
         string $reference,
         ?string $description,
+        bool $sendReceipt = true,
     ): WalletTransaction {
         $amount = $this->normalise($amount);
         // Ensure the wallet exists (own tx) before locking it inside the posting tx.
@@ -250,8 +253,8 @@ final class WalletService
         });
 
         // Receipt sent once, after the posting commits (idempotent re-postings
-        // return the existing success entry and send nothing).
-        if ($newlyPosted) {
+        // return the existing success entry and send nothing) — unless asked not to.
+        if ($newlyPosted && $sendReceipt) {
             $this->mailer->sendReceipt($txn);
         }
 

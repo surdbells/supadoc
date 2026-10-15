@@ -12,6 +12,7 @@ import type {
   MedicationRow,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { isPast } from '../appointment/appointment-status';
 
 /**
  * Presentational building blocks for the doctor's patient record
@@ -109,6 +110,12 @@ const VISIT_STATUS: Record<string, BadgeMeta> = {
   rescheduled: { label: 'Rescheduled', icon: 'refresh-cw', cls: 'bg-cloud text-slate' },
   completed: { label: 'Completed', icon: 'calendar-check', cls: 'bg-frost text-cerulean' },
   cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  missed: { label: 'Missed', icon: 'calendar-x', cls: 'bg-alert/10 text-alert' },
+  // The lifecycle's display statuses (`statusKey()`): a visit's place in time, not just its status.
+  live: { label: 'In progress', icon: 'video', cls: 'bg-cerulean text-white' },
+  finalising: { label: 'Being finalised', icon: 'hourglass', cls: 'bg-cloud text-ink' },
+  not_confirmed: { label: 'Not confirmed', icon: 'calendar-off', cls: 'bg-cloud text-slate' },
+  expired: { label: 'Expired', icon: 'clock', cls: 'bg-cloud text-slate' },
 };
 
 /** Parse an ISO date-time (or local `YYYY-MM-DD`) to epoch ms; NaN-safe (0). */
@@ -124,11 +131,13 @@ export function sortVisits(rows: readonly AppointmentDto[]): AppointmentDto[] {
 }
 
 /**
- * A visit that is still ahead (booked — not cancelled / completed, nor a
- * follow-up the patient hasn't accepted yet — and scheduled in the future).
+ * A visit that is still ahead or under way (booked — not closed, nor a
+ * follow-up the patient hasn't accepted yet — and not over: the server's
+ * `phase`, re-checked against the clock — see `isPast`).
  */
 export function isUpcomingVisit(a: AppointmentDto, now: number): boolean {
-  return a.status !== 'cancelled' && a.status !== 'completed' && a.status !== 'proposed' && timeOf(a.scheduled_at) > now;
+  if (a.status === 'cancelled' || a.status === 'completed' || a.status === 'missed' || a.status === 'proposed') return false;
+  return !isPast(a, now);
 }
 
 // ----- Medications -----

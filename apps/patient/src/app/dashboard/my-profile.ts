@@ -8,6 +8,7 @@ import {
   inject,
   Injector,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -21,7 +22,7 @@ import {
 } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, type Subscription } from 'rxjs';
-import { AuthService } from '@supadoc/auth';
+import { AuthService, type HasUnsavedChanges } from '@supadoc/auth';
 import { apiErrorFields, apiErrorMessage, PatientApi } from '@supadoc/data-access';
 import type {
   AllergyRow,
@@ -38,12 +39,16 @@ import type {
 } from '@supadoc/models';
 import {
   ButtonComponent,
+  DialogComponent,
+  DialogService,
   IconComponent,
   InputComponent,
   OtpComponent,
   PhoneInputComponent,
   SearchSelectComponent,
+  warnBeforeUnload,
 } from '@supadoc/ui';
+import { afterDialogsClose } from '../dialog-helpers';
 
 /** Allergy severity choices — the stored value is the lower-case key. */
 const SEVERITY_OPTIONS: readonly { value: AllergySeverity; label: string }[] = [
@@ -337,6 +342,7 @@ interface SectionCard {
     NgTemplateOutlet,
     ReactiveFormsModule,
     ButtonComponent,
+    DialogComponent,
     IconComponent,
     InputComponent,
     OtpComponent,
@@ -1747,6 +1753,7 @@ interface SectionCard {
             </span>
           }
           <button
+            #changePhotoBtn
             type="button"
             class="absolute bottom-0 right-0 flex size-8 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-frost/50 transition-opacity disabled:opacity-60"
             [attr.aria-label]="uploadingAvatar() ? 'Uploading' : 'Change photo'"
@@ -1761,49 +1768,47 @@ interface SectionCard {
               <sd-icon name="camera" [size]="16" />
             }
           </button>
-          <input
-            #avatarInput
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            class="hidden"
-            (change)="onAvatarSelected($event)"
-          />
-
-          @if (avatarModalOpen()) {
-            <div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close" (click)="avatarModalOpen.set(false)"></button>
-              <div class="relative z-10 flex w-full max-w-md flex-col gap-5 rounded-[16px] bg-white p-6 shadow-[0_8px_40px_rgba(10,22,40,0.2)]">
-                <div class="flex items-start justify-between">
-                  <div class="flex flex-col gap-1">
-                    <h3 class="font-heading text-h5 text-ink">Update profile photo</h3>
-                    <p class="font-sans text-body-sm text-slate">Drag an image here, or choose a file.</p>
-                  </div>
-                  <button type="button" class="text-slate transition-colors hover:text-ink" aria-label="Close" (click)="avatarModalOpen.set(false)">
-                    <sd-icon name="x" [size]="22" />
-                  </button>
-                </div>
-                <div
-                  class="flex flex-col items-center gap-3 rounded-card border-2 border-dashed px-6 py-10 text-center transition-colors"
-                  [class]="avatarDragging() ? 'border-cerulean bg-frost/40' : 'border-cloud bg-glacier/40'"
-                  (dragover)="$event.preventDefault(); avatarDragging.set(true)"
-                  (dragleave)="avatarDragging.set(false)"
-                  (drop)="onAvatarDrop($event)"
+          <sd-dialog
+            [open]="avatarModalOpen()"
+            title="Update profile photo"
+            subtitle="Drag an image here, or choose a file."
+            size="sm"
+            [busy]="uploadingAvatar()"
+            (closed)="avatarModalOpen.set(false)"
+          >
+            <!-- Inside the dialog: the page behind a modal dialog is inert. -->
+            <input
+              #avatarInput
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              class="hidden"
+              (change)="onAvatarSelected($event)"
+            />
+            <div
+              class="flex flex-col items-center gap-3 rounded-card border-2 border-dashed px-6 py-10 text-center transition-colors"
+              [class]="avatarDragging() ? 'border-cerulean bg-frost/40' : 'border-cloud bg-glacier/40'"
+              (dragover)="$event.preventDefault(); avatarDragging.set(true)"
+              (dragleave)="avatarDragging.set(false)"
+              (drop)="onAvatarDrop($event)"
+            >
+              @if (uploadingAvatar()) {
+                <span class="size-7 animate-spin rounded-full border-2 border-cloud border-t-cerulean"></span>
+                <span class="font-sans text-body-sm text-slate" role="status">Uploading…</span>
+              } @else {
+                <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
+                <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
+                <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
+                <button
+                  type="button"
+                  data-autofocus
+                  class="mt-1 min-h-11 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
+                  (click)="avatarInput.click()"
                 >
-                  @if (uploadingAvatar()) {
-                    <span class="size-7 animate-spin rounded-full border-2 border-cloud border-t-cerulean"></span>
-                    <span class="font-sans text-body-sm text-slate">Uploading…</span>
-                  } @else {
-                    <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
-                    <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
-                    <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
-                    <button type="button" class="mt-1 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="avatarInput.click()">
-                      Choose from file
-                    </button>
-                  }
-                </div>
-              </div>
+                  Choose from file
+                </button>
+              }
             </div>
-          }
+          </sd-dialog>
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <p class="font-heading text-h5 text-ink">{{ fullName() }}</p>
@@ -1824,7 +1829,7 @@ interface SectionCard {
               type="button"
               class="w-fit font-sans text-caption font-semibold text-alert transition-colors hover:underline disabled:opacity-60"
               [disabled]="uploadingAvatar()"
-              (click)="removeAvatar()"
+              (click)="removeAvatar(changePhotoBtn)"
             >
               Remove photo
             </button>
@@ -1928,29 +1933,15 @@ interface SectionCard {
     </ng-template>
 
     <!-- Change-email modal (two steps: new address → OTP sent to it) -->
-    @if (emailModalOpen()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <button
-          type="button"
-          class="absolute inset-0 cursor-default bg-abyss/40"
-          aria-label="Close"
-          (click)="closeEmailChange()"
-        ></button>
-        <div
-          class="relative z-10 flex w-full max-w-[480px] flex-col gap-6 rounded-[16px] border-[0.5px] border-[#d1e9fd] bg-white px-6 py-8 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
-        >
-          <div class="flex items-center justify-between">
-            <h3 class="font-heading text-h5 text-ink">Change email address</h3>
-            <button
-              type="button"
-              class="text-slate transition-colors hover:text-ink"
-              aria-label="Close"
-              (click)="closeEmailChange()"
-            >
-              <sd-icon name="x" [size]="24" />
-            </button>
-          </div>
-          <hr class="border-t border-cloud" />
+    <sd-dialog
+      #emailDialog
+      [open]="emailModalOpen()"
+      title="Change email address"
+      size="md"
+      [busy]="emailBusy()"
+      (closed)="closeEmailChange()"
+    >
+      <div class="flex flex-col gap-6">
 
           @if (emailStep() === 'email') {
             <form class="flex flex-col gap-6" [formGroup]="emailForm" (ngSubmit)="sendEmailOtp()">
@@ -2000,7 +1991,7 @@ interface SectionCard {
                 <button
                   type="button"
                   class="font-semibold text-slate transition-colors hover:text-ink"
-                  (click)="emailStep.set('email')"
+                  (click)="emailStep.set('email'); emailDialog.refocus()"
                 >
                   Use a different email
                 </button>
@@ -2016,11 +2007,10 @@ interface SectionCard {
             </form>
           }
         </div>
-      </div>
-    }
+    </sd-dialog>
   `,
 })
-export class MyProfile {
+export class MyProfile implements HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly patient = inject(PatientApi);
@@ -2029,6 +2019,8 @@ export class MyProfile {
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
+  private readonly dialogs = inject(DialogService);
+  private readonly emailDialog = viewChild<DialogComponent>('emailDialog');
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Phone verification (inline in Personal Information).
@@ -2314,6 +2306,8 @@ export class MyProfile {
 
   constructor() {
     this.destroyRef.onDestroy(() => clearTimeout(this.toastTimer));
+    // Closing or reloading the tab mid-edit loses the medical editor's changes.
+    warnBeforeUnload(() => this.hasUnsavedChanges());
 
     this.patient
       .me()
@@ -2539,7 +2533,7 @@ export class MyProfile {
     // Leaving the editor mid-save would hide a failure and drop what was typed.
     if (this.savingSection() === 'medical') return;
     if (this.view() === 'personal-edit') this.view.set('personal');
-    else if (this.view() === 'medical-add') this.view.set('medical');
+    else if (this.view() === 'medical-add') void this.cancelEdit(); // asks about unsaved edits
     else this.view.set('home');
   }
 
@@ -2581,19 +2575,35 @@ export class MyProfile {
     }
   }
 
-  protected async removeAvatar(): Promise<void> {
-    this.uploadingAvatar.set(true);
-    try {
-      const res = await firstValueFrom(this.patient.removeAvatar());
-      this.applyProfile(res.data);
-      this.showToast('Profile photo removed');
-    } catch (err) {
-      this.showToast(
-        apiErrorMessage(err, 'Could not remove your photo.'),
-      );
-    } finally {
-      this.uploadingAvatar.set(false);
-    }
+  /**
+   * Asked first; the dialog shows the request's progress and any failure. Once
+   * removed, the "Remove photo" button is gone: focus lands on the photo's
+   * Change button (`focusAfter`) instead of `<body>`.
+   */
+  protected async removeAvatar(focusAfter?: HTMLElement): Promise<void> {
+    if (this.uploadingAvatar()) return;
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'image-off',
+      title: 'Remove your profile photo?',
+      message: 'Your doctors will see your initials instead.',
+      confirmLabel: 'Remove photo',
+      cancelLabel: 'Keep it',
+      busyLabel: 'Removing…',
+      action: async () => {
+        this.uploadingAvatar.set(true);
+        try {
+          const res = await firstValueFrom(this.patient.removeAvatar());
+          this.applyProfile(res.data);
+        } finally {
+          this.uploadingAvatar.set(false);
+        }
+      },
+      errorMessage: (err) => apiErrorMessage(err, 'Could not remove your photo.'),
+    });
+    if (!confirmed) return;
+    this.showToast('Profile photo removed');
+    if (focusAfter) afterDialogsClose(this.dialogs, this.injector, () => focusAfter.focus());
   }
 
   protected async saveProfile(): Promise<void> {
@@ -2765,14 +2775,46 @@ export class MyProfile {
     );
   }
 
-  /** Discard the editor's changes and go back to the read view (never mid-save — see back()). */
-  protected cancelEdit(): void {
+  /**
+   * Discard the editor's changes and go back to the read view (never mid-save
+   * — see back()). Unsaved edits are asked about first.
+   */
+  protected async cancelEdit(): Promise<void> {
     if (this.savingSection() === 'medical') return;
+    if (this.hasUnsavedChanges()) {
+      const { confirmed } = await this.dialogs.confirm({ ...this.leaveCopy, tone: 'warning', icon: 'undo-2' });
+      if (!confirmed || this.view() !== 'medical-add') return;
+    }
+    this.discardEdit();
+  }
+
+  /** Back to the read view, dropping what was typed. */
+  private discardEdit(): void {
     if (this.healthLoaded()) this.loadMedicalForm(this.medical());
     this.resetVitalsForm();
     this.editError.set('');
     this.view.set('medical');
   }
+
+  /**
+   * The medical editor holds edits not saved yet: the medical record changed,
+   * or a reading was typed in. `unsavedChangesGuard` asks before the page is
+   * left (and the tab-close prompt before it is closed).
+   */
+  hasUnsavedChanges(): boolean {
+    if (this.view() !== 'medical-add') return false;
+    const medical = this.healthLoaded() && this.medicalChanged();
+    const vitals = Object.keys(this.vitalsPayload().readings).length > 0;
+    return medical || vitals;
+  }
+
+  /** The guard's (and Cancel's) question. */
+  readonly leaveCopy = {
+    title: 'Discard your changes?',
+    message: "Edits to your vitals, medical history, allergies or medications won't be saved.",
+    confirmLabel: 'Discard changes',
+    cancelLabel: 'Keep editing',
+  };
 
   /** A blank row for any empty medical section, and the "unchanged" baseline. */
   private prepareMedicalRows(): void {
@@ -2834,7 +2876,7 @@ export class MyProfile {
     }
     const withMedical = this.healthLoaded() && this.medicalChanged();
     if (!withVitals && !withMedical) {
-      this.cancelEdit();
+      this.discardEdit();
       this.showToast('No changes to save');
       return;
     }
@@ -3239,6 +3281,7 @@ export class MyProfile {
       this.emailDevCode.set(res.data.dev_code ?? '');
       this.emailForm.controls.otp.reset('');
       this.emailStep.set('otp');
+      this.emailDialog()?.refocus(); // the code step replaced the focused button
     } catch (err) {
       this.emailError.set(apiErrorMessage(err, 'Could not send the code. Please try again.'));
     } finally {

@@ -14,7 +14,7 @@ import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { PayoutStatus, SpecialistPayoutsDto } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
-import { BTN_SECONDARY, CARD, dateOnly, money, PILL } from '../specialist-ui';
+import { BTN_SECONDARY, CARD, dateOnly, money, PILL, plural } from '../specialist-ui';
 
 const PAYOUT_STATUS: Record<PayoutStatus, { label: string; icon: string; cls: string }> = {
   pending: { label: 'Requested', icon: 'hourglass', cls: 'bg-warning/15 text-ink' },
@@ -128,7 +128,12 @@ export class SpecialistEarningsTab implements OnInit {
       { label: 'Available to pay out', value: money(e.available_balance, c), hint: e.has_open_payout ? 'A payout request is open' : '' },
       { label: 'Earned this month (net)', value: money(e.net_month, c), hint: `Gross ${money(e.gross_month, c)}` },
       { label: 'Earned in total (net)', value: money(e.net_total, c), hint: `After ${e.commission_percent}% commission` },
-      { label: 'Paid out', value: money(e.payouts_total, c), hint: `${e.completed_count} completed consultations` },
+      {
+        label: 'Paid out',
+        value: money(e.payouts_total, c),
+        // A patient no-show earns the doctor the fee (less any refund), so it counts too.
+        hint: `${plural(e.completed_count, 'completed consultation')}${e.patient_no_show_count ? ` + ${plural(e.patient_no_show_count, 'patient no-show')}` : ''}`,
+      },
     ];
   });
 

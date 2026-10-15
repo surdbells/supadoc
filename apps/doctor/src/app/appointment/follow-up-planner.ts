@@ -526,6 +526,7 @@ export class FollowUpPlanner {
         ? `This consultation starts ${whenLabel(this.parentScheduledAt())}. You can propose a follow-up from two hours before then, or once it's over.`
         : '';
     }
+    if (status === 'missed') return "This consultation was missed, so a follow-up can't be proposed from it.";
     return 'A follow-up can be proposed from a consultation that is in progress or completed.';
   });
   /** The unanswered proposal for this consultation (only one may be open at a time). */

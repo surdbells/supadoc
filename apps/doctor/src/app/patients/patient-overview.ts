@@ -8,6 +8,7 @@ import {
 import { RouterLink } from '@angular/router';
 import type { AppointmentDto, MedicalDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { isPast, statusKey } from '../appointment/appointment-status';
 import { doctorStatusLabel } from '../appointment/follow-ups';
 import {
   allergySeverity,
@@ -150,7 +151,7 @@ const FOOTER_LINK =
                 <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="shrink-0 text-slate" />{{ v.type_label }}</span>
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3">
-                <doc-visit-status-badge [status]="v.status" [label]="statusLabel(v)" />
+                <doc-visit-status-badge [status]="statusKey(v)" [label]="statusLabel(v)" />
                 <a [routerLink]="['/appointments', v.id]" class="inline-flex items-center gap-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
                   Open chart <sd-icon name="chevron-right" [size]="14" />
                 </a>
@@ -195,8 +196,9 @@ export class PatientOverview {
     const list = this.visits();
     const upcoming = list.filter((v) => isUpcomingVisit(v, now));
     const next = upcoming.length ? upcoming[upcoming.length - 1] : null;
-    // Most recent past visit — preferring one that wasn't cancelled.
-    const past = list.filter((v) => timeOf(v.scheduled_at) <= now);
+    // Most recent past visit — preferring one that wasn't cancelled (started, and
+    // over by the server's phase re-checked against the clock — see `isPast`).
+    const past = list.filter((v) => timeOf(v.scheduled_at) <= now && isPast(v, now));
     const last = past.find((v) => v.status !== 'cancelled') ?? past[0] ?? null;
     return [
       { label: 'Next visit', visit: next, emptyText: 'No upcoming visit booked.' },
@@ -204,9 +206,12 @@ export class PatientOverview {
     ];
   });
 
-  /** How a closed follow-up proposal closed, else the API's label. */
+  /** How a closed follow-up proposal closed, else the lifecycle label (Missed, Not confirmed…). */
   protected statusLabel(v: AppointmentDto): string {
     return doctorStatusLabel(v);
+  }
+  protected statusKey(v: AppointmentDto): string {
+    return statusKey(v);
   }
   protected day(iso: string): string {
     return formatDay(iso);

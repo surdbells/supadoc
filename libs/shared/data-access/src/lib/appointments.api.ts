@@ -24,7 +24,7 @@ import type {
   PatientGuestListDto,
   RemoveGuestResultDto,
   LabOrderDto,
-  ListAppointmentsQuery,
+  ListMyAppointmentsQuery,
   MedicalCertificateDto,
   MessageDto,
   PaginatedResponse,
@@ -50,9 +50,16 @@ export class AppointmentsApi {
   private readonly http = inject(HttpClient);
   private readonly config = inject(API_CONFIG);
 
-  /** GET /api/portal/appointments — the signed-in patient's own appointments. */
+  /**
+   * GET /api/portal/appointments — the signed-in patient's own appointments.
+   * `when: 'upcoming'` — still to come or live, soonest first (Appointments;
+   * `per_page: 1` is the dashboard's next appointment); `when: 'past'` — over
+   * (completed, cancelled, missed, or ended), newest first (History). With
+   * `when` the order is fixed. Only upcoming | past (`attention` is a staff
+   * and doctor split: the endpoint answers anything else with 422).
+   */
   listMine(
-    query?: ListAppointmentsQuery,
+    query?: ListMyAppointmentsQuery,
   ): Observable<PaginatedResponse<AppointmentDto>> {
     return this.api.get<PaginatedResponse<AppointmentDto>>(
       'api/portal/appointments',
@@ -79,7 +86,10 @@ export class AppointmentsApi {
 
   /**
    * POST /api/portal/appointments/{id}/cancel — cancel the patient's own
-   * booking. A paid booking is refunded to the wallet server-side.
+   * booking. A paid booking is refunded to the wallet server-side (in full,
+   * or the late-cancellation share — see `cancel_policy` on {@link getMine}).
+   * Only before the start: 422 "This consultation has started" after it
+   * (`can_cancel` says whether it still can be).
    */
   cancel(id: string): Observable<SuccessResponse<AppointmentDto>> {
     return this.api.post<SuccessResponse<AppointmentDto>>(
@@ -88,7 +98,11 @@ export class AppointmentsApi {
     );
   }
 
-  /** POST /api/portal/appointments/{id}/reschedule — move the booking to a new time. */
+  /**
+   * POST /api/portal/appointments/{id}/reschedule — move the booking to a new
+   * time (status rescheduled until the doctor confirms it). Only before the
+   * start: 422 "This consultation has started" after it (`can_reschedule`).
+   */
   reschedule(
     id: string,
     scheduledAt: string,

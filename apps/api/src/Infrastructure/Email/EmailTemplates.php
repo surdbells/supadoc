@@ -50,10 +50,13 @@ final class EmailTemplates
     }
 
     /**
+     * `$note`: an optional message from the doctor (e.g. why they declined),
+     * shown as they wrote it (escaped) under the details.
+     *
      * @param array<string, mixed> $appt Appointment::toArray() output.
      * @return array{subject: string, html: string}
      */
-    public static function appointmentStatusUpdate(array $appt, string $firstName, string $webUrl): array
+    public static function appointmentStatusUpdate(array $appt, string $firstName, string $webUrl, ?string $note = null): array
     {
         $statusLabel = (string) ($appt['status_label'] ?? '');
         $specialist  = (array) ($appt['specialist'] ?? []);
@@ -63,9 +66,11 @@ final class EmailTemplates
             'Time'       => self::time((string) ($appt['scheduled_at'] ?? '')),
         ], self::statusBadge((string) ($appt['status'] ?? ''), $statusLabel));
 
+        $note = $note !== null ? trim($note) : '';
         $body = self::heading('Your appointment was updated')
             . self::lead('Hi ' . self::e($firstName) . ', the status of your appointment is now <strong style="color:' . self::INK . ';">' . self::e($statusLabel) . '</strong>.')
             . $details
+            . ($note !== '' ? self::message('Message from your doctor', $note) : '')
             . self::button('View appointment', $webUrl . '/dashboard/appointments/' . rawurlencode((string) ($appt['id'] ?? '')));
 
         return [
@@ -145,6 +150,70 @@ final class EmailTemplates
                 $reminder ? 'Your proposed follow-up closes soon.' : $doctor . ' proposed a follow-up consultation.',
                 $body,
             ),
+        ];
+    }
+
+    /**
+     * To the patient: a consultation they booked closed without taking place —
+     * the doctor never confirmed it in time (`$why` not_confirmed: cancelled,
+     * refunded in full), or it was marked missed (`$why` missed, `$noShow`
+     * doctor | patient | both). `$refundLabel` is what went back to the wallet
+     * ('' when nothing). Deliberately generic: never the reason for the visit,
+     * a diagnosis or a medicine. Opens the visit in their history.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function appointmentClosedUnheld(
+        string $firstName,
+        string $doctorName,
+        string $whenLabel,
+        string $why,
+        ?string $noShow,
+        string $refundLabel,
+        string $url,
+    ): array {
+        $doctor = $doctorName !== '' ? $doctorName : 'Your doctor';
+        $refund = $refundLabel !== '' ? ' ' . $refundLabel . ' has been refunded to your VideoMed wallet.' : '';
+        [$title, $intro, $subject] = match (true) {
+            $why === 'not_confirmed' => [
+                'Your consultation wasn\'t confirmed',
+                $doctor . ' didn\'t confirm your consultation for ' . $whenLabel . ' in time, so it has been cancelled.' . $refund,
+                'Your consultation wasn\'t confirmed in time',
+            ],
+            $noShow === 'doctor' => [
+                'Your doctor couldn\'t attend',
+                $doctor . ' wasn\'t able to attend your consultation on ' . $whenLabel . '. We\'re sorry.' . $refund,
+                'Your consultation on ' . $whenLabel . ' didn\'t take place',
+            ],
+            $noShow === 'patient' => [
+                'We missed you',
+                'we didn\'t see you at your consultation with ' . $doctor . ' on ' . $whenLabel . ', so it has been marked as missed.' . $refund,
+                'You missed your VideoMed consultation',
+            ],
+            default => [
+                'Your consultation didn\'t take place',
+                'your consultation with ' . $doctor . ' on ' . $whenLabel . ' didn\'t take place, so it has been marked as missed.' . $refund,
+                'Your consultation on ' . $whenLabel . ' didn\'t take place',
+            ],
+        };
+        $rows = ['Doctor' => $doctor, 'Was booked for' => $whenLabel];
+        if ($refundLabel !== '') {
+            $rows['Refunded to your wallet'] = $refundLabel;
+        }
+
+        // "Hi Ada, we didn't see you…" / "Hi Ada. Dr Bell didn't confirm…"
+        $hi   = 'Hi ' . self::e($firstName !== '' ? $firstName : 'there');
+        $lead = $why === 'not_confirmed' || $noShow === 'doctor' ? $hi . '. ' . self::e($intro) : $hi . ', ' . self::e($intro);
+
+        $body = self::heading($title)
+            . self::lead($lead)
+            . self::infoCard($rows)
+            . self::button('View in your history', $url)
+            . self::note('You can book another consultation at a time that suits you. Questions? Contact support from the app.');
+
+        return [
+            'subject' => $subject,
+            'html'    => self::layout($title, $title . '.', $body),
         ];
     }
 
@@ -952,6 +1021,16 @@ final class EmailTemplates
         return '<p style="margin:24px 0 0;font-size:13px;line-height:20px;color:' . self::SLATE . ';">' . self::e($text) . '</p>';
     }
 
+    /** A labelled block of someone's own words (escaped; their line breaks kept). */
+    private static function message(string $label, string $text): string
+    {
+        return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0;border-left:3px solid ' . self::CERULEAN . ';background:#f5f8fc;border-radius:0 12px 12px 0;">'
+            . '<tr><td style="padding:14px 18px;">'
+            . '<p style="margin:0 0 6px;font-size:12px;font-weight:600;color:' . self::SLATE . ';">' . self::e($label) . '</p>'
+            . '<p style="margin:0;font-size:14px;line-height:21px;color:' . self::INK . ';">' . nl2br(self::e($text), false) . '</p>'
+            . '</td></tr></table>';
+    }
+
     /**
      * @param array<string, string> $rows label => value
      */
@@ -1019,6 +1098,7 @@ final class EmailTemplates
             'rescheduled' => [self::CLOUD, self::SLATE],
             'completed'   => ['#e8f1fb', self::CERULEAN],
             'cancelled'   => ['#fdecea', '#c0392b'],
+            'missed'      => ['#fdecea', '#c0392b'],
         ];
         [$bg, $fg] = $palette[$status] ?? [self::CLOUD, self::SLATE];
 

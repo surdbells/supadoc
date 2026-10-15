@@ -112,8 +112,9 @@ final class PrescriptionService
         }
         $started = $appointment->getScheduledAt() <= (new DateTimeImmutable())->modify('+' . self::CONSULT_LEAD_MINUTES . ' minutes');
 
-        // An unaccepted follow-up proposal hasn't taken place either.
-        return $started && !in_array($appointment->getStatus(), [AppointmentStatus::CANCELLED, AppointmentStatus::PROPOSED], true);
+        // An unaccepted follow-up proposal hasn't taken place either, nor one
+        // marked missed (the back office marks it held first if it did).
+        return $started && !in_array($appointment->getStatus(), [AppointmentStatus::CANCELLED, AppointmentStatus::PROPOSED, AppointmentStatus::MISSED], true);
     }
 
     /**
@@ -129,9 +130,11 @@ final class PrescriptionService
                 throw new ValidationException(['appointment_id' => 'This consultation is not yours']);
             }
             if (!$this->appointmentIsPrescribable($appointment)) {
-                throw new ValidationException(['appointment_id' => $appointment->getStatus() === AppointmentStatus::CANCELLED
-                    ? 'This consultation was cancelled before it took place, so you can’t prescribe against it.'
-                    : 'This consultation hasn’t taken place yet. You can prescribe during or after the call.']);
+                throw new ValidationException(['appointment_id' => match ($appointment->getStatus()) {
+                    AppointmentStatus::CANCELLED => 'This consultation was cancelled before it took place, so you can’t prescribe against it.',
+                    AppointmentStatus::MISSED    => 'This consultation was marked missed. If it took place, ask the back office to mark it held first.',
+                    default                      => 'This consultation hasn’t taken place yet. You can prescribe during or after the call.',
+                }]);
             }
         } elseif (!$this->hasConsulted($doctor, $patient)) {
             throw new ValidationException(['patient_id' => 'You can only prescribe for patients you have consulted.']);

@@ -13,7 +13,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/admin/analytics?range=30d — booking + revenue analytics for the back
- * office. Revenue counts only paid consultations (refunds excluded). Behind RBAC
+ * office. Revenue counts only paid consultations, less any partial refund (refunds excluded). Behind RBAC
  * `monitoring.view`. All aggregation is done in PHP over scalar rows, so it is
  * database-portable and needs no vendor date functions.
  */
@@ -62,7 +62,8 @@ final class AnalyticsAction
             $created = $r['created_at'];
             $label   = $granularity === 'month' ? $created->format('Y-m') : $created->format('Y-m-d');
             $paid    = $r['payment_status'] === 'paid';
-            $amount  = $paid ? $r['amount'] : '0.00';
+            // A still-paid row may have had part of it refunded (a missed consultation, a late cancellation).
+            $amount  = $paid ? bcsub($r['amount'], $r['refunded_amount'], 2) : '0.00';
 
             if (isset($buckets[$label])) {
                 $buckets[$label]['appointments']++;
@@ -70,7 +71,7 @@ final class AnalyticsAction
             }
 
             if ($paid) {
-                $revenue = bcadd($revenue, $r['amount'], 2);
+                $revenue = bcadd($revenue, $amount, 2);
                 $paidCount++;
             }
             if ($r['status'] === 'completed') {
@@ -85,7 +86,7 @@ final class AnalyticsAction
                 $bySpecial[$sid] ??= ['id' => $sid, 'name' => $r['specialist_name'], 'appointments' => 0, 'revenue' => '0.00'];
                 $bySpecial[$sid]['appointments']++;
                 if ($paid) {
-                    $bySpecial[$sid]['revenue'] = bcadd($bySpecial[$sid]['revenue'], $r['amount'], 2);
+                    $bySpecial[$sid]['revenue'] = bcadd($bySpecial[$sid]['revenue'], $amount, 2);
                 }
             }
         }

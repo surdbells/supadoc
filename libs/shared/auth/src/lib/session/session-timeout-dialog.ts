@@ -1,13 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  ElementRef,
-  inject,
-  viewChild,
-} from '@angular/core';
-import { IconComponent } from '@supadoc/ui';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { DialogComponent, IconComponent } from '@supadoc/ui';
 import { SessionTimeoutService } from './session-timeout.service';
 
 /**
@@ -18,7 +10,7 @@ import { SessionTimeoutService } from './session-timeout.service';
 @Component({
   selector: 'sd-session-timeout',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [DialogComponent, IconComponent],
   template: `
     @if (session.deadlineSoon() && !session.warning()) {
       <div
@@ -43,53 +35,53 @@ import { SessionTimeoutService } from './session-timeout.service';
         </button>
       </div>
     }
-    @if (session.warning()) {
-      <div class="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-abyss/50 backdrop-blur-[2px]" aria-hidden="true"></div>
-        <div
-          class="relative z-10 flex w-full max-w-sm flex-col gap-4 rounded-[16px] bg-white p-6 text-center shadow-[0_8px_40px_rgba(10,22,40,0.25)]"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="sd-idle-title"
-          aria-describedby="sd-idle-desc"
-          (keydown.escape)="stay()"
-        >
-          <span class="mx-auto flex size-14 items-center justify-center rounded-full bg-warning/15 text-warning">
-            <sd-icon name="clock" [size]="26" />
-          </span>
-          <div class="flex flex-col gap-1">
-            <h2 id="sd-idle-title" class="font-heading text-h5 text-ink">Are you still there?</h2>
-            <p id="sd-idle-desc" class="font-sans text-body-sm text-slate">
-              For your security, you'll be signed out in
-              <strong class="font-semibold text-ink tabular-nums" aria-live="polite">{{ countdown() }}</strong>
-              because you've been inactive.
-            </p>
-          </div>
-          <div class="mt-1 flex flex-col-reverse gap-3 sm:flex-row">
-            <button
-              type="button"
-              class="flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier"
-              (click)="session.signOutNow()"
-            >
-              Sign out
-            </button>
-            <button
-              #stayBtn
-              type="button"
-              class="flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-cerulean-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
-              (click)="stay()"
-            >
-              Stay signed in
-            </button>
-          </div>
+    <!-- A native modal (top layer): opened last, it sits above any other open
+         dialog, and only the explicit buttons or Esc ("stay") answer it. -->
+    <sd-dialog
+      [open]="session.warning()"
+      layout="plain"
+      size="sm"
+      dialogRole="alertdialog"
+      labelledBy="sd-idle-title"
+      describedBy="sd-idle-desc"
+      [closeOnBackdrop]="false"
+      (closed)="stay()"
+    >
+      <div class="flex flex-col gap-4 p-6 text-center">
+        <span class="mx-auto flex size-14 items-center justify-center rounded-full bg-(--sd-dialog-warning-soft) text-(--sd-dialog-warning-text)">
+          <sd-icon name="clock" [size]="26" />
+        </span>
+        <div class="flex flex-col gap-1">
+          <h2 id="sd-idle-title" class="font-heading text-h5 text-(--sd-dialog-strong)">Are you still there?</h2>
+          <p id="sd-idle-desc" class="font-sans text-body-sm text-(--sd-dialog-muted)">
+            For your security, you'll be signed out in
+            <strong class="font-semibold text-(--sd-dialog-strong) tabular-nums" aria-live="polite">{{ countdown() }}</strong>
+            because you've been inactive.
+          </p>
+        </div>
+        <div class="mt-1 flex flex-col-reverse gap-3 sm:flex-row">
+          <button
+            type="button"
+            class="min-h-12 flex-1 rounded-field border border-(--sd-dialog-border) py-3 font-sans text-body font-semibold text-(--sd-dialog-muted) transition-colors hover:bg-(--sd-dialog-hover) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring)"
+            (click)="session.signOutNow()"
+          >
+            Sign out
+          </button>
+          <button
+            type="button"
+            data-autofocus
+            class="min-h-12 flex-1 rounded-field bg-(--sd-dialog-primary) py-3 font-sans text-body font-semibold text-(--sd-dialog-on-accent) transition-colors hover:bg-(--sd-dialog-primary-hover) focus:outline-none focus-visible:ring-2 focus-visible:ring-(--sd-dialog-ring) focus-visible:ring-offset-2"
+            (click)="stay()"
+          >
+            Stay signed in
+          </button>
         </div>
       </div>
-    }
+    </sd-dialog>
   `,
 })
 export class SessionTimeoutDialog {
   protected readonly session = inject(SessionTimeoutService);
-  private readonly stayBtn = viewChild<ElementRef<HTMLButtonElement>>('stayBtn');
 
   protected readonly deadlineTime = computed(() => {
     const at = this.session.deadlineSoon();
@@ -102,12 +94,6 @@ export class SessionTimeoutDialog {
     const s = this.session.secondsLeft();
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   });
-
-  constructor() {
-    // Move focus into the dialog when it opens, so keyboard and screen-reader
-    // users land on the primary action.
-    effect(() => this.stayBtn()?.nativeElement.focus());
-  }
 
   protected stay(): void {
     this.session.staySignedIn();

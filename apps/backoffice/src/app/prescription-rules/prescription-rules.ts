@@ -13,8 +13,10 @@ import {
   apiErrorMessage,
   PrescriptionsApi,
 } from '@supadoc/data-access';
+import type { HasUnsavedChanges } from '@supadoc/auth';
 import type { PrescriptionSettingsDto } from '@supadoc/models';
-import { AlertComponent, IconComponent } from '@supadoc/ui';
+import type { LeaveCopy } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
 
 type RuleKey = keyof PrescriptionSettingsDto;
 
@@ -240,9 +242,19 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
     </div>
   `,
 })
-export class AdminPrescriptionRules implements OnInit {
+export class AdminPrescriptionRules implements OnInit, HasUnsavedChanges {
   private readonly api = inject(PrescriptionsApi);
+  private readonly dialogs = inject(DialogService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** For the route's unsavedChangesGuard. */
+  hasUnsavedChanges(): boolean {
+    return this.dirty() && !this.saving();
+  }
+  readonly leaveCopy: LeaveCopy = {
+    title: 'Leave without saving the rules?',
+    message: "Your changes to the prescription rules haven't been saved. If you leave now, they'll be lost.",
+  };
 
   protected readonly groups = GROUPS;
 
@@ -316,9 +328,18 @@ export class AdminPrescriptionRules implements OnInit {
     }
   }
 
-  protected discard(): void {
+  protected async discard(): Promise<void> {
     const saved = this.saved();
     if (!saved) return;
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'warning',
+      icon: 'undo-2',
+      title: 'Discard changes?',
+      message: 'Your edits to the prescription rules will be lost.',
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Keep editing',
+    });
+    if (!confirmed) return;
     this.values.set({ ...saved });
     this.fieldErrors.set({});
     this.notice.set('');
