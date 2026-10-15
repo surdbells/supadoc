@@ -17,6 +17,12 @@ final class AppointmentRepository extends BaseRepository
         return Appointment::class;
     }
 
+    /** `?sort_by=` values the appointment lists accept (see BaseRepository::safeSortField). */
+    protected function sortableFields(): array
+    {
+        return ['scheduledAt', 'createdAt', 'updatedAt', 'status', 'id'];
+    }
+
     /**
      * @param list<AppointmentStatus>|null $statuses
      * @return array{items: list<Appointment>, total: int}

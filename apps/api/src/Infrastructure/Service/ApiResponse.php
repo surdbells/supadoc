@@ -104,6 +104,11 @@ trait ApiResponse
 
         $sortByRaw = (string) ($query['sort_by'] ?? 'created_at');
         $sortBy    = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $sortByRaw))));
+        // A plain field name or nothing: the repository also allow-lists it
+        // (BaseRepository::safeSortField) — never raw input into ORDER BY.
+        if (preg_match('/^[a-z][A-Za-z0-9]{0,63}$/', $sortBy) !== 1) {
+            $sortBy = 'createdAt';
+        }
 
         $sortDir = strtolower((string) ($query['sort_dir'] ?? 'desc'));
         $sortDir = in_array($sortDir, ['asc', 'desc'], true) ? $sortDir : 'desc';

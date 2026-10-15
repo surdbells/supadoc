@@ -91,9 +91,42 @@ abstract class BaseRepository
     }
 
     /**
+     * Fields this entity's lists may be sorted by (DQL names). `sort_by` comes
+     * straight from the query string, so anything not listed here falls back to
+     * {@see defaultSortField()} — it is never interpolated into DQL unchecked.
+     *
+     * @return list<string>
+     */
+    protected function sortableFields(): array
+    {
+        return ['createdAt', 'id'];
+    }
+
+    /** The sort used when the requested one isn't allowed: createdAt when mapped, else id. */
+    protected function defaultSortField(): string
+    {
+        return $this->em->getClassMetadata($this->getEntityClass())->hasField('createdAt') ? 'createdAt' : 'id';
+    }
+
+    /**
+     * `$sortBy` if it is an allow-listed, mapped field of this entity, else the
+     * default. Public for tests; the only gate between request input and ORDER BY.
+     */
+    public function safeSortField(string $sortBy): string
+    {
+        $mapped = $this->em->getClassMetadata($this->getEntityClass());
+        $ok = preg_match('/^[a-z][A-Za-z0-9]{0,63}$/', $sortBy) === 1
+            && in_array($sortBy, $this->sortableFields(), true)
+            && ($mapped->hasField($sortBy) || $sortBy === 'id');
+
+        return $ok ? $sortBy : $this->defaultSortField();
+    }
+
+    /**
      * Runs a query builder with LIMIT/OFFSET + ordering and returns items + total.
      * `$sortBy` is a DQL field (camelCase) — the ApiResponse pagination helper
-     * has already converted it from snake_case.
+     * has already converted it from snake_case — and is checked against
+     * {@see sortableFields()} here before it reaches the DQL.
      *
      * @return array{items: list<object>, total: int}
      */
@@ -105,7 +138,8 @@ abstract class BaseRepository
         string $sortBy = 'createdAt',
         string $sortDir = 'desc',
     ): array {
-        $dir = strtoupper($sortDir) === 'ASC' ? 'ASC' : 'DESC';
+        $dir    = strtoupper($sortDir) === 'ASC' ? 'ASC' : 'DESC';
+        $sortBy = $this->safeSortField($sortBy);
         $qb->orderBy("$alias.$sortBy", $dir);
         // Rows that tie on the sort column (timestamps are to the second) must
         // come back in the same order on every page, or LIMIT/OFFSET can repeat

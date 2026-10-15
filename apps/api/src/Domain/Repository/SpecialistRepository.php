@@ -15,6 +15,12 @@ final class SpecialistRepository extends BaseRepository
         return Specialist::class;
     }
 
+    /** `?sort_by=` values the doctor directory accepts (see BaseRepository::safeSortField). */
+    protected function sortableFields(): array
+    {
+        return ['name', 'rating', 'consultationFee', 'yearsExperience', 'reviewsCount', 'createdAt', 'id'];
+    }
+
     /**
      * The directory, filtered. Only approved doctors (or legacy rows with no
      * status) who are available for booking are included unless `$approvedOnly`
