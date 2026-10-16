@@ -1,6 +1,8 @@
+import { HttpClient, HttpEvent } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  SpecialistPhotoResultDto,
   AvailabilityRangeDto,
   CreateSpecialistParams,
   DayAvailability,
@@ -98,6 +100,7 @@ export interface SpecialistSuggestionParams {
 @Injectable({ providedIn: 'root' })
 export class SpecialistsApi {
   private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
   private readonly config = inject(API_CONFIG);
 
   /** Resolve a relative asset path (e.g. a photo_url) to an absolute URL. */
@@ -294,6 +297,34 @@ export class SpecialistsApi {
     return this.api.patch<SuccessResponse<SpecialistAdminDto>>(
       `api/specialists/${encodeURIComponent(id)}`,
       params,
+    );
+  }
+
+  /**
+   * POST /api/specialists/{id}/photo (multipart `photo`) — upload or replace a
+   * doctor's headshot from the back office: JPG, PNG or WebP, ≤ 2 MB
+   * (SPECIALIST_PHOTO_*), verified from the bytes server-side. Emits HttpEvents
+   * (UploadProgress for the bar, Response with the updated specialist —
+   * `photo_url` is the new path). Audited; needs `specialists.manage`. 422
+   * `errors.photo` when the image is refused.
+   */
+  uploadPhoto(
+    id: string,
+    file: File,
+  ): Observable<HttpEvent<SuccessResponse<SpecialistPhotoResultDto>>> {
+    const form = new FormData();
+    form.append('photo', file, file.name);
+    return this.http.post<SuccessResponse<SpecialistPhotoResultDto>>(
+      this.api.absoluteUrl(`api/specialists/${encodeURIComponent(id)}/photo`),
+      form,
+      { reportProgress: true, observe: 'events' },
+    );
+  }
+
+  /** DELETE /api/specialists/{id}/photo — remove the doctor's headshot (idempotent, audited). */
+  removePhoto(id: string): Observable<SuccessResponse<SpecialistPhotoResultDto>> {
+    return this.api.delete<SuccessResponse<SpecialistPhotoResultDto>>(
+      `api/specialists/${encodeURIComponent(id)}/photo`,
     );
   }
 

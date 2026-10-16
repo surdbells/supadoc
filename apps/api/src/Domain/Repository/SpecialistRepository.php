@@ -480,4 +480,126 @@ final class SpecialistRepository extends BaseRepository
 
         return ['min' => (string) $row['lo'], 'max' => (string) $row['hi']];
     }
+
+    // ----- Reference data: specialty usage counts + renames -----
+
+    /**
+     * Every stored specialty spelling with how many doctors (not deleted) have
+     * it. The reference list's usage counts group these by
+     * {@see \App\Domain\Entity\ReferenceItem::keyOf()} (case and spacing aside).
+     *
+     * @return array<string,int> stored value => doctors
+     */
+    public function specialtyUsage(): array
+    {
+        $out = [];
+        foreach ($this->specialtyUsageQuery()->getScalarResult() as $row) {
+            $out[(string) $row['specialty']] = (int) $row['cnt'];
+        }
+
+        return $out;
+    }
+
+    /** {@see specialtyUsage()}'s query (public so its DQL compiles in the offline tests). */
+    public function specialtyUsageQuery(): \Doctrine\ORM\Query
+    {
+        return $this->qb()
+            ->select('e.specialty AS specialty, COUNT(e.id) AS cnt')
+            ->andWhere('e.deletedAt IS NULL')
+            ->groupBy('e.specialty')
+            ->getQuery();
+    }
+
+    /**
+     * The specialties asked for by change requests waiting for review (doctors
+     * not deleted), with how many requests ask for each — a list item they
+     * name must not be deleted, or the doctor would hold a label that is not
+     * on the list once the request is approved. Waiting requests are few, so
+     * they are read and decoded here (like {@see renameSpecialty()}).
+     *
+     * @return array<string,int> requested value => requests
+     */
+    public function requestedSpecialtyUsage(): array
+    {
+        $out  = [];
+        $rows = $this->em->getConnection()->fetchFirstColumn(
+            'SELECT pending_changes FROM specialists WHERE pending_changes IS NOT NULL AND deleted_at IS NULL',
+        );
+        foreach ($rows as $json) {
+            $pending = json_decode((string) $json, true);
+            $wanted  = is_array($pending) && is_array($pending['fields'] ?? null) ? ($pending['fields']['specialty'] ?? null) : null;
+            if (is_string($wanted) && trim($wanted) !== '') {
+                $out[$wanted] = ($out[$wanted] ?? 0) + 1;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * A specialty was renamed in the reference list: give every specialist
+     * whose specialty reads as `$from` (any case or spacing; deleted rows too,
+     * so a restored doctor still matches the list) the new label, and the same
+     * for a change request waiting for review that asks for it. Run it inside
+     * the rename's transaction. Returns each change for the audit — `pending`
+     * marks a waiting change request rather than the specialty itself.
+     *
+     * @return list<array{id:string, name:string, from:string, pending:bool}>
+     */
+    public function renameSpecialty(string $from, string $to): array
+    {
+        $key     = \App\Domain\Entity\ReferenceItem::keyOf($from);
+        $to      = \App\Domain\Entity\ReferenceItem::normaliseLabel($to);
+        $changes = [];
+
+        // The stored spellings that read as $from (a short list: one row per spelling).
+        $spellings = [];
+        foreach ($this->qb()->select('DISTINCT e.specialty AS specialty')->getQuery()->getScalarResult() as $row) {
+            $value = (string) $row['specialty'];
+            if ($value !== $to && \App\Domain\Entity\ReferenceItem::keyOf($value) === $key) {
+                $spellings[] = $value;
+            }
+        }
+        if ($spellings !== []) {
+            $rows = $this->qb()
+                ->select('e.id AS id, e.name AS name, e.specialty AS specialty')
+                ->andWhere('e.specialty IN (:spellings)')
+                ->setParameter('spellings', $spellings)
+                ->orderBy('e.name', 'ASC')
+                ->getQuery()
+                ->getScalarResult();
+            foreach ($rows as $row) {
+                $changes[] = ['id' => (string) $row['id'], 'name' => (string) $row['name'], 'from' => (string) $row['specialty'], 'pending' => false];
+            }
+            $this->em->createQueryBuilder()
+                ->update(Specialist::class, 'e')
+                ->set('e.specialty', ':to')
+                ->set('e.updatedAt', ':now')
+                ->andWhere('e.specialty IN (:spellings)')
+                ->setParameter('to', $to)
+                ->setParameter('now', new \DateTimeImmutable(), 'datetime_immutable')
+                ->setParameter('spellings', $spellings)
+                ->getQuery()
+                ->execute();
+        }
+
+        // Change requests waiting for review (few at a time) that ask for $from.
+        $conn = $this->em->getConnection();
+        foreach ($conn->fetchAllAssociative('SELECT id, name, pending_changes FROM specialists WHERE pending_changes IS NOT NULL') as $row) {
+            $pending = json_decode((string) $row['pending_changes'], true);
+            $wanted  = is_array($pending) ? ($pending['fields']['specialty'] ?? null) : null;
+            if (!is_string($wanted) || $wanted === $to || \App\Domain\Entity\ReferenceItem::keyOf($wanted) !== $key) {
+                continue;
+            }
+            $pending['fields']['specialty'] = $to;
+            $conn->update(
+                'specialists',
+                ['pending_changes' => json_encode($pending, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)],
+                ['id' => (string) $row['id']],
+            );
+            $changes[] = ['id' => trim((string) $row['id']), 'name' => (string) $row['name'], 'from' => $wanted, 'pending' => true];
+        }
+
+        return $changes;
+    }
 }

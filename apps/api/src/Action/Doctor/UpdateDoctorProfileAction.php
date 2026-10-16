@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Doctor\DoctorStanding;
+use App\Domain\Entity\ReferenceItem;
 use App\Domain\Entity\Specialist;
+use App\Domain\Reference\ReferenceCategory;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\DoctorOnboardingService;
+use App\Infrastructure\Service\ReferenceDataService;
+use App\Infrastructure\Storage\ProfilePhotoStore;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -25,8 +29,11 @@ use Psr\Http\Message\ServerRequestInterface;
  * certifications) don't change here: a value that differs waits in
  * `pending_changes` until a reviewer approves it (reviewers are notified; the
  * request is audited), and one equal to the current value takes back an
- * earlier request for it. Everything else saves at once — except that a
- * suspended doctor may not change their availability (`weekly_hours`,
+ * earlier request for it. `specialty` must be an active item of the specialty
+ * reference list (422 "Choose a specialty from the list"), saved in the
+ * list's spelling — or the doctor's current / already-requested one, kept as
+ * it is even if the list has since switched it off. Everything else saves at
+ * once — except that a suspended doctor may not change their availability (`weekly_hours`,
  * `slot_minutes`, `available`: 403, `errors.code` doctor_suspended).
  */
 final class UpdateDoctorProfileAction
@@ -38,6 +45,7 @@ final class UpdateDoctorProfileAction
         private readonly UserRepository $users,
         private readonly SpecialistRepository $specialists,
         private readonly DoctorOnboardingService $onboarding,
+        private readonly ReferenceDataService $reference,
     ) {
     }
 
@@ -74,13 +82,27 @@ final class UpdateDoctorProfileAction
         }
 
         if (array_key_exists('specialty', $body)) {
-            $specialty = trim((string) $body['specialty']);
+            $specialty = is_scalar($body['specialty']) ? trim((string) $body['specialty']) : '';
             if ($specialty === '') {
                 $errors['specialty'] = 'Speciality cannot be empty';
             } elseif (mb_strlen($specialty) > 120) {
                 $errors['specialty'] = 'Keep the speciality under 120 characters';
             } else {
-                $locked['specialty'] = $specialty;
+                // An active specialty of the reference list (saved in its
+                // spelling) — or the one they already have / already asked
+                // for, kept as it is even if the list has since switched it off.
+                $kept = array_filter(
+                    [$specialist->getSpecialty(), $specialist->getPendingFields()['specialty'] ?? null],
+                    static fn (mixed $v): bool => is_string($v) && ReferenceItem::keyOf($v) === ReferenceItem::keyOf($specialty),
+                );
+                $choice = $kept !== []
+                    ? (string) reset($kept)
+                    : $this->reference->resolveChoice(ReferenceCategory::SPECIALTY, $specialty);
+                if ($choice === null) {
+                    $errors['specialty'] = 'Choose a specialty from the list';
+                } else {
+                    $locked['specialty'] = $choice;
+                }
             }
         }
 
@@ -138,17 +160,15 @@ final class UpdateDoctorProfileAction
         }
 
         if (array_key_exists('photo_url', $body)) {
-            $photo = trim((string) $body['photo_url']);
-            // Accept a full URL or a safe /uploads path — never a traversal
-            // string ('..'), which would let the delete-avatar sink reach files
-            // outside the web root.
-            $validPhoto = $photo === ''
-                || preg_match('#^https?://#', $photo) === 1
-                || (str_starts_with($photo, '/uploads/') && !str_contains($photo, '..'));
-            if (!$validPhoto) {
-                $errors['photo_url'] = 'Enter a full URL or an /uploads path';
-            } else {
-                $specialist->setPhotoUrl($photo !== '' ? $photo : null);
+            // Photos come only from the avatar upload (POST /doctor/avatar): this
+            // field may clear the photo or repeat the current one — never point
+            // it at an outside link or another file.
+            $photo      = trim((string) ($body['photo_url'] ?? ''));
+            $photoError = ProfilePhotoStore::staffPhotoUrlError($photo, $specialist->getPhotoUrl());
+            if ($photoError !== null) {
+                $errors['photo_url'] = $photoError;
+            } elseif ($photo === '') {
+                $specialist->setPhotoUrl(null);
             }
         }
 

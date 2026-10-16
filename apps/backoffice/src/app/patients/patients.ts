@@ -10,74 +10,193 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { AdminPatientsApi, apiErrorMessage } from '@supadoc/data-access';
 import type { PatientAccountDto } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import {
+  AVATAR,
+  BTN_SECONDARY,
+  COUNT_BADGE,
+  EMPTY_FRAME,
+  INLINE_ERROR,
+  LIST_BODY,
+  LIST_FRAME,
+  LIST_HEAD,
+  LIST_ROW,
+  LOAD_MORE,
+  LOAD_MORE_NOTE,
+  PAGE,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  PAGE_TITLE_ROW,
+  ROW_CHEVRON,
+  ROW_CHEVRON_ICON,
+  ROW_END,
+  ROW_LINK,
+  ROW_META,
+  ROW_METAS,
+  ROW_SUB,
+  ROW_TEXT,
+  ROW_TITLE,
+  SEARCH_BOX,
+  SEARCH_CLEAR,
+  SEARCH_ICON,
+  SEARCH_INPUT,
+  SEARCH_RESULTS,
+  SEARCH_ROW,
+  SEARCH_WRAP,
+} from '../shared/layout';
+
+/** Desktop column template, shared by the header and every row: Patient | Phone | Joined | chevron. */
+const COLUMNS = 'md:grid-cols-[minmax(0,1fr)_10rem_8rem_2.5rem] xl:grid-cols-[minmax(0,1fr)_12rem_9rem_3rem]';
 
 /** Patient administration (route `/patients`) — browse the patient base. */
 @Component({
   selector: 'bo-patients',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, EmptyStateComponent, IconComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Patients</h1>
-        <p class="font-sans text-body text-slate">Browse registered patients and open a record.</p>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER_TEXT}">
+        <div class="${PAGE_TITLE_ROW}">
+          <h1 class="${PAGE_TITLE}">Patients</h1>
+          @if (allTotal(); as n) {
+            <span class="${COUNT_BADGE}"><sd-icon name="users" [size]="14" />{{ countLabel(n) }}</span>
+          }
+        </div>
+        <p class="${PAGE_SUBTITLE}">Browse registered patients and open a record.</p>
       </header>
 
-      <div class="flex items-center gap-2 rounded-field border border-cloud bg-white px-4 py-2">
-        <sd-icon name="search" [size]="18" class="text-slate" />
-        <input
-          type="search"
-          [value]="search()"
-          (input)="onSearch($any($event.target).value)"
-          placeholder="Search by name, email or phone"
-          class="w-full bg-transparent font-sans text-body-sm text-ink placeholder:text-slate/60 focus:outline-none"
-        />
+      <div class="${SEARCH_ROW}">
+        <div role="search" class="${SEARCH_WRAP}">
+          <label for="bo-patients-search" class="sr-only">Search patients by name, email or phone</label>
+          <div class="${SEARCH_BOX}">
+            <sd-icon name="search" [size]="20" class="${SEARCH_ICON}" />
+            <input
+              id="bo-patients-search"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              enterkeyhint="search"
+              [value]="search()"
+              (input)="onSearch($any($event.target).value)"
+              (keydown.escape)="clearSearch()"
+              placeholder="Search by name, email or phone…"
+              class="${SEARCH_INPUT}"
+            />
+            @if (search()) {
+              <button type="button" class="${SEARCH_CLEAR}" aria-label="Clear search" (click)="clearSearch()">
+                <sd-icon name="x" [size]="16" />
+              </button>
+            }
+          </div>
+        </div>
+        @if (search().trim() && items().length > 0 && !loading()) {
+          @if (total(); as t) {
+            <p class="${SEARCH_RESULTS}">
+              <span class="font-semibold text-ink">{{ formatCount(t) }}</span>
+              {{ t === 1 ? 'result' : 'results' }} for “{{ search().trim() }}”
+            </p>
+          }
+        }
       </div>
 
       @if (loading() && items().length === 0) {
-        <div class="sd-shimmer h-40 rounded-card"></div>
-      } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
-          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
-          <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+        <div class="${LIST_FRAME}" aria-busy="true">
+          <span class="sr-only">Loading patients…</span>
+          <ul class="${LIST_BODY}" aria-hidden="true">
+            @for (i of skeletonRows; track i) {
+              <li class="${LIST_ROW} ${COLUMNS}">
+                <div class="flex min-w-0 items-center gap-3">
+                  <div class="sd-shimmer size-12 shrink-0 rounded-full"></div>
+                  <div class="flex min-w-0 flex-1 flex-col gap-2">
+                    <div class="sd-shimmer h-4 w-36 max-w-full rounded-pill"></div>
+                    <div class="sd-shimmer h-3 w-52 max-w-full rounded-pill"></div>
+                  </div>
+                </div>
+                <div class="sd-shimmer h-4 w-28 rounded-pill"></div>
+                <div class="sd-shimmer h-4 w-24 rounded-pill"></div>
+              </li>
+            }
+          </ul>
         </div>
-      } @else {
-        <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-          <table class="w-full min-w-[640px] text-left">
-            <thead class="border-b border-cloud font-sans text-caption text-slate">
-              <tr>
-                <th class="px-4 py-3">Name</th>
-                <th class="px-4 py-3">Email</th>
-                <th class="px-4 py-3">Phone</th>
-                <th class="px-4 py-3">Joined</th>
-                <th class="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (p of items(); track p.id) {
-                <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                  <td class="px-4 py-3 font-medium">{{ fullName(p) }}</td>
-                  <td class="px-4 py-3 text-slate">{{ p.email }}</td>
-                  <td class="px-4 py-3 text-slate">{{ p.phone || '—' }}</td>
-                  <td class="px-4 py-3 text-slate">{{ when(p.created_at) }}</td>
-                  <td class="px-4 py-3 text-right">
-                    <a [routerLink]="['/patients', p.id]" class="font-sans text-caption font-semibold text-cerulean hover:underline">Open</a>
-                  </td>
-                </tr>
-              } @empty {
-                <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No patients found.' }}</td></tr>
-              }
-            </tbody>
-          </table>
+      } @else if (error() && items().length === 0) {
+        <div class="${EMPTY_FRAME}" role="alert">
+          <sd-empty-state icon="wifi-off" tone="error" title="Couldn't load patients" [message]="error()">
+            <button type="button" class="${BTN_SECONDARY}" (click)="retry()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
+          </sd-empty-state>
         </div>
-
-        @if (hasMore()) {
-          <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">
-            {{ loading() ? 'Loading…' : 'Load more' }}
-          </button>
+      } @else if (items().length === 0) {
+        @if (search().trim()) {
+          <sd-empty-state icon="search" [title]="'No patients match “' + search().trim() + '”'" message="Check the spelling, or search by email address or phone number.">
+            <button type="button" class="${BTN_SECONDARY}" (click)="clearSearch()"><sd-icon name="x" [size]="16" />Clear search</button>
+          </sd-empty-state>
+        } @else {
+          <sd-empty-state icon="users" tone="brand" title="No patients yet" message="Patients appear here once they create an account." />
         }
+      } @else {
+        <section class="${LIST_FRAME}" aria-label="Patients">
+          <div class="${LIST_HEAD} ${COLUMNS}" aria-hidden="true">
+            <span>Patient</span>
+            <span>Phone</span>
+            <span>Joined</span>
+            <span></span>
+          </div>
+          <ul class="${LIST_BODY}">
+            @for (p of items(); track p.id) {
+              <li class="${LIST_ROW} ${COLUMNS}">
+                <a [routerLink]="['/patients', p.id]" class="${ROW_LINK}">
+                  <span class="${AVATAR}" aria-hidden="true">{{ initialsOf(p) }}</span>
+                  <span class="${ROW_TEXT}">
+                    <span class="${ROW_TITLE}">{{ fullName(p) }}</span>
+                    <span class="${ROW_SUB}">{{ p.email }}</span>
+                  </span>
+                </a>
+                <div class="${ROW_METAS}">
+                  <span class="${ROW_META}">
+                    <sd-icon name="phone" [size]="16" class="shrink-0 text-slate" />
+                    <span class="min-w-0 truncate">
+                      <span class="text-slate md:sr-only">Phone </span>
+                      @if (p.phone) {
+                        {{ p.phone }}
+                      } @else {
+                        <span class="text-slate" aria-hidden="true">—</span><span class="sr-only">not given</span>
+                      }
+                    </span>
+                  </span>
+                  <span class="${ROW_META}">
+                    <sd-icon name="calendar-days" [size]="16" class="shrink-0 text-slate" />
+                    <span class="min-w-0"><span class="text-slate md:sr-only">Joined </span>{{ when(p.created_at) }}</span>
+                  </span>
+                </div>
+                <span class="${ROW_END}" aria-hidden="true">
+                  <span class="${ROW_CHEVRON}">
+                    <span class="md:hidden">View patient</span>
+                    <sd-icon name="chevron-right" [size]="20" class="${ROW_CHEVRON_ICON}" />
+                  </span>
+                </span>
+              </li>
+            }
+          </ul>
+        </section>
+
+        <div class="${LOAD_MORE}">
+          @if (error()) {
+            <p class="${INLINE_ERROR}" role="alert"><sd-icon name="circle-alert" [size]="16" class="shrink-0" />{{ error() }}</p>
+          }
+          @if (hasMore()) {
+            @if (total(); as t) {
+              <p class="${LOAD_MORE_NOTE}">Showing {{ formatCount(items().length) }} of {{ formatCount(t) }}</p>
+            }
+            <button type="button" class="${BTN_SECONDARY}" [disabled]="loading()" (click)="loadMore()">
+              @if (loading()) {
+                <sd-icon name="loader-circle" [size]="16" class="animate-spin" />Loading…
+              } @else {
+                <sd-icon name="chevron-down" [size]="16" />Load more
+              }
+            </button>
+          }
+        </div>
       }
     </div>
   `,
@@ -91,6 +210,11 @@ export class AdminPatients implements OnInit {
   protected readonly error = signal('');
   protected readonly hasMore = signal(false);
   protected readonly search = signal('');
+  /** `meta.total` for the listed results (matches, when searching). */
+  protected readonly total = signal<number | null>(null);
+  /** `meta.total` of the last unfiltered load — the header's patient count. */
+  protected readonly allTotal = signal<number | null>(null);
+  protected readonly skeletonRows = [1, 2, 3, 4, 5];
   private page = 1;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -108,7 +232,17 @@ export class AdminPatients implements OnInit {
     }, 250);
   }
 
+  protected clearSearch(): void {
+    if (!this.search()) return;
+    this.onSearch('');
+  }
+
+  protected retry(): void {
+    this.fetch();
+  }
+
   protected loadMore(): void {
+    if (this.loading()) return;
     this.page += 1;
     this.fetch();
   }
@@ -124,6 +258,8 @@ export class AdminPatients implements OnInit {
         next: (res) => {
           this.items.update((list) => (this.page === 1 ? res.data : [...list, ...res.data]));
           this.hasMore.set(res.meta.page < res.meta.total_pages);
+          this.total.set(res.meta.total);
+          if (!term) this.allTotal.set(res.meta.total);
           this.loading.set(false);
         },
         error: (err: unknown) => {
@@ -136,6 +272,19 @@ export class AdminPatients implements OnInit {
 
   protected fullName(p: PatientAccountDto): string {
     return `${p.first_name} ${p.last_name}`.trim() || '—';
+  }
+
+  protected initialsOf(p: PatientAccountDto): string {
+    const fromName = `${p.first_name?.[0] ?? ''}${p.last_name?.[0] ?? ''}`;
+    return (fromName || p.email?.[0] || '?').toUpperCase();
+  }
+
+  protected formatCount(n: number): string {
+    return n.toLocaleString('en-GB');
+  }
+
+  protected countLabel(n: number): string {
+    return `${this.formatCount(n)} ${n === 1 ? 'patient' : 'patients'}`;
   }
 
   protected when(iso: string): string {

@@ -19,9 +19,22 @@ import {
 } from '@supadoc/data-access';
 import type { PatientSummaryDto, SpecialistAdminDto } from '@supadoc/models';
 import { AlertComponent, BookingCalendarComponent, IconComponent } from '@supadoc/ui';
-
-const FIELD =
-  'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+import {
+  BACK_LINK_ABOVE,
+  BTN_GHOST,
+  BTN_PRIMARY,
+  FIELD,
+  FIELD_ICON,
+  FIELD_WITH_ICON,
+  FORM_ACTIONS,
+  LABEL,
+  PAGE_FORM,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  SECTION,
+  SECTION_TITLE,
+} from '../shared/layout';
 
 const TYPES = [
   { value: 'video', label: 'Video consultation' },
@@ -53,18 +66,18 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
   providers: [AvailabilityCalendarStore],
   host: { class: 'block' },
   template: `
-    <div class="flex max-w-4xl flex-col gap-6 py-2">
-      <a routerLink="/appointments" class="flex w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean">
+    <div class="${PAGE_FORM}">
+      <a routerLink="/appointments" class="${BACK_LINK_ABOVE} -mb-3">
         <sd-icon name="chevron-right" [size]="16" class="rotate-180" /> Appointments
       </a>
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">New appointment</h1>
-        <p class="font-sans text-body text-slate">Book a consultation on a patient's behalf.</p>
+      <header class="${PAGE_HEADER_TEXT}">
+        <h1 class="${PAGE_TITLE}">New appointment</h1>
+        <p class="${PAGE_SUBTITLE}">Book a consultation on a patient's behalf.</p>
       </header>
 
       <!-- Patient -->
-      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-6">
-        <h2 class="font-heading text-body-lg text-ink">1. Patient</h2>
+      <section class="${SECTION} !gap-4">
+        <h2 class="${SECTION_TITLE}"><sd-icon name="user-round" [size]="20" class="text-cerulean" />1. Patient</h2>
         @if (patient(); as p) {
           <div class="flex items-center justify-between gap-3 rounded-field border border-cerulean bg-frost/30 px-4 py-3">
             <div class="flex min-w-0 flex-col">
@@ -75,8 +88,8 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
           </div>
         } @else {
           <div class="relative">
-            <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-            <input class="${FIELD} pl-9" aria-label="Search patients" placeholder="Search by name, email or phone…" [value]="patientTerm()" (input)="onPatientInput($any($event.target).value)" />
+            <sd-icon name="search" [size]="20" class="${FIELD_ICON}" />
+            <input class="${FIELD_WITH_ICON}" aria-label="Search patients" placeholder="Search by name, email or phone…" [value]="patientTerm()" (input)="onPatientInput($any($event.target).value)" />
           </div>
           @if (searchingPatient()) {
             <p class="font-sans text-caption text-slate">Searching…</p>
@@ -101,8 +114,8 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
       </section>
 
       <!-- Specialist -->
-      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-6">
-        <h2 class="font-heading text-body-lg text-ink">2. Specialist</h2>
+      <section class="${SECTION} !gap-4">
+        <h2 class="${SECTION_TITLE}"><sd-icon name="stethoscope" [size]="20" class="text-cerulean" />2. Specialist</h2>
         @if (specialist(); as s) {
           <div class="flex items-center justify-between gap-3 rounded-field border border-cerulean bg-frost/30 px-4 py-3">
             <div class="flex min-w-0 flex-col">
@@ -113,8 +126,8 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
           </div>
         } @else {
           <div class="relative">
-            <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-            <input class="${FIELD} pl-9" aria-label="Search specialists" placeholder="Search specialist by name or specialty…" [value]="specialistTerm()" (input)="specialistTerm.set($any($event.target).value)" />
+            <sd-icon name="search" [size]="20" class="${FIELD_ICON}" />
+            <input class="${FIELD_WITH_ICON}" aria-label="Search specialists" placeholder="Search specialist by name or specialty…" [value]="specialistTerm()" (input)="specialistTerm.set($any($event.target).value)" />
           </div>
           @if (specialistsError()) {
             <p class="font-sans text-caption text-alert">{{ specialistsError() }}</p>
@@ -139,8 +152,8 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
       </section>
 
       <!-- When -->
-      <section class="flex min-w-0 flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6">
-        <h2 class="font-heading text-body-lg text-ink">3. Schedule</h2>
+      <section class="${SECTION}">
+        <h2 class="${SECTION_TITLE}"><sd-icon name="calendar-days" [size]="20" class="text-cerulean" />3. Schedule</h2>
         <div class="flex min-w-0 flex-col gap-3">
           @if (specialist(); as s) {
             @if (notBookable(s); as why) {
@@ -182,7 +195,7 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
                   <sd-alert tone="warning">{{ cal.error() }} You can type the time instead.</sd-alert>
                 }
                 <label class="flex flex-col gap-1.5">
-                  <span class="font-sans text-caption font-semibold text-slate">Date &amp; time ({{ cal.timeZoneLabel() }})</span>
+                  <span class="${LABEL}">Date &amp; time ({{ cal.timeZoneLabel() }})</span>
                   <input type="datetime-local" step="1800" class="${FIELD} sm:max-w-xs" [min]="minAt()" [value]="scheduledAt()" (input)="scheduledAt.set($any($event.target).value)" aria-describedby="bo-appt-manual-hint" />
                 </label>
                 <span id="bo-appt-manual-hint" class="font-sans text-caption text-slate">
@@ -205,7 +218,7 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
           }
         </div>
         <label class="flex flex-col gap-1.5 sm:max-w-xs">
-          <span class="font-sans text-caption font-semibold text-slate">Type</span>
+          <span class="${LABEL}">Type</span>
           <select class="${FIELD}" (change)="type.set($any($event.target).value)">
             @for (t of types; track t.value) { <option [value]="t.value" [selected]="type() === t.value">{{ t.label }}</option> }
           </select>
@@ -217,11 +230,11 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
           <sd-alert tone="error">{{ error() }}</sd-alert>
         }
       </div>
-      <div class="flex items-center gap-3">
-        <button type="button" class="flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-6 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!readyToBook() || creating()" (click)="create()">
+      <div class="${FORM_ACTIONS}">
+        <a routerLink="/appointments" class="${BTN_GHOST}">Cancel</a>
+        <button type="button" class="${BTN_PRIMARY}" [disabled]="!readyToBook() || creating()" (click)="create()">
           {{ creating() ? 'Booking…' : 'Book appointment' }}
         </button>
-        <a routerLink="/appointments" class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink">Cancel</a>
       </div>
     </div>
   `,

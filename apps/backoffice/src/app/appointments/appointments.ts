@@ -14,7 +14,7 @@ import type { Subscription } from 'rxjs';
 import { AdminAppointmentsApi, apiErrorMessage } from '@supadoc/data-access';
 import { StaffAuthService } from '@supadoc/auth';
 import type { AppointmentDto, AppointmentWhen } from '@supadoc/models';
-import { IconComponent } from '@supadoc/ui';
+import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import {
   appointmentBadge,
   AppointmentBadge,
@@ -23,7 +23,47 @@ import {
   hasRefund,
   naira,
 } from '../shared/appointment-status';
-import { FOCUS_RING, PILL } from '../specialists/specialist-ui';
+import {
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  COUNT_BADGE,
+  EMPTY_FRAME,
+  FILTER_CHIP,
+  FILTER_CHIP_OFF,
+  FILTER_CHIP_ON,
+  FILTER_CHIPS,
+  FOCUS_RING,
+  INLINE_ERROR,
+  LOAD_MORE,
+  LOAD_MORE_NOTE,
+  PAGE,
+  PAGE_HEADER,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  PAGE_TITLE_ROW,
+  PILL,
+  ROW_ACTION_LAYER,
+  ROW_CHEVRON_ICON,
+  ROW_CUE,
+  SEGMENT,
+  SEGMENT_FILL,
+  SEGMENT_OFF,
+  SEGMENT_ON,
+  SEGMENTED_WRAP,
+  TABLE,
+  TABLE_ROW_LINK,
+  TABLE_WRAP,
+  TBODY,
+  TD,
+  TD_CUE,
+  TD_PRIMARY,
+  TD_SUB,
+  TH,
+  THEAD,
+  TR,
+  TR_LINKED,
+} from '../shared/layout';
 
 type WhenKey = 'all' | AppointmentWhen;
 
@@ -86,50 +126,53 @@ interface Row {
 @Component({
   selector: 'bo-appointments',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink, IconComponent],
+  imports: [NgTemplateOutlet, RouterLink, EmptyStateComponent, IconComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-wrap items-start justify-between gap-4">
-        <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Appointments</h1>
-          <p class="font-sans text-body text-slate">Every consultation across the platform.</p>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER}">
+        <div class="${PAGE_HEADER_TEXT}">
+          <div class="${PAGE_TITLE_ROW}">
+            <h1 class="${PAGE_TITLE}">Appointments</h1>
+            @if (allTotal(); as n) {
+              <span class="${COUNT_BADGE}"><sd-icon name="calendar-days" [size]="14" />{{ countLabel(n) }}</span>
+            }
+          </div>
+          <p class="${PAGE_SUBTITLE}">Every consultation across the platform.</p>
         </div>
         @if (canCreate()) {
-          <a routerLink="/appointments/new" class="flex min-h-11 shrink-0 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean ${FOCUS_RING}">
+          <a routerLink="/appointments/new" class="${BTN_PRIMARY} shrink-0">
             <sd-icon name="plus" [size]="18" />New appointment
           </a>
         }
       </header>
 
-      <div class="flex flex-col gap-3">
-        <div class="-mx-1 overflow-x-auto px-1 pb-1">
-          <div class="flex w-max gap-1 rounded-pill border border-cloud bg-white p-1" role="group" aria-label="When">
-            @for (f of whenFilters; track f.key) {
-              <button
-                type="button"
-                class="inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors ${FOCUS_RING}"
-                [class]="when() === f.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
-                [attr.aria-pressed]="when() === f.key"
-                (click)="setWhen(f.key)"
-              >
-                @if (f.key === 'attention') {
-                  <sd-icon name="triangle-alert" [size]="16" [class]="attentionCount() ? 'text-warning' : ''" />
-                }
-                {{ f.label }}
-                @if (f.key === 'attention' && attentionCount(); as n) {
-                  <span class="flex min-w-5 items-center justify-center rounded-full bg-warning/25 px-1.5 text-[11px] font-semibold text-ink">{{ n }}<span class="sr-only"> waiting</span></span>
-                }
-              </button>
-            }
-          </div>
+      <div class="flex flex-col gap-4">
+        <div class="${SEGMENTED_WRAP}" role="group" aria-label="When">
+          @for (f of whenFilters; track f.key) {
+            <button
+              type="button"
+              class="${SEGMENT} ${SEGMENT_FILL}"
+              [class]="when() === f.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
+              [attr.aria-pressed]="when() === f.key"
+              (click)="setWhen(f.key)"
+            >
+              @if (f.key === 'attention') {
+                <sd-icon name="triangle-alert" [size]="16" [class]="attentionCount() ? 'text-warning' : ''" />
+              }
+              {{ f.label }}
+              @if (f.key === 'attention' && attentionCount(); as n) {
+                <span class="flex min-w-5 items-center justify-center rounded-full bg-warning/25 px-1.5 text-[11px] font-semibold text-ink">{{ n }}<span class="sr-only"> waiting</span></span>
+              }
+            </button>
+          }
         </div>
-        <div class="flex flex-wrap gap-2" role="group" aria-label="Status">
+        <div class="${FILTER_CHIPS}" role="group" aria-label="Status">
           @for (f of statusFilters(); track f.key) {
             <button
               type="button"
-              class="inline-flex min-h-11 items-center gap-1.5 rounded-pill px-3.5 py-2 font-sans text-body-sm transition-colors ${FOCUS_RING}"
-              [class]="status() === f.key ? 'bg-cerulean text-white' : 'bg-white text-slate ring-1 ring-cloud hover:text-ink'"
+              class="${FILTER_CHIP}"
+              [class]="status() === f.key ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'"
               [attr.aria-pressed]="status() === f.key"
               (click)="setStatus(f.key)"
             >
@@ -148,18 +191,31 @@ interface Row {
       <p class="sr-only" aria-live="polite">{{ loading() ? 'Loading appointments' : total() + ' appointments' }}</p>
 
       @if (rows().length === 0) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-12 text-center font-sans text-body-sm text-slate">
-          @if (loading()) {
-            <div class="sd-shimmer h-24 w-full rounded-field" aria-hidden="true"></div>
-          } @else if (loadError()) {
-            <sd-icon name="wifi-off" [size]="28" class="text-alert" />
-            <p role="alert">{{ loadError() }}</p>
-            <button type="button" class="min-h-11 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean ${FOCUS_RING}" (click)="reload()">Retry</button>
-          } @else {
-            <sd-icon [name]="when() === 'attention' ? 'circle-check' : 'calendar-days'" [size]="28" [class]="when() === 'attention' ? 'text-sage' : 'text-slate'" />
-            <p>{{ emptyText() }}</p>
-          }
-        </div>
+        @if (loading()) {
+          <div class="${TABLE_WRAP} flex flex-col divide-y divide-cloud" aria-busy="true">
+            <span class="sr-only">Loading appointments…</span>
+            @for (i of [1, 2, 3, 4]; track i) {
+              <div class="flex items-center gap-4 px-5 py-4" aria-hidden="true">
+                <div class="flex min-w-0 flex-1 flex-col gap-2">
+                  <div class="sd-shimmer h-4 w-40 max-w-full rounded-pill"></div>
+                  <div class="sd-shimmer h-3 w-56 max-w-full rounded-pill"></div>
+                </div>
+                <div class="sd-shimmer hidden h-4 w-28 rounded-pill sm:block"></div>
+                <div class="sd-shimmer h-6 w-24 rounded-pill"></div>
+              </div>
+            }
+          </div>
+        } @else if (loadError()) {
+          <div class="${EMPTY_FRAME}">
+            <sd-empty-state icon="wifi-off" tone="error" title="Couldn't load appointments" [message]="loadError()">
+              <button type="button" class="${BTN_SECONDARY}" (click)="reload()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
+            </sd-empty-state>
+          </div>
+        } @else if (when() === 'attention') {
+          <sd-empty-state icon="circle-check" tone="brand" title="Nothing needs attention" message="Every consultation that has ended is closed." />
+        } @else {
+          <sd-empty-state icon="calendar-days" title="No appointments" [message]="emptyText()" />
+        }
       } @else {
         <!-- Phones: one card per consultation -->
         <ul class="flex flex-col gap-3 md:hidden">
@@ -168,17 +224,17 @@ interface Row {
               <a
                 [routerLink]="['/appointments', r.a.id]"
                 [state]="{ listQuery: queryParams() }"
-                class="flex flex-col gap-2 rounded-card border bg-white p-4 transition-colors hover:border-cerulean/50 ${FOCUS_RING}"
+                class="flex flex-col gap-2 rounded-card border bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 ${FOCUS_RING}"
                 [class]="r.a.needs_attention ? 'border-warning' : 'border-cloud'"
               >
                 <div class="flex items-start justify-between gap-3">
                   <span class="flex min-w-0 flex-col">
-                    <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ r.a.patient?.name || 'Patient' }}</span>
-                    <span class="truncate font-sans text-caption text-slate">with {{ r.a.specialist.name }}</span>
+                    <span class="truncate font-heading text-body-lg text-ink">{{ r.a.patient?.name || 'Patient' }}</span>
+                    <span class="truncate font-sans text-body-sm text-slate">with {{ r.a.specialist.name }}</span>
                   </span>
                   <span class="shrink-0 text-right font-sans text-body-sm font-semibold text-ink">{{ money(r.a.amount) }}</span>
                 </div>
-                <span class="font-sans text-caption text-slate">{{ r.when }} · {{ r.a.type_label }}</span>
+                <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="shrink-0 text-slate" />{{ r.when }} · {{ r.a.type_label }}</span>
                 <div class="flex flex-wrap items-center gap-1.5">
                   <ng-container [ngTemplateOutlet]="badgeTpl" [ngTemplateOutletContext]="{ $implicit: r }" />
                   <span class="font-sans text-caption text-slate">{{ r.payment }}</span>
@@ -192,59 +248,61 @@ interface Row {
         </ul>
 
         <!-- Tablets and up: a table -->
-        <div class="hidden overflow-x-auto rounded-card border border-cloud bg-white md:block">
-          <table class="w-full min-w-[760px] text-left">
-            <thead class="border-b border-cloud font-sans text-caption text-slate">
+        <div class="hidden ${TABLE_WRAP} md:block">
+          <table class="${TABLE} min-w-[760px]">
+            <thead class="${THEAD}">
               <tr>
-                <th class="px-4 py-3">Patient</th>
-                <th class="px-4 py-3">Specialist</th>
-                <th class="px-4 py-3">When</th>
-                <th class="px-4 py-3">Amount</th>
-                <th class="px-4 py-3">Status</th>
-                <th class="px-4 py-3"><span class="sr-only">Open</span></th>
+                <th class="${TH}">Patient</th>
+                <th class="${TH}">Specialist</th>
+                <th class="${TH}">When</th>
+                <th class="${TH}">Amount</th>
+                <th class="${TH}">Status</th>
+                <th class="${TH} w-px" aria-hidden="true"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody class="${TBODY}">
               @for (r of rows(); track r.a.id) {
-                <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink" [class]="r.a.needs_attention ? 'bg-warning/5' : ''">
-                  <td class="px-4 py-3 align-top">
-                    <span class="font-medium">{{ r.a.patient?.name || '—' }}</span>
-                    <span class="block text-caption text-slate">{{ r.a.patient?.email }}</span>
+                <!-- The whole row is the patient-name link (its ::after covers the row). -->
+                <tr class="${TR} ${TR_LINKED}" [class]="r.a.needs_attention ? 'bg-warning/5' : ''">
+                  <td class="${TD}">
+                    <a
+                      [routerLink]="['/appointments', r.a.id]"
+                      [state]="{ listQuery: queryParams() }"
+                      class="${TABLE_ROW_LINK}"
+                      [attr.aria-label]="(r.a.needs_attention ? 'Resolve' : 'Open') + ' the appointment of ' + (r.a.patient?.name || 'the patient') + ' with ' + r.a.specialist.name"
+                    >{{ r.a.patient?.name || '—' }}</a>
+                    <span class="${TD_SUB}">{{ r.a.patient?.email }}</span>
                   </td>
-                  <td class="px-4 py-3 align-top">
-                    <span class="font-medium">{{ r.a.specialist.name }}</span>
-                    <span class="block text-caption text-slate">{{ r.a.specialist.specialty }}</span>
+                  <td class="${TD}">
+                    <span class="${TD_PRIMARY}">{{ r.a.specialist.name }}</span>
+                    <span class="${TD_SUB}">{{ r.a.specialist.specialty }}</span>
                   </td>
-                  <td class="px-4 py-3 align-top text-slate">
+                  <td class="${TD}">
                     {{ r.when }}
-                    <span class="block text-caption">
+                    <span class="${TD_SUB}">
                       {{ r.a.type_label }}
                       @if (r.a.parent_appointment_id) {
-                        · <a [routerLink]="['/appointments', r.a.parent_appointment_id]" class="font-semibold text-cerulean hover:underline">follow-up of {{ r.a.parent ? day(r.a.parent.scheduled_at) : 'an earlier visit' }}</a>
+                        · <a [routerLink]="['/appointments', r.a.parent_appointment_id]" class="${ROW_ACTION_LAYER} rounded-field font-semibold text-cerulean hover:underline ${FOCUS_RING}">follow-up of {{ r.a.parent ? day(r.a.parent.scheduled_at) : 'an earlier visit' }}</a>
                       }
                     </span>
                   </td>
-                  <td class="px-4 py-3 align-top">
+                  <td class="${TD}">
                     {{ money(r.a.amount) }}
-                    <span class="block text-caption text-slate">{{ r.payment }}</span>
+                    <span class="${TD_SUB}">{{ r.payment }}</span>
                   </td>
-                  <td class="px-4 py-3 align-top">
+                  <td class="${TD}">
                     <div class="flex flex-wrap items-center gap-1.5">
                       <ng-container [ngTemplateOutlet]="badgeTpl" [ngTemplateOutletContext]="{ $implicit: r }" />
                     </div>
                     @if (r.badge.detail) {
-                      <span class="mt-1 block text-caption text-slate">{{ r.badge.detail }}</span>
+                      <span class="mt-1 ${TD_SUB}">{{ r.badge.detail }}</span>
                     }
                   </td>
-                  <td class="px-4 py-3 text-right align-top">
-                    <a
-                      [routerLink]="['/appointments', r.a.id]"
-                      [state]="{ listQuery: queryParams() }"
-                      class="inline-flex min-h-11 items-center font-sans text-caption font-semibold text-cerulean hover:underline ${FOCUS_RING}"
-                      [attr.aria-label]="(r.a.needs_attention ? 'Resolve' : 'Open') + ' the appointment of ' + (r.a.patient?.name || 'the patient') + ' with ' + r.a.specialist.name"
-                    >
-                      {{ r.a.needs_attention ? 'Resolve' : 'Open' }}
-                    </a>
+                  <td class="${TD_CUE}" aria-hidden="true">
+                    <span class="${ROW_CUE}">
+                      @if (r.a.needs_attention) { Resolve }
+                      <sd-icon name="chevron-right" [size]="20" class="${ROW_CHEVRON_ICON}" />
+                    </span>
                   </td>
                 </tr>
               }
@@ -267,14 +325,22 @@ interface Row {
         }
       </ng-template>
 
-      @if (loadError() && rows().length > 0) {
-        <p class="text-center font-sans text-caption text-alert" role="alert">{{ loadError() }}</p>
-      }
-
-      @if (hasMore()) {
-        <button type="button" class="mx-auto min-h-11 rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60 ${FOCUS_RING}" [disabled]="loading()" (click)="loadMore()">
-          {{ loading() ? 'Loading…' : 'Load more' }}
-        </button>
+      @if ((loadError() && rows().length > 0) || hasMore()) {
+        <div class="${LOAD_MORE}">
+          @if (loadError() && rows().length > 0) {
+            <p class="${INLINE_ERROR}" role="alert"><sd-icon name="circle-alert" [size]="16" class="shrink-0" />{{ loadError() }}</p>
+          }
+          @if (hasMore()) {
+            <p class="${LOAD_MORE_NOTE}">Showing {{ formatCount(rows().length) }} of {{ formatCount(total()) }}</p>
+            <button type="button" class="${BTN_SECONDARY}" [disabled]="loading()" (click)="loadMore()">
+              @if (loading()) {
+                <sd-icon name="loader-circle" [size]="16" class="animate-spin" />Loading…
+              } @else {
+                <sd-icon name="chevron-down" [size]="16" />Load more
+              }
+            </button>
+          }
+        </div>
       }
     </div>
   `,
@@ -293,6 +359,8 @@ export class AdminAppointments implements OnInit {
   protected readonly status = signal('');
   protected readonly items = signal<AppointmentDto[]>([]);
   protected readonly total = signal(0);
+  /** `meta.total` of the last unfiltered load (All, any status) — the header's count. */
+  protected readonly allTotal = signal<number | null>(null);
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
   protected readonly hasMore = signal(false);
@@ -362,6 +430,7 @@ export class AdminAppointments implements OnInit {
   }
 
   protected loadMore(): void {
+    if (this.loading()) return;
     this.page += 1;
     this.fetch();
   }
@@ -391,6 +460,7 @@ export class AdminAppointments implements OnInit {
         next: (res) => {
           this.items.update((list) => (this.page === 1 ? res.data : [...list, ...res.data]));
           this.total.set(res.meta.total);
+          if (when === 'all' && !this.status()) this.allTotal.set(res.meta.total);
           this.hasMore.set(res.meta.page < res.meta.total_pages);
           this.loading.set(false);
           // The attention list is the count itself.
@@ -424,5 +494,11 @@ export class AdminAppointments implements OnInit {
   }
   protected money(amount: string): string {
     return naira(amount);
+  }
+  protected formatCount(n: number): string {
+    return n.toLocaleString('en-GB');
+  }
+  protected countLabel(n: number): string {
+    return `${this.formatCount(n)} ${n === 1 ? 'appointment' : 'appointments'}`;
   }
 }

@@ -16,13 +16,13 @@ import type {
 } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
 import { CredentialDialog, CredentialDialogMode } from '../dialogs/credential-dialog';
+import { CARD_LIST, CARD_RAISED, LIST_CARD_EMPTY, SECTION_TITLE, STAT_TILE } from '../../shared/layout';
 import {
   Badge,
   BTN_DANGER_OUTLINE,
   BTN_SECONDARY,
   BTN_SUCCESS,
   calendarDay,
-  CARD,
   clinicTodayYmd,
   credentialBadge,
   dateOnly,
@@ -49,13 +49,13 @@ const ORDER: Record<CredentialType, number> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, AlertComponent, CredentialDialog],
   template: `
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col gap-6">
       <section class="grid gap-3 sm:grid-cols-2" aria-label="Licensing summary">
-        <div class="flex flex-col gap-2 ${CARD} p-4">
+        <div class="${STAT_TILE}">
           <span class="font-sans text-caption font-semibold text-slate">MDCN full-registration certificate</span>
           <span class="${PILL} w-fit" [class]="mdcnBadge().cls"><sd-icon [name]="mdcnBadge().icon" [size]="13" />{{ mdcnBadge().label }}</span>
         </div>
-        <div class="flex flex-col gap-2 ${CARD} p-4">
+        <div class="${STAT_TILE}">
           <span class="font-sans text-caption font-semibold text-slate">Annual practising licence</span>
           <span class="${PILL} w-fit" [class]="licence().cls"><sd-icon [name]="licence().icon" [size]="13" />{{ licence().label }}</span>
         </div>
@@ -72,20 +72,20 @@ const ORDER: Record<CredentialType, number> = {
         }
       </div>
 
-      <section class="flex flex-col gap-3" aria-labelledby="bo-cred-current-title">
-        <h2 id="bo-cred-current-title" class="font-heading text-body-lg font-semibold text-ink">Documents</h2>
+      <section class="flex flex-col gap-4" aria-labelledby="bo-cred-current-title">
+        <h2 id="bo-cred-current-title" class="${SECTION_TITLE}"><sd-icon name="file-text" [size]="20" class="text-cerulean" />Documents</h2>
         @if (current().length === 0) {
-          <div class="flex flex-col items-center gap-2 ${CARD} px-5 py-10 text-center">
+          <div class="${CARD_RAISED} ${LIST_CARD_EMPTY}">
             <sd-icon name="folder-open" [size]="28" class="text-slate" />
             <p class="font-sans text-body-sm text-slate">The doctor hasn't uploaded any licensing documents yet.</p>
           </div>
         } @else {
-          <ul class="flex flex-col gap-3">
+          <ul class="${CARD_LIST}">
             @for (c of current(); track c.id) {
-              <li class="flex flex-col gap-3 rounded-card border bg-white p-4 sm:p-5" [class]="c.status === 'pending' ? 'border-warning' : 'border-cloud'">
+              <li class="flex flex-col gap-4 rounded-card border bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)]" [class]="c.status === 'pending' ? 'border-warning' : 'border-cloud'">
                 <div class="flex flex-wrap items-start justify-between gap-2">
                   <div class="flex min-w-0 flex-col gap-1">
-                    <span class="font-heading text-body font-semibold text-ink">{{ c.type_label }}</span>
+                    <span class="font-heading text-body-lg text-ink">{{ c.type_label }}</span>
                     <span class="break-all font-sans text-caption text-slate">{{ c.original_name }} · {{ size(c.size_bytes) }} · uploaded {{ dateOnly(c.created_at) }}</span>
                   </div>
                   <span class="${PILL}" [class]="badge(c).cls"><sd-icon [name]="badge(c).icon" [size]="13" />{{ badge(c).label }}</span>
@@ -100,7 +100,7 @@ const ORDER: Record<CredentialType, number> = {
                   <p class="font-sans text-caption text-slate">Register checked · ref. <span class="break-all text-ink">{{ a.register_reference }}</span>{{ a.note ? ' · ' + a.note : '' }}</p>
                 }
                 @if (c.rejection_reason) {
-                  <p class="rounded-field bg-alert/10 px-3 py-2 font-sans text-caption text-ink"><span class="font-semibold">Rejected:</span> {{ c.rejection_reason }}</p>
+                  <p class="rounded-field bg-alert/10 px-4 py-3 font-sans text-caption text-ink"><span class="font-semibold">Rejected:</span> {{ c.rejection_reason }}</p>
                 }
                 <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                   <button type="button" [id]="'bo-cred-view-' + c.id" class="${BTN_SECONDARY}" (click)="openDialog(c, 'view')" [attr.aria-label]="'View ' + c.type_label">
@@ -124,7 +124,7 @@ const ORDER: Record<CredentialType, number> = {
       </section>
 
       @if (replaced().length > 0) {
-        <details class="${CARD} p-4 sm:p-5">
+        <details class="${CARD_RAISED} p-5">
           <summary class="flex min-h-11 cursor-pointer items-center gap-2 font-sans text-body-sm font-semibold text-ink">
             <sd-icon name="history" [size]="16" class="text-slate" />Replaced documents ({{ replaced().length }})
           </summary>

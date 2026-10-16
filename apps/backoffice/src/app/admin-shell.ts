@@ -17,31 +17,8 @@ import {
 import { StaffAuthService } from '@supadoc/auth';
 import { DialogService, IconComponent } from '@supadoc/ui';
 import { filter } from 'rxjs';
+import { canOpen, landingLink, NAV } from './nav';
 import { ReviewQueue } from './specialists/review-queue';
-
-interface NavItem {
-  readonly label: string;
-  readonly icon: string;
-  readonly link: string;
-  readonly permission: string;
-  /** Show the "waiting for review" count (profiles, change requests, documents) next to this item. */
-  readonly reviewBadge?: boolean;
-}
-
-const NAV: NavItem[] = [
-  { label: 'Dashboard', icon: 'layout-dashboard', link: '/dashboard', permission: 'monitoring.view' },
-  { label: 'Appointments', icon: 'calendar-days', link: '/appointments', permission: 'appointments.view' },
-  { label: 'Analytics', icon: 'chart-column', link: '/analytics', permission: 'monitoring.view' },
-  { label: 'Monitoring', icon: 'activity', link: '/monitoring', permission: 'monitoring.view' },
-  { label: 'Patients', icon: 'user-round', link: '/patients', permission: 'monitoring.view' },
-  { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage', reviewBadge: true },
-  { label: 'Staff & roles', icon: 'users', link: '/staff', permission: 'staff.manage' },
-  { label: 'Payouts', icon: 'wallet', link: '/payouts', permission: 'payouts.manage' },
-  { label: 'Support', icon: 'headphones', link: '/support', permission: 'support.manage' },
-  { label: 'Pricing', icon: 'banknote', link: '/pricing', permission: 'settings.manage' },
-  { label: 'Prescription rules', icon: 'scroll-text', link: '/prescription-rules', permission: 'settings.manage' },
-  { label: 'Audit log', icon: 'history', link: '/audit', permission: 'monitoring.view' },
-];
 
 /** Back-office shell — permission-gated side nav + header. */
 @Component({
@@ -51,7 +28,7 @@ const NAV: NavItem[] = [
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
-        class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash px-6 pt-6 pb-10 lg:flex"
+        class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between gap-6 overflow-y-auto border-r-[0.5px] border-ash px-6 pt-6 pb-10 lg:flex"
       >
         <ng-container [ngTemplateOutlet]="nav" />
       </aside>
@@ -59,7 +36,7 @@ const NAV: NavItem[] = [
       @if (menuOpen()) {
         <div class="fixed inset-0 z-40 lg:hidden">
           <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close menu" (click)="menuOpen.set(false)"></button>
-          <aside class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between overflow-y-auto bg-glacier px-6 pt-6 pb-10 shadow-2xl">
+          <aside class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between gap-6 overflow-y-auto bg-glacier px-6 pt-6 pb-10 shadow-2xl">
             <ng-container [ngTemplateOutlet]="nav" />
           </aside>
         </div>
@@ -90,7 +67,7 @@ const NAV: NavItem[] = [
         </header>
 
         <main class="px-5 pb-10 sm:px-6">
-          <div class="mx-auto w-full max-w-6xl">
+          <div class="mx-auto w-full">
             <router-outlet />
           </div>
         </main>
@@ -99,7 +76,7 @@ const NAV: NavItem[] = [
 
     <ng-template #nav>
       <div class="flex flex-col gap-10">
-        <a routerLink="/dashboard" class="flex items-center gap-2" (click)="menuOpen.set(false)">
+        <a [routerLink]="homeLink()" class="flex items-center gap-2" (click)="menuOpen.set(false)">
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
@@ -123,7 +100,7 @@ const NAV: NavItem[] = [
           }
         </nav>
       </div>
-      <div class="flex flex-col gap-1">
+      <div class="flex flex-col gap-1 border-t border-ash pt-4">
         <a
           routerLink="/settings"
           routerLinkActive="bg-frost !text-cerulean"
@@ -160,8 +137,10 @@ export class AdminShell {
   protected readonly menuOpen = signal(false);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly roleLabel = computed(() => this.auth.roles()[0] ?? 'staff');
+  /** The logo's target: this user's landing page (not `/`, whose redirect would re-ask about unsaved edits). */
+  protected readonly homeLink = computed(() => landingLink(this.auth));
   protected readonly visibleNav = computed(() =>
-    NAV.filter((item) => this.auth.hasPermission(item.permission)),
+    NAV.filter((item) => canOpen(this.auth, item)),
   );
   protected readonly initials = computed(() =>
     this.auth

@@ -7,7 +7,7 @@ import {
   OnInit,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
   FormArray,
@@ -18,9 +18,16 @@ import {
   Validators,
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, type Subscription } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
-import { apiErrorFields, apiErrorMessage, DoctorApi, doctorStandingCode, todayLocal } from '@supadoc/data-access';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  DoctorApi,
+  doctorStandingCode,
+  ReferenceApi,
+  todayLocal,
+} from '@supadoc/data-access';
 import type {
   CertificationEntry,
   CredentialType,
@@ -28,6 +35,7 @@ import type {
   DoctorProfileUpdate,
   DoctorSignatureDto,
   LockedField,
+  PublicReferenceItemDto,
   QualificationEntry,
 } from '@supadoc/models';
 import {
@@ -54,6 +62,7 @@ import {
   renewalText,
   ymdLabel,
 } from '../standing/standing-rules';
+import { isRetiredSpecialty, specialtyKey, specialtyOptions } from './specialty-options';
 
 /** Date must be a valid, non-future day. */
 function pastDateValidator(c: AbstractControl): ValidationErrors | null {
@@ -79,6 +88,21 @@ const LOCKED_VALUE =
 /** "Change pending" next to a verified field with a change waiting for review. */
 const PENDING_BADGE =
   'inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink';
+
+/**
+ * The speciality field's one message in the dropdown: none chosen, or one the
+ * list doesn't offer — also for the API's refusal ("Choose a specialty from the
+ * list"), so the field and the banner use the page's spelling.
+ */
+const CHOOSE_SPECIALTY = 'Choose your speciality from the list';
+
+/** The HTTP status of a failed request (either error shape), or undefined. */
+function httpStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const e = err as { statusCode?: unknown; status?: unknown };
+  if (typeof e.statusCode === 'number') return e.statusCode;
+  return typeof e.status === 'number' ? e.status : undefined;
+}
 
 /** One requested change, for the "waiting for review" box. */
 interface PendingRow {
@@ -277,6 +301,12 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                       @if (isPending('specialty')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
                     </span>
                     <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.specialty }}</span>
+                    @if (specialtyRetired()) {
+                      <span class="flex items-start gap-1.5 font-sans text-caption text-slate">
+                        <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                        {{ locked() ? 'No longer offered in our list of specialities. It stays on your profile — to change it, use “Request a change”.' : 'No longer offered in our list of specialities. It stays on your profile until you choose another with Edit Profile.' }}
+                      </span>
+                    }
                   </div>
                   <div class="flex flex-col gap-1 border-b border-cloud pb-4">
                     <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
@@ -524,8 +554,8 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                 <sd-input label="Email address" type="email" formControlName="email" [error]="fieldError('email')" />
                 <sd-input label="Phone number" type="tel" formControlName="phone" />
                 <sd-input label="Date of birth" type="date" formControlName="dob" [max]="today" [error]="dobError()" />
-                <div class="flex w-full flex-col gap-2">
-                  <span class="font-sans text-body font-semibold text-ink">Gender</span>
+                <div class="flex w-full flex-col gap-2" role="group" aria-labelledby="gender-label" (keydown.enter)="keepSearchFromSubmitting($event)">
+                  <span id="gender-label" class="font-sans text-body font-semibold text-ink">Gender</span>
                   <sd-search-select size="lg" placeholder="Select" [options]="genderOptions" [value]="form.controls.gender.value" (valueChange)="form.controls.gender.setValue($event)" />
                 </div>
                 <sd-input label="Country / Location" formControlName="country" />
@@ -539,7 +569,59 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (changing) {
                     <sd-input label="Full name" [required]="true" formControlName="name" [error]="fieldError('name')" />
                   }
-                  <sd-input label="Medical Speciality" [required]="true" formControlName="specialty" [error]="fieldError('specialty')" />
+                  <!-- Speciality: chosen from the back office's list (free text only while there is no list). -->
+                  @switch (specialtyMode()) {
+                    @case ('loading') {
+                      <div class="flex w-full flex-col gap-2" aria-busy="true">
+                        <span class="font-sans text-body font-semibold text-ink">Medical Speciality<span class="text-alert"> *</span></span>
+                        <div class="sd-shimmer h-[58px] rounded-field"></div>
+                        <span class="sr-only" role="status">Loading the list of specialities…</span>
+                      </div>
+                    }
+                    @case ('list') {
+                      <div
+                        class="flex w-full flex-col gap-2"
+                        role="group"
+                        aria-labelledby="specialty-label"
+                        [attr.aria-describedby]="specialtyDescribedBy()"
+                        (keydown.enter)="keepSearchFromSubmitting($event)"
+                      >
+                        <span id="specialty-label" class="font-sans text-body font-semibold text-ink">Medical Speciality<span class="text-alert"> *</span></span>
+                        <sd-search-select
+                          size="lg"
+                          placeholder="Select your speciality"
+                          searchPlaceholder="Search specialities…"
+                          [clearable]="false"
+                          [options]="specialtyChoices()"
+                          [value]="specialtyValue()"
+                          [error]="specialtyError()"
+                          (valueChange)="chooseSpecialty($event)"
+                        />
+                        <!-- The dropdown's error as the group's description (sd-search-select's own
+                             line has no id). Hidden: a referenced description is still read, and
+                             reading the page doesn't say it twice. -->
+                        @if (specialtyError(); as e) {
+                          <span id="specialty-error" hidden>{{ e }}</span>
+                        }
+                        @if (specialtyHint(); as hint) {
+                          <span id="specialty-hint" class="flex items-start gap-1.5 font-sans text-caption text-slate">
+                            <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />{{ hint }}
+                          </span>
+                        }
+                      </div>
+                    }
+                    @default {
+                      <div class="flex w-full flex-col gap-1.5">
+                        <sd-input label="Medical Speciality" [required]="true" formControlName="specialty" [error]="specialtyError()" />
+                        @if (specialtyLoadFailed()) {
+                          <span class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-slate">
+                            Couldn't load the list of specialities.
+                            <button type="button" class="min-h-11 font-semibold text-cerulean underline-offset-2 transition-colors hover:text-ocean hover:underline aria-disabled:opacity-60" [attr.aria-disabled]="specialtyReading() || null" (click)="specialtyReading() || loadSpecialties()">{{ specialtyReading() ? 'Trying again…' : 'Try again' }}</button>
+                          </span>
+                        }
+                      </div>
+                    }
+                  }
                   <div class="flex w-full flex-col gap-1.5">
                     <sd-input label="MDCN registration number" placeholder="e.g. MDCN/12345" formControlName="mdcn" autocomplete="off" [error]="mdcnError()" />
                     @if (!mdcnError()) {
@@ -554,6 +636,9 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   <div class="flex w-full flex-col gap-2">
                     <span class="font-sans text-body font-semibold text-ink">Medical Speciality</span>
                     <p class="${LOCKED_VALUE}"><sd-icon name="lock" [size]="16" class="shrink-0 text-slate" /><span class="min-w-0 break-words">{{ profile()?.specialty }}</span></p>
+                    @if (specialtyRetired()) {
+                      <span class="font-sans text-caption text-slate">No longer offered in our list of specialities — it stays on your profile.</span>
+                    }
                   </div>
                   <div class="flex w-full flex-col gap-2">
                     <span class="font-sans text-body font-semibold text-ink">MDCN registration number</span>
@@ -716,6 +801,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
 export class DoctorProfile implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(DoctorApi);
+  private readonly reference = inject(ReferenceApi);
   private readonly auth = inject(StaffAuthService);
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
@@ -874,6 +960,61 @@ export class DoctorProfile implements OnInit {
     certifications: this.fb.array<FormGroup>([]),
   });
 
+  // ----- Speciality: one of the back office's list (GET /api/public/reference/specialty) -----
+  /** The list's active items, in list order (empty: not loaded yet, or there is no list). */
+  protected readonly specialtyItems = signal<readonly PublicReferenceItemDto[]>([]);
+  /** The list was read (or found missing: free text, as before the list existed). */
+  private readonly specialtyLoaded = signal(false);
+  /** The last read of the list failed (a list read earlier is still offered). */
+  protected readonly specialtyLoadFailed = signal(false);
+  /** A read of the list is running (the field keeps what it shows meanwhile). */
+  protected readonly specialtyReading = signal(false);
+  private specialtyRead: Subscription | undefined;
+  /**
+   * Specialities the API refused since the form was opened (switched off or
+   * renamed in the back office), by {@link specialtyKey}. Left out of the
+   * dropdown: the list read again may be the browser's cached copy (the API
+   * lets it be cached for 60 s), which still offers them.
+   */
+  private readonly refusedSpecialties = signal<ReadonlySet<string>>(new Set());
+  /** The speciality the form holds, as a signal (for the dropdown and its hint). */
+  protected readonly specialtyValue = toSignal(this.form.controls.specialty.valueChanges, {
+    initialValue: this.form.controls.specialty.value,
+  });
+  /**
+   * How the field is offered: the dropdown when there is a list; free text while
+   * there is none (the API then accepts any speciality) or it can't be read.
+   */
+  protected readonly specialtyMode = computed<'loading' | 'list' | 'text'>(() => {
+    if (this.specialtyItems().length > 0) return 'list';
+    return this.specialtyLoaded() || this.specialtyLoadFailed() ? 'text' : 'loading';
+  });
+  /**
+   * The dropdown's options: the active specialities, after the doctor's own
+   * (current, or asked for in a waiting change request) when the list no
+   * longer offers it — the API lets them keep that one.
+   */
+  protected readonly specialtyChoices = computed(() => {
+    const p = this.profile();
+    const refused = this.refusedSpecialties();
+    const items = refused.size ? this.specialtyItems().filter((i) => !refused.has(specialtyKey(i.label))) : this.specialtyItems();
+    return specialtyOptions(items, [p?.specialty, p?.pending_changes?.specialty]);
+  });
+  /** The doctor's current speciality is no longer offered in the list. */
+  protected readonly specialtyRetired = computed(() => isRetiredSpecialty(this.profile()?.specialty, this.specialtyItems()));
+  /** The form's speciality is one of the dropdown's options (else the dropdown shows none chosen). */
+  private readonly specialtyOffered = computed(() => {
+    const v = this.specialtyValue();
+    return this.specialtyChoices().some((o) => o.value === v);
+  });
+  /** Said under the dropdown when the chosen speciality is the doctor's own, no longer offered. */
+  protected readonly specialtyHint = computed(() => {
+    const v = this.specialtyValue().trim();
+    return this.specialtyOffered() && isRetiredSpecialty(v, this.specialtyItems())
+      ? `“${v}” is no longer offered in our list. You can keep it, or choose another speciality.`
+      : '';
+  });
+
   get qualificationRows(): FormArray<FormGroup> {
     return this.form.get('qualifications') as FormArray<FormGroup>;
   }
@@ -902,6 +1043,7 @@ export class DoctorProfile implements OnInit {
       });
     }
     this.loadSignature();
+    this.loadSpecialties();
     // Licence, documents and terms (the "Licence & documents" card).
     void this.standing.load();
     this.api
@@ -917,6 +1059,107 @@ export class DoctorProfile implements OnInit {
           this.loading.set(false);
         },
       });
+  }
+
+  /**
+   * Read the speciality list (again). What the field shows stays while this
+   * runs — the list read earlier, or the free-text field after a failed read —
+   * and if it fails. No list at all (404: the API from before the list) means
+   * free text, as before. A newer read replaces one still running.
+   */
+  protected loadSpecialties(): void {
+    this.specialtyRead?.unsubscribe();
+    this.specialtyReading.set(true);
+    this.specialtyRead = this.reference
+      .publicList('specialty')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.specialtyItems.set(res.data ?? []);
+          this.specialtyLoaded.set(true);
+          this.specialtyLoadFailed.set(false);
+          this.specialtyReading.set(false);
+          this.alignSpecialtyToList();
+        },
+        error: (err: unknown) => {
+          if (httpStatus(err) === 404) {
+            this.specialtyItems.set([]);
+            this.specialtyLoaded.set(true);
+            this.specialtyLoadFailed.set(false);
+          } else {
+            this.specialtyLoadFailed.set(true);
+          }
+          this.specialtyReading.set(false);
+        },
+      });
+  }
+
+  /**
+   * A speciality typed while the list couldn't be read that is one of the list
+   * in another case or spacing becomes that choice (the API would save it in
+   * the list's spelling anyway), so the dropdown shows it chosen.
+   */
+  private alignSpecialtyToList(): void {
+    const c = this.form.controls.specialty;
+    const v = c.value;
+    if (c.disabled || v.trim() === '') return;
+    const choices = this.specialtyChoices();
+    if (choices.some((o) => o.value === v)) return;
+    const match = choices.find((o) => specialtyKey(o.value) === specialtyKey(v));
+    if (match) c.setValue(match.value);
+  }
+
+  /** The dropdown is shown and the form holds none of its choices — the API would refuse it. */
+  private specialtyUnlisted(): boolean {
+    return this.identityEditable() && this.specialtyMode() === 'list' && !this.specialtyOffered();
+  }
+
+  /**
+   * The API refused this speciality: it leaves the dropdown until the form is
+   * opened again. The doctor's own current or requested one stays (the API
+   * keeps those, so it never refuses them for not being in the list).
+   */
+  private refuseSpecialty(value: string): void {
+    const key = specialtyKey(value);
+    const p = this.profile();
+    if (key === '' || key === specialtyKey(p?.specialty) || key === specialtyKey(p?.pending_changes?.specialty)) return;
+    this.refusedSpecialties.update((keys) => new Set(keys).add(key));
+  }
+
+  /** A speciality picked from the dropdown. */
+  protected chooseSpecialty(value: string): void {
+    const c = this.form.controls.specialty;
+    c.setValue(value);
+    c.markAsDirty();
+    c.markAsTouched();
+  }
+
+  /** Enter in the dropdown's search box filters — it must not submit the profile form. */
+  protected keepSearchFromSubmitting(event: Event): void {
+    if (event.target instanceof HTMLInputElement) event.preventDefault();
+  }
+
+  /**
+   * The speciality field's message. In the dropdown, one wording whoever
+   * objects: none chosen, one the list doesn't offer (typed while it couldn't
+   * be read), or the API's refusal. In the free-text field: required, or the API's.
+   */
+  protected specialtyError(): string {
+    const c = this.form.controls.specialty;
+    const server = this.serverErrors()['specialty'];
+    if (this.specialtyMode() === 'list') {
+      const asked = c.touched || c.dirty;
+      const objected = !!server || (asked && (!!c.errors?.['required'] || !this.specialtyOffered()));
+      return objected ? CHOOSE_SPECIALTY : '';
+    }
+    if ((c.touched || c.dirty) && c.errors?.['required']) return 'This field is required';
+    return server ?? '';
+  }
+
+  /** The dropdown group's description: the hint and the error shown under it (null: neither). */
+  protected specialtyDescribedBy(): string | null {
+    const ids = [this.specialtyHint() ? 'specialty-hint' : '', this.specialtyError() ? 'specialty-error' : ''].filter(Boolean);
+    return ids.length ? ids.join(' ') : null;
   }
 
   private apply(p: DoctorProfileDto): void {
@@ -981,6 +1224,8 @@ export class DoctorProfile implements OnInit {
     const p = this.profile();
     if (p) this.apply(p);
     this.setIdentityEditable(!this.locked());
+    this.refusedSpecialties.set(new Set());
+    if (!this.locked()) this.loadSpecialties(); // the list as it is now
     this.saveError.set('');
     this.serverErrors.set({});
     this.view.set('edit');
@@ -996,6 +1241,8 @@ export class DoctorProfile implements OnInit {
     if (!p) return;
     this.apply(p);
     this.setIdentityEditable(true);
+    this.refusedSpecialties.set(new Set());
+    this.loadSpecialties(); // the list as it is now
     const want = this.pending();
     if (want) {
       this.form.patchValue({
@@ -1067,7 +1314,7 @@ export class DoctorProfile implements OnInit {
     }
   }
 
-  protected fieldError(name: 'name' | 'specialty' | 'email'): string {
+  protected fieldError(name: 'name' | 'email'): string {
     const c = this.form.controls[name];
     if (!c.errors || (!c.touched && !c.dirty)) return this.serverErrors()[name] ?? '';
     if (c.errors['required']) return 'This field is required';
@@ -1237,7 +1484,7 @@ export class DoctorProfile implements OnInit {
       return;
     }
     this.form.markAllAsTouched();
-    if (this.form.invalid) return;
+    if (this.form.invalid || this.specialtyUnlisted()) return;
     this.saving.set(true);
     this.saveError.set('');
     this.serverErrors.set({});
@@ -1274,8 +1521,7 @@ export class DoctorProfile implements OnInit {
         },
         error: (err: unknown) => {
           this.saving.set(false);
-          this.serverErrors.set(apiErrorFields(err));
-          this.saveError.set(apiErrorMessage(err, 'Could not save your profile.'));
+          this.applySaveErrors(err, 'Could not save your profile.');
         },
       });
   }
@@ -1288,7 +1534,7 @@ export class DoctorProfile implements OnInit {
   private submitChanges(): void {
     const controls = this.identityControls();
     for (const c of controls) c.markAsTouched();
-    if (controls.some((c) => c.invalid)) return;
+    if (controls.some((c) => c.invalid) || this.specialtyUnlisted()) return;
     const p = this.profile();
     const next = this.identityValues();
     const same =
@@ -1323,10 +1569,27 @@ export class DoctorProfile implements OnInit {
         },
         error: (err: unknown) => {
           this.saving.set(false);
-          this.serverErrors.set(apiErrorFields(err));
-          this.saveError.set(apiErrorMessage(err, 'Could not send your change for review.'));
+          this.applySaveErrors(err, 'Could not send your change for review.');
         },
       });
+  }
+
+  /**
+   * A refused save: its field errors inline, and the banner. A refused
+   * speciality (e.g. one switched off or renamed since the list was read)
+   * leaves the dropdown and the list is read again.
+   */
+  private applySaveErrors(err: unknown, fallback: string): void {
+    const fields = apiErrorFields(err);
+    this.serverErrors.set(fields);
+    let banner = apiErrorMessage(err, fallback);
+    if ('specialty' in fields) {
+      // The banner repeats the first field error: the dropdown's wording, not the API's spelling.
+      if (this.specialtyMode() === 'list' && banner === fields['specialty']) banner = CHOOSE_SPECIALTY;
+      this.refuseSpecialty(this.form.controls.specialty.value);
+      this.loadSpecialties();
+    }
+    this.saveError.set(banner);
   }
 
   /** Take back the change request waiting for review — asked first; withdrawn inside the dialog. */

@@ -125,7 +125,7 @@ function idempotencyKey(): string {
               >
                 <input
                   type="radio"
-                  class="mt-0.5 size-4 shrink-0 accent-cerulean ${FOCUS_RING}"
+                  class="mt-0.5 size-5 shrink-0 accent-cerulean ${FOCUS_RING}"
                   [name]="formId + '-party'"
                   [value]="p.value"
                   [checked]="party() === p.value"
@@ -167,7 +167,7 @@ function idempotencyKey(): string {
               >
                 <input
                   type="radio"
-                  class="mt-0.5 size-4 shrink-0 accent-cerulean ${FOCUS_RING}"
+                  class="mt-0.5 size-5 shrink-0 accent-cerulean ${FOCUS_RING}"
                   [name]="formId + '-refund'"
                   [value]="o.value"
                   [checked]="refund() === o.value"
@@ -200,7 +200,7 @@ function idempotencyKey(): string {
                     type="text"
                     inputmode="decimal"
                     autocomplete="off"
-                    class="min-h-11 w-full min-w-0 flex-1 bg-transparent px-3 py-2.5 font-sans text-body-sm text-ink focus:outline-none"
+                    class="w-full min-w-0 flex-1 bg-transparent px-4 py-3 font-sans text-body-sm text-ink focus:outline-none"
                     placeholder="0.00"
                     [value]="amount()"
                     [readOnly]="saving()"

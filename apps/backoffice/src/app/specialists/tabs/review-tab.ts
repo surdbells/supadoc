@@ -24,11 +24,11 @@ import type {
   SuccessResponse,
 } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
+import { SECTION, SECTION_TITLE } from '../../shared/layout';
 import {
   BTN_DANGER_OUTLINE,
   BTN_GHOST,
   BTN_SUCCESS,
-  CARD,
   CHECKLIST,
   dateOnly,
   dateTime,
@@ -44,7 +44,7 @@ type ChangeKey = keyof PendingChanges;
 
 const CHANGE_LABELS: Record<ChangeKey, string> = {
   name: 'Name',
-  specialty: 'Speciality',
+  specialty: 'Specialty',
   mdcn_number: 'MDCN number',
   qualifications: 'Qualifications (text)',
   qualification_entries: 'Qualifications',
@@ -79,7 +79,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, AlertComponent],
   template: `
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col gap-6">
       <div aria-live="polite">
         @if (notice(); as n) {
           <sd-alert tone="success">{{ n }}</sd-alert>
@@ -87,8 +87,8 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
       </div>
 
       <!-- Where they are -->
-      <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-6" aria-labelledby="bo-rv-status-title">
-        <h2 #statusTitle id="bo-rv-status-title" tabindex="-1" class="font-heading text-body-lg font-semibold text-ink focus:outline-none">Review status</h2>
+      <section class="${SECTION} !gap-4" aria-labelledby="bo-rv-status-title">
+        <h2 #statusTitle id="bo-rv-status-title" tabindex="-1" class="${SECTION_TITLE} focus:outline-none"><sd-icon name="list-checks" [size]="20" class="text-cerulean" />Review status</h2>
         <div class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
           <span class="${PILL}" [class]="status().cls"><sd-icon [name]="status().icon" [size]="13" />{{ status().label }}</span>
           @if (detail().submitted_at) { <span>Submitted {{ when(detail().submitted_at) }}</span> }
@@ -102,19 +102,19 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         }
         @if (detail().approved_snapshot; as snap) {
           <p class="font-sans text-caption text-slate">
-            Approved by {{ snap.approved_by_name || 'a reviewer' }} on {{ day(snap.approved_at) }} — name, speciality, MDCN number, qualifications and certifications are locked to what was approved.
+            Approved by {{ snap.approved_by_name || 'a reviewer' }} on {{ day(snap.approved_at) }} — name, specialty, MDCN number, qualifications and certifications are locked to what was approved.
           </p>
         }
       </section>
 
-      <div class="grid gap-5 lg:grid-cols-2">
+      <div class="grid gap-6 lg:grid-cols-2">
         <!-- Checklist -->
-        <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-6" aria-labelledby="bo-rv-check-title">
-          <div class="flex items-center justify-between gap-2">
-            <h2 id="bo-rv-check-title" class="font-heading text-body-lg font-semibold text-ink">Onboarding checklist</h2>
-            <span class="font-sans text-caption font-semibold text-slate">{{ detail().completed }} of {{ detail().total }} done</span>
+        <section class="${SECTION} !gap-4" aria-labelledby="bo-rv-check-title">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="bo-rv-check-title" class="${SECTION_TITLE}"><sd-icon name="clipboard-list" [size]="20" class="text-cerulean" />Onboarding checklist</h2>
+            <span class="rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate">{{ detail().completed }} of {{ detail().total }} done</span>
           </div>
-          <ul class="flex flex-col gap-1.5">
+          <ul class="flex flex-col gap-2">
             @for (c of checklist; track c.key) {
               <li class="flex items-center gap-2 font-sans text-body-sm" [class]="detail().checklist[c.key] ? 'text-ink' : 'text-slate'">
                 <sd-icon [name]="detail().checklist[c.key] ? 'circle-check' : 'circle-x'" [size]="16" [class]="detail().checklist[c.key] ? 'text-sage' : 'text-alert'" />
@@ -125,8 +125,8 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         </section>
 
         <!-- Terms -->
-        <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-6" aria-labelledby="bo-rv-terms-title">
-          <h2 id="bo-rv-terms-title" class="font-heading text-body-lg font-semibold text-ink">Practitioner terms</h2>
+        <section class="${SECTION} !gap-4" aria-labelledby="bo-rv-terms-title">
+          <h2 id="bo-rv-terms-title" class="${SECTION_TITLE}"><sd-icon name="scroll-text" [size]="20" class="text-cerulean" />Practitioner terms</h2>
           @if (detail().terms; as t) {
             <span class="${PILL} w-fit" [class]="t.accepted ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-ink'">
               <sd-icon [name]="t.accepted ? 'circle-check' : 'hourglass'" [size]="13" />{{ t.accepted ? 'Version ' + t.current_version + ' accepted' : 'Version ' + t.current_version + ' not accepted yet' }}
@@ -145,8 +145,8 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
 
       <!-- Decision -->
       @if (detail().status === 'pending_review') {
-        <section class="flex flex-col gap-4 ${CARD} p-4 sm:p-6" aria-labelledby="bo-rv-decide-title">
-          <h2 id="bo-rv-decide-title" class="font-heading text-body-lg font-semibold text-ink">Decision</h2>
+        <section class="${SECTION}" aria-labelledby="bo-rv-decide-title">
+          <h2 id="bo-rv-decide-title" class="${SECTION_TITLE}"><sd-icon name="badge-check" [size]="20" class="text-cerulean" />Decision</h2>
 
           @if (problems().length > 0) {
             <div class="flex flex-col gap-2 rounded-field bg-warning/10 p-4">
@@ -167,7 +167,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
           }
 
           <form class="flex flex-col gap-3" novalidate (submit)="$event.preventDefault(); approve()">
-            <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border p-3" [class]="approveErrors()['attest'] ? 'border-alert' : 'border-cloud'">
+            <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border px-4 py-3" [class]="approveErrors()['attest'] ? 'border-alert' : 'border-cloud'">
               <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-sage" [checked]="attest()" [disabled]="!ready()" (change)="attest.set($any($event.target).checked)" aria-describedby="bo-rv-attest-hint" />
               <span class="flex flex-col">
                 <span class="font-sans text-body-sm text-ink">I checked the MDCN full-registration certificate and the current practising licence against the MDCN register.</span>
@@ -186,7 +186,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
             </button>
           </form>
 
-          <form class="flex flex-col gap-3 border-t border-cloud pt-4" novalidate (submit)="$event.preventDefault(); sendBack()">
+          <form class="flex flex-col gap-3 border-t border-cloud pt-5" novalidate (submit)="$event.preventDefault(); sendBack()">
             <label class="flex flex-col gap-1.5">
               <span class="${LABEL}">Or send it back — tell the doctor what to change (required)</span>
               <textarea rows="3" maxlength="2000" class="${FIELD}" [class]="rejectError() ? '${FIELD_INVALID}' : ''" [value]="rejectReason()" (input)="rejectReason.set($any($event.target).value); rejectError.set('')" placeholder="e.g. Please upload a clearer, professional headshot." [attr.aria-invalid]="rejectError() ? 'true' : null" [attr.aria-describedby]="rejectError() ? 'bo-rv-reject-err' : null"></textarea>
@@ -203,15 +203,15 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
 
       <!-- Change request -->
       @if (detail().pending_changes) {
-        <section class="flex flex-col gap-4 rounded-card border border-warning bg-white p-4 sm:p-6" aria-labelledby="bo-rv-changes-title">
+        <section class="flex flex-col gap-5 rounded-card border border-warning/60 bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-6" aria-labelledby="bo-rv-changes-title">
           <div class="flex flex-col gap-1">
-            <h2 id="bo-rv-changes-title" class="flex items-center gap-2 font-heading text-body-lg font-semibold text-ink"><sd-icon name="square-pen" [size]="18" class="text-warning" />Change request</h2>
-            <p class="font-sans text-caption text-slate">Requested {{ when(detail().pending_changes_submitted_at) }}. Approving makes these live (prescriptions print them) and becomes the new approved snapshot.</p>
+            <h2 id="bo-rv-changes-title" class="${SECTION_TITLE}"><sd-icon name="square-pen" [size]="20" class="text-warning" />Change request</h2>
+            <p class="font-sans text-body-sm text-slate">Requested {{ when(detail().pending_changes_submitted_at) }}. Approving makes these live (prescriptions print them) and becomes the new approved snapshot.</p>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full min-w-[480px] text-left font-sans text-body-sm">
               <caption class="sr-only">Approved values against the requested ones</caption>
-              <thead class="border-b border-cloud text-caption text-slate">
+              <thead class="border-b border-cloud text-caption font-semibold text-slate">
                 <tr><th scope="col" class="py-2 pr-3">Field</th><th scope="col" class="py-2 pr-3">Approved</th><th scope="col" class="py-2">Requested</th></tr>
               </thead>
               <tbody>
@@ -232,7 +232,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
           <button type="button" class="${BTN_SUCCESS} w-full sm:w-fit" [disabled]="busy() !== ''" (click)="approveChanges()">
             <sd-icon [name]="busy() === 'changes-approve' ? 'loader-circle' : 'check'" [size]="18" [class.animate-spin]="busy() === 'changes-approve'" />{{ busy() === 'changes-approve' ? 'Approving…' : 'Approve changes' }}
           </button>
-          <form class="flex flex-col gap-3 border-t border-cloud pt-4" novalidate (submit)="$event.preventDefault(); rejectChanges()">
+          <form class="flex flex-col gap-3 border-t border-cloud pt-5" novalidate (submit)="$event.preventDefault(); rejectChanges()">
             <label class="flex flex-col gap-1.5">
               <span class="${LABEL}">Or reject them — tell the doctor why (required)</span>
               <textarea rows="3" maxlength="2000" class="${FIELD}" [class]="changesError() ? '${FIELD_INVALID}' : ''" [value]="changesReason()" (input)="changesReason.set($any($event.target).value); changesError.set('')" [attr.aria-invalid]="changesError() ? 'true' : null" [attr.aria-describedby]="changesError() ? 'bo-rv-changes-err' : null"></textarea>
@@ -254,11 +254,11 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
       </div>
 
       <!-- What the doctor submitted -->
-      <section class="flex flex-col gap-4 ${CARD} p-4 sm:p-6" aria-labelledby="bo-rv-profile-title">
-        <h2 id="bo-rv-profile-title" class="font-heading text-body-lg font-semibold text-ink">Profile</h2>
+      <section class="${SECTION}" aria-labelledby="bo-rv-profile-title">
+        <h2 id="bo-rv-profile-title" class="${SECTION_TITLE}"><sd-icon name="user-round" [size]="20" class="text-cerulean" />Profile</h2>
         <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Name</dt><dd class="break-words text-ink">{{ detail().profile.name }}</dd></div>
-          <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Speciality</dt><dd class="break-words text-ink">{{ detail().profile.specialty }}</dd></div>
+          <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Specialty</dt><dd class="break-words text-ink">{{ detail().profile.specialty }}</dd></div>
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">MDCN number</dt><dd class="break-all text-ink">{{ detail().profile.mdcn_number || '—' }}</dd></div>
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Signature</dt><dd class="text-ink">{{ detail().profile.has_signature ? 'Saved' : 'Not saved' }}</dd></div>
           <div class="flex flex-col gap-0.5 sm:col-span-2">

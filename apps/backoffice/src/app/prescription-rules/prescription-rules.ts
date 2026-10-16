@@ -17,6 +17,25 @@ import type { HasUnsavedChanges } from '@supadoc/auth';
 import type { PrescriptionSettingsDto } from '@supadoc/models';
 import type { LeaveCopy } from '@supadoc/ui';
 import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
+import {
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  FIELD_ERROR,
+  FIELD_GROUP_INPUT,
+  FIELD_STACK,
+  FIELD_SUFFIX,
+  HINT,
+  LABEL,
+  PAGE_ERROR,
+  PAGE_HEADER_TEXT,
+  PAGE_NARROW,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  SECTION,
+  SECTION_SUBTITLE,
+  SECTION_TITLE,
+  SUBSECTION_TITLE,
+} from '../shared/layout';
 
 type RuleKey = keyof PrescriptionSettingsDto;
 
@@ -124,23 +143,23 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
   imports: [IconComponent, AlertComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Prescription rules</h1>
-        <p class="font-sans text-body text-slate">
+    <div class="${PAGE_NARROW}">
+      <header class="${PAGE_HEADER_TEXT}">
+        <h1 class="${PAGE_TITLE}">Prescription rules</h1>
+        <p class="${PAGE_SUBTITLE}">
           Platform-wide rules for every prescription doctors send. Changes apply straight away — no release needed.
         </p>
       </header>
 
       @if (loading()) {
-        <div class="sd-shimmer h-96 max-w-3xl rounded-card"></div>
+        <div class="sd-shimmer h-96 rounded-card" aria-hidden="true"></div>
       } @else if (loadError()) {
-        <div class="flex max-w-3xl flex-col items-center gap-3 rounded-card border border-cloud bg-white px-6 py-16 text-center">
+        <div class="${PAGE_ERROR}" role="alert">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
           <button
             type="button"
-            class="flex items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="${BTN_SECONDARY}"
             (click)="load()"
           >
             <sd-icon name="refresh-cw" [size]="16" />Try again
@@ -148,33 +167,33 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
         </div>
       } @else {
         <form
-          class="flex max-w-3xl flex-col gap-6 rounded-card border border-cloud bg-white p-5 sm:p-6"
+          class="${SECTION} !gap-6"
           novalidate
           (submit)="$event.preventDefault(); save()"
         >
           <div class="flex flex-col gap-1">
-            <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-              <sd-icon name="scroll-text" [size]="20" />Current rules
+            <h2 class="${SECTION_TITLE}">
+              <sd-icon name="scroll-text" [size]="20" class="text-cerulean" />Current rules
             </h2>
-            <p class="font-sans text-body-sm text-slate">
+            <p class="${SECTION_SUBTITLE}">
               Each box shows the allowed range and the standard setting. Prescriptions already sent keep their own dates.
             </p>
           </div>
 
           @for (g of groups; track g.title; let gi = $index) {
             <div role="group" [attr.aria-labelledby]="'rx-rule-group-' + gi" class="flex flex-col gap-4 border-t border-cloud pt-5">
-              <h3 [id]="'rx-rule-group-' + gi" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
-                <sd-icon [name]="g.icon" [size]="18" class="text-slate" />{{ g.title }}
+              <h3 [id]="'rx-rule-group-' + gi" class="${SUBSECTION_TITLE}">
+                <sd-icon [name]="g.icon" [size]="18" class="text-cerulean" />{{ g.title }}
               </h3>
-              <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div class="grid grid-cols-1 items-start gap-5 sm:grid-cols-2">
                 @for (f of g.fields; track f.key) {
-                  <div class="flex min-w-0 flex-col gap-1.5">
-                    <label [for]="'rx-rule-' + f.key" class="font-sans text-caption font-semibold text-slate">
+                  <div class="${FIELD_STACK}">
+                    <label [for]="'rx-rule-' + f.key" class="${LABEL}">
                       {{ f.label }}
                     </label>
                     <div
-                      class="flex items-stretch overflow-hidden rounded-field border bg-white transition-colors focus-within:ring-2"
-                      [class]="errorFor(f.key) ? 'border-alert focus-within:ring-alert/20' : 'border-cloud focus-within:border-cerulean focus-within:ring-cerulean/20'"
+                      class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors focus-within:ring-2"
+                      [class]="errorFor(f.key) ? 'border-alert focus-within:ring-alert/20' : 'border-[#b8c6d4] focus-within:border-cerulean focus-within:ring-cerulean/20'"
                     >
                       <input
                         [id]="'rx-rule-' + f.key"
@@ -186,19 +205,19 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
                         [value]="values()[f.key]"
                         [attr.aria-invalid]="errorFor(f.key) ? 'true' : null"
                         [attr.aria-describedby]="'rx-rule-' + f.key + '-hint' + (errorFor(f.key) ? ' rx-rule-' + f.key + '-error' : '')"
-                        class="w-full min-w-0 flex-1 bg-transparent px-4 py-3 font-sans text-body-sm text-ink focus:outline-none"
+                        class="${FIELD_GROUP_INPUT}"
                         (input)="setValue(f.key, $any($event.target).value)"
                       />
-                      <span class="flex shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">
+                      <span class="${FIELD_SUFFIX}">
                         {{ f.unit }}
                       </span>
                     </div>
                     @if (errorFor(f.key); as msg) {
-                      <p [id]="'rx-rule-' + f.key + '-error'" class="flex items-start gap-1.5 font-sans text-caption text-alert">
+                      <p [id]="'rx-rule-' + f.key + '-error'" class="${FIELD_ERROR}">
                         <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}
                       </p>
                     }
-                    <p [id]="'rx-rule-' + f.key + '-hint'" class="font-sans text-caption text-slate">
+                    <p [id]="'rx-rule-' + f.key + '-hint'" class="${HINT}">
                       {{ f.hint }}
                       <span class="block text-slate/80">
                         Allowed {{ range(f) }}. Standard: {{ f.fallback }} {{ f.unit }}.
@@ -218,7 +237,7 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
             @if (dirty()) {
               <button
                 type="button"
-                class="flex items-center justify-center gap-2 rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60"
+                class="${BTN_SECONDARY}"
                 [disabled]="saving()"
                 (click)="discard()"
               >
@@ -227,7 +246,7 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
             }
             <button
               type="submit"
-              class="flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60"
+              class="${BTN_PRIMARY}"
               [disabled]="saving() || !dirty()"
             >
               @if (saving()) {

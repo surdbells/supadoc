@@ -18,18 +18,30 @@ import type { HasUnsavedChanges } from '@supadoc/auth';
 import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistDetailDto } from '@supadoc/models';
 import type { LeaveCopy } from '@supadoc/ui';
-import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import {
+  BACK_LINK,
+  BTN_SECONDARY,
+  CARD_RAISED,
+  DETAIL_ACTIONS,
+  DETAIL_NAME,
+  EMPTY_FRAME,
+  PAGE,
+  PAGE_HEADER_DETAIL,
+  PAGE_TITLE,
+} from '../shared/layout';
 import { ReviewQueue } from './review-queue';
 import { SpecialistAppointmentsTab } from './tabs/appointments-tab';
 import { SpecialistCredentialsTab } from './tabs/credentials-tab';
 import { SpecialistEarningsTab } from './tabs/earnings-tab';
 import { SpecialistHistoryTab } from './tabs/history-tab';
-import { SpecialistOverviewTab } from './tabs/overview-tab';
+import { PROFILE_LEAVE_COPY, SpecialistOverviewTab } from './tabs/overview-tab';
 import { SpecialistReviewTab } from './tabs/review-tab';
 import { SpecialistReviewsTab } from './tabs/reviews-tab';
 import { afterDialogCloses } from '../shared/after-dialog';
 import { ReinstateDialog } from './dialogs/reinstate-dialog';
 import { SuspendDialog } from './dialogs/suspend-dialog';
+import { SpecialistAvatar } from './specialist-avatar';
 import {
   Badge,
   BTN_DANGER_OUTLINE,
@@ -38,7 +50,6 @@ import {
   dateOnly,
   type DoctorTab,
   FOCUS_RING,
-  initials,
   licenceStateBadge,
   loginBadge,
   money,
@@ -72,6 +83,7 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
     RouterLink,
     IconComponent,
     AlertComponent,
+    EmptyStateComponent,
     SpecialistOverviewTab,
     SpecialistCredentialsTab,
     SpecialistReviewTab,
@@ -81,99 +93,107 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
     SpecialistHistoryTab,
     SuspendDialog,
     ReinstateDialog,
+    SpecialistAvatar,
   ],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-5 py-2">
-      <a routerLink="/specialists" [queryParams]="backParams" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm font-semibold text-cerulean hover:underline ${FOCUS_RING}">
-        <sd-icon name="chevron-left" [size]="18" />Back to specialists
-      </a>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER_DETAIL}">
+        <h1 class="${PAGE_TITLE}">Specialist</h1>
+        <a routerLink="/specialists" [queryParams]="backParams" class="${BACK_LINK}" aria-label="Back to specialists">
+          <sd-icon name="chevron-right" [size]="18" class="rotate-180" />Specialists
+        </a>
+      </header>
 
       @if (loading()) {
-        <div class="flex flex-col gap-4" aria-busy="true">
+        <div class="flex flex-col gap-6" aria-busy="true">
           <span class="sr-only" role="status">Loading the doctor's page…</span>
-          <div class="sd-shimmer h-40 rounded-card"></div>
-          <div class="sd-shimmer h-11 w-full max-w-xl rounded-pill"></div>
+          <div class="sd-shimmer h-48 rounded-card"></div>
+          <div class="sd-shimmer h-12 w-full max-w-xl rounded-pill"></div>
           <div class="sd-shimmer h-72 rounded-card"></div>
         </div>
       } @else if (loadError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-14 text-center">
-          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
-          <p class="font-sans text-body-sm text-slate" role="alert">{{ loadError() }}</p>
-          <button type="button" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean hover:border-cerulean ${FOCUS_RING}" (click)="load()">
-            <sd-icon name="refresh-cw" [size]="16" />Try again
-          </button>
+        <div class="${EMPTY_FRAME}">
+          <sd-empty-state icon="wifi-off" tone="error" title="Couldn't open this doctor's page" [message]="loadError()">
+            <button type="button" class="${BTN_SECONDARY}" (click)="load()">
+              <sd-icon name="refresh-cw" [size]="16" />Try again
+            </button>
+          </sd-empty-state>
         </div>
       } @else if (detail(); as d) {
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6" aria-labelledby="bo-doctor-name">
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div class="flex min-w-0 items-start gap-4">
-              @if (photoSrc(); as src) {
-                <img [src]="src" alt="" class="size-16 shrink-0 rounded-full border border-cloud object-cover" />
-              } @else {
-                <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean" aria-hidden="true">{{ initialsOf(d.profile.name) }}</span>
-              }
-              <div class="flex min-w-0 flex-col gap-1.5">
-                <h1 #heading id="bo-doctor-name" tabindex="-1" class="break-words font-heading text-h4 text-ink focus:outline-none">{{ d.profile.name }}</h1>
+        <section class="${CARD_RAISED} flex flex-col p-5 sm:p-6" aria-labelledby="bo-doctor-name">
+          <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div class="flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
+              <bo-specialist-avatar [src]="photoSrc()" [name]="d.profile.name" size="xl" />
+              <div class="flex min-w-0 flex-1 flex-col gap-2.5">
+                <h2 #heading id="bo-doctor-name" tabindex="-1" class="${DETAIL_NAME} focus:outline-none">{{ d.profile.name }}</h2>
                 <p class="font-sans text-body-sm text-slate">
                   <span class="text-cerulean">{{ d.profile.specialty }}</span> · {{ money(d.profile.consultation_fee) }} per consultation
                 </p>
-                <div class="flex flex-wrap items-center gap-1.5">
+                <div class="flex flex-wrap items-center justify-center gap-1.5 sm:justify-start">
                   @for (b of badges(); track b.label) {
                     <span class="${PILL}" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
                   }
                 </div>
               </div>
             </div>
-            <div class="flex flex-col gap-2 sm:flex-row lg:shrink-0">
-              @if (d.status === 'approved') {
-                <button type="button" class="${BTN_DANGER_OUTLINE}" (click)="openSuspend(false)">
-                  <sd-icon name="ban" [size]="18" />Suspend
-                </button>
-              } @else if (d.status === 'suspended') {
-                @if (d.suspension && d.stats.upcoming > 0) {
-                  <button type="button" class="${BTN_DANGER_OUTLINE}" (click)="openSuspend(true)" aria-describedby="bo-doctor-unfinished">
-                    <sd-icon name="refresh-cw" [size]="18" />Finish suspension
+            @if (d.status === 'approved' || d.status === 'suspended') {
+              <div class="${DETAIL_ACTIONS}">
+                <span class="font-heading text-body-lg text-ink">Standing</span>
+                @if (d.status === 'approved') {
+                  <button type="button" class="${BTN_DANGER_OUTLINE} w-full" (click)="openSuspend(false)">
+                    <sd-icon name="ban" [size]="18" />Suspend
+                  </button>
+                } @else {
+                  @if (d.suspension && d.stats.upcoming > 0) {
+                    <button type="button" class="${BTN_DANGER_OUTLINE} w-full" (click)="openSuspend(true)" aria-describedby="bo-doctor-unfinished">
+                      <sd-icon name="refresh-cw" [size]="18" />Finish suspension
+                    </button>
+                  }
+                  <button type="button" class="${BTN_SUCCESS} w-full" (click)="reinstateOpen.set(true)">
+                    <sd-icon name="user-check" [size]="18" />Reinstate
                   </button>
                 }
-                <button type="button" class="${BTN_SUCCESS}" (click)="reinstateOpen.set(true)">
-                  <sd-icon name="user-check" [size]="18" />Reinstate
-                </button>
-              }
-            </div>
+              </div>
+            }
           </div>
 
-          @if (d.suspension; as s) {
-            <sd-alert tone="error">
-              <span class="block font-semibold">Suspended{{ s.suspended_at ? ' since ' + dateOnly(s.suspended_at) : '' }} · {{ s.code_label }}</span>
-              @if (s.reason) {
-                <span class="block whitespace-pre-line break-words">{{ s.reason }}</span>
-              }
-              <span class="mt-1 block text-caption">Unlisted, signed out and blocked from clinical work. They can still sign in to see this reason and their earnings.</span>
-              @if (d.stats.upcoming > 0) {
-                <span id="bo-doctor-unfinished" class="mt-1 block text-caption font-semibold">{{ plural(d.stats.upcoming, 'future booking') }} still {{ d.stats.upcoming === 1 ? 'needs' : 'need' }} cancelling and refunding — use “Finish suspension”.</span>
-              }
-            </sd-alert>
-          }
-          @if (d.credentials_missing) {
-            <sd-alert tone="warning">
-              Approved before licensing documents were required{{ d.credentials_due_at ? '; due by ' + calendarDay(d.credentials_due_at) : '' }}. They get reminders but are not suspended automatically — decide here if the documents don't arrive.
-            </sd-alert>
-          }
-          @if (d.status === 'approved' && d.standing; as st) {
-            <!-- The API's message speaks to the doctor; staff read it in the third person. -->
-            <sd-alert tone="info">
-              @if (st.code === 'terms_required') {
-                Hasn't accepted the current practitioner terms{{ d.terms?.current_version ? ' (version ' + d.terms?.current_version + ')' : '' }} yet. They can finish consultations already under way, but can't start new ones until they accept in their doctor portal.
-              } @else {
-                {{ st.message }}
-              }
-            </sd-alert>
-          }
-          <div aria-live="polite">
-            @if (announcement(); as a) {
-              <sd-alert tone="success">{{ a }}</sd-alert>
+          <div
+            class="flex flex-col gap-3"
+            [class.mt-6]="!!d.suspension || d.credentials_missing || (d.status === 'approved' && !!d.standing) || !!announcement()"
+          >
+            @if (d.suspension; as s) {
+              <sd-alert tone="error">
+                <span class="block font-semibold">Suspended{{ s.suspended_at ? ' since ' + dateOnly(s.suspended_at) : '' }} · {{ s.code_label }}</span>
+                @if (s.reason) {
+                  <span class="block whitespace-pre-line break-words">{{ s.reason }}</span>
+                }
+                <span class="mt-1 block text-caption">Unlisted, signed out and blocked from clinical work. They can still sign in to see this reason and their earnings.</span>
+                @if (d.stats.upcoming > 0) {
+                  <span id="bo-doctor-unfinished" class="mt-1 block text-caption font-semibold">{{ plural(d.stats.upcoming, 'future booking') }} still {{ d.stats.upcoming === 1 ? 'needs' : 'need' }} cancelling and refunding — use “Finish suspension”.</span>
+                }
+              </sd-alert>
             }
+            @if (d.credentials_missing) {
+              <sd-alert tone="warning">
+                Approved before licensing documents were required{{ d.credentials_due_at ? '; due by ' + calendarDay(d.credentials_due_at) : '' }}. They get reminders but are not suspended automatically — decide here if the documents don't arrive.
+              </sd-alert>
+            }
+            @if (d.status === 'approved' && d.standing; as st) {
+              <!-- The API's message speaks to the doctor; staff read it in the third person. -->
+              <sd-alert tone="info">
+                @if (st.code === 'terms_required') {
+                  Hasn't accepted the current practitioner terms{{ d.terms?.current_version ? ' (version ' + d.terms?.current_version + ')' : '' }} yet. They can finish consultations already under way, but can't start new ones until they accept in their doctor portal.
+                } @else {
+                  {{ st.message }}
+                }
+              </sd-alert>
+            }
+            <div aria-live="polite">
+              @if (announcement(); as a) {
+                <sd-alert tone="success">{{ a }}</sd-alert>
+              }
+            </div>
           </div>
         </section>
 
@@ -377,19 +397,17 @@ export class AdminSpecialistDetail implements OnInit, HasUnsavedChanges {
     return 0;
   }
 
-  /** For the route's unsavedChangesGuard: unsaved edits on the Overview tab. */
+  /** For the route's unsavedChangesGuard: unsaved edits, or a photo still uploading, on the Overview tab. */
   hasUnsavedChanges(): boolean {
     return this.overviewTab()?.hasUnsavedChanges() ?? false;
   }
-  readonly leaveCopy: LeaveCopy = {
-    title: 'Leave without saving the profile?',
-    message: "Your edits to this doctor's profile haven't been saved. If you leave now, they'll be lost.",
-  };
+  /** The prompt's words for what would be lost (edits, the upload, or both). */
+  readonly leaveCopy = (): LeaveCopy => this.overviewTab()?.leaveCopy() ?? PROFILE_LEAVE_COPY;
 
-  /** Show a tab; resolves false when the person chose to keep editing the Overview instead. */
+  /** Show a tab; resolves false when the person chose to stay on the Overview instead. */
   protected async selectTab(key: DoctorTab, focusPanel = false): Promise<boolean> {
-    // Switching tabs drops the Overview form: ask when it holds unsaved edits.
-    if (this.asksBeforeLeaving(key) && !(await this.dialogs.confirmLeave(this.leaveCopy))) return false;
+    // Switching tabs drops the Overview tab (its form and any upload): ask first.
+    if (this.asksBeforeLeaving(key) && !(await this.dialogs.confirmLeave(this.leaveCopy()))) return false;
     this.tab.set(key);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -441,9 +459,6 @@ export class AdminSpecialistDetail implements OnInit, HasUnsavedChanges {
     return `bo-doctor-panel-${key}`;
   }
 
-  protected initialsOf(name: string): string {
-    return initials(name);
-  }
   protected money(amount: string): string {
     return money(amount);
   }

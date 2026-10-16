@@ -14,7 +14,8 @@ import type { Subscription } from 'rxjs';
 import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { AuditEventDto, SpecialistHistoryDto, SpecialistStatus } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
-import { Badge, BTN_SECONDARY, CARD, codeLabel, dateTime, statusBadge } from '../specialist-ui';
+import { PANEL_STATE, SECTION, SECTION_TITLE } from '../../shared/layout';
+import { Badge, BTN_SECONDARY, codeLabel, dateTime, statusBadge } from '../specialist-ui';
 
 const ACTIONS: Record<string, { label: string; icon: string }> = {
   'specialist.created': { label: 'Created', icon: 'user-plus' },
@@ -43,6 +44,8 @@ const ACTIONS: Record<string, { label: string; icon: string }> = {
 const HIDDEN_META = new Set(['doctor', 'specialist_id', 'before', 'after']);
 
 const FIELD_LABELS: Record<string, string> = {
+  specialty: 'Specialty',
+  requested_specialty: 'Requested specialty',
   email: 'Email',
   consultation_fee: 'Fee',
   photo_url: 'Photo',
@@ -66,6 +69,18 @@ function text(value: unknown): string {
   return s.length > 160 ? s.slice(0, 157) + '…' : s;
 }
 
+/** How a photo change was made (`via` on the photo upload / remove audit events). */
+const VIA_LABELS: Record<string, string> = {
+  photo_upload: 'Photo uploaded from the back office',
+  photo_remove: 'Photo removed from the back office',
+};
+
+/** A photo's before / after in words — the stored file path means nothing to a reader. */
+function photoText(value: unknown, side: 'before' | 'after'): string {
+  if (value === null || value === undefined || value === '') return 'none';
+  return side === 'before' ? 'previous photo' : 'new photo';
+}
+
 function humanKey(key: string): string {
   return FIELD_LABELS[key] ?? key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
@@ -87,15 +102,15 @@ function humanKey(key: string): string {
         <div class="sd-shimmer h-64 rounded-card"></div>
       </div>
     } @else if (error() && !data()) {
-      <div class="flex flex-col items-center gap-3 ${CARD} px-5 py-10 text-center">
+      <div class="${PANEL_STATE}">
         <sd-icon name="wifi-off" [size]="28" class="text-alert" />
         <p class="font-sans text-body-sm text-slate" role="alert">{{ error() }}</p>
         <button type="button" class="${BTN_SECONDARY}" (click)="load()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
       </div>
     } @else if (data(); as d) {
-      <div class="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-6" aria-labelledby="bo-hist-status-title">
-          <h2 id="bo-hist-status-title" class="font-heading text-body-lg font-semibold text-ink">Status changes</h2>
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <section class="${SECTION} !gap-4" aria-labelledby="bo-hist-status-title">
+          <h2 id="bo-hist-status-title" class="${SECTION_TITLE}"><sd-icon name="activity" [size]="20" class="text-cerulean" />Status changes</h2>
           <ol class="flex flex-col gap-4">
             @for (e of d.status_events; track e.id) {
               <li class="flex gap-3">
@@ -114,9 +129,9 @@ function humanKey(key: string): string {
           </ol>
         </section>
 
-        <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-6" aria-labelledby="bo-hist-audit-title">
+        <section class="${SECTION} !gap-4" aria-labelledby="bo-hist-audit-title">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="bo-hist-audit-title" class="font-heading text-body-lg font-semibold text-ink">Audit trail</h2>
+            <h2 id="bo-hist-audit-title" class="${SECTION_TITLE}"><sd-icon name="history" [size]="20" class="text-cerulean" />Audit trail</h2>
             <label class="flex min-h-11 cursor-pointer items-center gap-2 font-sans text-body-sm text-ink">
               <input type="checkbox" class="size-5 accent-cerulean" [checked]="hideViews()" (change)="hideViews.set($any($event.target).checked)" />
               Hide document views
@@ -208,11 +223,19 @@ export class SpecialistHistoryTab {
     const after = (meta['after'] ?? {}) as Record<string, unknown>;
     if (typeof after === 'object' && after !== null) {
       for (const key of Object.keys(after)) {
-        lines.push(`${humanKey(key)}: ${text(before?.[key])} → ${text(after[key])}`);
+        lines.push(
+          key === 'photo_url'
+            ? `${humanKey(key)}: ${photoText(before?.[key], 'before')} → ${photoText(after[key], 'after')}`
+            : `${humanKey(key)}: ${text(before?.[key])} → ${text(after[key])}`,
+        );
       }
     }
     for (const [key, value] of Object.entries(meta)) {
       if (HIDDEN_META.has(key) || value === null || value === undefined || value === '') continue;
+      if (key === 'via' && typeof value === 'string' && VIA_LABELS[value]) {
+        lines.push(VIA_LABELS[value]);
+        continue;
+      }
       lines.push(`${humanKey(key)}: ${text(value)}`);
     }
     return lines.slice(0, 12);

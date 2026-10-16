@@ -23,40 +23,25 @@ export interface Badge {
   readonly cls: string;
 }
 
-export const FOCUS_RING = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
-
-export const FIELD =
-  'w-full min-w-0 rounded-field border border-cloud bg-white px-3 py-2.5 font-sans text-body-sm text-ink placeholder:text-slate/60 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 disabled:bg-glacier disabled:text-slate';
-
-export const FIELD_INVALID = '!border-alert focus:!ring-alert/20';
-
-export const LABEL = 'font-sans text-caption font-semibold text-slate';
-
-export const BTN_PRIMARY =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:cursor-not-allowed disabled:opacity-60 ' +
-  FOCUS_RING;
-
-export const BTN_SUCCESS =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-sage px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ' +
-  FOCUS_RING;
-
-export const BTN_DANGER =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-alert px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-alert/90 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40';
-
-export const BTN_SECONDARY =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:cursor-not-allowed disabled:opacity-60 ' +
-  FOCUS_RING;
-
-export const BTN_DANGER_OUTLINE =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/40 bg-white px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40';
-
-export const BTN_GHOST =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:bg-glacier hover:text-ink disabled:opacity-60 ' +
-  FOCUS_RING;
-
-export const CARD = 'rounded-card border border-cloud bg-white';
-
-export const PILL = 'inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold';
+/**
+ * The generic look (fields, buttons, cards, pills) lives in the back office's
+ * one layout module (shared/layout.ts); re-exported here so the specialist
+ * screens keep importing it from one place.
+ */
+export {
+  BTN_DANGER,
+  BTN_DANGER_OUTLINE,
+  BTN_GHOST,
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  BTN_SUCCESS,
+  CARD,
+  FIELD,
+  FIELD_INVALID,
+  FOCUS_RING,
+  LABEL,
+  PILL,
+} from '../shared/layout';
 
 /** The onboarding checklist, in the order a doctor works through it. */
 export const CHECKLIST: readonly { key: OnboardingItemKey; label: string }[] = [

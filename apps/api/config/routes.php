@@ -104,6 +104,8 @@ return static function (App $app): void {
         $group->get('/public/specialists/{id}/availability', Action\Specialist\GetSpecialistAvailabilityAction::class);
         $group->get('/public/specialists/{id}', Action\Public\GetPublicSpecialistAction::class);
         $group->get('/public/pricing', Action\Public\PublicPricingAction::class);
+        // Reference data: a pick list's active items (e.g. /public/reference/specialty).
+        $group->get('/public/reference/{category}', Action\Reference\PublicReferenceListAction::class);
         // Prescriptions: the signed, short-lived token IS the credential for the
         // PDF; the pharmacist check needs no sign-in (throttled per device/IP).
         $group->get('/public/prescriptions/file', Action\Prescription\PrescriptionFileAction::class);
@@ -185,6 +187,11 @@ return static function (App $app): void {
             $group->post('/specialists', Action\Specialist\CreateSpecialistAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
             $group->patch('/specialists/{id}', Action\Specialist\UpdateSpecialistAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            // The doctor's headshot, uploaded by the back office (multipart `photo`) / removed (audited).
+            $group->post('/specialists/{id}/photo', Action\Specialist\UploadSpecialistPhotoAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->delete('/specialists/{id}/photo', Action\Specialist\DeleteSpecialistPhotoAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
             // Doctor onboarding: invite (or resend), review checklist, approve / reject.
             $group->post('/specialists/{id}/invite', Action\Specialist\InviteSpecialistAction::class)
@@ -367,6 +374,10 @@ return static function (App $app): void {
             // Booking + revenue analytics.
             $group->get('/admin/analytics', Action\Admin\AnalyticsAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
+            // The back-office home: each part only for the permission its page needs
+            // (the action trims it; a doctor login gets 403).
+            $group->get('/admin/dashboard', Action\Admin\AdminDashboardAction::class)
+                ->add(new RbacMiddleware(['monitoring.view', 'appointments.view', 'specialists.manage', 'payouts.manage', 'support.manage']));
 
             // Patient administration (browse the patient base + open a record).
             $group->get('/admin/patients', Action\Admin\ListPatientsAction::class)
@@ -387,6 +398,19 @@ return static function (App $app): void {
             $group->get('/settings/booking', Action\Settings\BookingSettingsAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
             $group->patch('/settings/booking', Action\Settings\BookingSettingsAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
+            // Reference data (pick lists such as specialties): read by whoever edits
+            // the list or fills the forms that offer it; changed with settings.manage.
+            // /reorder before /{id} (FastRoute: static first).
+            $group->get('/reference/{category}', Action\Reference\ListReferenceItemsAction::class)
+                ->add(new RbacMiddleware(['settings.manage', 'specialists.manage']));
+            $group->post('/reference/{category}', Action\Reference\CreateReferenceItemAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
+            $group->post('/reference/{category}/reorder', Action\Reference\ReorderReferenceItemsAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
+            $group->patch('/reference/{category}/{id}', Action\Reference\UpdateReferenceItemAction::class)
+                ->add(new RbacMiddleware('settings.manage'));
+            $group->delete('/reference/{category}/{id}', Action\Reference\DeleteReferenceItemAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
 
             // Support desk (back office).

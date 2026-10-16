@@ -12,7 +12,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { ReviewDto, ReviewSummaryDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
-import { BTN_SECONDARY, CARD, dateOnly, plural } from '../specialist-ui';
+import { CARD_ITEM, CARD_LIST, CARD_RAISED, LIST_CARD_EMPTY, PANEL_STATE, SECTION, INLINE_ERROR } from '../../shared/layout';
+import { BTN_SECONDARY, dateOnly, plural } from '../specialist-ui';
 
 const PER_PAGE = 20;
 
@@ -25,9 +26,9 @@ const PER_PAGE = 20;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   template: `
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col gap-6">
       @if (summary(); as s) {
-        <section class="flex flex-col gap-4 ${CARD} p-4 sm:flex-row sm:items-center sm:gap-8 sm:p-6" aria-labelledby="bo-rev-sum-title">
+        <section class="${SECTION} sm:flex-row sm:items-center sm:gap-8" aria-labelledby="bo-rev-sum-title">
           <div class="flex flex-col gap-1">
             <h2 id="bo-rev-sum-title" class="font-sans text-caption font-semibold text-slate">Average rating</h2>
             <span class="flex items-center gap-2 font-heading text-h3 text-ink"><sd-icon name="star" [size]="26" class="text-warning" />{{ s.average }}<span class="sr-only"> out of 5</span></span>
@@ -49,15 +50,15 @@ const PER_PAGE = 20;
       </p>
 
       @if (error() && items().length === 0) {
-        <div class="flex flex-col items-center gap-3 ${CARD} px-5 py-10 text-center">
+        <div class="${PANEL_STATE}">
           <sd-icon name="wifi-off" [size]="28" class="text-alert" />
           <p class="font-sans text-body-sm text-slate" role="alert">{{ error() }}</p>
           <button type="button" class="${BTN_SECONDARY}" (click)="reload()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
         </div>
       } @else if (!(loading() && items().length === 0)) {
-        <ul class="flex flex-col gap-3">
+        <ul class="${CARD_LIST}">
           @for (r of items(); track r.id) {
-            <li class="flex flex-col gap-2 ${CARD} p-4 sm:p-5">
+            <li class="${CARD_ITEM}">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <span class="flex items-center gap-1 font-sans text-body-sm font-semibold text-ink">
                   <sd-icon name="star" [size]="16" class="text-warning" />{{ r.rating }}<span class="sr-only"> out of 5</span><span aria-hidden="true">/5</span>
@@ -69,15 +70,15 @@ const PER_PAGE = 20;
                 <p class="whitespace-pre-line break-words font-sans text-body-sm text-ink">{{ r.comment }}</p>
               }
               @if (r.response) {
-                <p class="rounded-field bg-glacier px-3 py-2 font-sans text-caption text-ink"><span class="font-semibold">Doctor replied:</span> {{ r.response }}</p>
+                <p class="rounded-field bg-glacier px-4 py-3 font-sans text-caption text-ink"><span class="font-semibold">Doctor replied:</span> {{ r.response }}</p>
               }
             </li>
           } @empty {
-            <li class="${CARD} px-5 py-10 text-center font-sans text-body-sm text-slate">No reviews yet.</li>
+            <li class="${CARD_RAISED} ${LIST_CARD_EMPTY}"><sd-icon name="star" [size]="28" class="text-slate" /><p class="font-sans text-body-sm text-slate">No reviews yet.</p></li>
           }
         </ul>
         @if (error()) {
-          <p class="text-center font-sans text-caption text-alert" role="alert">{{ error() }}</p>
+          <p class="${INLINE_ERROR} mx-auto w-fit" role="alert"><sd-icon name="circle-alert" [size]="16" class="shrink-0" />{{ error() }}</p>
         }
         @if (hasMore()) {
           <button type="button" class="${BTN_SECONDARY} mx-auto" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>

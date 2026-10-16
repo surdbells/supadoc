@@ -1,5 +1,6 @@
 import { Route } from '@angular/router';
 import { permissionGuard, staffAuthGuard, unsavedChangesGuard } from '@supadoc/auth';
+import { dashboardGuard, landingGuard } from './nav';
 
 export const appRoutes: Route[] = [
   {
@@ -11,10 +12,11 @@ export const appRoutes: Route[] = [
     canActivate: [staffAuthGuard],
     loadComponent: () => import('./admin-shell').then((m) => m.AdminShell),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+      // Each user lands on the first page their role may open.
+      { path: '', pathMatch: 'full', canActivate: [landingGuard], children: [] },
       {
         path: 'dashboard',
-        canActivate: [permissionGuard('monitoring.view')],
+        canActivate: [dashboardGuard],
         loadComponent: () =>
           import('./dashboard/dashboard').then((m) => m.AdminDashboard),
       },
@@ -114,6 +116,15 @@ export const appRoutes: Route[] = [
           import('./prescription-rules/prescription-rules').then(
             (m) => m.AdminPrescriptionRules,
           ),
+      },
+      {
+        // Back-office-managed pick lists (specialties first). Asks before
+        // leaving with a name typed but not saved.
+        path: 'reference-data',
+        canActivate: [permissionGuard('settings.manage')],
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./reference-data/reference-data').then((m) => m.AdminReferenceData),
       },
       {
         // Account settings — any signed-in staff user (no extra permission).

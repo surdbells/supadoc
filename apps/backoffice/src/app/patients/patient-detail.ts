@@ -20,8 +20,33 @@ import type {
   PrescriptionStatus,
   PrescriptionSummaryDto,
 } from '@supadoc/models';
-import { AlertComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import { appointmentBadge, AppointmentBadge, ATTENTION_BADGE } from '../shared/appointment-status';
+import {
+  AVATAR_SM,
+  BACK_LINK,
+  BTN_SECONDARY,
+  CHIP,
+  COUNT_PILL,
+  DETAIL_AVATAR,
+  DETAIL_HEADER,
+  DETAIL_NAME,
+  EMPTY_FRAME,
+  INFO_TILE,
+  INFO_TILE_LABEL,
+  INFO_TILE_VALUE,
+  INFO_TILES,
+  LIST_CARD_EMPTY,
+  PAGE,
+  PAGE_HEADER_DETAIL,
+  PAGE_TITLE,
+  PILL,
+  ROW_LINK,
+  ROW_TEXT,
+  SECTION,
+  SECTION_TITLE,
+} from '../shared/layout';
+import { initials as initialsOfName } from '../specialists/specialist-ui';
 
 /** Every status reads as icon + words — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
@@ -35,56 +60,106 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
 @Component({
   selector: 'bo-patient-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, AlertComponent],
+  imports: [RouterLink, IconComponent, AlertComponent, EmptyStateComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <a routerLink="/patients" class="flex w-fit items-center gap-1 font-sans text-body-sm font-semibold text-cerulean hover:underline">
-        <sd-icon name="chevron-right" [size]="18" class="rotate-180" /> Back to patients
-      </a>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER_DETAIL}">
+        <h1 class="${PAGE_TITLE}">Patient details</h1>
+        <a routerLink="/patients" class="${BACK_LINK}" aria-label="Back to patients">
+          <sd-icon name="chevron-right" [size]="18" class="rotate-180" />Patients
+        </a>
+      </header>
 
       @if (loading()) {
-        <div class="sd-shimmer h-40 rounded-card"></div>
+        <div class="flex flex-col gap-6" aria-busy="true">
+          <span class="sr-only">Loading the patient…</span>
+          <div class="sd-shimmer h-56 rounded-card"></div>
+          <div class="sd-shimmer h-40 rounded-card"></div>
+        </div>
       } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
-          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
-          <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+        <div class="${EMPTY_FRAME}" role="alert">
+          <sd-empty-state icon="user-x" tone="error" title="We couldn't open this patient" [message]="error()">
+            <a routerLink="/patients" class="${BTN_SECONDARY}"><sd-icon name="users" [size]="16" />Back to patients</a>
+          </sd-empty-state>
         </div>
       } @else if (data(); as d) {
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-          <div class="flex items-center gap-4">
-            <span class="flex size-14 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean">{{ initials(d) }}</span>
-            <div class="flex flex-col">
-              <span class="font-heading text-h5 text-ink">{{ d.patient.first_name }} {{ d.patient.last_name }}</span>
-              <span class="font-sans text-body-sm text-slate">{{ d.patient.email }}</span>
+        <section class="${DETAIL_HEADER}" aria-labelledby="bo-patient-name">
+          <div class="flex min-w-0 flex-col gap-5">
+            <div class="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
+              <span class="${DETAIL_AVATAR}" aria-hidden="true">{{ initials(d) }}</span>
+              <div class="flex min-w-0 flex-1 flex-col gap-2.5">
+                <h2 id="bo-patient-name" class="${DETAIL_NAME}">{{ d.patient.first_name }} {{ d.patient.last_name }}</h2>
+                <ul class="flex flex-wrap items-center justify-center gap-2 sm:justify-start" aria-label="Patient summary">
+                  @if (d.patient.gender) {
+                    <li class="${CHIP} bg-frost capitalize text-cerulean"><sd-icon name="user" [size]="14" /><span class="sr-only">Gender:</span>{{ d.patient.gender }}</li>
+                  }
+                  @if (d.patient.two_factor_enabled) {
+                    <li class="${CHIP} bg-sage/15 text-sage"><sd-icon name="shield-check" [size]="14" />2FA on</li>
+                  } @else {
+                    <li class="${CHIP} bg-glacier text-ink"><sd-icon name="shield" [size]="14" class="text-slate" />2FA off</li>
+                  }
+                  <li class="${CHIP} bg-glacier text-ink"><sd-icon name="user-plus" [size]="14" class="text-slate" />Joined {{ when(d.patient.created_at) }}</li>
+                </ul>
+              </div>
             </div>
+
+            <dl class="${INFO_TILES}">
+              <div class="${INFO_TILE}">
+                <dt class="${INFO_TILE_LABEL}"><sd-icon name="mail" [size]="16" class="shrink-0" />Email</dt>
+                <dd class="${INFO_TILE_VALUE} [overflow-wrap:anywhere]">{{ d.patient.email }}</dd>
+              </div>
+              <div class="${INFO_TILE}">
+                <dt class="${INFO_TILE_LABEL}"><sd-icon name="phone" [size]="16" class="shrink-0" />Phone</dt>
+                @if (d.patient.phone) {
+                  <dd class="${INFO_TILE_VALUE}">
+                    {{ d.patient.phone }}
+                    @if (d.patient.phone_verified) {
+                      <span class="ml-1 inline-flex items-center gap-0.5 font-sans text-caption font-semibold text-sage"><sd-icon name="circle-check" [size]="13" />Verified</span>
+                    }
+                  </dd>
+                } @else {
+                  <dd class="font-sans text-body-sm text-slate">Not provided</dd>
+                }
+              </div>
+              <div class="${INFO_TILE}">
+                <dt class="${INFO_TILE_LABEL}"><sd-icon name="calendar-days" [size]="16" class="shrink-0" />Date of birth</dt>
+                @if (d.patient.date_of_birth) {
+                  <dd class="${INFO_TILE_VALUE}">{{ d.patient.date_of_birth }}</dd>
+                } @else {
+                  <dd class="font-sans text-body-sm text-slate">Not provided</dd>
+                }
+              </div>
+            </dl>
           </div>
-          <dl class="grid grid-cols-1 gap-x-8 gap-y-2 font-sans text-body-sm sm:grid-cols-2">
-            <div class="flex justify-between gap-4"><dt class="text-slate">Phone</dt><dd class="text-ink">{{ d.patient.phone || '—' }}{{ d.patient.phone && d.patient.phone_verified ? ' ✓' : '' }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="text-slate">Date of birth</dt><dd class="text-ink">{{ d.patient.date_of_birth || '—' }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="text-slate">Gender</dt><dd class="capitalize text-ink">{{ d.patient.gender || '—' }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="text-slate">2FA</dt><dd class="text-ink">{{ d.patient.two_factor_enabled ? 'Enabled' : 'Off' }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="text-slate">Joined</dt><dd class="text-ink">{{ when(d.patient.created_at) }}</dd></div>
-          </dl>
         </section>
 
-        <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
-          <h2 class="font-heading text-body-lg text-ink">Appointments ({{ d.appointments_total }})</h2>
+        <section class="${SECTION}" aria-labelledby="bo-patient-appts-title">
+          <h2 id="bo-patient-appts-title" class="${SECTION_TITLE}">
+            <sd-icon name="calendar-days" [size]="20" class="text-cerulean" />Appointments
+            <span class="${COUNT_PILL}">{{ d.appointments_total }}</span>
+          </h2>
           @if (d.appointments.length === 0) {
-            <p class="font-sans text-body-sm text-slate">No appointments yet.</p>
+            <div class="${LIST_CARD_EMPTY} !py-8">
+              <sd-icon name="calendar-x" [size]="28" class="text-slate" />
+              <p class="font-sans text-body-sm text-slate">No appointments yet.</p>
+            </div>
           } @else {
             <ul class="flex flex-col divide-y divide-cloud">
               @for (a of d.appointments; track a.id) {
-                <li class="flex items-center justify-between gap-3 py-3">
-                  <div class="flex flex-col">
-                    <a [routerLink]="['/appointments', a.id]" class="font-sans text-body-sm font-medium text-ink hover:text-cerulean">{{ a.specialist.name }}</a>
-                    <span class="font-sans text-caption text-slate">{{ when(a.scheduled_at) }} · {{ a.type_label }}</span>
-                  </div>
-                  <span class="flex shrink-0 flex-col items-end gap-1">
+                <li class="group relative flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3.5 first:pt-0 last:pb-0">
+                  <a [routerLink]="['/appointments', a.id]" class="${ROW_LINK} after:!rounded-field">
+                    <span class="${AVATAR_SM}" aria-hidden="true">{{ initialsOfName(a.specialist.name) }}</span>
+                    <span class="${ROW_TEXT}">
+                      <span class="truncate font-sans text-body-sm font-semibold text-ink transition-colors group-hover:text-cerulean">{{ a.specialist.name }}</span>
+                      <span class="truncate font-sans text-caption text-slate">{{ when(a.scheduled_at) }} · {{ a.type_label }}</span>
+                    </span>
+                  </a>
+                  <span class="flex shrink-0 flex-col items-start gap-1 pl-13 sm:items-end sm:pl-0">
                     @if (badge(a); as b) {
-                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
+                      <span class="${PILL}" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
                       @if (a.needs_attention) {
-                        <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold ${ATTENTION_BADGE.cls}"><sd-icon name="${ATTENTION_BADGE.icon}" [size]="13" />{{ attention.label }}</span>
+                        <span class="${PILL} ${ATTENTION_BADGE.cls}"><sd-icon name="${ATTENTION_BADGE.icon}" [size]="13" />{{ attention.label }}</span>
                       } @else if (b.detail) {
                         <span class="font-sans text-caption text-slate">{{ b.detail }}</span>
                       }
@@ -96,10 +171,13 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
           }
         </section>
 
-        <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="bo-patient-rx-title">
+        <section class="${SECTION}" aria-labelledby="bo-patient-rx-title">
           <div class="flex flex-col gap-1">
-            <h2 id="bo-patient-rx-title" class="font-heading text-body-lg text-ink">
-              Prescriptions{{ rxLoading() || rxError() ? '' : ' (' + prescriptions().length + ')' }}
+            <h2 id="bo-patient-rx-title" class="${SECTION_TITLE}">
+              <sd-icon name="pill" [size]="20" class="text-cerulean" />Prescriptions
+              @if (!rxLoading() && !rxError()) {
+                <span class="${COUNT_PILL}">{{ prescriptions().length }}</span>
+              }
             </h2>
             <p class="flex items-start gap-1.5 font-sans text-caption text-slate">
               <sd-icon name="shield-check" [size]="14" class="mt-0.5 shrink-0" />
@@ -112,38 +190,32 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
           }
 
           @if (rxLoading()) {
-            <div class="flex flex-col gap-2" aria-busy="true" aria-label="Loading prescriptions">
+            <div class="flex flex-col gap-3" aria-busy="true" aria-label="Loading prescriptions">
               <div class="sd-shimmer h-16 rounded-field"></div>
               <div class="sd-shimmer h-16 rounded-field"></div>
             </div>
           } @else if (rxError()) {
-            <div class="flex flex-col items-center gap-3 py-8 text-center">
+            <div class="${LIST_CARD_EMPTY} !py-8" role="alert">
               <sd-icon name="wifi-off" [size]="28" class="text-alert" />
               <p class="font-sans text-body-sm text-slate">{{ rxError() }}</p>
-              <button
-                type="button"
-                class="flex items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
-                (click)="loadPrescriptions()"
-              >
+              <button type="button" class="${BTN_SECONDARY} mt-1" (click)="loadPrescriptions()">
                 <sd-icon name="refresh-cw" [size]="16" />Try again
               </button>
             </div>
           } @else if (prescriptions().length === 0) {
-            <div class="flex flex-col items-center gap-2 py-8 text-center">
-              <span class="flex size-12 items-center justify-center rounded-full bg-glacier text-slate">
-                <sd-icon name="pill" [size]="22" />
-              </span>
+            <div class="${LIST_CARD_EMPTY} !py-8">
+              <sd-icon name="pill" [size]="28" class="text-slate" />
               <p class="font-sans text-body-sm text-slate">No prescriptions have been sent to this patient yet.</p>
             </div>
           } @else {
             <ul class="flex flex-col divide-y divide-cloud">
               @for (rx of prescriptions(); track rx.id) {
-                <li class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                <li class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 first:pt-0 last:pb-0">
                   <div class="flex min-w-0 flex-col gap-2">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="break-all font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
-                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="rxStatus(rx.status).cls">
-                        <sd-icon [name]="rxStatus(rx.status).icon" [size]="14" />{{ rxStatus(rx.status).label }}
+                      <span class="${PILL}" [class]="rxStatus(rx.status).cls">
+                        <sd-icon [name]="rxStatus(rx.status).icon" [size]="13" />{{ rxStatus(rx.status).label }}
                       </span>
                     </div>
                     <dl class="grid grid-cols-1 gap-x-6 gap-y-1 font-sans text-caption sm:grid-cols-3">
@@ -163,7 +235,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                   </div>
                   <button
                     type="button"
-                    class="flex shrink-0 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                    class="${BTN_SECONDARY} shrink-0"
                     [disabled]="opening() === rx.id"
                     [attr.aria-label]="'View PDF of prescription ' + rx.number"
                     (click)="viewPdf(rx)"
@@ -292,6 +364,9 @@ export class AdminPatientDetail implements OnInit {
   protected initials(d: PatientDetailDto): string {
     return `${d.patient.first_name?.[0] ?? ''}${d.patient.last_name?.[0] ?? ''}`.toUpperCase() || '?';
   }
+
+  /** A doctor's initials for the row avatar ("Dr Jane Doe" → "JD"). */
+  protected readonly initialsOfName = initialsOfName;
 
   /** The appointment's badge: the server's display label (Missed, Not confirmed…) + its detail. */
   protected readonly attention = ATTENTION_BADGE;

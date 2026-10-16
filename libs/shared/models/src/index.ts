@@ -11,3 +11,6 @@ export * from './lib/wallet';
 export * from './lib/auth-dto';
 export * from './lib/prescription';
 export * from './lib/vitals';
+export * from './lib/reference';
+export * from './lib/admin-dashboard';
+export * from './lib/specialist-photo';

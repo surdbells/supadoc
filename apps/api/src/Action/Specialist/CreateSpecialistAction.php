@@ -5,18 +5,22 @@ declare(strict_types=1);
 namespace App\Action\Specialist;
 
 use App\Domain\Entity\Specialist;
+use App\Domain\Reference\ReferenceCategory;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
+use App\Infrastructure\Service\ReferenceDataService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * POST /api/specialists — onboard a new specialist from the back office.
- * Staff-scoped, gated on `specialists.manage`. Name + specialty are required;
- * everything else is optional and can be edited later (by the operator here, or
- * by the doctor via their own profile). The response echoes the private array so
+ * Staff-scoped, gated on `specialists.manage`. Name + specialty are required
+ * (the specialty must be an active item of the `specialty` reference list —
+ * else 422 "Choose a specialty from the list" — and is saved in the list's
+ * spelling); everything else is optional and can be edited later (by the
+ * operator here, or by the doctor via their own profile). The response echoes the private array so
  * the operator can confirm the created record, including its new id to link a
  * doctor login to. The specialist starts in onboarding: unlisted and unbookable
  * until they are invited, complete their profile and an admin approves them.
@@ -31,6 +35,7 @@ final class CreateSpecialistAction
         private readonly SpecialistRepository $specialists,
         private readonly UserRepository $users,
         private readonly AuditLogger $audit,
+        private readonly ReferenceDataService $reference,
     ) {
     }
 
@@ -48,6 +53,14 @@ final class CreateSpecialistAction
         }
         if ($specialty === '') {
             $errors['specialty'] = 'Speciality is required';
+        } else {
+            // Only an active specialty of the reference list, in its spelling.
+            $choice = $this->reference->resolveChoice(ReferenceCategory::SPECIALTY, $specialty);
+            if ($choice === null) {
+                $errors['specialty'] = 'Choose a specialty from the list';
+            } else {
+                $specialty = $choice;
+            }
         }
 
         $email = trim((string) ($body['email'] ?? ''));
@@ -60,12 +73,11 @@ final class CreateSpecialistAction
             $errors['consultation_fee'] = 'Enter a non-negative amount';
         }
 
-        $photo      = trim((string) ($body['photo_url'] ?? ''));
-        $validPhoto = $photo === ''
-            || preg_match('#^https?://#', $photo) === 1
-            || (str_starts_with($photo, '/uploads/') && !str_contains($photo, '..'));
-        if (!$validPhoto) {
-            $errors['photo_url'] = 'Enter a full URL or an /uploads path';
+        // Photos are uploaded once the record exists (POST /specialists/{id}/photo),
+        // never linked: an empty value is fine, anything else is refused.
+        $photo = trim((string) ($body['photo_url'] ?? ''));
+        if ($photo !== '') {
+            $errors['photo_url'] = 'Upload the photo after creating the specialist — links are not accepted';
         }
 
         if ($errors !== []) {
@@ -78,9 +90,6 @@ final class CreateSpecialistAction
         }
         if ($fee !== null && $fee !== '') {
             $specialist->setConsultationFee(number_format((float) $fee, 2, '.', ''));
-        }
-        if ($photo !== '') {
-            $specialist->setPhotoUrl($photo);
         }
         if (array_key_exists('bio', $body)) {
             $specialist->setBio(trim((string) $body['bio']));

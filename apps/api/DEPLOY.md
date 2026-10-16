@@ -657,6 +657,40 @@ read-only; nothing is changed. Each entry needs a person:
   `php -r "$P"' var_dump($p->closeReview("<ref>", "<amount to credit>", "Checked: unused, paid <date>", "Support: <name>")?->toArray());'`
   `php -r "$P"' var_dump($p->closeReview("<ref>", null, "Already refunded as appt_guest_refund_<gid>", "Support: <name>")?->toArray());'`
 
+### One-time: reference data, specialist photos + the back-office dashboard
+
+Specialties now come from a back-office-managed list (Reference data), the back
+office uploads specialist photos instead of taking a link, and the dashboard is
+built from `GET /api/admin/dashboard`.
+
+1. **Schema** — the redeploy one-liner's `schema-tool:update` creates the
+   `reference_items` table (+ 3 indexes) and adds `idx_audit_created` on
+   `audit_events`. Nothing is dropped or retyped.
+2. **`prod-migrate` step 11** (the one-liner's `--run`) seeds the `specialty`
+   list. Every specialty a doctor already has is added, in the spelling most of
+   them use. The standard list (General Practice, Cardiology, …) is added once,
+   recorded in the `prod_migrate.reference_specialty_seeded` setting, so a
+   standard item deleted later is not brought back. It only adds rows and never
+   changes a doctor. The report shows `reference_specialties_added` and
+   `reference_standard_list`. Until the step runs, the API still takes any typed
+   specialty, and the forms fall back to free text.
+3. **After the deploy**, open Back office → Reference data and tidy the list.
+   Rename an item to fix its spelling: every doctor with that specialty follows
+   in the same transaction, and each change is audited. Switch off what you
+   don't offer: doctors who already have it keep it. An item in use can't be
+   deleted, and the list always keeps at least one item switched on.
+4. **Photos** — the back office uploads to `public/uploads/avatars/` (the same
+   folder and checks as the doctor's own avatar upload; the one-liner's `chown`
+   covers it). Staff `PATCH /api/specialists/{id}` and a doctor's own
+   `PATCH /api/doctor/profile` no longer accept a `photo_url` link: only clearing
+   it, or the current value, is allowed. Existing photo links keep showing.
+5. **Permissions** — the dashboard opens for anyone holding `monitoring.view`,
+   `appointments.view`, `specialists.manage`, `payouts.manage` or
+   `support.manage`; each section shows only for the permission its page needs.
+   Staff land on the first page their role can open. A staff member's token
+   carries the permissions it was issued with, so a permission change shows
+   after their next sign-in.
+
 ---
 
 ## Troubleshooting

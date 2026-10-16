@@ -12,6 +12,26 @@ import { apiErrorMessage, MonitoringApi } from '@supadoc/data-access';
 import type { AnalyticsDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { APPOINTMENT_STATUS_COLOR, appointmentStatusLabel } from '../shared/appointment-status';
+import {
+  ICON_CHIP,
+  PAGE,
+  PAGE_ERROR,
+  PAGE_HEADER,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  SECTION,
+  SECTION_TITLE,
+  SEGMENT,
+  SEGMENT_OFF,
+  SEGMENT_ON,
+  SEGMENTED,
+  STAT_GRID_4,
+  STAT_LABEL,
+  STAT_TILE,
+  STAT_VALUE,
+  TINT,
+} from '../shared/layout';
 
 type Range = AnalyticsDto['range'];
 
@@ -54,18 +74,19 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
   imports: [IconComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-wrap items-center justify-between gap-4">
-        <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Analytics</h1>
-          <p class="font-sans text-body text-slate">Bookings and revenue across the platform.</p>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER}">
+        <div class="${PAGE_HEADER_TEXT}">
+          <h1 class="${PAGE_TITLE}">Analytics</h1>
+          <p class="${PAGE_SUBTITLE}">Bookings and revenue across the platform.</p>
         </div>
-        <div class="flex rounded-field border border-cloud bg-white p-1">
+        <div class="${SEGMENTED}" role="group" aria-label="Range">
           @for (r of ranges; track r.key) {
             <button
               type="button"
-              class="rounded-[6px] px-3 py-1.5 font-sans text-caption font-semibold transition-colors"
-              [class]="range() === r.key ? 'bg-cerulean text-white' : 'text-slate hover:text-ink'"
+              class="${SEGMENT}"
+              [class]="range() === r.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
+              [attr.aria-pressed]="range() === r.key"
               (click)="setRange(r.key)"
             >{{ r.label }}</button>
           }
@@ -73,39 +94,39 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
       </header>
 
       @if (loading()) {
-        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          @for (i of [1,2,3,4]; track i) { <div class="sd-shimmer h-24 rounded-card"></div> }
+        <div class="${STAT_GRID_4}" aria-hidden="true">
+          @for (i of [1,2,3,4]; track i) { <div class="sd-shimmer h-28 rounded-card"></div> }
         </div>
-        <div class="sd-shimmer h-64 rounded-card"></div>
+        <div class="sd-shimmer h-80 rounded-card" aria-hidden="true"></div>
       } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="${PAGE_ERROR}" role="alert">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
         </div>
       } @else if (data(); as d) {
         <!-- KPIs -->
-        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div class="rounded-card border border-cloud bg-white p-4">
-            <div class="flex items-center gap-2 text-slate"><sd-icon name="banknote" [size]="16" /><span class="font-sans text-caption">Revenue (paid)</span></div>
-            <p class="mt-1 font-heading text-h4 text-ink">{{ money(d.kpis.revenue) }}</p>
+        <div class="${STAT_GRID_4}">
+          <div class="${STAT_TILE}">
+            <div class="flex items-start justify-between gap-2"><span class="${STAT_LABEL}">Revenue (paid)</span><span class="${ICON_CHIP} ${TINT.success}" aria-hidden="true"><sd-icon name="banknote" [size]="16" /></span></div>
+            <p class="${STAT_VALUE}">{{ money(d.kpis.revenue) }}</p>
           </div>
-          <div class="rounded-card border border-cloud bg-white p-4">
-            <div class="flex items-center gap-2 text-slate"><sd-icon name="calendar-days" [size]="16" /><span class="font-sans text-caption">Appointments</span></div>
-            <p class="mt-1 font-heading text-h4 text-ink">{{ d.kpis.appointments }}</p>
+          <div class="${STAT_TILE}">
+            <div class="flex items-start justify-between gap-2"><span class="${STAT_LABEL}">Appointments</span><span class="${ICON_CHIP} ${TINT.brand}" aria-hidden="true"><sd-icon name="calendar-days" [size]="16" /></span></div>
+            <p class="${STAT_VALUE}">{{ d.kpis.appointments }}</p>
           </div>
-          <div class="rounded-card border border-cloud bg-white p-4">
-            <div class="flex items-center gap-2 text-slate"><sd-icon name="credit-card" [size]="16" /><span class="font-sans text-caption">Avg. fee (paid)</span></div>
-            <p class="mt-1 font-heading text-h4 text-ink">{{ money(d.kpis.avg_fee) }}</p>
+          <div class="${STAT_TILE}">
+            <div class="flex items-start justify-between gap-2"><span class="${STAT_LABEL}">Avg. fee (paid)</span><span class="${ICON_CHIP} ${TINT.blue}" aria-hidden="true"><sd-icon name="credit-card" [size]="16" /></span></div>
+            <p class="${STAT_VALUE}">{{ money(d.kpis.avg_fee) }}</p>
           </div>
-          <div class="rounded-card border border-cloud bg-white p-4">
-            <div class="flex items-center gap-2 text-slate"><sd-icon name="circle-check" [size]="16" /><span class="font-sans text-caption">Completion</span></div>
-            <p class="mt-1 font-heading text-h4 text-ink">{{ d.kpis.completion_rate }}%</p>
+          <div class="${STAT_TILE}">
+            <div class="flex items-start justify-between gap-2"><span class="${STAT_LABEL}">Completion</span><span class="${ICON_CHIP} ${TINT.teal}" aria-hidden="true"><sd-icon name="circle-check" [size]="16" /></span></div>
+            <p class="${STAT_VALUE}">{{ d.kpis.completion_rate }}%</p>
           </div>
         </div>
 
         <!-- Revenue trend -->
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-          <h2 class="font-heading text-body-lg text-ink">Revenue over time</h2>
+        <section class="${SECTION}">
+          <h2 class="${SECTION_TITLE}"><sd-icon name="banknote" [size]="20" class="text-cerulean" />Revenue over time</h2>
           @if (hasData()) {
             <svg [attr.viewBox]="viewBox" class="w-full" [style.height.px]="260" role="img" aria-label="Revenue trend">
               @for (g of yGrid(); track g.y) {
@@ -124,8 +145,8 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
         </section>
 
         <!-- Appointments per period -->
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-          <h2 class="font-heading text-body-lg text-ink">Appointments booked</h2>
+        <section class="${SECTION}">
+          <h2 class="${SECTION_TITLE}"><sd-icon name="chart-column" [size]="20" class="text-cerulean" />Appointments booked</h2>
           @if (hasData()) {
             <svg [attr.viewBox]="viewBox" class="w-full" [style.height.px]="240" role="img" aria-label="Appointments booked">
               @for (g of countGrid(); track g.y) {
@@ -148,10 +169,10 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <!-- Status mix (donut) -->
-          <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-            <h2 class="font-heading text-body-lg text-ink">Appointment status</h2>
+          <section class="${SECTION}">
+            <h2 class="${SECTION_TITLE}"><sd-icon name="activity" [size]="20" class="text-cerulean" />Appointment status</h2>
             @if (statusTotal() > 0) {
-              <div class="flex items-center gap-6">
+              <div class="flex flex-col items-center gap-6 sm:flex-row">
                 <svg viewBox="0 0 120 120" class="size-32 shrink-0" role="img" aria-label="Status breakdown">
                   @for (s of donut(); track s.label) {
                     <path [attr.d]="s.d" [class]="s.colorClass" fill="none" stroke="currentColor" stroke-width="18" />
@@ -159,7 +180,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                   <text x="60" y="56" text-anchor="middle" class="fill-ink" style="font-size:18px;font-weight:700">{{ statusTotal() }}</text>
                   <text x="60" y="72" text-anchor="middle" class="fill-slate" style="font-size:9px">total</text>
                 </svg>
-                <ul class="flex flex-1 flex-col gap-2">
+                <ul class="flex w-full flex-1 flex-col gap-2">
                   @for (s of donut(); track s.label) {
                     <li class="flex items-center gap-2 font-sans text-body-sm">
                       <span class="size-2.5 rounded-full" [class]="dotClass(s.colorClass)"></span>
@@ -176,9 +197,9 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
           </section>
 
           <!-- Top specialists -->
-          <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-            <h2 class="font-heading text-body-lg text-ink">Top specialists</h2>
-            <ul class="flex flex-col gap-3">
+          <section class="${SECTION}">
+            <h2 class="${SECTION_TITLE}"><sd-icon name="stethoscope" [size]="20" class="text-cerulean" />Top specialists</h2>
+            <ul class="flex flex-col gap-4">
               @for (s of d.top_specialists; track s.id) {
                 <li class="flex flex-col gap-1">
                   <div class="flex items-center justify-between font-sans text-body-sm">

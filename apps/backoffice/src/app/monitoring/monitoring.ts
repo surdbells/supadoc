@@ -14,7 +14,35 @@ import type {
   RecordingDto,
   RecordingFileDto,
 } from '@supadoc/models';
-import { DialogComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogComponent, IconComponent } from '@supadoc/ui';
+import {
+  BTN_SECONDARY,
+  CELL_STATE,
+  INLINE_ERROR,
+  LOAD_MORE,
+  PAGE,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  PILL,
+  SEGMENT,
+  SEGMENT_OFF,
+  SEGMENT_ON,
+  SEGMENTED_WRAP,
+  SEGMENT_FILL,
+  TABLE,
+  TABLE_LINK,
+  TABLE_WRAP,
+  TBODY,
+  TD,
+  TD_ACTION,
+  TD_EMPTY,
+  TD_PRIMARY,
+  TD_SUB,
+  TH,
+  THEAD,
+  TR,
+} from '../shared/layout';
 import { appointmentStatusClass } from '../shared/appointment-status';
 
 type TabKey = 'consultations' | 'quality' | 'recordings';
@@ -23,125 +51,135 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
 @Component({
   selector: 'bo-monitoring',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, DialogComponent],
+  imports: [IconComponent, AlertComponent, DialogComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Consultation monitoring</h1>
-        <p class="font-sans text-body text-slate">Activity, call quality and recordings.</p>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER_TEXT}">
+        <h1 class="${PAGE_TITLE}">Consultation monitoring</h1>
+        <p class="${PAGE_SUBTITLE}">Activity, call quality and recordings.</p>
       </header>
 
-      <div class="flex gap-1 border-b border-cloud">
+      <div class="${SEGMENTED_WRAP}" role="group" aria-label="Monitoring view">
         @for (t of tabs; track t.key) {
           <button
             type="button"
-            class="relative px-4 py-2.5 font-sans text-body-sm transition-colors"
-            [class]="tab() === t.key ? 'text-cerulean' : 'text-slate hover:text-ink'"
+            class="${SEGMENT} ${SEGMENT_FILL}"
+            [class]="tab() === t.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
+            [attr.aria-pressed]="tab() === t.key"
             (click)="select(t.key)"
           >
             {{ t.label }}
-            @if (tab() === t.key) { <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span> }
           </button>
         }
       </div>
 
       @switch (tab()) {
         @case ('consultations') {
-          <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-            <table class="w-full min-w-[640px] text-left">
-              <thead class="border-b border-cloud font-sans text-caption text-slate">
-                <tr>
-                  <th class="px-4 py-3">Patient</th>
-                  <th class="px-4 py-3">Specialist</th>
-                  <th class="px-4 py-3">Scheduled</th>
-                  <th class="px-4 py-3">Status</th>
-                  <th class="px-4 py-3">Recording</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (c of consultations(); track c.id) {
-                  <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                    <td class="px-4 py-3 font-medium">{{ c.patient_name }}</td>
-                    <td class="px-4 py-3 text-slate">{{ c.specialist }}</td>
-                    <td class="px-4 py-3 text-slate">{{ when(c.scheduled_at) }}</td>
-                    <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(c.status)">{{ c.status_label }}</span></td>
-                    <td class="px-4 py-3">
-                      @if (c.recording_active) {
-                        <span class="flex items-center gap-1.5 text-alert"><span class="size-2 animate-pulse rounded-full bg-alert"></span> Live</span>
-                      } @else { <span class="text-ash">—</span> }
-                    </td>
-                  </tr>
-                } @empty {
+          <div class="flex flex-col gap-4">
+            <div class="${TABLE_WRAP}">
+              <table class="${TABLE} min-w-[640px]">
+                <thead class="${THEAD}">
                   <tr>
-                    <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
-                      @if (loading()) {
-                        Loading…
-                      } @else if (tabErrors().consultations; as err) {
-                        <div class="flex flex-col items-center gap-3">
-                          <sd-icon name="wifi-off" [size]="28" class="text-alert" />
-                          <p>{{ err }}</p>
-                          <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="select('consultations')">Retry</button>
-                        </div>
-                      } @else {
-                        No consultations.
-                      }
-                    </td>
+                    <th class="${TH}">Patient</th>
+                    <th class="${TH}">Specialist</th>
+                    <th class="${TH}">Scheduled</th>
+                    <th class="${TH}">Status</th>
+                    <th class="${TH}">Recording</th>
                   </tr>
+                </thead>
+                <tbody class="${TBODY}">
+                  @for (c of consultations(); track c.id) {
+                    <tr class="${TR}">
+                      <td class="${TD} ${TD_PRIMARY}">{{ c.patient_name }}</td>
+                      <td class="${TD} text-slate">{{ c.specialist }}</td>
+                      <td class="${TD} text-slate">{{ when(c.scheduled_at) }}</td>
+                      <td class="${TD}"><span class="${PILL}" [class]="statusClass(c.status)">{{ c.status_label }}</span></td>
+                      <td class="${TD}">
+                        @if (c.recording_active) {
+                          <span class="flex items-center gap-1.5 font-semibold text-alert"><span class="size-2 animate-pulse rounded-full bg-alert"></span> Live</span>
+                        } @else { <span class="text-ash">—</span> }
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="5" class="${TD_EMPTY}">
+                        @if (loading()) {
+                          <div class="${CELL_STATE}" aria-busy="true"><sd-icon name="loader-circle" [size]="28" class="animate-spin text-cerulean" /><p>Loading consultations…</p></div>
+                        } @else if (tabErrors().consultations; as err) {
+                          <div class="${CELL_STATE}" role="alert">
+                            <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+                            <p>{{ err }}</p>
+                            <button type="button" class="${BTN_SECONDARY}" (click)="select('consultations')"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
+                          </div>
+                        } @else {
+                          <div class="${CELL_STATE}"><sd-icon name="activity" [size]="28" class="text-slate" /><p>No consultations.</p></div>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            @if (moreError() || consultationsHasMore()) {
+              <div class="${LOAD_MORE}">
+                @if (moreError()) {
+                  <p class="${INLINE_ERROR}" role="alert"><sd-icon name="circle-alert" [size]="16" class="shrink-0" />{{ moreError() }}</p>
                 }
-              </tbody>
-            </table>
+                @if (consultationsHasMore()) {
+                  <button type="button" class="${BTN_SECONDARY}" [disabled]="loadingMore()" (click)="loadMoreConsultations()">
+                    @if (loadingMore()) {
+                      <sd-icon name="loader-circle" [size]="16" class="animate-spin" />Loading…
+                    } @else {
+                      <sd-icon name="chevron-down" [size]="16" />Load more
+                    }
+                  </button>
+                }
+              </div>
+            }
           </div>
-          @if (moreError()) {
-            <p class="mt-4 text-center font-sans text-caption text-alert">{{ moreError() }}</p>
-          }
-          @if (consultationsHasMore()) {
-            <button type="button" class="mx-auto mt-4 block rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loadingMore()" (click)="loadMoreConsultations()">
-              {{ loadingMore() ? 'Loading…' : 'Load more' }}
-            </button>
-          }
         }
         @case ('quality') {
-          <div class="flex flex-col gap-3">
+          <div class="flex flex-col gap-4">
             @if (quality()?.average_rtt; as avgRtt) {
               <p class="font-sans text-body-sm text-slate">
                 Average round-trip time: <span class="font-semibold text-ink">{{ avgRtt }} ms</span>
               </p>
             }
-            <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-              <table class="w-full min-w-[680px] text-left">
-                <thead class="border-b border-cloud font-sans text-caption text-slate">
+            <div class="${TABLE_WRAP}">
+              <table class="${TABLE} min-w-[680px]">
+                <thead class="${THEAD}">
                   <tr>
-                    <th class="px-4 py-3">Consultation</th>
-                    <th class="px-4 py-3">Patient link</th>
-                    <th class="px-4 py-3">Patient RTT</th>
-                    <th class="px-4 py-3">Doctor link</th>
-                    <th class="px-4 py-3">Doctor RTT</th>
+                    <th class="${TH}">Consultation</th>
+                    <th class="${TH}">Patient link</th>
+                    <th class="${TH}">Patient RTT</th>
+                    <th class="${TH}">Doctor link</th>
+                    <th class="${TH}">Doctor RTT</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody class="${TBODY}">
                   @for (c of quality()?.consultations ?? []; track c.appointment_id) {
-                    <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                      <td class="px-4 py-3">
-                        <span class="font-medium">{{ c.patient_name }}</span>
-                        <span class="block text-caption text-slate">{{ c.specialist }}</span>
+                    <tr class="${TR}">
+                      <td class="${TD}">
+                        <span class="${TD_PRIMARY}">{{ c.patient_name }}</span>
+                        <span class="${TD_SUB}">{{ c.specialist }}</span>
                       </td>
-                      <td class="px-4 py-3 font-medium" [class]="qualityLabel(c.patient?.worst).cls">{{ qualityLabel(c.patient?.worst).text }}</td>
-                      <td class="px-4 py-3 text-slate">{{ c.patient?.rtt ? c.patient?.rtt + ' ms' : '—' }}</td>
-                      <td class="px-4 py-3 font-medium" [class]="qualityLabel(c.doctor?.worst).cls">{{ qualityLabel(c.doctor?.worst).text }}</td>
-                      <td class="px-4 py-3 text-slate">{{ c.doctor?.rtt ? c.doctor?.rtt + ' ms' : '—' }}</td>
+                      <td class="${TD} font-semibold" [class]="qualityLabel(c.patient?.worst).cls">{{ qualityLabel(c.patient?.worst).text }}</td>
+                      <td class="${TD} text-slate">{{ c.patient?.rtt ? c.patient?.rtt + ' ms' : '—' }}</td>
+                      <td class="${TD} font-semibold" [class]="qualityLabel(c.doctor?.worst).cls">{{ qualityLabel(c.doctor?.worst).text }}</td>
+                      <td class="${TD} text-slate">{{ c.doctor?.rtt ? c.doctor?.rtt + ' ms' : '—' }}</td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                      <td colspan="5" class="${TD_EMPTY}">
                         @if (tabErrors().quality && !loading()) {
-                          <div class="flex flex-col items-center gap-3">
+                          <div class="${CELL_STATE}" role="alert">
                             <sd-icon name="wifi-off" [size]="28" class="text-alert" />
                             <p>{{ tabErrors().quality }}</p>
-                            <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="select('quality')">Retry</button>
+                            <button type="button" class="${BTN_SECONDARY}" (click)="select('quality')"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
                           </div>
                         } @else {
-                          No quality samples yet — they appear once calls are in progress.
+                          <div class="${CELL_STATE}"><sd-icon name="activity" [size]="28" class="text-slate" /><p>No quality samples yet — they appear once calls are in progress.</p></div>
                         }
                       </td>
                     </tr>
@@ -152,43 +190,43 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
           </div>
         }
         @case ('recordings') {
-          <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-            <table class="w-full min-w-[560px] text-left">
-              <thead class="border-b border-cloud font-sans text-caption text-slate">
+          <div class="${TABLE_WRAP}">
+            <table class="${TABLE} min-w-[560px]">
+              <thead class="${THEAD}">
                 <tr>
-                  <th class="px-4 py-3">Status</th>
-                  <th class="px-4 py-3">Started by</th>
-                  <th class="px-4 py-3">Started</th>
-                  <th class="px-4 py-3">Files</th>
-                  <th class="px-4 py-3"></th>
+                  <th class="${TH}">Status</th>
+                  <th class="${TH}">Started by</th>
+                  <th class="${TH}">Started</th>
+                  <th class="${TH}">Files</th>
+                  <th class="${TH}"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody class="${TBODY}">
                 @for (r of recordings(); track r.id) {
-                  <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                    <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="recStatusClass(r.status)">{{ r.status }}</span></td>
-                    <td class="px-4 py-3 text-slate">{{ r.started_by || '—' }}</td>
-                    <td class="px-4 py-3 text-slate">{{ when(r.started_at) }}</td>
-                    <td class="px-4 py-3 text-slate">{{ r.files.length }}</td>
-                    <td class="px-4 py-3 text-right">
+                  <tr class="${TR}">
+                    <td class="${TD}"><span class="${PILL} capitalize" [class]="recStatusClass(r.status)">{{ r.status }}</span></td>
+                    <td class="${TD} text-slate">{{ r.started_by || '—' }}</td>
+                    <td class="${TD} text-slate">{{ when(r.started_at) }}</td>
+                    <td class="${TD} text-slate">{{ r.files.length }}</td>
+                    <td class="${TD_ACTION}">
                       @if (r.files.length > 0) {
-                        <button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openFiles(r)">View files</button>
+                        <button type="button" class="${TABLE_LINK}" (click)="openFiles(r)">View files<sd-icon name="chevron-right" [size]="16" /></button>
                       } @else { <span class="text-ash">—</span> }
                     </td>
                   </tr>
                 } @empty {
                   <tr>
-                    <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
+                    <td colspan="5" class="${TD_EMPTY}">
                       @if (loading()) {
-                        Loading…
+                        <div class="${CELL_STATE}" aria-busy="true"><sd-icon name="loader-circle" [size]="28" class="animate-spin text-cerulean" /><p>Loading recordings…</p></div>
                       } @else if (tabErrors().recordings; as err) {
-                        <div class="flex flex-col items-center gap-3">
+                        <div class="${CELL_STATE}" role="alert">
                           <sd-icon name="wifi-off" [size]="28" class="text-alert" />
                           <p>{{ err }}</p>
-                          <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="select('recordings')">Retry</button>
+                          <button type="button" class="${BTN_SECONDARY}" (click)="select('recordings')"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
                         </div>
                       } @else {
-                        No recordings.
+                        <div class="${CELL_STATE}"><sd-icon name="file-text" [size]="28" class="text-slate" /><p>No recordings.</p></div>
                       }
                     </td>
                   </tr>
@@ -222,7 +260,7 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
             </div>
           } @empty {
             @if (filesError()) {
-              <p role="alert" class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ filesError() }}</p>
+              <sd-alert tone="error">{{ filesError() }}</sd-alert>
             } @else {
               <p class="font-sans text-body-sm text-slate">No files.</p>
             }

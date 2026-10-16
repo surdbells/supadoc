@@ -10,11 +10,21 @@ import type { HasUnsavedChanges } from '@supadoc/auth';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage } from '@supadoc/data-access';
 import type { LeaveCopy } from '@supadoc/ui';
-import { IconComponent } from '@supadoc/ui';
+import { AlertComponent, IconComponent } from '@supadoc/ui';
+import {
+  BTN_PRIMARY,
+  CHIP,
+  FIELD,
+  FIELD_STACK,
+  LABEL,
+  PAGE_HEADER_TEXT,
+  PAGE_NARROW,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  SECTION,
+  SECTION_TITLE,
+} from '../shared/layout';
 import { BookingSettingsSection } from './booking-settings';
-
-const FIELD =
-  'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
 /**
  * Back-office settings (route `/settings`) — profile + password for everyone,
@@ -25,34 +35,34 @@ const FIELD =
 @Component({
   selector: 'bo-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, BookingSettingsSection],
+  imports: [IconComponent, AlertComponent, BookingSettingsSection],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Settings</h1>
-        <p class="font-sans text-body text-slate">{{ canManageSettings() ? 'Your account and password, and the booking rules.' : 'Your account and password.' }}</p>
+    <div class="${PAGE_NARROW}">
+      <header class="${PAGE_HEADER_TEXT}">
+        <h1 class="${PAGE_TITLE}">Settings</h1>
+        <p class="${PAGE_SUBTITLE}">{{ canManageSettings() ? 'Your account and password, and the booking rules.' : 'Your account and password.' }}</p>
       </header>
 
-      <section class="flex items-center gap-4 rounded-card border border-cloud bg-white p-6">
-        <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-h5 font-semibold text-ink">
+      <section class="${SECTION} !flex-row items-center !gap-4">
+        <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-h5 font-semibold text-ink" aria-hidden="true">
           {{ initials() || 'AD' }}
         </span>
         <div class="flex min-w-0 flex-col gap-1">
-          <p class="font-heading text-h5 text-ink">{{ name() || 'Staff' }}</p>
+          <p class="font-heading text-h4 text-ink">{{ name() || 'Staff' }}</p>
           <p class="truncate font-sans text-body-sm text-slate">{{ email() }}</p>
           <p class="font-sans text-caption text-slate capitalize">{{ roles() || '—' }}</p>
         </div>
       </section>
 
-      <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
-        <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-          <sd-icon name="shield-check" [size]="20" />Permissions
+      <section class="${SECTION} !gap-4">
+        <h2 class="${SECTION_TITLE}">
+          <sd-icon name="shield-check" [size]="20" class="text-cerulean" />Permissions
         </h2>
         @if (permissions().length > 0) {
           <div class="flex flex-wrap gap-2">
             @for (p of permissions(); track p) {
-              <span class="rounded-pill bg-frost px-3 py-1 font-mono text-caption text-cerulean">{{ p }}</span>
+              <span class="${CHIP} bg-frost font-mono text-cerulean">{{ p }}</span>
             }
           </div>
         } @else {
@@ -61,28 +71,30 @@ const FIELD =
       </section>
 
       <!-- Change password -->
-      <section class="flex max-w-md flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-        <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-          <sd-icon name="lock" [size]="20" />Change password
+      <section class="${SECTION}">
+        <h2 class="${SECTION_TITLE}">
+          <sd-icon name="lock" [size]="20" class="text-cerulean" />Change password
         </h2>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-sans text-caption font-semibold text-slate">Current password</span>
+        <div class="flex max-w-md flex-col gap-4">
+        <label class="${FIELD_STACK}">
+          <span class="${LABEL}">Current password</span>
           <input type="password" autocomplete="current-password" class="${FIELD}" [value]="currentPw()" (input)="currentPw.set($any($event.target).value)" />
         </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-sans text-caption font-semibold text-slate">New password</span>
+        <label class="${FIELD_STACK}">
+          <span class="${LABEL}">New password</span>
           <input type="password" autocomplete="new-password" class="${FIELD}" [value]="newPw()" (input)="newPw.set($any($event.target).value)" placeholder="At least 8 characters" />
         </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-sans text-caption font-semibold text-slate">Confirm new password</span>
+        <label class="${FIELD_STACK}">
+          <span class="${LABEL}">Confirm new password</span>
           <input type="password" autocomplete="new-password" class="${FIELD}" [value]="confirmPw()" (input)="confirmPw.set($any($event.target).value)" />
         </label>
         @if (notice()) {
-          <p class="rounded-field px-4 py-2 font-label text-caption" [class]="ok() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'">{{ notice() }}</p>
+          <sd-alert [tone]="ok() ? 'success' : 'error'">{{ notice() }}</sd-alert>
         }
-        <button type="button" class="flex w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving()" (click)="changePassword()">
-          {{ saving() ? 'Updating…' : 'Update password' }}
+        <button type="button" class="${BTN_PRIMARY} w-fit" [disabled]="saving()" (click)="changePassword()">
+          <sd-icon [name]="saving() ? 'loader-circle' : 'lock'" [size]="18" [class.animate-spin]="saving()" />{{ saving() ? 'Updating…' : 'Update password' }}
         </button>
+        </div>
       </section>
 
       @if (canManageSettings()) {

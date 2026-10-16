@@ -14,8 +14,43 @@ import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorMessage, SpecialistsApi, StaffApi } from '@supadoc/data-access';
 import type { SpecialistAdminDto, StaffUserDto } from '@supadoc/models';
 import type { LeaveCopy } from '@supadoc/ui';
-import { DialogComponent, DialogService, IconComponent } from '@supadoc/ui';
-import { BTN_GHOST, BTN_PRIMARY } from '../specialists/specialist-ui';
+import { AlertComponent, DialogComponent, DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import {
+  AVATAR,
+  BTN_BESIDE_FIELD,
+  BTN_GHOST,
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  CHECK_ROW,
+  CHECKBOX,
+  CHIP,
+  COUNT_BADGE,
+  EMPTY_FRAME,
+  FIELD,
+  FILTER_CHIP,
+  FILTER_CHIP_OFF,
+  FILTER_CHIP_ON,
+  FOCUS_RING,
+  LABEL,
+  LIST_BODY,
+  LIST_FRAME,
+  LIST_HEAD,
+  LIST_ROW,
+  PAGE,
+  PAGE_HEADER,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  PAGE_TITLE_ROW,
+  PILL,
+  ROW_CHEVRON,
+  ROW_CHEVRON_ICON,
+  ROW_END,
+  ROW_LINK,
+  ROW_SUB,
+  ROW_TEXT,
+  ROW_TITLE,
+} from '../shared/layout';
 
 const ROLES = [
   { value: 'admin', label: 'Admin' },
@@ -35,8 +70,8 @@ const PERMISSIONS = [
   { value: 'staff.manage', label: 'Manage staff' },
 ];
 
-const FIELD =
-  'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+/** Desktop column template, shared by the header and every row: Staff member | Roles | Status | chevron. */
+const COLUMNS = 'md:grid-cols-[minmax(0,1fr)_10rem_10rem_2.5rem] xl:grid-cols-[minmax(0,1fr)_14rem_13rem_3rem]';
 
 /**
  * Staff & role management (route `/staff`, needs staff.manage). Closing the
@@ -46,81 +81,106 @@ const FIELD =
 @Component({
   selector: 'bo-staff',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, DialogComponent],
+  imports: [IconComponent, DialogComponent, AlertComponent, EmptyStateComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-wrap items-start justify-between gap-4">
-        <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Staff &amp; roles</h1>
-          <p class="font-sans text-body text-slate">Manage staff accounts, roles and permissions.</p>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER}">
+        <div class="${PAGE_HEADER_TEXT}">
+          <div class="${PAGE_TITLE_ROW}">
+            <h1 class="${PAGE_TITLE}">Staff &amp; roles</h1>
+            @if (!loading() && !listError()) {
+              <span class="${COUNT_BADGE}"><sd-icon name="users" [size]="14" />{{ countLabel(users().length) }}</span>
+            }
+          </div>
+          <p class="${PAGE_SUBTITLE}">Manage staff accounts, roles and permissions.</p>
         </div>
-        <button type="button" class="flex shrink-0 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="openCreate()">
+        <button type="button" class="${BTN_PRIMARY} shrink-0" (click)="openCreate()">
           <sd-icon name="plus" [size]="18" />New staff
         </button>
       </header>
 
       @if (pageNotice()) {
-        <div class="flex items-start gap-3 rounded-field bg-sage/10 px-4 py-3 font-sans text-body-sm text-sage">
+        <div class="flex items-start gap-3 rounded-field bg-sage/10 px-4 py-3 font-sans text-body-sm text-sage" role="status">
+          <sd-icon name="circle-check" [size]="18" class="mt-0.5 shrink-0" />
           <span class="flex min-w-0 flex-1 flex-col gap-1">
             <span>{{ pageNotice() }}</span>
             @if (devLink()) {
               <span class="break-all text-caption text-slate">Testing only — set-password link: <span class="select-all font-mono text-ink">{{ devLink() }}</span></span>
             }
           </span>
-          <button type="button" class="shrink-0 text-sage/70 transition-colors hover:text-sage" aria-label="Dismiss" (click)="pageNotice.set(''); devLink.set('')"><sd-icon name="x" [size]="18" /></button>
+          <button type="button" class="-my-2 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-sage/70 transition-colors hover:bg-sage/10 hover:text-sage ${FOCUS_RING}" aria-label="Dismiss" (click)="pageNotice.set(''); devLink.set('')"><sd-icon name="x" [size]="18" /></button>
         </div>
       }
 
       @if (loading()) {
-        <div class="sd-shimmer h-40 rounded-card"></div>
+        <div class="${LIST_FRAME}" aria-busy="true">
+          <span class="sr-only">Loading staff accounts…</span>
+          <ul class="${LIST_BODY}" aria-hidden="true">
+            @for (i of [1, 2, 3, 4]; track i) {
+              <li class="${LIST_ROW} ${COLUMNS}">
+                <div class="flex min-w-0 items-center gap-3">
+                  <div class="sd-shimmer size-12 shrink-0 rounded-full"></div>
+                  <div class="flex min-w-0 flex-1 flex-col gap-2">
+                    <div class="sd-shimmer h-4 w-36 max-w-full rounded-pill"></div>
+                    <div class="sd-shimmer h-3 w-52 max-w-full rounded-pill"></div>
+                  </div>
+                </div>
+                <div class="sd-shimmer h-6 w-20 rounded-pill"></div>
+                <div class="sd-shimmer h-6 w-16 rounded-pill"></div>
+              </li>
+            }
+          </ul>
+        </div>
       } @else if (listError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
-          <sd-icon name="wifi-off" [size]="32" class="text-alert" />
-          <p class="font-sans text-body-sm text-slate">{{ listError() }}</p>
+        <div class="${EMPTY_FRAME}" role="alert">
+          <sd-empty-state icon="wifi-off" tone="error" title="Couldn't load staff accounts" [message]="listError()">
+            <button type="button" class="${BTN_SECONDARY}" (click)="load()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
+          </sd-empty-state>
         </div>
+      } @else if (users().length === 0) {
+        <sd-empty-state icon="users" tone="brand" title="No staff accounts" message="Add the first one with New staff." />
       } @else {
-        <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-          <table class="w-full min-w-[640px] text-left">
-            <thead class="border-b border-cloud font-sans text-caption text-slate">
-              <tr>
-                <th class="px-4 py-3">Name</th>
-                <th class="px-4 py-3">Email</th>
-                <th class="px-4 py-3">Roles</th>
-                <th class="px-4 py-3">Status</th>
-                <th class="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (u of users(); track u.id) {
-                <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                  <td class="px-4 py-3 font-medium">{{ u.first_name }} {{ u.last_name }}</td>
-                  <td class="px-4 py-3 text-slate">{{ u.email }}</td>
-                  <td class="px-4 py-3">
-                    <span class="flex flex-wrap gap-1">
-                      @for (r of u.roles; track r) {
-                        <span class="rounded-pill bg-frost px-2 py-0.5 text-caption text-cerulean">{{ r }}</span>
-                      } @empty { <span class="text-ash">—</span> }
-                    </span>
-                  </td>
-                  <td class="px-4 py-3">
-                    <span class="flex flex-wrap gap-1">
-                      <span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="u.active ? 'bg-sage/15 text-sage' : 'bg-cloud text-slate'">{{ u.active ? 'Active' : 'Inactive' }}</span>
-                      @if (u.password_set === false) {
-                        <span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="u.invite_pending ? 'bg-frost text-cerulean' : 'bg-warning/15 text-ink'">{{ u.invite_pending ? 'Invite sent' : 'Invite expired' }}</span>
-                      }
-                    </span>
-                  </td>
-                  <td class="px-4 py-3 text-right">
-                    <button type="button" class="font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openEdit(u)">Edit</button>
-                  </td>
-                </tr>
-              } @empty {
-                <tr><td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">No staff accounts.</td></tr>
-              }
-            </tbody>
-          </table>
-        </div>
+        <section class="${LIST_FRAME}" aria-label="Staff accounts">
+          <div class="${LIST_HEAD} ${COLUMNS}" aria-hidden="true">
+            <span>Staff member</span>
+            <span>Roles</span>
+            <span>Status</span>
+            <span></span>
+          </div>
+          <ul class="${LIST_BODY}">
+            @for (u of users(); track u.id) {
+              <li class="${LIST_ROW} ${COLUMNS}">
+                <button type="button" class="${ROW_LINK}" [attr.aria-label]="'Edit ' + (u.first_name + ' ' + u.last_name).trim() + ', ' + u.email" (click)="openEdit(u)">
+                  <span class="${AVATAR}" aria-hidden="true">{{ initialsOf(u) }}</span>
+                  <span class="${ROW_TEXT}">
+                    <span class="${ROW_TITLE}">{{ u.first_name }} {{ u.last_name }}</span>
+                    <span class="${ROW_SUB}">{{ u.email }}</span>
+                  </span>
+                </button>
+                <span class="flex flex-wrap gap-1.5">
+                  <span class="sr-only">Roles: </span>
+                  @for (r of u.roles; track r) {
+                    <span class="${CHIP} bg-frost text-cerulean">{{ r }}</span>
+                  } @empty { <span class="font-sans text-body-sm text-slate">No role</span> }
+                </span>
+                <span class="flex flex-wrap gap-1.5">
+                  <span class="sr-only">Status: </span>
+                  <span class="${PILL}" [class]="u.active ? 'bg-sage/15 text-sage' : 'bg-cloud text-slate'"><sd-icon [name]="u.active ? 'user-check' : 'user-x'" [size]="13" />{{ u.active ? 'Active' : 'Inactive' }}</span>
+                  @if (u.password_set === false) {
+                    <span class="${PILL}" [class]="u.invite_pending ? 'bg-frost text-cerulean' : 'bg-warning/15 text-ink'"><sd-icon name="mail" [size]="13" />{{ u.invite_pending ? 'Invite sent' : 'Invite expired' }}</span>
+                  }
+                </span>
+                <span class="${ROW_END}" aria-hidden="true">
+                  <span class="${ROW_CHEVRON}">
+                    <span class="md:hidden">Edit</span>
+                    <sd-icon name="chevron-right" [size]="20" class="${ROW_CHEVRON_ICON}" />
+                  </span>
+                </span>
+              </li>
+            }
+          </ul>
+        </section>
       }
     </div>
 
@@ -134,25 +194,25 @@ const FIELD =
     >
         <form id="bo-staff-form" class="flex flex-col gap-5" novalidate (submit)="$event.preventDefault(); save()">
 
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">First name</span>
+              <span class="${LABEL}">First name</span>
               <input class="${FIELD}" [value]="firstName()" (input)="firstName.set($any($event.target).value)" />
             </label>
             <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Last name</span>
+              <span class="${LABEL}">Last name</span>
               <input class="${FIELD}" [value]="lastName()" (input)="lastName.set($any($event.target).value)" />
             </label>
           </div>
           <label class="flex flex-col gap-1.5">
-            <span class="font-sans text-caption font-semibold text-slate">Email</span>
+            <span class="${LABEL}">Email</span>
             <input type="email" class="${FIELD}" [value]="email()" (input)="email.set($any($event.target).value)" />
           </label>
           @if (!editing()) {
             @if (hasRole('doctor')) {
               <!-- Doctors choose their own password from an emailed link (preferred). -->
-              <label class="flex cursor-pointer items-start gap-2">
-                <input type="checkbox" class="mt-0.5 size-4 shrink-0 accent-cerulean" [checked]="sendInvite()" (change)="sendInvite.set($any($event.target).checked)" />
+              <label class="flex min-h-11 cursor-pointer items-start gap-3">
+                <input type="checkbox" class="mt-0.5 ${CHECKBOX}" [checked]="sendInvite()" (change)="sendInvite.set($any($event.target).checked)" />
                 <span class="flex flex-col">
                   <span class="font-sans text-body-sm text-ink">Email an invite to set their own password</span>
                   <span class="font-sans text-caption text-slate">Recommended — no password changes hands. The link expires in 7 days.</span>
@@ -161,18 +221,18 @@ const FIELD =
             }
             @if (!invitingDoctor()) {
               <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-caption font-semibold text-slate">Temporary password</span>
+                <span class="${LABEL}">Temporary password</span>
                 <input type="password" autocomplete="new-password" class="${FIELD}" [value]="password()" (input)="password.set($any($event.target).value)" placeholder="At least 8 characters" />
               </label>
             }
           }
 
           <div class="flex flex-col gap-2">
-            <span class="font-sans text-caption font-semibold text-slate">Roles</span>
+            <span class="${LABEL}">Roles</span>
             <div class="flex flex-wrap gap-2">
               @for (r of roleOptions(); track r.value) {
-                <button type="button" class="rounded-field px-3 py-1.5 font-sans text-body-sm transition-colors" [class]="hasRole(r.value) ? 'bg-cerulean/10 text-cerulean' : 'bg-glacier text-slate hover:text-ink'" (click)="toggleRole(r.value)">
-                  {{ r.label }}
+                <button type="button" class="${FILTER_CHIP}" [class]="hasRole(r.value) ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'" [attr.aria-pressed]="hasRole(r.value)" (click)="toggleRole(r.value)">
+                  @if (hasRole(r.value)) { <sd-icon name="check" [size]="14" /> }{{ r.label }}
                 </button>
               }
             </div>
@@ -180,7 +240,7 @@ const FIELD =
 
           @if (hasRole('doctor')) {
             <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Linked specialist (for doctor login)</span>
+              <span class="${LABEL}">Linked specialist (for doctor login)</span>
               <select class="${FIELD}" [value]="specialistId()" (change)="specialistId.set($any($event.target).value)">
                 <option value="">— None —</option>
                 <!-- A specialist can belong to only one login. -->
@@ -192,11 +252,11 @@ const FIELD =
           }
 
           <div class="flex flex-col gap-2">
-            <span class="font-sans text-caption font-semibold text-slate">Permissions</span>
-            <div class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            <span class="${LABEL}">Permissions</span>
+            <div class="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
               @for (p of permissionOptions; track p.value) {
-                <label class="flex cursor-pointer items-center gap-2">
-                  <input type="checkbox" class="size-4 accent-cerulean" [checked]="hasPerm(p.value)" (change)="togglePerm(p.value)" />
+                <label class="${CHECK_ROW}">
+                  <input type="checkbox" class="${CHECKBOX}" [checked]="hasPerm(p.value)" (change)="togglePerm(p.value)" />
                   <span class="font-sans text-body-sm text-ink">{{ p.label }}</span>
                 </label>
               }
@@ -204,23 +264,23 @@ const FIELD =
           </div>
 
           @if (editing()) {
-            <label class="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" class="size-4 accent-cerulean" [checked]="active()" (change)="active.set($any($event.target).checked)" />
+            <label class="${CHECK_ROW}">
+              <input type="checkbox" class="${CHECKBOX}" [checked]="active()" (change)="active.set($any($event.target).checked)" />
               <span class="font-sans text-body-sm text-ink">Active</span>
             </label>
           }
 
           @if (formError()) {
-            <p role="alert" class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert">{{ formError() }}</p>
+            <sd-alert tone="error">{{ formError() }}</sd-alert>
           }
         </form>
 
         @if (editing()) {
-          <div class="mt-5 flex flex-col gap-2 border-t border-cloud pt-4">
-            <label for="bo-staff-reset" class="font-sans text-caption font-semibold text-slate">Reset password</label>
+          <div class="mt-5 flex flex-col gap-2 border-t border-cloud pt-5">
+            <label for="bo-staff-reset" class="${LABEL}">Reset password</label>
             <div class="flex flex-wrap items-center gap-2">
               <input id="bo-staff-reset" type="password" autocomplete="new-password" class="${FIELD} sm:max-w-xs" [value]="resetPw()" (input)="resetPw.set($any($event.target).value)" placeholder="New password (8+ chars)" />
-              <button type="button" class="min-h-11 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="saving()" (click)="doResetPassword()">
+              <button type="button" class="${BTN_SECONDARY} ${BTN_BESIDE_FIELD}" [disabled]="saving()" (click)="doResetPassword()">
                 Reset
               </button>
             </div>
@@ -322,7 +382,7 @@ export class AdminStaff implements OnInit, HasUnsavedChanges {
       .subscribe({ next: (res) => this.specialists.set(res.data), error: () => undefined });
   }
 
-  private load(): void {
+  protected load(): void {
     this.loading.set(true);
     this.listError.set('');
     this.api
@@ -338,6 +398,15 @@ export class AdminStaff implements OnInit, HasUnsavedChanges {
           this.loading.set(false);
         },
       });
+  }
+
+  protected initialsOf(u: StaffUserDto): string {
+    const fromName = `${u.first_name?.[0] ?? ''}${u.last_name?.[0] ?? ''}`;
+    return (fromName || u.email?.[0] || '?').toUpperCase();
+  }
+
+  protected countLabel(n: number): string {
+    return `${n.toLocaleString('en-GB')} ${n === 1 ? 'account' : 'accounts'}`;
   }
 
   protected hasRole(r: string): boolean {

@@ -110,7 +110,7 @@ import {
                 @if (p.proposals > 0) {
                   <li class="flex items-start gap-2"><sd-icon name="calendar-clock" [size]="16" class="mt-0.5 shrink-0 text-alert" />{{ plural(p.proposals, 'open follow-up proposal') }} to withdraw</li>
                 }
-                <li class="flex items-start gap-2"><sd-icon name="mail" [size]="16" class="mt-0.5 shrink-0 text-alert" />Each of these patients is emailed and notified with their refund and a link to doctors of the same speciality</li>
+                <li class="flex items-start gap-2"><sd-icon name="mail" [size]="16" class="mt-0.5 shrink-0 text-alert" />Each of these patients is emailed and notified with their refund and a link to doctors of the same specialty</li>
               </ul>
             </section>
           }
@@ -161,7 +161,7 @@ import {
               @if (p.in_progress; as n) {
                 <li class="flex items-start gap-2"><sd-icon name="clock" [size]="16" class="mt-0.5 shrink-0 text-slate" />{{ inProgressText(n) }}</li>
               }
-              <li class="flex items-start gap-2"><sd-icon name="mail" [size]="16" class="mt-0.5 shrink-0 text-alert" />Each patient is emailed and notified with their refund and a link to doctors of the same speciality</li>
+              <li class="flex items-start gap-2"><sd-icon name="mail" [size]="16" class="mt-0.5 shrink-0 text-alert" />Each patient is emailed and notified with their refund and a link to doctors of the same specialty</li>
               <li class="flex items-start gap-2"><sd-icon name="log-out" [size]="16" class="mt-0.5 shrink-0 text-alert" />Unlisted, signed out everywhere, and blocked from clinical work and new payouts</li>
             </ul>
           </section>
@@ -183,7 +183,7 @@ import {
             @else { <span id="bo-suspend-reason-count" class="font-sans text-caption text-slate">{{ reason().length }} / 2000</span> }
           </label>
           @if (p.bookings > 0) {
-            <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border p-3" [class]="err('ack') ? 'border-alert' : 'border-cloud'">
+            <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border px-4 py-3" [class]="err('ack') ? 'border-alert' : 'border-cloud'">
               <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-alert" [checked]="ack()" (change)="ack.set($any($event.target).checked); clearErr('ack')" [attr.aria-invalid]="err('ack') ? 'true' : null" [attr.aria-describedby]="err('ack') ? 'bo-suspend-ack-err' : null" />
               <span class="font-sans text-body-sm text-ink">I understand {{ plural(p.bookings, 'booking') }} will be cancelled and refunded, and reinstating the doctor won't restore them.</span>
             </label>

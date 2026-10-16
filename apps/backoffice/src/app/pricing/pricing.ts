@@ -13,7 +13,27 @@ import type { HasUnsavedChanges } from '@supadoc/auth';
 import { apiErrorFields, apiErrorMessage, SettingsApi } from '@supadoc/data-access';
 import type { FollowUpFeeMode, PricingDto } from '@supadoc/models';
 import type { ConfirmDetail, LeaveCopy } from '@supadoc/ui';
-import { DialogService, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
+import {
+  BTN_PRIMARY,
+  FIELD,
+  FIELD_ERROR,
+  FIELD_GROUP,
+  FIELD_GROUP_INPUT,
+  FIELD_INVALID,
+  FIELD_STACK,
+  FIELD_SUFFIX,
+  HINT,
+  LABEL,
+  PAGE_ERROR,
+  PAGE_HEADER_TEXT,
+  PAGE_NARROW,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  SECTION,
+  SECTION_TITLE,
+  SUBSECTION_TITLE,
+} from '../shared/layout';
 
 /** The form as text, to tell what changed since it was loaded or saved. */
 interface PricingForm {
@@ -45,128 +65,127 @@ const MAX_WINDOW_DAYS = 365;
 @Component({
   selector: 'bo-pricing',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, AlertComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Pricing</h1>
-        <p class="font-sans text-body text-slate">Platform-wide currency and fees.</p>
+    <div class="${PAGE_NARROW}">
+      <header class="${PAGE_HEADER_TEXT}">
+        <h1 class="${PAGE_TITLE}">Pricing</h1>
+        <p class="${PAGE_SUBTITLE}">Platform-wide currency and fees.</p>
       </header>
 
       @if (loading()) {
-        <div class="sd-shimmer h-48 rounded-card"></div>
+        <div class="sd-shimmer h-96 rounded-card" aria-hidden="true"></div>
       } @else if (loadError()) {
-        <div class="flex max-w-md flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="${PAGE_ERROR}" role="alert">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
         </div>
       } @else {
-        <div class="flex max-w-md flex-col gap-4 rounded-card border border-cloud bg-white p-6">
-          <label class="flex flex-col gap-1.5">
-            <span class="font-sans text-caption font-semibold text-slate">Currency</span>
-            <input [value]="currency()" (input)="currency.set($any($event.target).value.toUpperCase())" maxlength="3" placeholder="NGN" class="rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm uppercase text-ink focus:border-cerulean focus:outline-none" />
-          </label>
-          <label class="flex flex-col gap-1.5">
-            <span class="font-sans text-caption font-semibold text-slate">Guest fee (per invited guest)</span>
-            <input type="number" min="0" step="500" [value]="guestFee()" (input)="guestFee.set($any($event.target).value)" class="rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" />
-          </label>
-          <label class="flex flex-col gap-1.5">
-            <span class="font-sans text-caption font-semibold text-slate">Platform fee</span>
-            <input type="number" min="0" step="100" [value]="platformFee()" (input)="platformFee.set($any($event.target).value)" class="rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" />
-          </label>
+        <section class="${SECTION}" aria-labelledby="bo-pricing-fees-title">
+          <h2 id="bo-pricing-fees-title" class="${SECTION_TITLE}"><sd-icon name="banknote" [size]="20" class="text-cerulean" />Fees</h2>
+          <div class="grid gap-4 sm:grid-cols-3">
+            <label class="${FIELD_STACK}">
+              <span class="${LABEL}">Currency</span>
+              <input [value]="currency()" (input)="currency.set($any($event.target).value.toUpperCase())" maxlength="3" placeholder="NGN" class="${FIELD} uppercase" />
+            </label>
+            <label class="${FIELD_STACK}">
+              <span class="${LABEL}">Guest fee (per invited guest)</span>
+              <input type="number" min="0" step="500" [value]="guestFee()" (input)="guestFee.set($any($event.target).value)" class="${FIELD}" />
+            </label>
+            <label class="${FIELD_STACK}">
+              <span class="${LABEL}">Platform fee</span>
+              <input type="number" min="0" step="100" [value]="platformFee()" (input)="platformFee.set($any($event.target).value)" class="${FIELD}" />
+            </label>
+          </div>
 
           <!-- Follow-up consultations -->
           <div role="group" aria-labelledby="fu-pricing-title" class="flex flex-col gap-4 border-t border-cloud pt-5">
             <div class="flex flex-col gap-1">
-              <h2 id="fu-pricing-title" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
-                <sd-icon name="refresh-cw" [size]="18" class="text-slate" />Follow-up consultations
-              </h2>
+              <h3 id="fu-pricing-title" class="${SUBSECTION_TITLE}">
+                <sd-icon name="refresh-cw" [size]="18" class="text-cerulean" />Follow-up consultations
+              </h3>
+              <p class="font-sans text-caption text-slate">
+                Applies to follow-ups a doctor proposes and ones patients book from a
+                completed consultation. A doctor can always waive the fee.
+              </p>
             </div>
-            <p class="-mt-2 font-sans text-caption text-slate">
-              Applies to follow-ups a doctor proposes and ones patients book from a
-              completed consultation. A doctor can always waive the fee.
-            </p>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Follow-up fee</span>
-              <select
-                class="min-h-11 rounded-field border bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
-                [class]="fieldError('follow_up_fee_mode') ? 'border-alert' : 'border-cloud'"
-                [value]="mode()"
-                [attr.aria-invalid]="fieldError('follow_up_fee_mode') ? 'true' : null"
-                aria-describedby="fu-mode-hint"
-                (change)="setMode($any($event.target).value)"
-              >
-                @for (m of modes; track m.value) {
-                  <option [value]="m.value" [selected]="m.value === mode()">{{ m.label }}</option>
-                }
-              </select>
-              @if (fieldError('follow_up_fee_mode'); as msg) {
-                <span class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
-              }
-              <span id="fu-mode-hint" class="font-sans text-caption text-slate">{{ modeHint() }}</span>
-            </label>
-
-            @if (mode() === 'percent') {
-              <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-caption font-semibold text-slate">Discount</span>
-                <div
-                  class="flex items-stretch overflow-hidden rounded-field border bg-white focus-within:border-cerulean"
-                  [class]="fieldError('follow_up_discount_percent') ? 'border-alert' : 'border-cloud'"
+            <div class="grid items-start gap-4 sm:grid-cols-2">
+              <label class="${FIELD_STACK} sm:col-span-2">
+                <span class="${LABEL}">Follow-up fee</span>
+                <select
+                  class="${FIELD}"
+                  [class]="fieldError('follow_up_fee_mode') ? '${FIELD_INVALID}' : ''"
+                  [value]="mode()"
+                  [attr.aria-invalid]="fieldError('follow_up_fee_mode') ? 'true' : null"
+                  aria-describedby="fu-mode-hint"
+                  (change)="setMode($any($event.target).value)"
                 >
+                  @for (m of modes; track m.value) {
+                    <option [value]="m.value" [selected]="m.value === mode()">{{ m.label }}</option>
+                  }
+                </select>
+                @if (fieldError('follow_up_fee_mode'); as msg) {
+                  <span class="${FIELD_ERROR}"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
+                }
+                <span id="fu-mode-hint" class="${HINT}">{{ modeHint() }}</span>
+              </label>
+
+              @if (mode() === 'percent') {
+                <label class="${FIELD_STACK}">
+                  <span class="${LABEL}">Discount</span>
+                  <div class="${FIELD_GROUP}" [class]="fieldError('follow_up_discount_percent') ? '!border-alert' : ''">
+                    <input
+                      type="number"
+                      inputmode="numeric"
+                      min="0"
+                      max="100"
+                      step="1"
+                      class="${FIELD_GROUP_INPUT}"
+                      [value]="discount()"
+                      [attr.aria-invalid]="fieldError('follow_up_discount_percent') ? 'true' : null"
+                      aria-describedby="fu-discount-hint"
+                      (input)="setField('follow_up_discount_percent', discount, $any($event.target).value)"
+                    />
+                    <span class="${FIELD_SUFFIX}">%</span>
+                  </div>
+                  @if (fieldError('follow_up_discount_percent'); as msg) {
+                    <span class="${FIELD_ERROR}"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
+                  }
+                  <span id="fu-discount-hint" class="${HINT}">
+                    A whole number from 0 to 100 — 50 halves the doctor's fee. Rounded down to the kobo.
+                  </span>
+                </label>
+              }
+
+              <label class="${FIELD_STACK}">
+                <span class="${LABEL}">Follow-up window</span>
+                <div class="${FIELD_GROUP}" [class]="fieldError('follow_up_window_days') ? '!border-alert' : ''">
                   <input
                     type="number"
                     inputmode="numeric"
-                    min="0"
-                    max="100"
+                    min="1"
+                    [max]="maxWindowDays"
                     step="1"
-                    class="w-full min-w-0 flex-1 bg-transparent px-3 py-2 font-sans text-body-sm text-ink focus:outline-none"
-                    [value]="discount()"
-                    [attr.aria-invalid]="fieldError('follow_up_discount_percent') ? 'true' : null"
-                    aria-describedby="fu-discount-hint"
-                    (input)="setField('follow_up_discount_percent', discount, $any($event.target).value)"
+                    class="${FIELD_GROUP_INPUT}"
+                    [value]="windowDays()"
+                    [attr.aria-invalid]="fieldError('follow_up_window_days') ? 'true' : null"
+                    aria-describedby="fu-window-hint"
+                    (input)="setField('follow_up_window_days', windowDays, $any($event.target).value)"
                   />
-                  <span class="flex shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">%</span>
+                  <span class="${FIELD_SUFFIX}">days</span>
                 </div>
-                @if (fieldError('follow_up_discount_percent'); as msg) {
-                  <span class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
+                @if (fieldError('follow_up_window_days'); as msg) {
+                  <span class="${FIELD_ERROR}"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
                 }
-                <span id="fu-discount-hint" class="font-sans text-caption text-slate">
-                  A whole number from 0 to 100 — 50 halves the doctor's fee. Rounded down to the kobo.
+                <span id="fu-window-hint" class="${HINT}">
+                  Follow-up pricing applies when the follow-up starts within this many days
+                  of the original consultation's start (1–{{ maxWindowDays }}); after that
+                  it is the full fee.
                 </span>
               </label>
-            }
-
-            <label class="flex flex-col gap-1.5">
-              <span class="font-sans text-caption font-semibold text-slate">Follow-up window</span>
-              <div
-                class="flex items-stretch overflow-hidden rounded-field border bg-white focus-within:border-cerulean"
-                [class]="fieldError('follow_up_window_days') ? 'border-alert' : 'border-cloud'"
-              >
-                <input
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  [max]="maxWindowDays"
-                  step="1"
-                  class="w-full min-w-0 flex-1 bg-transparent px-3 py-2 font-sans text-body-sm text-ink focus:outline-none"
-                  [value]="windowDays()"
-                  [attr.aria-invalid]="fieldError('follow_up_window_days') ? 'true' : null"
-                  aria-describedby="fu-window-hint"
-                  (input)="setField('follow_up_window_days', windowDays, $any($event.target).value)"
-                />
-                <span class="flex shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">days</span>
-              </div>
-              @if (fieldError('follow_up_window_days'); as msg) {
-                <span class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}</span>
-              }
-              <span id="fu-window-hint" class="font-sans text-caption text-slate">
-                Follow-up pricing applies when the follow-up starts within this many days
-                of the original consultation's start (1–{{ maxWindowDays }}); after that
-                it is the full fee.
-              </span>
-            </label>
+            </div>
 
             <p class="rounded-field bg-glacier px-4 py-3 font-sans text-caption text-ink" aria-live="polite">
               <span class="font-semibold">Example:</span> {{ example() }}
@@ -174,16 +193,18 @@ const MAX_WINDOW_DAYS = 365;
           </div>
 
           @if (notice()) {
-            <p class="rounded-field px-4 py-2 font-label text-caption" [class]="noticeOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'" [attr.role]="noticeOk() ? 'status' : 'alert'">{{ notice() }}</p>
+            <sd-alert [tone]="noticeOk() ? 'success' : 'error'">{{ notice() }}</sd-alert>
           }
 
-          <button type="button" class="flex min-h-11 w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving() || !dirty()" (click)="save()">
-            <sd-icon name="check" [size]="18" />{{ saving() ? 'Saving…' : 'Save pricing' }}
-          </button>
-          @if (!dirty() && !saving()) {
-            <p class="-mt-2 font-sans text-caption text-slate">Change a value to save.</p>
-          }
-        </div>
+          <div class="flex flex-col gap-2 border-t border-cloud pt-5 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+            @if (!dirty() && !saving()) {
+              <p class="font-sans text-caption text-slate">Change a value to save.</p>
+            }
+            <button type="button" class="${BTN_PRIMARY} w-full sm:w-fit" [disabled]="saving() || !dirty()" (click)="save()">
+              <sd-icon name="check" [size]="18" />{{ saving() ? 'Saving…' : 'Save pricing' }}
+            </button>
+          </div>
+        </section>
       }
     </div>
   `,

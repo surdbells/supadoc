@@ -14,14 +14,39 @@ import { tap } from 'rxjs';
 import { AdminPayoutsApi, apiErrorMessage } from '@supadoc/data-access';
 import type { PayoutDto } from '@supadoc/models';
 import type { ConfirmDetail } from '@supadoc/ui';
-import { AlertComponent, DialogComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogComponent, DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import { afterDialogCloses } from '../shared/after-dialog';
 import {
+  AVATAR_SM,
   BTN_DANGER_OUTLINE,
   BTN_GHOST,
   BTN_SECONDARY,
   BTN_SUCCESS,
-} from '../specialists/specialist-ui';
+  EMPTY_FRAME,
+  INLINE_ERROR,
+  LOAD_MORE,
+  PAGE,
+  PAGE_HEADER_TEXT,
+  PAGE_SUBTITLE,
+  PAGE_TITLE,
+  PILL,
+  SEGMENT,
+  SEGMENT_OFF,
+  SEGMENT_ON,
+  SEGMENTED_WRAP,
+  SEGMENT_FILL,
+  TABLE,
+  TABLE_LINK,
+  TABLE_WRAP,
+  TBODY,
+  TD,
+  TD_ACTION,
+  TD_PRIMARY,
+  TH,
+  THEAD,
+  TR,
+} from '../shared/layout';
+import { initials } from '../specialists/specialist-ui';
 
 interface Filter {
   readonly key: string;
@@ -52,68 +77,89 @@ const STATUS: Record<string, { label: string; icon: string; cls: string }> = {
 @Component({
   selector: 'bo-payouts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, AlertComponent, DialogComponent],
+  imports: [IconComponent, AlertComponent, DialogComponent, EmptyStateComponent],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">Payouts</h1>
-        <p class="font-sans text-body text-slate">Review and settle doctor payout requests.</p>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER_TEXT}">
+        <h1 class="${PAGE_TITLE}">Payouts</h1>
+        <p class="${PAGE_SUBTITLE}">Review and settle doctor payout requests.</p>
       </header>
 
-      <div class="flex flex-wrap gap-2">
+      <div class="${SEGMENTED_WRAP}" role="group" aria-label="Payout status">
         @for (f of filters; track f.key) {
-          <button type="button" class="rounded-field px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="active() === f.key ? 'bg-cerulean/10 text-cerulean' : 'text-slate hover:bg-frost/40'" (click)="select(f)">{{ f.label }}</button>
+          <button type="button" class="${SEGMENT} ${SEGMENT_FILL}" [class]="active() === f.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'" [attr.aria-pressed]="active() === f.key" (click)="select(f)">{{ f.label }}</button>
         }
       </div>
 
-      <div class="overflow-x-auto rounded-card border border-cloud bg-white">
-        <table class="w-full min-w-[720px] text-left">
-          <thead class="border-b border-cloud font-sans text-caption text-slate">
-            <tr>
-              <th class="px-4 py-3">Doctor</th>
-              <th class="px-4 py-3 text-right">Amount</th>
-              <th class="px-4 py-3">Status</th>
-              <th class="px-4 py-3">Requested</th>
-              <th class="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (p of items(); track p.id) {
-              <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
-                <td class="px-4 py-3 font-medium">{{ p.specialist_name }}</td>
-                <td class="px-4 py-3 text-right font-semibold">{{ money(p.amount, p.currency) }}</td>
-                <td class="px-4 py-3"><span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(p.status)"><sd-icon [name]="statusIcon(p.status)" [size]="13" />{{ statusLabel(p.status) }}</span></td>
-                <td class="px-4 py-3 text-slate">{{ date(p.requested_at) }}</td>
-                <td class="px-4 py-3 text-right"><button type="button" class="min-h-11 font-sans text-caption font-semibold text-cerulean hover:underline" [attr.aria-label]="'Review the payout of ' + p.specialist_name" (click)="open(p)">Review</button></td>
-              </tr>
-            } @empty {
-              <tr>
-                <td colspan="5" class="px-4 py-10 text-center font-sans text-body-sm text-slate">
-                  @if (loading()) {
-                    Loading…
-                  } @else if (loadError()) {
-                    <div class="flex flex-col items-center gap-3">
-                      <sd-icon name="wifi-off" [size]="28" class="text-alert" />
-                      <p>{{ loadError() }}</p>
-                      <button type="button" class="rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="fetch()">Retry</button>
-                    </div>
-                  } @else {
-                    No payouts.
-                  }
-                </td>
-              </tr>
+      @if (items().length === 0) {
+        @if (loading()) {
+          <div class="${TABLE_WRAP} flex flex-col divide-y divide-cloud" aria-busy="true">
+            <span class="sr-only">Loading payouts…</span>
+            @for (i of [1, 2, 3]; track i) {
+              <div class="flex items-center gap-4 px-5 py-4" aria-hidden="true">
+                <div class="sd-shimmer size-10 shrink-0 rounded-full"></div>
+                <div class="sd-shimmer h-4 w-40 max-w-full rounded-pill"></div>
+                <div class="sd-shimmer ml-auto h-6 w-24 rounded-pill"></div>
+              </div>
             }
-          </tbody>
-        </table>
-      </div>
+          </div>
+        } @else if (loadError()) {
+          <div class="${EMPTY_FRAME}" role="alert">
+            <sd-empty-state icon="wifi-off" tone="error" title="Couldn't load payouts" [message]="loadError()">
+              <button type="button" class="${BTN_SECONDARY}" (click)="fetch()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
+            </sd-empty-state>
+          </div>
+        } @else {
+          <sd-empty-state icon="wallet" tone="brand" title="No payouts here" message="Payout requests doctors make show up here to review and settle." />
+        }
+      } @else {
+        <div class="${TABLE_WRAP}">
+          <table class="${TABLE} min-w-[720px]">
+            <thead class="${THEAD}">
+              <tr>
+                <th class="${TH}">Doctor</th>
+                <th class="${TH} text-right">Amount</th>
+                <th class="${TH}">Status</th>
+                <th class="${TH}">Requested</th>
+                <th class="${TH}"><span class="sr-only">Review</span></th>
+              </tr>
+            </thead>
+            <tbody class="${TBODY}">
+              @for (p of items(); track p.id) {
+                <tr class="${TR}">
+                  <td class="${TD}">
+                    <span class="flex min-w-0 items-center gap-3">
+                      <span class="${AVATAR_SM}" aria-hidden="true">{{ initials(p.specialist_name) }}</span>
+                      <span class="${TD_PRIMARY} min-w-0 truncate">{{ p.specialist_name }}</span>
+                    </span>
+                  </td>
+                  <td class="${TD} text-right font-semibold">{{ money(p.amount, p.currency) }}</td>
+                  <td class="${TD}"><span class="${PILL}" [class]="statusClass(p.status)"><sd-icon [name]="statusIcon(p.status)" [size]="13" />{{ statusLabel(p.status) }}</span></td>
+                  <td class="${TD} text-slate">{{ date(p.requested_at) }}</td>
+                  <td class="${TD_ACTION}"><button type="button" class="${TABLE_LINK}" [attr.aria-label]="'Review the payout of ' + p.specialist_name" (click)="open(p)">Review<sd-icon name="chevron-right" [size]="16" /></button></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
 
-      @if (loadError() && items().length > 0) {
-        <p class="text-center font-sans text-caption text-alert">{{ loadError() }}</p>
-      }
-
-      @if (hasMore()) {
-        <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
+        @if ((loadError() && items().length > 0) || hasMore()) {
+          <div class="${LOAD_MORE}">
+            @if (loadError() && items().length > 0) {
+              <p class="${INLINE_ERROR}" role="alert"><sd-icon name="circle-alert" [size]="16" class="shrink-0" />{{ loadError() }}</p>
+            }
+            @if (hasMore()) {
+              <button type="button" class="${BTN_SECONDARY}" [disabled]="loading()" (click)="loadMore()">
+                @if (loading()) {
+                  <sd-icon name="loader-circle" [size]="16" class="animate-spin" />Loading…
+                } @else {
+                  <sd-icon name="chevron-down" [size]="16" />Load more
+                }
+              </button>
+            }
+          </div>
+        }
       }
     </div>
 
@@ -129,7 +175,7 @@ const STATUS: Record<string, { label: string; icon: string; cls: string }> = {
         <div class="flex flex-col gap-4">
           <div class="flex items-center justify-between gap-3 rounded-field bg-glacier px-4 py-3">
             <span class="font-heading text-h4 text-ink">{{ money(p.amount, p.currency) }}</span>
-            <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(p.status)">
+            <span class="${PILL}" [class]="statusClass(p.status)">
               <sd-icon [name]="statusIcon(p.status)" [size]="13" />{{ statusLabel(p.status) }}
             </span>
           </div>
@@ -232,7 +278,11 @@ export class AdminPayouts implements OnInit {
     this.fetch();
   }
 
+  /** The doctor's initials for the row avatar. */
+  protected readonly initials = initials;
+
   protected loadMore(): void {
+    if (this.loading()) return;
     this.page += 1;
     this.fetch();
   }

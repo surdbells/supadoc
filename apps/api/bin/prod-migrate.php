@@ -11,7 +11,7 @@ declare(strict_types=1);
  * in the `prod_migrate.legacy_done` setting; a database an earlier release
  * already migrated is recorded without re-running them), because repeating
  * them would re-multiply a sub-₦1,000 fee, re-grant narrowed admin permissions
- * and reset doctor logins. Steps 3–10 are idempotent — a re-run changes nothing
+ * and reset doctor logins. Steps 3–11 are idempotent — a re-run changes nothing
  * that's already done (the numbers match the steps below):
  *   0. Grants the back-office permissions (settings.manage, specialists.manage,
  *      monitoring.view) to every admin that lacks them.
@@ -57,6 +57,13 @@ declare(strict_types=1);
  *      (`unique_indexes_blocked`), never changed or deleted. Plus a read-only
  *      report of card payments used twice / used and credited / held for
  *      review (`card_payment_anomalies`).
+ *  11. Reference data: seeds the back office's `specialty` pick list
+ *      (reference_items) with every specialty a doctor already has (trimmed,
+ *      case aside, in the spelling most of them use) and — the first time only
+ *      (`prod_migrate.reference_specialty_seeded`), so one the back office
+ *      deletes is not added back — the standard list. Only ever ADDS a label
+ *      the list lacks in any case; never renames, re-orders or removes one,
+ *      and no doctor's specialty is changed (`reference_specialties_added`).
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
@@ -186,6 +193,7 @@ $required = [
     'medical_documents' => ['appointment_id'],       // step 7 (a join column, so listed by hand)
     'specialist_credentials' => ['specialist_id', 'type', 'status', 'expires_at'], // step 9 (doctors' documents)
     'payment_intents'   => ['reference', 'status'],  // card payments (the app needs it; step 10 sits beside it)
+    'reference_items'   => ['category', 'code', 'label', 'label_key', 'sort_order', 'active'], // step 11 (reference data)
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
@@ -657,6 +665,22 @@ if ($report['card_payment_anomalies'] !== []) {
     $blockedIndexNote .= "\nCard payments to review (nothing was changed): " . implode(', ', array_keys($report['card_payment_anomalies'])) . ".\n"
         . "See card_payment_anomalies above and DEPLOY.md (\"Card payments to review\").\n";
 }
+
+// 11) Reference data: the back office's specialty pick list (reference_items)
+//     gets every specialty a doctor (not deleted) already has — in the
+//     spelling most of them use, case and spacing aside — and, the first time
+//     only (recorded in the prod_migrate.reference_specialty_seeded setting),
+//     the standard specialties (ReferenceCategory::STANDARD_SPECIALTIES). It
+//     only adds a label the list lacks (never one already there in another
+//     case), never renames, re-orders or removes one, and no doctor's
+//     specialty is touched — safe to re-run. One transaction (a savepoint in a
+//     dry run). (Its table was checked at the top.)
+$seeded = $conn->transactional(
+    static fn (\Doctrine\DBAL\Connection $c): array => App\Infrastructure\Reference\ReferenceSeeder::seedSpecialties($c),
+);
+$report['reference_specialties_added'] = $seeded['added'];
+$report['reference_standard_list']     = $seeded['standard'];
+$report['completed_steps'][]           = 11;
 
 if ($dryRun) {
     $conn->rollBack();

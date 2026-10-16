@@ -4,6 +4,8 @@ import {
   LucideActivity,
   LucideArrowRight,
   LucideArrowUpDown,
+  LucideArrowUp,
+  LucideArrowDown,
   LucideBaby,
   LucideBanknote,
   LucideBell,
@@ -241,6 +243,9 @@ export const SUPADOC_ICONS = [
   LucidePlus,
   LucideArrowRight,
   LucideArrowUpDown,
+  // Reference data: move an item up / down the list.
+  LucideArrowUp,
+  LucideArrowDown,
   LucideCheck,
   LucideX,
   LucideLogOut,

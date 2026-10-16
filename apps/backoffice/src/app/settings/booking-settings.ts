@@ -13,6 +13,19 @@ import { apiErrorFields, apiErrorMessage, SettingsApi } from '@supadoc/data-acce
 import type { BookingSettingsDto } from '@supadoc/models';
 import type { ConfirmDetail } from '@supadoc/ui';
 import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
+import {
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  FIELD_ERROR,
+  FIELD_GROUP_INPUT,
+  FIELD_STACK,
+  HINT,
+  LABEL,
+  SECTION,
+  SECTION_SUBTITLE,
+  SECTION_TITLE,
+  SUBSECTION_TITLE,
+} from '../shared/layout';
 
 type Key = keyof BookingSettingsDto;
 
@@ -189,12 +202,12 @@ function withUnit(n: number | string, unit: string): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, AlertComponent],
   template: `
-    <section class="flex max-w-3xl flex-col gap-5 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="bo-booking-title">
+    <section class="${SECTION}" aria-labelledby="bo-booking-title">
       <div class="flex flex-col gap-1">
-        <h2 id="bo-booking-title" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
-          <sd-icon name="calendar-days" [size]="20" />Booking rules
+        <h2 id="bo-booking-title" class="${SECTION_TITLE}">
+          <sd-icon name="calendar-days" [size]="20" class="text-cerulean" />Booking rules
         </h2>
-        <p class="font-sans text-body-sm text-slate">Rules for booking, cancelling and closing consultations. Changes apply from now on.</p>
+        <p class="${SECTION_SUBTITLE}">Rules for booking, cancelling and closing consultations. Changes apply from now on.</p>
       </div>
 
       @if (loading()) {
@@ -202,7 +215,7 @@ function withUnit(n: number | string, unit: string): string {
       } @else if (loadError()) {
         <div class="flex flex-col items-start gap-3">
           <sd-alert tone="error">{{ loadError() }}</sd-alert>
-          <button type="button" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="load()">
+          <button type="button" class="${BTN_SECONDARY}" (click)="load()">
             <sd-icon name="refresh-cw" [size]="16" />Try again
           </button>
         </div>
@@ -211,18 +224,18 @@ function withUnit(n: number | string, unit: string): string {
           @for (g of groups; track g.id; let first = $first) {
             <div role="group" [attr.aria-labelledby]="'bo-booking-group-' + g.id" class="flex flex-col gap-4" [class.border-t]="!first" [class.border-cloud]="!first" [class.pt-5]="!first">
               <div class="flex flex-col gap-1">
-                <h3 [id]="'bo-booking-group-' + g.id" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
-                  <sd-icon [name]="g.icon" [size]="18" class="text-slate" />{{ g.title }}
+                <h3 [id]="'bo-booking-group-' + g.id" class="${SUBSECTION_TITLE}">
+                  <sd-icon [name]="g.icon" [size]="18" class="text-cerulean" />{{ g.title }}
                 </h3>
                 <p class="font-sans text-caption text-slate">{{ g.intro }}</p>
               </div>
-              <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div class="grid grid-cols-1 items-start gap-5 sm:grid-cols-2">
                 @for (r of g.rules; track r.key) {
-                  <div class="flex min-w-0 flex-col gap-1.5">
-                    <label [for]="fieldId(r.key)" class="font-sans text-caption font-semibold text-slate">{{ r.label }}</label>
+                  <div class="${FIELD_STACK}">
+                    <label [for]="fieldId(r.key)" class="${LABEL}">{{ r.label }}</label>
                     <div
-                      class="flex items-stretch overflow-hidden rounded-field border bg-white transition-colors focus-within:ring-2"
-                      [class]="errorFor(r.key) ? 'border-alert focus-within:ring-alert/20' : 'border-cloud focus-within:border-cerulean focus-within:ring-cerulean/20'"
+                      class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors focus-within:ring-2"
+                      [class]="errorFor(r.key) ? 'border-alert focus-within:ring-alert/20' : 'border-[#b8c6d4] focus-within:border-cerulean focus-within:ring-cerulean/20'"
                     >
                       <input
                         [id]="fieldId(r.key)"
@@ -234,17 +247,17 @@ function withUnit(n: number | string, unit: string): string {
                         [value]="values()[r.key]"
                         [attr.aria-invalid]="errorFor(r.key) ? 'true' : null"
                         [attr.aria-describedby]="fieldId(r.key) + '-hint' + (errorFor(r.key) ? ' ' + fieldId(r.key) + '-error' : '')"
-                        class="min-h-11 w-full min-w-0 flex-1 bg-transparent px-4 py-2.5 font-sans text-body-sm text-ink focus:outline-none"
+                        class="${FIELD_GROUP_INPUT}"
                         (input)="setValue(r.key, $any($event.target).value)"
                       />
                       <span class="flex max-w-[55%] shrink-0 items-center border-l border-cloud bg-glacier px-3 font-sans text-caption text-slate">{{ r.unit }}</span>
                     </div>
                     @if (errorFor(r.key); as msg) {
-                      <p [id]="fieldId(r.key) + '-error'" class="flex items-start gap-1.5 font-sans text-caption text-alert">
+                      <p [id]="fieldId(r.key) + '-error'" class="${FIELD_ERROR}">
                         <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ msg }}
                       </p>
                     }
-                    <p [id]="fieldId(r.key) + '-hint'" class="font-sans text-caption text-slate">
+                    <p [id]="fieldId(r.key) + '-hint'" class="${HINT}">
                       {{ r.hint }}
                       <span class="block text-slate/80">Allowed {{ range(r) }}. Standard: {{ standard(r) }}.</span>
                     </p>
@@ -262,11 +275,11 @@ function withUnit(n: number | string, unit: string): string {
 
           <div class="flex flex-col-reverse gap-3 border-t border-cloud pt-5 sm:flex-row sm:items-center sm:justify-end">
             @if (dirty()) {
-              <button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60" [disabled]="saving()" (click)="discard()">
+              <button type="button" class="${BTN_SECONDARY}" [disabled]="saving()" (click)="discard()">
                 <sd-icon name="undo-2" [size]="18" />Undo changes
               </button>
             }
-            <button type="submit" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="saving() || !dirty()">
+            <button type="submit" class="${BTN_PRIMARY}" [disabled]="saving() || !dirty()">
               @if (saving()) {
                 <sd-icon name="loader-circle" [size]="18" class="animate-spin" />Saving…
               } @else {

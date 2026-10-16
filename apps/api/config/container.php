@@ -663,6 +663,18 @@ return [
     AppSettingRepository::class => static fn (ContainerInterface $c): AppSettingRepository =>
         new AppSettingRepository($c->get(EntityManagerInterface::class)),
 
+    // ----- Reference data (back-office pick lists, e.g. specialties) -----
+    \App\Domain\Repository\ReferenceItemRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\ReferenceItemRepository =>
+        new \App\Domain\Repository\ReferenceItemRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Infrastructure\Service\ReferenceDataService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\ReferenceDataService =>
+        new \App\Infrastructure\Service\ReferenceDataService(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\ReferenceItemRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(AuditLogger::class),
+        ),
+
     // ----- E-prescribing -----
     // Encrypted-at-rest files (signatures) live outside the web root in var/vault.
     FileVault::class => static fn (): FileVault => new FileVault(
@@ -741,4 +753,24 @@ return [
 
     PrescriptionCheckThrottleRepository::class => static fn (ContainerInterface $c): PrescriptionCheckThrottleRepository =>
         new PrescriptionCheckThrottleRepository($c->get(EntityManagerInterface::class)),
+
+    // ----- Doctor headshots (the doctor's own upload + the back office's) -----
+    \App\Infrastructure\Storage\ProfilePhotoStore::class => static fn (): \App\Infrastructure\Storage\ProfilePhotoStore =>
+        new \App\Infrastructure\Storage\ProfilePhotoStore(),
+
+    // ----- Back-office dashboard (GET /api/admin/dashboard) -----
+    \App\Domain\Repository\AdminDashboardRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\AdminDashboardRepository =>
+        new \App\Domain\Repository\AdminDashboardRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Infrastructure\Service\AdminDashboardService::class => static fn (ContainerInterface $c): \App\Infrastructure\Service\AdminDashboardService =>
+        new \App\Infrastructure\Service\AdminDashboardService(
+            $c->get(\App\Domain\Repository\AdminDashboardRepository::class),
+            $c->get(AppointmentRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(SupportTicketRepository::class),
+            $c->get(CallPresence::class),
+            $c->get(PricingService::class),
+            $c->get(RedisClient::class),
+            $c->get(LoggerInterface::class),
+        ),
 ];

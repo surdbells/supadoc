@@ -118,7 +118,7 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
               }
             </dl>
             @if (c.rejection_reason) {
-              <div class="rounded-field bg-alert/10 px-3 py-2 font-sans text-body-sm text-ink">
+              <div class="rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-ink">
                 <span class="block font-semibold">Rejected because:</span>
                 <span class="whitespace-pre-line break-words">{{ c.rejection_reason }}</span>
               </div>
@@ -139,8 +139,8 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
               </div>
 
               @if (action() === 'verify' && canVerify()) {
-                <form id="bo-cred-verify" class="flex flex-col gap-3" novalidate (submit)="$event.preventDefault(); verify()">
-                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border p-3" [class]="err('register_checked') ? 'border-alert' : 'border-cloud'">
+                <form id="bo-cred-verify" class="flex flex-col gap-4" novalidate (submit)="$event.preventDefault(); verify()">
+                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border px-4 py-3" [class]="err('register_checked') ? 'border-alert' : 'border-cloud'">
                     <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-sage" [checked]="registerChecked()" (change)="registerChecked.set($any($event.target).checked); clearErr('register_checked')" [attr.aria-invalid]="err('register_checked') ? 'true' : null" [attr.aria-describedby]="err('register_checked') ? 'bo-cred-checked-err' : null" data-autofocus />
                     <span class="font-sans text-body-sm text-ink">I checked this document against the MDCN register, and the doctor's name and number match.</span>
                   </label>
@@ -171,7 +171,7 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
                   </label>
                 </form>
               } @else if (action() === 'reject' && canReject()) {
-                <form id="bo-cred-reject" class="flex flex-col gap-3" novalidate (submit)="$event.preventDefault(); reject()">
+                <form id="bo-cred-reject" class="flex flex-col gap-4" novalidate (submit)="$event.preventDefault(); reject()">
                   @if (c.status === 'verified') {
                     <sd-alert tone="warning">This document is verified. Rejecting it withdraws the verification{{ isLicence() ? ', and the doctor may no longer hold a current licence' : '' }}.</sd-alert>
                   }

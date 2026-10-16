@@ -17,13 +17,15 @@ use Ramsey\Uuid\Uuid;
  * `actor_id` is the user who acted (a staff user or patient id) when known —
  * NULL for the system and for events recorded before it existed. A resource's
  * history (e.g. everything done to one doctor) is read by (resource_type,
- * resource_id), which is indexed.
+ * resource_id), which is indexed, as is created_at (newest-first reads).
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'audit_events')]
 #[ORM\Index(name: 'idx_audit_appointment', columns: ['appointment_id'])]
 #[ORM\Index(name: 'idx_audit_action', columns: ['action'])]
 #[ORM\Index(name: 'idx_audit_resource', columns: ['resource_type', 'resource_id'])]
+// The newest events first (the back-office dashboard's "Recent activity", the audit page).
+#[ORM\Index(name: 'idx_audit_created', columns: ['created_at'])]
 class AuditEvent
 {
     #[ORM\Id]

@@ -14,14 +14,7 @@ import {
   IconComponent,
   InputComponent,
 } from '@supadoc/ui';
-
-/** Landing routes in priority order, each gated by a permission. */
-const LANDINGS: Array<{ permission: string; route: string }> = [
-  { permission: 'monitoring.view', route: '/dashboard' },
-  { permission: 'appointments.view', route: '/appointments' },
-  { permission: 'specialists.manage', route: '/specialists' },
-  { permission: 'settings.manage', route: '/pricing' },
-];
+import { firstNavLink } from '../nav';
 
 /** Back-office sign-in for staff accounts. */
 @Component({
@@ -115,8 +108,8 @@ export class AdminLogin {
     const { email, password } = this.form.getRawValue();
     try {
       await this.auth.login(email, password);
-      const landing =
-        LANDINGS.find((l) => this.auth.hasPermission(l.permission))?.route;
+      // The first console page this role may open (none: not a back-office account).
+      const landing = firstNavLink(this.auth);
       if (!landing) {
         this.auth.logout();
         this.error.set('This account has no back-office access.');

@@ -16,7 +16,7 @@ import { catchError, distinctUntilChanged, map, of, switchMap, tap } from 'rxjs'
 import { AdminAppointmentsApi, apiErrorMessage } from '@supadoc/data-access';
 import { StaffAuthService } from '@supadoc/auth';
 import type { AppointmentDto, FollowUpPriceDto } from '@supadoc/models';
-import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import {
   appointmentBadge,
   appointmentClosureLabel,
@@ -31,7 +31,22 @@ import {
   RESCHEDULED_BY_LABEL,
 } from '../shared/appointment-status';
 import { afterDialogCloses, focusIfLost } from '../shared/after-dialog';
-import { BTN_DANGER_OUTLINE, BTN_PRIMARY, BTN_SECONDARY, PILL } from '../specialists/specialist-ui';
+import {
+  BACK_LINK,
+  BTN_DANGER_OUTLINE,
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  DETAIL_NAME,
+  EMPTY_FRAME,
+  PAGE,
+  PAGE_HEADER_DETAIL,
+  PAGE_TITLE,
+  PILL,
+  SECTION,
+  SECTION_SUBTITLE,
+  SECTION_TITLE,
+} from '../shared/layout';
+import { initials } from '../specialists/specialist-ui';
 import { AppointmentResolveDialog, ResolveMode, ResolveOutcome } from './resolve-dialog';
 
 type ActionKey = 'confirm' | 'reschedule' | 'held' | 'no_show' | 'refund' | 'cancel' | 'withdraw';
@@ -60,24 +75,30 @@ const PAYMENT_LABEL: Record<string, string> = {
 @Component({
   selector: 'bo-appointment-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, AlertComponent, AppointmentResolveDialog],
+  imports: [RouterLink, IconComponent, AlertComponent, EmptyStateComponent, AppointmentResolveDialog],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <a routerLink="/appointments" [queryParams]="backParams" class="flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean">
-        <sd-icon name="chevron-right" [size]="16" class="rotate-180" /> Appointments
-      </a>
+    <div class="${PAGE}">
+      <header class="${PAGE_HEADER_DETAIL}">
+        <h1 class="${PAGE_TITLE}">Appointment details</h1>
+        <a routerLink="/appointments" [queryParams]="backParams" class="${BACK_LINK}" aria-label="Back to appointments">
+          <sd-icon name="chevron-right" [size]="18" class="rotate-180" />Appointments
+        </a>
+      </header>
 
       @if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-16 text-center">
-          <sd-icon name="calendar-off" [size]="32" class="text-alert" />
-          <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
+        <div class="${EMPTY_FRAME}" role="alert">
+          <sd-empty-state icon="calendar-off" tone="error" title="We couldn't open this appointment" [message]="error()">
+            <a routerLink="/appointments" [queryParams]="backParams" class="${BTN_SECONDARY}"><sd-icon name="calendar-days" [size]="16" />Back to appointments</a>
+          </sd-empty-state>
         </div>
       } @else if (appt(); as a) {
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6" aria-labelledby="bo-appt-title">
+        <section class="${SECTION}" aria-labelledby="bo-appt-title">
           <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex min-w-0 flex-1 items-start gap-4">
+            <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg text-cerulean" aria-hidden="true">{{ initials(a.specialist.name) }}</span>
             <div class="flex min-w-0 flex-col gap-1.5">
-              <h1 id="bo-appt-title" class="break-words font-heading text-h5 text-ink">{{ a.specialist.name }}</h1>
+              <h2 id="bo-appt-title" class="${DETAIL_NAME}">{{ a.specialist.name }}</h2>
               @if (a.specialist.specialty) {
                 <span class="font-sans text-body-sm text-slate">{{ a.specialist.specialty }}</span>
               }
@@ -98,7 +119,8 @@ const PAYMENT_LABEL: Record<string, string> = {
                 <span class="font-sans text-body-sm text-slate">{{ d }}</span>
               }
             </div>
-            <span class="font-heading text-h5 text-ink">{{ money(a.amount) }}</span>
+            </div>
+            <span class="font-heading text-h4 text-ink">{{ money(a.amount) }}</span>
           </div>
 
           @if (a.needs_attention) {
@@ -156,10 +178,10 @@ const PAYMENT_LABEL: Record<string, string> = {
         </section>
 
         @if (showAttendance()) {
-          <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-6" aria-labelledby="bo-appt-attendance">
+          <section class="${SECTION} !gap-4" aria-labelledby="bo-appt-attendance">
             <div class="flex flex-col gap-1">
-              <h2 id="bo-appt-attendance" class="font-heading text-body-lg text-ink">Who joined the call</h2>
-              <p class="font-sans text-caption text-slate">The first time each side joined, from 15 minutes before the start to 30 minutes after the end.</p>
+              <h2 id="bo-appt-attendance" class="${SECTION_TITLE}"><sd-icon name="users" [size]="20" class="text-cerulean" />Who joined the call</h2>
+              <p class="${SECTION_SUBTITLE}">The first time each side joined, from 15 minutes before the start to 30 minutes after the end.</p>
             </div>
             <dl class="grid grid-cols-1 gap-x-8 gap-y-2 font-sans text-body-sm sm:grid-cols-2">
               <div class="flex items-center justify-between gap-4">
@@ -178,8 +200,8 @@ const PAYMENT_LABEL: Record<string, string> = {
           </section>
         }
 
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6" aria-labelledby="bo-appt-manage">
-          <h2 #manageHeading id="bo-appt-manage" tabindex="-1" class="font-heading text-body-lg text-ink">Manage</h2>
+        <section class="${SECTION}" aria-labelledby="bo-appt-manage">
+          <h2 #manageHeading id="bo-appt-manage" tabindex="-1" class="${SECTION_TITLE} focus:outline-none"><sd-icon name="settings" [size]="20" class="text-cerulean" />Manage</h2>
           @if (!canUpdate()) {
             <p class="font-sans text-body-sm text-slate">Your account can view but not change appointments.</p>
           } @else if (actions().length === 0) {
@@ -212,7 +234,11 @@ const PAYMENT_LABEL: Record<string, string> = {
           (resolved)="onResolved($event)"
         />
       } @else {
-        <div class="sd-shimmer h-40 rounded-card"></div>
+        <div class="flex flex-col gap-6" aria-busy="true">
+          <span class="sr-only">Loading the appointment…</span>
+          <div class="sd-shimmer h-56 rounded-card"></div>
+          <div class="sd-shimmer h-32 rounded-card"></div>
+        </div>
       }
     </div>
   `,
@@ -237,6 +263,8 @@ export class AdminAppointmentDetail implements OnInit {
   protected readonly resolveTarget = signal<AppointmentDto | null>(null);
   private readonly manageHeading = viewChild<ElementRef<HTMLElement>>('manageHeading');
   protected readonly attention = ATTENTION_BADGE;
+  /** The doctor's initials for the header avatar. */
+  protected readonly initials = initials;
 
   /** The list's filters, handed over by its row link, so "Appointments" returns to them. */
   protected readonly backParams: Params =

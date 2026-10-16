@@ -503,6 +503,29 @@ return [
                     ]],
                 ],
             ],
+            'PublicReferenceItem' => [
+                'type'        => 'object',
+                'description' => 'An active pick-list item, as a form offers it.',
+                'properties'  => [
+                    'id'         => ['type' => 'string', 'format' => 'uuid'],
+                    'code'       => ['type' => 'string', 'example' => 'cardiology', 'description' => 'Stable slug (kept through renames)'],
+                    'label'      => ['type' => 'string', 'example' => 'Cardiology', 'description' => 'What records store (a doctor\'s specialty)'],
+                    'sort_order' => ['type' => 'integer', 'example' => 40],
+                ],
+            ],
+            'ReferenceItem' => [
+                'description' => 'A pick-list item, back-office view.',
+                'allOf'       => [
+                    ['$ref' => '#/components/schemas/PublicReferenceItem'],
+                    ['type' => 'object', 'properties' => [
+                        'category'    => ['type' => 'string', 'enum' => ['specialty']],
+                        'active'      => ['type' => 'boolean', 'description' => 'Offered in the pick list'],
+                        'usage_count' => ['type' => 'integer', 'description' => 'Doctors (not deleted) with this label'],
+                        'created_at'  => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                        'updated_at'  => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    ]],
+                ],
+            ],
             'PatientGuest' => [
                 'type'        => 'object',
                 'description' => 'One of the patient\'s guests, as the patient sees them.',
@@ -800,6 +823,53 @@ return [
         ],
         '/api/admin/analytics' => [
             'get' => ['tags' => ['Monitoring'], 'summary' => 'Booking + revenue analytics (?range=7d|30d|90d|12m)', 'responses' => ['200' => ['description' => 'OK']]],
+        ],
+        '/api/admin/dashboard' => [
+            'get' => [
+                'tags'        => ['Monitoring'],
+                'summary'     => 'Back-office dashboard: KPIs vs the previous period, live now, needs attention, 30-day trends, breakdowns',
+                'description' => "Needs any of monitoring.view, appointments.view, specialists.manage, payouts.manage, support.manage — and each part only comes back for the permission its back-office page needs: "
+                    . "kpis.activity / live / trends.activity / breakdowns.status / breakdowns.specialties / breakdowns.activity → monitoring.view; kpis.money / trends.revenue (and the revenue columns of the breakdowns) → monitoring.view or payouts.manage; "
+                    . "kpis.doctors → monitoring.view or specialists.manage; attention.appointments → appointments.view; attention.doctors / breakdowns.doctors → specialists.manage; attention.payouts → payouts.manage; attention.support → support.manage; attention.payments → payouts.manage or support.manage. "
+                    . "A doctor login without a back-office permission gets 403. `parts` lists the granted parts, `sections` the sections returned (kpis, live, attention, trends, breakdowns), `unavailable` any that failed to load. "
+                    . "KPI tiles (`kpis[]`: key, label, format count|money|rating, value, previous, change_pct, trend up|down|flat, higher_is_better, count, previous_count, breakdown): bookings, consultations_completed, revenue (paid bookings incl. follow-ups and guest fees, net of refunds, by booking date), wallet_topups, refunds (wallet refunds posted), new_patients, active_doctors (approved + taking bookings; a snapshot, breakdown {approved, taking_bookings}), cancellations, missed (breakdown by no-show party: patient, doctor, both, unknown), average_rating (count = reviews). "
+                    . "The current window is the period up to now in `tz`; the previous one is the same span one period earlier. Money is a string in `currency`. "
+                    . "live: in_progress (someone in the call now), starting_soon (open bookings in the next window_minutes), with counts. attention[]: key, label, description, count, amount (money queues), tone info|warning|alert, link {path, query} to the filtered back-office page (null when there is none). "
+                    . "trends: 30 local days, days[] {date, bookings, completed, revenue} (null for a series the caller can't see), series, totals. breakdowns (consultations scheduled from the period start to the end of today): by_status[], top_specialties[], top_doctors[], recent_activity[] {action, label, summary, actor_name, actor_role, created_at, link}. Cached server-side for up to a minute (refresh=1 skips it).",
+                'parameters'  => [
+                    ['name' => 'period', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['today', '7d', '30d'], 'default' => 'today']],
+                    ['name' => 'tz', 'in' => 'query', 'description' => "The viewer's IANA time zone (default the clinic's)", 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                    ['name' => 'refresh', 'in' => 'query', 'description' => '1 = skip the short server cache', 'schema' => ['type' => 'string', 'enum' => ['1']]],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope([
+                        'type'       => 'object',
+                        'properties' => [
+                            'period'       => ['type' => 'string', 'enum' => ['today', '7d', '30d']],
+                            'timezone'     => ['type' => 'string'],
+                            'currency'     => ['type' => 'string', 'example' => 'NGN'],
+                            'generated_at' => ['type' => 'string', 'format' => 'date-time'],
+                            'range'        => ['type' => 'object', 'properties' => [
+                                'from'          => ['type' => 'string', 'format' => 'date-time'],
+                                'to'            => ['type' => 'string', 'format' => 'date-time'],
+                                'previous_from' => ['type' => 'string', 'format' => 'date-time'],
+                                'previous_to'   => ['type' => 'string', 'format' => 'date-time'],
+                            ]],
+                            'parts'        => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'sections'     => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'unavailable'  => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'kpis'         => ['type' => 'array', 'items' => ['type' => 'object']],
+                            'live'         => ['type' => 'object'],
+                            'attention'    => ['type' => 'array', 'items' => ['type' => 'object']],
+                            'trends'       => ['type' => 'object'],
+                            'breakdowns'   => ['type' => 'object'],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
         ],
         '/api/admin/patients' => [
             'get' => ['tags' => ['Staff'], 'summary' => 'Patient roster (paginated, ?search=)', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
@@ -1317,6 +1387,7 @@ return [
                 'summary'     => "Update the signed-in doctor's own profile",
                 'description' => 'Doctor self-service: name, specialty, email, phone, date_of_birth, country, photo_url, location, languages, years_experience, gender, expertise, qualifications, mdcn_number, qualification_entries, certifications, slot_minutes, bio, offers_in_person, available, weekly_hours. Fee and verified stay back-office controlled. '
                     . 'Once the doctor is approved (or suspended), the locked identity fields — name, specialty, mdcn_number, qualifications, qualification_entries, certifications — do not change here: a differing value is staged in `pending_changes` for a reviewer (reviewers are notified; audited `specialist.changes_submitted`) and the message says so; a value equal to the current one takes back an earlier request for that field. Everything else saves at once. '
+                    . '`specialty` must be an active item of GET /public/reference/specialty (any case; saved in the list\'s spelling) or the doctor\'s current / already-requested specialty (kept even if the list has since switched it off) — else 422 "Choose a specialty from the list". '
                     . 'A suspended doctor may not change their availability: a body with weekly_hours, slot_minutes or available is refused with 403 (`errors.code` doctor_suspended).',
                 'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => [
                     'name' => ['type' => 'string'],
@@ -1325,7 +1396,7 @@ return [
                     'phone' => ['type' => 'string'],
                     'date_of_birth' => ['type' => 'string', 'format' => 'date'],
                     'country' => ['type' => 'string'],
-                    'photo_url' => ['type' => 'string'],
+                    'photo_url' => ['type' => 'string', 'description' => 'Empty clears the photo; the current value unchanged is a no-op; anything else (a link, another path) is a 422 — upload with POST /api/doctor/avatar'],
                     'location' => ['type' => 'string'],
                     'languages' => ['type' => 'string'],
                     'years_experience' => ['type' => 'integer'],
@@ -1992,6 +2063,113 @@ return [
                 ],
             ],
         ],
+        // ----- Reference data (back-office pick lists; first list: specialty) -----
+        '/api/public/reference/{category}' => [
+            'get' => [
+                'tags'        => ['Public'],
+                'summary'     => "A pick list's active items in list order (e.g. specialty)",
+                'description' => 'Public, cacheable for 60 s (`Cache-Control: public, max-age=60`). Lists: `specialty`. Each item: id, code, label, sort_order. A doctor\'s specialty is stored as the item\'s `label`.',
+                'security'    => [],
+                'parameters'  => [['name' => 'category', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['specialty']]]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/PublicReferenceItem']]))],
+                    '404' => ['description' => 'Unknown list', ...$json(['$ref' => '#/components/schemas/Error'])],
+                ],
+            ],
+        ],
+        '/api/reference/{category}' => [
+            'get' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Every item of a pick list, active or not, with usage counts (settings.manage or specialists.manage)',
+                'description' => '`usage_count`: how many doctors (not deleted) have the item\'s label as their specialty, case and spacing aside.',
+                'parameters'  => [['name' => 'category', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['specialty']]]],
+                'responses'   => [
+                    '200' => ['description' => 'OK', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/ReferenceItem']]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                ],
+            ],
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Add an item to a pick list (settings.manage; audited reference.created)',
+                'description' => '`label` required (≤ 120 characters, not already on the list in any case or spacing); `code` optional (lower-case slug, made from the label when absent; unique in the list, never changes); `sort_order` optional (default: after the last item); `active` optional (default true). 422 per field.',
+                'parameters'  => [['name' => 'category', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['specialty']]]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['label'], 'properties' => [
+                    'label'      => ['type' => 'string', 'maxLength' => 120, 'example' => 'Cardiology'],
+                    'code'       => ['type' => 'string', 'maxLength' => 80, 'example' => 'cardiology'],
+                    'sort_order' => ['type' => 'integer', 'minimum' => 0],
+                    'active'     => ['type' => 'boolean', 'default' => true],
+                ]])],
+                'responses'   => [
+                    '201' => ['description' => 'Added', ...$json($envelope(['$ref' => '#/components/schemas/ReferenceItem']))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/reference/{category}/reorder' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Put a pick list in a new order (settings.manage; audited reference.reordered)',
+                'description' => '`ids`: the list\'s item ids in the order wanted; items left out follow in their current order. Sort orders become 10, 20, 30… Returns the whole list. 422 when ids is missing or empty, repeats an id, or names an item that is not in this list.',
+                'parameters'  => [['name' => 'category', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['specialty']]]],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['ids'], 'properties' => [
+                    'ids' => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid']],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Saved', ...$json($envelope(['type' => 'array', 'items' => ['$ref' => '#/components/schemas/ReferenceItem']]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/reference/{category}/{id}' => [
+            'patch' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Rename, reorder or switch an item on/off (settings.manage; audited reference.updated)',
+                'description' => 'Only the keys sent change. Renaming a specialty gives every doctor who has the old label (any case or spacing) — and any change request waiting for review that asks for it — the new label in the same transaction, each audited on the doctor (`specialist.updated`); `specialists_updated` says how many doctors changed. Switching an item off (`active: false`) removes it from the public list but leaves it on the doctors who have it. 422 per field (blank / too long / duplicate label, bad sort_order or active).',
+                'parameters'  => [
+                    ['name' => 'category', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['specialty']]],
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
+                    'label'      => ['type' => 'string', 'maxLength' => 120],
+                    'sort_order' => ['type' => 'integer', 'minimum' => 0],
+                    'active'     => ['type' => 'boolean'],
+                ]])],
+                'responses'   => [
+                    '200' => ['description' => 'Saved', ...$json($envelope(['allOf' => [
+                        ['$ref' => '#/components/schemas/ReferenceItem'],
+                        ['type' => 'object', 'properties' => ['specialists_updated' => ['type' => 'integer', 'description' => 'Doctors re-labelled by a rename']]],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+            'delete' => [
+                'tags'        => ['Staff'],
+                'summary'     => 'Delete an unused item (settings.manage; audited reference.deleted)',
+                'description' => 'An item in use is refused with 422 "In use by N doctors — deactivate it instead" (also `errors.item`); one that change requests waiting for review ask for, with 422 "Requested by N doctors — deactivate it instead".',
+                'parameters'  => [
+                    ['name' => 'category', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['specialty']]],
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'   => [
+                    '200' => ['description' => 'Deleted', ...$json($envelope(['type' => 'object', 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid']]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['description' => 'In use', ...$json(['$ref' => '#/components/schemas/Error'])],
+                ],
+            ],
+        ],
         '/api/public/facets' => [
             'get' => [
                 'tags'      => ['Public'],
@@ -2592,7 +2770,7 @@ return [
                     'required'   => ['name', 'specialty'],
                     'properties' => [
                         'name'             => ['type' => 'string'],
-                        'specialty'        => ['type' => 'string'],
+                        'specialty'        => ['type' => 'string', 'description' => 'An active item label of GET /public/reference/specialty (any case; saved in the list\'s spelling) — else 422 "Choose a specialty from the list"'],
                         'email'            => ['type' => 'string', 'format' => 'email', 'nullable' => true],
                         'consultation_fee' => ['type' => 'string', 'example' => '15000.00'],
                         'bio'              => ['type' => 'string'],
@@ -2600,7 +2778,7 @@ return [
                         'location'         => ['type' => 'string'],
                         'years_experience' => ['type' => 'integer'],
                         'gender'           => ['type' => 'string', 'enum' => ['male', 'female']],
-                        'photo_url'        => ['type' => 'string', 'nullable' => true],
+                        'photo_url'        => ['type' => 'string', 'nullable' => true, 'description' => 'Deprecated: only empty is accepted (422 otherwise) — upload the photo after creating, with POST /api/specialists/{id}/photo'],
                         'available'        => ['type' => 'boolean'],
                     ],
                 ])],
@@ -2623,14 +2801,15 @@ return [
             'patch' => [
                 'tags'        => ['Staff'],
                 'summary'     => "Edit a specialist's contact, booking and public-profile fields (back office)",
-                'description' => 'Requires specialists.manage. Only the keys present change; each change is audited (`specialist.updated` with before/after). The identity fields (name, specialty, MDCN number, qualifications, certifications) are not edited here, and `verified` is ignored (it follows approval). The response echoes the (normally server-side) email so the operator can confirm it.',
+                'description' => 'Requires specialists.manage. Only the keys present change; each change is audited (`specialist.updated` with before/after). The identity fields (name, specialty, MDCN number, qualifications, certifications) are not edited here — except `specialty` while the doctor is onboarding (an active item of the specialty reference list, else 422 "Choose a specialty from the list"; for an approved or suspended doctor a different specialty is a 422 — it changes through their change request — and re-sending the current one is a no-op) — and `verified` is ignored (it follows approval). The response echoes the (normally server-side) email so the operator can confirm it.',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'requestBody' => ['required' => true, ...$json([
                     'type'       => 'object',
                     'properties' => [
                         'email'            => ['type' => 'string', 'format' => 'email', 'nullable' => true, 'description' => 'Empty string clears it'],
+                        'specialty'        => ['type' => 'string', 'description' => 'Onboarding doctors only: an active item label of the specialty reference list'],
                         'consultation_fee' => ['type' => 'string', 'example' => '15000.00'],
-                        'photo_url'        => ['type' => 'string', 'nullable' => true, 'description' => 'Full URL or /uploads path; empty clears it'],
+                        'photo_url'        => ['type' => 'string', 'nullable' => true, 'description' => 'Empty (or null) clears it — the stored file is deleted when it is one of this doctor\'s own uploads; the current value unchanged is a no-op; anything else (a link, any other path) is a 422. Prefer DELETE /api/specialists/{id}/photo to clear and POST /api/specialists/{id}/photo to upload'],
                         'available'        => ['type' => 'boolean'],
                         'bio'              => ['type' => 'string', 'maxLength' => 5000],
                         'location'         => ['type' => 'string', 'maxLength' => 200],
@@ -2653,6 +2832,46 @@ return [
                     '403' => ['description' => 'Missing specialists.manage'],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
+        '/api/specialists/{id}/photo' => [
+            'post' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Upload or replace a doctor's headshot (back office)",
+                'description' => "Requires specialists.manage. Multipart form-data, field `photo`: JPG, PNG or WebP, ≤2MB, verified from the bytes (same checks and storage as the doctor's own POST /api/doctor/avatar). Saved as /uploads/avatars/dr-{id}-{random}.{ext}; the previous file is deleted when it was one of this doctor's uploads. Audited as `specialist.updated` with photo_url before/after (`via: photo_upload`). Returns the PATCH /api/specialists/{id} payload.",
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'requestBody' => ['required' => true, 'content' => ['multipart/form-data' => ['schema' => [
+                    'type' => 'object', 'properties' => ['photo' => ['type' => 'string', 'format' => 'binary']], 'required' => ['photo'],
+                ]]]],
+                'responses'   => [
+                    '200' => ['description' => 'Photo updated', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/Specialist'],
+                            ['type' => 'object', 'properties' => ['email' => ['type' => 'string', 'nullable' => true]]],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing specialists.manage'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '422' => ['description' => 'errors.photo: "No image was uploaded" | "Image must be 2MB or smaller" | "Only JPG, PNG or WEBP images are allowed"'],
+                ],
+            ],
+            'delete' => [
+                'tags'        => ['Staff'],
+                'summary'     => "Remove a doctor's headshot (back office)",
+                'description' => "Requires specialists.manage. Clears the photo (and deletes the stored file when it is one of this doctor's uploads). Idempotent. Audited as `specialist.updated` (`via: photo_remove`) when there was a photo. Returns the PATCH /api/specialists/{id} payload.",
+                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
+                'responses'   => [
+                    '200' => ['description' => 'Photo removed', ...$json($envelope([
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/Specialist'],
+                            ['type' => 'object', 'properties' => ['email' => ['type' => 'string', 'nullable' => true]]],
+                        ],
+                    ]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'Missing specialists.manage'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
                 ],
             ],
         ],

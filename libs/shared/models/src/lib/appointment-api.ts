@@ -392,7 +392,19 @@ export interface SpecialistDto {
 export interface UpdateSpecialistParams {
   email?: string | null;
   consultation_fee?: string;
+  /**
+   * Only '' / null (clear — the stored upload is deleted) or the current value
+   * unchanged; anything else, links included, is refused (422). Upload with
+   * `SpecialistsApi.uploadPhoto()`, remove with `SpecialistsApi.removePhoto()`.
+   */
   photo_url?: string | null;
+  /**
+   * Onboarding only: an active label from the specialty reference list
+   * (`ReferenceApi.publicList('specialty')`), else 422 "Choose a specialty
+   * from the list". Once the doctor is approved only the current value is
+   * accepted (a no-op) — a change goes through the doctor's change request.
+   */
+  specialty?: string;
   available?: boolean;
   verified?: boolean;
 }
@@ -408,6 +420,10 @@ export interface CreateSpecialistParams {
   location?: string;
   years_experience?: number | string;
   gender?: 'male' | 'female' | '';
+  /**
+   * @deprecated Refused unless empty (422): create the specialist, then upload
+   * the photo with `SpecialistsApi.uploadPhoto(id, file)`.
+   */
   photo_url?: string;
   available?: boolean;
   verified?: boolean;

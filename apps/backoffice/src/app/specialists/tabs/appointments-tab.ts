@@ -18,16 +18,21 @@ import type { SpecialistAppointmentRowDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { appointmentBadge, AppointmentBadge, ATTENTION_BADGE } from '../../shared/appointment-status';
 import {
-  BTN_SECONDARY,
-  CARD,
-  dateTime,
-  FIELD,
-  FOCUS_RING,
-  LABEL,
-  money,
-  PILL,
-  plural,
-} from '../specialist-ui';
+  AVATAR_SM,
+  CARD_RAISED,
+  FILTER_CHIP,
+  FILTER_CHIP_OFF,
+  FILTER_CHIP_ON,
+  FILTER_CHIPS,
+  INLINE_ERROR,
+  LIST_CARD_EMPTY,
+  PANEL_STATE,
+  SEARCH_BOX,
+  SEARCH_CLEAR,
+  SEARCH_ICON,
+  SEARCH_INPUT,
+} from '../../shared/layout';
+import { BTN_SECONDARY, dateTime, FOCUS_RING, initials, money, PILL, plural } from '../specialist-ui';
 
 const VIEWS: readonly { key: string; label: string; status?: string }[] = [
   { key: 'all', label: 'All' },
@@ -59,24 +64,30 @@ const PAYMENT: Record<string, string> = {
   imports: [RouterLink, IconComponent],
   template: `
     <div class="flex flex-col gap-4">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div class="flex flex-wrap gap-2" role="group" aria-label="Appointment status">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="${FILTER_CHIPS}" role="group" aria-label="Appointment status">
           @for (v of views; track v.key) {
             <button
               type="button"
               [attr.aria-pressed]="view() === v.key"
-              class="inline-flex min-h-11 items-center gap-1.5 rounded-pill px-3.5 py-2 font-sans text-body-sm transition-colors ${FOCUS_RING}"
-              [class]="view() === v.key ? 'bg-cerulean text-white' : 'bg-white text-slate ring-1 ring-cloud hover:text-ink'"
+              class="${FILTER_CHIP}"
+              [class]="view() === v.key ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'"
               (click)="setView(v.key)"
             >
               @if (view() === v.key) { <sd-icon name="check" [size]="14" /> }{{ v.label }}
             </button>
           }
         </div>
-        <label class="flex flex-col gap-1.5 sm:w-64">
-          <span class="${LABEL}">Patient name</span>
-          <input type="search" class="${FIELD} min-h-11" placeholder="Search patients" [value]="search()" (input)="onSearch($any($event.target).value)" />
-        </label>
+        <div role="search" class="w-full lg:max-w-xs">
+          <label for="bo-sp-appt-search" class="sr-only">Search by patient name</label>
+          <div class="${SEARCH_BOX}">
+            <sd-icon name="search" [size]="20" class="${SEARCH_ICON}" />
+            <input id="bo-sp-appt-search" type="search" autocomplete="off" class="${SEARCH_INPUT}" placeholder="Search by patient name…" [value]="search()" (input)="onSearch($any($event.target).value)" (keydown.escape)="search() && onSearch('')" />
+            @if (search()) {
+              <button type="button" class="${SEARCH_CLEAR}" aria-label="Clear search" (click)="onSearch('')"><sd-icon name="x" [size]="16" /></button>
+            }
+          </div>
+        </div>
       </div>
 
       <p class="font-sans text-body-sm text-slate" aria-live="polite">
@@ -84,7 +95,7 @@ const PAYMENT: Record<string, string> = {
       </p>
 
       @if (error() && items().length === 0) {
-        <div class="flex flex-col items-center gap-3 ${CARD} px-5 py-10 text-center">
+        <div class="${PANEL_STATE}">
           <sd-icon name="wifi-off" [size]="28" class="text-alert" />
           <p class="font-sans text-body-sm text-slate" role="alert">{{ error() }}</p>
           <button type="button" class="${BTN_SECONDARY}" (click)="reload()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
@@ -92,9 +103,11 @@ const PAYMENT: Record<string, string> = {
       } @else if (loading() && items().length === 0) {
         <div class="sd-shimmer h-48 rounded-card" aria-hidden="true"></div>
       } @else {
-        <ul class="flex flex-col divide-y divide-cloud ${CARD}">
+        <ul class="flex flex-col divide-y divide-cloud ${CARD_RAISED}">
           @for (a of items(); track a.id) {
-            <li class="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <li class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div class="flex min-w-0 items-center gap-3">
+              <span class="${AVATAR_SM}" aria-hidden="true">{{ initials(a.patient_name || 'Patient') }}</span>
               <div class="flex min-w-0 flex-col gap-0.5">
                 @if (canOpen()) {
                   <a [routerLink]="['/appointments', a.id]" class="inline-flex min-h-11 w-fit items-center font-sans text-body-sm font-semibold text-ink hover:text-cerulean ${FOCUS_RING} sm:min-h-0">{{ a.patient_name || 'Patient' }}</a>
@@ -102,6 +115,7 @@ const PAYMENT: Record<string, string> = {
                   <span class="font-sans text-body-sm font-semibold text-ink">{{ a.patient_name || 'Patient' }}</span>
                 }
                 <span class="font-sans text-caption text-slate">{{ when(a.scheduled_at) }} · {{ a.type_label }}{{ a.parent_appointment_id ? ' · follow-up' : '' }}</span>
+              </div>
               </div>
               <div class="flex flex-wrap items-center gap-2 sm:justify-end">
                 <span class="font-sans text-caption text-slate">{{ money(a.amount) }}{{ a.payment_status ? ' · ' + paymentLabel(a.payment_status) : '' }}</span>
@@ -117,11 +131,11 @@ const PAYMENT: Record<string, string> = {
               </div>
             </li>
           } @empty {
-            <li class="px-5 py-10 text-center font-sans text-body-sm text-slate">No appointments here.</li>
+            <li class="${LIST_CARD_EMPTY}"><sd-icon name="calendar-off" [size]="28" class="text-slate" /><p class="font-sans text-body-sm text-slate">No appointments here.</p></li>
           }
         </ul>
         @if (error()) {
-          <p class="text-center font-sans text-caption text-alert" role="alert">{{ error() }}</p>
+          <p class="${INLINE_ERROR} mx-auto w-fit" role="alert"><sd-icon name="circle-alert" [size]="16" class="shrink-0" />{{ error() }}</p>
         }
         @if (hasMore()) {
           <button type="button" class="${BTN_SECONDARY} mx-auto" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
@@ -205,6 +219,9 @@ export class SpecialistAppointmentsTab {
         },
       });
   }
+
+  /** The patient's initials for the row avatar. */
+  protected readonly initials = initials;
 
   /** The server's display label (Missed, Not confirmed, Being finalised…) and its staff-worded detail. */
   protected readonly attention = ATTENTION_BADGE;

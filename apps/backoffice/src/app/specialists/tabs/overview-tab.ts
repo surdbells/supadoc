@@ -1,17 +1,21 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   input,
   output,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { tap, type Subscription } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
 import { apiErrorFields, apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type {
@@ -19,23 +23,35 @@ import type {
   DoctorInviteResultDto,
   SpecialistDetailDto,
 } from '@supadoc/models';
-import { AlertComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { AlertComponent, DialogService, IconComponent, SearchSelectComponent, type LeaveCopy } from '@supadoc/ui';
+import { labelKey } from '../../reference-data/reference-list';
+import { afterDialogCloses, focusIfLost } from '../../shared/after-dialog';
+import { PhotoPicker, photoErrorText, photoUploadStep } from '../photo-picker';
+import { SearchSelectA11y } from '../select-a11y';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
   BTN_GHOST,
-  CARD,
   FIELD,
   FIELD_INVALID,
   LABEL,
   loginBadge,
   PILL,
 } from '../specialist-ui';
+import { isActiveSpecialty, SpecialtyChoices, specialtyField } from '../specialty-choices';
+import { FORM_ACTIONS, SECTION, SECTION_SM, SECTION_SUBTITLE, SECTION_TITLE } from '../../shared/layout';
+
+/**
+ * The PATCH body with `specialty` — the API takes it while the doctor is
+ * still onboarding (an active item of the specialty list; 422 otherwise).
+ */
+type OverviewPatch = AdminSpecialistUpdate & { specialty?: string };
 
 interface Form {
+  /** Editable only until approval (then it changes through the doctor's own request). */
+  specialty: string;
   email: string;
   consultation_fee: string;
-  photo_url: string;
   available: boolean;
   bio: string;
   location: string;
@@ -50,15 +66,27 @@ interface Form {
 
 type FormKey = keyof Form;
 
+/** Unchanged? The specialty as the API compares it (case and spacing aside); the rest trimmed. */
+function same(k: FormKey, a: Form, b: Form): boolean {
+  if (k === 'specialty') return labelKey(a.specialty) === labelKey(b.specialty);
+  return String(a[k]).trim() === String(b[k]).trim();
+}
+
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "Leave without saving?" for unsaved profile edits (the doctor page's guard and tab switch). */
+export const PROFILE_LEAVE_COPY: LeaveCopy = {
+  title: 'Leave without saving the profile?',
+  message: "Your edits to this doctor's profile haven't been saved. If you leave now, they'll be lost.",
+};
 
 function toForm(d: SpecialistDetailDto): Form {
   const p = d.profile;
   const gender = (p.gender ?? '').toLowerCase();
   return {
+    specialty: p.specialty ?? '',
     email: p.email ?? '',
     consultation_fee: String(p.consultation_fee ?? ''),
-    photo_url: p.photo_url ?? '',
     available: !!p.available,
     bio: p.bio ?? '',
     location: p.location ?? '',
@@ -72,24 +100,95 @@ function toForm(d: SpecialistDetailDto): Form {
 }
 
 /**
- * The doctor page's Overview tab: the fields a reviewer may edit (contact,
- * fee, booking switch, public profile — every change audited before/after),
- * the identity fields that only change through a reviewed request (read-only
- * here), and the doctor's login with invite / resend.
+ * The doctor page's Overview tab: the doctor's photo (uploaded, replaced or
+ * removed on the spot — JPG / PNG / WebP up to 2 MB, audited), the fields a
+ * reviewer may edit (the specialty while the doctor is onboarding — picked
+ * from the Reference data list — contact, fee, booking switch, public
+ * profile; every change audited before/after), the identity fields that only
+ * change through a reviewed request (read-only here), and the doctor's login
+ * with invite / resend.
  */
 @Component({
   selector: 'bo-specialist-overview',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, AlertComponent],
+  imports: [RouterLink, IconComponent, AlertComponent, SearchSelectComponent, SearchSelectA11y, PhotoPicker],
   template: `
-    <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <form class="flex min-w-0 flex-col gap-5 ${CARD} p-4 sm:p-6" novalidate (submit)="$event.preventDefault(); save()" aria-labelledby="bo-ov-edit-title">
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div class="flex min-w-0 flex-col gap-6">
+      <!-- Photo: saved on its own, straight away (not part of "Save changes"). -->
+      <section #photoSection class="${SECTION}" aria-labelledby="bo-ov-photo-title">
         <div class="flex flex-col gap-1">
-          <h2 id="bo-ov-edit-title" class="font-heading text-body-lg font-semibold text-ink">Profile and booking</h2>
-          <p class="font-sans text-caption text-slate">Changes are saved to the doctor's public profile straight away and recorded in the audit log.</p>
+          <h2 id="bo-ov-photo-title" class="${SECTION_TITLE}"><sd-icon name="camera" [size]="20" class="text-cerulean" />Profile photo</h2>
+          <p class="${SECTION_SUBTITLE}">Shown on the doctor's public profile. A new photo replaces the old one straight away and is recorded in the audit log.</p>
+        </div>
+        <bo-photo-picker
+          [src]="photoPreview() ?? photoSrc()"
+          [name]="detail().profile.name"
+          [progress]="photoProgress()"
+          [error]="photoError()"
+          (picked)="uploadPhoto($event)"
+          (remove)="removePhoto()"
+        />
+        <div aria-live="polite">
+          @if (photoNotice(); as n) {
+            <sd-alert tone="success">{{ n }}</sd-alert>
+          }
+        </div>
+      </section>
+
+      <form class="${SECTION}" novalidate (submit)="$event.preventDefault(); save()" aria-labelledby="bo-ov-edit-title">
+        <div class="flex flex-col gap-1">
+          <h2 id="bo-ov-edit-title" class="${SECTION_TITLE}"><sd-icon name="user-round" [size]="20" class="text-cerulean" />Profile and booking</h2>
+          <p class="${SECTION_SUBTITLE}">Changes are saved to the doctor's public profile straight away and recorded in the audit log.</p>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2">
+        @if (!locked()) {
+          <!-- Specialty: from the Reference data list while the doctor is onboarding. -->
+          <div class="flex min-w-0 flex-col gap-1.5">
+            <span id="bo-ov-spec-label" class="${LABEL}">Specialty</span>
+            @switch (choices.state()) {
+              @case ('ready') {
+                <sd-search-select
+                  boSelectA11y="bo-ov-spec-label"
+                  [boSelectDescribedBy]="specialtyDescribedBy()"
+                  [options]="specialty().options"
+                  [value]="specialty().value"
+                  (valueChange)="set('specialty', $event)"
+                  [clearable]="false"
+                  placeholder="Choose a specialty"
+                  searchPlaceholder="Search specialties…"
+                  [error]="err('specialty')"
+                />
+                @if (err('specialty'); as e) { <span id="bo-ov-spec-err" class="sr-only">{{ e }}</span> }
+              }
+              @case ('loading') {
+                <div class="sd-shimmer h-12 rounded-field" aria-hidden="true"></div>
+                <span class="sr-only" role="status">Loading the specialty list…</span>
+              }
+              @default {
+                <input type="text" class="${FIELD}" [class]="err('specialty') ? '${FIELD_INVALID}' : ''" aria-labelledby="bo-ov-spec-label" [value]="form().specialty" (input)="set('specialty', $any($event.target).value)" placeholder="Cardiology" [attr.aria-invalid]="err('specialty') ? 'true' : null" [attr.aria-describedby]="specialtyDescribedBy()" />
+                @if (err('specialty'); as e) { <span id="bo-ov-spec-err" class="font-sans text-caption text-alert">{{ e }}</span> }
+              }
+            }
+            @if (choices.state() === 'failed') {
+              <span id="bo-ov-spec-hint" class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-slate">
+                The specialty list could not be loaded.
+                <button type="button" class="min-h-11 font-semibold text-cerulean hover:underline" (click)="choices.load()">Try again</button>
+              </span>
+            } @else if (specialtyNote(); as note) {
+              <span id="bo-ov-spec-hint" class="flex items-start gap-1.5 font-sans text-caption text-ink">
+                <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ note }}
+              </span>
+            } @else {
+              <span id="bo-ov-spec-hint" class="font-sans text-caption text-slate">
+                The doctor can also set it while onboarding; it locks once they are approved.
+                @if (canManageLists()) { The list is kept in <a routerLink="/reference-data" class="font-semibold text-cerulean hover:underline">Reference data</a>. }
+              </span>
+            }
+          </div>
+        }
+
+        <div class="grid items-start gap-4 sm:grid-cols-2">
           <label class="flex min-w-0 flex-col gap-1.5">
             <span class="${LABEL}">Contact email</span>
             <input type="email" class="${FIELD}" [class]="err('email') ? '${FIELD_INVALID}' : ''" [value]="form().email" (input)="set('email', $any($event.target).value)" placeholder="doctor@example.com" [attr.aria-invalid]="err('email') ? 'true' : null" [attr.aria-describedby]="err('email') ? 'bo-ov-email-err' : 'bo-ov-email-hint'" />
@@ -102,19 +201,6 @@ function toForm(d: SpecialistDetailDto): Form {
             @if (err('consultation_fee'); as e) { <span id="bo-ov-fee-err" class="font-sans text-caption text-alert">{{ e }}</span> }
           </label>
         </div>
-
-        <label class="flex min-w-0 flex-col gap-1.5">
-          <span class="${LABEL}">Photo URL</span>
-          <span class="flex items-center gap-3">
-            @if (photoSrc(); as src) {
-              <img [src]="src" alt="" class="size-11 shrink-0 rounded-full border border-cloud object-cover" />
-            } @else {
-              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-glacier text-slate" aria-hidden="true"><sd-icon name="user" [size]="20" /></span>
-            }
-            <input type="url" class="${FIELD}" [class]="err('photo_url') ? '${FIELD_INVALID}' : ''" [value]="form().photo_url" (input)="set('photo_url', $any($event.target).value)" placeholder="https://… or /uploads/…" [attr.aria-invalid]="err('photo_url') ? 'true' : null" [attr.aria-describedby]="err('photo_url') ? 'bo-ov-photo-err' : null" />
-          </span>
-          @if (err('photo_url'); as e) { <span id="bo-ov-photo-err" class="font-sans text-caption text-alert">{{ e }}</span> }
-        </label>
 
         <fieldset class="flex flex-col gap-2">
           <legend class="${LABEL} mb-1">Bookings</legend>
@@ -131,7 +217,7 @@ function toForm(d: SpecialistDetailDto): Form {
           </label>
         </fieldset>
 
-        <div class="grid gap-4 sm:grid-cols-2">
+        <div class="grid items-start gap-4 sm:grid-cols-2">
           <label class="flex min-w-0 flex-col gap-1.5">
             <span class="${LABEL}">Location</span>
             <input type="text" class="${FIELD}" [class]="err('location') ? '${FIELD_INVALID}' : ''" [value]="form().location" (input)="set('location', $any($event.target).value)" placeholder="Lagos" [attr.aria-invalid]="err('location') ? 'true' : null" />
@@ -179,7 +265,7 @@ function toForm(d: SpecialistDetailDto): Form {
           }
         </div>
 
-        <div class="flex flex-col-reverse gap-2 border-t border-cloud pt-4 sm:flex-row sm:justify-end">
+        <div class="${FORM_ACTIONS} border-t border-cloud pt-5">
           @if (dirty()) {
             <button type="button" class="${BTN_GHOST}" [disabled]="saving()" (click)="discard()"><sd-icon name="undo-2" [size]="18" />Undo changes</button>
           }
@@ -188,11 +274,12 @@ function toForm(d: SpecialistDetailDto): Form {
           </button>
         </div>
       </form>
+      </div>
 
-      <div class="flex min-w-0 flex-col gap-5">
+      <div class="flex min-w-0 flex-col gap-6">
         <!-- Login -->
-        <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-5" aria-labelledby="bo-ov-login-title">
-          <h2 id="bo-ov-login-title" class="font-heading text-body-lg font-semibold text-ink">Login</h2>
+        <section class="${SECTION_SM}" aria-labelledby="bo-ov-login-title">
+          <h2 id="bo-ov-login-title" class="${SECTION_TITLE}"><sd-icon name="user-check" [size]="20" class="text-cerulean" />Login</h2>
           <span class="${PILL} w-fit" [class]="login().cls"><sd-icon [name]="login().icon" [size]="13" />{{ login().label }}</span>
           @if (detail().login; as l) {
             <p class="break-all font-sans text-body-sm text-ink">{{ l.email }}</p>
@@ -207,7 +294,7 @@ function toForm(d: SpecialistDetailDto): Form {
           }
           <div aria-live="polite">
             @if (inviteResult(); as r) {
-              <div class="flex flex-col gap-1 rounded-field bg-sage/10 px-3 py-2 font-sans text-caption text-ink">
+              <div class="flex flex-col gap-1 rounded-field bg-sage/10 px-4 py-3 font-sans text-caption text-ink">
                 <span>{{ r.email_sent ? 'Invite sent to ' + (r.login?.email ?? detail().profile.email) + '. The link expires in 7 days.' : 'The invite link was created, but the email could not be sent. Try "Resend invite" shortly.' }}</span>
                 @if (r.dev_link) {
                   <span class="break-all text-slate">Testing only — set-password link: <span class="select-all font-mono text-ink">{{ r.dev_link }}</span></span>
@@ -226,17 +313,22 @@ function toForm(d: SpecialistDetailDto): Form {
         </section>
 
         <!-- Identity (reviewed) -->
-        <section class="flex flex-col gap-3 ${CARD} p-4 sm:p-5" aria-labelledby="bo-ov-identity-title">
-          <div class="flex items-center gap-2">
-            <sd-icon name="lock" [size]="16" class="text-slate" />
-            <h2 id="bo-ov-identity-title" class="font-heading text-body-lg font-semibold text-ink">Identity</h2>
-          </div>
+        <section class="${SECTION_SM}" aria-labelledby="bo-ov-identity-title">
+          <h2 id="bo-ov-identity-title" class="${SECTION_TITLE}"><sd-icon name="lock" [size]="20" class="text-cerulean" />Identity</h2>
           <p class="font-sans text-caption text-slate">
             {{ locked() ? 'Locked since approval: the doctor requests changes, and a reviewer approves them on the Review tab.' : 'The doctor fills these in during onboarding.' }}
           </p>
           <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 font-sans text-body-sm">
             <dt class="text-slate">Name</dt><dd class="break-words text-ink">{{ detail().profile.name }}</dd>
-            <dt class="text-slate">Speciality</dt><dd class="break-words text-ink">{{ detail().profile.specialty }}</dd>
+            <dt class="text-slate">Specialty</dt>
+            <dd class="break-words text-ink">
+              {{ detail().profile.specialty }}
+              @if (savedSpecialty().currentInactive) {
+                <span class="block text-caption text-slate">Switched off in the list — kept until it is changed.</span>
+              } @else if (savedSpecialty().currentUnlisted) {
+                <span class="block text-caption text-slate">Not on the specialty list — kept until it is changed.</span>
+              }
+            </dd>
             <dt class="text-slate">MDCN no.</dt><dd class="break-all text-ink">{{ detail().profile.mdcn_number || '—' }}</dd>
             <dt class="text-slate">Phone</dt><dd class="break-all text-ink">{{ detail().profile.phone || '—' }}</dd>
             <dt class="text-slate">Signature</dt><dd class="text-ink">{{ detail().profile.has_signature ? 'Saved' : 'Not saved' }}</dd>
@@ -256,9 +348,42 @@ export class SpecialistOverviewTab {
   private readonly auth = inject(StaffAuthService);
   private readonly dialogs = inject(DialogService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly doc = inject(DOCUMENT);
+  protected readonly choices = inject(SpecialtyChoices);
 
   readonly detail = input.required<SpecialistDetailDto>();
   readonly updated = output<Partial<SpecialistDetailDto>>();
+
+  // ----- Photo (uploaded / removed on its own) -----
+  /** 0–100 while a photo uploads; null when idle. */
+  protected readonly photoProgress = signal<number | null>(null);
+  protected readonly photoError = signal('');
+  protected readonly photoNotice = signal('');
+  /** The picked file, shown while it uploads (an object URL). */
+  protected readonly photoPreview = signal<string | null>(null);
+  private photoSub?: Subscription;
+  private readonly photoSection = viewChild<ElementRef<HTMLElement>>('photoSection');
+
+  /** The specialty dropdown for the value in the form. */
+  protected readonly specialty = computed(() => specialtyField(this.choices.items(), this.form().specialty));
+  /** …and for the saved value (the Identity card's "switched off" note). */
+  protected readonly savedSpecialty = computed(() =>
+    this.choices.state() === 'ready'
+      ? specialtyField(this.choices.items(), this.detail().profile.specialty)
+      : specialtyField([], ''),
+  );
+  protected readonly specialtyNote = computed(() => {
+    if (this.choices.state() !== 'ready') return '';
+    const f = this.specialty();
+    const v = f.value;
+    if (f.currentInactive) return `“${v}” has been switched off in the list. It stays until you choose another.`;
+    if (f.currentUnlisted) return `“${v}” isn't on the specialty list. It stays until you choose one from the list.`;
+    return '';
+  });
+  protected readonly specialtyDescribedBy = computed(() =>
+    [this.err('specialty') ? 'bo-ov-spec-err' : '', 'bo-ov-spec-hint'].filter(Boolean).join(' '),
+  );
+  protected readonly canManageLists = computed(() => this.auth.hasPermission('settings.manage'));
 
   /** The form as last saved (reset whenever the page's data changes). */
   private readonly saved = signal<Form | null>(null);
@@ -275,13 +400,13 @@ export class SpecialistOverviewTab {
   protected readonly login = computed(() => loginBadge(this.detail().login));
   protected readonly locked = computed(() => (this.detail().locked_fields ?? []).length > 0);
   protected readonly canManageStaff = computed(() => this.auth.hasPermission('staff.manage'));
-  protected readonly photoSrc = computed(() => this.api.assetUrl(this.form().photo_url?.trim() || null));
+  protected readonly photoSrc = computed(() => this.api.assetUrl(this.detail().profile.photo_url?.trim() || null));
 
   protected readonly dirty = computed(() => {
     const saved = this.saved();
     if (!saved) return false;
     const now = this.form();
-    return (Object.keys(saved) as FormKey[]).some((k) => String(now[k]).trim() !== String(saved[k]).trim());
+    return (Object.keys(saved) as FormKey[]).some((k) => !same(k, now, saved));
   });
 
   protected readonly hours = computed(() => {
@@ -305,6 +430,12 @@ export class SpecialistOverviewTab {
         this.form.set({ ...f });
       });
     });
+    // The specialty list (re-read, so a just-added item shows up).
+    this.choices.load();
+    this.destroyRef.onDestroy(() => {
+      this.photoSub?.unsubscribe();
+      this.setPreview(null);
+    });
   }
 
   protected err(key: string): string {
@@ -323,8 +454,35 @@ export class SpecialistOverviewTab {
     }
   }
 
-  /** For the doctor page's leave guard and tab switch: profile edits that aren't saved yet. */
+  /**
+   * For the doctor page's leave guard and tab switch: profile edits that
+   * aren't saved yet, or a photo still uploading (leaving destroys this tab,
+   * which aborts the upload).
+   */
   hasUnsavedChanges(): boolean {
+    return this.hasUnsavedEdits() || this.photoProgress() !== null;
+  }
+
+  /** The leave prompt's words for what would be lost. */
+  leaveCopy(): LeaveCopy {
+    const edits = this.hasUnsavedEdits();
+    if (this.photoProgress() === null) return PROFILE_LEAVE_COPY;
+    if (!edits) {
+      return {
+        title: 'Leave while the photo uploads?',
+        message: "The new photo is still uploading. If you leave now, the upload stops and the photo may not be saved.",
+        confirmLabel: 'Stop the upload and leave',
+        cancelLabel: 'Stay',
+      };
+    }
+    return {
+      title: 'Leave without saving the profile?',
+      message:
+        "Your edits to this doctor's profile haven't been saved, and the new photo is still uploading. If you leave now, the edits are lost and the photo may not be saved.",
+    };
+  }
+
+  private hasUnsavedEdits(): boolean {
     return this.dirty() && !this.saving();
   }
 
@@ -358,6 +516,14 @@ export class SpecialistOverviewTab {
     if (years !== '' && (!Number.isInteger(Number(years)) || Number(years) < 0 || Number(years) > 80)) {
       errors['years_experience'] = 'Enter a whole number of years (0–80).';
     }
+    const specialtyChanged = !this.locked() && !same('specialty', f, saved);
+    const specialty = f.specialty.trim();
+    if (specialtyChanged) {
+      if (specialty === '') errors['specialty'] = 'Choose a specialty.';
+      else if (this.choices.state() === 'ready' && !isActiveSpecialty(this.choices.items(), specialty)) {
+        errors['specialty'] = 'Choose a specialty from the list.';
+      }
+    }
     this.errors.set(errors);
     if (Object.keys(errors).length > 0) {
       this.noticeOk.set(false);
@@ -365,12 +531,13 @@ export class SpecialistOverviewTab {
       return;
     }
 
-    // Send only what changed, so the audit records exactly that.
-    const patch: AdminSpecialistUpdate = {};
-    const changed = (k: FormKey) => String(f[k]).trim() !== String(saved[k]).trim();
+    // Send only what changed, so the audit records exactly that. (The photo
+    // has its own upload / remove; `photo_url` is never sent from here.)
+    const patch: OverviewPatch = {};
+    const changed = (k: FormKey) => !same(k, f, saved);
+    if (specialtyChanged) patch.specialty = specialty;
     if (changed('email')) patch.email = email;
     if (changed('consultation_fee')) patch.consultation_fee = fee;
-    if (changed('photo_url')) patch.photo_url = f.photo_url.trim();
     if (changed('available')) patch.available = f.available;
     if (changed('bio')) patch.bio = f.bio.trim();
     if (changed('location')) patch.location = f.location.trim();
@@ -409,6 +576,77 @@ export class SpecialistOverviewTab {
           this.notice.set(apiErrorMessage(err, 'Could not save the changes.'));
         },
       });
+  }
+
+  // ----- Photo -----
+
+  /** Upload (or replace) the photo straight away — POST /specialists/{id}/photo, audited. */
+  protected uploadPhoto(file: File): void {
+    if (this.photoProgress() !== null) return;
+    const id = this.detail().profile.id;
+    this.photoError.set('');
+    this.photoNotice.set('');
+    this.setPreview(URL.createObjectURL(file));
+    this.photoProgress.set(0);
+    const hadPhoto = !!this.detail().profile.photo_url;
+    this.photoSub = this.api
+      .uploadPhoto(id, file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (event) => {
+          const step = photoUploadStep(event);
+          if (step.progress !== undefined) this.photoProgress.set(step.progress);
+          if (step.result) this.photoSaved(step.result.photo_url ?? null, hadPhoto ? 'Photo replaced.' : 'Photo added.');
+        },
+        error: (err: unknown) => {
+          this.photoProgress.set(null);
+          this.setPreview(null);
+          this.photoError.set(photoErrorText(err));
+        },
+        complete: () => {
+          this.photoProgress.set(null);
+          this.setPreview(null);
+        },
+      });
+  }
+
+  /** "Remove this photo?" — removed inside the dialog (spinner, inline error). */
+  protected async removePhoto(): Promise<void> {
+    if (this.photoProgress() !== null || !this.detail().profile.photo_url) return;
+    const id = this.detail().profile.id;
+    this.photoError.set('');
+    this.photoNotice.set('');
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'image-off',
+      title: 'Remove this photo?',
+      message: `${this.detail().profile.name}'s public profile shows their initials until a new photo is added. The removal is recorded in the audit log.`,
+      confirmLabel: 'Remove photo',
+      cancelLabel: 'Keep it',
+      action: () => this.api.removePhoto(id).pipe(tap((res) => this.photoSaved(res.data.photo_url ?? null, 'Photo removed.'))),
+      errorMessage: (err) => photoErrorText(err, 'Could not remove the photo.'),
+    });
+    // "Remove photo" is gone: put focus on the drop zone (the add-a-photo button).
+    if (confirmed) {
+      afterDialogCloses(() => focusIfLost(this.photoSection()?.nativeElement.querySelector<HTMLElement>('sd-file-drop button'), this.doc), this.doc);
+    }
+  }
+
+  /** The photo changed on the server: show it now, then re-read the page (its checklist counts the photo). */
+  private photoSaved(photoUrl: string | null, notice: string): void {
+    const d = this.detail();
+    this.photoNotice.set(notice);
+    this.updated.emit({ profile: { ...d.profile, photo_url: photoUrl } });
+    this.api
+      .detail(d.profile.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (res) => this.updated.emit(res.data), error: () => undefined });
+  }
+
+  private setPreview(url: string | null): void {
+    const old = this.photoPreview();
+    if (old) URL.revokeObjectURL(old);
+    this.photoPreview.set(url);
   }
 
   // ----- Login / invite -----
