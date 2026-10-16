@@ -74,7 +74,7 @@ export function termsParts(blocks: readonly TermsBlock[]): TermsPart[] {
         <div class="sd-shimmer h-[28rem] rounded-card" aria-hidden="true"></div>
         <span class="sr-only" role="status">Loading the practitioner terms…</span>
       } @else if (loadError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-5 py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
           <sd-button variant="outline" size="sm" (click)="load()"><sd-icon name="refresh-cw" [size]="16" />Try again</sd-button>
@@ -99,7 +99,7 @@ export function termsParts(blocks: readonly TermsBlock[]): TermsPart[] {
         </div>
 
         <article
-          class="flex max-h-[60vh] flex-col gap-3 overflow-y-auto rounded-card border border-cloud bg-white p-5 sm:p-6"
+          class="flex max-h-[60vh] flex-col gap-3 overflow-y-auto rounded-card border border-haze bg-white p-5 shadow-card sm:p-6"
           tabindex="0"
           [attr.aria-label]="'Practitioner terms, version ' + t.version"
         >
@@ -157,7 +157,7 @@ export function termsParts(blocks: readonly TermsBlock[]): TermsPart[] {
           </section>
         } @else if (justAccepted()) {
           <div class="flex flex-wrap gap-3">
-            <a [routerLink]="nextLink()" class="inline-flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">
+            <a [routerLink]="nextLink()" class="inline-flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none">
               {{ nextLabel() }}<sd-icon name="arrow-right" [size]="18" />
             </a>
           </div>

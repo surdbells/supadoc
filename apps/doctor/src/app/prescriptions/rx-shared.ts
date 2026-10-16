@@ -32,15 +32,15 @@ export const UNSAVED_RX_LEAVE: LeaveCopy = {
 
 /** Base field treatment (border colour comes from {@link RX_OK} / {@link RX_BAD}). */
 export const RX_FIELD =
-  'w-full rounded-field border bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-cloud/40 disabled:text-slate';
-export const RX_OK = 'border-cloud focus:border-cerulean focus:ring-cerulean/20';
+  'w-full rounded-field border bg-white px-4 py-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-cloud/40 disabled:text-slate';
+export const RX_OK = 'border-[#b8c6d4] focus:border-cerulean focus:ring-cerulean/20';
 export const RX_BAD = 'border-alert ring-2 ring-alert/20 focus:border-alert focus:ring-alert/30';
 
 /** Small bordered action button used in lists (View PDF, Download, …). */
 export const RX_ACTION =
-  'inline-flex items-center justify-center gap-1.5 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none';
 export const RX_ACTION_DANGER =
-  'inline-flex items-center justify-center gap-1.5 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-caption font-semibold text-alert transition-colors hover:border-alert disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-alert shadow-control transition hover:border-alert active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none';
 
 export interface RxStatusMeta {
   readonly label: string;
@@ -51,9 +51,9 @@ export interface RxStatusMeta {
 /** Every status has an icon AND text — never colour alone. */
 export const RX_STATUS: Record<PrescriptionStatus, RxStatusMeta> = {
   draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-frost/60 text-ocean' },
-  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
   expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /** Fallback labels (the API's option lists are preferred when loaded). */
@@ -179,7 +179,7 @@ export function withUnit(value: string, unit: string | null | undefined): string
   host: { class: 'inline-flex' },
   template: `
     <span
-      class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold"
+      class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20"
       [class]="meta().cls"
     >
       <sd-icon [name]="meta().icon" [size]="13" />

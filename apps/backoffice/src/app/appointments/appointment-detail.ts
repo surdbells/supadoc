@@ -96,7 +96,7 @@ const PAYMENT_LABEL: Record<string, string> = {
         <section class="${SECTION}" aria-labelledby="bo-appt-title">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex min-w-0 flex-1 items-start gap-4">
-            <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg text-cerulean" aria-hidden="true">{{ initials(a.specialist.name) }}</span>
+            <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg text-cerulean-dark ring-2 ring-white shadow-control" aria-hidden="true">{{ initials(a.specialist.name) }}</span>
             <div class="flex min-w-0 flex-col gap-1.5">
               <h2 id="bo-appt-title" class="${DETAIL_NAME}">{{ a.specialist.name }}</h2>
               @if (a.specialist.specialty) {

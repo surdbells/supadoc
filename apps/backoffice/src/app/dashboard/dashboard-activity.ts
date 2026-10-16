@@ -58,7 +58,7 @@ const ACT_ROW_STATIC = 'flex min-h-11 items-start gap-3 px-5 py-3.5';
     </section>
 
     <ng-template #row let-r>
-      <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean" aria-hidden="true">
+      <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark" aria-hidden="true">
         <sd-icon [name]="r.icon" [size]="16" />
       </span>
       <span class="flex min-w-0 flex-1 flex-col">

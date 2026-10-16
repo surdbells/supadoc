@@ -11,7 +11,11 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { apiErrorMessage, AppointmentsApi } from '@supadoc/data-access';
 import type { AppointmentDisplayStatus, AppointmentDto } from '@supadoc/models';
-import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  EmptyStateComponent,
+  IconComponent,
+} from '@supadoc/ui';
 import { detailsLink, StatusBadge, statusBadge } from './appointment-status';
 import { isUntakenProposal } from './follow-up';
 
@@ -69,7 +73,9 @@ const PAGE_SIZE = 50;
  * a proposal was never a consultation: it shows on its visit's History page.
  */
 function consultationsOf(list: readonly AppointmentDto[]): Consultation[] {
-  return list.filter((a) => a.status !== 'proposed' && !isUntakenProposal(a)).map(toConsultation);
+  return list
+    .filter((a) => a.status !== 'proposed' && !isUntakenProposal(a))
+    .map(toConsultation);
 }
 
 function toConsultation(a: AppointmentDto): Consultation {
@@ -122,12 +128,12 @@ function toConsultation(a: AppointmentDto): Consultation {
       <!-- Consultation History › Consultations | Prescriptions -->
       <nav
         aria-label="Consultation history sections"
-        class="flex w-full items-center gap-1 rounded-pill border border-cloud bg-white p-1 sm:w-fit"
+        class="flex w-full items-center gap-1 rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit"
       >
         <a
           routerLink="/dashboard/history"
           aria-current="page"
-          class="flex flex-1 items-center justify-center gap-2 rounded-pill bg-cerulean px-4 py-2 font-sans text-body-sm font-medium text-white sm:flex-none"
+          class="flex flex-1 items-center justify-center gap-2 rounded-pill bg-cerulean px-4 py-2 font-sans text-body-sm font-medium text-white shadow-control inset-shadow-rim sm:flex-none"
         >
           <sd-icon name="history" [size]="16" />
           Consultations
@@ -143,7 +149,7 @@ function toConsultation(a: AppointmentDto): Consultation {
 
       <!-- Filters -->
       <div
-        class="flex items-center gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-2"
+        class="flex items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-2 shadow-bar"
         role="group"
         aria-label="Filter consultations"
       >
@@ -153,7 +159,7 @@ function toConsultation(a: AppointmentDto): Consultation {
             class="shrink-0 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
             [class]="
               activeTab() === t.key
-                ? 'bg-frost font-medium text-cerulean'
+                ? 'bg-frost font-medium text-cerulean-dark shadow-control'
                 : 'text-slate hover:text-ink'
             "
             [attr.aria-pressed]="activeTab() === t.key"
@@ -169,7 +175,7 @@ function toConsultation(a: AppointmentDto): Consultation {
           <div class="flex flex-col gap-4">
             @for (n of [1, 2, 3]; track n) {
               <div
-                class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4"
+                class="flex items-center gap-4 rounded-card border border-haze bg-white p-4 shadow-card"
               >
                 <div class="sd-shimmer size-14 shrink-0 rounded-full"></div>
                 <div class="flex flex-1 flex-col gap-2">
@@ -187,7 +193,9 @@ function toConsultation(a: AppointmentDto): Consultation {
             title="Unable to load history"
             [message]="loadError() || loadErrorFallback"
           >
-            <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
+            <sd-button variant="outline" (click)="reload()"
+              >Try Again</sd-button
+            >
           </sd-empty-state>
         }
         @case ('empty') {
@@ -210,22 +218,26 @@ function toConsultation(a: AppointmentDto): Consultation {
         @default {
           <div class="flex flex-col gap-4">
             @if (filtered().length === 0) {
-              <p class="rounded-card border border-cloud bg-white p-6 text-center font-sans text-body-sm text-slate">
+              <p
+                class="rounded-card border border-haze bg-white p-6 text-center font-sans text-body-sm text-slate shadow-card"
+              >
                 {{ emptyTabText() }}
               </p>
             }
             @for (c of filtered(); track c.id) {
               <button
                 type="button"
-                class="sd-card-hover flex items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/50"
+                class="sd-card-hover flex items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card hover:border-cerulean/50"
                 (click)="open(c)"
               >
                 <span
-                  class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg font-semibold text-cerulean"
+                  class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg font-semibold text-cerulean-dark"
                   >{{ initials(c.name) }}</span
                 >
                 <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate font-sans text-body font-semibold text-ink">
+                  <p
+                    class="truncate font-sans text-body font-semibold text-ink"
+                  >
                     {{ c.name }}
                   </p>
                   <p class="truncate font-sans text-caption text-slate">
@@ -241,13 +253,17 @@ function toConsultation(a: AppointmentDto): Consultation {
                       <sd-icon name="calendar-days" [size]="14" />{{ c.date }}
                     </span>
                     <span
-                      class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
+                      class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium inset-ring inset-ring-current/20"
                       [class]="c.badge.class"
-                      ><sd-icon [name]="c.badge.icon" [size]="12" />{{ c.badge.label }}</span
+                      ><sd-icon [name]="c.badge.icon" [size]="12" />{{
+                        c.badge.label
+                      }}</span
                     >
                   </div>
                   @if (c.badge.detail) {
-                    <p class="mt-1 font-sans text-caption text-slate md:hidden">{{ c.badge.detail }}</p>
+                    <p class="mt-1 font-sans text-caption text-slate md:hidden">
+                      {{ c.badge.detail }}
+                    </p>
                   }
                 </div>
                 <div
@@ -267,12 +283,17 @@ function toConsultation(a: AppointmentDto): Consultation {
                     <sd-icon [name]="c.typeIcon" [size]="16" />{{ c.typeLabel }}
                   </span>
                   <span
-                    class="inline-flex items-center gap-1.5 rounded-lg px-4 py-1 font-sans text-caption font-medium"
+                    class="inline-flex items-center gap-1.5 rounded-lg px-4 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/20"
                     [class]="c.badge.class"
-                    ><sd-icon [name]="c.badge.icon" [size]="14" />{{ c.badge.label }}</span
+                    ><sd-icon [name]="c.badge.icon" [size]="14" />{{
+                      c.badge.label
+                    }}</span
                   >
                   @if (c.badge.detail) {
-                    <span class="max-w-[12rem] font-sans text-caption text-slate">{{ c.badge.detail }}</span>
+                    <span
+                      class="max-w-[12rem] font-sans text-caption text-slate"
+                      >{{ c.badge.detail }}</span
+                    >
                   }
                 </div>
                 <sd-icon
@@ -290,13 +311,22 @@ function toConsultation(a: AppointmentDto): Consultation {
                 (click)="loadMore()"
               >
                 @if (loadingMore()) {
-                  <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
+                  <sd-icon
+                    name="loader-circle"
+                    [size]="18"
+                    class="animate-spin"
+                  />
                 }
                 {{ loadingMore() ? 'Loading…' : 'Show older consultations' }}
               </sd-button>
             }
             @if (moreError()) {
-              <p class="text-center font-sans text-caption text-alert" role="alert">{{ moreError() }}</p>
+              <p
+                class="text-center font-sans text-caption text-alert"
+                role="alert"
+              >
+                {{ moreError() }}
+              </p>
             }
           </div>
         }
@@ -346,14 +376,16 @@ export class History {
   }
 
   protected initials(name: string): string {
-    return (name ?? '')
-      .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join('')
-      .toUpperCase() || '?';
+    return (
+      (name ?? '')
+        .replace(/^(dr|prof|mr|mrs|ms)\.?\s+/i, '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0])
+        .join('')
+        .toUpperCase() || '?'
+    );
   }
 
   /** Booking starts at the specialist directory (same as the dashboard CTA). */
@@ -379,7 +411,8 @@ export class History {
   >(() => {
     if (this.view() === 'error' || this.loadError()) return 'error';
     // Still paging past untaken proposals for a first consultation to show.
-    if (this.loading() || (this.all().length === 0 && this.loadingMore())) return 'loading';
+    if (this.loading() || (this.all().length === 0 && this.loadingMore()))
+      return 'loading';
     if (this.view() === 'empty' || this.all().length === 0) return 'empty';
     return 'list';
   });
@@ -422,14 +455,24 @@ export class History {
           this.totalPages.set(res.meta?.total_pages ?? next);
           // A visit that ended meanwhile shifts the pages by one: never list it twice.
           const seen = new Set(this.all().map((c) => c.id));
-          this.all.update((list) => [...list, ...consultationsOf(res.data.filter((a) => !seen.has(a.id)))]);
+          this.all.update((list) => [
+            ...list,
+            ...consultationsOf(res.data.filter((a) => !seen.has(a.id))),
+          ]);
           this.loadingMore.set(false);
           if (this.all().length === 0 && this.hasMore()) this.loadMore();
         },
         error: (err: unknown) => {
           // Nothing listed yet: the whole page failed, not just the older ones.
-          if (this.all().length === 0) this.loadError.set(apiErrorMessage(err, this.loadErrorFallback));
-          else this.moreError.set(apiErrorMessage(err, 'Could not load older consultations. Please try again.'));
+          if (this.all().length === 0)
+            this.loadError.set(apiErrorMessage(err, this.loadErrorFallback));
+          else
+            this.moreError.set(
+              apiErrorMessage(
+                err,
+                'Could not load older consultations. Please try again.',
+              ),
+            );
           this.loadingMore.set(false);
         },
       });

@@ -59,7 +59,7 @@ const TITLES: Record<string, string> = {
           </span>
           <span
             class="rounded-[12px] px-4 py-1.5 font-sans text-body-sm"
-            [class]="credit() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'"
+            [class]="credit() ? 'bg-sage/10 text-sage-ink' : 'bg-alert/10 text-alert-ink'"
           >
             {{ t.label }}
           </span>

@@ -39,10 +39,10 @@ interface Channel {
           <a
             [routerLink]="c.link ?? null"
             [href]="c.href ?? null"
-            class="flex items-center gap-4 rounded-card border border-cloud bg-white p-5 transition-colors hover:border-cerulean/50"
+            class="flex items-center gap-4 rounded-card border border-haze bg-white p-5 shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover"
           >
             <span
-              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean"
+              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark"
             >
               <sd-icon [name]="c.icon" [size]="22" />
             </span>

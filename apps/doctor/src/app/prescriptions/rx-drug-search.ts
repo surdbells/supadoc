@@ -46,7 +46,7 @@ export interface RxChosenDrug {
           <span class="break-words font-sans text-body-sm font-semibold text-ink">{{ c.name }}</span>
           <span class="flex flex-wrap items-center gap-1.5 font-sans text-caption text-slate">
             @if (c.branded) {
-              <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink">Brand</span>
+              <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink inset-ring inset-ring-current/15">Brand</span>
             }
             @if (c.dose_form) {
               <span>{{ c.dose_form }}</span>
@@ -98,7 +98,7 @@ export interface RxChosenDrug {
         />
         @if (showList()) {
           <div
-            class="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-card border border-cloud bg-white shadow-[0_12px_32px_rgba(10,22,40,0.12)]"
+            class="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-card border border-haze bg-white shadow-overlay"
             (mousedown)="$event.preventDefault()"
           >
             @if (error()) {
@@ -140,7 +140,7 @@ export interface RxChosenDrug {
                   <span class="block font-sans text-body-sm text-ink">{{ d.name }}</span>
                   <span class="mt-0.5 flex flex-wrap items-center gap-1.5 font-sans text-caption text-slate">
                     @if (d.branded) {
-                      <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink">Brand</span>
+                      <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink inset-ring inset-ring-current/15">Brand</span>
                     }
                     @if (d.dose_form) {
                       <span>{{ d.dose_form }}</span>

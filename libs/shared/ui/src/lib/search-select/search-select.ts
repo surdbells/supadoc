@@ -53,11 +53,7 @@ interface Option {
   ],
   template: `
     <div class="relative">
-      <button
-        type="button"
-        [class]="triggerClass()"
-        (click)="toggle()"
-      >
+      <button type="button" [class]="triggerClass()" (click)="toggle()">
         @if (icon()) {
           <sd-icon [name]="icon()!" [size]="16" class="shrink-0 text-slate" />
         }
@@ -86,7 +82,7 @@ interface Option {
         ></button>
 
         <div
-          class="sd-menu absolute left-0 right-0 z-30 mt-2 min-w-[200px] overflow-hidden rounded-card border border-cloud bg-white shadow-[0_12px_32px_rgba(10,22,40,0.12)] ring-1 ring-black/5"
+          class="sd-menu absolute left-0 right-0 z-30 mt-2 min-w-[200px] overflow-hidden rounded-card border border-haze bg-white shadow-overlay"
         >
           <div class="flex items-center gap-2 border-b border-cloud px-3 py-2">
             <sd-icon name="search" [size]="16" class="shrink-0 text-slate" />
@@ -163,20 +159,22 @@ export class SearchSelectComponent {
   protected readonly triggerClass = computed(() => {
     const size =
       this.size() === 'lg' ? 'px-4 py-4 text-body' : 'px-4 py-2.5 text-body-sm';
+    // `shadow-control` sits on the resting states (not the base) because a
+    // named shadow utility sorts after an arbitrary one and would hide the
+    // open-state focus glow.
     const state = this.error()
-      ? 'border-alert ring-2 ring-alert/20'
+      ? 'border-alert ring-2 ring-alert/20 shadow-control'
       : this.open()
         ? 'border-cerulean ring-2 ring-cerulean/20 shadow-[0_2px_10px_rgba(21,101,192,0.08)]'
-        : 'border-cloud hover:border-slate/40';
+        : 'border-[#b8c6d4] hover:border-slate/50 shadow-control';
     return (
       'flex w-full items-center gap-2 rounded-field border bg-white font-sans ' +
-      'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
+      'transition-all duration-200 ' +
       `${size} ${state}`
     );
   });
   protected readonly filter = signal('');
-  private readonly searchInput =
-    viewChild<ElementRef<HTMLInputElement>>('q');
+  private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('q');
 
   private readonly normalized = computed<Option[]>(() =>
     this.options().map((o) =>

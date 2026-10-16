@@ -70,7 +70,7 @@ const PROBE_DAYS = 3;
   host: { class: 'block' },
   template: `
     <section
-      class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6"
+      class="flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card sm:p-6"
       [attr.aria-labelledby]="headingId"
     >
       <div class="flex flex-col gap-1">
@@ -102,7 +102,7 @@ const PROBE_DAYS = 3;
         } @else if (next(); as n) {
           <button
             type="button"
-            class="inline-flex min-h-11 items-center gap-2 rounded-pill border border-cerulean bg-frost/40 px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:bg-frost/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+            class="inline-flex min-h-11 items-center gap-2 rounded-pill border border-cerulean bg-frost/40 px-4 font-sans text-body-sm font-semibold text-cerulean-dark transition-colors hover:bg-frost/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
             (click)="tryDay.emit(n.date)"
           >
             <sd-icon name="calendar-check" [size]="16" />

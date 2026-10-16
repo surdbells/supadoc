@@ -76,8 +76,8 @@ export class EmptyStateComponent {
     () =>
       ({
         neutral: 'bg-glacier text-slate ring-cloud/25',
-        brand: 'bg-frost/60 text-cerulean ring-frost/30',
-        error: 'bg-alert/10 text-alert ring-alert/10',
+        brand: 'bg-frost/60 text-cerulean-dark ring-frost/30',
+        error: 'bg-alert/10 text-alert-ink ring-alert/10',
       })[this.tone()],
   );
 }

@@ -94,7 +94,7 @@ const PER_PAGE = 24;
         </div>
         <div class="flex items-center gap-3 lg:w-[560px]">
           <span
-            class="flex flex-1 items-center gap-2 rounded-field border border-cloud bg-white px-4 py-3"
+            class="flex flex-1 items-center gap-2 rounded-field border border-haze bg-white px-4 py-3 shadow-control hover:border-cerulean/30"
           >
             <sd-icon name="search" [size]="20" class="text-slate" />
             <input
@@ -108,11 +108,11 @@ const PER_PAGE = 24;
           </span>
           <button
             type="button"
-            class="relative flex size-12 shrink-0 items-center justify-center rounded-field border bg-white text-ink transition-colors hover:bg-glacier"
+            class="relative flex size-12 shrink-0 items-center justify-center rounded-field border bg-white shadow-control transition hover:bg-glacier active:shadow-none disabled:shadow-none"
             [class]="
               filtersOpen() || activeFilterCount() > 0
                 ? 'border-cerulean text-cerulean'
-                : 'border-cloud'
+                : 'border-haze text-ink'
             "
             [attr.aria-expanded]="filtersOpen()"
             aria-controls="specialist-filters"
@@ -134,7 +134,7 @@ const PER_PAGE = 24;
       @if (filtersOpen()) {
         <div
           id="specialist-filters"
-          class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-5"
+          class="flex flex-col gap-5 rounded-card border border-haze bg-white p-5 shadow-card"
         >
           <div class="flex flex-col gap-2">
             <span class="font-sans text-body-sm font-semibold text-ink"
@@ -146,8 +146,8 @@ const PER_PAGE = 24;
                 class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
                 [class]="
                   specialty() === ''
-                    ? 'border-cerulean bg-frost text-cerulean'
-                    : 'border-cloud text-slate hover:text-ink'
+                    ? 'border-cerulean bg-frost text-cerulean-dark shadow-control'
+                    : 'border-haze bg-white text-slate shadow-control hover:text-ink'
                 "
                 [attr.aria-pressed]="specialty() === ''"
                 (click)="specialty.set('')"
@@ -160,8 +160,8 @@ const PER_PAGE = 24;
                   class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
                   [class]="
                     specialty() === s
-                      ? 'border-cerulean bg-frost text-cerulean'
-                      : 'border-cloud text-slate hover:text-ink'
+                      ? 'border-cerulean bg-frost text-cerulean-dark shadow-control'
+                      : 'border-haze bg-white text-slate shadow-control hover:text-ink'
                   "
                   [attr.aria-pressed]="specialty() === s"
                   (click)="specialty.set(s)"
@@ -180,7 +180,7 @@ const PER_PAGE = 24;
               >Consultation type</span
             >
             <div
-              class="flex w-fit rounded-field border border-cloud bg-white p-1"
+              class="flex w-fit rounded-field border border-haze bg-glacier p-1"
             >
               @for (t of consultTypes; track t.value) {
                 <button
@@ -188,7 +188,7 @@ const PER_PAGE = 24;
                   class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
                   [class]="
                     mode() === t.value
-                      ? 'bg-frost font-medium text-cerulean'
+                      ? 'bg-frost font-medium text-cerulean-dark shadow-control'
                       : 'text-slate hover:text-ink'
                   "
                   [attr.aria-pressed]="mode() === t.value"

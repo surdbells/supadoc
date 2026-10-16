@@ -28,7 +28,7 @@ const MATCH_STATUS: Record<
     label: 'Valid — can be dispensed',
     icon: 'circle-check',
     card: 'border-success/40 bg-white',
-    badge: 'bg-success/10 text-success',
+    badge: 'bg-success/10 text-success-ink',
   },
   expired: {
     label: 'Expired — do not dispense',
@@ -40,7 +40,7 @@ const MATCH_STATUS: Record<
     label: 'Cancelled — do not dispense',
     icon: 'circle-x',
     card: 'border-alert/40 bg-white',
-    badge: 'bg-alert/10 text-alert',
+    badge: 'bg-alert/10 text-alert-ink',
   },
 };
 
@@ -117,7 +117,7 @@ function newDeviceId(): string {
     <main class="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5 sm:py-12">
       <div class="flex flex-col items-center gap-3 text-center">
         <span
-          class="flex size-14 items-center justify-center rounded-full bg-frost/60 text-cerulean"
+          class="flex size-14 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark"
           aria-hidden="true"
         >
           <sd-icon name="search-check" [size]="28" />
@@ -130,7 +130,7 @@ function newDeviceId(): string {
       </div>
 
       <form
-        class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-5 shadow-[0_4px_24px_rgba(10,22,40,0.06)] sm:p-6"
+        class="flex flex-col gap-5 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6"
         novalidate
         (submit)="submit($event)"
       >
@@ -369,7 +369,7 @@ export class CheckPrescription {
       : 'border-[#b8c6d4] hover:border-slate/50 focus:border-cerulean focus:ring-cerulean/20';
     return (
       'w-full rounded-field border bg-white px-4 py-3.5 font-sans text-body text-ink ' +
-      'placeholder:text-slate/60 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
+      'placeholder:text-slate/60 shadow-control transition-all duration-200 ' +
       'focus:outline-none focus:ring-2 ' +
       border
     );

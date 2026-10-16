@@ -84,9 +84,9 @@ interface SkippedFile {
 /** Every upload status reads as an icon AND a word — never colour alone. */
 const ATTACH_STATUS: Record<AttachStatus, { label: string; icon: string; cls: string }> = {
   queued: { label: 'Waiting', icon: 'clock', cls: 'bg-cloud text-slate' },
-  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean' },
-  done: { label: 'Attached', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
-  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean-dark' },
+  done: { label: 'Attached', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
+  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /** Accepted client-side (mirrors MedicalDocumentStorage, which files these). */
@@ -258,7 +258,7 @@ function daysApart(a: string, b: string): number {
           @if (quoteError()) {
             <button
               type="button"
-              class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-cloud bg-white px-4 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+              class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-haze bg-white px-4 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
               (click)="retryQuote()"
             >
               Try again
@@ -283,7 +283,7 @@ function daysApart(a: string, b: string): number {
           <a
             routerLink="/dashboard/specialists"
             [queryParams]="{ specialty: s.specialty }"
-            class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-field border border-cloud bg-white px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
           >
             Find another {{ s.specialty }} specialist <sd-icon name="arrow-right" [size]="16" />
           </a>
@@ -332,11 +332,11 @@ function daysApart(a: string, b: string): number {
         <!-- Step 1: date & time -->
         @if (step() === 1) {
           <div
-            class="rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
+            class="rounded-card border border-haze bg-white p-6 shadow-card"
           >
             <div class="flex flex-wrap items-start gap-4">
               <span
-                class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean"
+                class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean-dark"
                 >{{ initials() }}</span
               >
               <div class="flex min-w-0 flex-col gap-1">
@@ -399,7 +399,7 @@ function daysApart(a: string, b: string): number {
             </div>
           </div>
 
-          <div class="flex flex-col gap-4 rounded-card border border-cloud bg-white px-3 py-4 sm:p-6">
+          <div class="flex flex-col gap-4 rounded-card border border-haze bg-white px-3 py-4 shadow-card sm:p-6">
             <h2 class="font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
@@ -420,7 +420,7 @@ function daysApart(a: string, b: string): number {
                 @if (!doctorGone()) {
                   <button
                     type="button"
-                    class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-cloud bg-white px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                    class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                     (click)="cal.refresh()"
                   >
                     Try again
@@ -515,7 +515,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 2: consultation type -->
         @if (step() === 2) {
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="mb-4 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
@@ -527,7 +527,7 @@ function daysApart(a: string, b: string): number {
               class="flex w-full items-start gap-4 rounded-card border-2 border-cerulean bg-frost/30 p-5 text-left"
             >
               <span
-                class="flex size-11 shrink-0 items-center justify-center rounded-field bg-frost text-cerulean"
+                class="flex size-11 shrink-0 items-center justify-center rounded-field bg-frost text-cerulean-dark"
                 ><sd-icon name="video" [size]="22" /></span
               >
               <span class="flex flex-1 flex-col gap-1">
@@ -536,7 +536,7 @@ function daysApart(a: string, b: string): number {
                     >Online</span
                   >
                   <span
-                    class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage"
+                    class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage-ink"
                     >Recommended</span
                   >
                 </span>
@@ -547,7 +547,7 @@ function daysApart(a: string, b: string): number {
               <sd-icon name="circle-check" [size]="22" class="text-cerulean" />
             </button>
             <div
-              class="mt-4 flex w-full items-start gap-4 rounded-card border border-cloud bg-cloud/20 p-5 opacity-70"
+              class="mt-4 flex w-full items-start gap-4 rounded-card border border-cloud bg-cloud/20 p-5"
             >
               <span
                 class="flex size-11 shrink-0 items-center justify-center rounded-field bg-cloud text-slate"
@@ -559,7 +559,7 @@ function daysApart(a: string, b: string): number {
                     >In-person</span
                   >
                   <span
-                    class="rounded-pill bg-frost px-2.5 py-0.5 font-sans text-[10px] font-medium text-cerulean"
+                    class="rounded-pill bg-frost px-2.5 py-0.5 font-sans text-[10px] font-medium text-cerulean-dark"
                     >Coming soon</span
                   >
                 </span>
@@ -574,7 +574,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 3: reason -->
         @if (step() === 3) {
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="mb-4 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
@@ -598,7 +598,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 4: invite guests -->
         @if (step() === 4) {
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <div class="mb-1 flex items-center justify-between">
               <h2 class="font-heading text-h5 text-cerulean">
                 <span
@@ -697,7 +697,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 5: documents -->
         @if (step() === 5) {
-          <div class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+          <div class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
             <div class="flex items-center justify-between gap-3">
               <h2
                 #docsTitle
@@ -780,7 +780,7 @@ function daysApart(a: string, b: string): number {
                         </p>
                         <button
                           type="button"
-                          class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-cloud px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+                          class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                           [attr.aria-label]="'Retry ' + a.file.name"
                           (click)="retryAttachment(a.key)"
                         >
@@ -846,7 +846,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 6: summary -->
         @if (step() === 6) {
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="mb-5 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
@@ -855,7 +855,7 @@ function daysApart(a: string, b: string): number {
             </h2>
             <div class="flex items-center gap-4">
               <span
-                class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 text-cerulean"
+                class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 text-cerulean-dark"
                 >{{ initials() }}</span
               >
               <div class="flex flex-col">
@@ -983,7 +983,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 7: a free consultation books with no payment at all -->
         @if (step() === 7 && isFree()) {
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="mb-5 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"
@@ -1032,7 +1032,7 @@ function daysApart(a: string, b: string): number {
 
         <!-- Step 7: payment — card (Paystack) or wallet -->
         @if (step() === 7 && !isFree()) {
-          <div class="rounded-card border border-cloud bg-white p-6">
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="mb-5 font-heading text-h5 text-cerulean">
               <span
                 class="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-cerulean text-caption text-white"

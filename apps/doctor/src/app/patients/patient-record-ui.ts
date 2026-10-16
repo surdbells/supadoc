@@ -30,7 +30,7 @@ export interface BadgeMeta {
 
 /** Shared pill-badge base (matches `doc-rx-status-badge`). */
 const BADGE =
-  'inline-flex w-fit shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold';
+  'inline-flex w-fit shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20';
 
 // ----- Allergies -----
 
@@ -43,7 +43,7 @@ interface SeverityMeta extends BadgeMeta {
 
 const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
   'life-threatening': { label: 'Life-threatening', icon: 'shield-alert', cls: 'bg-alert text-white', rank: 0, serious: true },
-  severe: { label: 'Severe', icon: 'circle-alert', cls: 'bg-alert/10 text-alert', rank: 1, serious: true },
+  severe: { label: 'Severe', icon: 'circle-alert', cls: 'bg-alert/10 text-alert-ink', rank: 1, serious: true },
   moderate: { label: 'Moderate', icon: 'triangle-alert', cls: 'bg-warning/15 text-ink', rank: 2, serious: false },
   mild: { label: 'Mild', icon: 'info', cls: 'bg-cloud text-slate', rank: 3, serious: false },
   unknown: { label: 'Severity not known', icon: 'circle-help', cls: 'bg-cloud text-slate', rank: 4, serious: false },
@@ -83,8 +83,8 @@ export function sortAllergies(rows: readonly AllergyRow[]): AllergyRow[] {
 // ----- Conditions -----
 
 const CONDITION_STATUS: Record<string, BadgeMeta> = {
-  active: { label: 'Active', icon: 'activity', cls: 'bg-frost text-cerulean' },
-  managed: { label: 'Managed', icon: 'shield-check', cls: 'bg-sage/15 text-sage' },
+  active: { label: 'Active', icon: 'activity', cls: 'bg-frost text-cerulean-dark' },
+  managed: { label: 'Managed', icon: 'shield-check', cls: 'bg-sage/15 text-sage-ink' },
   resolved: { label: 'Resolved', icon: 'circle-check', cls: 'bg-cloud text-slate' },
 };
 
@@ -106,11 +106,11 @@ const VISIT_STATUS: Record<string, BadgeMeta> = {
   // A follow-up the doctor offered and the patient hasn't answered (the API says "Proposed").
   proposed: { label: 'Awaiting patient', icon: 'calendar-clock', cls: 'bg-warning/15 text-ink' },
   pending: { label: 'Pending', icon: 'hourglass', cls: 'bg-warning/15 text-ink' },
-  confirmed: { label: 'Confirmed', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  confirmed: { label: 'Confirmed', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
   rescheduled: { label: 'Rescheduled', icon: 'refresh-cw', cls: 'bg-cloud text-slate' },
-  completed: { label: 'Completed', icon: 'calendar-check', cls: 'bg-frost text-cerulean' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
-  missed: { label: 'Missed', icon: 'calendar-x', cls: 'bg-alert/10 text-alert' },
+  completed: { label: 'Completed', icon: 'calendar-check', cls: 'bg-frost text-cerulean-dark' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
+  missed: { label: 'Missed', icon: 'calendar-x', cls: 'bg-alert/10 text-alert-ink' },
   // The lifecycle's display statuses (`statusKey()`): a visit's place in time, not just its status.
   live: { label: 'In progress', icon: 'video', cls: 'bg-cerulean text-white' },
   finalising: { label: 'Being finalised', icon: 'hourglass', cls: 'bg-cloud text-ink' },
@@ -276,14 +276,14 @@ export class ConditionStatusBadge {
   imports: [IconComponent],
   host: { class: 'flex items-start gap-3' },
   template: `
-    <span class="flex size-9 shrink-0 items-center justify-center rounded-full" [class]="herbal() ? 'bg-sage/15 text-sage' : 'bg-frost text-cerulean'" aria-hidden="true">
+    <span class="flex size-9 shrink-0 items-center justify-center rounded-full" [class]="herbal() ? 'bg-sage/15 text-sage-ink' : 'bg-frost text-cerulean-dark'" aria-hidden="true">
       <sd-icon [name]="herbal() ? 'leaf' : 'pill'" [size]="16" />
     </span>
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span class="break-words font-sans text-body-sm font-semibold text-ink">{{ med().name }}</span>
         @if (herbal()) {
-          <span class="${BADGE} bg-sage/15 text-sage"><sd-icon name="leaf" [size]="12" />Herbal</span>
+          <span class="${BADGE} bg-sage/15 text-sage-ink"><sd-icon name="leaf" [size]="12" />Herbal</span>
         }
       </div>
       @if (doseLine()) {
@@ -314,7 +314,7 @@ export class MedicationItem {
   selector: 'doc-record-section',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
-  host: { class: 'flex min-w-0 flex-col overflow-hidden rounded-card border border-cloud bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)]' },
+  host: { class: 'flex min-w-0 flex-col overflow-hidden rounded-card border border-haze bg-white shadow-card' },
   template: `
     <div class="flex items-center justify-between gap-3 border-b border-cloud px-5 py-4">
       <h3 class="flex min-w-0 items-center gap-2 font-heading text-body-lg text-ink">

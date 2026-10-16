@@ -49,7 +49,7 @@ interface SettingRow {
           />
         } @else {
           <span
-            class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 text-cerulean"
+            class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 text-cerulean-dark"
           >
             @if (initials()) {
               {{ initials() }}
@@ -74,13 +74,13 @@ interface SettingRow {
         @for (row of rows; track row.title) {
           <button
             type="button"
-            class="flex items-center gap-4 rounded-card border border-cloud bg-white p-5 text-left transition-colors hover:border-cerulean/50"
+            class="flex items-center gap-4 rounded-card border border-haze bg-white p-5 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover"
             (click)="go(row)"
           >
             <span
               class="flex size-11 shrink-0 items-center justify-center rounded-full"
               [class]="
-                row.danger ? 'bg-alert/10 text-alert' : 'bg-frost text-cerulean'
+                row.danger ? 'bg-alert/10 text-alert-ink' : 'bg-frost text-cerulean-dark'
               "
             >
               <sd-icon [name]="row.icon" [size]="20" />

@@ -135,7 +135,7 @@ let nextUid = 0;
         <ul class="flex flex-col gap-3">
           @for (lo of orders(); track lo.id) {
             <li class="flex items-start gap-3 ${CLINICAL_LIST_ITEM}">
-              <span class="hidden size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean @md:flex">
+              <span class="hidden size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark @md:flex">
                 <sd-icon name="clipboard-list" [size]="18" />
               </span>
               <div class="flex min-w-0 flex-1 flex-col gap-2">
@@ -147,7 +147,7 @@ let nextUid = 0;
                 </div>
                 <ul class="flex flex-wrap gap-2" aria-label="Tests">
                   @for (t of lo.tests; track $index) {
-                    <li class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ t }}</li>
+                    <li class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">{{ t }}</li>
                   }
                 </ul>
                 @if (lo.instructions) {

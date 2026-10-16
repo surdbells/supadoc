@@ -137,7 +137,7 @@ const TABS: Tab[] = [
 
 /** A Clinical tools sub-tab button: the primary tabs' pill, stacked into a rail on desktop. */
 const SUB_TAB =
-  'flex shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors ' +
+  'flex shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 lg:rounded-field lg:py-2.5';
 
 /** Cancel pressed once a confirmed consultation has started (the API's own wording, plus what happens next). */
@@ -214,16 +214,16 @@ function timeLeft(ms: number): TimeLeft | null {
       </div>
 
       @if (apptError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
           <sd-icon name="calendar-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ apptError() }}</p>
         </div>
       } @else if (appt(); as a) {
         <!-- Summary + Quick actions -->
-        <section class="grid gap-6 rounded-card border border-cloud bg-white p-6 lg:grid-cols-[1fr_auto]">
+        <section class="grid gap-6 rounded-card border border-haze bg-white p-6 shadow-card lg:grid-cols-[1fr_auto]">
           <div class="flex flex-col gap-4">
             <div class="flex items-start gap-4">
-              <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-lg font-semibold text-cerulean">{{ initialsFor(a.patient_name) }}</span>
+              <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-lg font-semibold text-cerulean-dark">{{ initialsFor(a.patient_name) }}</span>
               <div class="flex flex-col gap-1">
                 @let label = statusLabel(a);
                 <div class="flex flex-wrap items-center gap-2.5">
@@ -252,12 +252,12 @@ function timeLeft(ms: number): TimeLeft | null {
               <span class="font-sans text-body-sm text-slate">Fee: <span class="font-semibold text-ink">{{ a.follow_up_pricing ? followUpPrice(a) : money(a.amount) }}</span></span>
               @if (a.status === 'proposed') {
                 <!-- Nothing is charged until the patient accepts. -->
-                <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate"><sd-icon name="hourglass" [size]="13" />{{ isFree(a.amount) ? 'Nothing to pay' : 'Paid when accepted' }}</span>
+                <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate inset-ring inset-ring-current/20"><sd-icon name="hourglass" [size]="13" />{{ isFree(a.amount) ? 'Nothing to pay' : 'Paid when accepted' }}</span>
               } @else if (a.payment_status === 'paid') {
-                <span class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-sage"><sd-icon name="circle-check" [size]="13" />Paid</span>
+                <span class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-sage-ink inset-ring inset-ring-current/20"><sd-icon name="circle-check" [size]="13" />Paid</span>
               } @else if (!(a.status === 'cancelled' && a.proposed_by === 'doctor')) {
                 <!-- (A proposal that closed was never owed anything.) -->
-                <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink"><sd-icon name="circle-alert" [size]="13" />Unpaid</span>
+                <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"><sd-icon name="circle-alert" [size]="13" />Unpaid</span>
               }
             </div>
 
@@ -287,7 +287,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 <span class="font-sans text-caption text-slate">Guests joining the call ({{ a.guests.length }}):</span>
                 <ul class="flex flex-wrap gap-2">
                   @for (g of a.guests; track g.id ?? $index) {
-                    <li class="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">
+                    <li class="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">
                       <sd-icon name="user-round" [size]="13" class="shrink-0 text-slate" />
                       <span class="truncate">{{ g.name }}</span>
                       @if (guestInCall(a.id, g.id)) {
@@ -324,7 +324,7 @@ function timeLeft(ms: number): TimeLeft | null {
               </p>
               @if (proposalOpen()) {
                 @if (!withdrawAsk()) {
-                  <button #withdrawButton type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-5 py-3 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="askWithdraw()">
+                  <button #withdrawButton type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-5 py-3 font-sans text-body-sm font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="askWithdraw()">
                     <sd-icon name="undo-2" [size]="18" />Withdraw proposal
                   </button>
                 } @else {
@@ -332,8 +332,8 @@ function timeLeft(ms: number): TimeLeft | null {
                     <p #withdrawTitle id="withdraw-ask-title" tabindex="-1" class="font-sans text-body-sm font-semibold text-ink outline-none">Withdraw this proposal?</p>
                     <p id="withdraw-ask-desc" class="font-sans text-caption text-slate">The patient is told it was withdrawn, and the time opens again on your schedule.</p>
                     <div class="flex flex-wrap gap-2">
-                      <button type="button" class="min-h-11 flex-1 rounded-field bg-alert px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60" [disabled]="actionBusy()" (click)="withdrawProposal()">{{ actionBusy() ? 'Withdrawing…' : 'Withdraw' }}</button>
-                      <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60" [disabled]="actionBusy()" (click)="cancelWithdraw()">Keep it</button>
+                      <button type="button" class="min-h-11 flex-1 rounded-field bg-alert px-4 py-2 font-sans text-caption font-semibold text-white inset-shadow-rim transition-colors hover:bg-alert/90 disabled:opacity-60" [disabled]="actionBusy()" (click)="withdrawProposal()">{{ actionBusy() ? 'Withdrawing…' : 'Withdraw' }}</button>
+                      <button type="button" class="min-h-11 flex-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-slate shadow-control transition hover:border-cerulean hover:text-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="cancelWithdraw()">Keep it</button>
                     </div>
                   </div>
                 }
@@ -341,7 +341,7 @@ function timeLeft(ms: number): TimeLeft | null {
             } @else if (a.status === 'pending' || a.status === 'rescheduled') {
               <!-- A request can be confirmed until 30 minutes after its end; later it is closed for you (see below). -->
               @if (canConfirm(a)) {
-                <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="confirm()">
+                <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="confirm()">
                   <sd-icon name="circle-check" [size]="18" />{{ actionBusy() ? 'Working…' : 'Confirm appointment' }}
                 </button>
               }
@@ -352,8 +352,8 @@ function timeLeft(ms: number): TimeLeft | null {
                 <span>{{ closedProposalText(a) }}</span>
               </p>
             } @else if (!outcome()) {
-              <button type="button" class="flex items-center justify-center gap-2 rounded-field px-5 py-3 font-sans text-body-sm font-semibold transition-colors"
-                [class]="joinState().enabled ? 'bg-cerulean text-white hover:bg-ocean' : 'bg-cerulean/40 text-white cursor-not-allowed'"
+              <button type="button" class="flex items-center justify-center gap-2 rounded-field px-5 py-3 font-sans text-body-sm font-semibold transition"
+                [class]="joinState().enabled ? 'bg-cerulean text-white shadow-btn inset-shadow-rim hover:bg-ocean hover:shadow-btn-hover' : 'bg-cerulean/40 text-white cursor-not-allowed'"
                 [disabled]="!joinState().enabled" [attr.title]="joinState().startsIn?.long ?? null" (click)="join(a)">
                 <sd-icon name="video" [size]="18" class="shrink-0" />
                 @if (joinState().startsIn; as left) {
@@ -389,7 +389,7 @@ function timeLeft(ms: number): TimeLeft | null {
             <!-- A visit that ended without End in the call: close it here (asks first). -->
             @if (canComplete()) {
               @if (!completeAsk()) {
-                <button #completeButton type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-sage px-5 py-3 font-sans text-body-sm font-semibold text-sage transition-colors hover:bg-sage/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="askComplete()">
+                <button #completeButton type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-sage px-5 py-3 font-sans text-body-sm font-semibold text-sage shadow-control transition hover:bg-sage/5 active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="askComplete()">
                   <sd-icon name="circle-check" [size]="18" />Mark consultation completed
                 </button>
               } @else {
@@ -397,8 +397,8 @@ function timeLeft(ms: number): TimeLeft | null {
                   <p #completeTitle id="complete-ask-title" tabindex="-1" class="font-sans text-body-sm font-semibold text-ink outline-none">Mark this consultation completed?</p>
                   <p id="complete-ask-desc" class="font-sans text-caption text-slate">It moves to your history and the patient is told the consultation has ended. You can still finish the note and prescriptions here.</p>
                   <div class="flex flex-wrap gap-2">
-                    <button type="button" class="min-h-11 flex-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="complete()">{{ actionBusy() ? 'Saving…' : 'Mark completed' }}</button>
-                    <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60" [disabled]="actionBusy()" (click)="cancelComplete()">Not yet</button>
+                    <button type="button" class="min-h-11 flex-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="complete()">{{ actionBusy() ? 'Saving…' : 'Mark completed' }}</button>
+                    <button type="button" class="min-h-11 flex-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-slate shadow-control transition hover:border-cerulean hover:text-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="cancelComplete()">Not yet</button>
                   </div>
                 </div>
               }
@@ -427,14 +427,14 @@ function timeLeft(ms: number): TimeLeft | null {
             }
             <div class="flex gap-3">
               @if (canReschedule(a) || rescheduleOpen()) {
-                <button #rescheduleButton type="button" class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field border px-4 py-2.5 font-sans text-body-sm font-semibold transition-colors hover:border-cerulean hover:text-cerulean"
-                  [class]="rescheduleOpen() ? 'border-cerulean bg-frost/40 text-cerulean' : 'border-cloud text-slate'"
+                <button #rescheduleButton type="button" class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field border px-4 py-2.5 font-sans text-body-sm font-semibold transition hover:border-cerulean hover:text-cerulean active:shadow-none"
+                  [class]="rescheduleOpen() ? 'border-cerulean bg-frost/40 text-cerulean' : 'border-haze bg-white text-slate shadow-control'"
                   [attr.aria-expanded]="rescheduleOpen()" aria-controls="reschedule-panel" (click)="toggleReschedule()">
                   <sd-icon name="refresh-cw" [size]="16" />Reschedule
                 </button>
               }
               @if (canCancel(a)) {
-                <button type="button" class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field border border-alert/50 px-4 py-2.5 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="actionBusy()" (click)="decline()">
+                <button type="button" class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-field border border-alert/50 px-4 py-2.5 font-sans text-body-sm font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="decline()">
                   <sd-icon name="ban" [size]="16" />{{ a.status === 'confirmed' ? 'Cancel' : 'Decline' }}
                 </button>
               }
@@ -503,7 +503,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 }
                 <label class="flex max-w-sm flex-col gap-1.5">
                   <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
-                  <input type="datetime-local" step="1800" class="min-h-11 w-full min-w-0 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [min]="rescheduleMin()" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
+                  <input type="datetime-local" step="1800" class="min-h-11 w-full min-w-0 rounded-field border border-[#b8c6d4] bg-white px-3 py-2 font-sans text-body-sm text-ink shadow-control focus:border-cerulean focus:outline-none" [min]="rescheduleMin()" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
                   <span class="font-sans text-caption text-slate">Must be on your availability, no sooner than patients can book (usually an hour ahead).</span>
                 </label>
               }
@@ -526,7 +526,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   }
                   {{ a.guests?.length ? 'It is confirmed at the new time, and the patient and their guests are emailed it — the patient can cancel or choose another time if it doesn’t suit.' : 'It is confirmed at the new time, and the patient is emailed it — they can cancel or choose another time if it doesn’t suit.' }}
                 </p>
-                <button type="button" class="min-h-11 shrink-0 rounded-field bg-cerulean px-5 py-2 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
+                <button type="button" class="min-h-11 shrink-0 rounded-field bg-cerulean px-5 py-2 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="actionBusy()" (click)="submitReschedule()">{{ actionBusy() ? 'Saving…' : 'Save new time' }}</button>
               </div>
               @if (actionError()) { <p role="alert" class="rounded-field bg-alert/10 px-3 py-2 font-label text-caption text-alert">{{ actionError() }}</p> }
             </div>
@@ -534,10 +534,10 @@ function timeLeft(ms: number): TimeLeft | null {
         </section>
 
         <!-- Primary tabs -->
-        <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-1">
+        <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar">
           @for (t of primaryTabs; track t.key) {
-            <button type="button" class="whitespace-nowrap rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-              [class]="primary() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+            <button type="button" class="whitespace-nowrap rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              [class]="primary() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
               (click)="setPrimary(t.key)">{{ t.label }}</button>
           }
         </div>
@@ -557,7 +557,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="20" class="text-cerulean" />Current Medication</h2>
                   @if (medications().length) {
                     <!-- Same medication row as the patient record (dose · frequency, reason, Herbal chip). -->
-                    <ul class="flex flex-col divide-y divide-cloud rounded-card border border-cloud bg-white">
+                    <ul class="flex flex-col divide-y divide-cloud rounded-card border border-haze bg-white shadow-card">
                       @for (m of medications(); track $index) {
                         <li class="px-4 py-3"><doc-medication-item [med]="m" /></li>
                       }
@@ -580,23 +580,23 @@ function timeLeft(ms: number): TimeLeft | null {
               <ng-container [ngTemplateOutlet]="unavailable" />
             } @else {
               <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-6 shadow-card">
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="18" class="text-cerulean" />Chronic Conditions</h3>
                   @if (conditions().length) {
                     <div class="flex flex-wrap gap-2">
-                      @for (c of conditions(); track $index) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ c.condition }}</span> }
+                      @for (c of conditions(); track $index) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">{{ c.condition }}</span> }
                     </div>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
                 </section>
-                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-6 shadow-card">
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="triangle-alert" [size]="18" class="text-alert" />Allergies</h3>
                   @if (allergies().length) {
                     <div class="flex flex-wrap gap-2">
-                      @for (al of allergies(); track $index) { <span class="rounded-pill bg-alert/10 px-3 py-1 font-sans text-caption font-medium text-alert">{{ al.allergen }}</span> }
+                      @for (al of allergies(); track $index) { <span class="rounded-pill bg-alert/10 px-3 py-1 font-sans text-caption font-medium text-alert-ink inset-ring inset-ring-current/15">{{ al.allergen }}</span> }
                     </div>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
                 </section>
-                <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-6 shadow-card">
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="clipboard-list" [size]="18" class="text-cerulean" />Past Medical History</h3>
                   @if (pastHistory().length) {
                     <ul class="flex flex-col gap-2">
@@ -617,14 +617,14 @@ function timeLeft(ms: number): TimeLeft | null {
                 <div class="flex flex-wrap items-center gap-3">
                   <div class="relative min-w-[220px] flex-1">
                     <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-                    <input class="w-full rounded-field border border-cloud bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none" placeholder="Search Document" [value]="docSearch()" (input)="docSearch.set($any($event.target).value)" />
+                    <input class="w-full rounded-field border border-haze bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 hover:border-cerulean/30 focus:border-cerulean focus:outline-none" placeholder="Search Document" [value]="docSearch()" (input)="docSearch.set($any($event.target).value)" />
                   </div>
                 </div>
               }
               @if (loadingDocs()) {
                 <div class="sd-shimmer h-24 rounded-card"></div>
               } @else if (docsError()) {
-                <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+                <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
                   <sd-icon name="wifi-off" [size]="32" class="text-alert" />
                   <p class="font-sans text-body-sm text-slate">{{ docsError() }}</p>
                 </div>
@@ -637,7 +637,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 <ul class="flex flex-col gap-3">
                   @for (d of filteredDocs(); track d.id) {
                     <li>
-                      <button type="button" class="flex w-full items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left transition-colors hover:border-cerulean/40" (click)="openPatientDoc(d)">
+                      <button type="button" class="flex w-full items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover" (click)="openPatientDoc(d)">
                         <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="20" /></span>
                         <div class="flex min-w-0 flex-1 flex-col">
                           <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
@@ -645,7 +645,7 @@ function timeLeft(ms: number): TimeLeft | null {
                         </div>
                         <span class="hidden font-sans text-body-sm text-slate sm:block">{{ d.type_label }}</span>
                         <span class="hidden font-sans text-caption text-slate md:block">{{ shortDate(d.created_at) }}</span>
-                        <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
+                        <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-warning-ink'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
                         <sd-icon name="chevron-right" [size]="20" class="shrink-0 text-slate" />
                       </button>
                     </li>
@@ -669,9 +669,9 @@ function timeLeft(ms: number): TimeLeft | null {
             } @else {
               <ul class="flex flex-col gap-4">
                 @for (v of pastVisits(); track v.id) {
-                  <li class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <li class="flex flex-col gap-3 rounded-card border border-haze bg-white p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
                     <div class="flex items-center gap-3">
-                      <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="stethoscope" [size]="18" /></span>
+                      <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark"><sd-icon name="stethoscope" [size]="18" /></span>
                       <div class="flex flex-col">
                         <span class="font-heading text-body font-semibold text-ink">{{ v.specialist.name }}</span>
                         <span class="font-sans text-caption text-slate">{{ v.specialist.specialty }}</span>
@@ -693,10 +693,10 @@ function timeLeft(ms: number): TimeLeft | null {
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:items-start">
               <!-- Sub-tabs: the primary tabs' pill bar (scrolls sideways on small screens), stacked into a rail on desktop. -->
               <nav class="min-w-0 lg:sticky lg:top-6" aria-label="Clinical tools">
-                <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-1 lg:w-full lg:flex-col lg:overflow-visible lg:rounded-card lg:p-2">
+                <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar lg:w-full lg:flex-col lg:overflow-visible lg:rounded-card lg:bg-white lg:p-2 lg:shadow-card">
                   @for (t of tabs; track t.key) {
                     <button type="button" class="${SUB_TAB}"
-                      [class]="tab() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink lg:hover:bg-glacier'"
+                      [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink lg:hover:bg-glacier'"
                       [attr.aria-current]="tab() === t.key ? 'true' : null"
                       (click)="select(t.key)">
                       <sd-icon [name]="t.icon" [size]="16" class="shrink-0" />{{ t.label }}
@@ -723,7 +723,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   }
                   @case ('messages') {
                     <doc-clinical-header icon="message-square" heading="Secure messages" helper="Async, non-urgent messages with the patient. Not for emergencies." />
-                    <section class="rounded-card border border-cloud bg-white p-3 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-4" aria-label="Message thread">
+                    <section class="rounded-card border border-haze bg-white p-3 shadow-card sm:p-4" aria-label="Message thread">
                       <div class="h-[58vh] min-h-[22rem]">
                         <sd-message-thread viewerRole="doctor" [messages]="messages()" [loading]="messagesLoading()" [sending]="sendingMessage()" placeholder="Message the patient…" emptyText="No messages yet. Send the first message to your patient." (send)="sendMessage($event)" />
                       </div>
@@ -835,7 +835,7 @@ function timeLeft(ms: number): TimeLeft | null {
     </ng-template>
 
     <ng-template #recordFailed>
-      <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+      <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
         <sd-icon name="wifi-off" [size]="32" class="text-alert" />
         <p class="font-sans text-body-sm text-slate">{{ recordError() }}</p>
       </div>

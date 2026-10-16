@@ -77,4 +77,34 @@ describe('AdminSpecialists — list', () => {
     expect(lists()).toHaveLength(0);
     expect(el.querySelector('h1')?.parentElement?.textContent).toContain('5 doctors');
   });
+
+  it('numbers the pages: the current one marked, the hidden runs as ellipses', async () => {
+    const twelvePages = { status: 'success', message: 'OK', data: [], meta: { total: 240, total_pages: 12 } };
+    await TestBed.inject(Router).navigateByUrl('/?page=6');
+    fixture = TestBed.createComponent(AdminSpecialists);
+    el = fixture.nativeElement;
+    await render();
+    const [first] = lists();
+    expect(first.request.params.get('page')).toBe('6');
+    first.flush(twelvePages);
+    await render();
+    const nav = el.querySelector('nav[aria-label="Specialist pages"]');
+    const numbers = [...(nav?.querySelectorAll('ol button') ?? [])].map((b) => b.textContent?.trim());
+    expect(numbers).toEqual(['1', '5', '6', '7', '12']);
+    const current = nav?.querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current?.[0].textContent?.trim()).toBe('6');
+    const gaps = nav?.querySelectorAll('li[aria-hidden="true"]');
+    expect(gaps).toHaveLength(2);
+    expect(gaps?.[0].textContent?.trim()).toBe('…');
+    expect(nav?.textContent).toContain('Page 6 of 12');
+
+    (nav?.querySelector('button[aria-label="Page 7"]') as HTMLButtonElement).click();
+    await render();
+    const [next] = lists();
+    expect(next.request.params.get('page')).toBe('7');
+    next.flush(twelvePages);
+    await render();
+    expect(el.querySelector('nav [aria-current="page"]')?.textContent?.trim()).toBe('7');
+  });
 });

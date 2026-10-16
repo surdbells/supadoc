@@ -80,10 +80,13 @@ const BADGE: Record<ConfirmTone, string> = {
 };
 
 const CONFIRM_BUTTON: Record<ConfirmTone, string> = {
-  danger: 'bg-(--sd-dialog-danger) hover:bg-(--sd-dialog-danger-hover)',
-  warning: 'bg-(--sd-dialog-primary) hover:bg-(--sd-dialog-primary-hover)',
-  info: 'bg-(--sd-dialog-primary) hover:bg-(--sd-dialog-primary-hover)',
-  success: 'bg-(--sd-dialog-success) hover:bg-(--sd-dialog-success-hover)',
+  danger:
+    'bg-(--sd-dialog-danger) hover:bg-(--sd-dialog-danger-hover) inset-shadow-rim shadow-control',
+  warning:
+    'bg-(--sd-dialog-primary) hover:bg-(--sd-dialog-primary-hover) inset-shadow-rim shadow-control',
+  info: 'bg-(--sd-dialog-primary) hover:bg-(--sd-dialog-primary-hover) inset-shadow-rim shadow-control',
+  success:
+    'bg-(--sd-dialog-success) hover:bg-(--sd-dialog-success-hover) inset-shadow-rim shadow-control',
 };
 
 const BUTTON =

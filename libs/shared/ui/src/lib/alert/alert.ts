@@ -21,10 +21,12 @@ export type AlertTone = 'error' | 'success' | 'info' | 'warning';
   host: { class: 'block' },
   template: `
     <div
-      class="flex items-start gap-2.5 rounded-field px-4 py-3 font-sans text-body-sm {{
+      class="flex items-start gap-2.5 rounded-field px-4 py-3 font-sans text-body-sm inset-ring inset-ring-current/15 {{
         toneClass()
       }}"
-      [attr.role]="tone() === 'error' || tone() === 'warning' ? 'alert' : 'status'"
+      [attr.role]="
+        tone() === 'error' || tone() === 'warning' ? 'alert' : 'status'
+      "
     >
       <sd-icon [name]="icon()" [size]="18" class="mt-0.5 shrink-0" />
       <span class="min-w-0 flex-1"><ng-content /></span>

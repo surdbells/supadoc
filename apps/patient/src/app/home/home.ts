@@ -159,7 +159,7 @@ interface Doctor {
         >
           <div class="flex min-w-0 flex-col gap-5">
             <span
-              class="mx-auto inline-flex w-fit items-center gap-2 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-medium text-cerulean lg:mx-0"
+              class="mx-auto inline-flex w-fit items-center gap-2 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-medium text-cerulean-dark lg:mx-0"
             >
               <sd-icon name="shield-check" [size]="14" />
               Trusted by thousands of clients
@@ -488,7 +488,7 @@ interface Doctor {
                     class="aspect-[230/176] w-full object-cover"
                   />
                   <span
-                    class="absolute left-3 top-3 flex items-center gap-1 rounded-pill bg-white/95 px-2.5 py-1 font-sans text-[11px] font-semibold text-sage shadow-sm"
+                    class="absolute left-3 top-3 flex items-center gap-1 rounded-pill bg-white/95 px-2.5 py-1 font-sans text-[11px] font-semibold text-sage-ink shadow-sm"
                   >
                     <span class="size-1.5 rounded-full bg-sage"></span>Available
                   </span>

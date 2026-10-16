@@ -135,7 +135,7 @@ function isDialogKey(key: string): boolean {
 const LABEL = 'font-sans text-caption font-semibold text-ink';
 const HINT = 'font-sans text-caption text-slate';
 const ERR = 'font-sans text-caption text-alert';
-const SECTION = 'flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 @lg:p-5';
+const SECTION = 'flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card @lg:p-5';
 const H3 = 'flex items-center gap-2 font-heading text-body-lg text-ink';
 const RADIO_CARD =
   'flex cursor-pointer items-center gap-2 rounded-field border border-cloud bg-white px-3 py-2.5 font-sans text-body-sm text-ink has-[:checked]:border-cerulean has-[:checked]:bg-frost/30';
@@ -213,7 +213,7 @@ function nullIfBlank(v: string): string | null {
         <div class="sd-shimmer h-64 rounded-card"></div>
       </div>
     } @else if (loadError()) {
-      <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-4 py-12 text-center">
+      <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-4 py-12 text-center shadow-card">
         <sd-icon name="circle-alert" [size]="32" class="text-alert" />
         <p class="max-w-sm font-sans text-body-sm text-slate">{{ loadError() }}</p>
         <div class="flex flex-wrap justify-center gap-2">
@@ -226,7 +226,7 @@ function nullIfBlank(v: string): string | null {
     } @else {
       <div class="flex flex-col gap-5">
         <!-- a. Header -->
-        <header class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 @lg:flex-row @lg:items-start @lg:justify-between @lg:p-5">
+        <header class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card @lg:flex-row @lg:items-start @lg:justify-between @lg:p-5">
           <div class="flex min-w-0 flex-col gap-1">
             <span class="${HINT}">Prescription</span>
             <h2 class="break-all font-heading text-h5 text-ink">{{ rx()?.number ?? 'New prescription' }}</h2>
@@ -238,7 +238,7 @@ function nullIfBlank(v: string): string | null {
             @if (rx(); as r) {
               <doc-rx-status-badge [status]="r.status" />
             } @else {
-              <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate">
+              <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate inset-ring inset-ring-current/20">
                 <sd-icon name="save" [size]="13" /> Not saved yet
               </span>
             }
@@ -276,7 +276,7 @@ function nullIfBlank(v: string): string | null {
           <aside [class]="compact() ? '' : '@4xl:sticky @4xl:top-4 @4xl:col-start-2 @4xl:row-start-1'">
             <button
               type="button"
-              class="w-full items-center justify-between gap-2 rounded-card border border-cloud bg-white px-4 py-3 font-sans text-body-sm font-semibold text-ink"
+              class="w-full items-center justify-between gap-2 rounded-card border border-haze bg-white px-4 py-3 font-sans text-body-sm font-semibold text-ink shadow-card"
               [class]="compact() ? 'flex' : 'flex @4xl:hidden'"
               [attr.aria-expanded]="infoOpen()"
               [attr.aria-controls]="id('info')"
@@ -524,7 +524,7 @@ function nullIfBlank(v: string): string | null {
                         <p class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-semibold text-ink">
                           <span class="min-w-0 break-words">{{ row.name || 'Medicine not chosen' }}</span>
                           @if (row.no_substitute) {
-                            <span class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-ink">No substitute</span>
+                            <span class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-ink inset-ring inset-ring-current/15">No substitute</span>
                           }
                         </p>
                         @if (row.branded && row.generic_name) {
@@ -947,7 +947,7 @@ function nullIfBlank(v: string): string | null {
             @if (sendDone()) {
               <!-- Focus lands here when the step changes, so the result is read out. -->
               <div class="flex flex-col items-center gap-3 py-6 text-center outline-none" role="status" tabindex="-1" data-autofocus>
-                <span class="flex size-16 items-center justify-center rounded-full bg-sage/15 text-sage">
+                <span class="flex size-16 items-center justify-center rounded-full bg-sage/15 text-sage-ink">
                   <sd-icon name="circle-check" [size]="32" />
                 </span>
                 <p class="font-heading text-body-lg text-ink">Sent — the patient has been notified</p>

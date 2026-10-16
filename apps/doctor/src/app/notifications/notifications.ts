@@ -40,11 +40,11 @@ const ICON: Record<string, string> = {
           <li>
             <button
               type="button"
-              class="flex w-full items-start gap-3 rounded-card border p-4 text-left transition-colors"
-              [class]="n.read ? 'border-cloud bg-white hover:bg-glacier' : 'border-cerulean/30 bg-frost/20 hover:bg-frost/30'"
+              class="flex w-full items-start gap-3 rounded-card border p-4 text-left shadow-card transition hover:shadow-card-hover"
+              [class]="n.read ? 'border-haze bg-white hover:bg-glacier' : 'border-cerulean/30 bg-frost/20 hover:bg-frost/30'"
               (click)="open(n)"
             >
-              <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-cerulean/10 text-cerulean">
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-cerulean/10 text-cerulean-dark">
                 <sd-icon [name]="icon(n.type)" [size]="18" />
               </span>
               <span class="flex min-w-0 flex-1 flex-col">
@@ -57,19 +57,19 @@ const ICON: Record<string, string> = {
           </li>
         } @empty {
           @if (error() && !loading()) {
-            <li class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+            <li class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
               <sd-icon name="wifi-off" [size]="32" class="text-alert" />
               <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
             </li>
           } @else {
-            <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : "You're all caught up." }}</li>
+            <li class="rounded-card border border-haze bg-white px-5 py-16 text-center font-sans text-body-sm text-slate shadow-card">{{ loading() ? 'Loading…' : "You're all caught up." }}</li>
           }
         }
       </ul>
 
       @if (error() && items().length > 0) { <p class="text-center font-sans text-caption text-alert">{{ error() }}</p> }
       @if (hasMore()) {
-        <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
+        <button type="button" class="mx-auto rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
       }
     </div>
   `,

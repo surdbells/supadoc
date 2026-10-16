@@ -60,7 +60,7 @@ import {
             <div class="flex min-w-0 items-center gap-4">
               <span
                 class="relative flex size-12 shrink-0 items-center justify-center rounded-full"
-                [class]="rec.active ? 'bg-alert/10 text-alert' : 'bg-frost text-cerulean'"
+                [class]="rec.active ? 'bg-alert/10 text-alert-ink' : 'bg-frost text-cerulean-dark'"
               >
                 @if (rec.active) {
                   <span class="absolute inset-0 rounded-full ring-4 ring-alert/15 motion-safe:animate-pulse" aria-hidden="true"></span>
@@ -131,7 +131,7 @@ import {
       @if (files().length === 0) {
         <doc-clinical-empty icon="file-text" message="No recorded files yet." />
       } @else {
-        <ul class="flex flex-col divide-y divide-cloud rounded-card border border-cloud bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)]">
+        <ul class="flex flex-col divide-y divide-cloud rounded-card border border-haze bg-white shadow-card">
           @for (f of files(); track f.key) {
             <li class="flex flex-col gap-3 px-4 py-3.5 sm:px-5 @xl:flex-row @xl:items-center @xl:justify-between">
               <div class="flex min-w-0 items-center gap-3">

@@ -26,7 +26,7 @@ import { IconComponent } from '@supadoc/ui';
       </header>
 
       @if (summary(); as s) {
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6 sm:flex-row sm:items-center sm:gap-8">
+        <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card sm:flex-row sm:items-center sm:gap-8">
           <div class="flex flex-col items-center gap-1">
             <span class="font-heading text-h1 text-ink">{{ s.average }}</span>
             <span class="flex gap-0.5">
@@ -52,14 +52,14 @@ import { IconComponent } from '@supadoc/ui';
 
       <section class="flex flex-col gap-3">
         @if (error() && reviews().length === 0) {
-          <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+          <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
             <sd-icon name="wifi-off" [size]="32" class="text-alert" />
             <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
           </div>
         } @else {
         <ul class="flex flex-col gap-3">
           @for (r of reviews(); track r.id) {
-            <li class="flex flex-col gap-2 rounded-card border border-cloud bg-white p-5">
+            <li class="flex flex-col gap-2 rounded-card border border-haze bg-white p-5 shadow-card">
               <div class="flex items-center justify-between gap-3">
                 <span class="font-sans text-body-sm font-semibold text-ink">{{ r.patient_name }}</span>
                 <span class="flex gap-0.5">
@@ -78,10 +78,10 @@ import { IconComponent } from '@supadoc/ui';
                 </div>
               } @else if (replyingId() === r.id) {
                 <div class="mt-1 flex flex-col gap-2">
-                  <textarea rows="2" class="w-full rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none" [value]="replyText()" (input)="replyText.set($any($event.target).value)" placeholder="Write a public response…"></textarea>
+                  <textarea rows="2" class="w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-2.5 font-sans text-body-sm text-ink shadow-control focus:border-cerulean focus:outline-none" [value]="replyText()" (input)="replyText.set($any($event.target).value)" placeholder="Write a public response…"></textarea>
                   @if (replyError()) { <p class="font-sans text-caption text-alert">{{ replyError() }}</p> }
                   <div class="flex items-center gap-2">
-                    <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="replyBusy()" (click)="submitReply(r)">{{ replyBusy() ? 'Posting…' : 'Post response' }}</button>
+                    <button type="button" class="rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="replyBusy()" (click)="submitReply(r)">{{ replyBusy() ? 'Posting…' : 'Post response' }}</button>
                     <button type="button" class="font-sans text-caption font-semibold text-slate hover:text-ink" (click)="replyingId.set(null)">Cancel</button>
                   </div>
                 </div>
@@ -90,12 +90,12 @@ import { IconComponent } from '@supadoc/ui';
               }
             </li>
           } @empty {
-            <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">{{ loading() ? 'Loading…' : 'No reviews yet.' }}</li>
+            <li class="rounded-card border border-haze bg-white px-5 py-16 text-center font-sans text-body-sm text-slate shadow-card">{{ loading() ? 'Loading…' : 'No reviews yet.' }}</li>
           }
         </ul>
         @if (error()) { <p class="text-center font-sans text-caption text-alert">{{ error() }}</p> }
         @if (hasMore()) {
-          <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
+          <button type="button" class="mx-auto rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="loading()" (click)="loadMore()">{{ loading() ? 'Loading…' : 'Load more' }}</button>
         }
         }
       </section>

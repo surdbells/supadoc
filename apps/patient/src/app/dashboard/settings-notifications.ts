@@ -49,7 +49,7 @@ interface PrefRow {
         </div>
       } @else if (loadError()) {
         <div
-          class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-6 py-10 text-center"
+          class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-6 py-10 text-center shadow-card"
         >
           <sd-icon name="triangle-alert" [size]="28" class="text-alert" />
           <p class="font-sans text-body text-slate">
@@ -65,7 +65,7 @@ interface PrefRow {
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             @for (row of types(); track row.key) {
               <div
-                class="flex items-center justify-between gap-4 rounded-2xl border border-cloud bg-white px-5 py-4"
+                class="flex items-center justify-between gap-4 rounded-2xl border border-haze bg-white px-5 py-4 shadow-card"
               >
                 <div class="flex flex-col">
                   <span class="font-sans text-body text-ink">{{
@@ -93,7 +93,7 @@ interface PrefRow {
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             @for (row of delivery(); track row.key) {
               <div
-                class="flex items-center justify-between gap-4 rounded-2xl border border-cloud bg-white px-5 py-4"
+                class="flex items-center justify-between gap-4 rounded-2xl border border-haze bg-white px-5 py-4 shadow-card"
               >
                 <div class="flex flex-col">
                   <span class="font-sans text-body text-ink">{{

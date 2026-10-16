@@ -81,10 +81,10 @@ const NOTE_ICON: Record<string, string> = {
       @for (b of notices(); track b.key) {
         <a
           [routerLink]="b.link"
-          class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border px-5 py-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+          class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border px-5 py-4 shadow-card transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
           [class]="tone(b).card"
         >
-          <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm" [class]="tone(b).accent">
+          <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-white shadow-control" [class]="tone(b).accent">
             <sd-icon [name]="b.icon" [size]="20" />
           </span>
           <span class="flex min-w-0 flex-1 basis-48 flex-col">
@@ -99,7 +99,7 @@ const NOTE_ICON: Record<string, string> = {
 
       @if (suspended()) {
         <!-- A suspended doctor's dashboard: no schedule or patients — what still works. -->
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="suspended-title">
+        <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6" aria-labelledby="suspended-title">
           <div class="flex flex-col gap-1">
             <h2 id="suspended-title" class="font-heading text-body-lg text-ink">While your account is suspended</h2>
             <p class="font-sans text-body-sm text-slate">You can still see your earnings and payout history, keep your profile up to date and upload your documents.</p>
@@ -125,13 +125,13 @@ const NOTE_ICON: Record<string, string> = {
           <div class="sd-shimmer h-80 rounded-card"></div>
         </div>
       } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
         </div>
       } @else if (data(); as d) {
         @if (d.pending > 0) {
-          <a routerLink="/schedule" [queryParams]="{ tab: 'pending' }" class="flex items-center gap-3 rounded-card border border-warning/30 bg-warning/5 px-5 py-4 transition-colors hover:bg-warning/10">
+          <a routerLink="/schedule" [queryParams]="{ tab: 'pending' }" class="flex items-center gap-3 rounded-card border border-warning/30 bg-warning/5 px-5 py-4 shadow-card transition-colors hover:bg-warning/10">
             <sd-icon name="triangle-alert" [size]="20" class="text-warning" />
             <span class="font-sans text-body-sm font-semibold text-warning">{{ d.pending }} booking{{ d.pending === 1 ? '' : 's' }} awaiting your confirmation</span>
             <sd-icon name="chevron-right" [size]="18" class="ml-auto text-warning" />
@@ -141,10 +141,10 @@ const NOTE_ICON: Record<string, string> = {
         <!-- Stat cards -->
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           @for (s of stats(); track s.label) {
-            <div class="flex flex-col gap-2 rounded-card border border-cloud bg-white p-4 shadow-[0_1px_2px_rgba(10,22,40,0.04)]">
+            <div class="flex flex-col gap-2 rounded-card border border-haze bg-white p-4 shadow-card">
               <div class="flex items-start justify-between gap-2">
                 <span class="font-sans text-caption text-slate">{{ s.label }}</span>
-                <span class="flex size-8 shrink-0 items-center justify-center rounded-lg" [class]="s.tint">
+                <span class="flex size-8 shrink-0 items-center justify-center rounded-lg inset-ring inset-ring-current/10" [class]="s.tint">
                   <sd-icon [name]="s.icon" [size]="16" />
                 </span>
               </div>
@@ -170,7 +170,7 @@ const NOTE_ICON: Record<string, string> = {
         @if (scheduleOpen() || notificationsOpen()) {
         <div class="grid gap-6 lg:grid-cols-2">
           @if (scheduleOpen()) {
-          <section class="flex flex-col rounded-card border border-cloud bg-white">
+          <section class="flex flex-col rounded-card border border-haze bg-white shadow-card">
             <div class="flex items-center justify-between gap-2 border-b border-cloud px-5 py-4">
               <div class="flex items-center gap-2">
                 <sd-icon name="calendar-days" [size]="20" class="text-cerulean" />
@@ -187,7 +187,7 @@ const NOTE_ICON: Record<string, string> = {
               <ul class="flex flex-col divide-y divide-cloud">
                 @for (a of d.agenda.slice(0, 4); track a.id; let i = $index) {
                   <li class="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3.5">
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean-dark">
                       {{ initialsFor(a.patient_name) }}
                     </span>
                     <div class="flex min-w-0 flex-1 flex-col">
@@ -201,9 +201,9 @@ const NOTE_ICON: Record<string, string> = {
                     <!-- Join the first consultation, and any whose patient is already waiting in the call
                          (never a follow-up proposal: no call until the patient accepts it). -->
                     @if ((i === firstJoinable() || patientWaiting(a.id)) && joinable(a)) {
-                      <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">Join</button>
+                      <button type="button" class="ml-1 flex shrink-0 items-center gap-1 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none" (click)="join(a)">Join</button>
                     } @else {
-                      <a [routerLink]="['/appointments', a.id]" class="ml-1 flex shrink-0 items-center rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean">View</a>
+                      <a [routerLink]="['/appointments', a.id]" class="ml-1 flex shrink-0 items-center rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none">View</a>
                     }
                     <!-- Who is in the call: its own line under the status, so a narrow card never squeezes the name. -->
                     @if (presence()[a.id]; as p) {
@@ -222,7 +222,7 @@ const NOTE_ICON: Record<string, string> = {
           }
 
           @if (notificationsOpen()) {
-          <section class="flex flex-col rounded-card border border-cloud bg-white">
+          <section class="flex flex-col rounded-card border border-haze bg-white shadow-card">
             <div class="flex items-center justify-between gap-2 border-b border-cloud px-5 py-4">
               <div class="flex items-center gap-2">
                 <sd-icon name="bell" [size]="20" class="text-cerulean" />
@@ -239,7 +239,7 @@ const NOTE_ICON: Record<string, string> = {
               <ul class="flex flex-col divide-y divide-cloud">
                 @for (n of notifications().slice(0, 4); track n.id) {
                   <li class="flex items-start gap-3 px-5 py-3.5">
-                    <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean">
+                    <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark">
                       <sd-icon [name]="noteIcon(n.type)" [size]="18" />
                     </span>
                     <div class="flex min-w-0 flex-1 flex-col">
@@ -267,7 +267,7 @@ const NOTE_ICON: Record<string, string> = {
           <h2 class="font-heading text-body-lg text-ink">Quick Actions</h2>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             @for (q of quickActions; track q.link) {
-              <a [routerLink]="q.link" class="group flex flex-col items-center gap-2 rounded-card border border-cloud bg-white p-6 text-center transition-colors hover:border-cerulean/50">
+              <a [routerLink]="q.link" class="group flex flex-col items-center gap-2 rounded-card border border-haze bg-white p-6 text-center shadow-card transition hover:border-cerulean/50 hover:shadow-card-hover">
                 <span class="flex size-12 items-center justify-center rounded-full" [class]="q.tint">
                   <sd-icon [name]="q.icon" [size]="24" />
                 </span>
@@ -282,7 +282,7 @@ const NOTE_ICON: Record<string, string> = {
         <!-- Availability CTA -->
         <section class="flex flex-col gap-4 rounded-card bg-frost/60 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div class="flex items-center gap-3">
-            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-sm">
+            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-control">
               <sd-icon name="shield" [size]="22" />
             </span>
             <div class="flex flex-col">
@@ -290,7 +290,7 @@ const NOTE_ICON: Record<string, string> = {
               <p class="font-sans text-body-sm text-slate">Doctors who keep their schedule updated get up to 3x more bookings.</p>
             </div>
           </div>
-          <a routerLink="/availability" class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">
+          <a routerLink="/availability" class="flex shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none">
             <sd-icon name="calendar-clock" [size]="18" />Manage Availability
           </a>
         </section>
@@ -324,9 +324,9 @@ export class DoctorDashboard implements OnInit {
   /** Suspended: no dashboard figures (the API refuses them) — what still works instead. */
   protected readonly suspended = computed(() => this.standing.code() === 'doctor_suspended');
   protected readonly suspendedLinks: QuickAction[] = [
-    { label: 'Earnings', subtitle: 'What you have earned', icon: 'banknote', tint: 'bg-sage/15 text-sage', link: '/earnings' },
-    { label: 'Payout history', subtitle: 'Payouts and your account', icon: 'wallet', tint: 'bg-cerulean/10 text-cerulean', link: '/payouts' },
-    { label: 'Licensing documents', subtitle: 'Upload or renew', icon: 'file-check', tint: 'bg-warning/15 text-warning', link: '/onboarding/credentials' },
+    { label: 'Earnings', subtitle: 'What you have earned', icon: 'banknote', tint: 'bg-sage/15 text-sage-ink', link: '/earnings' },
+    { label: 'Payout history', subtitle: 'Payouts and your account', icon: 'wallet', tint: 'bg-cerulean/10 text-cerulean-dark', link: '/payouts' },
+    { label: 'Licensing documents', subtitle: 'Upload or renew', icon: 'file-check', tint: 'bg-warning/15 text-warning-ink', link: '/onboarding/credentials' },
   ];
 
   protected readonly greeting = computed(() => {
@@ -344,7 +344,7 @@ export class DoctorDashboard implements OnInit {
         label: "Today's Appointments",
         value: d.today,
         icon: 'calendar-days',
-        tint: 'bg-frost text-cerulean',
+        tint: 'bg-frost text-cerulean-dark',
         inlineSub: `${d.today_completed} completed`,
         delta: d.today_delta,
         deltaPeriod: 'vs. yesterday',
@@ -353,7 +353,7 @@ export class DoctorDashboard implements OnInit {
         label: 'Completed Consultation',
         value: d.completed_month,
         icon: 'circle-check',
-        tint: 'bg-sage/15 text-sage',
+        tint: 'bg-sage/15 text-sage-ink',
         delta: d.completed_delta,
         deltaPeriod: 'vs last month',
       },
@@ -364,7 +364,7 @@ export class DoctorDashboard implements OnInit {
         label: 'Patients',
         value: d.patients,
         icon: 'users',
-        tint: 'bg-cerulean/10 text-cerulean',
+        tint: 'bg-cerulean/10 text-cerulean-dark',
         inlineSub: `${d.patients_week} seen this week`,
         delta: null,
       },
@@ -372,7 +372,7 @@ export class DoctorDashboard implements OnInit {
         label: 'Earnings',
         value: this.money(d.currency, d.earnings_month),
         icon: 'wallet',
-        tint: 'bg-sage/15 text-sage',
+        tint: 'bg-sage/15 text-sage-ink',
         delta: d.earnings_delta,
         deltaPeriod: 'vs last month',
       },
@@ -380,7 +380,7 @@ export class DoctorDashboard implements OnInit {
         label: 'Average Rating',
         value: d.rating,
         icon: 'star',
-        tint: 'bg-warning/15 text-warning',
+        tint: 'bg-warning/15 text-warning-ink',
         inlineSub: `${d.reviews_count} reviews`,
         delta: null,
       },
@@ -388,10 +388,10 @@ export class DoctorDashboard implements OnInit {
   });
 
   protected readonly quickActions: QuickAction[] = [
-    { label: 'Patients', subtitle: 'View and manage your patient roster', icon: 'users', tint: 'bg-cerulean/10 text-cerulean', link: '/patients' },
-    { label: 'Consultation History', subtitle: 'Review your past consultations', icon: 'calendar-clock', tint: 'bg-sage/15 text-sage', link: '/appointments/history' },
-    { label: 'My Appointments', subtitle: 'View and manage your appointments', icon: 'calendar-days', tint: 'bg-cerulean/10 text-cerulean', link: '/schedule' },
-    { label: 'Reviews', subtitle: 'See what your patients are saying', icon: 'star', tint: 'bg-warning/15 text-warning', link: '/reviews' },
+    { label: 'Patients', subtitle: 'View and manage your patient roster', icon: 'users', tint: 'bg-cerulean/10 text-cerulean-dark', link: '/patients' },
+    { label: 'Consultation History', subtitle: 'Review your past consultations', icon: 'calendar-clock', tint: 'bg-sage/15 text-sage-ink', link: '/appointments/history' },
+    { label: 'My Appointments', subtitle: 'View and manage your appointments', icon: 'calendar-days', tint: 'bg-cerulean/10 text-cerulean-dark', link: '/schedule' },
+    { label: 'Reviews', subtitle: 'See what your patients are saying', icon: 'star', tint: 'bg-warning/15 text-warning-ink', link: '/reviews' },
   ];
 
   ngOnInit(): void {

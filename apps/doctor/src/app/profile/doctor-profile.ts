@@ -80,14 +80,14 @@ const MDCN_PATTERN = /^[A-Za-z0-9/ -]{3,40}$/;
 const SIGNATURE_MAX_BYTES = 512_000;
 
 const ROW_INPUT =
-  'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+  'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
 /** A verified (locked) value in the edit form: shown, not editable. */
 const LOCKED_VALUE =
   'flex items-center gap-2 rounded-field border border-cloud bg-glacier px-4 py-3 font-sans text-body-sm text-ink';
 /** "Change pending" next to a verified field with a change waiting for review. */
 const PENDING_BADGE =
-  'inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink';
+  'inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20';
 
 /**
  * The speciality field's one message in the dropdown: none chosen, or one the
@@ -158,7 +158,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
           <div class="sd-shimmer h-72 rounded-card"></div>
         </div>
       } @else if (loadError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
         </div>
@@ -173,7 +173,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
             <!-- A change to the verified details, waiting for a reviewer (or the last one refused). -->
             <div aria-live="polite">
               @if (pending()) {
-                <section class="flex flex-col gap-3 rounded-card border border-cerulean/20 bg-frost/50 p-5" aria-labelledby="pending-title">
+                <section class="flex flex-col gap-3 rounded-card border border-cerulean/20 bg-frost/50 p-5 shadow-card" aria-labelledby="pending-title">
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div class="flex min-w-0 flex-col gap-1">
                       <h2 id="pending-title" class="flex items-center gap-2 font-heading text-body-lg text-ink">
@@ -213,13 +213,13 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
             <div class="grid gap-6 lg:grid-cols-2">
               <div class="flex flex-col gap-6">
                 <!-- Profile summary -->
-                <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">
                   <div class="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
                     <span class="shrink-0">
                       @if (photoSrc()) {
-                        <img [src]="photoSrc()" alt="" width="96" height="96" class="size-24 rounded-full object-cover" />
+                        <img [src]="photoSrc()" alt="" width="96" height="96" class="size-24 rounded-full object-cover ring-4 ring-white shadow-control" />
                       } @else {
-                        <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean">{{ initials() || 'DR' }}</span>
+                        <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean-dark ring-4 ring-white shadow-control">{{ initials() || 'DR' }}</span>
                       }
                     </span>
                     <div class="flex min-w-0 flex-1 flex-col gap-2 text-center sm:text-left">
@@ -227,7 +227,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                         <h2 class="font-heading text-h4 text-ink">{{ profile()?.name }}</h2>
                         @if (isPending('name')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
                         @if (profile()?.verified) {
-                          <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean">
+                          <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean-dark">
                             <sd-icon name="circle-check" [size]="14" />Verified
                           </span>
                         }
@@ -255,7 +255,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                 </section>
 
                 <!-- Personal Information -->
-                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
                     <sd-icon name="user" [size]="20" class="text-cerulean" />Personal Information
                   </h3>
@@ -278,7 +278,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
 
               <div class="flex flex-col gap-6">
                 <!-- Professional Information -->
-                <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+                <section class="flex h-fit flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink">
                       <sd-icon name="briefcase" [size]="20" class="text-cerulean" />Professional Information
@@ -330,7 +330,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-col gap-2 border-b border-cloud pb-4">
                       <span class="font-sans text-caption text-slate">Area of Expertise</span>
                       <div class="flex flex-wrap gap-2">
-                        @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">{{ x }}</span> }
+                        @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">{{ x }}</span> }
                       </div>
                     </div>
                   }
@@ -366,14 +366,14 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-col gap-2">
                       <span class="font-sans text-caption text-slate">Languages</span>
                       <div class="flex flex-wrap gap-2">
-                        @for (l of languages(); track l) { <span class="rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">{{ l }}</span> }
+                        @for (l of languages(); track l) { <span class="rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">{{ l }}</span> }
                       </div>
                     </div>
                   }
                 </section>
 
                 <!-- Signature for prescriptions -->
-                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="sig-heading">
+                <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card" aria-labelledby="sig-heading">
                   <div class="flex flex-col gap-1">
                     <h3 id="sig-heading" class="flex items-center gap-2 font-heading text-body-lg text-ink">
                       <sd-icon name="signature" [size]="20" class="text-cerulean" />Signature for prescriptions
@@ -443,7 +443,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                 </section>
 
                 <!-- Licence, documents and terms: where an approved doctor renews their licence -->
-                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="docs-heading">
+                <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card" aria-labelledby="docs-heading">
                   <h3 id="docs-heading" class="flex items-center gap-2 font-heading text-body-lg text-ink">
                     <sd-icon name="file-check" [size]="20" class="text-cerulean" />Licence &amp; documents
                   </h3>
@@ -482,10 +482,10 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <p class="font-sans text-body-sm text-slate">Your MDCN certificate, practising licence and the practitioner terms.</p>
                   }
                   <div class="flex flex-wrap gap-2">
-                    <a routerLink="/onboarding/credentials" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">
+                    <a routerLink="/onboarding/credentials" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none">
                       <sd-icon name="upload" [size]="16" />Manage documents
                     </a>
-                    <a routerLink="/onboarding/terms" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">
+                    <a routerLink="/onboarding/terms" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none">
                       <sd-icon name="scroll-text" [size]="16" />Practitioner terms
                     </a>
                   </div>
@@ -514,12 +514,12 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
 
             @if (!changing) {
             <!-- Photo -->
-            <section class="flex flex-col items-center gap-4 rounded-card border border-cloud bg-white p-6 sm:flex-row">
+            <section class="flex flex-col items-center gap-4 rounded-card border border-haze bg-white p-6 shadow-card sm:flex-row">
               <div class="relative shrink-0">
                 @if (photoSrc()) {
-                  <img [src]="photoSrc()" alt="" width="96" height="96" class="size-24 rounded-full object-cover" />
+                  <img [src]="photoSrc()" alt="" width="96" height="96" class="size-24 rounded-full object-cover ring-4 ring-white shadow-control" />
                 } @else {
-                  <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean">{{ initials() || 'DR' }}</span>
+                  <span class="flex size-24 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean-dark ring-4 ring-white shadow-control">{{ initials() || 'DR' }}</span>
                 }
                 <button type="button" class="absolute bottom-0 right-0 flex size-9 items-center justify-center rounded-full bg-cerulean text-white ring-2 ring-white transition-opacity disabled:opacity-60" [disabled]="uploadingAvatar()" aria-label="Change photo" (click)="openAvatar()">
                   @if (uploadingAvatar()) {
@@ -530,7 +530,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
               <div class="flex flex-col items-center gap-3 sm:flex-row">
                 <button type="button" class="font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean" (click)="openAvatar()">Replace photo</button>
                 @if (photoSrc()) {
-                  <button type="button" class="flex items-center gap-1.5 rounded-field border border-alert/40 px-4 py-2 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60" [disabled]="uploadingAvatar()" (click)="deletePhoto()">
+                  <button type="button" class="flex items-center gap-1.5 rounded-field border border-alert/40 px-4 py-2 font-sans text-body-sm font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="uploadingAvatar()" (click)="deletePhoto()">
                     <sd-icon name="trash-2" [size]="16" />Delete photo
                   </button>
                 }
@@ -541,7 +541,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
             <form [class]="changing ? 'grid max-w-3xl gap-6' : 'grid gap-6 lg:grid-cols-2'" [formGroup]="form" (ngSubmit)="save()">
               @if (!changing) {
               <!-- Personal -->
-              <section class="flex h-fit flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+              <section class="flex h-fit flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">
                 <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="user" [size]="20" class="text-cerulean" />Personal Information</h3>
                 @if (locked()) {
                   <div class="flex w-full flex-col gap-2">
@@ -563,7 +563,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
               }
 
               <!-- Professional -->
-              <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-6">
+              <section class="flex flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">
                 <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="briefcase" [size]="20" class="text-cerulean" />{{ changing ? 'Verified details' : 'Professional Information' }}</h3>
                 @if (identityEditable()) {
                   @if (changing) {
@@ -654,7 +654,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (expertise().length) {
                     <div class="flex flex-wrap gap-2">
                       @for (x of expertise(); track x; let i = $index) {
-                        <span class="flex items-center gap-1 rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean">
+                        <span class="flex items-center gap-1 rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">
                           {{ x }}
                           <button type="button" class="text-cerulean/70 transition-colors hover:text-alert" aria-label="Remove" (click)="removeExpertise(i)"><sd-icon name="x" [size]="14" /></button>
                         </span>
@@ -675,7 +675,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (languages().length) {
                     <div class="flex flex-wrap gap-2">
                       @for (l of languages(); track l; let i = $index) {
-                        <span class="flex items-center gap-1 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink">
+                        <span class="flex items-center gap-1 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">
                           {{ l }}
                           <button type="button" class="text-slate transition-colors hover:text-alert" aria-label="Remove" (click)="removeLanguage(i)"><sd-icon name="x" [size]="14" /></button>
                         </span>
@@ -774,10 +774,10 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
               <span class="size-7 animate-spin rounded-full border-2 border-cloud border-t-cerulean"></span>
               <span class="font-sans text-body-sm text-slate">Uploading…</span>
             } @else {
-              <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
+              <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean-dark"><sd-icon name="upload" [size]="24" /></span>
               <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
               <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
-              <button type="button" data-autofocus class="mt-1 min-h-11 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2" (click)="avatarInput.click()">Choose from file</button>
+              <button type="button" data-autofocus class="mt-1 min-h-11 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2" (click)="avatarInput.click()">Choose from file</button>
             }
           </div>
           <input #avatarInput type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" (change)="onAvatarSelected($event)" />

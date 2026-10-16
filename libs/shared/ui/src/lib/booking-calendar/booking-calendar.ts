@@ -340,7 +340,7 @@ let nextId = 0;
     <ng-template #jumpButton let-t>
       <button
         type="button"
-        class="inline-flex min-h-11 items-center gap-2 rounded-field bg-frost/40 px-4 font-sans text-body-sm font-semibold text-cerulean hover:bg-frost/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:cursor-not-allowed disabled:opacity-60"
+        class="inline-flex min-h-11 items-center gap-2 rounded-field bg-frost/40 px-4 font-sans text-body-sm font-semibold text-cerulean-dark hover:bg-frost/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:cursor-not-allowed disabled:opacity-60"
         [disabled]="disabled()"
         (click)="jump()"
       >

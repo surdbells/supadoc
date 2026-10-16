@@ -45,12 +45,20 @@ import {
   PAGE_SUBTITLE,
   PAGE_TITLE,
   PAGE_TITLE_ROW,
+  PAGER,
+  PAGER_GAP,
+  PAGER_PAGE,
+  PAGER_PAGE_OFF,
+  PAGER_PAGE_ON,
+  PAGER_PAGES,
+  PAGER_SUMMARY,
   SEARCH_BOX,
   SEARCH_CLEAR,
   SEARCH_ICON,
   SEARCH_INPUT,
   SEARCH_WRAP,
 } from '../shared/layout';
+import { pageWindow } from '../shared/pager';
 import { PhotoPicker, photoErrorText, photoUploadStep } from './photo-picker';
 import { ReviewQueue } from './review-queue';
 import { SearchSelectA11y } from './select-a11y';
@@ -330,11 +338,30 @@ const EMPTY_DRAFT: Draft = {
         </ul>
 
         @if (totalPages() > 1) {
-          <nav class="flex items-center justify-between gap-3" aria-label="Specialist pages">
+          <nav class="${PAGER}" aria-label="Specialist pages">
             <button type="button" class="${BTN_SECONDARY}" [disabled]="page() <= 1 || loading()" (click)="goPage(page() - 1)">
               <sd-icon name="chevron-left" [size]="18" />Previous
             </button>
-            <span class="font-sans text-body-sm text-slate">Page {{ page() }} of {{ totalPages() }}</span>
+            <ol class="${PAGER_PAGES}">
+              @for (p of pages(); track $index) {
+                @if (p === 0) {
+                  <li class="${PAGER_GAP}" aria-hidden="true">…</li>
+                } @else {
+                  <li>
+                    <button
+                      type="button"
+                      class="${PAGER_PAGE}"
+                      [class]="p === page() ? '${PAGER_PAGE_ON}' : '${PAGER_PAGE_OFF}'"
+                      [attr.aria-current]="p === page() ? 'page' : null"
+                      [attr.aria-label]="'Page ' + p"
+                      [disabled]="loading()"
+                      (click)="goPage(p)"
+                    >{{ p }}</button>
+                  </li>
+                }
+              }
+            </ol>
+            <span class="${PAGER_SUMMARY}">Page {{ page() }} of {{ totalPages() }}</span>
             <button type="button" class="${BTN_SECONDARY}" [disabled]="page() >= totalPages() || loading()" (click)="goPage(page() + 1)">
               Next<sd-icon name="chevron-right" [size]="18" />
             </button>
@@ -541,6 +568,8 @@ export class AdminSpecialists implements OnInit {
   protected readonly rows = signal<SpecialistAdminRowDto[]>([]);
   protected readonly total = signal(0);
   protected readonly totalPages = signal(1);
+  /** The numbered pager's buttons (0 = an ellipsis). */
+  protected readonly pages = computed(() => pageWindow(this.page(), this.totalPages()));
   protected readonly loading = signal(true);
   protected readonly listError = signal('');
   private listSub?: Subscription;
@@ -765,7 +794,7 @@ export class AdminSpecialists implements OnInit {
       out.push({
         label: 'Credentials missing' + (s.credentials_due_at ? ` · due ${calendarDay(s.credentials_due_at)}` : ''),
         icon: 'badge-alert',
-        cls: 'bg-alert/10 text-alert',
+        cls: 'bg-alert/10 text-alert-ink',
       });
     }
     return out;

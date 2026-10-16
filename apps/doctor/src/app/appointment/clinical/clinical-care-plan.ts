@@ -67,7 +67,7 @@ import {
         <ol class="flex flex-col gap-3">
           @for (item of items(); track $index) {
             <li class="flex items-center gap-3">
-              <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-frost font-sans text-caption font-semibold text-cerulean" aria-hidden="true">{{ $index + 1 }}</span>
+              <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-frost font-sans text-caption font-semibold text-cerulean-dark" aria-hidden="true">{{ $index + 1 }}</span>
               <input
                 type="text"
                 class="${CLINICAL_INPUT} min-w-0 flex-1"

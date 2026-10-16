@@ -82,7 +82,7 @@ const ORDER: Record<CredentialType, number> = {
         } @else {
           <ul class="${CARD_LIST}">
             @for (c of current(); track c.id) {
-              <li class="flex flex-col gap-4 rounded-card border bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)]" [class]="c.status === 'pending' ? 'border-warning' : 'border-cloud'">
+              <li class="flex flex-col gap-4 rounded-card border bg-white p-5 shadow-card" [class]="c.status === 'pending' ? 'border-warning' : 'border-haze'">
                 <div class="flex flex-wrap items-start justify-between gap-2">
                   <div class="flex min-w-0 flex-col gap-1">
                     <span class="font-heading text-body-lg text-ink">{{ c.type_label }}</span>

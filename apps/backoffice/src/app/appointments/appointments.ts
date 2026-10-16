@@ -23,6 +23,7 @@ import {
   hasRefund,
   naira,
 } from '../shared/appointment-status';
+import { initials } from '../dashboard/dashboard-ui';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -42,6 +43,9 @@ import {
   PAGE_SUBTITLE,
   PAGE_TITLE,
   PAGE_TITLE_ROW,
+  PERSON_CHIP,
+  PERSON_CHIP_AVATAR,
+  PERSON_CHIP_NAME,
   PILL,
   ROW_ACTION_LAYER,
   ROW_CHEVRON_ICON,
@@ -56,6 +60,7 @@ import {
   TABLE_WRAP,
   TBODY,
   TD,
+  TD_AMOUNT,
   TD_CUE,
   TD_PRIMARY,
   TD_SUB,
@@ -224,8 +229,8 @@ interface Row {
               <a
                 [routerLink]="['/appointments', r.a.id]"
                 [state]="{ listQuery: queryParams() }"
-                class="flex flex-col gap-2 rounded-card border bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 ${FOCUS_RING}"
-                [class]="r.a.needs_attention ? 'border-warning' : 'border-cloud'"
+                class="flex flex-col gap-2 rounded-card border bg-white p-5 shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover ${FOCUS_RING}"
+                [class]="r.a.needs_attention ? 'border-warning' : 'border-haze'"
               >
                 <div class="flex items-start justify-between gap-3">
                   <span class="flex min-w-0 flex-col">
@@ -274,7 +279,8 @@ interface Row {
                     <span class="${TD_SUB}">{{ r.a.patient?.email }}</span>
                   </td>
                   <td class="${TD}">
-                    <span class="${TD_PRIMARY}">{{ r.a.specialist.name }}</span>
+                    <span class="${TD_PRIMARY} xl:hidden">{{ r.a.specialist.name }}</span>
+                    <span class="hidden xl:contents"><span class="${PERSON_CHIP}"><span class="${PERSON_CHIP_AVATAR}" aria-hidden="true">{{ initials(r.a.specialist.name) }}</span><span class="${PERSON_CHIP_NAME}">{{ r.a.specialist.name }}</span></span></span>
                     <span class="${TD_SUB}">{{ r.a.specialist.specialty }}</span>
                   </td>
                   <td class="${TD}">
@@ -287,7 +293,7 @@ interface Row {
                     </span>
                   </td>
                   <td class="${TD}">
-                    {{ money(r.a.amount) }}
+                    <span class="${TD_AMOUNT}">{{ money(r.a.amount) }}</span>
                     <span class="${TD_SUB}">{{ r.payment }}</span>
                   </td>
                   <td class="${TD}">
@@ -355,6 +361,8 @@ export class AdminAppointments implements OnInit {
   protected readonly canCreate = computed(() => this.auth.hasPermission('appointments.create'));
   protected readonly whenFilters = WHEN_FILTERS;
   protected readonly attention = ATTENTION_BADGE;
+  /** The Specialist column's chip avatar (no photo on the ref: initials, "Dr." stripped). */
+  protected readonly initials = initials;
   protected readonly when = signal<WhenKey>('all');
   protected readonly status = signal('');
   protected readonly items = signal<AppointmentDto[]>([]);

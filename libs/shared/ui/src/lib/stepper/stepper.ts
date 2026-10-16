@@ -54,6 +54,6 @@ export class StepperComponent {
     if (n < this.current()) return 'bg-sage text-white';
     if (n === this.current())
       return 'bg-cerulean text-white shadow-[0_2px_10px_rgba(21,101,192,0.35)]';
-    return 'bg-cerulean/15 text-cerulean';
+    return 'bg-cerulean/15 text-cerulean-dark';
   }
 }

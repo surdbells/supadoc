@@ -192,7 +192,7 @@ function toForm(s: PrescriptionSettingsDto): FormValues {
                       {{ f.label }}
                     </label>
                     <div
-                      class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors focus-within:ring-2"
+                      class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-control transition-colors focus-within:ring-2"
                       [class]="errorFor(f.key) ? 'border-alert focus-within:ring-alert/20' : 'border-[#b8c6d4] focus-within:border-cerulean focus-within:ring-cerulean/20'"
                     >
                       <input

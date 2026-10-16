@@ -106,7 +106,9 @@ const FOCUSABLE =
       --sd-dialog-border: #eceff1;
       --sd-dialog-field: #b8c6d4;
       --sd-dialog-ring: rgb(11 98 228 / 0.4);
-      --sd-dialog-shadow: 0 8px 40px rgb(10 22 40 / 0.2);
+      --sd-dialog-shadow:
+        0 0 0 1px rgb(209 233 253), 0 4px 4px rgb(21 101 192 / 0.1),
+        0 16px 40px rgb(10 22 40 / 0.16);
       --sd-dialog-on-accent: #ffffff;
       --sd-dialog-primary: #0b62e4;
       --sd-dialog-primary-hover: #0a4fbf;
@@ -204,9 +206,10 @@ const FOCUSABLE =
       --sd-dialog-strong: #f2f7fb;
       --sd-dialog-muted: #94a6b5;
       --sd-dialog-border: #29323f;
-      --sd-dialog-field: #3a4a58;
-      --sd-dialog-ring: rgb(110 168 230 / 0.5);
-      --sd-dialog-shadow: 0 12px 48px rgb(0 0 0 / 0.55);
+      --sd-dialog-field: #5b6f80;
+      --sd-dialog-ring: rgb(110 168 230 / 0.8);
+      --sd-dialog-shadow:
+        0 0 0 1px rgb(255 255 255 / 0.06), 0 12px 48px rgb(0 0 0 / 0.55);
       --sd-dialog-danger-soft: rgb(229 57 53 / 0.18);
       --sd-dialog-danger-text: #ff8a80;
       --sd-dialog-warning-soft: rgb(242 169 0 / 0.18);

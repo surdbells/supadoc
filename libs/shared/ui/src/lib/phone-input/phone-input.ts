@@ -110,7 +110,7 @@ export const COUNTRIES: readonly Country[] = [
             ></button>
             <ul
               role="listbox"
-              class="absolute left-0 top-[calc(100%+4px)] z-20 max-h-64 w-64 overflow-auto rounded-field border border-[#d7e0e8] bg-white py-1 shadow-lg"
+              class="absolute left-0 top-[calc(100%+4px)] z-20 max-h-64 w-64 overflow-auto rounded-field border border-haze bg-white py-1 shadow-overlay"
             >
               @for (c of countries; track c.iso) {
                 <li>
@@ -168,10 +168,10 @@ export class PhoneInputComponent implements ControlValueAccessor {
   protected readonly triggerClasses = computed(() => {
     const border = this.error()
       ? 'border-alert focus:border-alert focus:ring-alert/20'
-      : 'border-[#d7e0e8] hover:border-slate/40 focus:border-cerulean focus:ring-cerulean/20';
+      : 'border-[#b8c6d4] hover:border-slate/50 focus:border-cerulean focus:ring-cerulean/20';
     return (
       'flex h-full items-center gap-2 rounded-field border bg-white px-3 ' +
-      'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
+      'shadow-control transition-all duration-200 ' +
       `focus:outline-none focus:ring-2 disabled:cursor-not-allowed ${border}`
     );
   });
@@ -179,10 +179,10 @@ export class PhoneInputComponent implements ControlValueAccessor {
   protected readonly fieldClasses = computed(() => {
     const border = this.error()
       ? 'border-alert focus-within:border-alert focus-within:ring-alert/20'
-      : 'border-[#d7e0e8] hover:border-slate/40 focus-within:border-cerulean focus-within:ring-cerulean/20';
+      : 'border-[#b8c6d4] hover:border-slate/50 focus-within:border-cerulean focus-within:ring-cerulean/20';
     return (
       'flex flex-1 items-center rounded-field border bg-white px-4 ' +
-      'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 ' +
+      'shadow-control transition-all duration-200 ' +
       `focus-within:ring-2 focus-within:shadow-[0_2px_10px_rgba(21,101,192,0.08)] ${border}`
     );
   });

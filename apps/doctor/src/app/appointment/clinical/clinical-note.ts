@@ -183,7 +183,7 @@ let nextUid = 0;
       }
       @case ('error') {
         <!-- No editor until the saved note has loaded: a blank one could overwrite it. -->
-        <section class="rounded-card border border-cloud bg-white px-4" aria-label="SOAP note">
+        <section class="rounded-card border border-haze bg-white px-4 shadow-card" aria-label="SOAP note">
           <sd-empty-state icon="wifi-off" tone="error" [title]="loadFailedTitle" [message]="loadError()">
             <p class="-mt-2 max-w-md font-sans text-caption text-slate">
               The note stays hidden until it loads, so nothing you type can replace the saved copy.

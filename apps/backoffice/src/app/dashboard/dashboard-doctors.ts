@@ -54,7 +54,7 @@ const COLS_PLAIN = 'md:grid-cols-[minmax(0,1fr)_6.5rem_6rem_7.5rem]';
         </div>
         <ol class="${LIST_CARD_BODY}">
           @for (r of rows(); track r.id) {
-            <li class="group relative flex flex-col gap-2 px-5 py-3.5 transition-colors hover:bg-glacier md:grid md:items-center md:gap-4" [class]="cols()">
+            <li class="group relative flex flex-col gap-2 px-5 py-3.5 transition-colors hover:bg-glacier/60 md:grid md:items-center md:gap-4" [class]="cols()">
               <!-- The row's link: its ::after covers the whole row (one tab stop, whole-row focus ring). -->
               <a
                 [routerLink]="['/specialists', r.id]"

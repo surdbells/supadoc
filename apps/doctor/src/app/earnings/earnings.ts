@@ -26,7 +26,7 @@ import { IconComponent } from '@supadoc/ui';
           <h1 class="font-heading text-h3 text-ink">Earnings</h1>
           <p class="font-sans text-body text-slate">What you've earned and can withdraw.</p>
         </div>
-        <a routerLink="/payouts" class="flex shrink-0 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">
+        <a routerLink="/payouts" class="flex shrink-0 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none">
           <sd-icon name="banknote" [size]="18" />Payouts
         </a>
       </header>
@@ -36,25 +36,25 @@ import { IconComponent } from '@supadoc/ui';
           @for (i of [1,2,3,4]; track i) { <div class="sd-shimmer h-28 rounded-card"></div> }
         </div>
       } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
         </div>
       } @else if (summary(); as s) {
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div class="rounded-card border border-cerulean/30 bg-frost/20 p-5">
+          <div class="rounded-card border border-cerulean/30 bg-frost/20 p-5 shadow-card">
             <p class="font-sans text-caption text-slate">Available to withdraw</p>
             <p class="mt-1 font-heading text-h3 text-cerulean">{{ money(s.available_balance) }}</p>
           </div>
-          <div class="rounded-card border border-cloud bg-white p-5">
+          <div class="rounded-card border border-haze bg-white p-5 shadow-card">
             <p class="font-sans text-caption text-slate">Net earned (all time)</p>
             <p class="mt-1 font-heading text-h4 text-ink">{{ money(s.net_total) }}</p>
           </div>
-          <div class="rounded-card border border-cloud bg-white p-5">
+          <div class="rounded-card border border-haze bg-white p-5 shadow-card">
             <p class="font-sans text-caption text-slate">This month (net)</p>
             <p class="mt-1 font-heading text-h4 text-ink">{{ money(s.net_month) }}</p>
           </div>
-          <div class="rounded-card border border-cloud bg-white p-5">
+          <div class="rounded-card border border-haze bg-white p-5 shadow-card">
             <p class="font-sans text-caption text-slate">Consultations</p>
             <p class="mt-1 font-heading text-h4 text-ink">{{ s.completed_count }}</p>
             @if (s.patient_no_show_count) {
@@ -63,7 +63,7 @@ import { IconComponent } from '@supadoc/ui';
           </div>
         </div>
 
-        <div class="flex flex-wrap gap-6 rounded-card border border-cloud bg-white px-6 py-4 font-sans text-body-sm">
+        <div class="flex flex-wrap gap-6 rounded-card border border-haze bg-white px-6 py-4 font-sans text-body-sm shadow-card">
           <span class="text-slate">Gross earned: <span class="font-semibold text-ink">{{ money(s.gross_total) }}</span></span>
           <span class="text-slate">Platform commission ({{ s.commission_percent }}%): <span class="font-semibold text-ink">{{ money(s.commission_total) }}</span></span>
           <span class="text-slate">Paid/requested: <span class="font-semibold text-ink">{{ money(s.payouts_total) }}</span></span>
@@ -71,9 +71,9 @@ import { IconComponent } from '@supadoc/ui';
 
         <section class="flex flex-col gap-3">
           <h2 class="font-heading text-body-lg text-ink">Consultation earnings</h2>
-          <div class="overflow-x-auto rounded-card border border-cloud bg-white">
+          <div class="overflow-x-auto rounded-card border border-haze bg-white shadow-card">
             <table class="w-full min-w-[640px] text-left">
-              <thead class="border-b border-cloud font-sans text-caption text-slate">
+              <thead class="border-b border-glacier bg-glacier font-sans text-caption text-slate">
                 <tr>
                   <th class="px-4 py-3">Date</th>
                   <th class="px-4 py-3">Patient</th>
@@ -91,13 +91,13 @@ import { IconComponent } from '@supadoc/ui';
                         {{ t.patient_name }}
                         <!-- A missed consultation the patient didn't come to still earns the fee (less any refund). -->
                         @if (t.status === 'missed') {
-                          <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink"><sd-icon name="user-x" [size]="12" />Patient didn't join</span>
+                          <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"><sd-icon name="user-x" [size]="12" />Patient didn't join</span>
                         }
                       </span>
                     </td>
-                    <td class="px-4 py-3 text-right text-slate">{{ money(t.gross) }}</td>
-                    <td class="px-4 py-3 text-right text-slate">−{{ money(t.commission) }}</td>
-                    <td class="px-4 py-3 text-right font-semibold">{{ money(t.net) }}</td>
+                    <td class="px-4 py-3 text-right tabular-nums text-slate">{{ money(t.gross) }}</td>
+                    <td class="px-4 py-3 text-right tabular-nums text-slate">−{{ money(t.commission) }}</td>
+                    <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ money(t.net) }}</td>
                   </tr>
                 } @empty {
                   @if (txnError() && !loadingTxns()) {
@@ -118,7 +118,7 @@ import { IconComponent } from '@supadoc/ui';
           </div>
           @if (txnError() && txns().length > 0) { <p class="text-center font-sans text-caption text-alert">{{ txnError() }}</p> }
           @if (hasMore()) {
-            <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loadingTxns()" (click)="loadMore()">
+            <button type="button" class="mx-auto rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="loadingTxns()" (click)="loadMore()">
               {{ loadingTxns() ? 'Loading…' : 'Load more' }}
             </button>
           }

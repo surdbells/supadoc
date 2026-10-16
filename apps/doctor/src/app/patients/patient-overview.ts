@@ -52,12 +52,12 @@ const FOOTER_LINK =
     <!-- Allergy alert -->
     @if (allergies().length > 0) {
       <section
-        class="flex flex-col gap-4 rounded-card border p-5 sm:p-6"
+        class="flex flex-col gap-4 rounded-card border p-5 shadow-card sm:p-6"
         [class]="seriousAllergy() ? 'border-alert/30 bg-alert/5' : 'border-warning/40 bg-warning/5'"
         aria-labelledby="pd-allergy-alert"
       >
         <div class="flex items-start gap-3">
-          <span class="flex size-11 shrink-0 items-center justify-center rounded-full" [class]="seriousAllergy() ? 'bg-alert/10 text-alert' : 'bg-warning/15 text-warning'" aria-hidden="true">
+          <span class="flex size-11 shrink-0 items-center justify-center rounded-full" [class]="seriousAllergy() ? 'bg-alert/10 text-alert-ink' : 'bg-warning/15 text-warning-ink'" aria-hidden="true">
             <sd-icon name="shield-alert" [size]="22" />
           </span>
           <div class="flex min-w-0 flex-col gap-0.5">
@@ -82,7 +82,7 @@ const FOOTER_LINK =
         </ul>
       </section>
     } @else {
-      <section class="flex items-start gap-3 rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-6" aria-label="Allergies">
+      <section class="flex items-start gap-3 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6" aria-label="Allergies">
         <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-glacier text-slate" aria-hidden="true">
           <sd-icon name="info" [size]="22" />
         </span>
@@ -152,7 +152,7 @@ const FOOTER_LINK =
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <doc-visit-status-badge [status]="statusKey(v)" [label]="statusLabel(v)" />
-                <a [routerLink]="['/appointments', v.id]" class="inline-flex items-center gap-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
+                <a [routerLink]="['/appointments', v.id]" class="inline-flex items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
                   Open chart <sd-icon name="chevron-right" [size]="14" />
                 </a>
               </div>

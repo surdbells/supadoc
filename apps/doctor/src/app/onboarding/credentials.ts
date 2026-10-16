@@ -30,10 +30,10 @@ import { latestCredential, licenceDocuments, renewalText, ymdLabel } from '../st
 import { CredentialStatusChip } from './credential-status';
 
 const FIELD =
-  'min-h-11 w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-2.5 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 aria-[invalid=true]:border-alert';
+  'min-h-11 w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-2.5 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 aria-[invalid=true]:border-alert';
 const LABEL = 'font-sans text-body-sm font-semibold text-ink';
 const ACTION =
-  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-caption font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:opacity-60';
+  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold shadow-control transition active:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:opacity-60 disabled:shadow-none';
 
 /** The two documents every doctor must have verified, in the order they are asked for. */
 const REQUIRED: readonly { type: CredentialType; label: string; hint: string }[] = [
@@ -96,7 +96,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
         <div class="sd-shimmer h-72 rounded-card" aria-hidden="true"></div>
         <span class="sr-only" role="status">Loading your documents…</span>
       } @else if (loadError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-5 py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
           <sd-button variant="outline" size="sm" (click)="load()"><sd-icon name="refresh-cw" [size]="16" />Try again</sd-button>
@@ -106,7 +106,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
         <section class="grid gap-3 sm:grid-cols-2" aria-label="Required documents">
           @for (r of required; track r.type) {
             @let doc = latest(r.type);
-            <div class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-5">
+            <div class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5">
               <div class="flex flex-col gap-2">
                 <span class="font-heading text-body font-semibold text-ink">{{ r.label }}</span>
                 <doc-credential-status [status]="doc?.status ?? 'missing'" />
@@ -133,7 +133,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
         </section>
 
         <!-- Upload -->
-        <section class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="upload-title">
+        <section class="flex flex-col gap-5 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6" aria-labelledby="upload-title">
           <div class="flex flex-col gap-1">
             <h2 #uploadTitle id="upload-title" tabindex="-1" class="flex items-center gap-2 font-heading text-body-lg text-ink outline-none">
               <sd-icon name="upload" [size]="20" class="text-cerulean" />Upload a document
@@ -291,7 +291,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
           } @else {
             <ul class="flex flex-col gap-3">
               @for (c of d.credentials; track c.id) {
-                <li class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-5">
+                <li class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5">
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="flex min-w-0 flex-col gap-0.5">
                       <span class="font-heading text-body font-semibold text-ink">{{ c.type_label }}</span>

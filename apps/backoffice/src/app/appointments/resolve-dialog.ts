@@ -136,7 +136,7 @@ function idempotencyKey(): string {
                   <span class="flex flex-wrap items-center gap-2 font-sans text-body-sm font-semibold text-ink">
                     {{ p.label }}
                     @if (suggested() === p.value) {
-                      <span class="${PILL} bg-frost text-cerulean"><sd-icon name="search-check" [size]="12" />Matches the call records</span>
+                      <span class="${PILL} bg-frost text-cerulean-dark"><sd-icon name="search-check" [size]="12" />Matches the call records</span>
                     }
                     @if (appointment().no_show === p.value && appointment().status === 'missed') {
                       <span class="${PILL} bg-cloud text-slate">Current</span>
@@ -191,8 +191,8 @@ function idempotencyKey(): string {
               <div class="flex flex-col gap-1.5 pl-1 pt-1">
                 <label [for]="formId + '-amount'" class="${LABEL}">Amount to refund</label>
                 <div
-                  class="flex items-stretch overflow-hidden rounded-field border bg-white focus-within:ring-2"
-                  [class]="fieldError('amount') ? 'border-alert focus-within:ring-alert/20' : 'border-cloud focus-within:border-cerulean focus-within:ring-cerulean/20'"
+                  class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-control focus-within:ring-2"
+                  [class]="fieldError('amount') ? 'border-alert focus-within:ring-alert/20' : 'border-[#b8c6d4] focus-within:border-cerulean focus-within:ring-cerulean/20'"
                 >
                   <span class="flex shrink-0 items-center border-r border-cloud bg-glacier px-3 font-sans text-body-sm text-slate" aria-hidden="true">₦</span>
                   <input

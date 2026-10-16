@@ -41,7 +41,7 @@ import { ButtonComponent, IconComponent, InputComponent } from '@supadoc/ui';
       </div>
 
       <form
-        class="mx-auto flex w-full max-w-[480px] flex-col gap-6 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
+        class="mx-auto flex w-full max-w-[480px] flex-col gap-6 rounded-card border border-haze bg-white p-6 shadow-card"
         [formGroup]="form"
         (ngSubmit)="save()"
       >

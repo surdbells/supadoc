@@ -122,7 +122,7 @@ import type { CanLeave } from '@supadoc/auth';
             <div class="sd-shimmer h-24 rounded-card"></div>
           </div>
         } @else if (error() && items().length === 0) {
-          <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-4 py-10 text-center">
+          <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-4 py-10 text-center shadow-card">
             <sd-icon name="wifi-off" [size]="30" class="text-alert" />
             <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
             <sd-button variant="secondary" size="sm" [disabled]="disabled()" (click)="refresh()">
@@ -142,7 +142,7 @@ import type { CanLeave } from '@supadoc/auth';
           }
           <ul class="flex flex-col gap-3">
             @for (rx of items(); track rx.id) {
-              <li class="@container rounded-card border border-cloud bg-white p-4">
+              <li class="@container rounded-card border border-haze bg-white p-4 shadow-card">
                 <div
                   class="flex flex-col gap-3"
                   [class]="compact() ? '' : '@xl:flex-row @xl:items-center @xl:justify-between'"

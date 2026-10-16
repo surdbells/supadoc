@@ -128,7 +128,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         <section class="${SECTION} !gap-4" aria-labelledby="bo-rv-terms-title">
           <h2 id="bo-rv-terms-title" class="${SECTION_TITLE}"><sd-icon name="scroll-text" [size]="20" class="text-cerulean" />Practitioner terms</h2>
           @if (detail().terms; as t) {
-            <span class="${PILL} w-fit" [class]="t.accepted ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-ink'">
+            <span class="${PILL} w-fit" [class]="t.accepted ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-ink'">
               <sd-icon [name]="t.accepted ? 'circle-check' : 'hourglass'" [size]="13" />{{ t.accepted ? 'Version ' + t.current_version + ' accepted' : 'Version ' + t.current_version + ' not accepted yet' }}
             </span>
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 font-sans text-body-sm">
@@ -203,7 +203,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
 
       <!-- Change request -->
       @if (detail().pending_changes) {
-        <section class="flex flex-col gap-5 rounded-card border border-warning/60 bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-6" aria-labelledby="bo-rv-changes-title">
+        <section class="flex flex-col gap-5 rounded-card border border-warning/60 bg-white p-5 shadow-card sm:p-6" aria-labelledby="bo-rv-changes-title">
           <div class="flex flex-col gap-1">
             <h2 id="bo-rv-changes-title" class="${SECTION_TITLE}"><sd-icon name="square-pen" [size]="20" class="text-warning" />Change request</h2>
             <p class="font-sans text-body-sm text-slate">Requested {{ when(detail().pending_changes_submitted_at) }}. Approving makes these live (prescriptions print them) and becomes the new approved snapshot.</p>

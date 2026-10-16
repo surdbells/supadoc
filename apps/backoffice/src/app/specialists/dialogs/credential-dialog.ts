@@ -125,14 +125,14 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
             }
 
             @if (canVerify() || canReject()) {
-              <div class="flex gap-1 rounded-pill border border-cloud bg-white p-1" role="group" aria-label="Decision">
+              <div class="flex gap-1 rounded-pill border border-haze bg-glacier p-1" role="group" aria-label="Decision">
                 @if (canVerify()) {
-                  <button type="button" class="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-pill px-3 font-sans text-body-sm font-semibold transition-colors" [class]="action() === 'verify' ? 'bg-sage/15 text-sage' : 'text-slate hover:text-ink'" [attr.aria-pressed]="action() === 'verify'" (click)="setAction('verify')">
+                  <button type="button" class="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-pill px-3 font-sans text-body-sm font-semibold transition" [class]="action() === 'verify' ? 'bg-sage/15 text-sage-ink shadow-control' : 'text-slate hover:text-ink'" [attr.aria-pressed]="action() === 'verify'" (click)="setAction('verify')">
                     <sd-icon name="badge-check" [size]="16" />Verify
                   </button>
                 }
                 @if (canReject()) {
-                  <button type="button" class="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-pill px-3 font-sans text-body-sm font-semibold transition-colors" [class]="action() === 'reject' ? 'bg-alert/10 text-alert' : 'text-slate hover:text-ink'" [attr.aria-pressed]="action() === 'reject'" (click)="setAction('reject')">
+                  <button type="button" class="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-pill px-3 font-sans text-body-sm font-semibold transition" [class]="action() === 'reject' ? 'bg-alert/10 text-alert-ink shadow-control' : 'text-slate hover:text-ink'" [attr.aria-pressed]="action() === 'reject'" (click)="setAction('reject')">
                     <sd-icon name="circle-x" [size]="16" />Reject
                   </button>
                 }

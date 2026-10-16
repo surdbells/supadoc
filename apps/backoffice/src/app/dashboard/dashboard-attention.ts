@@ -38,11 +38,11 @@ interface Row {
       <div class="${LIST_CARD_HEAD}">
         <h2 id="dash-attention-title" class="${SECTION_TITLE}"><sd-icon name="list-checks" [size]="20" class="text-cerulean" />Needs your attention</h2>
         @if (waitingTotal() > 0) {
-          <span class="inline-flex items-center gap-1.5 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink">
+          <span class="inline-flex items-center gap-1.5 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/15">
             <sd-icon name="triangle-alert" [size]="13" class="text-warning" />{{ formatCount(waitingTotal()) }} waiting
           </span>
         } @else if (items().length > 0) {
-          <span class="inline-flex items-center gap-1.5 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink">
+          <span class="inline-flex items-center gap-1.5 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/15">
             <sd-icon name="circle-check" [size]="13" class="text-sage" />All clear
           </span>
         }
@@ -66,7 +66,7 @@ interface Row {
         </ul>
       } @else if (items().length > 0) {
         <div class="flex flex-col items-center gap-2 px-5 py-8 text-center">
-          <span class="flex size-12 items-center justify-center rounded-full bg-sage/15 text-sage"><sd-icon name="circle-check" [size]="24" /></span>
+          <span class="flex size-12 items-center justify-center rounded-full bg-sage/15 text-sage-ink"><sd-icon name="circle-check" [size]="24" /></span>
           <p class="font-sans text-body-sm font-semibold text-ink">Nothing is waiting for you</p>
           <p class="font-sans text-caption text-slate">Every queue below is empty.</p>
         </div>
@@ -76,7 +76,7 @@ interface Row {
         <h3 class="${GROUP_LABEL}" [class.border-t]="open().length > 0" [class.border-cloud]="open().length > 0">All clear</h3>
         <ul class="flex flex-wrap gap-2 px-5 pb-5 pt-2">
           @for (r of clear(); track r.item.key) {
-            <li class="inline-flex items-center gap-1.5 rounded-pill bg-glacier px-3 py-1 font-sans text-caption text-slate">
+            <li class="inline-flex items-center gap-1.5 rounded-pill bg-glacier px-3 py-1 font-sans text-caption text-slate inset-ring inset-ring-current/15">
               <sd-icon name="check" [size]="13" class="text-sage" />{{ r.item.label }}
             </li>
           }

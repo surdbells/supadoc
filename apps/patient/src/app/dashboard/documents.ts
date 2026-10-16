@@ -46,10 +46,10 @@ const RX_PREVIEW = 3;
 
 /** Every prescription status reads as an icon AND a word — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
-  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
-  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning-ink' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
   expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 type Step = '' | 'source' | 'queue' | 'uploading' | 'success';
@@ -78,9 +78,9 @@ interface SkippedFile {
 /** Every upload status reads as an icon AND a word — never colour alone. */
 const UPLOAD_STATUS: Record<UploadStatus, { label: string; icon: string; cls: string }> = {
   queued: { label: 'Waiting', icon: 'clock', cls: 'bg-cloud text-slate' },
-  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean' },
-  done: { label: 'Uploaded', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
-  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean-dark' },
+  done: { label: 'Uploaded', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
+  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /** Accepted client-side (mirrors MedicalDocumentStorage on the server). */
@@ -124,14 +124,14 @@ const CUSTOM_TYPE_MAX = 120;
       @if (rxLoading()) {
         <div class="sd-shimmer h-24 rounded-card"></div>
       } @else if (rxLoadError()) {
-        <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:p-5">
+        <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5">
           <span class="flex items-center gap-2 font-sans text-body font-semibold text-ink">
             <sd-icon name="pill" [size]="20" class="text-slate" />Prescriptions
           </span>
           <p class="flex items-start gap-2 font-sans text-body-sm text-alert" role="alert">
             <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ rxLoadError() }}
           </p>
-          <button type="button" class="w-fit rounded-field border border-cloud bg-white px-5 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="loadPrescriptions()">
+          <button type="button" class="w-fit rounded-field border border-haze bg-white px-5 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none" (click)="loadPrescriptions()">
             Try again
           </button>
         </section>
@@ -147,15 +147,15 @@ const CUSTOM_TYPE_MAX = 120;
           </div>
           <ul class="flex flex-col gap-3">
             @for (rx of recentRx(); track rx.id) {
-              <li class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 sm:flex-row sm:items-center sm:gap-4">
+              <li class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:flex-row sm:items-center sm:gap-4">
                 <div class="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
-                  <span class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal">
+                  <span class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink">
                     <sd-icon name="pill" [size]="20" />
                   </span>
                   <span class="flex min-w-0 flex-col gap-1">
                     <span class="flex flex-wrap items-center gap-2">
                       <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
-                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="rxStatus(rx.status).cls">
+                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="rxStatus(rx.status).cls">
                         <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
                       </span>
                     </span>
@@ -170,7 +170,7 @@ const CUSTOM_TYPE_MAX = 120;
                 <div class="flex shrink-0 items-center gap-2 pl-[60px] sm:pl-0">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                    class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
                     [disabled]="openingRx() === rx.id"
                     [attr.aria-label]="'View prescription ' + rx.number"
                     (click)="viewRx(rx)"
@@ -203,13 +203,13 @@ const CUSTOM_TYPE_MAX = 120;
       } @else if (loadError() && !hasAny()) {
         <div class="flex flex-col items-center gap-4 py-20 text-center">
           <p class="font-sans text-body-sm text-alert">{{ loadError() }}</p>
-          <button type="button" class="rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean" (click)="reload()">
+          <button type="button" class="rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none" (click)="reload()">
             Try again
           </button>
         </div>
       } @else if (!hasAny()) {
-        <!-- Empty state -->
-        <div class="flex flex-col items-center gap-5 py-20 text-center">
+        <!-- Empty state (sd-es: shares sd-empty-state's dark-mode disc rule in styles.css) -->
+        <div class="sd-es flex flex-col items-center gap-5 py-20 text-center">
           <span class="flex size-24 items-center justify-center rounded-full bg-glacier text-slate">
             <sd-icon name="file-text" [size]="40" />
           </span>
@@ -227,7 +227,7 @@ const CUSTOM_TYPE_MAX = 120;
           <span class="flex items-center gap-2 font-sans text-body font-semibold text-ink">
             <sd-icon name="file-text" [size]="20" class="text-slate" />Upload History
           </span>
-          <div class="flex min-w-[220px] flex-1 items-center gap-2 rounded-field border border-cloud bg-white px-4 py-2.5">
+          <div class="flex min-w-[220px] flex-1 items-center gap-2 rounded-field border border-haze bg-white px-4 py-2.5 shadow-control hover:border-cerulean/30">
             <sd-icon name="search" [size]="18" class="text-slate" />
             <input
               type="search"
@@ -239,7 +239,7 @@ const CUSTOM_TYPE_MAX = 120;
           </div>
           <div class="relative">
             <select
-              class="appearance-none rounded-field border border-cloud bg-white py-2.5 pl-9 pr-9 font-sans text-body-sm text-ink outline-none focus:border-cerulean"
+              class="appearance-none rounded-field border border-haze bg-white py-2.5 pl-9 pr-9 font-sans text-body-sm text-ink shadow-control outline-none transition focus:border-cerulean active:shadow-none disabled:shadow-none"
               [value]="typeFilter()"
               (change)="onFilter($any($event.target).value)"
             >
@@ -251,7 +251,7 @@ const CUSTOM_TYPE_MAX = 120;
           </div>
           <button
             type="button"
-            class="flex items-center gap-2 rounded-field border border-cloud bg-white px-4 py-2.5 font-sans text-body-sm text-ink transition-colors hover:border-cerulean"
+            class="flex items-center gap-2 rounded-field border border-haze bg-white px-4 py-2.5 font-sans text-body-sm text-ink shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
             (click)="toggleSort()"
           >
             <sd-icon name="arrow-up-down" [size]="16" class="text-slate" />
@@ -269,7 +269,7 @@ const CUSTOM_TYPE_MAX = 120;
             <li>
               <button
                 type="button"
-                class="flex w-full items-center gap-4 rounded-card border border-cloud bg-white p-4 text-left transition-colors hover:border-cerulean/50"
+                class="flex w-full items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover"
                 (click)="open(d)"
               >
                 <span class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-glacier text-slate">
@@ -281,19 +281,19 @@ const CUSTOM_TYPE_MAX = 120;
                 </span>
                 <span class="hidden min-w-0 flex-1 truncate font-sans text-body-sm text-ink sm:block">{{ d.type_label }}</span>
                 <span class="hidden font-sans text-body-sm text-slate md:block">{{ date(d.created_at) }}</span>
-                <span class="shrink-0 rounded-pill px-3 py-1 font-sans text-caption font-medium" [class]="badgeClass(d.uploader_role)">{{ badgeLabel(d.uploader_role) }}</span>
+                <span class="shrink-0 rounded-pill px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/15" [class]="badgeClass(d.uploader_role)">{{ badgeLabel(d.uploader_role) }}</span>
                 <sd-icon name="chevron-right" [size]="18" class="shrink-0 text-slate" />
               </button>
             </li>
           } @empty {
-            <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">
+            <li class="rounded-card border border-haze bg-white px-5 py-16 text-center font-sans text-body-sm text-slate shadow-card">
               {{ loading() ? 'Loading…' : 'No documents match your search.' }}
             </li>
           }
         </ul>
 
         @if (hasMore()) {
-          <button type="button" class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60" [disabled]="loading()" (click)="loadMore()">
+          <button type="button" class="mx-auto rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none" [disabled]="loading()" (click)="loadMore()">
             {{ loading() ? 'Loading…' : 'Load more' }}
           </button>
         }
@@ -449,7 +449,7 @@ const CUSTOM_TYPE_MAX = 120;
                         <span class="truncate font-sans text-body-sm font-semibold text-ink" [title]="item.file.name">{{ item.file.name }}</span>
                         <span class="truncate font-sans text-caption text-slate">{{ sizeLabel(item.file.size) }} · {{ typeLabel(item) }}</span>
                       </span>
-                      <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="uploadStatus(item.status).cls">
+                      <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="uploadStatus(item.status).cls">
                         <sd-icon [name]="uploadStatus(item.status).icon" [size]="12" [class.animate-spin]="item.status === 'uploading'" />{{ item.status === 'uploading' ? item.progress + '%' : uploadStatus(item.status).label }}
                       </span>
                     </div>
@@ -1049,9 +1049,9 @@ export class PatientDocuments implements OnInit, HasUnsavedChanges {
   }
   protected badgeClass(role: string): string {
     return role === 'patient'
-      ? 'bg-sage/15 text-sage'
+      ? 'bg-sage/15 text-sage-ink'
       : role === 'doctor'
-        ? 'bg-warning/15 text-warning'
+        ? 'bg-warning/15 text-warning-ink'
         : 'bg-cloud text-slate';
   }
   protected date(iso: string): string {

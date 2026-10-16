@@ -11,7 +11,10 @@ const SIZE: Record<AvatarSize, string> = {
 };
 
 /** List-size initials (doctor Patients list: frost chip, semibold). */
-const INITIALS = 'flex shrink-0 items-center justify-center rounded-full bg-frost font-heading font-semibold text-cerulean ';
+const INITIALS = 'flex shrink-0 items-center justify-center rounded-full bg-frost font-heading font-semibold text-cerulean-dark ';
+/** The photo itself; at `xl` it takes DETAIL_AVATAR's white cut-out ring. */
+const IMAGE = 'shrink-0 rounded-full border border-cloud bg-white object-cover ';
+const IMAGE_XL_RING = ' ring-4 ring-white shadow-control';
 
 /**
  * A doctor's photo, or their initials when there is none — or when the image
@@ -28,7 +31,7 @@ const INITIALS = 'flex shrink-0 items-center justify-center rounded-full bg-fros
   host: { class: 'inline-flex shrink-0' },
   template: `
     @if (showImage()) {
-      <img [src]="src()" alt="" [class]="'shrink-0 rounded-full border border-cloud bg-white object-cover ' + sizeClass()" (error)="failed.set(src())" />
+      <img [src]="src()" alt="" [class]="imageClass()" (error)="failed.set(src())" />
     } @else {
       <span [class]="initialsClass()" aria-hidden="true">{{ letters() }}</span>
     }
@@ -48,6 +51,7 @@ export class SpecialistAvatar {
     return !!src && this.failed() !== src;
   });
   protected readonly sizeClass = computed(() => SIZE[this.size()]);
+  protected readonly imageClass = computed(() => IMAGE + this.sizeClass() + (this.size() === 'xl' ? IMAGE_XL_RING : ''));
   protected readonly initialsClass = computed(() =>
     this.size() === 'xl' ? DETAIL_AVATAR : INITIALS + this.sizeClass(),
   );

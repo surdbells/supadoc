@@ -126,13 +126,13 @@ function httpStatus(err: unknown): number | undefined {
           @if (rx(); as p) {
             <!-- Summary -->
             <section
-              class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-5 sm:p-6"
+              class="flex flex-col gap-5 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6"
               aria-labelledby="rx-number"
             >
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
                   <span
-                    class="flex size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal"
+                    class="flex size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal-ink"
                     aria-hidden="true"
                   >
                     <sd-icon name="pill" [size]="22" />
@@ -145,7 +145,7 @@ function httpStatus(err: unknown): number | undefined {
                   </div>
                 </div>
                 <span
-                  class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1 font-sans text-body-sm font-medium"
+                  class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1 font-sans text-body-sm font-medium inset-ring inset-ring-current/20"
                   [class]="status().class"
                 >
                   <sd-icon [name]="status().icon" [size]="16" />
@@ -236,7 +236,7 @@ function httpStatus(err: unknown): number | undefined {
 
             <!-- The PDF -->
             <section
-              class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 sm:p-6"
+              class="flex flex-col gap-4 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6"
               aria-labelledby="rx-file-heading"
             >
               <h2
@@ -315,7 +315,7 @@ function httpStatus(err: unknown): number | undefined {
 
             <!-- Medicines -->
             <section
-              class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 sm:p-6"
+              class="flex flex-col gap-4 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6"
               aria-labelledby="rx-medicines-heading"
             >
               <h2
@@ -410,7 +410,7 @@ function httpStatus(err: unknown): number | undefined {
             @if (p.advice || hasFollowUp() || p.tests_referrals) {
               <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 @if (p.advice) {
-                  <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:p-6">
+                  <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6">
                     <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
                       <sd-icon name="clipboard-list" [size]="20" />Advice
                     </h2>
@@ -420,7 +420,7 @@ function httpStatus(err: unknown): number | undefined {
                   </section>
                 }
                 @if (hasFollowUp()) {
-                  <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:p-6">
+                  <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6">
                     <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
                       <sd-icon name="calendar-days" [size]="20" />Follow-up
                     </h2>
@@ -461,7 +461,7 @@ function httpStatus(err: unknown): number | undefined {
                   </section>
                 }
                 @if (p.tests_referrals) {
-                  <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:p-6">
+                  <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6">
                     <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
                       <sd-icon name="search-check" [size]="20" />Tests and referrals
                     </h2>

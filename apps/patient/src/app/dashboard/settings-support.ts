@@ -20,9 +20,9 @@ import type { ThreadMessage } from '@supadoc/ui';
 import { IconComponent, MessageThreadComponent } from '@supadoc/ui';
 
 const STATUS_CLASS: Record<string, string> = {
-  open: 'bg-warning/15 text-warning',
-  pending: 'bg-frost text-cerulean',
-  resolved: 'bg-sage/15 text-sage',
+  open: 'bg-warning/15 text-warning-ink',
+  pending: 'bg-frost text-cerulean-dark',
+  resolved: 'bg-sage/15 text-sage-ink',
   closed: 'bg-cloud text-slate',
 };
 const STATUS_LABEL: Record<string, string> = {
@@ -71,11 +71,11 @@ const STATUS_LABEL: Record<string, string> = {
             <ul class="flex flex-col gap-3">
               @for (t of tickets(); track t.id) {
                 <li>
-                  <button type="button" class="flex w-full items-start gap-3 rounded-card border border-cloud bg-white p-4 text-left transition-colors hover:border-cerulean/50" (click)="openTicket(t)">
+                  <button type="button" class="flex w-full items-start gap-3 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover" (click)="openTicket(t)">
                     <span class="flex min-w-0 flex-1 flex-col gap-1">
                       <span class="flex items-center gap-2">
                         <span class="truncate font-sans text-body font-semibold text-ink">{{ t.subject }}</span>
-                        <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px] font-semibold" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
+                        <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px] font-semibold inset-ring inset-ring-current/20" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
                       </span>
                       <span class="truncate font-sans text-caption text-slate">{{ t.last_message_role === 'staff' ? 'Support: ' : 'You: ' }}{{ t.last_message_preview }}</span>
                       <span class="font-sans text-caption text-slate">{{ when(t.last_message_at) }}</span>
@@ -85,7 +85,7 @@ const STATUS_LABEL: Record<string, string> = {
                 </li>
               } @empty {
                 @if (!error()) {
-                  <li class="rounded-card border border-cloud bg-white px-5 py-16 text-center font-sans text-body-sm text-slate">No tickets yet. Open one and we'll help you out.</li>
+                  <li class="rounded-card border border-haze bg-white px-5 py-16 text-center font-sans text-body-sm text-slate shadow-card">No tickets yet. Open one and we'll help you out.</li>
                 }
               }
             </ul>
@@ -93,7 +93,7 @@ const STATUS_LABEL: Record<string, string> = {
         }
 
         @case ('new') {
-          <div class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+          <div class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="font-heading text-body-lg text-ink">New support ticket</h2>
             <label class="flex flex-col gap-1.5">
               <span class="font-sans text-caption font-semibold text-slate">Subject</span>
@@ -121,14 +121,14 @@ const STATUS_LABEL: Record<string, string> = {
 
         @case ('thread') {
           @if (current(); as t) {
-            <div class="flex flex-col gap-1 rounded-card border border-cloud bg-white p-5">
+            <div class="flex flex-col gap-1 rounded-card border border-haze bg-white p-5 shadow-card">
               <div class="flex items-center gap-2">
                 <h2 class="font-heading text-body-lg text-ink">{{ t.subject }}</h2>
-                <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px] font-semibold" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
+                <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px] font-semibold inset-ring inset-ring-current/20" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
               </div>
               <p class="font-sans text-caption text-slate">Opened {{ when(t.created_at) }}</p>
             </div>
-            <div class="h-[56vh] rounded-card border border-cloud bg-white p-4">
+            <div class="h-[56vh] rounded-card border border-haze bg-white p-4 shadow-card">
               <sd-message-thread
                 viewerRole="patient"
                 [messages]="threadMessages()"

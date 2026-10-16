@@ -86,17 +86,17 @@ const COLUMNS = 'md:grid-cols-[6.5rem_minmax(0,1fr)_9rem_8rem]';
 const ROW = CARD_ITEM + ' md:grid md:items-center md:gap-4 md:rounded-none md:border-0 md:px-5 md:py-4 md:shadow-none';
 
 /** Up / down: 44px to touch, 36px in the desktop list. */
-const MOVE_BTN = BTN_ICON + ' md:size-9 disabled:hover:border-cloud disabled:hover:text-slate';
+const MOVE_BTN = BTN_ICON + ' md:size-9 disabled:hover:border-haze disabled:hover:text-slate';
 
 /** Row actions: words on phones, icon-only (named for screen readers, with a tooltip) from md. */
 const ACTION_BTN =
-  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field border bg-white px-3 py-2 font-sans text-caption font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 md:size-9 md:min-h-0 md:p-0 ' +
+  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field border bg-white px-3 py-2 font-sans text-caption font-semibold shadow-control transition active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none md:size-9 md:min-h-0 md:p-0 ' +
   FOCUS_RING;
 const ACTION_LABEL = 'md:sr-only';
 
 /** The rename form's compact buttons (36px in the desktop list). */
 const SAVE_BTN =
-  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60 md:min-h-9 ' +
+  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-cerulean-dark hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none md:min-h-9 ' +
   FOCUS_RING;
 const CANCEL_BTN =
   'inline-flex min-h-11 items-center justify-center rounded-field px-3 py-2 font-sans text-caption font-semibold text-slate transition-colors hover:bg-glacier hover:text-ink disabled:opacity-60 md:min-h-9 ' +
@@ -387,11 +387,11 @@ function byOrder(list: readonly ReferenceItemDto[]): ReferenceItemDto[] {
 
                       <!-- Status: whether it is offered, and who uses it -->
                       <div class="flex flex-wrap items-center gap-2 md:flex-col md:items-start md:gap-1.5">
-                        <span class="${PILL}" [class]="it.active ? 'bg-sage/15 text-sage' : 'bg-cloud text-slate'">
+                        <span class="${PILL}" [class]="it.active ? 'bg-sage/15 text-sage-ink' : 'bg-cloud text-slate'">
                           <sd-icon [name]="it.active ? 'circle-check' : 'eye-off'" [size]="13" />{{ it.active ? 'Active' : 'Switched off' }}
                         </span>
                         @if (it.usage_count > 0) {
-                          <span class="${CHIP} bg-frost text-cerulean">
+                          <span class="${CHIP} bg-frost text-cerulean-dark">
                             <sd-icon name="users" [size]="14" /><span class="sr-only">Used by </span>{{ countOf(it.usage_count, list().usedBy) }}
                           </span>
                         } @else {
@@ -404,7 +404,7 @@ function byOrder(list: readonly ReferenceItemDto[]): ReferenceItemDto[] {
                         <button
                           type="button"
                           [id]="'bo-ref-rename-' + it.id"
-                          class="${ACTION_BTN} border-cloud text-cerulean hover:border-cerulean"
+                          class="${ACTION_BTN} border-haze text-cerulean hover:border-cerulean"
                           [disabled]="isBusy(it.id) || editingId() === it.id"
                           title="Rename"
                           (click)="startRename(it)"
@@ -414,7 +414,7 @@ function byOrder(list: readonly ReferenceItemDto[]): ReferenceItemDto[] {
                         <button
                           type="button"
                           [id]="'bo-ref-toggle-' + it.id"
-                          class="${ACTION_BTN} border-cloud text-ink hover:border-cerulean"
+                          class="${ACTION_BTN} border-haze text-ink hover:border-cerulean"
                           [disabled]="isBusy(it.id)"
                           [attr.title]="it.active ? 'Switch off' : 'Switch on'"
                           (click)="it.active ? switchOff(it) : switchOn(it)"

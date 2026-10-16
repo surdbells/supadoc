@@ -59,7 +59,7 @@ describe('statusBadge', () => {
   it('colours an upcoming booking by its status', () => {
     const b = statusBadge(appt({ status: 'confirmed', display_status: 'upcoming', display_label: 'Confirmed' }));
     expect(b.key).toBe('upcoming');
-    expect(b.class).toContain('text-sage');
+    expect(b.class).toContain('text-sage-ink');
     expect(b.detail).toBe('');
   });
 

@@ -26,6 +26,14 @@ const LENGTH = 6;
       multi: true,
     },
   ],
+  // Patient dark mode: the teal/20 focus ring is ~1.2:1 on the dark box; lift it
+  // to 0.7 (4.0:1). Light mode is unchanged. The box borders are classes (not
+  // inline styles) so the app's dark `border-[#b8c6d4]` rule can reach them.
+  styles: `
+    :host-context(html[data-theme='dark']) input:focus {
+      --tw-ring-color: rgb(77 182 172 / 0.7);
+    }
+  `,
   template: `
     <div class="flex gap-3">
       @for (slot of slots; track slot) {
@@ -36,7 +44,7 @@ const LENGTH = 6;
           autocomplete="one-time-code"
           maxlength="1"
           class="size-14 rounded-field border bg-white text-center font-heading text-h4 text-ink transition-colors focus:outline-none focus:ring-2 focus:ring-teal/20"
-          [style.borderColor]="digits()[slot] ? '#00796c' : '#d7e0e8'"
+          [class]="digits()[slot] ? 'border-teal' : 'border-[#b8c6d4]'"
           [value]="digits()[slot]"
           [disabled]="disabled()"
           (input)="handleInput(slot, $event)"

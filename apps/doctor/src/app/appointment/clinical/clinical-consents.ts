@@ -31,15 +31,15 @@ const CONSENT_META: Record<ConsentDto['type'], { readonly label: string; readonl
     </doc-clinical-header>
 
     @if (consents().length === 0) {
-      <section class="rounded-card border border-cloud bg-white px-4" aria-label="Patient consents">
+      <section class="rounded-card border border-haze bg-white px-4 shadow-card" aria-label="Patient consents">
         <sd-empty-state icon="shield-check" [title]="emptyTitle" message="Recording and AI tools stay unavailable until the patient grants consent." />
       </section>
     } @else {
-      <ul class="flex flex-col divide-y divide-cloud rounded-card border border-cloud bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)]" aria-label="Patient consents">
+      <ul class="flex flex-col divide-y divide-cloud rounded-card border border-haze bg-white shadow-card" aria-label="Patient consents">
         @for (c of consents(); track c.type) {
           <li class="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <div class="flex min-w-0 items-center gap-3">
-              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean">
+              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark">
                 <sd-icon [name]="meta(c.type).icon" [size]="18" />
               </span>
               <div class="flex min-w-0 flex-col gap-0.5">

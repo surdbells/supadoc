@@ -367,7 +367,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
                   <button
                     type="button"
                     [id]="uid + '-withdraw-' + f.id"
-                    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-3 py-2 font-sans text-[14px] font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
+                    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-3 py-2 font-sans text-[14px] font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
                     (click)="askWithdraw(f)"
                   >
                     <sd-icon name="undo-2" [size]="16" />Withdraw
@@ -387,13 +387,13 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
                   <div class="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      class="min-h-11 flex-1 rounded-field bg-alert px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-alert/90 disabled:opacity-60"
+                      class="min-h-11 flex-1 rounded-field bg-alert px-4 py-2 font-sans text-caption font-semibold text-white inset-shadow-rim transition-colors hover:bg-alert/90 disabled:opacity-60"
                       [disabled]="withdrawingId() === f.id"
                       (click)="withdraw(f)"
                     >{{ withdrawingId() === f.id ? 'Withdrawing…' : 'Withdraw proposal' }}</button>
                     <button
                       type="button"
-                      class="min-h-11 flex-1 rounded-field border border-cloud bg-white px-4 py-2 font-sans text-caption font-semibold text-slate transition-colors hover:border-cerulean hover:text-cerulean disabled:opacity-60"
+                      class="min-h-11 flex-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-slate shadow-control transition hover:border-cerulean hover:text-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
                       [disabled]="withdrawingId() === f.id"
                       (click)="keepProposal(f)"
                     >Keep it</button>

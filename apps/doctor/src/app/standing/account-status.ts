@@ -17,9 +17,9 @@ import { DoctorStandingStore } from './doctor-standing.store';
 import { SECTION_LABELS, ymdLabel } from './standing-rules';
 
 const LINK_PRIMARY =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2';
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2';
 const LINK_OUTLINE =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-cloud bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-haze bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
 
 /**
  * Account status (route `/account-status`): where a doctor who may not do
@@ -63,9 +63,9 @@ const LINK_OUTLINE =
         @switch (code()) {
           @case ('doctor_suspended') {
             @let s = data()?.suspension;
-            <section class="flex flex-col gap-4 rounded-card border border-alert/30 bg-white p-5 sm:p-6" aria-labelledby="why-title">
+            <section class="flex flex-col gap-4 rounded-card border border-alert/30 bg-white p-5 shadow-card sm:p-6" aria-labelledby="why-title">
               <div class="flex items-start gap-3">
-                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-alert/10 text-alert">
+                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-alert/10 text-alert-ink">
                   <sd-icon name="ban" [size]="22" />
                 </span>
                 <div class="flex min-w-0 flex-col gap-1">
@@ -89,7 +89,7 @@ const LINK_OUTLINE =
               </dl>
             </section>
 
-            <section class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="means-title">
+            <section class="flex flex-col gap-3 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6" aria-labelledby="means-title">
               <h2 id="means-title" class="font-heading text-body-lg text-ink">What this means</h2>
               <ul class="flex flex-col gap-2 font-sans text-body-sm text-ink">
                 <li class="flex items-start gap-2"><sd-icon name="calendar-off" [size]="18" class="mt-0.5 shrink-0 text-slate" />Your upcoming consultations were cancelled and the patients refunded and told.</li>
@@ -125,9 +125,9 @@ const LINK_OUTLINE =
 
           @case ('doctor_not_approved') {
             @let d = data();
-            <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 sm:p-6" aria-labelledby="setup-title">
+            <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6" aria-labelledby="setup-title">
               <div class="flex items-start gap-3">
-                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean">
+                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark">
                   <sd-icon [name]="d?.status === 'pending_review' ? 'hourglass' : 'list-checks'" [size]="22" />
                 </span>
                 <div class="flex min-w-0 flex-col gap-1">
@@ -151,9 +151,9 @@ const LINK_OUTLINE =
           }
 
           @case ('terms_required') {
-            <section class="flex flex-col gap-4 rounded-card border border-warning/30 bg-white p-5 sm:p-6" aria-labelledby="terms-title">
+            <section class="flex flex-col gap-4 rounded-card border border-warning/30 bg-white p-5 shadow-card sm:p-6" aria-labelledby="terms-title">
               <div class="flex items-start gap-3">
-                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning">
+                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning-ink">
                   <sd-icon name="scroll-text" [size]="22" />
                 </span>
                 <div class="flex min-w-0 flex-col gap-1">
@@ -172,7 +172,7 @@ const LINK_OUTLINE =
 
           @default {
             @if (!failed()) {
-              <section class="flex flex-col items-start gap-4 rounded-card border border-cloud bg-white p-5 sm:p-6">
+              <section class="flex flex-col items-start gap-4 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6">
                 <p class="flex items-start gap-2 font-sans text-body-sm text-ink">
                   <sd-icon name="circle-check" [size]="20" class="mt-0.5 shrink-0 text-sage" />
                   Your account is in good standing — every part of the portal is open to you.

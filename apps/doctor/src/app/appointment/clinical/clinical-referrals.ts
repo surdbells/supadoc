@@ -172,7 +172,7 @@ let nextUid = 0;
           @for (r of referrals(); track r.id) {
             <li class="flex flex-col gap-4 ${CLINICAL_LIST_ITEM} @2xl:flex-row @2xl:items-start @2xl:justify-between">
               <div class="flex min-w-0 flex-1 items-start gap-3">
-                <span class="hidden size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean @md:flex">
+                <span class="hidden size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark @md:flex">
                   <sd-icon name="share-2" [size]="18" />
                 </span>
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">

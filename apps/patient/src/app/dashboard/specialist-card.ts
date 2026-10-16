@@ -47,7 +47,7 @@ interface WhenVm {
   host: { class: 'block' },
   template: `
     <article
-      class="flex h-full flex-col gap-4 rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)] transition-colors duration-200 hover:border-cerulean/50 hover:bg-frost/20"
+      class="flex h-full flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card transition-colors duration-200 hover:border-cerulean/50 hover:bg-frost/20"
     >
       <!-- Header -->
       <div class="flex items-start justify-between gap-3">
@@ -60,7 +60,7 @@ interface WhenVm {
             />
           } @else {
             <span
-              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean-dark"
             >
               {{ initials() }}
             </span>
@@ -90,7 +90,7 @@ interface WhenVm {
             >
           }
           <span
-            class="rounded-pill px-3 py-1 font-sans text-[10px] font-medium"
+            class="rounded-pill px-3 py-1 font-sans text-[10px] font-medium inset-ring inset-ring-current/20"
             [class]="badge().class"
           >
             {{ badge().label }}
@@ -315,13 +315,13 @@ export class SpecialistCard {
   protected readonly badge = computed(() => {
     const s = this.specialist();
     if (!s.available) return { label: 'Unavailable', class: 'bg-cloud text-slate' };
-    if (!s.availability) return { label: 'Taking bookings', class: 'bg-sage/15 text-sage' };
+    if (!s.availability) return { label: 'Taking bookings', class: 'bg-sage/15 text-sage-ink' };
     const next = s.availability.next_available_at;
     if (!next) return { label: 'No openings soon', class: 'bg-cloud text-slate' };
     const day = ymdInZone(next);
-    if (day === todayLocal()) return { label: 'Available today', class: 'bg-sage/15 text-sage' };
-    if (day === todayLocal(1)) return { label: 'Available tomorrow', class: 'bg-frost text-cerulean' };
-    return { label: `Next: ${shortDayLabel(day)}`, class: 'bg-frost text-cerulean' };
+    if (day === todayLocal()) return { label: 'Available today', class: 'bg-sage/15 text-sage-ink' };
+    if (day === todayLocal(1)) return { label: 'Available tomorrow', class: 'bg-frost text-cerulean-dark' };
+    return { label: `Next: ${shortDayLabel(day)}`, class: 'bg-frost text-cerulean-dark' };
   });
 
   /** The booking calendar opens on the filtered day when the doctor is free then. */

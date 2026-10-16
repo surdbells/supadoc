@@ -81,10 +81,10 @@ interface DocumentItem {
 
 /** Every prescription status reads as an icon AND a word — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
-  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
-  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning-ink' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
   expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /** How long after its start an ended consultation nobody has closed yet can still be rejoined. */
@@ -285,7 +285,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
         @case ('error') {
           <div class="flex flex-col items-center gap-5 py-24 text-center">
             <span
-              class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert"
+              class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert-ink"
             >
               <sd-icon name="calendar-off" [size]="36" />
             </span>
@@ -306,11 +306,11 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
           @if (vm(); as v) {
             <!-- Summary -->
             <section
-              class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 md:flex-row md:items-center md:justify-between"
+              class="flex flex-col gap-6 rounded-card border border-haze bg-white p-6 shadow-card md:flex-row md:items-center md:justify-between"
             >
               <div class="flex items-center gap-4">
                 <span
-                  class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean"
+                  class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean-dark"
                   >{{ initials(v.name) }}</span
                 >
                 <div class="flex flex-col gap-1">
@@ -350,7 +350,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                 <!-- Status + who's in the call; wraps under the dates on narrow phones -->
                 <div class="ml-auto flex flex-col items-end gap-2">
                   <span
-                    class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium"
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium inset-ring inset-ring-current/20"
                     [class]="v.badge.class"
                     ><sd-icon [name]="v.badge.icon" [size]="16" />{{ v.badge.label }}</span
                   >
@@ -387,7 +387,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
               <section
                 #respondPanel
                 tabindex="-1"
-                class="flex flex-col gap-5 rounded-card border border-teal/30 bg-white p-5 outline-none sm:p-6"
+                class="flex flex-col gap-5 rounded-card border border-teal/30 bg-white p-5 shadow-card outline-none sm:p-6"
                 aria-labelledby="proposal-title"
               >
                 <div class="flex flex-col gap-1">
@@ -449,7 +449,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                       </div>
                       <button
                         type="button"
-                        class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-cloud px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                        class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
                         [attr.aria-expanded]="slotsOpen()"
                         aria-controls="proposal-slots"
                         [disabled]="accepting()"
@@ -467,7 +467,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                             <sd-alert tone="error">{{ calendarError() }}</sd-alert>
                             <button
                               type="button"
-                              class="min-h-11 w-fit rounded-field border border-cloud bg-white px-5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                              class="min-h-11 w-fit rounded-field border border-haze bg-white px-5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                               (click)="cal.refresh()"
                             >
                               Try again
@@ -525,7 +525,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                         </p>
                         <button
                           type="button"
-                          class="min-h-11 shrink-0 rounded-field border border-cloud bg-white px-4 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+                          class="min-h-11 shrink-0 rounded-field border border-haze bg-white px-4 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                           (click)="pickAlt(altIso())"
                         >
                           Try again
@@ -632,7 +632,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
             <!-- Instructions + actions (not once it is over and there is nothing left to do) -->
             @if (!v.isProposal && (!v.past || v.canJoin || v.canReview)) {
             <section
-              class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 lg:flex-row lg:justify-between"
+              class="flex flex-col gap-6 rounded-card border border-haze bg-white p-6 shadow-card lg:flex-row lg:justify-between"
             >
               <div class="flex flex-col gap-3">
                 <h2
@@ -728,7 +728,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
             <!-- Documents + payment -->
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <section
-                class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+                class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card"
               >
                 <h2
                   class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
@@ -745,7 +745,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   </p>
                   <button
                     type="button"
-                    class="min-h-11 w-fit rounded-field border border-cloud bg-white px-5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                    class="min-h-11 w-fit rounded-field border border-haze bg-white px-5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                     (click)="loadSharedDocs(v.id)"
                   >
                     Try again
@@ -780,7 +780,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
               </section>
 
               <section
-                class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+                class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card"
               >
                 <h2
                   class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
@@ -807,7 +807,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
 
             <!-- Clinical documents (prescriptions, referrals, certificates) -->
             @if (prescriptions().length > 0 || clinicalDocs().length > 0 || docsError()) {
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+              <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
                 <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
                   <sd-icon name="file-text" [size]="20" />
                   Documents
@@ -816,14 +816,14 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   @for (rx of prescriptions(); track rx.id) {
                     <li class="flex flex-col gap-3 rounded-field border border-cloud px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <div class="flex min-w-0 items-start gap-3">
-                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal">
+                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink">
                           <sd-icon name="pill" [size]="18" />
                         </span>
                         <span class="flex min-w-0 flex-col gap-1">
                           <span class="flex flex-wrap items-center gap-2">
                             <span class="font-sans text-body-sm font-semibold text-ink">Prescription {{ rx.number }}</span>
                             <span
-                              class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium"
+                              class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20"
                               [class]="rxStatus(rx.status).cls"
                             >
                               <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
@@ -837,7 +837,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                       <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
                         <button
                           type="button"
-                          class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                          class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
                           [disabled]="openingRx() === rx.id"
                           [attr.aria-label]="'View prescription ' + rx.number"
                           (click)="viewRx(rx)"
@@ -884,7 +884,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
             }
 
             <!-- Secure messages with the doctor -->
-            <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+            <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
               <div class="flex flex-col gap-1">
                 <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean">
                   <sd-icon name="message-square" [size]="20" />
@@ -934,7 +934,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
               [disabled]="reviewing()"
               (click)="reviewRating.set(i)"
             >
-              <sd-icon name="star" [size]="30" [class]="i <= reviewRating() ? 'text-warning' : 'text-cloud'" />
+              <sd-icon name="star" [size]="30" [class]="i <= reviewRating() ? 'text-warning' : 'text-slate/80'" />
             </button>
           }
         </div>

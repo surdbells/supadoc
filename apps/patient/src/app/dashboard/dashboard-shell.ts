@@ -50,7 +50,7 @@ interface NavItem {
            (width/min/max together) so the flex row can't clamp it to the
            content's min-content size. -->
       <aside
-        class="sticky top-0 hidden h-screen shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash pt-6 pb-10 transition-[width,padding] duration-200 ease-out lg:flex"
+        class="sticky top-0 hidden h-screen shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash bg-snow pt-6 pb-10 transition-[width,padding] duration-200 ease-out lg:flex"
         [class.px-6]="!collapsed()"
         [class.px-3]="collapsed()"
         [style.width.px]="collapsed() ? 80 : 256"
@@ -73,7 +73,7 @@ interface NavItem {
             (click)="menuOpen.set(false)"
           ></button>
           <aside
-            class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between overflow-y-auto bg-glacier px-6 pt-6 pb-10 shadow-2xl"
+            class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between overflow-y-auto bg-snow px-6 pt-6 pb-10 shadow-2xl"
           >
             <ng-container
               [ngTemplateOutlet]="nav"
@@ -119,7 +119,7 @@ interface NavItem {
               <sd-icon name="bell" [size]="24" />
               @if (unread() > 0) {
                 <span
-                  class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-alert"
+                  class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-alert ring-2 ring-glacier"
                 ></span>
               }
             </button>
@@ -130,11 +130,11 @@ interface NavItem {
                   alt="Profile photo"
                   width="40"
                   height="40"
-                  class="size-10 shrink-0 rounded-full object-cover"
+                  class="size-10 shrink-0 rounded-full object-cover ring-2 ring-white shadow-control"
                 />
               } @else {
                 <span
-                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean-dark ring-2 ring-white shadow-control"
                 >
                   @if (initials()) {
                     {{ initials() }}
@@ -199,9 +199,9 @@ interface NavItem {
           @for (item of navItems; track item.link) {
             <a
               [routerLink]="item.link"
-              routerLinkActive="bg-frost !text-cerulean"
+              routerLinkActive="!bg-haze !text-cerulean-dark shadow-control inset-ring inset-ring-cerulean/10"
               [routerLinkActiveOptions]="{ exact: item.link === '/dashboard' }"
-              class="flex items-center gap-2 rounded-lg py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+              class="flex items-center gap-2 rounded-lg py-3 font-sans text-body text-ink transition hover:bg-frost/40"
               [class.px-4]="!collapsed"
               [class.justify-center]="collapsed"
               [attr.title]="collapsed ? item.label : null"
@@ -219,8 +219,8 @@ interface NavItem {
       <div class="flex flex-col gap-6">
         <a
           routerLink="/dashboard/settings"
-          routerLinkActive="bg-frost !text-cerulean"
-          class="flex items-center gap-2 rounded-lg py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          routerLinkActive="!bg-haze !text-cerulean-dark shadow-control inset-ring inset-ring-cerulean/10"
+          class="flex items-center gap-2 rounded-lg py-3 font-sans text-body text-ink transition hover:bg-frost/40"
           [class.px-4]="!collapsed"
           [class.justify-center]="collapsed"
           [attr.title]="collapsed ? 'Settings' : null"
@@ -234,7 +234,7 @@ interface NavItem {
         <hr class="border-t border-ash/60" />
         <button
           type="button"
-          class="flex items-center gap-2 rounded-lg py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          class="flex items-center gap-2 rounded-lg py-3 font-sans text-body text-ink transition hover:bg-frost/40"
           [class.px-4]="!collapsed"
           [class.justify-center]="collapsed"
           [attr.title]="collapsed ? 'Log Out' : null"

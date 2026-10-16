@@ -56,7 +56,7 @@ const READING_ORDER: ReadingKey[] = [
   'pain_score',
 ];
 
-const CARD = 'flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6';
+const CARD = 'flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card sm:p-6';
 const H2 = 'flex items-center gap-2 font-heading text-body-lg text-ink';
 const DT = 'font-sans text-caption text-slate';
 const DD = 'font-sans text-body-sm text-ink break-words';
@@ -90,12 +90,12 @@ const DD = 'font-sans text-body-sm text-ink break-words';
           <div class="sd-shimmer h-48 rounded-card"></div>
         </div>
       } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-4 py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-4 py-16 text-center shadow-card">
           <sd-icon name="circle-alert" [size]="32" class="text-alert" />
           <p class="max-w-sm font-sans text-body-sm text-slate">{{ error() }}</p>
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
             (click)="load(currentId)"
           >
             <sd-icon name="refresh-cw" [size]="16" /> Try again
@@ -291,12 +291,12 @@ const DD = 'font-sans text-body-sm text-ink break-words';
                       <span class="break-words font-sans text-body-sm font-semibold text-ink">{{ it.name || 'Medicine not chosen' }}</span>
                       <span class="flex flex-wrap items-center gap-1.5 font-sans text-caption text-slate">
                         @if (it.branded) {
-                          <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink">Brand</span>
+                          <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink inset-ring inset-ring-current/15">Brand</span>
                         }
                         @if (it.dose_form) { <span>{{ it.dose_form }}</span> }
                         @if (it.branded && it.generic_name) { <span>· {{ it.generic_name }}</span> }
                         @if (it.no_substitute) {
-                          <span class="inline-flex items-center gap-1 rounded-pill bg-alert/10 px-2 py-0.5 font-semibold text-alert">
+                          <span class="inline-flex items-center gap-1 rounded-pill bg-alert/10 px-2 py-0.5 font-semibold text-alert-ink inset-ring inset-ring-current/15">
                             <sd-icon name="lock" [size]="11" /> No substitute
                           </span>
                         }

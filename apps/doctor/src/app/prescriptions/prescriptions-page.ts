@@ -45,20 +45,20 @@ const PER_PAGE = 20;
         </div>
         <a
           routerLink="/prescriptions/new"
-          class="inline-flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white shadow-[0_2px_10px_rgba(21,101,192,0.25)] transition-colors hover:bg-cerulean-dark"
+          class="inline-flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-cerulean-dark hover:shadow-btn-hover disabled:shadow-none"
         >
           <sd-icon name="plus" [size]="18" /> New prescription
         </a>
       </header>
 
       <!-- Status filter -->
-      <div class="overflow-x-auto rounded-pill border border-cloud bg-white px-2 py-1.5" role="group" aria-label="Filter by status">
+      <div class="overflow-x-auto rounded-pill border border-haze bg-glacier px-2 py-1.5 shadow-bar" role="group" aria-label="Filter by status">
         <div class="flex w-max gap-1">
           @for (f of filters; track f.key) {
             <button
               type="button"
-              class="shrink-0 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors sm:px-5"
-              [class]="active() === f.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+              class="shrink-0 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition sm:px-5"
+              [class]="active() === f.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
               [attr.aria-pressed]="active() === f.key"
               (click)="select(f)"
             >
@@ -76,12 +76,12 @@ const PER_PAGE = 20;
           <div class="sd-shimmer h-20 rounded-card"></div>
         </div>
       } @else if (error() && items().length === 0) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-4 py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-4 py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
             (click)="reload()"
           >
             <sd-icon name="refresh-cw" [size]="16" /> Try again
@@ -103,10 +103,10 @@ const PER_PAGE = 20;
             <li>
               <a
                 [routerLink]="['/prescriptions', rx.id]"
-                class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-4 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 sm:p-5 lg:flex-row lg:items-center lg:gap-6"
+                class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover sm:p-5 lg:flex-row lg:items-center lg:gap-6"
               >
                 <div class="flex min-w-0 flex-1 items-center gap-3">
-                  <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean" aria-hidden="true">
+                  <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost text-cerulean-dark" aria-hidden="true">
                     <sd-icon name="pill" [size]="20" />
                   </span>
                   <div class="flex min-w-0 flex-col">
@@ -141,7 +141,7 @@ const PER_PAGE = 20;
         @if (hasMore()) {
           <button
             type="button"
-            class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+            class="mx-auto rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
             [disabled]="loading()"
             (click)="loadMore()"
           >

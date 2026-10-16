@@ -67,10 +67,10 @@ import { askSignOut, askSignOutDevice } from './sign-out';
         <div class="flex flex-col gap-4">
           @for (s of sessions(); track s.id) {
             <div
-              class="flex items-center gap-4 rounded-card border border-cloud bg-white p-5"
+              class="flex items-center gap-4 rounded-card border border-haze bg-white p-5 shadow-card"
             >
               <span
-                class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean"
+                class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark"
               >
                 <sd-icon [name]="s.icon" [size]="22" />
               </span>
@@ -81,7 +81,7 @@ import { askSignOut, askSignOutDevice } from './sign-out';
                   }}</span>
                   @if (s.current) {
                     <span
-                      class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage"
+                      class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage-ink"
                       >This device</span
                     >
                   }

@@ -14,11 +14,11 @@ import { IconComponent } from '@supadoc/ui';
 
 /** White surface card on the glacier page (Overview + Schedule card treatment). */
 export const CLINICAL_CARD =
-  'flex flex-col gap-5 rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-6';
+  'flex flex-col gap-5 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6';
 
 /** One item card in a sub-tab's list (the History / Past Visits card treatment). */
 export const CLINICAL_LIST_ITEM =
-  'rounded-card border border-cloud bg-white p-4 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-5';
+  'rounded-card border border-haze bg-white p-4 shadow-card sm:p-5';
 
 /** Card sub-heading (e.g. "New lab order"). */
 export const CLINICAL_H3 = 'flex items-center gap-2 font-heading text-body font-semibold text-ink';
@@ -40,7 +40,7 @@ export const CLINICAL_META =
 
 const FIELD_BASE =
   'w-full rounded-field border border-[#b8c6d4] bg-white font-sans text-body-sm text-ink ' +
-  'shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 placeholder:text-slate/60 ' +
+  'shadow-control transition-all duration-200 placeholder:text-slate/60 ' +
   'hover:border-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 ' +
   'disabled:cursor-not-allowed disabled:bg-cloud/40 disabled:text-slate';
 
@@ -56,11 +56,11 @@ export const CLINICAL_TEXTAREA = `${FIELD_BASE} min-h-24 resize-y px-4 py-3 lead
 
 /** Pill segmented control built from native radios (keyboard arrows work). */
 export const CLINICAL_SEGMENTED =
-  'flex w-full max-w-full gap-1 rounded-pill border border-cloud bg-white p-1 sm:w-fit';
+  'flex w-full max-w-full gap-1 rounded-pill border border-haze bg-glacier p-1 sm:w-fit';
 export const CLINICAL_SEGMENT =
   'flex flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2 ' +
-  'font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink ' +
-  'has-[:checked]:bg-frost has-[:checked]:text-cerulean ' +
+  'font-sans text-body-sm font-semibold text-slate transition hover:text-ink ' +
+  'has-[:checked]:bg-frost has-[:checked]:text-cerulean-dark has-[:checked]:shadow-control ' +
   'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-cerulean/40';
 
 /** Selectable option card built from a native radio. */
@@ -80,12 +80,12 @@ export type ClinicalTone = 'neutral' | 'brand' | 'draft' | 'success' | 'warning'
 
 const TONE_CLASS: Record<ClinicalTone, string> = {
   neutral: 'bg-cloud text-slate',
-  brand: 'bg-frost text-cerulean',
+  brand: 'bg-frost text-cerulean-dark',
   draft: 'bg-frost/60 text-ocean',
-  success: 'bg-sage/15 text-sage',
+  success: 'bg-sage/15 text-sage-ink',
   // Ink on the amber tint: amber text on it is below AA contrast (as in the patient record badges).
   warning: 'bg-warning/15 text-ink',
-  danger: 'bg-alert/10 text-alert',
+  danger: 'bg-alert/10 text-alert-ink',
 };
 
 /** Routine / Urgent — icon + text, never colour alone. */
@@ -138,7 +138,7 @@ export class ClinicalHeader {
   host: { class: 'inline-flex shrink-0' },
   template: `
     <span
-      class="inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold"
+      class="inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20"
       [class]="toneClass()"
     >
       <sd-icon [name]="icon()" [size]="13" [class]="pulse() ? 'motion-safe:animate-pulse' : ''" />

@@ -18,9 +18,24 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
-import { apiErrorFields, apiErrorMessage, AppointmentsApi, WalletApi } from '@supadoc/data-access';
-import type { AddGuestParams, PatientGuestDto, PatientGuestListDto } from '@supadoc/models';
-import { AlertComponent, ButtonComponent, ConfirmDetail, ConfirmDialogComponent, IconComponent } from '@supadoc/ui';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  AppointmentsApi,
+  WalletApi,
+} from '@supadoc/data-access';
+import type {
+  AddGuestParams,
+  PatientGuestDto,
+  PatientGuestListDto,
+} from '@supadoc/models';
+import {
+  AlertComponent,
+  ButtonComponent,
+  ConfirmDetail,
+  ConfirmDialogComponent,
+  IconComponent,
+} from '@supadoc/ui';
 import { httpStatus } from '../call/call-helpers';
 import {
   addGuestErrors,
@@ -54,28 +69,39 @@ const COPIED_MS = 3000;
 @Component({
   selector: 'pat-guests-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AlertComponent, ButtonComponent, ConfirmDialogComponent, IconComponent],
+  imports: [
+    RouterLink,
+    AlertComponent,
+    ButtonComponent,
+    ConfirmDialogComponent,
+    IconComponent,
+  ],
   host: { class: 'block' },
   template: `
     <section
-      class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+      class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card"
       aria-labelledby="guests-title"
     >
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="flex min-w-0 flex-col gap-1">
-          <h2 id="guests-title" tabindex="-1" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean outline-none">
+          <h2
+            id="guests-title"
+            tabindex="-1"
+            class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean outline-none"
+          >
             <sd-icon name="users" [size]="20" />
             Guests
           </h2>
           <p class="font-sans text-caption text-slate">
-            Invite up to {{ list()?.max_guests ?? 3 }} people to join this video consultation, each with their own
-            link. Guests never see your health records.
+            Invite up to {{ list()?.max_guests ?? 3 }} people to join this video
+            consultation, each with their own link. Guests never see your health
+            records.
           </p>
         </div>
         @if (list()?.can_add && !formOpen()) {
           <button
             type="button"
-            class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-field border border-cloud px-4 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
             [attr.aria-expanded]="formOpen()"
             aria-controls="add-guest-form"
             (click)="openForm()"
@@ -93,12 +119,19 @@ const COPIED_MS = 3000;
       @if (loading() && !list()) {
         <div class="sd-shimmer h-16 rounded-field"></div>
       } @else if (loadError() && !list()) {
-        <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-          <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ loadError() }}
+        <p
+          class="flex items-start gap-2 font-sans text-caption text-alert"
+          role="alert"
+        >
+          <sd-icon
+            name="triangle-alert"
+            [size]="16"
+            class="mt-0.5 shrink-0"
+          />{{ loadError() }}
         </p>
         <button
           type="button"
-          class="min-h-11 w-fit rounded-field border border-cloud bg-white px-5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+          class="min-h-11 w-fit rounded-field border border-haze bg-white px-5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
           (click)="load()"
         >
           Try again
@@ -107,34 +140,59 @@ const COPIED_MS = 3000;
         @if (l.guests.length) {
           <ul class="flex flex-col gap-3">
             @for (g of l.guests; track g.id ?? g.email) {
-              <li class="flex flex-col gap-3 rounded-field border border-cloud px-4 py-3 md:flex-row md:items-center md:justify-between">
+              <li
+                class="flex flex-col gap-3 rounded-field border border-cloud px-4 py-3 md:flex-row md:items-center md:justify-between"
+              >
                 <div class="flex min-w-0 items-start gap-3">
                   <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost/60 font-heading text-body-sm font-semibold text-cerulean"
+                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost/60 font-heading text-body-sm font-semibold text-cerulean-dark"
                     aria-hidden="true"
                   >
                     {{ initials(g.name) }}
                   </span>
                   <div class="flex min-w-0 flex-col gap-1">
                     <span class="flex flex-wrap items-center gap-2">
-                      <span class="min-w-0 break-words font-sans text-body-sm font-semibold text-ink">{{ g.name }}</span>
-                      <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-medium text-slate">
-                        <sd-icon [name]="statusOf(g).icon" [size]="12" />{{ statusOf(g).label }}
+                      <span
+                        class="min-w-0 break-words font-sans text-body-sm font-semibold text-ink"
+                        >{{ g.name }}</span
+                      >
+                      <span
+                        class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-medium text-slate inset-ring inset-ring-current/20"
+                      >
+                        <sd-icon [name]="statusOf(g).icon" [size]="12" />{{
+                          statusOf(g).label
+                        }}
                       </span>
                       @if (inCall(g)) {
-                        <span class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-medium text-sage">
-                          <span class="size-1.5 rounded-full bg-sage" aria-hidden="true"></span>In the call
+                        <span
+                          class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-medium text-sage-ink inset-ring inset-ring-current/20"
+                        >
+                          <span
+                            class="size-1.5 rounded-full bg-sage"
+                            aria-hidden="true"
+                          ></span
+                          >In the call
                         </span>
                       }
                     </span>
-                    <span class="break-all font-sans text-caption text-slate">{{ g.email }}</span>
+                    <span class="break-all font-sans text-caption text-slate">{{
+                      g.email
+                    }}</span>
                     @if (g.display_name && g.display_name !== g.name) {
-                      <span class="font-sans text-caption text-slate">Shows in the call as “{{ g.display_name }}”</span>
+                      <span class="font-sans text-caption text-slate"
+                        >Shows in the call as “{{ g.display_name }}”</span
+                      >
                     }
-                    <span class="font-sans text-caption text-slate">Guest fee: {{ feeText(g, l) }}</span>
+                    <span class="font-sans text-caption text-slate"
+                      >Guest fee: {{ feeText(g, l) }}</span
+                    >
                     @if (revealed() === g.id && g.join_url) {
                       <label class="mt-1 flex flex-col gap-1">
-                        <span class="font-sans text-caption font-semibold text-slate">Their personal link — share it with {{ g.name }} only</span>
+                        <span
+                          class="font-sans text-caption font-semibold text-slate"
+                          >Their personal link — share it with
+                          {{ g.name }} only</span
+                        >
                         <input
                           #revealedLink
                           type="text"
@@ -148,31 +206,52 @@ const COPIED_MS = 3000;
                   </div>
                 </div>
                 @if (l.can_manage && g.id) {
-                  <div class="flex flex-wrap items-center gap-2 pl-[3.25rem] md:shrink-0 md:pl-0">
+                  <div
+                    class="flex flex-wrap items-center gap-2 pl-[3.25rem] md:shrink-0 md:pl-0"
+                  >
                     @if (g.join_url) {
                       <button
                         type="button"
-                        class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-cloud px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
-                        [attr.aria-label]="(copied() === g.id ? 'Copied link for ' : 'Copy link for ') + g.name"
+                        class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
+                        [attr.aria-label]="
+                          (copied() === g.id
+                            ? 'Copied link for '
+                            : 'Copy link for ') + g.name
+                        "
                         (click)="copy(g)"
                       >
-                        <sd-icon [name]="copied() === g.id ? 'check' : 'copy'" [size]="16" />
+                        <sd-icon
+                          [name]="copied() === g.id ? 'check' : 'copy'"
+                          [size]="16"
+                        />
                         {{ copied() === g.id ? 'Copied' : 'Copy link' }}
                       </button>
                     }
                     <button
                       type="button"
-                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-cloud px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:cursor-not-allowed disabled:opacity-60"
-                      [attr.aria-label]="resendWaitOf(g) ? 'Resend in ' + resendWaitOf(g) + ' to ' + g.name : 'Resend invitation to ' + g.name"
+                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+                      [attr.aria-label]="
+                        resendWaitOf(g)
+                          ? 'Resend in ' + resendWaitOf(g) + ' to ' + g.name
+                          : 'Resend invitation to ' + g.name
+                      "
                       [disabled]="resending() === g.id || !!resendWaitOf(g)"
                       (click)="resend(g)"
                     >
-                      <sd-icon [name]="resending() === g.id ? 'loader-circle' : 'send'" [size]="16" [class.animate-spin]="resending() === g.id" />
-                      {{ resendWaitOf(g) ? 'Resend in ' + resendWaitOf(g) : 'Resend' }}
+                      <sd-icon
+                        [name]="resending() === g.id ? 'loader-circle' : 'send'"
+                        [size]="16"
+                        [class.animate-spin]="resending() === g.id"
+                      />
+                      {{
+                        resendWaitOf(g)
+                          ? 'Resend in ' + resendWaitOf(g)
+                          : 'Resend'
+                      }}
                     </button>
                     <button
                       type="button"
-                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-alert/40 px-3 font-sans text-caption font-semibold text-alert transition-colors hover:bg-alert/5"
+                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-alert/40 px-3 font-sans text-caption font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none"
                       [attr.aria-label]="'Remove ' + g.name"
                       (click)="askRemove(g)"
                     >
@@ -189,13 +268,17 @@ const COPIED_MS = 3000;
 
         @if (!l.can_manage && l.manage_problem && l.guests.length > 0) {
           <p class="flex items-start gap-2 font-sans text-caption text-slate">
-            <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />{{ l.manage_problem }}
+            <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />{{
+              l.manage_problem
+            }}
           </p>
         }
         @if (l.can_manage && !l.can_add && l.guests.length >= l.max_guests) {
           <p class="flex items-start gap-2 font-sans text-caption text-slate">
             <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
-            You’ve invited the most guests a consultation can have ({{ l.max_guests }}). Remove one to invite someone else.
+            You’ve invited the most guests a consultation can have ({{
+              l.max_guests
+            }}). Remove one to invite someone else.
           </p>
         }
 
@@ -207,10 +290,14 @@ const COPIED_MS = 3000;
             novalidate
             (submit)="$event.preventDefault(); submit()"
           >
-            <h3 class="font-sans text-body-sm font-semibold text-ink">Invite a guest</h3>
+            <h3 class="font-sans text-body-sm font-semibold text-ink">
+              Invite a guest
+            </h3>
             <div class="grid gap-3 sm:grid-cols-2">
               <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-caption font-semibold text-slate">Full name</span>
+                <span class="font-sans text-caption font-semibold text-slate"
+                  >Full name</span
+                >
                 <input
                   #nameField
                   type="text"
@@ -219,17 +306,25 @@ const COPIED_MS = 3000;
                   class="min-h-11 w-full rounded-field border bg-white px-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
                   [class]="nameError() ? 'border-alert' : 'border-cloud'"
                   [attr.aria-invalid]="!!nameError()"
-                  [attr.aria-describedby]="nameError() ? 'guest-name-error' : null"
+                  [attr.aria-describedby]="
+                    nameError() ? 'guest-name-error' : null
+                  "
                   [value]="name()"
                   [disabled]="busy()"
                   (input)="setName($any($event.target).value)"
                 />
                 @if (nameError()) {
-                  <span id="guest-name-error" class="font-sans text-caption text-alert">{{ nameError() }}</span>
+                  <span
+                    id="guest-name-error"
+                    class="font-sans text-caption text-alert"
+                    >{{ nameError() }}</span
+                  >
                 }
               </label>
               <label class="flex flex-col gap-1.5">
-                <span class="font-sans text-caption font-semibold text-slate">Email address</span>
+                <span class="font-sans text-caption font-semibold text-slate"
+                  >Email address</span
+                >
                 <input
                   #emailField
                   type="email"
@@ -239,77 +334,146 @@ const COPIED_MS = 3000;
                   class="min-h-11 w-full rounded-field border bg-white px-3 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none"
                   [class]="emailError() ? 'border-alert' : 'border-cloud'"
                   [attr.aria-invalid]="!!emailError()"
-                  [attr.aria-describedby]="emailError() ? 'guest-email-error' : null"
+                  [attr.aria-describedby]="
+                    emailError() ? 'guest-email-error' : null
+                  "
                   [value]="email()"
                   [disabled]="busy()"
                   (input)="setEmail($any($event.target).value)"
                 />
                 @if (emailError()) {
-                  <span id="guest-email-error" class="font-sans text-caption text-alert">{{ emailError() }}</span>
+                  <span
+                    id="guest-email-error"
+                    class="font-sans text-caption text-alert"
+                    >{{ emailError() }}</span
+                  >
                 }
               </label>
             </div>
 
-            <div class="flex items-center justify-between gap-3 border-t border-cloud pt-3">
+            <div
+              class="flex items-center justify-between gap-3 border-t border-cloud pt-3"
+            >
               <span class="font-sans text-body-sm text-slate">Guest fee</span>
-              <span class="font-heading text-h5 text-ink">{{ feeLabel() }}</span>
+              <span class="font-heading text-h5 text-ink">{{
+                feeLabel()
+              }}</span>
             </div>
 
             @if (!free()) {
-              <div class="flex flex-col gap-3" role="group" aria-labelledby="guest-pay-title">
-                <h4 id="guest-pay-title" class="font-sans text-body-sm font-semibold text-ink">Pay with</h4>
+              <div
+                class="flex flex-col gap-3"
+                role="group"
+                aria-labelledby="guest-pay-title"
+              >
+                <h4
+                  id="guest-pay-title"
+                  class="font-sans text-body-sm font-semibold text-ink"
+                >
+                  Pay with
+                </h4>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <button
                     type="button"
                     class="flex min-h-11 items-center gap-3 rounded-card border-2 bg-white p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-                    [class]="payMethod() === 'card' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                    [class]="
+                      payMethod() === 'card'
+                        ? 'border-cerulean bg-frost/30'
+                        : 'border-cloud hover:border-cerulean/40'
+                    "
                     [attr.aria-pressed]="payMethod() === 'card'"
                     [disabled]="busy()"
                     (click)="payMethod.set('card')"
                   >
-                    <sd-icon name="credit-card" [size]="22" class="shrink-0 text-cerulean" />
+                    <sd-icon
+                      name="credit-card"
+                      [size]="22"
+                      class="shrink-0 text-cerulean"
+                    />
                     <span class="flex min-w-0 flex-col">
-                      <span class="font-sans text-body-sm font-semibold text-ink">Card</span>
-                      <span class="font-sans text-caption text-slate">Secure checkout via Paystack</span>
+                      <span
+                        class="font-sans text-body-sm font-semibold text-ink"
+                        >Card</span
+                      >
+                      <span class="font-sans text-caption text-slate"
+                        >Secure checkout via Paystack</span
+                      >
                     </span>
                     @if (payMethod() === 'card') {
-                      <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
+                      <sd-icon
+                        name="circle-check"
+                        [size]="20"
+                        class="ml-auto shrink-0 text-cerulean"
+                      />
                     }
                   </button>
                   <!-- Not once the card has been charged: the wallet would pay twice. -->
                   <button
                     type="button"
                     class="flex min-h-11 items-center gap-3 rounded-card border-2 bg-white p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:cursor-not-allowed disabled:opacity-50"
-                    [class]="payMethod() === 'wallet' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'"
+                    [class]="
+                      payMethod() === 'wallet'
+                        ? 'border-cerulean bg-frost/30'
+                        : 'border-cloud hover:border-cerulean/40'
+                    "
                     [attr.aria-pressed]="payMethod() === 'wallet'"
                     [disabled]="busy() || !!paidRef()"
                     (click)="payMethod.set('wallet')"
                   >
-                    <sd-icon name="wallet" [size]="22" class="shrink-0 text-cerulean" />
+                    <sd-icon
+                      name="wallet"
+                      [size]="22"
+                      class="shrink-0 text-cerulean"
+                    />
                     <span class="flex min-w-0 flex-col">
-                      <span class="font-sans text-body-sm font-semibold text-ink">Wallet</span>
-                      <span class="font-sans text-caption text-slate">{{ walletCaption() }}</span>
+                      <span
+                        class="font-sans text-body-sm font-semibold text-ink"
+                        >Wallet</span
+                      >
+                      <span class="font-sans text-caption text-slate">{{
+                        walletCaption()
+                      }}</span>
                     </span>
                     @if (payMethod() === 'wallet') {
-                      <sd-icon name="circle-check" [size]="20" class="ml-auto shrink-0 text-cerulean" />
+                      <sd-icon
+                        name="circle-check"
+                        [size]="20"
+                        class="ml-auto shrink-0 text-cerulean"
+                      />
                     }
                   </button>
                 </div>
                 @if (payMethod() === 'wallet' && walletShort()) {
-                  <p class="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert">
-                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />
+                  <p
+                    class="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-card bg-alert/5 px-4 py-3 font-sans text-caption text-alert"
+                  >
+                    <sd-icon
+                      name="triangle-alert"
+                      [size]="16"
+                      class="mt-0.5 shrink-0"
+                    />
                     <span class="min-w-0 flex-1">
                       Your wallet doesn’t cover the guest fee. Pay by card, or
-                      <a routerLink="/dashboard/wallet" class="font-semibold text-cerulean underline">top up your wallet</a>
+                      <a
+                        routerLink="/dashboard/wallet"
+                        class="font-semibold text-cerulean underline"
+                        >top up your wallet</a
+                      >
                       and come back.
                     </span>
                   </p>
                 }
                 @if (payMethod() === 'card' && paidRef()) {
-                  <p class="flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate">
-                    <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
-                    Your card payment went through, but the guest wasn’t added. Fix what’s shown and try again —
-                    you won’t be charged twice.
+                  <p
+                    class="flex items-start gap-2 rounded-card bg-glacier px-4 py-3 font-sans text-caption text-slate"
+                  >
+                    <sd-icon
+                      name="info"
+                      [size]="16"
+                      class="mt-0.5 shrink-0 text-cerulean"
+                    />
+                    Your card payment went through, but the guest wasn’t added.
+                    Fix what’s shown and try again — you won’t be charged twice.
                   </p>
                 }
               </div>
@@ -320,8 +484,10 @@ const COPIED_MS = 3000;
             }
 
             <p class="font-sans text-caption text-slate">
-              We’ll email them their personal link, saying you invited them to your consultation with
-              {{ doctorName() }}. They can join from 15 minutes before it starts.
+              We’ll email them their personal link, saying you invited them to
+              your consultation with
+              {{ doctorName() }}. They can join from 15 minutes before it
+              starts.
             </p>
 
             <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -335,7 +501,11 @@ const COPIED_MS = 3000;
               </button>
               <sd-button type="submit" [disabled]="!canSubmit()">
                 @if (busy()) {
-                  <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
+                  <sd-icon
+                    name="loader-circle"
+                    [size]="18"
+                    class="animate-spin"
+                  />
                 } @else {
                   <sd-icon name="send" [size]="18" />
                 }
@@ -346,7 +516,9 @@ const COPIED_MS = 3000;
         }
       }
 
-      <p class="sr-only" aria-live="polite" aria-atomic="true">{{ liveStatus() }}</p>
+      <p class="sr-only" aria-live="polite" aria-atomic="true">
+        {{ liveStatus() }}
+      </p>
     </section>
 
     <!-- Remove a guest: confirmed first, with what happens to their fee -->
@@ -386,16 +558,20 @@ export class GuestsPanel {
   /** A guest was added or removed (the page re-reads the appointment's guest names). */
   readonly changed = output<void>();
 
-
-  private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
-  private readonly emailField = viewChild<ElementRef<HTMLInputElement>>('emailField');
-  private readonly revealedLink = viewChild<ElementRef<HTMLInputElement>>('revealedLink');
+  private readonly nameField =
+    viewChild<ElementRef<HTMLInputElement>>('nameField');
+  private readonly emailField =
+    viewChild<ElementRef<HTMLInputElement>>('emailField');
+  private readonly revealedLink =
+    viewChild<ElementRef<HTMLInputElement>>('revealedLink');
 
   protected readonly nameMax = GUEST_NAME_MAX;
   protected readonly list = signal<PatientGuestListDto | null>(null);
   protected readonly loading = signal(false);
   protected readonly loadError = signal('');
-  protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
+  protected readonly notice = signal<{ ok: boolean; text: string } | null>(
+    null,
+  );
   protected readonly liveStatus = signal('');
   /** Ticks every second: resend countdowns, and whether a removal still refunds. */
   private readonly clock = signal(Date.now());
@@ -441,7 +617,9 @@ export class GuestsPanel {
   protected readonly walletCaption = computed(() => {
     if (this.walletFailed()) return 'Balance unavailable';
     const b = this.walletBalance();
-    return b === null ? 'Balance …' : `Balance ${money(b, this.list()?.currency)}`;
+    return b === null
+      ? 'Balance …'
+      : `Balance ${money(b, this.list()?.currency)}`;
   });
   protected readonly walletShort = computed(() => {
     const b = this.walletBalance();
@@ -450,13 +628,19 @@ export class GuestsPanel {
   protected readonly canSubmit = computed(() => {
     if (this.busy()) return false;
     if (this.free() || this.payMethod() === 'card') return true;
-    return this.walletFailed() || (this.walletBalance() !== null && !this.walletShort());
+    return (
+      this.walletFailed() ||
+      (this.walletBalance() !== null && !this.walletShort())
+    );
   });
   protected readonly submitLabel = computed(() => {
     if (this.busy()) return 'Inviting…';
     if (this.free()) return 'Send invite';
-    if (this.payMethod() === 'wallet') return `Pay ${this.feeLabel()} from wallet & invite`;
-    return this.paidRef() ? 'Finish inviting' : `Pay ${this.feeLabel()} by card & invite`;
+    if (this.payMethod() === 'wallet')
+      return `Pay ${this.feeLabel()} from wallet & invite`;
+    return this.paidRef()
+      ? 'Finish inviting'
+      : `Pay ${this.feeLabel()} by card & invite`;
   });
   /** What removing them does — with what happens to a paid fee (refunded before the consultation starts). */
   protected readonly removeMessage = computed(() => {
@@ -470,9 +654,14 @@ export class GuestsPanel {
     const g = this.removing();
     const l = this.list();
     if (!g) return [];
-    const details: ConfirmDetail[] = [{ label: 'Guest', value: g.email ? `${g.name} (${g.email})` : g.name }];
+    const details: ConfirmDetail[] = [
+      { label: 'Guest', value: g.email ? `${g.name} (${g.email})` : g.name },
+    ];
     if (l && Number(g.fee) > 0 && g.paid_by !== 'free') {
-      details.push({ label: 'Guest fee', value: guestMoney(g.fee, l.currency) });
+      details.push({
+        label: 'Guest fee',
+        value: guestMoney(g.fee, l.currency),
+      });
     }
     return details;
   });
@@ -505,11 +694,14 @@ export class GuestsPanel {
         next: (res) => {
           this.list.set(res.data);
           this.loading.set(false);
-          if (!res.data.can_add && this.formOpen() && !this.busy()) this.closeStaleForm();
+          if (!res.data.can_add && this.formOpen() && !this.busy())
+            this.closeStaleForm();
         },
         error: (err: unknown) => {
           this.loading.set(false);
-          this.loadError.set(apiErrorMessage(err, 'Could not load your guests.'));
+          this.loadError.set(
+            apiErrorMessage(err, 'Could not load your guests.'),
+          );
         },
       });
   }
@@ -533,7 +725,11 @@ export class GuestsPanel {
   protected feeText(g: PatientGuestDto, l: PatientGuestListDto): string {
     const money = guestMoney(g.fee, l.currency);
     if (money === 'Free' || g.paid_by === 'free') return 'Free';
-    const how = { booking: 'paid with your booking', wallet: 'paid from your wallet', card: 'paid by card' }[g.paid_by];
+    const how = {
+      booking: 'paid with your booking',
+      wallet: 'paid from your wallet',
+      card: 'paid by card',
+    }[g.paid_by];
     return how ? `${money}, ${how}` : money;
   }
 
@@ -555,8 +751,12 @@ export class GuestsPanel {
     }
     // No clipboard: show the link to copy by hand.
     this.revealed.set(g.id);
-    this.liveStatus.set('Couldn’t copy automatically — the link is shown to copy.');
-    afterNextRender(() => this.revealedLink()?.nativeElement.select(), { injector: this.injector });
+    this.liveStatus.set(
+      'Couldn’t copy automatically — the link is shown to copy.',
+    );
+    afterNextRender(() => this.revealedLink()?.nativeElement.select(), {
+      injector: this.injector,
+    });
   }
 
   // ---- Resend ----
@@ -573,13 +773,27 @@ export class GuestsPanel {
         next: (res) => {
           this.resending.set('');
           this.list.set(res.data);
-          this.notice.set({ ok: true, text: `We’ve emailed ${name} their invitation again.` });
+          this.notice.set({
+            ok: true,
+            text: `We’ve emailed ${name} their invitation again.`,
+          });
         },
         error: (err: unknown) => {
           this.resending.set('');
-          this.notice.set({ ok: false, text: apiErrorMessage(err, 'Could not resend the invitation. Please try again.') });
+          this.notice.set({
+            ok: false,
+            text: apiErrorMessage(
+              err,
+              'Could not resend the invitation. Please try again.',
+            ),
+          });
           // Too soon (429) or the list changed: show when it can be sent.
-          if (httpStatus(err) === 429 || httpStatus(err) === 404 || apiErrorFields(err)['status']) this.load();
+          if (
+            httpStatus(err) === 429 ||
+            httpStatus(err) === 404 ||
+            apiErrorFields(err)['status']
+          )
+            this.load();
         },
       });
   }
@@ -592,7 +806,9 @@ export class GuestsPanel {
     this.formError.set('');
     this.notice.set(null);
     if (!this.free() && this.walletBalance() === null) this.loadWallet();
-    afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
+    afterNextRender(() => this.nameField()?.nativeElement.focus(), {
+      injector: this.injector,
+    });
   }
 
   protected closeForm(): void {
@@ -601,9 +817,16 @@ export class GuestsPanel {
     this.resetForm();
     const back = this.opener;
     this.opener = null;
-    afterNextRender(() => (back?.isConnected ? back : this.document.getElementById('guests-title'))?.focus(), {
-      injector: this.injector,
-    });
+    afterNextRender(
+      () =>
+        (back?.isConnected
+          ? back
+          : this.document.getElementById('guests-title')
+        )?.focus(),
+      {
+        injector: this.injector,
+      },
+    );
   }
 
   protected setName(v: string): void {
@@ -637,7 +860,8 @@ export class GuestsPanel {
     // Focus in the form (or lost to the page while a refused add was busy) goes to the heading.
     const active = this.document.activeElement;
     const moveFocus =
-      !!active?.closest('#add-guest-form') || ((!active || active === this.document.body) && !!(error || ref));
+      !!active?.closest('#add-guest-form') ||
+      ((!active || active === this.document.body) && !!(error || ref));
     this.formOpen.set(false);
     this.resetForm();
     this.opener = null;
@@ -645,10 +869,16 @@ export class GuestsPanel {
       const paid = ref
         ? ` Your card payment (reference ${ref}) went through, but the guest wasn’t added — contact support with this reference if it isn’t back in your wallet.`
         : '';
-      this.notice.set({ ok: false, text: `${error || 'The guest couldn’t be added.'}${paid}` });
+      this.notice.set({
+        ok: false,
+        text: `${error || 'The guest couldn’t be added.'}${paid}`,
+      });
     }
     if (moveFocus) {
-      afterNextRender(() => this.document.getElementById('guests-title')?.focus(), { injector: this.injector });
+      afterNextRender(
+        () => this.document.getElementById('guests-title')?.focus(),
+        { injector: this.injector },
+      );
     }
   }
 
@@ -675,30 +905,51 @@ export class GuestsPanel {
     this.nameError.set(problems.name ?? '');
     this.emailError.set(problems.email ?? '');
     if (problems.name || problems.email) {
-      (problems.name ? this.nameField() : this.emailField())?.nativeElement.focus();
+      (problems.name
+        ? this.nameField()
+        : this.emailField()
+      )?.nativeElement.focus();
       return;
     }
     this.busy.set(true);
     this.formError.set('');
     if (this.free()) return this.send({ name, email });
-    if (this.payMethod() === 'wallet') return this.send({ name, email, payment_method: 'wallet' });
+    if (this.payMethod() === 'wallet')
+      return this.send({ name, email, payment_method: 'wallet' });
     const kept = this.paidRef();
-    if (kept) return this.send({ name, email, payment_method: 'card', payment_reference: kept });
+    if (kept)
+      return this.send({
+        name,
+        email,
+        payment_method: 'card',
+        payment_reference: kept,
+      });
     try {
-      const init = await firstValueFrom(this.appointments.payInitForGuest(this.appointmentId()));
+      const init = await firstValueFrom(
+        this.appointments.payInitForGuest(this.appointmentId()),
+      );
       const Pop = await loadPaystack();
       new Pop().resumeTransaction(init.data.access_code, {
         onSuccess: () => {
           this.paidRef.set(init.data.reference);
-          this.send({ name, email, payment_method: 'card', payment_reference: init.data.reference });
+          this.send({
+            name,
+            email,
+            payment_method: 'card',
+            payment_reference: init.data.reference,
+          });
         },
         onCancel: () => {
           this.busy.set(false);
-          this.formError.set('Payment cancelled — nothing was charged. Try again when you’re ready.');
+          this.formError.set(
+            'Payment cancelled — nothing was charged. Try again when you’re ready.',
+          );
         },
         onError: () => {
           this.busy.set(false);
-          this.formError.set('The payment could not be completed. Please try again.');
+          this.formError.set(
+            'The payment could not be completed. Please try again.',
+          );
         },
       });
     } catch (err) {
@@ -708,8 +959,14 @@ export class GuestsPanel {
         return;
       }
       this.busy.set(false);
-      this.formError.set(apiErrorMessage(err, 'Could not start the card payment. Please try again.'));
-      if (apiErrorFields(err)['status'] || apiErrorFields(err)['guests']) this.load();
+      this.formError.set(
+        apiErrorMessage(
+          err,
+          'Could not start the card payment. Please try again.',
+        ),
+      );
+      if (apiErrorFields(err)['status'] || apiErrorFields(err)['guests'])
+        this.load();
     }
   }
 
@@ -732,7 +989,10 @@ export class GuestsPanel {
           });
           if (params.payment_method === 'wallet') this.loadWallet();
           this.changed.emit();
-          afterNextRender(() => this.document.getElementById('guests-title')?.focus(), { injector: this.injector });
+          afterNextRender(
+            () => this.document.getElementById('guests-title')?.focus(),
+            { injector: this.injector },
+          );
         },
         error: (err: unknown) => {
           this.busy.set(false);
@@ -741,7 +1001,9 @@ export class GuestsPanel {
           this.emailError.set(e.email ?? '');
           this.formError.set(e.general);
           if (e.walletShort) {
-            this.walletBalance.set(Math.max(0, Number(this.list()?.guest_fee ?? 0) - 0.01));
+            this.walletBalance.set(
+              Math.max(0, Number(this.list()?.guest_fee ?? 0) - 0.01),
+            );
             this.loadWallet();
           }
           if (e.credited) {
@@ -789,7 +1051,10 @@ export class GuestsPanel {
         next: (res) => {
           this.removeBusy.set(false);
           this.list.set(res.data);
-          const refunded = res.data.refunded && Number(res.data.refunded) > 0 ? guestMoney(res.data.refunded, currency) : '';
+          const refunded =
+            res.data.refunded && Number(res.data.refunded) > 0
+              ? guestMoney(res.data.refunded, currency)
+              : '';
           this.notice.set({
             ok: true,
             text: refunded
@@ -803,8 +1068,14 @@ export class GuestsPanel {
         },
         error: (err: unknown) => {
           this.removeBusy.set(false);
-          this.removeError.set(apiErrorMessage(err, 'Could not remove the guest. Please try again.'));
-          if (httpStatus(err) === 404 || apiErrorFields(err)['status']) this.load();
+          this.removeError.set(
+            apiErrorMessage(
+              err,
+              'Could not remove the guest. Please try again.',
+            ),
+          );
+          if (httpStatus(err) === 404 || apiErrorFields(err)['status'])
+            this.load();
         },
       });
   }
@@ -816,12 +1087,16 @@ export class GuestsPanel {
     this.removeGone = false;
     setTimeout(() => {
       const active = this.document.activeElement;
-      if (!active || active === this.document.body) this.document.getElementById('guests-title')?.focus();
+      if (!active || active === this.document.body)
+        this.document.getElementById('guests-title')?.focus();
     });
   }
 
   private rememberOpener(): void {
     const active = this.document.activeElement;
-    this.opener = active instanceof HTMLElement && active !== this.document.body ? active : null;
+    this.opener =
+      active instanceof HTMLElement && active !== this.document.body
+        ? active
+        : null;
   }
 }

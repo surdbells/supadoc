@@ -44,7 +44,7 @@ interface Row {
         <div class="flex flex-wrap items-center gap-2">
           <h2 id="dash-live-title" class="${SECTION_TITLE}"><sd-icon name="video" [size]="20" class="text-cerulean" />Live now</h2>
           @if (live().in_progress_count > 0) {
-            <span class="inline-flex items-center gap-1.5 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink">
+            <span class="inline-flex items-center gap-1.5 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/15">
               <span class="size-2 animate-pulse rounded-full bg-sage motion-reduce:animate-none" aria-hidden="true"></span>{{ live().in_progress_count }} in progress
             </span>
           }
@@ -101,7 +101,7 @@ interface Row {
                   <span class="truncate font-sans text-caption text-slate">{{ r.sub }}</span>
                 </span>
                 <span class="flex shrink-0 flex-col items-end gap-0.5">
-                  <span class="rounded-pill px-2 py-0.5 font-sans text-caption font-semibold" [class]="r.statusCls">{{ r.item.status_label }}</span>
+                  <span class="rounded-pill px-2 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="r.statusCls">{{ r.item.status_label }}</span>
                   <span class="font-sans text-caption text-slate">{{ r.when }}</span>
                 </span>
                 <sd-icon name="chevron-right" [size]="18" class="shrink-0 text-slate" />

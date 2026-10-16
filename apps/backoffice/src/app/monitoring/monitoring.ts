@@ -393,7 +393,7 @@ export class AdminMonitoring implements OnInit {
     return appointmentStatusClass(status);
   }
   protected recStatusClass(status: string): string {
-    const map: Record<string, string> = { recording: 'bg-alert/10 text-alert', stopped: 'bg-frost text-cerulean', failed: 'bg-cloud text-slate' };
+    const map: Record<string, string> = { recording: 'bg-alert/10 text-alert-ink', stopped: 'bg-frost text-cerulean-dark', failed: 'bg-cloud text-slate' };
     return map[status] ?? 'bg-cloud text-slate';
   }
 }

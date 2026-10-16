@@ -146,20 +146,20 @@ interface TileLook {
 }
 
 const KPI_LOOK: Record<AdminDashboardKpiKey, TileLook> = {
-  bookings: { icon: 'calendar-days', tint: 'bg-frost text-cerulean' },
-  consultations_completed: { icon: 'circle-check', tint: 'bg-sage/15 text-sage' },
-  revenue: { icon: 'banknote', tint: 'bg-sage/15 text-sage' },
-  wallet_topups: { icon: 'wallet', tint: 'bg-cerulean/10 text-cerulean' },
-  refunds: { icon: 'undo-2', tint: 'bg-warning/15 text-warning' },
-  new_patients: { icon: 'user-plus', tint: 'bg-cerulean/10 text-cerulean' },
-  active_doctors: { icon: 'stethoscope', tint: 'bg-teal/10 text-teal' },
-  cancellations: { icon: 'circle-x', tint: 'bg-alert/10 text-alert' },
+  bookings: { icon: 'calendar-days', tint: 'bg-frost text-cerulean-dark' },
+  consultations_completed: { icon: 'circle-check', tint: 'bg-sage/15 text-sage-ink' },
+  revenue: { icon: 'banknote', tint: 'bg-sage/15 text-sage-ink' },
+  wallet_topups: { icon: 'wallet', tint: 'bg-cerulean/10 text-cerulean-dark' },
+  refunds: { icon: 'undo-2', tint: 'bg-warning/15 text-warning-ink' },
+  new_patients: { icon: 'user-plus', tint: 'bg-cerulean/10 text-cerulean-dark' },
+  active_doctors: { icon: 'stethoscope', tint: 'bg-teal/10 text-teal-ink' },
+  cancellations: { icon: 'circle-x', tint: 'bg-alert/10 text-alert-ink' },
   missed: { icon: 'calendar-x', tint: 'bg-ocean/10 text-ocean' },
-  average_rating: { icon: 'star', tint: 'bg-warning/15 text-warning' },
+  average_rating: { icon: 'star', tint: 'bg-warning/15 text-warning-ink' },
 };
 
 export function kpiLook(key: string): TileLook {
-  return KPI_LOOK[key as AdminDashboardKpiKey] ?? { icon: 'activity', tint: 'bg-frost text-cerulean' };
+  return KPI_LOOK[key as AdminDashboardKpiKey] ?? { icon: 'activity', tint: 'bg-frost text-cerulean-dark' };
 }
 
 /** The change line under a tile's value: arrow + words + colour (never colour alone). */
@@ -179,8 +179,8 @@ export interface KpiDelta {
 }
 
 const TONE_CHIP: Record<KpiDelta['tone'], string> = {
-  good: 'bg-sage/15 text-sage',
-  bad: 'bg-alert/10 text-alert',
+  good: 'bg-sage/15 text-sage-ink',
+  bad: 'bg-alert/10 text-alert-ink',
   neutral: 'bg-cloud text-slate',
 };
 
@@ -321,9 +321,9 @@ const ATTENTION_ICON: Record<AdminDashboardAttentionKey, string> = {
 };
 
 const ATTENTION_TINT: Record<AdminDashboardAttentionItem['tone'], string> = {
-  alert: 'bg-alert/10 text-alert',
-  warning: 'bg-warning/15 text-warning',
-  info: 'bg-frost text-cerulean',
+  alert: 'bg-alert/10 text-alert-ink',
+  warning: 'bg-warning/15 text-warning-ink',
+  info: 'bg-frost text-cerulean-dark',
 };
 
 export function attentionIcon(key: string): string {

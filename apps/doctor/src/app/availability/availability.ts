@@ -25,7 +25,7 @@ interface DayCell {
 }
 
 const TIME_INPUT =
-  'rounded-field border border-[#b8c6d4] bg-white px-3 py-2.5 font-sans text-body-sm text-ink focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+  'rounded-field border border-[#b8c6d4] bg-white px-3 py-2.5 font-sans text-body-sm text-ink shadow-control focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
 const DURATIONS = [15, 30, 45, 60];
 
@@ -51,7 +51,7 @@ const LAST_MINUTE = 23 * 60 + 59;
           <p class="font-sans text-body text-slate">Manage your consultation hour and availability.</p>
         </div>
         <div class="flex flex-wrap items-center gap-3">
-          <button type="button" class="flex items-center gap-2 rounded-field border border-cloud bg-white px-5 py-3 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert disabled:pointer-events-none disabled:opacity-50" [disabled]="isPast(selectedDate())" (click)="openBlock(selectedDate())">
+          <button type="button" class="flex items-center gap-2 rounded-field border border-haze bg-white px-5 py-3 font-sans text-body-sm font-semibold text-slate shadow-control transition hover:border-alert hover:text-alert active:shadow-none disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none" [disabled]="isPast(selectedDate())" (click)="openBlock(selectedDate())">
             <sd-icon name="ban" [size]="18" />Block this day
           </button>
           <sd-button [disabled]="isPast(selectedDate())" (click)="openAdd(selectedDate())">
@@ -61,9 +61,9 @@ const LAST_MINUTE = 23 * 60 + 59;
       </header>
 
       <!-- View toggle -->
-      <div class="flex w-fit rounded-pill border border-cloud bg-white p-1">
-        <button type="button" class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="mode() === 'calendar' ? 'bg-frost text-cerulean' : 'text-slate'" (click)="mode.set('calendar')">Calendar view</button>
-        <button type="button" class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="mode() === 'list' ? 'bg-frost text-cerulean' : 'text-slate'" (click)="mode.set('list')">List view</button>
+      <div class="flex w-fit rounded-pill border border-haze bg-glacier p-1 shadow-bar">
+        <button type="button" class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition" [class]="mode() === 'calendar' ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" (click)="mode.set('calendar')">Calendar view</button>
+        <button type="button" class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition" [class]="mode() === 'list' ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" (click)="mode.set('list')">List view</button>
       </div>
 
       @if (notice()) {
@@ -75,7 +75,7 @@ const LAST_MINUTE = 23 * 60 + 59;
       @if (mode() === 'calendar') {
         <div class="grid gap-6 lg:grid-cols-2">
           <!-- Month calendar -->
-          <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+          <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
             <div class="flex items-center justify-between">
               <h2 class="font-heading text-h5 text-ink">{{ monthLabel() }}</h2>
               <div class="flex items-center gap-1">
@@ -110,7 +110,7 @@ const LAST_MINUTE = 23 * 60 + 59;
       } @else {
         <!-- List view: week days (left) + selected day detail (right) -->
         <div class="grid gap-6 lg:grid-cols-2">
-          <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+          <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="font-heading text-h5 text-ink">{{ weekLabel() }}</h2>
             @if (loading()) {
               <div class="sd-shimmer h-48 rounded-field"></div>
@@ -140,7 +140,7 @@ const LAST_MINUTE = 23 * 60 + 59;
 
     <!-- Shared day-detail panel (both views) -->
     <ng-template #dayDetail>
-      <section class="flex h-fit flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+      <section class="flex h-fit flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
         <h2 class="font-heading text-h5 text-ink">{{ selectedLabel() }}</h2>
         <!-- Removed here: said, and focused (the Remove button that asked went away with the time). -->
         @if (removed(); as r) {
@@ -176,7 +176,7 @@ const LAST_MINUTE = 23 * 60 + 59;
                     }
                   </div>
                   <div class="flex items-center gap-2">
-                    <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
+                    <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
                     @if (s.status !== 'booked' && !isSynthetic(s)) {
                       <button type="button" class="flex min-h-11 min-w-11 items-center justify-center rounded-field text-slate transition-colors hover:text-alert focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:opacity-50" [attr.aria-label]="'Remove ' + slotRange(s)" [disabled]="busyId() === s.id" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
                     }
@@ -191,7 +191,7 @@ const LAST_MINUTE = 23 * 60 + 59;
             </p>
           } @else {
             <div class="mt-2 flex flex-col gap-3 sm:flex-row">
-              <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-cloud px-4 py-2.5 font-sans text-body-sm font-semibold text-slate transition-colors hover:border-alert hover:text-alert" (click)="openBlock(selectedDate())">
+              <button type="button" class="flex flex-1 items-center justify-center gap-2 rounded-field border border-haze bg-white px-4 py-2.5 font-sans text-body-sm font-semibold text-slate shadow-control transition hover:border-alert hover:text-alert active:shadow-none disabled:shadow-none" (click)="openBlock(selectedDate())">
                 <sd-icon name="ban" [size]="18" />Block this day
               </button>
               <sd-button [full]="true" (click)="openAdd(selectedDate())"><sd-icon name="plus" [size]="18" />Add Availability</sd-button>
@@ -204,9 +204,9 @@ const LAST_MINUTE = 23 * 60 + 59;
     <!-- Add Availability (the design-system dialog: bottom sheet on phones, focus kept inside, Esc closes). -->
     <sd-dialog [open]="addOpen()" title="Add Availability" size="sm" [busy]="busy()" (closed)="addOpen.set(false)">
         <div class="flex flex-col gap-5">
-          <div class="flex rounded-pill border border-cloud bg-white p-1" role="group" aria-label="How often">
-            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="addRecurring() ? 'text-slate' : 'bg-frost text-cerulean'" [attr.aria-pressed]="!addRecurring()" (click)="addRecurring.set(false)">One-time</button>
-            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="addRecurring() ? 'bg-frost text-cerulean' : 'text-slate'" [attr.aria-pressed]="addRecurring()" (click)="addRecurring.set(true)">Recurring</button>
+          <div class="flex rounded-pill border border-haze bg-glacier p-1" role="group" aria-label="How often">
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="addRecurring() ? 'text-slate' : 'bg-frost text-cerulean-dark shadow-control'" [attr.aria-pressed]="!addRecurring()" (click)="addRecurring.set(false)">One-time</button>
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="addRecurring() ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" [attr.aria-pressed]="addRecurring()" (click)="addRecurring.set(true)">Recurring</button>
           </div>
 
           <label class="flex flex-col gap-2">
@@ -226,9 +226,9 @@ const LAST_MINUTE = 23 * 60 + 59;
 
           <div class="flex flex-col gap-2">
             <span class="font-sans text-body font-semibold text-ink">Consultation duration</span>
-            <div class="flex rounded-pill border border-cloud bg-white p-1">
+            <div class="flex rounded-pill border border-haze bg-glacier p-1">
               @for (d of durations; track d) {
-                <button type="button" class="flex-1 rounded-pill px-2 py-1.5 font-sans text-caption font-semibold transition-colors" [class]="addDuration() === d ? 'bg-frost text-cerulean' : 'text-slate'" (click)="addDuration.set(d)">{{ d }} mins</button>
+                <button type="button" class="flex-1 rounded-pill px-2 py-1.5 font-sans text-caption font-semibold transition" [class]="addDuration() === d ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" (click)="addDuration.set(d)">{{ d }} mins</button>
               }
             </div>
           </div>
@@ -258,9 +258,9 @@ const LAST_MINUTE = 23 * 60 + 59;
             <input type="date" class="${TIME_INPUT}" [min]="today()" [value]="blockDate()" (input)="blockDate.set($any($event.target).value)" />
           </label>
 
-          <div class="flex rounded-pill border border-cloud bg-white p-1" role="group" aria-label="What to block">
-            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="blockEntire() ? 'bg-frost text-cerulean' : 'text-slate'" [attr.aria-pressed]="blockEntire()" (click)="blockEntire.set(true)">Entire day</button>
-            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors" [class]="blockEntire() ? 'text-slate' : 'bg-frost text-cerulean'" [attr.aria-pressed]="!blockEntire()" (click)="blockEntire.set(false)">Specific time</button>
+          <div class="flex rounded-pill border border-haze bg-glacier p-1" role="group" aria-label="What to block">
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="blockEntire() ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" [attr.aria-pressed]="blockEntire()" (click)="blockEntire.set(true)">Entire day</button>
+            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="blockEntire() ? 'text-slate' : 'bg-frost text-cerulean-dark shadow-control'" [attr.aria-pressed]="!blockEntire()" (click)="blockEntire.set(false)">Specific time</button>
           </div>
 
           @if (!blockEntire()) {
@@ -282,7 +282,7 @@ const LAST_MINUTE = 23 * 60 + 59;
           @if (blockError()) { <p class="rounded-field bg-alert/10 px-4 py-2 font-label text-caption text-alert" role="alert">{{ blockError() }}</p> }
         </div>
         <div dialogFooter class="flex shrink-0 border-t border-cloud px-5 py-4 sm:px-6">
-          <button type="button" class="flex min-h-11 w-full items-center justify-center gap-2 rounded-field bg-alert px-5 py-3 font-sans text-body font-semibold text-white transition-colors hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 focus-visible:ring-offset-2 disabled:opacity-60" [disabled]="busy()" (click)="submitBlock()">
+          <button type="button" class="flex min-h-11 w-full items-center justify-center gap-2 rounded-field bg-alert px-5 py-3 font-sans text-body font-semibold text-white inset-shadow-rim transition-colors hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 focus-visible:ring-offset-2 disabled:opacity-60" [disabled]="busy()" (click)="submitBlock()">
             <sd-icon name="ban" [size]="18" />{{ busy() ? 'Blocking…' : blockEntire() ? 'Block this day' : 'Block these times' }}
           </button>
         </div>
@@ -525,10 +525,10 @@ export class DoctorAvailability implements OnInit {
 
   protected statusClass(status: string): string {
     return status === 'booked'
-      ? 'bg-sage/15 text-sage'
+      ? 'bg-sage/15 text-sage-ink'
       : status === 'blocked'
-        ? 'bg-alert/10 text-alert'
-        : 'bg-frost text-cerulean';
+        ? 'bg-alert/10 text-alert-ink'
+        : 'bg-frost text-cerulean-dark';
   }
   protected statusLabel(status: string): string {
     return status === 'booked' ? 'Booked' : status === 'blocked' ? 'Blocked' : 'Open';

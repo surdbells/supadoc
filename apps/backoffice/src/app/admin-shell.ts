@@ -28,7 +28,7 @@ import { ReviewQueue } from './specialists/review-queue';
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
-        class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between gap-6 overflow-y-auto border-r-[0.5px] border-ash px-6 pt-6 pb-10 lg:flex"
+        class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between gap-6 overflow-y-auto border-r-[0.5px] border-ash bg-snow px-6 pt-6 pb-10 lg:flex"
       >
         <ng-container [ngTemplateOutlet]="nav" />
       </aside>
@@ -36,7 +36,7 @@ import { ReviewQueue } from './specialists/review-queue';
       @if (menuOpen()) {
         <div class="fixed inset-0 z-40 lg:hidden">
           <button type="button" class="absolute inset-0 cursor-default bg-abyss/40" aria-label="Close menu" (click)="menuOpen.set(false)"></button>
-          <aside class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between gap-6 overflow-y-auto bg-glacier px-6 pt-6 pb-10 shadow-2xl">
+          <aside class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between gap-6 overflow-y-auto bg-snow px-6 pt-6 pb-10 shadow-2xl">
             <ng-container [ngTemplateOutlet]="nav" />
           </aside>
         </div>
@@ -56,7 +56,7 @@ import { ReviewQueue } from './specialists/review-queue';
             </span>
           </div>
           <div class="flex items-center gap-3">
-            <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-body-sm font-semibold text-ink">
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-body-sm font-semibold text-ink ring-2 ring-white shadow-control">
               {{ initials() || 'AD' }}
             </span>
             <div class="hidden flex-col leading-tight sm:flex">
@@ -80,19 +80,19 @@ import { ReviewQueue } from './specialists/review-queue';
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
-          <span class="rounded-pill bg-ink/10 px-2.5 py-1 font-sans text-caption font-semibold text-ink">Admin</span>
+          <span class="rounded-pill bg-ink/10 px-2.5 py-1 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/15">Admin</span>
         </a>
         <nav class="flex flex-col gap-1">
           @for (item of visibleNav(); track item.link) {
             <a
               [routerLink]="item.link"
-              routerLinkActive="bg-frost !text-cerulean"
-              class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+              routerLinkActive="!bg-haze !text-cerulean-dark shadow-control inset-ring inset-ring-cerulean/10"
+              class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition hover:bg-frost/40"
               (click)="menuOpen.set(false)"
             >
               <sd-icon [name]="item.icon" [size]="20" />{{ item.label }}
               @if (item.reviewBadge && reviewCount() > 0) {
-                <span class="ml-auto rounded-pill bg-warning/20 px-2 py-0.5 font-sans text-caption font-semibold text-ink" [attr.title]="reviewLabel()">
+                <span class="ml-auto rounded-pill bg-warning/20 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-warning/40" [attr.title]="reviewLabel()">
                   {{ reviewCount() }}<span class="sr-only"> {{ reviewLabel() }}</span>
                 </span>
               }
@@ -103,13 +103,13 @@ import { ReviewQueue } from './specialists/review-queue';
       <div class="flex flex-col gap-1 border-t border-ash pt-4">
         <a
           routerLink="/settings"
-          routerLinkActive="bg-frost !text-cerulean"
-          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          routerLinkActive="!bg-haze !text-cerulean-dark shadow-control inset-ring inset-ring-cerulean/10"
+          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition hover:bg-frost/40"
           (click)="menuOpen.set(false)"
         >
           <sd-icon name="settings" [size]="20" />Settings
         </a>
-        <button type="button" class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40" (click)="askLogout()">
+        <button type="button" class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition hover:bg-frost/40" (click)="askLogout()">
           <sd-icon name="log-out" [size]="20" />Sign out
         </button>
       </div>

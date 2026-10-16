@@ -93,7 +93,7 @@ const ITEMS: readonly ChecklistItem[] = [
         <div class="sd-shimmer h-16 rounded-card"></div>
         <div class="sd-shimmer h-96 rounded-card"></div>
       } @else if (loadError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white px-5 py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-5 py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
           <sd-button variant="outline" size="sm" (click)="load()">
@@ -126,7 +126,7 @@ const ITEMS: readonly ChecklistItem[] = [
             </sd-alert>
           }
           @case ('suspended') {
-            <div class="flex flex-col gap-3 rounded-card border border-alert/30 bg-white p-5" role="alert">
+            <div class="flex flex-col gap-3 rounded-card border border-alert/30 bg-white p-5 shadow-card" role="alert">
               <p class="flex items-start gap-2 font-sans text-body-sm text-ink">
                 <sd-icon name="ban" [size]="20" class="mt-0.5 shrink-0 text-alert" />
                 <span>
@@ -178,7 +178,7 @@ const ITEMS: readonly ChecklistItem[] = [
           </sd-alert>
         }
 
-        <section class="flex flex-col rounded-card border border-cloud bg-white">
+        <section class="flex flex-col rounded-card border border-haze bg-white shadow-card">
           <div class="flex flex-col gap-3 border-b border-cloud px-4 py-4 sm:px-5">
             <div class="flex items-center justify-between gap-3">
               <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink">
@@ -206,7 +206,7 @@ const ITEMS: readonly ChecklistItem[] = [
                 <div class="flex items-center gap-3">
                   <span
                     class="flex size-10 shrink-0 items-center justify-center rounded-full"
-                    [class]="done ? 'bg-sage/15 text-sage' : 'bg-frost text-cerulean'"
+                    [class]="done ? 'bg-sage/15 text-sage-ink' : 'bg-frost text-cerulean-dark'"
                   >
                     <sd-icon [name]="done ? 'circle-check' : item.icon" [size]="20" />
                   </span>
@@ -238,7 +238,7 @@ const ITEMS: readonly ChecklistItem[] = [
                   } @else {
                     <a
                       [routerLink]="item.link"
-                      class="flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-cloud px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+                      class="flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none"
                       [attr.aria-label]="actionLabel(item, doc) + ' ' + item.label"
                       >{{ actionLabel(item, doc) }} <sd-icon name="chevron-right" [size]="14"
                     /></a>
@@ -257,7 +257,7 @@ const ITEMS: readonly ChecklistItem[] = [
         @if (canSubmit()) {
           <section class="flex flex-col gap-4 rounded-card bg-frost/60 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div class="flex items-start gap-3">
-              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-sm">
+              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-control">
                 <sd-icon name="send" [size]="20" />
               </span>
               <div class="flex min-w-0 flex-col">

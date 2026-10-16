@@ -48,9 +48,9 @@ import {
 } from '../shared/layout';
 
 const STATUS_CLASS: Record<string, string> = {
-  open: 'bg-warning/15 text-warning',
-  pending: 'bg-frost text-cerulean',
-  resolved: 'bg-sage/15 text-sage',
+  open: 'bg-warning/15 text-warning-ink',
+  pending: 'bg-frost text-cerulean-dark',
+  resolved: 'bg-sage/15 text-sage-ink',
   closed: 'bg-cloud text-slate',
 };
 /** Every status reads as icon + words. */
@@ -109,7 +109,7 @@ type Filter = 'all' | SupportStatus;
           <ul class="${CARD_LIST}">
             @for (t of tickets(); track t.id) {
               <li>
-                <button type="button" class="group flex w-full items-start gap-4 rounded-card border border-cloud bg-white p-5 text-left shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 ${FOCUS_RING}" (click)="openTicket(t)">
+                <button type="button" class="group flex w-full items-start gap-4 rounded-card border border-haze bg-white p-5 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover ${FOCUS_RING}" (click)="openTicket(t)">
                   <span class="flex min-w-0 flex-1 flex-col gap-1.5">
                     <span class="flex flex-wrap items-center gap-2">
                       <span class="min-w-0 truncate font-heading text-body-lg text-ink transition-colors group-hover:text-cerulean">{{ t.subject }}</span>
@@ -162,13 +162,13 @@ type Filter = 'all' | SupportStatus;
                 <button type="button" class="${BTN_SUCCESS_OUTLINE}" [disabled]="updating()" (click)="setStatus('resolved')"><sd-icon name="circle-check" [size]="16" />Mark resolved</button>
               }
               @if (t.status !== 'closed') {
-                <button type="button" class="${BTN_GHOST} border border-cloud" [disabled]="updating()" (click)="askClose(t)" #closeBtn><sd-icon name="lock" [size]="16" />Close</button>
+                <button type="button" class="${BTN_GHOST} border border-haze bg-white shadow-control active:shadow-none disabled:shadow-none" [disabled]="updating()" (click)="askClose(t)" #closeBtn><sd-icon name="lock" [size]="16" />Close</button>
               } @else {
                 <button type="button" class="${BTN_SECONDARY}" [disabled]="updating()" (click)="setStatus('open')" #reopenBtn><sd-icon name="refresh-cw" [size]="16" />Reopen</button>
               }
             </div>
           </section>
-          <div class="h-[54vh] rounded-card border border-cloud bg-white p-4 shadow-[0_1px_2px_rgba(10,22,40,0.04)]">
+          <div class="h-[54vh] rounded-card border border-haze bg-white p-4 shadow-card">
             <sd-message-thread
               viewerRole="doctor"
               [messages]="threadMessages()"

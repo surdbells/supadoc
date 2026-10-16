@@ -54,7 +54,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
-        class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash px-6 pt-6 pb-10 lg:flex"
+        class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash bg-snow px-6 pt-6 pb-10 lg:flex"
       >
         <ng-container [ngTemplateOutlet]="nav" />
       </aside>
@@ -68,7 +68,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
             (click)="menuOpen.set(false)"
           ></button>
           <aside
-            class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between overflow-y-auto bg-glacier px-6 pt-6 pb-10 shadow-2xl"
+            class="absolute left-0 top-0 flex h-full w-72 max-w-[85%] flex-col justify-between overflow-y-auto bg-snow px-6 pt-6 pb-10 shadow-2xl"
           >
             <ng-container [ngTemplateOutlet]="nav" />
           </aside>
@@ -105,10 +105,10 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
               }
             </a>
             @if (photoSrc()) {
-              <img [src]="photoSrc()" alt="" width="40" height="40" class="size-10 shrink-0 rounded-full object-cover" />
+              <img [src]="photoSrc()" alt="" width="40" height="40" class="size-10 shrink-0 rounded-full object-cover ring-2 ring-white shadow-control" />
             } @else {
               <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean-dark ring-2 ring-white shadow-control"
               >
                 {{ initials() || 'DR' }}
               </span>
@@ -130,7 +130,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
             @if (standingBanner(); as b) {
               <a
                 [routerLink]="b.link"
-                class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border px-4 py-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border px-4 py-3 shadow-card transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
                 [class]="b.tone"
               >
                 <sd-icon [name]="b.icon" [size]="20" class="shrink-0" [class]="b.iconTone" />
@@ -153,7 +153,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
           <span
-            class="rounded-pill bg-cerulean/10 px-2.5 py-1 font-sans text-caption font-semibold text-cerulean"
+            class="rounded-pill bg-cerulean/10 px-2.5 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-current/15"
             >Doctor</span
           >
         </a>
@@ -162,8 +162,8 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
           @for (item of navItems; track item.link) {
             <a
               [routerLink]="item.link"
-              routerLinkActive="bg-frost !text-cerulean"
-              class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+              routerLinkActive="!bg-haze !text-cerulean-dark shadow-control inset-ring inset-ring-cerulean/10"
+              class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition hover:bg-frost/40"
               (click)="menuOpen.set(false)"
             >
               <sd-icon [name]="item.icon" [size]="20" />
@@ -176,8 +176,8 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
       <div class="flex flex-col gap-1 border-t border-ash pt-4">
         <a
           routerLink="/settings"
-          routerLinkActive="bg-frost !text-cerulean"
-          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition-colors hover:bg-frost/40"
+          routerLinkActive="!bg-haze !text-cerulean-dark shadow-control inset-ring inset-ring-cerulean/10"
+          class="flex items-center gap-2 rounded-lg px-4 py-3 font-sans text-body text-ink transition hover:bg-frost/40"
           (click)="menuOpen.set(false)"
         >
           <sd-icon name="settings" [size]="20" />

@@ -76,7 +76,7 @@ const DRAFT_LISTS: ReadonlyArray<{ readonly key: DraftListKey; readonly label: s
             <li class="flex items-start gap-3">
               <span
                 class="flex size-9 shrink-0 items-center justify-center rounded-full"
-                [class]="seg.role === 'doctor' ? 'bg-frost text-cerulean' : 'bg-sage/15 text-sage'"
+                [class]="seg.role === 'doctor' ? 'bg-frost text-cerulean-dark' : 'bg-sage/15 text-sage-ink'"
                 aria-hidden="true"
               >
                 <sd-icon [name]="seg.role === 'doctor' ? 'stethoscope' : 'user'" [size]="16" />

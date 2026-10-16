@@ -50,10 +50,10 @@ import { initials as initialsOfName } from '../specialists/specialist-ui';
 
 /** Every status reads as icon + words — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
-  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
-  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning-ink' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
   expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /** A single patient record + their recent appointments (route `/patients/:id`). */
@@ -92,10 +92,10 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                 <h2 id="bo-patient-name" class="${DETAIL_NAME}">{{ d.patient.first_name }} {{ d.patient.last_name }}</h2>
                 <ul class="flex flex-wrap items-center justify-center gap-2 sm:justify-start" aria-label="Patient summary">
                   @if (d.patient.gender) {
-                    <li class="${CHIP} bg-frost capitalize text-cerulean"><sd-icon name="user" [size]="14" /><span class="sr-only">Gender:</span>{{ d.patient.gender }}</li>
+                    <li class="${CHIP} bg-frost capitalize text-cerulean-dark"><sd-icon name="user" [size]="14" /><span class="sr-only">Gender:</span>{{ d.patient.gender }}</li>
                   }
                   @if (d.patient.two_factor_enabled) {
-                    <li class="${CHIP} bg-sage/15 text-sage"><sd-icon name="shield-check" [size]="14" />2FA on</li>
+                    <li class="${CHIP} bg-sage/15 text-sage-ink"><sd-icon name="shield-check" [size]="14" />2FA on</li>
                   } @else {
                     <li class="${CHIP} bg-glacier text-ink"><sd-icon name="shield" [size]="14" class="text-slate" />2FA off</li>
                   }

@@ -25,9 +25,9 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
   'life-threatening': {
     label: 'Life-threatening',
     icon: 'shield-alert',
-    cls: 'bg-alert/10 text-alert',
+    cls: 'bg-alert/10 text-alert-ink',
   },
-  severe: { label: 'Severe', icon: 'circle-alert', cls: 'bg-alert/10 text-alert' },
+  severe: { label: 'Severe', icon: 'circle-alert', cls: 'bg-alert/10 text-alert-ink' },
   moderate: { label: 'Moderate', icon: 'triangle-alert', cls: 'bg-warning/15 text-ink' },
   mild: { label: 'Mild', icon: 'info', cls: 'bg-cloud text-slate' },
   unknown: { label: 'Severity not known', icon: 'info', cls: 'bg-cloud text-slate' },
@@ -47,7 +47,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
   host: { class: 'block' },
   template: `
     <section
-      class="flex flex-col gap-5 rounded-card border border-cloud bg-white p-4"
+      class="flex flex-col gap-5 rounded-card border border-haze bg-white p-4 shadow-card"
       aria-label="Patient information"
     >
       @if (loading()) {
@@ -63,7 +63,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-3 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
             (click)="load()"
           >
             <sd-icon name="refresh-cw" [size]="14" /> Try again
@@ -73,7 +73,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
         <!-- Patient -->
         <header class="flex items-center gap-3">
           <span
-            class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean"
+            class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean-dark"
             aria-hidden="true"
             >{{ initials(s.patient.name) }}</span
           >
@@ -106,7 +106,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                     >{{ a.substance }}{{ a.reaction ? ' — ' + a.reaction : '' }}</span
                   >
                   <span
-                    class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold"
+                    class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20"
                     [class]="severity(a.severity).cls"
                   >
                     <sd-icon [name]="severity(a.severity).icon" [size]="12" />
@@ -148,7 +148,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                   <!-- Out-of-range readings only (typical adult ranges); normal ones stay quiet. -->
                   @if (v.flag && v.flag.level !== 'normal') {
                     <span
-                      class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold text-ink"
+                      class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"
                       [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'bg-alert/10' : 'bg-warning/15'"
                     >
                       <sd-icon
@@ -161,7 +161,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                   }
                   @if (v.stale) {
                     <span
-                      class="inline-flex w-fit items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink"
+                      class="inline-flex w-fit items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"
                     >
                       <sd-icon name="hourglass" [size]="12" class="text-warning" /> May be out of date
                     </span>
@@ -192,7 +192,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                         <span>{{ medicineLine(m) }}</span>
                         @if (m.herbal) {
                           <span
-                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2 py-0.5 font-sans text-caption font-semibold text-sage"
+                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2 py-0.5 font-sans text-caption font-semibold text-sage-ink inset-ring inset-ring-current/20"
                           >
                             <sd-icon name="leaf" [size]="12" /> Herbal
                           </span>
@@ -213,7 +213,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
             </h3>
             <ul class="flex flex-wrap gap-1.5">
               @for (c of s.conditions; track $index) {
-                <li class="rounded-pill bg-glacier px-2.5 py-1 font-sans text-caption text-ink">{{ c }}</li>
+                <li class="rounded-pill bg-glacier px-2.5 py-1 font-sans text-caption text-ink inset-ring inset-ring-current/15">{{ c }}</li>
               }
             </ul>
           </div>

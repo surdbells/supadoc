@@ -31,9 +31,9 @@ import { BTN_SECONDARY, dateOnly, money, PILL, plural } from '../specialist-ui';
 
 const PAYOUT_STATUS: Record<PayoutStatus, { label: string; icon: string; cls: string }> = {
   pending: { label: 'Requested', icon: 'hourglass', cls: 'bg-warning/15 text-ink' },
-  approved: { label: 'Approved', icon: 'check', cls: 'bg-frost text-cerulean' },
-  paid: { label: 'Paid', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
-  rejected: { label: 'Rejected', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  approved: { label: 'Approved', icon: 'check', cls: 'bg-frost text-cerulean-dark' },
+  paid: { label: 'Paid', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
+  rejected: { label: 'Rejected', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /**

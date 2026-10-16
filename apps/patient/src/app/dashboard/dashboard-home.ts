@@ -57,10 +57,10 @@ function safeAppLink(link: string | null | undefined): string | null {
 }
 
 const NOTIF_STYLE: Record<string, { icon: string; tint: string }> = {
-  appointment: { icon: 'calendar-days', tint: 'bg-frost text-cerulean' },
-  prescription: { icon: 'pill', tint: 'bg-teal/10 text-teal' },
-  payment: { icon: 'banknote', tint: 'bg-sage/10 text-sage' },
-  system: { icon: 'bell', tint: 'bg-sky/10 text-sky' },
+  appointment: { icon: 'calendar-days', tint: 'bg-frost text-cerulean-dark' },
+  prescription: { icon: 'pill', tint: 'bg-teal/10 text-teal-ink' },
+  payment: { icon: 'banknote', tint: 'bg-sage/10 text-sage-ink' },
+  system: { icon: 'bell', tint: 'bg-sky/10 text-cerulean-dark' },
 };
 
 /** A follow-up the doctor proposed that the patient hasn't answered yet. */
@@ -95,9 +95,10 @@ const TYPE_ICON: Record<string, string> = {
   routine: 'calendar-check',
 };
 
+/** Solid status pill fills behind white text: the ink shades keep it AA (sage 3.22 → 7.67, warning 1.96 → 5.78). */
 const UPCOMING_BADGE: Record<string, string> = {
-  confirmed: 'bg-sage',
-  pending: 'bg-warning',
+  confirmed: 'bg-sage-ink',
+  pending: 'bg-warning-ink',
   rescheduled: 'bg-slate',
 };
 
@@ -232,7 +233,7 @@ function greetingFor(now: Date): string {
                 />
               } @else {
                 <span
-                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean-dark"
                 >
                   @if (initials()) {
                     {{ initials() }}
@@ -323,7 +324,7 @@ function greetingFor(now: Date): string {
                 <div class="flex w-full items-center justify-between gap-2">
                   <div class="flex items-center gap-2">
                     <span
-                      class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean"
+                      class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-sm font-semibold text-cerulean-dark"
                       >{{ docInitials(u.name) }}</span
                     >
                     <div class="flex flex-col">
@@ -336,7 +337,7 @@ function greetingFor(now: Date): string {
                     </div>
                   </div>
                   <span
-                    class="rounded-lg px-4 py-1 font-sans text-[10px] font-medium leading-4 text-white"
+                    class="rounded-lg px-4 py-1 font-sans text-[10px] font-medium leading-4 text-white inset-ring inset-ring-current/20"
                     [class]="u.badgeClass"
                     >{{ u.statusLabel }}</span
                   >
@@ -907,7 +908,7 @@ export class DashboardHome {
       typeLabel: next.type_label,
       typeIcon: TYPE_ICON[next.type] ?? 'video',
       statusLabel: badge.label,
-      badgeClass: live ? 'bg-success' : (UPCOMING_BADGE[next.status] ?? 'bg-slate'),
+      badgeClass: live ? 'bg-success-ink' : (UPCOMING_BADGE[next.status] ?? 'bg-slate'),
       detail: badge.detail,
       live,
     };

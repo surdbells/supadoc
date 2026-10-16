@@ -44,11 +44,11 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
       }
 
       <!-- Tabs (scroll sideways on a narrow phone) -->
-      <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-1" role="group" aria-label="Schedule views">
+      <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar" role="group" aria-label="Schedule views">
         @for (t of visibleTabs(); track t.key) {
           <button type="button"
-            class="flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 sm:px-5"
-            [class]="tab() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+            class="flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 sm:px-5"
+            [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
             [attr.aria-pressed]="tab() === t.key"
             (click)="tab.set(t.key)">
             @if (t.key === 'attention') { <sd-icon name="circle-alert" [size]="16" class="shrink-0" /> }
@@ -74,7 +74,7 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
           <div class="sd-shimmer h-24 rounded-card"></div>
         </div>
       } @else if (error()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
         </div>
@@ -88,7 +88,7 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
             <h2 class="font-heading text-h5 text-ink">No Appointment yet</h2>
             <p class="font-sans text-body-sm text-slate">{{ emptyText() }}</p>
           </div>
-          <a routerLink="/availability" class="rounded-field bg-cerulean px-6 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">View Availability</a>
+          <a routerLink="/availability" class="rounded-field bg-cerulean px-6 py-3 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none">View Availability</a>
         </div>
       } @else {
         <ul class="flex flex-col gap-4">
@@ -96,9 +96,9 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
             @let label = statusLabel(a);
             @let look = statusLook(a);
             <li>
-              <div class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 lg:flex-row lg:items-center lg:gap-6">
+              <div class="flex flex-col gap-4 rounded-card border border-haze bg-white p-5 shadow-card transition hover:border-cerulean/40 lg:flex-row lg:items-center lg:gap-6">
                 <div class="flex min-w-0 flex-1 items-center gap-3">
-                  <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean">{{ initialsFor(a.patient_name) }}</span>
+                  <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean-dark">{{ initialsFor(a.patient_name) }}</span>
                   <div class="flex min-w-0 flex-col">
                     <span class="truncate font-heading text-body-lg text-ink">{{ a.patient_name }}</span>
                     <span class="truncate font-sans text-body-sm text-slate">{{ a.type_label }}</span>
@@ -118,7 +118,7 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
                   <!-- Status + who is in the call; wraps rather than overflowing on narrow rows. -->
                   <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="inline-flex w-fit items-center gap-1 rounded-pill px-3 py-0.5 font-sans text-caption font-semibold" [class]="look.pill">
+                    <span class="inline-flex w-fit items-center gap-1 rounded-pill px-3 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="look.pill">
                       <sd-icon [name]="look.icon" [size]="13" />{{ label }}
                     </span>
                     <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" />
@@ -132,18 +132,18 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
                 <div class="flex shrink-0 items-center gap-3">
                   @if (a.status === 'proposed') {
                     <!-- A follow-up offer: no call until the patient accepts it. -->
-                    <a [routerLink]="['/appointments', a.id]" class="flex min-h-11 items-center justify-center rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">View proposal</a>
+                    <a [routerLink]="['/appointments', a.id]" class="flex min-h-11 items-center justify-center rounded-field border border-haze bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none">View proposal</a>
                   } @else if (canConfirm(a)) {
-                    <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="busyId() === a.id" (click)="confirm(a)">
+                    <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="busyId() === a.id" (click)="confirm(a)">
                       {{ busyId() === a.id ? 'Working…' : 'Confirm' }}
                     </button>
                   } @else if (a.status === 'confirmed' && !isPast(a)) {
-                    <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="join(a)">
+                    <button type="button" class="flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none" (click)="join(a)">
                       <sd-icon name="video" [size]="18" />Join Call
                     </button>
                   } @else {
                     <!-- Over (or a request it's too late to confirm): the record has what can still be done. -->
-                    <a [routerLink]="['/appointments', a.id]" class="flex min-h-11 items-center justify-center rounded-field border border-cloud px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean">Open record</a>
+                    <a [routerLink]="['/appointments', a.id]" class="flex min-h-11 items-center justify-center rounded-field border border-haze bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none">Open record</a>
                   }
                   <a [routerLink]="['/appointments', a.id]" class="flex size-11 items-center justify-center text-slate transition-colors hover:text-cerulean" [attr.aria-label]="'Open details for ' + a.patient_name"><sd-icon name="chevron-right" [size]="22" /></a>
                 </div>

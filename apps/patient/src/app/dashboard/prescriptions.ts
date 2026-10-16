@@ -9,8 +9,15 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { apiErrorMessage, PrescriptionsApi } from '@supadoc/data-access';
-import type { PrescriptionStatus, PrescriptionSummaryDto } from '@supadoc/models';
-import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import type {
+  PrescriptionStatus,
+  PrescriptionSummaryDto,
+} from '@supadoc/models';
+import {
+  ButtonComponent,
+  EmptyStateComponent,
+  IconComponent,
+} from '@supadoc/ui';
 
 /** How a prescription status reads: never colour alone — always an icon AND text. */
 export interface RxStatusMeta {
@@ -20,13 +27,31 @@ export interface RxStatusMeta {
 }
 
 export const RX_STATUS: Record<PrescriptionStatus, RxStatusMeta> = {
-  active: { label: 'Active', icon: 'circle-check', class: 'bg-success/10 text-success' },
-  expired: { label: 'Expired', icon: 'hourglass', class: 'bg-cloud text-slate' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', class: 'bg-alert/10 text-alert' },
-  draft: { label: 'Draft', icon: 'pen-line', class: 'bg-frost/60 text-cerulean' },
+  active: {
+    label: 'Active',
+    icon: 'circle-check',
+    class: 'bg-success/10 text-success-ink',
+  },
+  expired: {
+    label: 'Expired',
+    icon: 'hourglass',
+    class: 'bg-cloud text-slate',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    icon: 'circle-x',
+    class: 'bg-alert/10 text-alert-ink',
+  },
+  draft: {
+    label: 'Draft',
+    icon: 'pen-line',
+    class: 'bg-frost/60 text-cerulean-dark',
+  },
 };
 
-export function rxStatus(status: PrescriptionStatus | null | undefined): RxStatusMeta {
+export function rxStatus(
+  status: PrescriptionStatus | null | undefined,
+): RxStatusMeta {
   return (status && RX_STATUS[status]) || RX_STATUS.active;
 }
 
@@ -40,7 +65,9 @@ const DATE_FMT = new Intl.DateTimeFormat('en-GB', {
 export function rxParseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(value);
   return isNaN(d.getTime()) ? null : d;
 }
 
@@ -75,7 +102,7 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
       <!-- Consultation History › Prescriptions -->
       <nav
         aria-label="Consultation history sections"
-        class="flex w-full items-center gap-1 rounded-pill border border-cloud bg-white p-1 sm:w-fit"
+        class="flex w-full items-center gap-1 rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit"
       >
         <a
           routerLink="/dashboard/history"
@@ -87,7 +114,7 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
         <a
           routerLink="/dashboard/prescriptions"
           aria-current="page"
-          class="flex flex-1 items-center justify-center gap-2 rounded-pill bg-cerulean px-4 py-2 font-sans text-body-sm font-medium text-white sm:flex-none"
+          class="flex flex-1 items-center justify-center gap-2 rounded-pill bg-cerulean px-4 py-2 font-sans text-body-sm font-medium text-white shadow-control inset-shadow-rim sm:flex-none"
         >
           <sd-icon name="pill" [size]="16" />
           Prescriptions
@@ -97,7 +124,7 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
       @if (!loading() && !loadError() && all().length > 0) {
         <!-- Status filter -->
         <div
-          class="flex items-center gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-2"
+          class="flex items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-2 shadow-bar"
           role="group"
           aria-label="Filter by status"
         >
@@ -107,7 +134,7 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
               class="flex shrink-0 items-center gap-1.5 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
               [class]="
                 activeTab() === t.key
-                  ? 'bg-frost font-medium text-cerulean'
+                  ? 'bg-frost font-medium text-cerulean-dark shadow-control'
                   : 'text-slate hover:text-ink'
               "
               [attr.aria-pressed]="activeTab() === t.key"
@@ -122,14 +149,26 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
 
       @switch (viewState()) {
         @case ('loading') {
-          <div class="flex flex-col gap-4" aria-busy="true" aria-label="Loading prescriptions">
+          <div
+            class="flex flex-col gap-4"
+            aria-busy="true"
+            aria-label="Loading prescriptions"
+          >
             @for (n of [1, 2, 3]; track n) {
-              <div class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4">
-                <div class="hidden size-12 shrink-0 animate-pulse rounded-full bg-cloud sm:block"></div>
+              <div
+                class="flex items-center gap-4 rounded-card border border-haze bg-white p-4 shadow-card"
+              >
+                <div
+                  class="hidden size-12 shrink-0 animate-pulse rounded-full bg-cloud sm:block"
+                ></div>
                 <div class="flex flex-1 flex-col gap-2">
-                  <div class="h-3 w-48 max-w-full animate-pulse rounded bg-cloud"></div>
+                  <div
+                    class="h-3 w-48 max-w-full animate-pulse rounded bg-cloud"
+                  ></div>
                   <div class="h-3 w-32 animate-pulse rounded bg-cloud"></div>
-                  <div class="h-3 w-56 max-w-full animate-pulse rounded bg-cloud"></div>
+                  <div
+                    class="h-3 w-56 max-w-full animate-pulse rounded bg-cloud"
+                  ></div>
                 </div>
               </div>
             }
@@ -172,32 +211,46 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
               <li>
                 <a
                   [routerLink]="['/dashboard/prescriptions', rx.id]"
-                  class="sd-card-hover flex items-center gap-4 rounded-card border border-cloud bg-white p-4 hover:border-cerulean/50"
+                  class="sd-card-hover flex items-center gap-4 rounded-card border border-haze bg-white p-4 shadow-card hover:border-cerulean/50"
                 >
                   <span
-                    class="hidden size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal sm:flex"
+                    class="hidden size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal-ink sm:flex"
                     aria-hidden="true"
                   >
                     <sd-icon name="pill" [size]="22" />
                   </span>
                   <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <p class="min-w-0 break-words font-sans text-body font-semibold text-ink">
+                    <div
+                      class="flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <p
+                        class="min-w-0 break-words font-sans text-body font-semibold text-ink"
+                      >
                         {{ rx.number }}
                       </p>
                       <span
-                        class="inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-caption font-medium"
+                        class="inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20"
                         [class]="status(rx).class"
                       >
                         <sd-icon [name]="status(rx).icon" [size]="14" />
                         {{ status(rx).label }}
                       </span>
                     </div>
-                    <p class="flex min-w-0 items-center gap-1.5 font-sans text-body-sm text-ink">
-                      <sd-icon name="stethoscope" [size]="16" class="shrink-0 text-slate" />
-                      <span class="truncate">{{ rx.prescriber || 'Your doctor' }}</span>
+                    <p
+                      class="flex min-w-0 items-center gap-1.5 font-sans text-body-sm text-ink"
+                    >
+                      <sd-icon
+                        name="stethoscope"
+                        [size]="16"
+                        class="shrink-0 text-slate"
+                      />
+                      <span class="truncate">{{
+                        rx.prescriber || 'Your doctor'
+                      }}</span>
                     </p>
-                    <div class="flex flex-wrap gap-x-4 gap-y-1 font-sans text-caption text-slate">
+                    <div
+                      class="flex flex-wrap gap-x-4 gap-y-1 font-sans text-caption text-slate"
+                    >
                       <span class="flex items-center gap-1.5">
                         <sd-icon name="send" [size]="14" />
                         Sent {{ date(rx.sent_at) }}
@@ -273,7 +326,9 @@ export class Prescriptions {
 
   protected count(tab: Tab): number {
     const list = this.all();
-    return tab === 'all' ? list.length : list.filter((rx) => rx.status === tab).length;
+    return tab === 'all'
+      ? list.length
+      : list.filter((rx) => rx.status === tab).length;
   }
 
   protected reload(): void {

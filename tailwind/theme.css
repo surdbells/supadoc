@@ -7,6 +7,18 @@
  * design and code speak the same language, e.g. `bg-cerulean`, `text-ink`,
  * `bg-glacier`, `rounded-card`, `font-heading`, `text-h1`.
  *
+ * Depth (2026-10): role colours `haze` / `snow`, the elevation utilities
+ * `shadow-control`, `shadow-card`, `shadow-card-hover`, `shadow-raised`,
+ * `shadow-bar`, `shadow-overlay`, `shadow-btn`, `shadow-btn-hover` and
+ * `inset-shadow-rim` (values in the `--sd-elev-*` variables on :root), and the
+ * `.sd-card-hover` lift for clickable cards.
+ *
+ * Pill ink (2026-10): `sage-ink`, `success-ink`, `alert-ink`, `teal-ink` and
+ * `warning-ink` are darker same-family shades for status-pill / badge / chip
+ * text on its own 5–20% tint (the base colours fail AA there in light mode);
+ * cerulean and sky pills use `cerulean-dark`. Patient dark mode re-points them
+ * in apps/patient/src/styles.css.
+ *
  * Fonts (Lexend, Poppins) are loaded via each app's build `styles` array from
  * @fontsource; SF Pro resolves from the system font stack.
  */
@@ -26,11 +38,13 @@
    * cerulean #0b62e4 ≈ 4.8:1 (AA), teal #00796c ≈ 5.3:1 (AA), ocean ≈ 8:1.
    * Sky/mist stay accent-only (not for white body text). */
   --color-cerulean: #0b62e4; /* primary — electric blue */
-  --color-cerulean-dark: #0a4fbf; /* primary hover/pressed */
+  --color-cerulean-dark: #0a4fbf; /* primary hover/pressed; also selected-state and cerulean/sky pill text (≥ 5.14 on frost, haze and /10–/20 tints) */
   --color-active: #0068a3; /* denotative active */
   --color-teal: #00796c; /* secondary ("Med") — richer, AA for white text */
+  --color-teal-ink: #00695c; /* pill/badge text on teal tints — AA (≥ 4.70 on /5–/20 over card and page) */
   --color-teal-bright: #00b39a; /* vivid teal accent — icons/borders/large text only */
   --color-sage: #43a047; /* green */
+  --color-sage-ink: #1b5e20; /* pill/badge text on sage tints — AA (≥ 6.02 on /5–/20 over card and page) */
 
   /* ===== Blues (accents + surfaces) ===== */
   --color-sky: #0091ff; /* vivid azure accent (not white-text buttons) */
@@ -50,8 +64,11 @@
 
   /* ===== Semantic ===== */
   --color-success: #00a328;
+  --color-success-ink: #006b21; /* pill/badge text on success tints — AA (≥ 5.04 on /5–/20 over card and page) */
   --color-alert: #e53935; /* danger */
+  --color-alert-ink: #b71c1c; /* pill/badge text on alert tints — AA (≥ 4.68 on /5–/20 over card and page) */
   --color-warning: #f2a900;
+  --color-warning-ink: #8a5a00; /* pill/badge text on warning tints — AA (≥ 4.87 on /5–/20 over card and page) */
 
   /* ===== Semantic aliases (read nicely in components) ===== */
   --color-primary: #0b62e4;
@@ -118,6 +135,64 @@
   --radius-field: 16px;
   --radius-card: 16px;
   --radius-pill: 900px;
+
+  /* ===== Depth (2026-10) =====
+   * Role tokens from the newest Figma variables (frames 1633/1660/1662/1668):
+   * `haze` = Figma Frost #D1E9FD (card / row / dialog / tab-bar hairline and the
+   * active-nav fill); `snow` = Figma Glacier #F8FCFF (the sidebar shell tier).
+   * `frost` / `glacier` keep their values. */
+  --color-haze: #d1e9fd;
+  --color-snow: #f8fcff;
+
+  /* Elevation utilities: shadow-control | card | card-hover | raised | bar |
+   * overlay | btn | btn-hover, and inset-shadow-rim. Values live in the
+   * --sd-elev-* variables below so a theme (patient dark mode) swaps them once. */
+  --shadow-control: var(--sd-elev-control);
+  --shadow-card: var(--sd-elev-card);
+  --shadow-card-hover: var(--sd-elev-card-hover);
+  --shadow-raised: var(--sd-elev-raised);
+  --shadow-bar: var(--sd-elev-bar);
+  --shadow-overlay: var(--sd-elev-overlay);
+  --shadow-btn: var(--sd-elev-btn);
+  --shadow-btn-hover: var(--sd-elev-btn-hover);
+  --inset-shadow-rim: var(--sd-elev-rim);
+}
+
+/* Elevation values. Blue-tinted like the Figma effects; Figma-exact where noted. */
+:root {
+  --sd-elev-control:
+    0 1px 2px rgba(10, 22, 40, 0.05), 0 2px 3px -1px rgba(21, 101, 192, 0.1); /* inferred: small raised control */
+  --sd-elev-card:
+    0 1px 2px rgba(10, 22, 40, 0.04), 0 4px 2px rgba(21, 101, 192, 0.05); /* Figma E1 (1660:32075) + contact */
+  --sd-elev-card-hover:
+    0 2px 4px rgba(10, 22, 40, 0.05), 0 10px 24px rgba(21, 101, 192, 0.12); /* inferred from Figma hover 139:830 */
+  --sd-elev-raised: 0 4px 4px rgba(21, 101, 192, 0.1); /* Figma E3 (1633:31832, 1662:32357) */
+  --sd-elev-bar: 0 2px 1.5px rgba(33, 150, 243, 0.3); /* Figma E4 (1668:32766) */
+  --sd-elev-overlay:
+    0 4px 4px rgba(21, 101, 192, 0.1), 0 12px 32px rgba(10, 22, 40, 0.12); /* E3 + existing menu depth */
+  --sd-elev-btn: 0 2px 10px rgba(21, 101, 192, 0.25); /* = today's sd-button primary */
+  --sd-elev-btn-hover: 0 6px 18px rgba(21, 101, 192, 0.33); /* = today's sd-button primary hover */
+  --sd-elev-rim: inset 0 1px 0 rgba(255, 255, 255, 0.18); /* filled buttons / active page only */
+}
+
+/* Hover lift for clickable cards. Moved here from the patient styles so every
+   app has it. Raw box-shadow on hover is the old behaviour, kept. */
+.sd-card-hover {
+  transition:
+    transform 0.2s ease-out,
+    box-shadow 0.2s ease-out,
+    border-color 0.2s ease-out;
+}
+@media (hover: hover) {
+  .sd-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sd-elev-card-hover);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sd-card-hover:hover {
+    transform: none;
+  }
 }
 
 /* ===== Skeleton shimmer (sd-skeleton) ===== */

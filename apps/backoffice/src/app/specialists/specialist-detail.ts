@@ -198,7 +198,7 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
         </section>
 
         <div class="-mx-1 overflow-x-auto px-1 pb-1">
-          <div class="flex w-max min-w-full gap-1 rounded-pill border border-cloud bg-white p-1" role="tablist" aria-label="Doctor record">
+          <div class="flex w-max min-w-full gap-1 rounded-pill border border-haze bg-glacier p-1 shadow-bar" role="tablist" aria-label="Doctor record">
             @for (t of tabs; track t.key; let i = $index) {
               <button
                 #tabButton
@@ -208,8 +208,8 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
                 [attr.aria-selected]="tab() === t.key"
                 [attr.aria-controls]="tab() === t.key ? panelId(t.key) : null"
                 [tabIndex]="tab() === t.key ? 0 : -1"
-                class="inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors ${FOCUS_RING}"
-                [class]="tab() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+                class="inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition ${FOCUS_RING}"
+                [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
                 (click)="selectTab(t.key)"
                 (keydown)="onTabKeydown($event, i)"
               >
@@ -318,11 +318,11 @@ export class AdminSpecialistDetail implements OnInit, HasUnsavedChanges {
     const waiting = d.credentials.filter((c) => c.status === 'pending').length;
     if (waiting > 0) out.push({ label: plural(waiting, 'document') + ' to verify', icon: 'file-check', cls: 'bg-warning/15 text-ink' });
     if (d.pending_changes) out.push({ label: 'Changes pending', icon: 'square-pen', cls: 'bg-warning/15 text-ink' });
-    if (d.credentials_missing) out.push({ label: 'Credentials missing', icon: 'badge-alert', cls: 'bg-alert/10 text-alert' });
+    if (d.credentials_missing) out.push({ label: 'Credentials missing', icon: 'badge-alert', cls: 'bg-alert/10 text-alert-ink' });
     if (!d.profile.available && d.status === 'approved') out.push({ label: 'Bookings paused', icon: 'calendar-off', cls: 'bg-cloud text-slate' });
     // Consultations they didn't attend in the alert window (Booking settings: doctor no-show alert).
     const noShows = d.stats.doctor_no_shows_30d ?? 0;
-    if (noShows > 0) out.push({ label: `${plural(noShows, 'missed consultation')} in 30 days`, icon: 'calendar-x', cls: 'bg-alert/10 text-alert' });
+    if (noShows > 0) out.push({ label: `${plural(noShows, 'missed consultation')} in 30 days`, icon: 'calendar-x', cls: 'bg-alert/10 text-alert-ink' });
     return out;
   });
 

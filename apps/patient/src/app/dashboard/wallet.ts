@@ -86,7 +86,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
           />
         </div>
         <span
-          class="absolute right-6 top-6 flex items-center gap-1.5 rounded-pill bg-white/70 px-3 py-1 font-sans text-caption font-semibold text-sage"
+          class="absolute right-6 top-6 flex items-center gap-1.5 rounded-pill bg-white/70 px-3 py-1 font-sans text-caption font-semibold text-sage-ink"
         >
           <span class="size-2 rounded-full bg-sage"></span> Active
         </span>
@@ -94,7 +94,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
         <!-- Balance + currency -->
         <div class="relative flex flex-col gap-6">
           <div class="flex flex-col gap-1">
-            <span class="flex items-center gap-1.5 font-sans text-body text-slate">
+            <span class="flex items-center gap-1.5 font-sans text-body text-ink/80">
               Current Balance <sd-icon name="info" [size]="16" class="text-slate/70" />
             </span>
             @if (loading()) {
@@ -106,7 +106,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
           <div class="relative">
             <button
               type="button"
-              class="flex items-center gap-2 rounded-lg border-[0.5px] border-ash bg-cloud/50 px-2 py-1 font-sans text-caption text-slate transition-colors hover:bg-cloud"
+              class="flex items-center gap-2 rounded-lg border-[0.5px] border-ash bg-cloud/50 px-2 py-1 font-sans text-caption text-ink/80 transition-colors hover:bg-cloud"
               (click)="currencyOpen.set(!currencyOpen())"
             >
               <span aria-hidden="true">{{ flag() }}</span>
@@ -250,9 +250,9 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
             </div>
 
             <div class="flex flex-col gap-[7px] rounded-[16px] bg-[#d1e9fd] px-4 py-3.5">
-              <p class="font-sans text-body-sm text-slate">You will receive</p>
+              <p class="font-sans text-body-sm text-ink/80">You will receive</p>
               <p class="font-sans text-h4 font-semibold text-cerulean">{{ receiveLabel() }}</p>
-              <p class="font-sans text-caption text-slate">No fee charged</p>
+              <p class="font-sans text-caption text-ink/80">No fee charged</p>
             </div>
 
             @if (fundError()) {

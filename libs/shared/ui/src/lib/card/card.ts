@@ -29,11 +29,10 @@ export class CardComponent {
   protected readonly classes = computed(() => {
     const pad = { none: '', md: 'p-6', lg: 'p-8' }[this.padding()];
     const base =
-      `rounded-card bg-white ${pad} ` +
-      'shadow-[0_2px_8px_rgba(10,22,40,0.08)] ring-1 ring-cloud/70';
+      `rounded-card bg-white ${pad} ` + 'shadow-card ring-1 ring-haze';
     const interactive = this.interactive()
       ? ' cursor-pointer transition-all duration-200 ease-out ' +
-        'hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(10,22,40,0.10)] hover:ring-cerulean/30'
+        'motion-safe:hover:-translate-y-0.5 hover:shadow-card-hover hover:ring-cerulean/30'
       : '';
     return (base + interactive).trim();
   });

@@ -17,15 +17,15 @@ import { formatDay, formatTime, isUpcomingVisit, VisitStatusBadge } from './pati
   host: { class: 'block' },
   template: `
     @if (rows().length === 0) {
-      <div class="rounded-card border border-cloud bg-white">
+      <div class="rounded-card border border-haze bg-white shadow-card">
         <sd-empty-state icon="calendar-off" title="No visits yet" message="Consultations with this patient will appear here." />
       </div>
     } @else {
       <ul class="flex flex-col gap-4">
         @for (r of rows(); track r.visit.id) {
-          <li class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors hover:border-cerulean/40 lg:flex-row lg:items-center lg:gap-6">
+          <li class="flex flex-col gap-4 rounded-card border border-haze bg-white p-5 shadow-card transition hover:border-cerulean/40 lg:flex-row lg:items-center lg:gap-6">
             <div class="flex min-w-0 flex-1 items-center gap-3">
-              <span class="flex size-12 shrink-0 items-center justify-center rounded-full" [class]="r.upcoming ? 'bg-frost text-cerulean' : 'bg-glacier text-slate'" aria-hidden="true">
+              <span class="flex size-12 shrink-0 items-center justify-center rounded-full" [class]="r.upcoming ? 'bg-frost text-cerulean-dark' : 'bg-glacier text-slate'" aria-hidden="true">
                 <sd-icon [name]="r.upcoming ? 'calendar-clock' : 'stethoscope'" [size]="20" />
               </span>
               <div class="flex min-w-0 flex-col">
@@ -50,7 +50,7 @@ import { formatDay, formatTime, isUpcomingVisit, VisitStatusBadge } from './pati
               </div>
               <a
                 [routerLink]="['/appointments', r.visit.id]"
-                class="inline-flex shrink-0 items-center gap-1 rounded-field border border-cloud px-4 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                class="inline-flex shrink-0 items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
                 [attr.aria-label]="'Open chart for ' + r.visit.type_label + ' on ' + r.day"
               >
                 Open chart <sd-icon name="chevron-right" [size]="14" />

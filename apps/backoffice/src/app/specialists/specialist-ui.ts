@@ -74,15 +74,15 @@ export function codeLabel(code: string | null | undefined): string {
 export function statusBadge(status: SpecialistStatus | null | undefined): Badge {
   switch (status ?? 'approved') {
     case 'approved':
-      return { label: 'Approved', icon: 'badge-check', cls: 'bg-sage/15 text-sage' };
+      return { label: 'Approved', icon: 'badge-check', cls: 'bg-sage/15 text-sage-ink' };
     case 'pending_review':
       return { label: 'Needs review', icon: 'list-checks', cls: 'bg-warning/15 text-ink' };
     case 'rejected':
-      return { label: 'Rejected', icon: 'undo-2', cls: 'bg-alert/10 text-alert' };
+      return { label: 'Rejected', icon: 'undo-2', cls: 'bg-alert/10 text-alert-ink' };
     case 'suspended':
-      return { label: 'Suspended', icon: 'ban', cls: 'bg-alert/10 text-alert' };
+      return { label: 'Suspended', icon: 'ban', cls: 'bg-alert/10 text-alert-ink' };
     default:
-      return { label: 'Onboarding', icon: 'user-plus', cls: 'bg-frost text-cerulean' };
+      return { label: 'Onboarding', icon: 'user-plus', cls: 'bg-frost text-cerulean-dark' };
   }
 }
 
@@ -94,7 +94,7 @@ export function loginBadge(l: DoctorLoginStateDto | null | undefined): Badge {
     return {
       label: 'Invite sent' + (l.invite_expires_at ? ` · expires ${dateOnly(l.invite_expires_at)}` : ''),
       icon: 'mail',
-      cls: 'bg-frost text-cerulean',
+      cls: 'bg-frost text-cerulean-dark',
     };
   }
   return { label: 'Invite expired', icon: 'mail', cls: 'bg-warning/15 text-ink' };
@@ -103,11 +103,11 @@ export function loginBadge(l: DoctorLoginStateDto | null | undefined): Badge {
 export function licenceBadge(status: LicenceStatus, expiresAt: string | null | undefined): Badge {
   switch (status) {
     case 'valid':
-      return { label: `Licence valid to ${calendarDay(expiresAt)}`, icon: 'shield-check', cls: 'bg-sage/10 text-sage' };
+      return { label: `Licence valid to ${calendarDay(expiresAt)}`, icon: 'shield-check', cls: 'bg-sage/10 text-sage-ink' };
     case 'expiring':
       return { label: `Licence expires ${calendarDay(expiresAt)}`, icon: 'hourglass', cls: 'bg-warning/15 text-ink' };
     case 'expired':
-      return { label: `Licence expired ${calendarDay(expiresAt)}`, icon: 'shield-alert', cls: 'bg-alert/10 text-alert' };
+      return { label: `Licence expired ${calendarDay(expiresAt)}`, icon: 'shield-alert', cls: 'bg-alert/10 text-alert-ink' };
     default:
       return { label: 'No licence on file', icon: 'shield-alert', cls: 'bg-glacier text-slate' };
   }
@@ -122,11 +122,11 @@ export function credentialBadge(status: CredentialStatus): Badge {
     case 'pending':
       return { label: 'Waiting for review', icon: 'hourglass', cls: 'bg-warning/15 text-ink' };
     case 'verified':
-      return { label: 'Verified', icon: 'badge-check', cls: 'bg-sage/15 text-sage' };
+      return { label: 'Verified', icon: 'badge-check', cls: 'bg-sage/15 text-sage-ink' };
     case 'rejected':
-      return { label: 'Rejected', icon: 'circle-x', cls: 'bg-alert/10 text-alert' };
+      return { label: 'Rejected', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' };
     case 'expired':
-      return { label: 'Expired', icon: 'shield-alert', cls: 'bg-alert/10 text-alert' };
+      return { label: 'Expired', icon: 'shield-alert', cls: 'bg-alert/10 text-alert-ink' };
     default:
       return { label: 'Replaced', icon: 'history', cls: 'bg-cloud text-slate' };
   }

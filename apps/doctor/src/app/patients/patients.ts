@@ -28,11 +28,11 @@ const COLUMNS =
 
 /** On md+ the rows sit inside one bordered card (a table-like list). */
 const LIST_FRAME =
-  'md:overflow-hidden md:rounded-card md:border md:border-cloud md:bg-white md:shadow-[0_1px_2px_rgba(10,22,40,0.04)]';
+  'md:overflow-hidden md:rounded-card md:border md:border-haze md:bg-white md:shadow-card';
 
 /** Below md each row is its own card; on md+ it is a divided table row. */
 const ROW =
-  'rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] md:grid md:items-center md:gap-4 md:rounded-none md:border-0 md:px-5 md:py-4 md:shadow-none';
+  'rounded-card border border-haze bg-white p-5 shadow-card md:grid md:items-center md:gap-4 md:rounded-none md:border-0 md:px-5 md:py-4 md:shadow-none md:hover:shadow-none';
 
 /** Doctor's patients (route `/patients`) — directory with search. */
 @Component({
@@ -46,7 +46,7 @@ const ROW =
         <div class="flex flex-wrap items-center gap-3">
           <h1 class="font-heading text-h3 text-ink">Patients</h1>
           @if (allTotal(); as n) {
-            <span class="inline-flex items-center gap-1.5 rounded-pill bg-cerulean/10 px-3 py-1 font-sans text-caption font-semibold text-cerulean">
+            <span class="inline-flex items-center gap-1.5 rounded-pill bg-cerulean/10 px-3 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-cerulean/15">
               <sd-icon name="users" [size]="14" />{{ countLabel(n, 'patient') }}
             </span>
           }
@@ -58,7 +58,7 @@ const ROW =
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div role="search" class="w-full sm:max-w-md">
           <label for="patients-search" class="sr-only">Search patients by name or email</label>
-          <div class="group flex items-center gap-2 rounded-field border border-cloud bg-white px-4 shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-all duration-200 focus-within:border-cerulean focus-within:shadow-[0_2px_10px_rgba(21,101,192,0.08)] focus-within:ring-2 focus-within:ring-cerulean/20">
+          <div class="group flex items-center gap-2 rounded-field border border-haze bg-white px-4 shadow-control transition-all duration-200 hover:border-cerulean/30 focus-within:border-cerulean focus-within:shadow-[0_2px_10px_rgba(21,101,192,0.08)] focus-within:ring-2 focus-within:ring-cerulean/20">
             <sd-icon name="search" [size]="20" class="shrink-0 text-slate transition-colors group-focus-within:text-cerulean" />
             <input
               id="patients-search"
@@ -101,7 +101,7 @@ const ROW =
         <!-- Skeleton rows -->
         <div class="${LIST_FRAME}" aria-busy="true">
           <span class="sr-only">Loading your patients…</span>
-          <div class="hidden border-b border-cloud px-5 py-3 md:grid md:gap-4 ${COLUMNS}" aria-hidden="true">
+          <div class="hidden border-b border-glacier bg-glacier px-5 py-3 md:grid md:gap-4 ${COLUMNS}" aria-hidden="true">
             <div class="sd-shimmer h-3 w-16 rounded-pill"></div>
             <div class="sd-shimmer h-3 w-12 rounded-pill"></div>
             <div class="sd-shimmer h-3 w-16 rounded-pill"></div>
@@ -129,7 +129,7 @@ const ROW =
           </ul>
         </div>
       } @else if (error() && items().length === 0) {
-        <div class="rounded-card border border-cloud bg-white px-4" role="alert">
+        <div class="rounded-card border border-haze bg-white px-4 shadow-card" role="alert">
           <sd-empty-state icon="wifi-off" tone="error" title="Couldn't load your patients" [message]="error()">
             <sd-button variant="secondary" size="sm" (click)="apply()">
               <sd-icon name="refresh-cw" [size]="16" />Try again
@@ -148,7 +148,7 @@ const ROW =
         }
       } @else {
         <section class="${LIST_FRAME}" aria-label="Your patients">
-          <div class="hidden border-b border-cloud px-5 py-3 font-sans text-caption font-semibold text-slate md:grid md:items-center md:gap-4 ${COLUMNS}" aria-hidden="true">
+          <div class="hidden border-b border-glacier bg-glacier px-5 py-3 font-sans text-caption font-semibold text-slate md:grid md:items-center md:gap-4 ${COLUMNS}" aria-hidden="true">
             <span>Patient</span>
             <span>Visits</span>
             <span>Last visit</span>
@@ -156,14 +156,14 @@ const ROW =
           </div>
           <ul class="flex flex-col gap-3 md:gap-0 md:divide-y md:divide-cloud">
             @for (p of items(); track p.patient_id) {
-              <li class="group relative flex flex-col gap-3 transition-colors hover:border-cerulean/40 md:hover:bg-glacier ${ROW} ${COLUMNS}">
+              <li class="group relative flex flex-col gap-3 transition hover:border-cerulean/40 hover:shadow-card-hover md:hover:bg-glacier ${ROW} ${COLUMNS}">
                 <!-- The row's link: its ::after stretches over the whole row, so
                      the entire row opens the patient and shows the focus ring. -->
                 <a
                   [routerLink]="['/patients', p.patient_id]"
                   class="flex min-w-0 items-center gap-3 after:absolute after:inset-0 after:rounded-card focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-cerulean md:after:rounded-none"
                 >
-                  <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean" aria-hidden="true">{{ initials(p) }}</span>
+                  <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean-dark" aria-hidden="true">{{ initials(p) }}</span>
                   <span class="flex min-w-0 flex-col">
                     <span class="truncate font-heading text-body-lg text-ink transition-colors group-hover:text-cerulean">{{ fullName(p) }}</span>
                     <span class="truncate font-sans text-body-sm text-slate">{{ p.email }}</span>
@@ -171,7 +171,7 @@ const ROW =
                 </a>
 
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-2 md:contents">
-                  <span class="inline-flex w-fit items-center gap-1.5 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-semibold text-cerulean">
+                  <span class="inline-flex w-fit items-center gap-1.5 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-cerulean/15">
                     <sd-icon name="stethoscope" [size]="14" />{{ visitsLabel(p.visit_count) }}
                   </span>
                   <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
@@ -191,7 +191,7 @@ const ROW =
                   <a
                     routerLink="/prescriptions/new"
                     [queryParams]="{ patientId: p.patient_id }"
-                    class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 md:size-9 md:p-0 xl:size-auto xl:px-3 xl:py-2"
+                    class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 md:size-9 md:p-0 xl:size-auto xl:px-3 xl:py-2"
                     [attr.aria-label]="'Write a prescription for ' + fullName(p)"
                     title="Write prescription"
                   >

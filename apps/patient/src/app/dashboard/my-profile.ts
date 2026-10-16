@@ -68,9 +68,9 @@ const SEVERITY_LABEL: Record<AllergySeverity, string> = {
 };
 
 const SEVERITY_TONE: Record<AllergySeverity, { cls: string; icon: string }> = {
-  mild: { cls: 'bg-sage/15 text-sage', icon: 'info' },
-  moderate: { cls: 'bg-warning/15 text-warning', icon: 'circle-alert' },
-  severe: { cls: 'bg-alert/10 text-alert', icon: 'triangle-alert' },
+  mild: { cls: 'bg-sage/15 text-sage-ink', icon: 'info' },
+  moderate: { cls: 'bg-warning/15 text-warning-ink', icon: 'circle-alert' },
+  severe: { cls: 'bg-alert/10 text-alert-ink', icon: 'triangle-alert' },
   'life-threatening': { cls: 'bg-alert text-white', icon: 'shield-alert' },
   unknown: { cls: 'bg-cloud text-slate', icon: 'circle-help' },
 };
@@ -143,16 +143,16 @@ interface VitalMeta {
 }
 
 const VITAL_META: Record<ReadingKey, VitalMeta> = {
-  blood_pressure: { label: 'Blood Pressure', formUnit: 'mmHg', icon: 'heart-pulse', tint: 'bg-alert/10 text-alert', unit: 'mmHg', inkUnit: true },
-  temperature: { label: 'Temperature', formUnit: '°C', icon: 'thermometer', tint: 'bg-alert/10 text-alert', unit: '°C', joined: true, inkUnit: true },
-  heart_rate: { label: 'Heart Rate', formUnit: 'Bpm', icon: 'heart', tint: 'bg-cerulean/10 text-cerulean', unit: 'bpm' },
-  oxygen_saturation: { label: 'Oxygen Level', formLabel: 'Oxygen', formUnit: '%', icon: 'droplet', tint: 'bg-sage/10 text-sage', unit: '%' },
-  weight: { label: 'Weight', formUnit: 'Kg', icon: 'weight', tint: 'bg-teal/10 text-teal', unit: 'Kg' },
-  respiratory_rate: { label: 'Breathing Rate', formUnit: 'breaths/min', icon: 'wind', tint: 'bg-sky/10 text-sky', unit: '/min', joined: true },
-  blood_sugar: { label: 'Blood Sugar', formUnit: 'mmol/L', icon: 'gauge', tint: 'bg-warning/15 text-warning', unit: 'mmol/L' },
-  height: { label: 'Height', formUnit: 'cm', icon: 'ruler', tint: 'bg-sky/10 text-sky', unit: 'cm' },
-  bmi: { label: 'BMI', formUnit: 'kg/m²', icon: 'scale', tint: 'bg-teal/10 text-teal', unit: 'kg/m²' },
-  pain_score: { label: 'Pain Score', formUnit: '0–10', icon: 'circle-alert', tint: 'bg-warning/15 text-warning', unit: '/10', joined: true },
+  blood_pressure: { label: 'Blood Pressure', formUnit: 'mmHg', icon: 'heart-pulse', tint: 'bg-alert/10 text-alert-ink', unit: 'mmHg', inkUnit: true },
+  temperature: { label: 'Temperature', formUnit: '°C', icon: 'thermometer', tint: 'bg-alert/10 text-alert-ink', unit: '°C', joined: true, inkUnit: true },
+  heart_rate: { label: 'Heart Rate', formUnit: 'Bpm', icon: 'heart', tint: 'bg-cerulean/10 text-cerulean-dark', unit: 'bpm' },
+  oxygen_saturation: { label: 'Oxygen Level', formLabel: 'Oxygen', formUnit: '%', icon: 'droplet', tint: 'bg-sage/10 text-sage-ink', unit: '%' },
+  weight: { label: 'Weight', formUnit: 'Kg', icon: 'weight', tint: 'bg-teal/10 text-teal-ink', unit: 'Kg' },
+  respiratory_rate: { label: 'Breathing Rate', formUnit: 'breaths/min', icon: 'wind', tint: 'bg-sky/10 text-cerulean-dark', unit: '/min', joined: true },
+  blood_sugar: { label: 'Blood Sugar', formUnit: 'mmol/L', icon: 'gauge', tint: 'bg-warning/15 text-warning-ink', unit: 'mmol/L' },
+  height: { label: 'Height', formUnit: 'cm', icon: 'ruler', tint: 'bg-sky/10 text-cerulean-dark', unit: 'cm' },
+  bmi: { label: 'BMI', formUnit: 'kg/m²', icon: 'scale', tint: 'bg-teal/10 text-teal-ink', unit: 'kg/m²' },
+  pain_score: { label: 'Pain Score', formUnit: '0–10', icon: 'circle-alert', tint: 'bg-warning/15 text-warning-ink', unit: '/10', joined: true },
 };
 
 /** The five cards Medical Information always shows, recorded or not (design order). */
@@ -195,8 +195,8 @@ const FLAG_TONE: Record<VitalFlagLevel, string> = {
   normal: 'vt-normal',
   low: 'vt-amber',
   elevated: 'vt-amber',
-  high: 'text-alert',
-  critical: 'text-alert',
+  high: 'text-alert-ink',
+  critical: 'text-alert-ink',
 };
 
 /** One card on Medical Information. */
@@ -405,7 +405,7 @@ interface SectionCard {
             @for (c of sections; track c.key) {
               <button
                 type="button"
-                class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-6 text-left transition-colors hover:border-cerulean/50"
+                class="flex flex-col gap-3 rounded-card border border-haze bg-white p-6 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover"
                 (click)="openSection(c.key)"
               >
                 <div class="flex items-center justify-between">
@@ -451,7 +451,7 @@ interface SectionCard {
             </sd-button>
           </div>
           <div
-            class="grid grid-cols-1 gap-x-6 gap-y-5 rounded-card border border-cloud bg-white p-6 md:grid-cols-2"
+            class="grid grid-cols-1 gap-x-6 gap-y-5 rounded-card border border-haze bg-white p-6 shadow-card md:grid-cols-2"
           >
             <ng-container
               [ngTemplateOutlet]="readField"
@@ -494,7 +494,7 @@ interface SectionCard {
 
           <!-- Phone number verification -->
           <div
-            class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6"
+            class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card"
           >
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex flex-wrap items-center gap-2">
@@ -502,14 +502,14 @@ interface SectionCard {
                 <span class="font-sans text-body text-ink">{{ phone() }}</span>
                 @if (phoneVerified()) {
                   <span
-                    class="flex items-center gap-1 rounded-lg bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage"
+                    class="flex items-center gap-1 rounded-lg bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage-ink"
                   >
                     <sd-icon name="circle-check" [size]="14" />
                     Verified
                   </span>
                 } @else {
                   <span
-                    class="rounded-lg bg-warning/15 px-2.5 py-1 font-sans text-caption font-medium text-warning"
+                    class="rounded-lg bg-warning/15 px-2.5 py-1 font-sans text-caption font-medium text-warning-ink"
                     >Not verified</span
                   >
                 }
@@ -580,7 +580,7 @@ interface SectionCard {
             <ng-container [ngTemplateOutlet]="privacyCard" />
           </div>
           <form
-            class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6"
+            class="flex flex-col gap-6 rounded-card border border-haze bg-white p-6 shadow-card"
             [formGroup]="form"
             (ngSubmit)="saveProfile()"
           >
@@ -878,7 +878,7 @@ interface SectionCard {
                         <div class="col-span-full">
                           <dt class="sr-only">Type</dt>
                           <dd
-                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage"
+                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage-ink"
                           >
                             <sd-icon name="leaf" [size]="14" />Herbal or traditional medicine
                           </dd>
@@ -1450,7 +1450,7 @@ interface SectionCard {
           <form
             [formGroup]="insuranceForm"
             (ngSubmit)="saveInsurance()"
-            class="rounded-card border border-cloud bg-white p-6"
+            class="rounded-card border border-haze bg-white p-6 shadow-card"
           >
             <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
               <label class="flex w-full flex-col gap-2">
@@ -1559,7 +1559,7 @@ interface SectionCard {
           <form
             [formGroup]="emergencyForm"
             (ngSubmit)="saveEmergency()"
-            class="rounded-card border border-cloud bg-white p-6"
+            class="rounded-card border border-haze bg-white p-6 shadow-card"
           >
             <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
               <label class="flex w-full flex-col gap-2">
@@ -1627,11 +1627,11 @@ interface SectionCard {
     <ng-template #healthUnavailable>
       @if (healthState() === 'error') {
         <div
-          class="flex flex-col items-center gap-4 rounded-card border border-cloud bg-white px-6 py-14 text-center"
+          class="flex flex-col items-center gap-4 rounded-card border border-haze bg-white px-6 py-14 text-center shadow-card"
           role="alert"
         >
           <span
-            class="flex size-16 items-center justify-center rounded-full bg-alert/10 text-alert"
+            class="flex size-16 items-center justify-center rounded-full bg-alert/10 text-alert-ink"
           >
             <sd-icon name="wifi-off" [size]="28" />
           </span>
@@ -1743,7 +1743,7 @@ interface SectionCard {
             />
           } @else {
             <span
-              class="flex size-22 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean"
+              class="flex size-22 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean-dark"
             >
               @if (initials()) {
                 {{ initials() }}
@@ -1795,7 +1795,7 @@ interface SectionCard {
                 <span class="size-7 animate-spin rounded-full border-2 border-cloud border-t-cerulean"></span>
                 <span class="font-sans text-body-sm text-slate" role="status">Uploading…</span>
               } @else {
-                <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"><sd-icon name="upload" [size]="24" /></span>
+                <span class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean-dark"><sd-icon name="upload" [size]="24" /></span>
                 <p class="font-sans text-body font-semibold text-ink">Drag &amp; drop your photo</p>
                 <p class="font-sans text-caption text-slate">PNG, JPG, WEBP or GIF · up to 2MB</p>
                 <button
@@ -1866,7 +1866,7 @@ interface SectionCard {
     </ng-template>
 
     <ng-template #privacyCard>
-      <div class="flex flex-col gap-3 rounded-card border border-cloud bg-white p-5">
+      <div class="flex flex-col gap-3 rounded-card border border-haze bg-white p-5 shadow-card">
         <div class="flex items-center gap-2">
           <sd-icon name="shield-check" [size]="20" class="text-sage" />
           <p class="font-sans text-body font-semibold text-ink">
@@ -2095,28 +2095,28 @@ export class MyProfile implements HasUnsavedChanges {
     {
       key: 'personal',
       icon: 'user',
-      tint: 'bg-cerulean/10 text-cerulean',
+      tint: 'bg-cerulean/10 text-cerulean-dark',
       title: 'Personal Information',
       subtitle: 'Your name, contact details and address',
     },
     {
       key: 'medical',
       icon: 'heart-pulse',
-      tint: 'bg-teal/10 text-teal',
+      tint: 'bg-teal/10 text-teal-ink',
       title: 'Medical Information',
       subtitle: 'Vitals, history, allergies, medications and conditions',
     },
     {
       key: 'insurance',
       icon: 'shield-check',
-      tint: 'bg-sage/15 text-sage',
+      tint: 'bg-sage/15 text-sage-ink',
       title: 'Insurance Information',
       subtitle: 'Provider, plan and coverage details',
     },
     {
       key: 'emergency',
       icon: 'id-card',
-      tint: 'bg-sky/10 text-sky',
+      tint: 'bg-sky/10 text-cerulean-dark',
       title: 'Emergency Contact',
       subtitle: 'Who we should contact in an emergency',
     },
@@ -2453,8 +2453,9 @@ export class MyProfile implements HasUnsavedChanges {
     const map: Record<string, string> = {
       personal: 'text-cerulean',
       medical: 'text-teal',
-      insurance: 'text-sage',
-      emergency: 'text-sky',
+      // Ink shades: 20px / 500 titles need 4.5 (sage was 3.22, sky 3.15).
+      insurance: 'text-sage-ink',
+      emergency: 'text-cerulean-dark',
     };
     return map[c.key] ?? 'text-ink';
   }

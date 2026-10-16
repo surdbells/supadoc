@@ -238,7 +238,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
         <!-- Sidebar -->
         @if (sidebarOpen()) {
           <aside
-            class="flex shrink-0 flex-col gap-6 rounded-card border border-cloud bg-white p-6 lg:sticky lg:top-24 lg:w-72"
+            class="flex shrink-0 flex-col gap-6 rounded-card border border-haze bg-white p-6 shadow-card lg:sticky lg:top-24 lg:w-72"
           >
             <div class="flex items-center justify-between">
               <span
@@ -259,14 +259,14 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               <span class="font-sans text-caption font-semibold text-slate"
                 >Consultation type</span
               >
-              <div class="flex rounded-field border border-cloud p-1">
+              <div class="flex rounded-field border border-haze bg-glacier p-1">
                 @for (t of consultTypes; track t.value) {
                   <button
                     type="button"
                     class="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-pill px-2 py-1.5 font-sans text-caption transition-colors"
                     [class]="
                       mode() === t.value
-                        ? 'bg-frost font-medium text-cerulean'
+                        ? 'bg-frost font-medium text-cerulean-dark shadow-control'
                         : 'text-slate hover:text-ink'
                     "
                     (click)="mode.set(t.value)"

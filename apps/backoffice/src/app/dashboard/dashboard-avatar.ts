@@ -15,7 +15,7 @@ import { initials } from './dashboard-ui';
     @if (src(); as s) {
       <img [src]="s" alt="" class="rounded-full border border-cloud object-cover" [style.width.px]="size()" [style.height.px]="size()" (error)="failed.set(s)" />
     } @else {
-      <span class="flex items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean" [style.width.px]="size()" [style.height.px]="size()">{{ letters() }}</span>
+      <span class="flex items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean-dark" [style.width.px]="size()" [style.height.px]="size()">{{ letters() }}</span>
     }
   `,
 })

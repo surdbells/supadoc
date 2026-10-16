@@ -91,7 +91,7 @@ import {
               <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span class="break-words font-sans text-body-sm font-semibold text-ink">{{ h.condition }}</span>
                 @if (h.year) {
-                  <span class="inline-flex items-center gap-1 rounded-pill bg-glacier px-2.5 py-0.5 font-sans text-caption font-medium text-ink">
+                  <span class="inline-flex items-center gap-1 rounded-pill bg-glacier px-2.5 py-0.5 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">
                     <sd-icon name="calendar-days" [size]="12" class="text-slate" />{{ h.year }}
                   </span>
                 }

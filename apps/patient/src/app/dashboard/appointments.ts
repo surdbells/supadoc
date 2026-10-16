@@ -60,7 +60,7 @@ interface ProposalCard {
 }
 
 /** The "Action needed" cards' pill (a doctor's follow-up proposal: not booked until accepted). */
-const PROPOSED_BADGE = { label: 'Proposed', class: 'bg-teal/10 text-teal' };
+const PROPOSED_BADGE = { label: 'Proposed', class: 'bg-teal/10 text-teal-ink' };
 
 /**
  * Every status an upcoming row can have, and its tab. Closed ones (completed,
@@ -179,18 +179,18 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
             <sd-icon name="bell" [size]="18" class="text-teal" />
             Action needed
             <span
-              class="rounded-pill bg-teal/10 px-2 py-0.5 font-sans text-caption font-semibold text-teal"
+              class="rounded-pill bg-teal/10 px-2 py-0.5 font-sans text-caption font-semibold text-teal-ink"
               >{{ proposals().length }}</span
             >
           </h2>
           @for (p of proposals(); track p.id) {
             <article
-              class="flex flex-col gap-4 rounded-card border border-teal/30 bg-white p-4 sm:p-5"
+              class="flex flex-col gap-4 rounded-card border border-teal/30 bg-white p-4 shadow-card sm:p-5"
               [attr.aria-labelledby]="'proposal-' + p.id"
             >
               <div class="flex items-start gap-3 sm:gap-4">
                 <span
-                  class="flex size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 font-heading text-body font-semibold text-teal"
+                  class="flex size-12 shrink-0 items-center justify-center rounded-full bg-teal/10 font-heading text-body font-semibold text-teal-ink"
                   aria-hidden="true"
                   >{{ initials(p.name) }}</span
                 >
@@ -206,7 +206,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                   </p>
                 </div>
                 <span
-                  class="shrink-0 rounded-lg px-2.5 py-0.5 font-sans text-caption font-medium"
+                  class="shrink-0 rounded-lg px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20"
                   [class]="proposedStatus.class"
                   >{{ proposedStatus.label }}</span
                 >
@@ -258,7 +258,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
 
       <!-- Tabs -->
       <div
-        class="flex items-center gap-1 overflow-x-auto rounded-pill border border-cloud bg-white p-2"
+        class="flex items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-2 shadow-bar"
       >
         @for (t of tabs; track t.key) {
           <button
@@ -266,7 +266,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
             class="flex shrink-0 items-center gap-2 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
             [class]="
               activeTab() === t.key
-                ? 'bg-frost font-medium text-cerulean'
+                ? 'bg-frost font-medium text-cerulean-dark shadow-control'
                 : 'text-slate hover:text-ink'
             "
             [attr.aria-pressed]="activeTab() === t.key"
@@ -288,7 +288,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
           <div class="flex flex-col gap-4">
             @for (n of [1, 2, 3]; track n) {
               <div
-                class="flex items-center gap-4 rounded-card border border-cloud bg-white p-4"
+                class="flex items-center gap-4 rounded-card border border-haze bg-white p-4 shadow-card"
               >
                 <div class="sd-shimmer size-14 shrink-0 rounded-full"></div>
                 <div class="flex flex-1 flex-col gap-2">
@@ -330,19 +330,19 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
         @default {
           <div class="flex flex-col gap-4">
             @if (filtered().length === 0) {
-              <p class="rounded-card border border-cloud bg-white p-6 text-center font-sans text-body-sm text-slate">
+              <p class="rounded-card border border-haze bg-white p-6 text-center font-sans text-body-sm text-slate shadow-card">
                 {{ emptyTabText() }}
               </p>
             }
             @for (a of filtered(); track a.id) {
               <button
                 type="button"
-                class="sd-card-hover flex items-center gap-4 rounded-card border bg-white p-4 text-left hover:border-cerulean/50"
-                [class]="a.live ? 'border-success/50' : 'border-cloud'"
+                class="sd-card-hover flex items-center gap-4 rounded-card border bg-white p-4 text-left shadow-card hover:border-cerulean/50"
+                [class]="a.live ? 'border-success/50' : 'border-haze'"
                 (click)="open(a)"
               >
                 <span
-                  class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg font-semibold text-cerulean"
+                  class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-body-lg font-semibold text-cerulean-dark"
                   >{{ initials(a.name) }}</span
                 >
                 <div class="flex min-w-0 flex-1 flex-col">
@@ -364,7 +364,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                       <sd-icon name="calendar-days" [size]="14" />{{ a.date }}, {{ a.time }}
                     </span>
                     <span
-                      class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium"
+                      class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium inset-ring inset-ring-current/20"
                       [class]="a.badge.class"
                       ><sd-icon [name]="a.badge.icon" [size]="12" />{{ a.badge.label }}</span
                     >
@@ -394,7 +394,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                     <sd-icon [name]="a.typeIcon" [size]="16" />{{ a.typeLabel }}
                   </span>
                   <span
-                    class="inline-flex items-center gap-1.5 rounded-lg px-4 py-1 font-sans text-caption font-medium"
+                    class="inline-flex items-center gap-1.5 rounded-lg px-4 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/20"
                     [class]="a.badge.class"
                     ><sd-icon [name]="a.badge.icon" [size]="14" />{{ a.badge.label }}</span
                   >

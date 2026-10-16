@@ -161,14 +161,14 @@ const COLUMNS = 'md:grid-cols-[minmax(0,1fr)_10rem_10rem_2.5rem] xl:grid-cols-[m
                 <span class="flex flex-wrap gap-1.5">
                   <span class="sr-only">Roles: </span>
                   @for (r of u.roles; track r) {
-                    <span class="${CHIP} bg-frost text-cerulean">{{ r }}</span>
+                    <span class="${CHIP} bg-frost text-cerulean-dark">{{ r }}</span>
                   } @empty { <span class="font-sans text-body-sm text-slate">No role</span> }
                 </span>
                 <span class="flex flex-wrap gap-1.5">
                   <span class="sr-only">Status: </span>
-                  <span class="${PILL}" [class]="u.active ? 'bg-sage/15 text-sage' : 'bg-cloud text-slate'"><sd-icon [name]="u.active ? 'user-check' : 'user-x'" [size]="13" />{{ u.active ? 'Active' : 'Inactive' }}</span>
+                  <span class="${PILL}" [class]="u.active ? 'bg-sage/15 text-sage-ink' : 'bg-cloud text-slate'"><sd-icon [name]="u.active ? 'user-check' : 'user-x'" [size]="13" />{{ u.active ? 'Active' : 'Inactive' }}</span>
                   @if (u.password_set === false) {
-                    <span class="${PILL}" [class]="u.invite_pending ? 'bg-frost text-cerulean' : 'bg-warning/15 text-ink'"><sd-icon name="mail" [size]="13" />{{ u.invite_pending ? 'Invite sent' : 'Invite expired' }}</span>
+                    <span class="${PILL}" [class]="u.invite_pending ? 'bg-frost text-cerulean-dark' : 'bg-warning/15 text-ink'"><sd-icon name="mail" [size]="13" />{{ u.invite_pending ? 'Invite sent' : 'Invite expired' }}</span>
                   }
                 </span>
                 <span class="${ROW_END}" aria-hidden="true">

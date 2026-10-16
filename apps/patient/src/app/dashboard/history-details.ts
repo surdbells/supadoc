@@ -62,10 +62,10 @@ interface DocItem {
 
 /** Every prescription status reads as an icon AND a word — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
-  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
-  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage' },
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning-ink' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
   expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-cloud text-slate' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 const NAIRA = new Intl.NumberFormat('en-NG', {
@@ -106,7 +106,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
         }
         @case ('error') {
           <div class="flex flex-col items-center gap-5 py-24 text-center">
-            <span class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert"><sd-icon name="calendar-off" [size]="36" /></span>
+            <span class="flex size-20 items-center justify-center rounded-full bg-alert/10 text-alert-ink"><sd-icon name="calendar-off" [size]="36" /></span>
             <div class="flex max-w-sm flex-col gap-2">
               <h2 class="font-heading text-h5 text-ink">Consultation not found</h2>
               <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
@@ -117,9 +117,9 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
         @default {
           @if (appt(); as a) {
             <!-- Summary -->
-            <section class="flex flex-col gap-6 rounded-card border border-cloud bg-white p-6 md:flex-row md:items-center md:justify-between">
+            <section class="flex flex-col gap-6 rounded-card border border-haze bg-white p-6 shadow-card md:flex-row md:items-center md:justify-between">
               <div class="flex items-center gap-4">
-                <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean">{{ initials(a.specialist.name) }}</span>
+                <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 font-semibold text-cerulean-dark">{{ initials(a.specialist.name) }}</span>
                 <div class="flex flex-col gap-1">
                   <p class="font-sans text-body-lg font-semibold text-ink">{{ a.specialist.name }}</p>
                   <p class="font-sans text-caption text-slate">{{ a.specialist.specialty }}</p>
@@ -138,7 +138,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                 </div>
                 @if (badge(); as b) {
                   <div class="flex flex-col items-end gap-1.5">
-                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium" [class]="b.class">
+                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 font-sans text-body-sm font-medium inset-ring inset-ring-current/20" [class]="b.class">
                       <sd-icon [name]="b.icon" [size]="16" />{{ b.label }}
                     </span>
                     @if (b.detail) {
@@ -184,7 +184,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 
             <!-- How it ended, when that needs saying (missed, not confirmed, cancelled — and what went back to the wallet). -->
             @if (outcome(); as o) {
-              <section class="flex items-start gap-3 rounded-card border border-cloud bg-white p-5" role="note" aria-label="What happened">
+              <section class="flex items-start gap-3 rounded-card border border-haze bg-white p-5 shadow-card" role="note" aria-label="What happened">
                 <sd-icon [name]="badge()?.icon ?? 'info'" [size]="20" class="mt-0.5 shrink-0 text-slate" />
                 <p class="font-sans text-body-sm text-ink">{{ o }}</p>
               </section>
@@ -192,7 +192,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 
             <!-- Rate a completed consultation (once — the API refuses a second review). -->
             @if (ratingVisible()) {
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="rate-consultation-title">
+              <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card" aria-labelledby="rate-consultation-title">
                 <h2 id="rate-consultation-title" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="star" [size]="20" />Rate your consultation</h2>
                 @if (reviewState() === 'done') {
                   <p #reviewDone tabindex="-1" class="flex items-center gap-2 font-sans text-body-sm font-semibold text-sage outline-none" role="status">
@@ -210,7 +210,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                         [disabled]="reviewState() === 'sending'"
                         (click)="reviewRating.set(n)"
                       >
-                        <sd-icon name="star" [size]="28" [class]="n <= reviewRating() ? 'text-warning' : 'text-cloud'" />
+                        <sd-icon name="star" [size]="28" [class]="n <= reviewRating() ? 'text-warning' : 'text-slate/80'" />
                       </button>
                     }
                   </div>
@@ -246,7 +246,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
             <!-- Summary + Note (not for a visit that never took place — cancelled or missed — unless one was recorded anyway) -->
             @if (summary()?.available || summary()?.plan || (a.status !== 'cancelled' && a.status !== 'missed')) {
               <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
                   <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="clipboard-list" [size]="20" />Consultation Summary</h2>
                   @if (summary()?.available) {
                     <div class="flex flex-col gap-3 font-sans text-body-sm text-slate">
@@ -258,7 +258,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                   }
                 </section>
 
-                <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+                <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
                   <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="clipboard-list" [size]="20" />Care Plan</h2>
                   @if (summary()?.plan) {
                     <p class="font-sans text-body-sm text-ink">{{ summary()?.plan }}</p>
@@ -271,7 +271,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 
             <!-- Follow-ups of this visit: the doctor's proposal to answer, or book one with the same doctor -->
             @if (a.status === 'completed' || followUps().length > 0) {
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6" aria-labelledby="follow-ups-title">
+              <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card" aria-labelledby="follow-ups-title">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div class="flex min-w-0 flex-col gap-1">
                     <h2 id="follow-ups-title" class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="calendar-plus" [size]="20" />Follow-up</h2>
@@ -312,7 +312,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                             <span class="font-sans text-body-sm font-semibold text-ink">{{ when(f.scheduled_at) }}</span>
                             <span class="font-sans text-caption text-slate">{{ f.proposed_by === 'doctor' ? 'Proposed by ' + f.specialist.name : 'Booked by you' }}</span>
                           </span>
-                          <span class="shrink-0 rounded-lg px-3 py-1 font-sans text-caption font-medium" [class]="followUpStatusClass(f)">{{ followUpStatus(f) }}</span>
+                          <span class="shrink-0 rounded-lg px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="followUpStatusClass(f)">{{ followUpStatus(f) }}</span>
                           <sd-icon name="chevron-right" [size]="16" class="shrink-0 text-cerulean" />
                         </a>
                       </li>
@@ -329,7 +329,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
 
             <!-- Documents + payment -->
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+              <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
                 <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="file-text" [size]="20" />Documents</h2>
                 @if (docsLoading()) {
                   <div class="flex flex-col gap-2.5">
@@ -341,11 +341,11 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                     @for (rx of prescriptions(); track rx.id) {
                       <li class="flex flex-col gap-3 rounded-field border border-cloud p-3 sm:flex-row sm:items-center">
                         <div class="flex min-w-0 flex-1 items-start gap-3">
-                          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal"><sd-icon name="pill" [size]="18" /></span>
+                          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink"><sd-icon name="pill" [size]="18" /></span>
                           <span class="flex min-w-0 flex-col gap-1">
                             <span class="flex flex-wrap items-center gap-2">
                               <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
-                              <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="rxStatus(rx.status).cls">
+                              <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="rxStatus(rx.status).cls">
                                 <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
                               </span>
                             </span>
@@ -357,7 +357,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                         <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
                           <button
                             type="button"
-                            class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-3 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                            class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
                             [disabled]="openingRx() === rx.id"
                             [attr.aria-label]="'View prescription ' + rx.number"
                             (click)="viewRx(rx)"
@@ -381,7 +381,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           <span class="truncate font-sans text-body-sm font-medium text-ink">{{ doc.title }}</span>
                           @if (doc.meta) { <span class="truncate font-sans text-caption text-slate">{{ doc.meta }}</span> }
                         </span>
-                        <button type="button" class="flex size-8 items-center justify-center rounded-field border border-cloud text-slate transition-colors hover:bg-glacier" aria-label="Open document" (click)="openDoc(a.id, doc)">
+                        <button type="button" class="flex size-8 items-center justify-center rounded-field border border-haze bg-white text-slate shadow-control transition hover:bg-glacier active:shadow-none disabled:shadow-none" aria-label="Open document" (click)="openDoc(a.id, doc)">
                           <sd-icon name="eye" [size]="16" />
                         </button>
                       </li>
@@ -408,11 +408,11 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                 }
               </section>
 
-              <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+              <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
                 <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="credit-card" [size]="20" />Payment Status</h2>
                 <div class="flex flex-wrap items-center justify-between gap-4">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="credit-card" [size]="20" class="text-slate" />Amount: ₦{{ money(a.amount) }}</span>
-                  <span class="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1 font-sans text-caption font-medium" [class]="paymentClass(a)">
+                  <span class="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="paymentClass(a)">
                     <sd-icon [name]="a.payment_status === 'paid' && !partlyRefunded(a) ? 'circle-check' : a.payment_status === 'refunded' || partlyRefunded(a) ? 'undo-2' : 'clock'" [size]="14" />
                     {{ partlyRefunded(a) ? 'Partly refunded' : paymentLabel(a.payment_status) }}
                   </span>
@@ -791,8 +791,8 @@ export class HistoryDetails {
     return nairaLabel(a.refunded_amount);
   }
   protected paymentClass(a: AppointmentDto): string {
-    if (a.payment_status === 'refunded' || this.partlyRefunded(a)) return 'bg-frost text-cerulean';
-    return a.payment_status === 'paid' ? 'bg-sage/15 text-sage' : 'bg-warning/15 text-warning';
+    if (a.payment_status === 'refunded' || this.partlyRefunded(a)) return 'bg-frost text-cerulean-dark';
+    return a.payment_status === 'paid' ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-warning-ink';
   }
   protected paymentLabel(status: string | undefined): string {
     switch (status) {

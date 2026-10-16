@@ -18,13 +18,13 @@ import { DialogService, IconComponent } from '@supadoc/ui';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 
 const FIELD =
-  'w-full rounded-field border border-cloud bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+  'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
 const STATUS_CLASS: Record<string, string> = {
-  pending: 'bg-warning/15 text-warning',
-  approved: 'bg-frost text-cerulean',
-  paid: 'bg-sage/15 text-sage',
-  rejected: 'bg-alert/10 text-alert',
+  pending: 'bg-warning/15 text-warning-ink',
+  approved: 'bg-frost text-cerulean-dark',
+  paid: 'bg-sage/15 text-sage-ink',
+  rejected: 'bg-alert/10 text-alert-ink',
 };
 
 /** "GTBank ••1234" — the bank and the last digits of the account (or IBAN). */
@@ -50,20 +50,20 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
       @if (loading()) {
         <div class="sd-shimmer h-28 rounded-card"></div>
       } @else if (loadError()) {
-        <div class="flex flex-col items-center gap-3 rounded-card border border-cloud bg-white py-16 text-center">
+        <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
           <sd-icon name="wifi-off" [size]="32" class="text-alert" />
           <p class="font-sans text-body-sm text-slate">{{ loadError() }}</p>
         </div>
       } @else {
         <!-- Balance + request -->
-        <section class="flex flex-col gap-4 rounded-card border border-cerulean/30 bg-frost/20 p-6">
+        <section class="flex flex-col gap-4 rounded-card border border-cerulean/30 bg-frost/20 p-6 shadow-card">
           <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="flex flex-col gap-1">
               <span class="font-sans text-caption text-slate">Available to withdraw</span>
               <span class="font-heading text-h2 text-cerulean">{{ money(available()) }}</span>
             </div>
             @if (!requestOpen()) {
-              <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!canRequest()" (click)="openRequest()">Request payout</button>
+              <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="!canRequest()" (click)="openRequest()">Request payout</button>
             }
           </div>
           @if (summaryError()) {
@@ -92,7 +92,7 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
               </label>
               @if (requestError()) { <p class="font-sans text-caption text-alert">{{ requestError() }}</p> }
               <div class="flex items-center gap-3">
-                <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="requesting()" (click)="submitRequest()">{{ requesting() ? 'Requesting…' : 'Submit request' }}</button>
+                <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="requesting()" (click)="submitRequest()">{{ requesting() ? 'Requesting…' : 'Submit request' }}</button>
                 <button type="button" class="font-sans text-body-sm font-semibold text-slate transition-colors hover:text-ink" (click)="requestOpen.set(false)">Cancel</button>
               </div>
             </div>
@@ -100,7 +100,7 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
         </section>
 
         <!-- Payout account -->
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+        <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
           <h2 class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"><sd-icon name="banknote" [size]="20" />Payout account</h2>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label class="flex flex-col gap-1.5"><span class="font-sans text-caption font-semibold text-slate">Account holder</span><input class="${FIELD}" [value]="f().account_holder" (input)="setField('account_holder', $any($event.target).value)" /></label>
@@ -113,15 +113,15 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
             <label class="flex flex-col gap-1.5"><span class="font-sans text-caption font-semibold text-slate">Routing / sort code</span><input class="${FIELD}" [value]="f().routing_number ?? ''" (input)="setField('routing_number', $any($event.target).value)" /></label>
           </div>
           @if (accountNotice()) { <p class="rounded-field px-4 py-2 font-label text-caption" [class]="accountOk() ? 'bg-sage/10 text-sage' : 'bg-alert/10 text-alert'">{{ accountNotice() }}</p> }
-          <button type="button" class="flex w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="savingAccount()" (click)="saveAccount()"><sd-icon name="check" [size]="18" />{{ savingAccount() ? 'Saving…' : 'Save account' }}</button>
+          <button type="button" class="flex w-fit items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="savingAccount()" (click)="saveAccount()"><sd-icon name="check" [size]="18" />{{ savingAccount() ? 'Saving…' : 'Save account' }}</button>
         </section>
 
         <!-- History -->
         <section class="flex flex-col gap-3">
           <h2 class="font-heading text-body-lg text-ink">Payout history</h2>
-          <div class="overflow-x-auto rounded-card border border-cloud bg-white">
+          <div class="overflow-x-auto rounded-card border border-haze bg-white shadow-card">
             <table class="w-full min-w-[560px] text-left">
-              <thead class="border-b border-cloud font-sans text-caption text-slate">
+              <thead class="border-b border-glacier bg-glacier font-sans text-caption text-slate">
                 <tr>
                   <th class="px-4 py-3">Requested</th>
                   <th class="px-4 py-3 text-right">Amount</th>
@@ -133,8 +133,8 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
                 @for (p of history(); track p.id) {
                   <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
                     <td class="px-4 py-3 text-slate">{{ date(p.requested_at) }}</td>
-                    <td class="px-4 py-3 text-right font-semibold">{{ money(p.amount) }}</td>
-                    <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption" [class]="statusClass(p.status)">{{ p.status }}</span></td>
+                    <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ money(p.amount) }}</td>
+                    <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption inset-ring inset-ring-current/20" [class]="statusClass(p.status)">{{ p.status }}</span></td>
                     <td class="px-4 py-3 text-slate">{{ p.reference || (p.admin_note || '—') }}</td>
                   </tr>
                 } @empty {

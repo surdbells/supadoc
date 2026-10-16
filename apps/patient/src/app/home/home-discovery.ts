@@ -304,7 +304,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                       >
                     </span>
                     <span
-                      class="shrink-0 rounded-pill bg-frost/60 px-2.5 py-0.5 font-sans text-[10px] font-medium text-cerulean"
+                      class="shrink-0 rounded-pill bg-frost/60 px-2.5 py-0.5 font-sans text-[10px] font-medium text-cerulean-dark"
                       >Doctor</span
                     >
                   </button>
@@ -331,7 +331,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                       >
                     </span>
                     <span
-                      class="shrink-0 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage"
+                      class="shrink-0 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage-ink"
                       >Specialty</span
                     >
                   </button>

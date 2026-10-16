@@ -101,7 +101,7 @@ const FEE = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 });
           <span class="min-w-0 flex-1">{{ error() }}</span>
           <button
             type="button"
-            class="inline-flex min-h-11 items-center rounded-field border border-cloud bg-white px-4 font-semibold text-cerulean transition-colors hover:border-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+            class="inline-flex min-h-11 items-center rounded-field border border-haze bg-white px-4 font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
             (click)="retry()"
           >
             Try again
@@ -124,7 +124,7 @@ const FEE = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 });
                   />
                 } @else {
                   <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-caption font-semibold text-cerulean"
+                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-caption font-semibold text-cerulean-dark"
                     aria-hidden="true"
                     >{{ s.initials }}</span
                   >

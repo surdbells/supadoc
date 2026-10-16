@@ -158,7 +158,7 @@ const PER_SPECIALTY = 6;
         />
       } @else {
         <span
-          class="flex size-24 items-center justify-center rounded-full bg-frost/60 text-cerulean sm:size-28"
+          class="flex size-24 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark sm:size-28"
         >
           <sd-icon [name]="icon" [size]="size" />
         </span>
@@ -294,7 +294,7 @@ const PER_SPECIALTY = 6;
                     >
                       <span
                         class="flex size-5 shrink-0 items-center justify-center rounded-full border-2"
-                        [class]="duration() === d ? 'border-cerulean' : 'border-cloud'"
+                        [class]="duration() === d ? 'border-cerulean' : 'border-[#b8c6d4]'"
                       >
                         @if (duration() === d) {
                           <span class="size-2.5 rounded-full bg-cerulean"></span>

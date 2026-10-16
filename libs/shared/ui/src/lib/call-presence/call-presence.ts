@@ -57,7 +57,7 @@ export class CallPresenceComponent {
   });
 
   protected readonly pillClass = computed(() => {
-    const tone = this.otherIn() ? 'bg-success/10 text-success' : 'bg-frost text-cerulean';
+    const tone = this.otherIn() ? 'bg-success/10 text-success-ink' : 'bg-frost text-cerulean-dark';
     const size = this.size() === 'md' ? 'px-3 py-1 text-body-sm' : 'px-2.5 py-0.5 text-caption';
     return `${tone} ${size}`;
   });

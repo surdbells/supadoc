@@ -89,7 +89,7 @@ function carriesFiles(event: DragEvent): boolean {
         >
       } @else {
         <span
-          class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean"
+          class="flex size-12 items-center justify-center rounded-full bg-frost text-cerulean-dark"
         >
           <sd-icon [name]="dragging() ? 'download' : 'upload'" [size]="24" />
         </span>
@@ -99,7 +99,7 @@ function carriesFiles(event: DragEvent): boolean {
           >{{ dragging() ? 'Drop to add' : label() }}</span
         >
         <span
-          class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white"
+          class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim"
           >{{ browseText() }}</span
         >
         @if (hint()) {
@@ -158,7 +158,7 @@ export class FileDropComponent {
       ? 'cursor-not-allowed border-cloud bg-glacier/40 opacity-60'
       : this.dragging()
         ? 'border-cerulean bg-frost/40'
-        : 'border-cloud bg-glacier/40 hover:border-cerulean/60';
+        : 'border-[#b8c6d4] bg-glacier/40 hover:border-cerulean/60';
     return `${layout} ${state}`;
   });
 

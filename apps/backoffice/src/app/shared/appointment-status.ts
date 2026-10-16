@@ -39,12 +39,12 @@ export const APPOINTMENT_STATUS_LABEL: Record<ApiAppointmentStatus, string> = {
 };
 
 const STATUS_CLASS: Record<ApiAppointmentStatus, string> = {
-  proposed: 'bg-teal/10 text-teal',
+  proposed: 'bg-teal/10 text-teal-ink',
   pending: 'bg-warning/15 text-ink',
-  confirmed: 'bg-sage/15 text-sage',
+  confirmed: 'bg-sage/15 text-sage-ink',
   rescheduled: 'bg-cloud text-slate',
-  completed: 'bg-frost text-cerulean',
-  cancelled: 'bg-alert/10 text-alert',
+  completed: 'bg-frost text-cerulean-dark',
+  cancelled: 'bg-alert/10 text-alert-ink',
   missed: 'bg-ocean/10 text-ocean',
 };
 
@@ -70,10 +70,10 @@ export const APPOINTMENT_STATUS_COLOR: Record<ApiAppointmentStatus, string> = {
 };
 
 const DISPLAY: Record<Exclude<AppointmentDisplayStatus, 'upcoming'>, { cls: string; icon: string }> = {
-  live: { cls: 'bg-sage/15 text-sage', icon: 'video' },
+  live: { cls: 'bg-sage/15 text-sage-ink', icon: 'video' },
   finalising: { cls: 'bg-warning/15 text-ink', icon: 'hourglass' },
-  completed: { cls: 'bg-frost text-cerulean', icon: 'circle-check' },
-  cancelled: { cls: 'bg-alert/10 text-alert', icon: 'circle-x' },
+  completed: { cls: 'bg-frost text-cerulean-dark', icon: 'circle-check' },
+  cancelled: { cls: 'bg-alert/10 text-alert-ink', icon: 'circle-x' },
   missed: { cls: 'bg-ocean/10 text-ocean', icon: 'calendar-x' },
   not_confirmed: { cls: 'bg-cloud text-slate', icon: 'calendar-off' },
   expired: { cls: 'bg-cloud text-slate', icon: 'clock' },

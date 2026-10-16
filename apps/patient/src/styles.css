@@ -51,27 +51,6 @@ router-outlet + * {
   }
 }
 
-/*
- * Premium hover-lift for clickable cards. Add `sd-card-hover` to any card-like
- * element that navigates or opens something; it eases a small rise + soft
- * elevation on hover (and honours reduced-motion).
- */
-.sd-card-hover {
-  transition:
-    transform 0.2s ease-out,
-    box-shadow 0.2s ease-out,
-    border-color 0.2s ease-out;
-}
-.sd-card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(10, 22, 40, 0.1);
-}
-@media (prefers-reduced-motion: reduce) {
-  .sd-card-hover:hover {
-    transform: none;
-  }
-}
-
 /* =====================================================================
  * Dark mode — patient portal.
  *
@@ -80,9 +59,76 @@ router-outlet + * {
  * the `--color-*` tokens. That keeps `text-white`, `bg-cerulean` and the other
  * brand/accent utilities correct everywhere (buttons, dark heroes, the video
  * cockpit) while turning every light surface dark. Toggled by ThemeService.
+ *
+ * Brand TEXT tones (cerulean, alert, sage, success, teal, sky and the pill
+ * "ink" tones) get one lighter dark value each, so they read on the dark
+ * surfaces (contrast audit 2026-10-16). Every value below is AA on the dark card
+ * #161f2b, the page #0d141c and the tints it sits on; ratios are in the comments
+ * (card / page unless noted).
+ *
+ * Cascade notes. These rules are unlayered, so they beat Tailwind's layered
+ * utilities whatever their specificity:
+ *  - Within one property they are written in Tailwind's own (alphabetical)
+ *    order, so an element carrying two colour classes resolves the same way in
+ *    both themes.
+ *  - An unlayered base rule also beats a layered `hover:` / `focus:` variant on
+ *    the same element, so every state variant that meets an overridden base class
+ *    is re-asserted here too (hover rules sit in `@media (hover: hover)`, as
+ *    Tailwind's do).
+ *  - A layered `!important` utility beats an unlayered `!important` rule, so the
+ *    `!` utilities are re-pointed through their token instead (see Depth below).
  * ===================================================================== */
 html[data-theme='dark'] {
   color-scheme: dark;
+}
+
+/* ----- Depth tokens (theme.css) on dark ----- */
+html[data-theme='dark'] {
+  --color-haze: #263445; /* hairline on dark */
+  --color-snow: #111a24; /* sidebar tier: between page #0d141c and card #161f2b */
+  --sd-elev-control: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sd-elev-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 10px rgba(0, 0, 0, 0.2);
+  --sd-elev-card-hover: 0 12px 30px rgba(0, 0, 0, 0.5);
+  --sd-elev-raised: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --sd-elev-bar: 0 2px 4px rgba(0, 0, 0, 0.45);
+  --sd-elev-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --sd-elev-btn: 0 2px 10px rgba(11, 98, 228, 0.4);
+  --sd-elev-btn-hover: 0 6px 18px rgba(11, 98, 228, 0.5);
+  --sd-elev-rim: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+/* `haze` used as a FILL (active nav) reads as the frost tint on dark. */
+html[data-theme='dark'] .bg-haze,
+html[data-theme='dark'] .hover\:bg-haze:hover {
+  background-color: rgba(33, 111, 209, 0.26);
+}
+/* Selected-state text `text-cerulean-dark` (AA on light) → light blue on dark:
+   set in the Text section below, in its sort position. */
+/*
+ * The `!`-important utilities (the active nav item: `!bg-haze
+ * !text-cerulean-dark`) can't be overridden from here with `!important`: an
+ * important declaration inside Tailwind's utilities layer beats an unlayered
+ * important one. Re-pointing the token they read, on that element only, gives
+ * the same dark values. Active nav text on the haze fill: 6.83 over the snow
+ * sidebar, 7.23 over the page.
+ */
+html[data-theme='dark'] .\!bg-haze {
+  --color-haze: rgba(33, 111, 209, 0.26);
+}
+html[data-theme='dark'] .\!text-cerulean-dark {
+  --color-cerulean-dark: #8cbcff;
+}
+/* Cut-out rings match the dark surfaces they sit on. */
+html[data-theme='dark'] .ring-white {
+  --tw-ring-color: #161f2b;
+}
+html[data-theme='dark'] .ring-glacier {
+  --tw-ring-color: #0d141c;
+}
+/* Page-level tab-bar tracks (`bg-glacier … shadow-bar`): on dark, glacier is the
+   page colour and the black bar shadow vanishes, so the track takes the snow tier
+   (between page and card). In-card tracks have no `shadow-bar` and keep glacier. */
+html[data-theme='dark'] .bg-glacier.shadow-bar {
+  background-color: #111a24;
 }
 
 html[data-theme='dark'] body {
@@ -91,8 +137,20 @@ html[data-theme='dark'] body {
 }
 
 /* ----- Surfaces ----- */
+/* The wallet balance card and the Add Funds "you will receive" box are
+   Figma-exact light literals (#d1e9fd) whose text turns light on dark (balance
+   was 1.06:1). They take the frost tint instead (over card / page): balance
+   10.65 / 11.93, labels (text-ink/80) 7.43 / 8.19, receive amount 6.45 / 7.23,
+   "Active" 7.68 / 7.88, currency selector 7.84 / 8.23. */
+html[data-theme='dark'] .bg-\[\#d1e9fd\] {
+  background-color: rgba(33, 111, 209, 0.26);
+}
 html[data-theme='dark'] .bg-white {
   background-color: #161f2b;
+}
+html[data-theme='dark'] .bg-white\/95 {
+  /* landing "Available" plate over doctor photos: sage 6.53 on a white photo */
+  background-color: rgba(22, 31, 43, 0.92);
 }
 html[data-theme='dark'] .bg-white\/90 {
   background-color: rgba(22, 31, 43, 0.92);
@@ -107,6 +165,10 @@ html[data-theme='dark'] .hover\:bg-glacier:hover {
 html[data-theme='dark'] .bg-glacier\/60 {
   background-color: rgba(13, 20, 28, 0.6);
 }
+html[data-theme='dark'] .bg-glacier\/50 {
+  /* guest invite form: ink 14.81, slate 6.99 (was 2.88 / 1.36) */
+  background-color: rgba(13, 20, 28, 0.5);
+}
 html[data-theme='dark'] .bg-glacier\/40 {
   background-color: rgba(13, 20, 28, 0.4);
 }
@@ -117,8 +179,15 @@ html[data-theme='dark'] .hover\:bg-cloud:hover {
 html[data-theme='dark'] .bg-cloud\/70 {
   background-color: rgba(33, 44, 57, 0.7);
 }
+html[data-theme='dark'] .bg-cloud\/50 {
+  /* wallet currency selector: ink/80 7.84 (was 2.08) */
+  background-color: rgba(33, 44, 57, 0.5);
+}
 html[data-theme='dark'] .bg-cloud\/40 {
   background-color: rgba(33, 44, 57, 0.4);
+}
+html[data-theme='dark'] .bg-cloud\/20 {
+  background-color: rgba(33, 44, 57, 0.2);
 }
 
 /* Frost tints → cerulean-tinted dark (selected states, badges, chips). */
@@ -147,7 +216,49 @@ html[data-theme='dark'] .hover\:bg-frost\/20:hover {
   background-color: rgba(33, 111, 209, 0.12);
 }
 
-/* ----- Text ----- */
+/* Mobile drawer scrim: the drawer (snow tier) no longer melts into it. */
+html[data-theme='dark'] .bg-abyss\/40 {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* Hover fills with no dark value (the light wash stayed light: the outline
+   button label sat at 1.35:1 on hover). */
+@media (hover: hover) {
+  html[data-theme='dark'] .hover\:bg-alert\/5:hover {
+    background-color: rgba(229, 57, 53, 0.1); /* alert text on it 6.72 */
+  }
+  html[data-theme='dark'] .hover\:bg-frost\/30:hover {
+    background-color: rgba(33, 111, 209, 0.14); /* outline label 7.42 / 8.33 */
+  }
+  html[data-theme='dark'] .disabled\:hover\:bg-transparent:disabled:hover {
+    background-color: transparent;
+  }
+}
+
+/* ----- Text (Tailwind's alphabetical order; see the cascade notes) ----- */
+html[data-theme='dark'] .text-\(--sd-dialog-primary\) {
+  color: #8cbcff; /* 8.50 (was 3.07) */
+}
+html[data-theme='dark'] .text-abyss {
+  color: #f2f7fb;
+}
+html[data-theme='dark'] .text-alert {
+  color: #ff8a80; /* 7.27 / 8.11; alert/15 tint 6.43, frost tint 5.52 (was 3.93 / 4.38) */
+}
+html[data-theme='dark'] .text-alert-ink {
+  color: #ff8a80; /* pill ink: ≥ 6.13 on alert/10–20 over card and page */
+}
+html[data-theme='dark'] .text-cerulean {
+  color: #8cbcff; /* 8.50 / 9.48; frost tint 6.45, cerulean/15 7.48 (was 3.07 / 3.42 / 2.33) */
+}
+html[data-theme='dark'] .text-cerulean-dark {
+  /* selected states, tinted initials, and the cerulean/sky pill ink:
+     ≥ 6.38 on cerulean, sky and frost tints over card and page */
+  color: #8cbcff;
+}
+html[data-theme='dark'] .text-cloud {
+  color: #ccd6e0;
+}
 html[data-theme='dark'] .text-ink,
 html[data-theme='dark'] .hover\:text-ink:hover {
   color: #e5edf4;
@@ -155,26 +266,89 @@ html[data-theme='dark'] .hover\:text-ink:hover {
 html[data-theme='dark'] .text-ink\/80 {
   color: rgba(229, 237, 244, 0.8);
 }
-html[data-theme='dark'] .text-abyss {
-  color: #f2f7fb;
+html[data-theme='dark'] .text-ocean {
+  color: #6ea8e6;
+}
+html[data-theme='dark'] .text-sage {
+  color: #81c784; /* 8.25 / 9.20; sage/15 6.73 (was 4.10 on its tint) */
+}
+html[data-theme='dark'] .text-sage-ink {
+  color: #81c784; /* pill ink: ≥ 6.18 on sage/10–20 over card and page */
+}
+html[data-theme='dark'] .text-sky {
+  color: #6cc0ff; /* 8.40 / 9.37; sky/15 6.84 */
 }
 html[data-theme='dark'] .text-slate {
   color: #94a6b5;
 }
-html[data-theme='dark'] .text-slate\/70 {
-  color: rgba(148, 166, 181, 0.75);
-}
 html[data-theme='dark'] .text-slate\/40 {
   color: rgba(148, 166, 181, 0.45);
 }
-html[data-theme='dark'] .text-ocean {
-  color: #6ea8e6;
+html[data-theme='dark'] .text-slate\/50 {
+  color: rgba(148, 166, 181, 0.6); /* icons 3.27 on card */
 }
-html[data-theme='dark'] .text-cloud {
-  color: #ccd6e0;
+html[data-theme='dark'] .text-slate\/70 {
+  color: rgba(148, 166, 181, 0.85); /* 5.18 / 5.64 (was .75: 4.33) */
+}
+html[data-theme='dark'] .text-slate\/80 {
+  color: rgba(148, 166, 181, 0.9);
+}
+html[data-theme='dark'] .text-success {
+  color: #6fdc8c; /* 9.72 / 10.84; success/15 8.00 (was 4.08–4.40 on its tints) */
+}
+html[data-theme='dark'] .text-success-ink {
+  color: #6fdc8c; /* pill ink: ≥ 7.47 on success/10–20 over card and page */
+}
+html[data-theme='dark'] .text-teal {
+  color: #4db6ac; /* 6.80 / 7.59; teal/15 5.91, frost/40 5.78 (was 3.12 / 3.48) */
+}
+html[data-theme='dark'] .text-teal-ink {
+  color: #4db6ac; /* pill ink: ≥ 5.65 on teal/10–20 over card and page */
+}
+html[data-theme='dark'] .text-warning-ink {
+  /* pill ink = the warning tone itself, as `text-warning` already is on dark:
+     8.26 / 9.22; warning/10 6.91, /15 6.22, /20 5.56 over the card (page 6.32) */
+  color: #f2a900;
+}
+
+/* Hover / state text (the unlayered base rules above would swallow them). */
+@media (hover: hover) {
+  html[data-theme='dark'] .hover\:text-alert:hover {
+    color: #ff8a80; /* 7.27 / 8.11 */
+  }
+  html[data-theme='dark'] .hover\:text-cerulean:hover {
+    color: #8cbcff; /* 8.50 / 9.48; restores the hover cue on text-slate links */
+  }
+  html[data-theme='dark'] .hover\:text-cerulean-dark:hover,
+  html[data-theme='dark'] .hover\:text-ocean:hover {
+    color: #b3d4ff; /* 10.89 / 12.15; frost tint 8.27 (was 1.57 / 1.76 and 2.28 / 2.54) */
+  }
+  html[data-theme='dark'] .disabled\:hover\:text-slate:disabled:hover {
+    color: #94a6b5;
+  }
+}
+html[data-theme='dark'] .disabled\:text-slate\/40:disabled {
+  color: rgba(148, 166, 181, 0.45); /* disabled calendar days stay dimmed */
 }
 
 /* ----- Borders / rings / dividers ----- */
+/* Field boundaries: the sd-input / search-select / check-prescription hex, the
+   phone and profile fields' hex, and real form controls drawn with `cloud` or
+   `ash`: 3.19 / 3.55 (were 1.82 / 2.03 and 1.28 / 1.43; #d7e0e8 glared at 12.4). */
+html[data-theme='dark'] .border-\[\#b8c6d4\],
+html[data-theme='dark'] .border-\[\#d7e0e8\] {
+  border-color: #5b6f80;
+}
+html[data-theme='dark'] .border-\[\#d1e9fd\] {
+  border-color: #263445; /* wallet card hairline = the dark haze (was 13.3 glare) */
+}
+html[data-theme='dark'] .border-ash,
+html[data-theme='dark'] .border-ash\/60 {
+  border-color: #3a4a58;
+}
+html[data-theme='dark'] .border-cerulean {
+  border-color: #5b9bff; /* 5.99 / 6.68; selected vs unselected cloud border 4.67 (was 2.39) */
+}
 html[data-theme='dark'] .border-cloud {
   border-color: #29323f;
 }
@@ -184,34 +358,183 @@ html[data-theme='dark'] .border-cloud\/70 {
 html[data-theme='dark'] .border-cloud\/60 {
   border-color: rgba(41, 50, 63, 0.6);
 }
-html[data-theme='dark'] .border-ash,
-html[data-theme='dark'] .border-ash\/60 {
-  border-color: #3a4a58;
+html[data-theme='dark'] .border-frost {
+  border-color: rgba(33, 111, 209, 0.4);
 }
 html[data-theme='dark'] .border-slate,
 html[data-theme='dark'] .hover\:border-slate:hover {
   border-color: #5b6f80;
 }
-html[data-theme='dark'] .border-frost {
-  border-color: rgba(33, 111, 209, 0.4);
+/* Spinner arc (`border-cloud border-t-cerulean`): the `.border-cloud` rule sets
+   all four sides and would hide the arc, so the top side is re-asserted after it. */
+html[data-theme='dark'] .border-t-cerulean {
+  border-top-color: #5b9bff;
 }
+html[data-theme='dark'] :where(input, select, textarea).border-cloud,
+html[data-theme='dark'] :where(input, select, textarea).border-ash,
+html[data-theme='dark'] :where(input, select, textarea).border-haze {
+  border-color: #5b6f80; /* haze: the Documents type filter (1.31 → 3.19) */
+}
+/* A `cloud` box that wraps its text control directly (search boxes, composer
+   rows). Own rule, so a browser without :has() drops only this one. `:where`
+   keeps it at the specificity of the rules above, so the focus rules win. */
+html[data-theme='dark']
+  .border-cloud:where(
+    :has(
+      > input:not(
+          [type='checkbox'],
+          [type='radio'],
+          [type='hidden'],
+          [type='file']
+        ),
+      > select,
+      > textarea
+    )
+  ) {
+  border-color: #5b6f80;
+}
+/* The same for the `haze` search boxes (Specialists, Notifications, Documents:
+   1.31 / 1.46 → 3.19 / 3.55) and the `ash` blood-pressure box on the profile
+   (1.82 → 3.19). `.rounded-field` keeps the haze card around the step-3
+   textarea on Book Consultation out. Before the state variants, which have the
+   same specificity, so their hover / focus-within colours still win. */
+html[data-theme='dark']
+  .border-haze:where(
+    .rounded-field:has(
+      > input:not(
+          [type='checkbox'],
+          [type='radio'],
+          [type='hidden'],
+          [type='file']
+        ),
+      > select,
+      > textarea
+    )
+  ),
+html[data-theme='dark']
+  .border-ash:where(
+    :has(
+      > input:not(
+          [type='checkbox'],
+          [type='radio'],
+          [type='hidden'],
+          [type='file']
+        ),
+      > select,
+      > textarea
+    )
+  ) {
+  border-color: #5b6f80;
+}
+/* The landing search box (markup frozen) holds its input one level down. */
+html[data-theme='dark']
+  pat-home-discovery
+  .rounded-field.border-cloud:where(:has(> div > input[type='search'])) {
+  border-color: #5b6f80; /* 3.19 (was 1.28) */
+}
+
+/* Border state variants (focus-within, then hover, then focus: Tailwind's order). */
+html[data-theme='dark'] .focus-within\:border-alert:focus-within {
+  border-color: #ff8a80;
+}
+html[data-theme='dark'] .focus-within\:border-cerulean:focus-within {
+  border-color: #5b9bff; /* 5.99 / 6.68 (the focus border was overridden away) */
+}
+@media (hover: hover) {
+  html[data-theme='dark'] .hover\:border-alert\/50:hover {
+    border-color: rgba(255, 138, 128, 0.5);
+  }
+  html[data-theme='dark'] .hover\:border-cerulean:hover {
+    border-color: #5b9bff;
+  }
+  html[data-theme='dark'] .hover\:border-cerulean\/30:hover {
+    border-color: rgba(91, 155, 255, 0.3);
+  }
+  /* On the search boxes above the /30 hover would dim the brightened border
+     (1.69 against 3.19 at rest); a stronger tint keeps hover a step up. */
+  html[data-theme='dark']
+    .hover\:border-cerulean\/30:where(
+      :has(
+        > input:not(
+            [type='checkbox'],
+            [type='radio'],
+            [type='hidden'],
+            [type='file']
+          ),
+        > select,
+        > textarea
+      )
+    ):hover {
+    border-color: rgba(91, 155, 255, 0.7); /* 3.64 / 4.06 */
+  }
+  html[data-theme='dark'] .hover\:border-cerulean\/40:hover {
+    border-color: rgba(91, 155, 255, 0.4);
+  }
+  html[data-theme='dark'] .hover\:border-cerulean\/50:hover {
+    border-color: rgba(91, 155, 255, 0.5);
+  }
+  html[data-theme='dark'] .hover\:border-cerulean\/60:hover {
+    border-color: rgba(91, 155, 255, 0.6);
+  }
+  html[data-theme='dark'] .hover\:border-slate\/50:hover {
+    border-color: #7d8fa0; /* 4.99 / 5.56: lighter than rest (it was darker) */
+  }
+}
+html[data-theme='dark'] .focus\:border-alert:focus {
+  border-color: #ff8a80;
+}
+html[data-theme='dark'] .focus\:border-cerulean:focus {
+  border-color: #5b9bff;
+}
+
 html[data-theme='dark'] .ring-cloud\/70 {
   --tw-ring-color: rgba(41, 50, 63, 0.7);
 }
 html[data-theme='dark'] .ring-cloud\/60 {
   --tw-ring-color: rgba(41, 50, 63, 0.6);
 }
-
-/* The sd-input arbitrary-hex border (see input.ts). */
-html[data-theme='dark'] .border-\[\#b8c6d4\] {
-  border-color: #3a4a58;
+/* Pale rings and halos that stayed light (cosmetic). */
+html[data-theme='dark'] .ring-cloud\/25 {
+  --tw-ring-color: rgba(41, 50, 63, 0.6);
+}
+html[data-theme='dark'] .ring-frost {
+  --tw-ring-color: rgba(33, 111, 209, 0.4);
+}
+html[data-theme='dark'] .ring-frost\/50 {
+  --tw-ring-color: rgba(33, 111, 209, 0.3);
+}
+html[data-theme='dark'] .ring-frost\/30 {
+  --tw-ring-color: rgba(33, 111, 209, 0.14);
+}
+html[data-theme='dark'] .ring-white\/60 {
+  --tw-ring-color: rgba(255, 255, 255, 0.06); /* auth card rim */
 }
 
-/* Placeholders — keep them dim on dark. */
+/* Focus indicators: ≥ 3:1 on card, page and cloud, and no white offset halo
+   (Tailwind's default ring-offset colour is #fff). */
+html[data-theme='dark'] .focus-visible\:ring-alert\/40:focus-visible {
+  --tw-ring-color: rgb(255 138 128 / 0.7); /* 4.21 / 4.50 (was 1.55) */
+}
+html[data-theme='dark'] .focus-visible\:ring-cerulean\/40:focus-visible,
+html[data-theme='dark'] .focus-within\:ring-cerulean\/30:focus-within {
+  --tw-ring-color: rgb(140 188 255 / 0.7); /* 4.87 / 5.22 (was 1.49 / 1.33) */
+}
+html[data-theme='dark'] .focus-visible\:ring-teal\/40:focus-visible {
+  --tw-ring-color: rgb(77 182 172 / 0.7); /* 4.04 / 4.28 (was 1.51) */
+}
+html[data-theme='dark'] .focus-visible\:outline-cerulean:focus-visible {
+  outline-color: #8cbcff; /* 7.23 on frost/40 (was 2.94) */
+}
+html[data-theme='dark'] .focus-visible\:ring-offset-2:focus-visible {
+  --tw-ring-offset-color: #161f2b; /* = the dark dialog surface */
+}
+
+/* Placeholders: 5.18 / 5.64 (were 2.95 / 3.05; slate/50 had no rule: 1.71). */
+html[data-theme='dark'] .placeholder\:text-slate\/50::placeholder,
 html[data-theme='dark'] .placeholder\:text-slate\/60::placeholder,
 html[data-theme='dark'] .placeholder\:text-slate\/70::placeholder,
 html[data-theme='dark'] .placeholder\:text-slate::placeholder {
-  color: rgba(148, 166, 181, 0.55);
+  color: rgba(148, 166, 181, 0.85);
 }
 
 /* ----- Landing gradients (from/via/to color stops) ----- */
@@ -250,7 +573,67 @@ html[data-theme='dark'] .sd-shimmer::after {
   );
 }
 
-/* Card hover elevation is invisible on dark — deepen it. */
-html[data-theme='dark'] .sd-card-hover:hover {
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+/* ----- Shared components (no markup change) ----- */
+/* Disabled sd-button: no light slab on a dark page (exempt state; label 3.56). */
+html[data-theme='dark'] .disabled\:bg-ash:disabled {
+  background-color: #26313d;
+}
+html[data-theme='dark'] .disabled\:text-white\/70:disabled {
+  color: rgba(229, 237, 244, 0.45);
+}
+/* sd-toggle knob stays light: 4.57 on the on-track, 3.52 on the off-track. */
+html[data-theme='dark'] sd-toggle .bg-white {
+  background-color: #e5edf4;
+}
+/* Upload / profile progress fill vs its frost track: 6.45 (was 2.33). */
+html[data-theme='dark'] [role='progressbar'] > .bg-cerulean {
+  background-color: #8cbcff;
+}
+/* Menus a step above the card they open over (= the dark dialog raised tier). */
+html[data-theme='dark'] sd-search-select .sd-menu,
+html[data-theme='dark'] sd-phone-input [role='listbox'] {
+  background-color: #1c2633;
+}
+/* Neutral empty-state disc was the page colour. */
+html[data-theme='dark'] .sd-es .bg-glacier {
+  background-color: #212c39;
+}
+
+/* ----- Call cockpit guard -----
+ * `.sd-call` carries its own theme (`data-theme`, light rules in theme.css), so
+ * the portal's dark rules must not repaint it. (a) Its literal white controls
+ * stay white (consent knob 5.27 on the cerulean track, "Review the follow-up"
+ * 14.06). (b) A LIGHT cockpit keeps the light brand text it has in the light
+ * portal; the dark cockpit (its default) takes the dark tones above. */
+html[data-theme='dark'] .sd-call .bg-white {
+  background-color: #fcfcfc;
+}
+html[data-theme='dark'] .sd-call .text-ink {
+  color: #1c2b3a;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] .text-alert {
+  color: #e53935;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] .text-cerulean {
+  color: #0b62e4;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] .text-sage {
+  color: #43a047;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] .text-sky {
+  color: #0091ff;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] .text-success {
+  color: #00a328;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] .text-teal {
+  color: #00796c;
+}
+@media (hover: hover) {
+  html[data-theme='dark'] .sd-call .hover\:bg-white\/90:hover {
+    background-color: rgb(252 252 252 / 0.9);
+  }
+  html[data-theme='dark'] .sd-call .hover\:text-frost:hover {
+    color: var(--color-frost);
+  }
 }

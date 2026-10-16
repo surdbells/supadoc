@@ -44,14 +44,14 @@ const FOCUS_RING =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
 
 const PRIMARY_ACTION =
-  'inline-flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white shadow-[0_2px_10px_rgba(21,101,192,0.25)] transition-colors hover:bg-cerulean-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2';
+  'inline-flex items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-cerulean-dark hover:shadow-btn-hover disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2';
 
 const SECONDARY_ACTION =
-  'inline-flex items-center justify-center gap-2 rounded-field border border-cloud bg-white px-5 py-3 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean ' +
+  'inline-flex items-center justify-center gap-2 rounded-field border border-haze bg-white px-5 py-3 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none ' +
   FOCUS_RING;
 
 const CHIP =
-  'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans text-caption font-medium';
+  'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/15';
 
 /** A patient's record for the doctor (route `/patients/:id`). */
 @Component({
@@ -77,7 +77,7 @@ const CHIP =
       </div>
 
       @if (error()) {
-        <div class="rounded-card border border-cloud bg-white px-4" role="alert">
+        <div class="rounded-card border border-haze bg-white px-4 shadow-card" role="alert">
           <sd-empty-state icon="user-x" tone="error" title="We couldn't open this patient" [message]="error()">
             <a routerLink="/patients" class="${SECONDARY_ACTION}">
               <sd-icon name="users" [size]="18" />Back to patients
@@ -86,18 +86,18 @@ const CHIP =
         </div>
       } @else if (record(); as r) {
         <!-- Profile header + quick actions -->
-        <section class="grid gap-6 rounded-card border border-cloud bg-white p-5 shadow-[0_1px_2px_rgba(10,22,40,0.04)] sm:p-6 lg:grid-cols-[1fr_auto]" aria-labelledby="pd-patient-name">
+        <section class="grid gap-6 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6 lg:grid-cols-[1fr_auto]" aria-labelledby="pd-patient-name">
           <div class="flex min-w-0 flex-col gap-5">
             <div class="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
-              <span class="flex size-20 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean sm:size-24 sm:text-h3" aria-hidden="true">{{ initials() }}</span>
+              <span class="flex size-20 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean-dark ring-4 ring-white shadow-control sm:size-24 sm:text-h3" aria-hidden="true">{{ initials() }}</span>
               <div class="flex min-w-0 flex-1 flex-col gap-2.5">
                 <h2 id="pd-patient-name" class="break-words font-heading text-h4 text-ink">{{ r.patient.name }}</h2>
                 <ul class="flex flex-wrap items-center justify-center gap-2 sm:justify-start" aria-label="Patient summary">
                   @if (sex()) {
-                    <li class="${CHIP} bg-frost text-cerulean"><sd-icon name="user" [size]="14" /><span class="sr-only">Sex:</span>{{ sex() }}</li>
+                    <li class="${CHIP} bg-frost text-cerulean-dark"><sd-icon name="user" [size]="14" /><span class="sr-only">Sex:</span>{{ sex() }}</li>
                   }
                   @if (age() !== null) {
-                    <li class="${CHIP} bg-frost text-cerulean"><sd-icon name="calendar-days" [size]="14" /><span class="sr-only">Age:</span>{{ age() }} yrs</li>
+                    <li class="${CHIP} bg-frost text-cerulean-dark"><sd-icon name="calendar-days" [size]="14" /><span class="sr-only">Age:</span>{{ age() }} yrs</li>
                   }
                   <li class="${CHIP} bg-glacier text-ink"><sd-icon name="stethoscope" [size]="14" class="text-slate" />{{ r.visit_count }} visit{{ r.visit_count === 1 ? '' : 's' }} with you</li>
                 </ul>
@@ -136,7 +136,7 @@ const CHIP =
         </section>
 
         <!-- Record tabs: a 2×2 grid on phones (all four visible), the pill bar from sm up. -->
-        <div class="grid w-full grid-cols-2 gap-1 rounded-card border border-cloud bg-white p-1 sm:flex sm:w-fit sm:max-w-full sm:rounded-pill" role="tablist" aria-label="Patient record">
+        <div class="grid w-full grid-cols-2 gap-1 rounded-card border border-haze bg-glacier p-1 shadow-bar sm:flex sm:w-fit sm:max-w-full sm:rounded-pill" role="tablist" aria-label="Patient record">
           @for (t of tabs; track t.key; let i = $index) {
             <button
               #tabButton
@@ -146,8 +146,8 @@ const CHIP =
               [attr.aria-selected]="tab() === t.key"
               [attr.aria-controls]="tab() === t.key || t.key === 'prescriptions' ? panelId(t.key) : null"
               [tabIndex]="tab() === t.key ? 0 : -1"
-              class="flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition-colors sm:px-5 ${FOCUS_RING}"
-              [class]="tab() === t.key ? 'bg-frost text-cerulean' : 'text-slate hover:text-ink'"
+              class="flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition sm:px-5 ${FOCUS_RING}"
+              [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
               (click)="selectTab(t.key)"
               (keydown)="onTabKeydown($event, i)"
             >

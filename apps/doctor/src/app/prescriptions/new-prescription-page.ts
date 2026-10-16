@@ -45,7 +45,7 @@ const PER_PAGE = 20;
       </header>
 
       @if (patientId(); as pid) {
-        <div class="flex flex-col gap-3 rounded-card border border-cloud bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-3 rounded-card border border-haze bg-white px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between">
           <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">
             <sd-icon name="user" [size]="18" class="shrink-0 text-cerulean" />
             <span class="min-w-0">
@@ -54,7 +54,7 @@ const PER_PAGE = 20;
           </span>
           <button
             type="button"
-            class="inline-flex w-fit items-center gap-1.5 rounded-field border border-cloud px-3 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean"
+            class="inline-flex w-fit items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
             (click)="changePatient()"
           >
             <sd-icon name="users" [size]="14" /> Change patient
@@ -68,7 +68,7 @@ const PER_PAGE = 20;
           (closed)="onClosed()"
         />
       } @else {
-        <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-4 sm:p-6" aria-labelledby="rx-pick-title">
+        <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card sm:p-6" aria-labelledby="rx-pick-title">
           <div class="flex flex-col gap-1">
             <h2 id="rx-pick-title" class="font-heading text-body-lg text-ink">Choose a patient</h2>
             <p class="font-sans text-caption text-slate">Only patients you have consulted with are listed.</p>
@@ -81,7 +81,7 @@ const PER_PAGE = 20;
               id="rx-pick-search"
               type="search"
               autocomplete="off"
-              class="w-full rounded-field border border-cloud bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20"
+              class="w-full rounded-field border border-haze bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 hover:border-cerulean/30 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20"
               placeholder="Search by name or email…"
               [value]="search()"
               (input)="onSearch($any($event.target).value)"
@@ -101,7 +101,7 @@ const PER_PAGE = 20;
               <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
               <button
                 type="button"
-                class="inline-flex items-center gap-1.5 rounded-field border border-cloud px-4 py-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean"
+                class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                 (click)="reload()"
               >
                 <sd-icon name="refresh-cw" [size]="16" /> Try again
@@ -125,7 +125,7 @@ const PER_PAGE = 20;
                     class="flex w-full items-center gap-3 rounded-field border border-cloud bg-white px-4 py-3 text-left transition-colors hover:border-cerulean/50 hover:bg-glacier"
                     (click)="choose(p)"
                   >
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-caption font-semibold text-cerulean" aria-hidden="true">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-caption font-semibold text-cerulean-dark" aria-hidden="true">
                       {{ initials(p) }}
                     </span>
                     <span class="flex min-w-0 flex-1 flex-col">
@@ -146,7 +146,7 @@ const PER_PAGE = 20;
             @if (hasMore()) {
               <button
                 type="button"
-                class="mx-auto rounded-field border border-cloud bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:border-cerulean disabled:opacity-60"
+                class="mx-auto rounded-field border border-haze bg-white px-6 py-2.5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
                 [disabled]="loading()"
                 (click)="loadMore()"
               >

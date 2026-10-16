@@ -40,7 +40,7 @@ export interface PublicDoctorProfileData {
           @if (photoUrl()) {
             <img [src]="photoUrl()" alt="" width="112" height="112" class="size-24 shrink-0 rounded-full object-cover sm:size-28" />
           } @else {
-            <span class="flex size-24 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean sm:size-28">{{ initials() || 'DR' }}</span>
+            <span class="flex size-24 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h3 text-cerulean-dark sm:size-28">{{ initials() || 'DR' }}</span>
           }
           <div class="flex min-w-0 flex-col gap-1.5 pt-1">
             <div class="flex flex-wrap items-center gap-2.5">
@@ -93,7 +93,7 @@ export interface PublicDoctorProfileData {
             <h3 class="flex items-center gap-2 font-heading text-h5 text-ink"><sd-icon name="sparkles" [size]="20" class="text-cerulean" />Area of expertise</h3>
             <div class="flex flex-wrap gap-2.5">
               @for (x of d.expertise ?? []; track x) {
-                <span class="rounded-pill bg-frost px-4 py-1.5 font-sans text-body-sm font-medium text-cerulean">{{ x }}</span>
+                <span class="rounded-pill bg-frost px-4 py-1.5 font-sans text-body-sm font-medium text-cerulean-dark">{{ x }}</span>
               }
             </div>
           </div>

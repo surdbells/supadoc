@@ -40,7 +40,7 @@ import { DoctorStandingStore } from '../standing/doctor-standing.store';
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
           <span
-            class="rounded-pill bg-cerulean/10 px-2.5 py-1 font-sans text-caption font-semibold text-cerulean"
+            class="rounded-pill bg-cerulean/10 px-2.5 py-1 font-sans text-caption font-semibold text-cerulean-dark"
             >Doctor</span
           >
         </div>

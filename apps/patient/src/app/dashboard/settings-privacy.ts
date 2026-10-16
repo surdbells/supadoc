@@ -42,8 +42,8 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
           }
         } @else {
           <!-- Two-factor authentication -->
-          <div class="flex items-center gap-4 rounded-card border border-cloud bg-white p-5">
-            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean">
+          <div class="flex items-center gap-4 rounded-card border border-haze bg-white p-5 shadow-card">
+            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark">
               <sd-icon name="lock" [size]="22" />
             </span>
             <div class="flex min-w-0 flex-1 flex-col">
@@ -54,7 +54,7 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
               </p>
             </div>
             @if (twoFaEnabled()) {
-              <span class="flex shrink-0 items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-semibold text-sage">
+              <span class="flex shrink-0 items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-semibold text-sage-ink">
                 <sd-icon name="circle-check" [size]="14" />On
               </span>
               <button type="button" class="shrink-0 rounded-field border border-alert px-4 py-2 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5" (click)="openDisable()">Disable</button>
@@ -64,8 +64,8 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
           </div>
 
           <!-- Biometrics (device preference) -->
-          <div class="flex items-center gap-4 rounded-card border border-cloud bg-white p-5">
-            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean">
+          <div class="flex items-center gap-4 rounded-card border border-haze bg-white p-5 shadow-card">
+            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark">
               <sd-icon name="fingerprint" [size]="22" />
             </span>
             <div class="flex min-w-0 flex-1 flex-col">
@@ -80,8 +80,8 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
         }
 
         @for (link of links; track link.title) {
-          <a [routerLink]="link.route" class="flex items-center gap-4 rounded-card border border-cloud bg-white p-5 transition-colors hover:border-cerulean/50">
-            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean">
+          <a [routerLink]="link.route" class="flex items-center gap-4 rounded-card border border-haze bg-white p-5 shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover">
+            <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark">
               <sd-icon [name]="link.icon" [size]="22" />
             </span>
             <div class="flex min-w-0 flex-1 flex-col">

@@ -10,7 +10,7 @@ import { ButtonComponent, IconComponent } from '@supadoc/ui';
 import { DoctorSignOut } from '../sign-out';
 
 const FIELD =
-  'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
+  'w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20';
 
 /** Doctor account settings (route `/settings`) — security + session. */
 @Component({
@@ -25,7 +25,7 @@ const FIELD =
         <p class="font-sans text-body text-slate">Manage your account security and session.</p>
       </header>
 
-      <section class="flex flex-col gap-4 rounded-card border border-cloud bg-white p-6">
+      <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
         <h2 class="flex items-center gap-2 font-heading text-body-lg text-ink">
           <sd-icon name="lock" [size]="20" class="text-cerulean" />Change password
         </h2>
@@ -49,7 +49,7 @@ const FIELD =
         </sd-button>
       </section>
 
-      <section class="flex items-center justify-between gap-4 rounded-card border border-cloud bg-white p-6">
+      <section class="flex items-center justify-between gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
         <div class="flex flex-col">
           <p class="font-heading text-body-lg text-ink">Sign out</p>
           <p class="font-sans text-body-sm text-slate">End your session on this device.</p>

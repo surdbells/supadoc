@@ -41,6 +41,7 @@ import {
   TBODY,
   TD,
   TD_ACTION,
+  TD_AMOUNT,
   TD_PRIMARY,
   TH,
   THEAD,
@@ -64,9 +65,9 @@ const FILTERS: Filter[] = [
 
 const STATUS: Record<string, { label: string; icon: string; cls: string }> = {
   pending: { label: 'Pending', icon: 'hourglass', cls: 'bg-warning/15 text-ink' },
-  approved: { label: 'Approved', icon: 'circle-check', cls: 'bg-frost text-cerulean' },
-  paid: { label: 'Paid', icon: 'landmark', cls: 'bg-sage/15 text-sage' },
-  rejected: { label: 'Rejected', icon: 'ban', cls: 'bg-alert/10 text-alert' },
+  approved: { label: 'Approved', icon: 'circle-check', cls: 'bg-frost text-cerulean-dark' },
+  paid: { label: 'Paid', icon: 'landmark', cls: 'bg-sage/15 text-sage-ink' },
+  rejected: { label: 'Rejected', icon: 'ban', cls: 'bg-alert/10 text-alert-ink' },
 };
 
 /**
@@ -134,7 +135,7 @@ const STATUS: Record<string, { label: string; icon: string; cls: string }> = {
                       <span class="${TD_PRIMARY} min-w-0 truncate">{{ p.specialist_name }}</span>
                     </span>
                   </td>
-                  <td class="${TD} text-right font-semibold">{{ money(p.amount, p.currency) }}</td>
+                  <td class="${TD} text-right font-semibold"><span class="${TD_AMOUNT}">{{ money(p.amount, p.currency) }}</span></td>
                   <td class="${TD}"><span class="${PILL}" [class]="statusClass(p.status)"><sd-icon [name]="statusIcon(p.status)" [size]="13" />{{ statusLabel(p.status) }}</span></td>
                   <td class="${TD} text-slate">{{ date(p.requested_at) }}</td>
                   <td class="${TD_ACTION}"><button type="button" class="${TABLE_LINK}" [attr.aria-label]="'Review the payout of ' + p.specialist_name" (click)="open(p)">Review<sd-icon name="chevron-right" [size]="16" /></button></td>

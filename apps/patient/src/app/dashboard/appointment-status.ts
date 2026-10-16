@@ -36,9 +36,9 @@ export const OPEN_STATUSES: readonly ApiAppointmentStatus[] = ['pending', 'confi
 
 /** Upcoming bookings take their colour from the underlying status. */
 const UPCOMING_CLASS: Partial<Record<ApiAppointmentStatus, string>> = {
-  proposed: 'bg-teal/10 text-teal',
-  pending: 'bg-warning/15 text-warning',
-  confirmed: 'bg-sage/15 text-sage',
+  proposed: 'bg-teal/10 text-teal-ink',
+  pending: 'bg-warning/15 text-warning-ink',
+  confirmed: 'bg-sage/15 text-sage-ink',
   rescheduled: 'bg-cloud text-slate',
 };
 
@@ -50,11 +50,11 @@ const UPCOMING_ICON: Partial<Record<ApiAppointmentStatus, string>> = {
 };
 
 const DISPLAY_STYLE: Record<Exclude<AppointmentDisplayStatus, 'upcoming'>, { class: string; icon: string }> = {
-  live: { class: 'bg-success/15 text-success', icon: 'video' },
-  finalising: { class: 'bg-frost text-cerulean', icon: 'hourglass' },
-  completed: { class: 'bg-sage/15 text-sage', icon: 'circle-check' },
-  cancelled: { class: 'bg-alert/10 text-alert', icon: 'circle-x' },
-  missed: { class: 'bg-warning/15 text-warning', icon: 'calendar-x' },
+  live: { class: 'bg-success/15 text-success-ink', icon: 'video' },
+  finalising: { class: 'bg-frost text-cerulean-dark', icon: 'hourglass' },
+  completed: { class: 'bg-sage/15 text-sage-ink', icon: 'circle-check' },
+  cancelled: { class: 'bg-alert/10 text-alert-ink', icon: 'circle-x' },
+  missed: { class: 'bg-warning/15 text-warning-ink', icon: 'calendar-x' },
   not_confirmed: { class: 'bg-cloud text-slate', icon: 'calendar-off' },
   expired: { class: 'bg-cloud text-slate', icon: 'hourglass' },
 };

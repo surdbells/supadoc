@@ -20,13 +20,23 @@ import type {
   NotificationType,
   NotificationTypeCount,
 } from '@supadoc/models';
-import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import {
+  ButtonComponent,
+  EmptyStateComponent,
+  IconComponent,
+} from '@supadoc/ui';
 
 type Type = NotificationType;
 type Tab = 'all' | 'unread' | Type;
 type Count = NotificationTypeCount;
 
-const TYPES: readonly Type[] = ['appointment', 'prescription', 'payment', 'message', 'system'];
+const TYPES: readonly Type[] = [
+  'appointment',
+  'prescription',
+  'payment',
+  'message',
+  'system',
+];
 
 /** Notifications fetched per page ("Load more" fetches the next). */
 const PAGE_SIZE = 50;
@@ -55,22 +65,44 @@ function safeAppLink(link: string | null | undefined): string | null {
 }
 
 const TYPE: Record<Type, { label: string; icon: string; tint: string }> = {
-  appointment: { label: 'Appointment', icon: 'calendar-clock', tint: 'bg-frost text-cerulean' },
-  prescription: { label: 'Prescription', icon: 'pill', tint: 'bg-teal/10 text-teal' },
-  payment: { label: 'Payment', icon: 'credit-card', tint: 'bg-sage/15 text-sage' },
-  message: { label: 'Message', icon: 'message-square', tint: 'bg-frost text-cerulean' },
-  system: { label: 'System', icon: 'bell', tint: 'bg-sky/10 text-sky' },
+  appointment: {
+    label: 'Appointment',
+    icon: 'calendar-clock',
+    tint: 'bg-frost text-cerulean-dark',
+  },
+  prescription: {
+    label: 'Prescription',
+    icon: 'pill',
+    tint: 'bg-teal/10 text-teal-ink',
+  },
+  payment: {
+    label: 'Payment',
+    icon: 'credit-card',
+    tint: 'bg-sage/15 text-sage-ink',
+  },
+  message: {
+    label: 'Message',
+    icon: 'message-square',
+    tint: 'bg-frost text-cerulean-dark',
+  },
+  system: { label: 'System', icon: 'bell', tint: 'bg-sky/10 text-cerulean-dark' },
 };
 
 function relativeTime(iso: string): string {
-  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  const min = Math.max(
+    0,
+    Math.round((Date.now() - new Date(iso).getTime()) / 60000),
+  );
   if (min < 1) return 'Just now';
   if (min < 60) return `${min}m ago`;
   const hr = Math.round(min / 60);
   if (hr < 24) return `${hr}h ago`;
   const d = Math.round(hr / 24);
   if (d < 7) return `${d}d ago`;
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(iso));
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(iso));
 }
 
 function toNotice(n: NotificationDto): Notice {
@@ -93,7 +125,9 @@ function filterFor(tab: Tab): ListNotificationsQuery {
   return { type: tab };
 }
 
-function countsFromMeta(meta: Partial<Record<Type, Partial<Count>>>): Record<Type, Count> {
+function countsFromMeta(
+  meta: Partial<Record<Type, Partial<Count>>>,
+): Record<Type, Count> {
   return Object.fromEntries(
     TYPES.map((t) => [
       t,
@@ -139,7 +173,7 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
           </p>
         </div>
         <span
-          class="flex items-center gap-2 rounded-field border border-cloud bg-white px-4 py-3 lg:w-[440px]"
+          class="flex items-center gap-2 rounded-field border border-haze bg-white px-4 py-3 shadow-control hover:border-cerulean/30 lg:w-[440px]"
         >
           <sd-icon name="search" [size]="20" class="text-slate" />
           <input
@@ -153,8 +187,12 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
       </div>
 
       <!-- Tabs (they scroll sideways when they don't fit; "Mark all read" stays put) -->
-      <div class="flex items-center gap-2 rounded-pill border border-cloud bg-white p-2">
-        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <div
+        class="flex items-center gap-2 rounded-pill border border-haze bg-glacier p-2 shadow-bar"
+      >
+        <div
+          class="-mx-1 -my-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 py-1"
+        >
           @for (t of tabs; track t.key) {
             @let c = tabCounts()[t.key];
             <button
@@ -162,7 +200,7 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
               class="flex shrink-0 items-center gap-2 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
               [class]="
                 activeTab() === t.key
-                  ? 'bg-frost font-medium text-cerulean'
+                  ? 'bg-frost font-medium text-cerulean-dark shadow-control'
                   : 'text-slate hover:text-ink'
               "
               [attr.aria-pressed]="activeTab() === t.key"
@@ -173,7 +211,11 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
               @if (c && c.total > 0) {
                 <span
                   class="flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums"
-                  [class]="c.unread > 0 ? 'bg-cerulean text-white' : 'bg-cloud text-slate'"
+                  [class]="
+                    c.unread > 0
+                      ? 'bg-cerulean text-white'
+                      : 'bg-cloud text-slate'
+                  "
                   aria-hidden="true"
                   >{{ c.total > 99 ? '99+' : c.total }}</span
                 >
@@ -200,7 +242,9 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
         @case ('loading') {
           <div class="flex flex-col gap-4">
             @for (n of [1, 2, 3, 4]; track n) {
-              <div class="h-20 animate-pulse rounded-card border border-cloud bg-cloud/40"></div>
+              <div
+                class="h-20 animate-pulse rounded-card border border-cloud bg-cloud/40"
+              ></div>
             }
           </div>
         }
@@ -211,7 +255,9 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
             title="Couldn't load notifications"
             [message]="loadError() || 'Check your connection and try again.'"
           >
-            <sd-button variant="outline" (click)="reload()">Try Again</sd-button>
+            <sd-button variant="outline" (click)="reload()"
+              >Try Again</sd-button
+            >
           </sd-empty-state>
         }
         @case ('empty') {
@@ -226,7 +272,7 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
             @for (n of filtered(); track n.id) {
               <button
                 type="button"
-                class="sd-card-hover flex gap-3 rounded-card border border-cloud bg-white p-4 text-left hover:border-cerulean/40"
+                class="sd-card-hover flex gap-3 rounded-card border border-haze bg-white p-4 text-left shadow-card hover:border-cerulean/40"
                 [class.border-l-4]="!n.read"
                 [class.!border-l-cerulean]="!n.read"
                 (click)="open(n)"
@@ -244,29 +290,50 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
                       [class]="type(n).tint"
                       >{{ type(n).label }}</span
                     >
-                    <span class="shrink-0 font-sans text-caption text-slate">{{ n.time }}</span>
+                    <span class="shrink-0 font-sans text-caption text-slate">{{
+                      n.time
+                    }}</span>
                   </div>
-                  <p class="font-sans text-body font-semibold text-ink">{{ n.title }}</p>
+                  <p class="font-sans text-body font-semibold text-ink">
+                    {{ n.title }}
+                  </p>
                   <p class="font-sans text-caption text-slate">{{ n.body }}</p>
                   @if (n.link) {
-                    <span class="flex items-center gap-1 font-sans text-caption font-semibold text-cerulean">
+                    <span
+                      class="flex items-center gap-1 font-sans text-caption font-semibold text-cerulean"
+                    >
                       Open
                       <sd-icon name="chevron-right" [size]="14" />
                     </span>
                   }
                 </div>
                 @if (!n.read) {
-                  <span class="mt-1 size-2 shrink-0 rounded-full bg-cerulean" aria-label="Unread"></span>
+                  <span
+                    class="mt-1 size-2 shrink-0 rounded-full bg-cerulean"
+                    aria-label="Unread"
+                  ></span>
                 }
               </button>
             }
             @if (hasMore()) {
               <div class="flex flex-col items-center gap-2 pt-2">
                 @if (moreError()) {
-                  <p class="font-sans text-caption text-alert" role="alert">{{ moreError() }}</p>
+                  <p class="font-sans text-caption text-alert" role="alert">
+                    {{ moreError() }}
+                  </p>
                 }
-                <sd-button variant="outline" [disabled]="loadingMore()" (click)="loadMore()">
-                  {{ loadingMore() ? 'Loading…' : moreError() ? 'Try again' : 'Load more' }}
+                <sd-button
+                  variant="outline"
+                  [disabled]="loadingMore()"
+                  (click)="loadMore()"
+                >
+                  {{
+                    loadingMore()
+                      ? 'Loading…'
+                      : moreError()
+                        ? 'Try again'
+                        : 'Load more'
+                  }}
                 </sd-button>
               </div>
             }
@@ -343,8 +410,16 @@ export class Notification {
   protected readonly tabs: { key: Tab; label: string; noun: string }[] = [
     { key: 'all', label: 'All', noun: 'notifications' },
     { key: 'unread', label: 'Unread', noun: 'unread notifications' },
-    { key: 'appointment', label: 'Appointments', noun: 'appointment notifications' },
-    { key: 'prescription', label: 'Prescriptions', noun: 'prescription notifications' },
+    {
+      key: 'appointment',
+      label: 'Appointments',
+      noun: 'appointment notifications',
+    },
+    {
+      key: 'prescription',
+      label: 'Prescriptions',
+      noun: 'prescription notifications',
+    },
     { key: 'payment', label: 'Payments', noun: 'payment notifications' },
     { key: 'message', label: 'Messages', noun: 'messages' },
     { key: 'system', label: 'System', noun: 'system notifications' },
@@ -388,14 +463,19 @@ export class Notification {
     const tab = this.activeTab();
     const q = this.query().trim().toLowerCase();
     return this.items().filter((n) => {
-      const byTab = tab === 'all' ? true : tab === 'unread' ? !n.read : n.type === tab;
+      const byTab =
+        tab === 'all' ? true : tab === 'unread' ? !n.read : n.type === tab;
       const byQuery =
-        !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q);
+        !q ||
+        n.title.toLowerCase().includes(q) ||
+        n.body.toLowerCase().includes(q);
       return byTab && byQuery;
     });
   });
 
-  protected readonly viewState = computed<'loading' | 'list' | 'empty' | 'error'>(() => {
+  protected readonly viewState = computed<
+    'loading' | 'list' | 'empty' | 'error'
+  >(() => {
     if (this.loadError()) return 'error';
     if (this.loading()) return 'loading';
     return this.filtered().length === 0 && !this.hasMore() ? 'empty' : 'list';
@@ -404,19 +484,33 @@ export class Notification {
   protected readonly emptyState = computed(() => {
     const tab = this.activeTab();
     if (this.query().trim()) {
-      return { icon: 'search', title: 'No matching notifications', message: 'Try a different search.' };
+      return {
+        icon: 'search',
+        title: 'No matching notifications',
+        message: 'Try a different search.',
+      };
     }
     if (tab === 'unread') {
-      return { icon: 'bell', title: "You're all caught up", message: 'You have no unread notifications.' };
+      return {
+        icon: 'bell',
+        title: "You're all caught up",
+        message: 'You have no unread notifications.',
+      };
     }
     if (tab !== 'all') {
-      const noun = this.tabs.find((t) => t.key === tab)?.noun ?? 'notifications';
-      return { icon: 'bell-off', title: `No ${noun} yet`, message: `When you have ${noun}, they'll appear here.` };
+      const noun =
+        this.tabs.find((t) => t.key === tab)?.noun ?? 'notifications';
+      return {
+        icon: 'bell-off',
+        title: `No ${noun} yet`,
+        message: `When you have ${noun}, they'll appear here.`,
+      };
     }
     return {
       icon: 'bell-off',
       title: 'No notifications yet',
-      message: "When you have new appointments, prescriptions, or account activity, they'll appear here.",
+      message:
+        "When you have new appointments, prescriptions, or account activity, they'll appear here.",
     };
   });
 
@@ -425,14 +519,23 @@ export class Notification {
     if (!n.read) {
       this.writeStarted();
       this.readHere.add(n.id);
-      this.items.update((list) => list.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      this.items.update((list) =>
+        list.map((x) => (x.id === n.id ? { ...x, read: true } : x)),
+      );
       this.unread.update((u) => Math.max(0, u - 1));
       this.counts.update((c) =>
         c?.[n.type]
-          ? { ...c, [n.type]: { ...c[n.type], unread: Math.max(0, c[n.type].unread - 1) } }
+          ? {
+              ...c,
+              [n.type]: {
+                ...c[n.type],
+                unread: Math.max(0, c[n.type].unread - 1),
+              },
+            }
           : c,
       );
-      if (this.activeTab() === 'unread' && this.unread() === 0) this.hasMore.set(false);
+      if (this.activeTab() === 'unread' && this.unread() === 0)
+        this.hasMore.set(false);
       // Not tied to this page's lifetime: navigating away must not cancel the
       // mark-read request.
       this.api.markRead(n.id).subscribe({
@@ -454,18 +557,27 @@ export class Notification {
     this.items.update((list) => list.map((x) => ({ ...x, read: true })));
     this.unread.set(0);
     this.counts.update((c) =>
-      c ? countsFromMeta(Object.fromEntries(TYPES.map((t) => [t, { total: c[t].total, unread: 0 }]))) : c,
+      c
+        ? countsFromMeta(
+            Object.fromEntries(
+              TYPES.map((t) => [t, { total: c[t].total, unread: 0 }]),
+            ),
+          )
+        : c,
     );
     // Nothing older is unread any more.
     if (this.activeTab() === 'unread') this.hasMore.set(false);
-    this.api.markAllRead().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.writeSettled(),
-      error: () => {
-        this.allReadUpTo = null;
-        this.writeSettled(false);
-        this.load();
-      },
-    });
+    this.api
+      .markAllRead()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.writeSettled(),
+        error: () => {
+          this.allReadUpTo = null;
+          this.writeSettled(false);
+          this.load();
+        },
+      });
   }
 
   private writeStarted(): void {
@@ -476,7 +588,8 @@ export class Notification {
   /** A mark-read call was answered; once none are left, refresh skipped numbers. */
   private writeSettled(refresh = true): void {
     this.pendingWrites = Math.max(0, this.pendingWrites - 1);
-    if (refresh && this.pendingWrites === 0 && this.numbersStale) this.refreshNumbers();
+    if (refresh && this.pendingWrites === 0 && this.numbersStale)
+      this.refreshNumbers();
   }
 
   /** Re-read just the account-wide numbers (one tiny request). */
@@ -494,7 +607,8 @@ export class Notification {
             return;
           }
           this.applyMeta(res.meta, null);
-          if (this.activeTab() === 'unread' && this.unread() === 0) this.hasMore.set(false);
+          if (this.activeTab() === 'unread' && this.unread() === 0)
+            this.hasMore.set(false);
         },
         error: () => {
           /* the next load resyncs */
@@ -505,7 +619,9 @@ export class Notification {
   /** What was read on this page wins over what a response says. */
   private withReadsHere(n: Notice): Notice {
     if (n.read) return n;
-    const readAll = this.allReadUpTo !== null && new Date(n.createdAt).getTime() <= this.allReadUpTo;
+    const readAll =
+      this.allReadUpTo !== null &&
+      new Date(n.createdAt).getTime() <= this.allReadUpTo;
     return readAll || this.readHere.has(n.id) ? { ...n, read: true } : n;
   }
 
@@ -548,7 +664,10 @@ export class Notification {
             return;
           }
           for (const d of res.data) {
-            this.newestSeen = Math.max(this.newestSeen, new Date(d.created_at).getTime() || 0);
+            this.newestSeen = Math.max(
+              this.newestSeen,
+              new Date(d.created_at).getTime() || 0,
+            );
           }
           // Merge into the list as it is now (reads made meanwhile included).
           const current = more ? this.items() : [];
@@ -569,7 +688,9 @@ export class Notification {
             // per-type tally comes from the (read-adjusted) list itself.
             if (!res.meta.counts) {
               this.total.set(res.meta.total);
-              this.counts.set(items.length >= res.meta.total ? tally(items) : null);
+              this.counts.set(
+                items.length >= res.meta.total ? tally(items) : null,
+              );
             }
             if (this.pendingWrites === 0) this.refreshNumbers();
           }
@@ -583,7 +704,10 @@ export class Notification {
           this.loadingMore.set(false);
         },
         error: (err: unknown) => {
-          const message = apiErrorMessage(err, 'Check your connection and try again.');
+          const message = apiErrorMessage(
+            err,
+            'Check your connection and try again.',
+          );
           if (more) this.moreError.set(message);
           else this.loadError.set(message);
           this.loading.set(false);
@@ -593,7 +717,10 @@ export class Notification {
   }
 
   /** Account-wide numbers from a response; `items` = the older API's one page (null: numbers only). */
-  private applyMeta(meta: NotificationsResponse['meta'], items: readonly Notice[] | null): void {
+  private applyMeta(
+    meta: NotificationsResponse['meta'],
+    items: readonly Notice[] | null,
+  ): void {
     this.unread.set(Math.max(0, Number(meta.unread) || 0));
     if (meta.counts) {
       const counts = countsFromMeta(meta.counts);
@@ -604,6 +731,7 @@ export class Notification {
     // An older API: the one unfiltered page covers the whole account, and the
     // per-type numbers are only certain when nothing lies beyond it.
     this.total.set(meta.total);
-    if (items) this.counts.set(items.length >= meta.total ? tally(items) : null);
+    if (items)
+      this.counts.set(items.length >= meta.total ? tally(items) : null);
   }
 }

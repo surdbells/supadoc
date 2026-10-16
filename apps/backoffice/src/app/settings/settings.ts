@@ -45,7 +45,7 @@ import { BookingSettingsSection } from './booking-settings';
       </header>
 
       <section class="${SECTION} !flex-row items-center !gap-4">
-        <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-h5 font-semibold text-ink" aria-hidden="true">
+        <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-h5 font-semibold text-ink ring-2 ring-white shadow-control" aria-hidden="true">
           {{ initials() || 'AD' }}
         </span>
         <div class="flex min-w-0 flex-col gap-1">
@@ -62,7 +62,7 @@ import { BookingSettingsSection } from './booking-settings';
         @if (permissions().length > 0) {
           <div class="flex flex-wrap gap-2">
             @for (p of permissions(); track p) {
-              <span class="${CHIP} bg-frost font-mono text-cerulean">{{ p }}</span>
+              <span class="${CHIP} bg-frost font-mono text-cerulean-dark">{{ p }}</span>
             }
           </div>
         } @else {

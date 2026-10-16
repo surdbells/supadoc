@@ -43,7 +43,7 @@ export interface ThreadMessage {
             <div class="flex justify-end">
               <div class="max-w-[80%] rounded-2xl rounded-br-sm bg-cerulean px-4 py-2.5 text-white">
                 <p class="whitespace-pre-wrap break-words font-sans text-body-sm">{{ m.body }}</p>
-                <p class="mt-1 text-right font-sans text-[11px] text-white/70">{{ when(m.created_at) }}</p>
+                <p class="mt-1 text-right font-sans text-[11px] text-white/90">{{ when(m.created_at) }}</p>
               </div>
             </div>
           } @else {
@@ -58,7 +58,7 @@ export interface ThreadMessage {
         } @empty {
           @if (!loading()) {
             <div class="flex flex-col items-center gap-3 py-16 text-center">
-              <span class="flex size-14 items-center justify-center rounded-full bg-frost/60 text-cerulean ring-8 ring-frost/30">
+              <span class="flex size-14 items-center justify-center rounded-full bg-frost/60 text-cerulean-dark ring-8 ring-frost/30">
                 <sd-icon name="message-square" [size]="24" />
               </span>
               <p class="max-w-xs font-sans text-body-sm text-slate">{{ emptyText() }}</p>

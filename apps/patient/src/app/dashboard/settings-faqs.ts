@@ -33,9 +33,7 @@ interface Faq {
 
       <div class="mx-auto flex w-full max-w-[820px] flex-col gap-6">
         @for (faq of faqs; track faq.q; let i = $index) {
-          <div
-            class="rounded-card border border-cloud bg-white p-6 shadow-[0_1px_3px_rgba(10,22,40,0.06)]"
-          >
+          <div class="rounded-card border border-haze bg-white p-6 shadow-card">
             <button
               type="button"
               class="flex w-full items-center justify-between gap-4 text-left"

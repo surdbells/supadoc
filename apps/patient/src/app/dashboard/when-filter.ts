@@ -147,8 +147,8 @@ export class WhenFilterChips {
     const base =
       'inline-flex min-h-11 items-center gap-1.5 rounded-pill border px-4 font-sans text-body-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
     return active
-      ? `${base} border-cerulean bg-frost font-medium text-cerulean`
-      : `${base} border-cloud text-slate hover:text-ink`;
+      ? `${base} border-cerulean bg-frost font-medium text-cerulean-dark shadow-control`
+      : `${base} border-haze bg-white text-slate shadow-control hover:text-ink`;
   }
 
   protected setWhen(when: WhenChoice): void {

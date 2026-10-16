@@ -234,7 +234,7 @@ function withUnit(n: number | string, unit: string): string {
                   <div class="${FIELD_STACK}">
                     <label [for]="fieldId(r.key)" class="${LABEL}">{{ r.label }}</label>
                     <div
-                      class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-[0_1px_2px_rgba(10,22,40,0.04)] transition-colors focus-within:ring-2"
+                      class="flex items-stretch overflow-hidden rounded-field border bg-white shadow-control transition-colors focus-within:ring-2"
                       [class]="errorFor(r.key) ? 'border-alert focus-within:ring-alert/20' : 'border-[#b8c6d4] focus-within:border-cerulean focus-within:ring-cerulean/20'"
                     >
                       <input

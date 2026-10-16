@@ -63,7 +63,7 @@ const MAX_DATA_URL_CHARS = 650_000;
     @if (showClear()) {
       <button
         type="button"
-        class="mt-2 inline-flex items-center gap-1.5 rounded-field border border-cloud bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean disabled:cursor-not-allowed disabled:opacity-50"
+        class="mt-2 inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
         [disabled]="empty()"
         (click)="clear()"
       >
