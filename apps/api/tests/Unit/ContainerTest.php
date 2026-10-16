@@ -72,4 +72,33 @@ final class ContainerTest extends TestCase
         $result = $app->getRouteResolver()->computeRoutingResults('/api/portal/appointments/presence', 'GET');
         $this->assertSame(RoutingResults::FOUND, $result->getRouteStatus());
     }
+
+    /**
+     * The whole app boots the way public/index.php builds it — global
+     * middleware included — and a request makes it through the pipeline.
+     * (A `static` closure passed to $app->add() makes Slim's bind fail, so
+     * every request in production was a fatal error while the other tests
+     * stayed green.)
+     */
+    public function testTheAppBootsWithItsMiddlewareAndHandlesARequest(): void
+    {
+        $_ENV['DB_SERVER_VERSION'] = '16';
+        DoctrineEntityManagerFactory::reset();
+        $builder = new ContainerBuilder();
+        $builder->addDefinitions(__DIR__ . '/../../config/container.php');
+        AppFactory::setContainer($builder->build());
+        $app = AppFactory::create();
+        (require __DIR__ . '/../../config/middleware.php')($app);
+        (require __DIR__ . '/../../config/routes.php')($app);
+
+        // The Paystack webhook skips the rate limiter (no Redis needed) and
+        // refuses an unsigned event before touching the database.
+        $request = (new \Slim\Psr7\Factory\ServerRequestFactory())
+            ->createServerRequest('POST', '/api/webhooks/paystack')
+            ->withHeader('Content-Type', 'application/json');
+        $request->getBody()->write('{"event":"charge.success","data":{"reference":"x"}}');
+        $request->getBody()->rewind();
+
+        $this->assertSame(401, $app->handle($request)->getStatusCode());
+    }
 }

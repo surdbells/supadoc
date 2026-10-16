@@ -34,7 +34,9 @@ return static function (App $app): void {
     // Paystack's webhook is exempt: every event comes from Paystack's few
     // addresses (a busy minute would be throttled into retries and delays),
     // and it is gated by its mandatory HMAC signature instead.
-    $app->add(static function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($rateLimit): ResponseInterface {
+    // NOT `static`: Slim binds closure middleware to the container, and binding
+    // a static closure fails — every request would then be a fatal error.
+    $app->add(function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($rateLimit): ResponseInterface {
         if (rtrim($request->getUri()->getPath(), '/') === '/api/webhooks/paystack') {
             return $handler->handle($request);
         }

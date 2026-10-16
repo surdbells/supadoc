@@ -671,5 +671,9 @@ if ($report['booking_attachments_quarantined'] !== []) {
     fwrite(STDOUT, "\nSome old booking attachments could not be filed and were moved out of the public folder into\n"
         . "var/quarantine/appointment-docs — review them by hand: see booking_attachments_quarantined above.\n");
 }
-fwrite(STDOUT, "\nDone. Reminder: the doctor emails above are placeholders — update each\n");
-fwrite(STDOUT, "specialist's email to the doctor's real inbox so invites + join links land there.\n");
+fwrite(STDOUT, "\nDone.\n");
+// Only when step 2 actually gave specialists derived placeholder emails this run.
+if (($report['emails_set'] ?? 0) > 0) {
+    fwrite(STDOUT, "Reminder: the doctor emails set above are placeholders — update each\n");
+    fwrite(STDOUT, "specialist's email to the doctor's real inbox so invites + join links land there.\n");
+}
