@@ -52,6 +52,45 @@ final class ContainerTest extends TestCase
             $this->assertIsObject($container->get($id), "could not resolve $id");
         }
         $this->assertIsObject($container->get(CallPresence::class));
+
+        // Document sharing: the policy, the service and its collaborators, every action.
+        foreach ([
+            \App\Infrastructure\Document\DocumentAccessPolicy::class,
+            \App\Infrastructure\Document\DocumentSharingService::class,
+            \App\Infrastructure\Document\DocumentSharingViews::class,
+            \App\Infrastructure\Document\DocumentAccessSweeper::class,
+            \App\Infrastructure\Document\DocumentAccessNotifier::class,
+            \App\Infrastructure\Service\SpecialistSuspensionService::class,
+        ] as $id) {
+            $this->assertIsObject($container->get($id), "could not resolve $id");
+        }
+        $this->assertSame(
+            $container->get(\App\Infrastructure\Document\DocumentAccessNoticeQueue::class),
+            $container->get(\App\Infrastructure\Document\DocumentAccessNoticeQueue::class),
+            'one notice queue per request (container)',
+        );
+        $actions = array_map(
+            static fn (string $file): string => 'App\\Action\\DocumentSharing\\' . basename($file, '.php'),
+            glob(__DIR__ . '/../../src/Action/DocumentSharing/*Action.php') ?: [],
+        );
+        $this->assertCount(18, $actions, 'the 18 patient sharing actions');
+        foreach ([
+            ...$actions,
+            \App\Action\Doctor\DoctorDocumentAccessAction::class,
+            \App\Action\Doctor\RequestDocumentAccessAction::class,
+            \App\Action\Doctor\CancelDocumentAccessRequestAction::class,
+            \App\Action\Doctor\ListPatientDocumentsAction::class,
+            \App\Action\Doctor\DownloadPatientDocumentAction::class,
+            \App\Action\Doctor\RescheduleDoctorAppointmentAction::class,
+            \App\Action\Patient\UploadMyDocumentAction::class,
+            \App\Action\Patient\ListMyDocumentsAction::class,
+            \App\Action\Appointment\UploadAppointmentDocumentAction::class,
+            \App\Action\Appointment\CreateMyAppointmentAction::class,
+            \App\Action\Appointment\GetMyAppointmentAction::class,
+            \App\Action\Appointment\ReschedulePortalAppointmentAction::class,
+        ] as $class) {
+            $this->assertIsObject($container->get($class), "could not resolve $class");
+        }
     }
 
     /**

@@ -63,10 +63,12 @@ final class AuthMiddleware implements MiddlewareInterface
         // Every access token is bound to a live server session by its jti (a
         // jti-less one is refused: none has been minted since sessions shipped,
         // and its refresh would be refused anyway). Activity is recorded
-        // (throttled) so the idle clock tracks real use.
+        // (throttled) so the idle clock tracks real use — except for a
+        // background poll (`X-SD-Passive: 1`): its session is still checked
+        // (an expired one is still refused), but it never extends the idle clock.
         $jti = (string) ($payload->jti ?? '');
         if ($this->sessions !== null) {
-            $state = $this->sessions->staffState($jti, touch: true);
+            $state = $this->sessions->staffState($jti, touch: !self::isPassive($request));
             if ($state !== SessionState::ACTIVE) {
                 $reason = $state === SessionState::EXPIRED ? $this->sessions->staffExpiryReason($jti) : null;
 
@@ -85,6 +87,15 @@ final class AuthMiddleware implements MiddlewareInterface
             ->withAttribute('session_id', $jti);
 
         return $handler->handle($request);
+    }
+
+    /** The header a client sets on a background poll ({@see isPassive()}). */
+    public const PASSIVE_HEADER = 'X-SD-Passive';
+
+    /** A background poll (`X-SD-Passive: 1`): checked like any request, but not activity. */
+    public static function isPassive(ServerRequestInterface $request): bool
+    {
+        return $request->getHeaderLine(self::PASSIVE_HEADER) === '1';
     }
 
     private function bearer(ServerRequestInterface $request): ?string

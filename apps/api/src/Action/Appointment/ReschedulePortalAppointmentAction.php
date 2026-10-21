@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Document\DocumentSharingRules;
 use App\Domain\Entity\Appointment;
+use App\Infrastructure\Document\DocumentSharingService;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Settings\BookingSettings;
@@ -49,6 +51,7 @@ final class ReschedulePortalAppointmentAction
         private readonly GuestInvitations $guests,
         private readonly BookingSettings $settings,
         private readonly SlotLock $slots,
+        private readonly DocumentSharingService $sharing,
     ) {
     }
 
@@ -124,15 +127,23 @@ final class ReschedulePortalAppointmentAction
                 $appointment->transitionTo(AppointmentStatus::RESCHEDULED);
                 $appointment->setRescheduledBy('patient');
                 $this->appointments->save($appointment);
+                // Documents shared "until after this consultation" follow it
+                // (the patient's own move re-bases them; pair locks after the slot lock).
+                $this->sharing->appointmentMoved($appointment, $appointment->getRescheduledBy() ?? 'staff', DocumentSharingRules::now());
 
                 return true;
             });
         } catch (UniqueConstraintViolationException $e) {
+            $this->sharing->discardNotices();
             if (!SlotLock::isSlotTaken($e)) {
                 throw $e;
             }
             $moved = false;
+        } catch (\Throwable $e) {
+            $this->sharing->discardNotices();
+            throw $e;
         }
+        $this->sharing->dispatchNotices();
         if (is_string($moved)) {
             return $this->error($response, $moved, 422, ['status' => $moved]);
         }

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Document\DocumentSharingRules;
 use App\Domain\Settings\BookingSettings;
+use App\Infrastructure\Document\DocumentSharingService;
 use DateTimeImmutable;
 use App\Domain\Entity\Appointment;
 use App\Domain\Exception\EntityNotFoundException;
@@ -28,6 +30,9 @@ use Psr\Http\Message\ServerRequestInterface;
  * The lifecycle fields (phase / display_status …) count a call running over
  * its time as live, like the list; `can_reschedule` is false inside the
  * late-cancellation window (the reschedule would be refused).
+ *
+ * Adds `pending_document_request`: this doctor's pending request to see the
+ * patient's documents (DocumentAccessRequestDto), or null.
  */
 final class GetMyAppointmentAction
 {
@@ -37,6 +42,7 @@ final class GetMyAppointmentAction
         private readonly AppointmentRepository $repo,
         private readonly BookingSettings $settings,
         private readonly CallPresence $presence,
+        private readonly DocumentSharingService $sharing,
     ) {
     }
 
@@ -65,7 +71,29 @@ final class GetMyAppointmentAction
             $data['can_reschedule'] = false;
         }
 
-        return $this->success($response, $data + ['cancel_policy' => $data['can_cancel'] ? $this->cancelPolicy($appointment, $now) : null]);
+        return $this->success($response, $data + [
+            'cancel_policy'            => $data['can_cancel'] ? $this->cancelPolicy($appointment, $now) : null,
+            'pending_document_request' => $this->pendingDocumentRequest($appointment),
+        ]);
+    }
+
+    /**
+     * This doctor's pending request to see the patient's documents (patient
+     * audience only) — the in-call screen's one new signal, riding this
+     * already-polled read. Null when there is none, sharing is off, or it
+     * can't be read (the consultation itself must still load).
+     *
+     * @return array<string,mixed>|null
+     */
+    private function pendingDocumentRequest(Appointment $appointment): ?array
+    {
+        try {
+            return $this->sharing->pendingRequestFor($appointment->getPatient(), $appointment->getSpecialist()->getId(), DocumentSharingRules::now());
+        } catch (\Throwable $e) {
+            error_log('[doc-access] pending_document_request failed: ' . $e::class . ': ' . $e->getMessage());
+
+            return null;
+        }
     }
 
     /** @return array{refund_percent:int, refund_amount:string, late_cancel_hours:int} */

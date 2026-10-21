@@ -42,7 +42,8 @@ final class CorsMiddleware implements MiddlewareInterface
         $response = $response
             ->withHeader('Access-Control-Allow-Origin', $allow)
             ->withHeader('Vary', 'Origin')
-            ->withHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With')
+            // X-SD-Passive marks a background poll (it never extends the session's idle clock).
+            ->withHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With, X-SD-Passive')
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
             ->withHeader('Access-Control-Max-Age', '86400')
             // Readable by the portals, so a 429 can back off for exactly as long as asked.

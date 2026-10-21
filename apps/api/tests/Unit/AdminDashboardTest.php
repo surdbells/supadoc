@@ -246,6 +246,37 @@ final class AdminDashboardTest extends TestCase
         }
     }
 
+    public function testDocumentSharingEventsReadInPlainWordsAndTheRoutineOnesStayQuiet(): void
+    {
+        $labels = [
+            'document_access.granted'           => 'Documents shared with a doctor',
+            'document_access.changed'           => 'Document sharing changed',
+            'document_access.extended'          => 'Document sharing period changed',
+            'document_access.revoked'           => 'Document sharing stopped',
+            'document_access.restored'          => 'Document sharing restored',
+            'document_access.document_removed'  => "Doctor's access to a document removed",
+            'document_access.document_shown'    => 'Document shown to a doctor again',
+            'document_access.expired'           => 'Document sharing ended',
+            'document_access.requested'         => 'Doctor asked for document access',
+            'document_access.request_approved'  => 'Document access request approved',
+            'document_access.request_declined'  => 'Document access request declined',
+            'document_access.request_cancelled' => 'Document access request withdrawn',
+            'document_access.request_expired'   => 'Document access request closed',
+            'document_access.requests_allowed'  => 'Patient allowed document requests again',
+            'document.viewed'                   => 'Patient document opened by doctor',
+            'document.list_viewed'              => 'Patient documents list opened by doctor',
+        ];
+        foreach ($labels as $action => $label) {
+            $this->assertSame($label, AuditEventDescriber::label($action), $action);
+        }
+        $this->assertSame('Documents shared with a doctor · Dr. Grace Bell', AuditEventDescriber::summary('document_access.granted', ['doctor' => 'Dr. Grace Bell', 'patient_name' => 'Pat']));
+
+        foreach (['document.viewed', 'document.list_viewed', 'document_access.expired', 'document_access.request_expired'] as $quiet) {
+            $this->assertContains($quiet, AdminDashboardRepository::QUIET_AUDIT_ACTIONS);
+        }
+        $this->assertNotContains('document_access.granted', AdminDashboardRepository::QUIET_AUDIT_ACTIONS);
+    }
+
     public function testRequestGuards(): void
     {
         $_ENV['DB_SERVER_VERSION'] = '16';

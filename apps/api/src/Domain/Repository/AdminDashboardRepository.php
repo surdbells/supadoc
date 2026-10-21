@@ -47,6 +47,12 @@ final class AdminDashboardRepository
         'specialist.credential_viewed',
         'signature.used',
         'wallet.topup_initiated',
+        // Document sharing: every file view and list view, and the system's
+        // routine expiries, would otherwise flood "Recent activity".
+        'document.viewed',
+        'document.list_viewed',
+        'document_access.expired',
+        'document_access.request_expired',
     ];
 
     /** How many stored specialty spellings topSpecialties() reads before merging them. */

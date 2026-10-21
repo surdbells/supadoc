@@ -97,8 +97,9 @@ final class MedicalDocumentTest extends TestCase
         $make   = static fn (string $class): object => (new \ReflectionClass($class))->newInstanceWithoutConstructor();
         $action = new UploadMyDocumentAction(
             $make(PatientRepository::class),
-            $make(MedicalDocumentRepository::class),
             $make(MedicalDocumentStorage::class),
+            $make(\App\Infrastructure\Document\DocumentSharingService::class),
+            $make(\App\Infrastructure\Document\DocumentSharingViews::class),
         );
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/api/portal/documents')

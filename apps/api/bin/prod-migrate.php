@@ -11,7 +11,7 @@ declare(strict_types=1);
  * in the `prod_migrate.legacy_done` setting; a database an earlier release
  * already migrated is recorded without re-running them), because repeating
  * them would re-multiply a sub-₦1,000 fee, re-grant narrowed admin permissions
- * and reset doctor logins. Steps 3–11 are idempotent — a re-run changes nothing
+ * and reset doctor logins. Steps 3–12 are idempotent — a re-run changes nothing
  * that's already done (the numbers match the steps below):
  *   0. Grants the back-office permissions (settings.manage, specialists.manage,
  *      monitoring.view) to every admin that lacks them.
@@ -53,6 +53,9 @@ declare(strict_types=1);
  *      never suspended for it). Only doctors with no due date are touched.
  *  10. Booking backstops: partial unique indexes on appointments — one per
  *      card payment reference, one live booking per doctor per start time —
+ *      and on document sharing (one active folder share per patient + doctor,
+ *      one active share per client key, one open hidden row per document, one
+ *      pending request and one open request block per patient + doctor),
  *      created only when no rows break them; rows that do are reported
  *      (`unique_indexes_blocked`), never changed or deleted. Plus a read-only
  *      report of card payments used twice / used and credited / held for
@@ -64,6 +67,16 @@ declare(strict_types=1);
  *      deletes is not added back — the standard list. Only ever ADDS a label
  *      the list lacks in any case; never renames, re-orders or removes one,
  *      and no doctor's specialty is changed (`reference_specialties_added`).
+ *  12. Private documents notices (PrivateDocumentsNotice) — ONLY once
+ *      DOC_SHARING_ENABLED is on (otherwise reported "skipped (sharing not
+ *      enabled)" and not listed in completed_steps): every patient with
+ *      documents is told once, in-app and with no medical details, that doctors
+ *      now see only what they share (a patient with an upcoming consultation
+ *      that has attachments gets the variant linking to it); every active doctor
+ *      login that patients now choose what they see. Recorded in the
+ *      `prod_migrate.documents_private_notice` / `…_doctor_notice` settings, and
+ *      one title per person, so a re-run sends nothing twice. No share is ever
+ *      created: on release every document is private.
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
@@ -194,10 +207,23 @@ $required = [
     'specialist_credentials' => ['specialist_id', 'type', 'status', 'expires_at'], // step 9 (doctors' documents)
     'payment_intents'   => ['reference', 'status'],  // card payments (the app needs it; step 10 sits beside it)
     'reference_items'   => ['category', 'code', 'label', 'label_key', 'sort_order', 'active'], // step 11 (reference data)
+    // Document sharing (steps 10 + 12, and the app itself): seven new tables.
+    'document_access_grants'          => ['patient_id', 'specialist_id', 'appointment_id', 'request_id'],
+    'document_access_grant_documents' => ['grant_id', 'document_id'],
+    'document_access_hidden'          => [],
+    'document_access_requests'        => ['patient_id', 'specialist_id', 'appointment_id'],
+    'document_access_blocks'          => [],
+    'document_access_log'             => [],
+    'document_access_submissions'     => ['patient_id', 'client_key', 'request_hash'], // share replay (spec §3.5)
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
-foreach ([User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class, Appointment::class, App\Domain\Entity\SpecialistCredential::class] as $class) {
+foreach ([
+    User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class, Appointment::class, App\Domain\Entity\SpecialistCredential::class,
+    App\Domain\Entity\DocumentAccessGrant::class, App\Domain\Entity\DocumentAccessGrantDocument::class, App\Domain\Entity\DocumentAccessHidden::class,
+    App\Domain\Entity\DocumentAccessRequest::class, App\Domain\Entity\DocumentAccessBlock::class, App\Domain\Entity\DocumentAccessLogEntry::class,
+    App\Domain\Entity\DocumentAccessSubmission::class,
+] as $class) {
     $meta             = $em->getClassMetadata($class);
     $table            = $unquote($meta->getTableName());
     $required[$table] = array_merge($required[$table] ?? [], array_map($unquote, $meta->getColumnNames()));
@@ -681,6 +707,22 @@ $seeded = $conn->transactional(
 $report['reference_specialties_added'] = $seeded['added'];
 $report['reference_standard_list']     = $seeded['standard'];
 $report['completed_steps'][]           = 11;
+
+// 12) Private documents notices — only once DOC_SHARING_ENABLED is on (phase 2
+//     of DEPLOY.md "One-time: private medical documents"): every patient with
+//     documents is told once that doctors now see only what they share (the
+//     ones with attachments on an upcoming consultation get the variant linking
+//     to it), every active doctor login that patients now choose what they see.
+//     No medical details; no share is created. Recorded in two settings and one
+//     title per person, so a re-run sends nothing twice. A dry run reports
+//     "would notify N + M". While the flag is off it is skipped and NOT listed
+//     in completed_steps, so the next run after switching it on sends them.
+$notice = App\Infrastructure\Document\PrivateDocumentsNotice::run($conn, $dryRun, App\Domain\Document\DocumentSharingRules::now());
+$report['documents_private_notice'] = $notice['documents_private_notice'];
+if ($notice['ran']) {
+    $report['documents_private_doctor_notice'] = $notice['documents_private_doctor_notice'] ?? null;
+    $report['completed_steps'][]               = 12;
+}
 
 if ($dryRun) {
     $conn->rollBack();

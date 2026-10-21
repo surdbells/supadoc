@@ -164,6 +164,46 @@ class MedicalDocument
         return $this->sizeBytes . 'B';
     }
 
+    /** The document's type code (`booking_attachment`, `lab_report`, …). */
+    public function getDocumentType(): string
+    {
+        return $this->documentType;
+    }
+
+    /**
+     * What a DOCTOR may see of a document the patient shared with them — an
+     * explicit key allowlist (spec §3.6), never the patient-side extras such as
+     * `shared_with`: `uploader_name` only for the patient's own uploads, and
+     * `appointment_id` only when that consultation is this doctor's
+     * (`$ownAppointmentIds`: the doctor's appointments with this patient).
+     *
+     * @param list<string> $ownAppointmentIds
+     * @return array<string,mixed>
+     */
+    public function toDoctorArray(string $specialistId, array $ownAppointmentIds): array
+    {
+        $appointmentId = $this->getAppointmentId();
+        $own           = array_map('strtolower', $ownAppointmentIds);
+        $mine          = $appointmentId !== null && $specialistId !== '' && in_array(strtolower($appointmentId), $own, true);
+
+        return [
+            'id'             => $this->id,
+            'patient_id'     => $this->patientId,
+            'uploader_role'  => $this->uploaderRole,
+            'uploader_name'  => $this->uploaderRole === self::UPLOADER_PATIENT ? $this->uploaderName : null,
+            'appointment_id' => $mine ? $appointmentId : null,
+            'document_type'  => $this->documentType,
+            'custom_type'    => $this->customType,
+            'type_label'     => $this->typeLabel(),
+            'title'          => $this->title,
+            'extension'      => $this->extension,
+            'mime_type'      => $this->mimeType,
+            'size_bytes'     => $this->sizeBytes,
+            'size_label'     => $this->sizeLabel(),
+            'created_at'     => $this->getCreatedAt()->format(DATE_ATOM),
+        ];
+    }
+
     /** @return array<string,mixed> */
     public function toArray(): array
     {

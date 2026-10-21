@@ -11,6 +11,8 @@ enum NotificationType: string
     case PRESCRIPTION = 'prescription';
     case PAYMENT      = 'payment';
     case MESSAGE      = 'message';
+    /** Document sharing: a doctor's access request, sharing paused / ended (never a document's title or type). */
+    case DOCUMENT     = 'document';
     case SYSTEM       = 'system';
 
     public function label(): string
@@ -20,6 +22,7 @@ enum NotificationType: string
             self::PRESCRIPTION => 'Prescription',
             self::PAYMENT      => 'Payment',
             self::MESSAGE      => 'Message',
+            self::DOCUMENT     => 'Documents',
             self::SYSTEM       => 'System',
         };
     }

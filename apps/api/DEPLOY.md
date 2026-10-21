@@ -705,6 +705,79 @@ built from `GET /api/admin/dashboard`.
    carries the permissions it was issued with, so a permission change shows
    after their next sign-in.
 
+### One-time: private medical documents
+
+From this release a patient's medical documents are **private by default**:
+doctors see only what the patient shares with them (the whole folder or
+selected documents, for a period or with no end date), and every file a doctor
+opens is recorded for the patient. On release **nothing is shared** — every
+doctor loses the implicit access they had, and patients re-share what they
+want (they are told once, with no medical details).
+
+It ships in **two commits, in two phases, in one maintenance window** outside
+clinic hours: **C1** = `apps/api/**` only (the private cutover, sharing switched
+off); **C2** = `libs/shared/**` + `apps/patient/**` + `apps/doctor/**` (the
+sharing screens). The API must be live before any front end that uses it.
+
+**Phase 1 — private cutover (API only, `DOC_SHARING_ENABLED` off).**
+
+1. On the API box, before deploying: `cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && php bin/doc-sharing-check.php`.
+   Proceed only at **`live_calls=0`** — the cutover hides documents in a live
+   call. (`tables=missing` is expected before the deploy.)
+2. Push **C1** and run the redeploy one-liner above. The schema update creates
+   seven tables (`document_access_grants`, `document_access_grant_documents`,
+   `document_access_hidden`, `document_access_requests`,
+   `document_access_blocks`, `document_access_log`,
+   `document_access_submissions`) and drops nothing;
+   `prod-migrate` step 10 adds their five partial unique indexes (report
+   `unique_indexes`), and step 12 reports `documents_private_notice: skipped
+   (sharing not enabled)`. Leave `DOC_SHARING_ENABLED` unset (off).
+3. Verify:
+   ```bash
+   php bin/doc-sharing-check.php --expect-tz="$(curl -s https://api.dosthq.com/health/ready | php -r 'echo json_decode(stream_get_contents(STDIN))->tz;')"
+   ```
+   (Use the host this box serves — e.g. `https://vmapi.betacrest.com/health/ready`
+   for the betacrest deployment.) Expect `tz_check=ok` (it exits 1 when the CLI's time zone differs from
+   PHP-FPM's — fix `date.timezone` in the CLI php.ini first: timestamps are
+   stored in the process zone), `flag=off`, `tables=present`,
+   `indexes=present`, `active_grants=0 pending_requests=0`. Smoke query:
+   ```sql
+   SELECT (SELECT count(*) FROM document_access_grants) AS grants,
+          (SELECT count(*) FROM document_access_requests WHERE status='pending') AS pending,
+          (SELECT count(*) FROM document_access_hidden WHERE cleared_at IS NULL) AS hidden;
+   ```
+   A doctor's `GET /api/doctor/appointments/{id}/patient-documents` for a known
+   consultation now answers `[]`, and opening a file answers 404 `not_shared`.
+4. **Never `git revert` C1** — that would show every patient's documents to
+   every doctor they booked again. A broken C1 is fixed forward with a hotfix.
+
+**Phase 2 — sharing on (same window, minutes later).**
+
+5. Set `DOC_SHARING_ENABLED=true` in `apps/api/.env`, reload PHP-FPM
+   (`/etc/init.d/php-fpm-84 reload`), and re-run `php bin/doc-sharing-check.php`
+   (`flag=on`).
+6. Push **C2**. Confirm the patient and doctor Cloudflare Pages builds ran for
+   that commit and the **live bundles** contain the new code (a push can
+   silently get no build — check the deployed JS, not just the check-run).
+7. Run `php bin/prod-migrate.php --run` again: step 12 sends the one-time
+   notices (`documents_private_notice: sent`, `documents_private_doctor_notice:
+   sent`; a re-run reports `already sent`). Patients with documents get "Your
+   documents are now private" (those with files attached to an upcoming
+   consultation get the variant that links to it); active doctor logins get
+   "Patients now choose what you see". No share is ever created.
+8. Rollback, if needed — every path lands on private code:
+   - a front-end problem → revert **C2** (the API stays private by default);
+   - a sharing problem → set `DOC_SHARING_ENABLED=false` and reload PHP-FPM:
+     doctors see nothing, patients see "Sharing is unavailable right now. Your
+     documents stay private.", and their existing shares come back when it is
+     switched on again.
+
+`bin/send-reminders.php` (the existing 5-minute cron) now also records expired
+shares and closes doctors' requests after 7 days (its log line `document
+access: …` ends with the `active_grants` / `pending_requests` totals). No new
+cron. Doctor requests email the patient (naming the doctor only) when their
+email notifications are on; preview it with `php bin/preview-email.php`.
+
 ---
 
 ## Troubleshooting
@@ -717,3 +790,7 @@ built from `GET /api/admin/dashboard`.
 | Avatar upload succeeds but image 404s | `public/uploads/avatars` not writable by `www`, or the Nginx `try_files` rewrite is missing. |
 | JWT errors right after deploy | `JWT_SECRET` shorter than 32 bytes, or it changed (invalidates existing tokens — users just re-login). |
 | Health OK but data endpoints 401 | Expected without a token; sign in via the frontend or `POST /api/portal/auth/login`. |
+| Doctors see no patient documents | Expected unless the patient shared them (documents are private by default). With `DOC_SHARING_ENABLED` off nobody can share; `php bin/doc-sharing-check.php` shows the flag and totals. |
+| Patients see "Sharing is unavailable right now" | `DOC_SHARING_ENABLED` is off (or not `true`/`1`) in `apps/api/.env` — set it and reload PHP-FPM. |
+| `doc-sharing-check` exits 1 (`tz_check=MISMATCH`) | The CLI and PHP-FPM run in different time zones; set the same `date.timezone` in both php.ini files before running cron / prod-migrate. |
+| Hard-deleting a patient or doctor fails on a foreign key | Their document-sharing records (`document_access_grants` / `_requests`) reference them (`RESTRICT`) and are medical-record retention data: export and purge them under the retention policy first, never by cascade. |

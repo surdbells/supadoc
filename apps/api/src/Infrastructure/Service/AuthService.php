@@ -293,9 +293,14 @@ final class AuthService
      * session_invalid, refresh_invalid, account_missing, account_deactivated);
      * the messages are unchanged.
      *
+     * `$passive`: the refresh was started by a background poll (`X-SD-Passive:
+     * 1`, document-sharing spec §2.8) — the session is still checked (an idle
+     * or ended one is still refused) but not touched, so polling alone never
+     * keeps an idle session alive. Any other refresh counts as activity.
+     *
      * @return array{access_token:string, token_type:string, expires_in:int}
      */
-    public function refresh(string $refreshToken): array
+    public function refresh(string $refreshToken, bool $passive = false): array
     {
         try {
             $payload = $this->jwt->validateRefreshToken($refreshToken);
@@ -314,8 +319,8 @@ final class AuthService
         $subject = (string) ($payload->sub ?? '');
         $jti     = isset($payload->jti) && (string) $payload->jti !== '' ? (string) $payload->jti : null;
         $access  = match ($payload->scope ?? null) {
-            'staff'    => $this->refreshStaff($subject, $jti),
-            'customer' => $this->refreshCustomer($subject, $jti),
+            'staff'    => $this->refreshStaff($subject, $jti, $passive),
+            'customer' => $this->refreshCustomer($subject, $jti, $passive),
             // We only mint these two: anything else fails closed.
             default    => throw new AuthenticationException(SessionState::UNKNOWN->message(), AuthErrorCode::REFRESH_INVALID),
         };
@@ -327,7 +332,7 @@ final class AuthService
         ];
     }
 
-    private function refreshStaff(string $userId, ?string $jti): string
+    private function refreshStaff(string $userId, ?string $jti, bool $passive = false): string
     {
         // The account first, so a deactivated login hears why (an admin's
         // deactivation also revokes the sessions, which would otherwise answer
@@ -349,7 +354,7 @@ final class AuthService
         // Staff refresh tokens must be bound to a live server session — a
         // pre-session (jti-less) token simply forces one fresh sign-in.
         $this->assertLive(
-            $jti === null ? SessionState::UNKNOWN : $this->sessions->staffState($jti, touch: true),
+            $jti === null ? SessionState::UNKNOWN : $this->sessions->staffState($jti, touch: !$passive),
             fn (): ?string => $jti === null ? null : $this->sessions->staffExpiryReason($jti),
         );
         $this->rememberStaffSite($user);
@@ -363,7 +368,7 @@ final class AuthService
         );
     }
 
-    private function refreshCustomer(string $patientId, ?string $jti): string
+    private function refreshCustomer(string $patientId, ?string $jti, bool $passive = false): string
     {
         $patient = $patientId !== '' ? $this->patients->find($patientId) : null;
         if ($patient === null) {
@@ -374,7 +379,7 @@ final class AuthService
         // jti-less token has no session to check, so it fails closed (every
         // such token is older than the absolute lifetime anyway).
         $this->assertLive(
-            $jti === null ? SessionState::UNKNOWN : $this->sessions->customerState($jti, touch: true),
+            $jti === null ? SessionState::UNKNOWN : $this->sessions->customerState($jti, touch: !$passive),
             fn (): ?string => $jti === null ? null : $this->sessions->customerExpiryReason($jti),
         );
         $this->rememberPatientSite($patient);

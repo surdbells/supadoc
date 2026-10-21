@@ -8,7 +8,8 @@ declare(strict_types=1);
  * missed (PastAppointmentCloser) — expiring / nudging unanswered
  * follow-up proposals, doctors' licence reminders / expiry, and reconciling
  * card payments: re-checking unconfirmed ones with Paystack and crediting
- * unused ones to the patient's wallet). Meant to be
+ * unused ones to the patient's wallet, and document-sharing bookkeeping —
+ * expired shares and doctors' requests). Meant to be
  * run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
@@ -194,4 +195,42 @@ try {
     );
 } catch (\Throwable $e) {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] card payments: ' . $e->getMessage() . "\n");
+}
+
+// Document sharing bookkeeping (DocumentAccessSweeper): shares past their end
+// are recorded as expired, shares anchored to a cancelled / deleted
+// consultation end, selected shares whose documents are all gone end, doctors'
+// requests past their 7 days close (the doctor is told), and pending requests
+// of doctors who stopped practising — or whose consultation went with no other
+// one to ask from — are cancelled. Visibility never waits for this (the policy
+// checks every window at request time); each row is a compare-and-set in its
+// own transaction, and a session advisory lock skips a run while another one
+// is still going, so running every 5 minutes is safe. The totals at the end
+// (active_grants, pending_requests) are for monitoring.
+try {
+    if (!$container->get(EntityManagerInterface::class)->isOpen()) {
+        $container = $build();
+    }
+    $docs = $container->get(App\Infrastructure\Document\DocumentAccessSweeper::class)->run(App\Domain\Document\DocumentSharingRules::now());
+    if ($docs['skipped']) {
+        printf("[%s] document access: skipped (another run)\n", gmdate('Y-m-d H:i:s'));
+    } else {
+        printf(
+            "[%s] document access: expired=%d ended_cancelled=%d emptied=%d requests_expired=%d requests_cancelled=%d active_grants=%d pending_requests=%d errors=%d\n",
+            gmdate('Y-m-d H:i:s'),
+            $docs['expired'],
+            $docs['ended_cancelled'],
+            $docs['emptied'],
+            $docs['requests_expired'],
+            $docs['requests_cancelled'],
+            $docs['active_grants'],
+            $docs['pending_requests'],
+            $docs['errors'],
+        );
+    }
+} catch (\Throwable $e) {
+    if (function_exists('\Sentry\captureException')) {
+        \Sentry\captureException($e);
+    }
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] document access: ' . $e::class . ': ' . $e->getMessage() . "\n");
 }

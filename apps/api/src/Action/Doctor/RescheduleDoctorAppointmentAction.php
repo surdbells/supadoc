@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Document\DocumentSharingRules;
 use App\Domain\Entity\Appointment;
+use App\Infrastructure\Document\DocumentAccessNotifier;
+use App\Infrastructure\Document\DocumentSharingService;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\UserRepository;
@@ -46,6 +49,7 @@ final class RescheduleDoctorAppointmentAction
         private readonly PatientNotifier $patientNotifier,
         private readonly GuestInvitations $guests,
         private readonly SlotLock $slots,
+        private readonly DocumentSharingService $sharing,
     ) {
     }
 
@@ -102,8 +106,9 @@ final class RescheduleDoctorAppointmentAction
         // a cancellation (and its refund) that committed while this request
         // waited must not be confirmed back to life. (Lock order: the doctor's
         // slot, then the row — as every slot-taking path.)
+        $sharesMoved = [];
         try {
-            $moved = $this->appointments->transactional(function () use ($appointment, $scheduledAt): bool|string {
+            $moved = $this->appointments->transactional(function () use ($appointment, $scheduledAt, &$sharesMoved): bool|string {
                 $this->slots->lockDoctor($appointment->getSpecialist()->getId());
                 $this->appointments->lockAndRefresh($appointment);
                 if ($appointment->isDeleted() || !$appointment->getStatus()->isOpenBooking()) {
@@ -119,15 +124,24 @@ final class RescheduleDoctorAppointmentAction
                 $appointment->transitionTo(AppointmentStatus::CONFIRMED);
                 $appointment->setRescheduledBy('doctor');
                 $this->appointments->save($appointment);
+                // Documents shared "until after this consultation" follow it, but
+                // a doctor's move never stretches them past what the patient
+                // agreed + 30 days (pair locks after the slot lock).
+                $sharesMoved = $this->sharing->appointmentMoved($appointment, $appointment->getRescheduledBy() ?? 'staff', DocumentSharingRules::now());
 
                 return true;
             });
         } catch (UniqueConstraintViolationException $e) {
+            $this->sharing->discardNotices();
             if (!SlotLock::isSlotTaken($e)) {
                 throw $e;
             }
             $moved = false;
+        } catch (\Throwable $e) {
+            $this->sharing->discardNotices();
+            throw $e;
         }
+        $this->sharing->dispatchNotices();
         if (is_string($moved)) {
             return $this->error($response, $moved, 422, ['status' => $moved]);
         }
@@ -136,10 +150,13 @@ final class RescheduleDoctorAppointmentAction
         }
 
         $this->notify($appointment);
+        // One extra, non-PHI sentence when shares anchored to it moved (and sharing is on).
+        $suffix = $sharesMoved !== [] && DocumentSharingRules::enabled() ? DocumentAccessNotifier::rescheduleSuffix($sharesMoved) : '';
         $this->patientNotifier->appointment(
             $appointment,
             'Appointment moved by your doctor',
-            "Your doctor moved your appointment to a new time and it's confirmed. If the new time doesn't suit you, you can reschedule or cancel it for a full refund before it starts.",
+            "Your doctor moved your appointment to a new time and it's confirmed. If the new time doesn't suit you, you can reschedule or cancel it for a full refund before it starts."
+                . ($suffix !== '' ? ' ' . $suffix : ''),
         );
         // Guests get the new time with a fresh copy of their link.
         $this->guests->notifyRescheduled($appointment);

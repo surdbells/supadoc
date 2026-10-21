@@ -38,6 +38,8 @@ $samples = [
     'guest-rescheduled' => EmailTemplates::guestRescheduled('Bola', 'Pat', 'Dr. Grace Bell', 'Wed 2 Sep, 9:00 AM WAT', $webUrl . '/call/join/sample'),
     'guest-cancelled'   => EmailTemplates::guestCallClosed('Bola', 'Pat', 'Dr. Grace Bell', 'Tue 1 Sep, 11:00 AM WAT', 'cancelled'),
     'guest-removed'     => EmailTemplates::guestCallClosed('Bola', 'Pat', 'Dr. Grace Bell', 'Tue 1 Sep, 11:00 AM WAT', 'removed'),
+    // Names the doctor only — never the note, a document, a specialty or a reason.
+    'document-access-requested' => EmailTemplates::documentAccessRequested('Pat', 'Dr. Grace Bell', $webUrl . '/dashboard/documents?request=00000000-0000-0000-0000-000000000000'),
 ];
 
 foreach ($samples as $name => $mail) {

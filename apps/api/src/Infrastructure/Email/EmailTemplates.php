@@ -977,6 +977,29 @@ final class EmailTemplates
         ];
     }
 
+    /**
+     * To a patient: a doctor asked to see their medical documents. Names the
+     * doctor only — never the doctor's note, the reason, a document's title or
+     * type, or the specialty (medical documents are PHI). `$url` opens the
+     * request in the patient app.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function documentAccessRequested(string $firstName, string $doctorName, string $url): array
+    {
+        $doctor = $doctorName !== '' ? $doctorName : 'Your doctor';
+        $body   = self::heading('A doctor asked to see your documents')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', ' . self::e($doctor)
+                . ' asked to see your medical documents on VideoMed. Nothing is shared until you choose what they can see and for how long.')
+            . self::button('Review request', $url)
+            . self::note("If you don't answer within 7 days, the request closes and nothing is shared.");
+
+        return [
+            'subject' => $doctor . ' asked to see your documents',
+            'html'    => self::layout('Document access request', 'Review the request in VideoMed.', $body),
+        ];
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body, ?string $why = null): string

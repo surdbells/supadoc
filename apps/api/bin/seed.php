@@ -380,6 +380,61 @@ if ($seedDoctorContent) {
 
 $em->flush();
 
+// Document sharing demo (switch it on with DOC_SHARING_ENABLED=true): the
+// patient has 3 documents; Dr. Grace Bell holds a whole-folder share with one
+// document hidden from her; Dr. Ada Obi (a past consultation) has asked to see
+// the documents. Documents are private by default — this is only demo data.
+$conn = $em->getConnection();
+if ((int) $conn->fetchOne('SELECT COUNT(*) FROM medical_documents WHERE patient_id = ?', [$patient->getId()]) === 0) {
+    $dir = App\Infrastructure\Service\MedicalDocumentStorage::baseDir() . '/' . $patient->getId();
+    if (!is_dir($dir)) {
+        mkdir($dir, 0o700, true);
+    }
+    $pdf     = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n";
+    $seedDoc = static function (string $title, string $type) use ($em, $patient, $dir, $pdf): App\Domain\Entity\MedicalDocument {
+        $stored = bin2hex(random_bytes(16)) . '.pdf';
+        file_put_contents($dir . '/' . $stored, $pdf);
+        $doc = new App\Domain\Entity\MedicalDocument($patient->getId(), App\Domain\Entity\MedicalDocument::UPLOADER_PATIENT, 'Pat Patient', $type, $title, $stored, 'application/pdf', 'pdf', strlen($pdf));
+        $em->persist($doc);
+
+        return $doc;
+    };
+    $seedDoc('Full blood count', 'blood_test_report');
+    $hiddenDoc = $seedDoc('Chest X-ray', 'xray_report');
+    $seedDoc('Vaccination card', 'vaccination_record');
+    $em->flush();
+
+    $now    = App\Domain\Document\DocumentSharingRules::now();
+    $grants = new App\Domain\Repository\DocumentAccessGrantRepository($em);
+    $grants->insertGrant([
+        'patient_id'    => $patient->getId(),
+        'specialist_id' => $specialist->getId(),
+        'scope'         => 'all',
+        'source'        => 'share',
+        'surface'       => 'manage_sharing',
+        'duration'      => 'indefinite',
+        'expires_at'    => null,
+    ], $now);
+    $grants->hide($patient->getId(), $specialist->getId(), $hiddenDoc->getId(), 'remove_access', $now);
+
+    $ada = $em->getRepository(Specialist::class)->findOneBy(['name' => 'Dr. Ada Obi']);
+    if ($ada instanceof Specialist) {
+        $past = new Appointment($patient, $ada, (new DateTimeImmutable('now'))->modify('-6 days 11:00'), ConsultationType::VIDEO);
+        $past->transitionTo(AppointmentStatus::CONFIRMED);
+        $past->transitionTo(AppointmentStatus::COMPLETED);
+        $em->persist($past);
+        $em->flush();
+        (new App\Domain\Repository\DocumentAccessRequestRepository($em))->insertRequest([
+            'patient_id'           => $patient->getId(),
+            'specialist_id'        => $ada->getId(),
+            'appointment_id'       => $past->getId(),
+            'requested_by_user_id' => $em->getRepository(User::class)->findOneBy(['specialistId' => $ada->getId()])?->getId(),
+            'kind'                 => 'access',
+            'message'              => 'Could you share your recent results before we speak again?',
+        ], $now);
+    }
+}
+
 fwrite(STDOUT, json_encode([
     'admin_email'   => $adminEmail,
     'viewer_email'  => $viewerEmail,

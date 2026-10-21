@@ -131,11 +131,22 @@ final class BookingAttachmentsTest extends TestCase
         self::assertStringStartsWith('UPDATE medical_documents SET appointment_id = ?', $attach);
         self::assertStringContainsStringIgnoringCase('patient_id = ?', $attach);
         self::assertStringContainsStringIgnoringCase('appointment_id IS NULL', $attach);
+
+        // Request suggestions read every consultation's attachments in ONE query
+        // (no N+1), only ever the patient's own.
+        $byAppointment = $repo->attachmentIdsByAppointmentQuery('p1', [$id, '11111111-1111-1111-1111-111111111111'])->getSQL();
+        self::assertStringContainsStringIgnoringCase('patient_id = ?', $byAppointment);
+        self::assertMatchesRegularExpression('/appointment_id IN \(/i', $byAppointment);
+        self::assertSame([], $repo->attachmentIdsByAppointment('p1', []), 'no ids, no query');
     }
 
     public function testTheListRejectsAMalformedAppointmentFilter(): void
     {
-        $action  = new ListMyDocumentsAction(new MedicalDocumentRepository($this->em()));
+        $action  = new ListMyDocumentsAction(
+            new MedicalDocumentRepository($this->em()),
+            new PatientRepository($this->em()),
+            (new \ReflectionClass(\App\Infrastructure\Document\DocumentSharingViews::class))->newInstanceWithoutConstructor(),
+        );
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/api/portal/documents')
             ->withAttribute('customer_id', 'p1')
@@ -329,8 +340,10 @@ final class BookingAttachmentsTest extends TestCase
 
         $action  = new UploadAppointmentDocumentAction(
             new PatientRepository($em),
-            new MedicalDocumentRepository($em),
             new MedicalDocumentStorage(),
+            // No sharing choices are sent, so nothing past the id list is reached.
+            (new \ReflectionClass(\App\Infrastructure\Document\DocumentSharingService::class))->newInstanceWithoutConstructor(),
+            (new \ReflectionClass(\App\Infrastructure\Document\DocumentSharingViews::class))->newInstanceWithoutConstructor(),
         );
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/api/portal/appointment-documents')

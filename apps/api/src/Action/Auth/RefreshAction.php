@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Auth;
 
+use App\Infrastructure\Middleware\AuthMiddleware;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuthService;
 use Psr\Http\Message\ResponseInterface;
@@ -31,6 +32,8 @@ final class RefreshAction
             ]);
         }
 
-        return $this->success($response, $this->auth->refresh($token), 'Token refreshed');
+        // A refresh a background poll started (`X-SD-Passive: 1`) is checked
+        // but is no activity: polling alone never keeps an idle session alive.
+        return $this->success($response, $this->auth->refresh($token, AuthMiddleware::isPassive($request)), 'Token refreshed');
     }
 }

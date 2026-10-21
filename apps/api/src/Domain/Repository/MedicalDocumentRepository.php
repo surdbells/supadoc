@@ -165,17 +165,104 @@ final class MedicalDocumentRepository extends BaseRepository
             ->getQuery();
     }
 
+    // There is deliberately no "every document of a patient" reader here: what
+    // a doctor may see is decided ONLY by DocumentAccessPolicy (spec §2.1), and
+    // NoPolicyBypassTest keeps it that way.
+
+    /** One of the patient's own documents, or null (unknown and foreign ids read the same). */
+    public function findForPatient(string $id, string $patientId): ?MedicalDocument
+    {
+        $doc = $this->find(strtolower(trim($id)));
+
+        return $doc instanceof MedicalDocument && strtolower($doc->getPatientId()) === strtolower($patientId) ? $doc : null;
+    }
+
     /**
-     * A patient's documents, newest first — the doctor's in-call view (no paging).
+     * Those of `$ids` that are the patient's own documents, keyed by id, in no
+     * particular order. Never another patient's.
      *
-     * @return list<MedicalDocument>
+     * @param list<string> $ids
+     * @return array<string, MedicalDocument>
      */
-    public function allForPatient(string $patientId): array
+    public function byIdsForPatient(string $patientId, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->byIdsForPatientQuery($patientId, $ids)->getResult() as $doc) {
+            $out[strtolower($doc->getId())] = $doc;
+        }
+
+        return $out;
+    }
+
+    /** @param list<string> $ids */
+    public function byIdsForPatientQuery(string $patientId, array $ids): Query
     {
         return $this->qb()
             ->andWhere('e.patientId = :patient')
+            ->andWhere('e.id IN (:ids)')
             ->setParameter('patient', $patientId)
+            ->setParameter('ids', array_values($ids))
+            ->getQuery();
+    }
+
+    /**
+     * The ids of the files the patient attached when booking each of these
+     * appointments, newest first — ONE query for many appointments (no N+1).
+     * Appointments with none are absent.
+     *
+     * @param list<string> $appointmentIds
+     * @return array<string, list<string>> appointment id => document ids
+     */
+    public function attachmentIdsByAppointment(string $patientId, array $appointmentIds): array
+    {
+        $appointmentIds = array_values(array_unique(array_filter(array_map(static fn ($id): string => strtolower(trim((string) $id)), $appointmentIds))));
+        if ($appointmentIds === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->attachmentIdsByAppointmentQuery($patientId, $appointmentIds)->getScalarResult() as $row) {
+            $out[strtolower((string) $row['appointment_id'])][] = strtolower((string) $row['id']);
+        }
+
+        return $out;
+    }
+
+    /**
+     * The query behind {@see attachmentIdsByAppointment()}.
+     *
+     * @param list<string> $appointmentIds
+     */
+    public function attachmentIdsByAppointmentQuery(string $patientId, array $appointmentIds): Query
+    {
+        return $this->em->createQueryBuilder()
+            ->select('e.id AS id', 'IDENTITY(e.appointment) AS appointment_id')
+            ->from(MedicalDocument::class, 'e')
+            ->andWhere('e.patientId = :patient')
+            ->andWhere('IDENTITY(e.appointment) IN (:ids)')
+            ->setParameter('patient', $patientId)
+            ->setParameter('ids', $appointmentIds)
             ->orderBy('e.createdAt', 'DESC')
+            ->addOrderBy('e.id', 'DESC')
+            ->getQuery();
+    }
+
+    /**
+     * The files the patient attached when booking this appointment, newest first.
+     *
+     * @return list<MedicalDocument>
+     */
+    public function attachmentsOf(string $appointmentId, string $patientId): array
+    {
+        return $this->qb()
+            ->andWhere('e.patientId = :patient')
+            ->andWhere('IDENTITY(e.appointment) = :appointment')
+            ->setParameter('patient', $patientId)
+            ->setParameter('appointment', $appointmentId)
+            ->orderBy('e.createdAt', 'DESC')
+            ->addOrderBy('e.id', 'DESC')
             ->getQuery()
             ->getResult();
     }

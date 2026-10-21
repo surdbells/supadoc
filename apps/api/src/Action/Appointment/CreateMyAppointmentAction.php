@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Document\BookingAttachments;
+use App\Domain\Document\DocumentSharingRules;
+use App\Domain\Document\DomainRefusal;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
@@ -18,6 +20,7 @@ use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
+use App\Infrastructure\Document\DocumentSharingService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentCheckout;
 use App\Infrastructure\Service\AppointmentInvites;
@@ -54,6 +57,19 @@ use Ramsey\Uuid\Uuid;
  * already attached to another booking ({@see BookingAttachments}); they are
  * linked in the same transaction that stores the appointment, so the doctor
  * sees them as this booking's files.
+ *
+ * Who can see the attachments (spec §3.3; nothing is shared silently):
+ * `document_share: {duration: after_24h | after_7d | after_30d | indefinite
+ * | null, show_specialist_ids}` — validated with the rest BEFORE any money
+ * moves (422 `document_share.duration` / `show_specialist_ids.N`). In the
+ * booking's own transaction (after the slot lock, then the pair locks) a
+ * non-null duration shares the files with the booked doctor alone (one
+ * `selected` share anchored to this consultation); every other doctor with a
+ * whole-folder share sees them only when ticked in `show_specialist_ids`.
+ * A refusal there rolls the whole booking back (no booking, no charge). Without
+ * `document_share` (an older client) the files stay as uploaded: private. The
+ * answer adds `document_share: {outcome, grant_id, until_label_at}` when
+ * files were attached. Its notices go only once the booking is committed.
  *
  * A free consultation (amount 0) books without any payment.
  *
@@ -98,6 +114,7 @@ final class CreateMyAppointmentAction
         private readonly FollowUpService $followUps,
         private readonly PaymentIntentService $intents,
         private readonly SlotLock $slots,
+        private readonly DocumentSharingService $sharing,
     ) {
     }
 
@@ -210,6 +227,12 @@ final class CreateMyAppointmentAction
         if ($documentErrors !== []) {
             return $this->error($response, 'Validation failed', 422, $documentErrors);
         }
+        // Who may see the attachments — also before any money moves.
+        try {
+            $docShare = $documentIds !== [] ? $this->sharing->validateBookingShare($patient, $body['document_share'] ?? null) : null;
+        } catch (DomainRefusal $r) {
+            return $this->error($response, $r->getMessage(), $r->status, $r->errors);
+        }
 
         $appointment = new Appointment($patient, $specialist, $scheduledAt, $type);
         $appointment->setNotes(isset($body['notes']) ? (string) $body['notes'] : null);
@@ -234,10 +257,12 @@ final class CreateMyAppointmentAction
         // payment books once), or the wallet debit (a free booking posts
         // nothing). Any refusal or failure leaves no booking and no charge.
         // The wallet debit's receipt is sent only once all of it committed.
-        $paidByCard = $reference !== '';
-        $receipt    = null;
-        $book       = function (?PaymentIntent $intent) use ($appointment, $specialist, $scheduledAt, $documentIds, $customerId, &$receipt): PaymentUse {
-            $receipt = null;
+        $paidByCard  = $reference !== '';
+        $receipt     = null;
+        $shareResult = null;
+        $book        = function (?PaymentIntent $intent) use ($appointment, $patient, $specialist, $scheduledAt, $documentIds, $customerId, $docShare, &$receipt, &$shareResult): PaymentUse {
+            $receipt     = null;
+            $shareResult = null;
             $this->slots->lockDoctor($specialist->getId());
             if (!$this->availability->isSlotAvailable($specialist, $scheduledAt)) {
                 return PaymentUse::declined('slot', creditToWallet: true);
@@ -252,6 +277,19 @@ final class CreateMyAppointmentAction
                 // booked, and a card payment stays unused for the retry.
                 return PaymentUse::declined('documents');
             }
+            // The attachments' sharing, reconciled in this same transaction (the
+            // slot lock is held; the pair locks follow it). A refusal throws and
+            // rolls the booking back: no booking, no charge.
+            if ($docShare !== null && $documentIds !== []) {
+                $shareResult = $this->sharing->shareForBooking(
+                    $patient,
+                    $appointment,
+                    array_values($documentIds),
+                    $docShare['duration'],
+                    $docShare['show'],
+                    DocumentSharingRules::now(),
+                );
+            }
             if ($intent === null) {
                 $receipt = $this->payments->chargeForBooking($appointment, sendReceipt: false);
             }
@@ -263,13 +301,21 @@ final class CreateMyAppointmentAction
             $use = $paidByCard
                 ? $this->intents->consume($reference, PaymentIntent::PURPOSE_BOOKING, $customerId, $appointment->getAmount(), $book, $card['context'])
                 : $this->appointments->transactional(static fn (): PaymentUse => $book(null));
+        } catch (DomainRefusal $r) {
+            // The attachments' sharing was refused inside the locks: nothing was booked or charged.
+            $this->sharing->discardNotices();
+
+            return $this->error($response, $r->getMessage(), $r->status, $r->errors);
         } catch (ValidationException $e) {
+            $this->sharing->discardNotices();
             // Two sends of one booking at once: the first booked, this one found the payment used.
             if ($paidByCard && ($done = $this->alreadyBookedWith($reference, $customerId, $specialist->getId(), $scheduledAt)) !== null) {
                 return $this->success($response, $done->toArray(), 'Appointment already booked with this payment');
             }
             throw $e;
         } catch (InsufficientFundsException) {
+            $this->sharing->discardNotices();
+
             return $this->error(
                 $response,
                 'Your wallet balance is too low to book this consultation. Pay by card, or top up your wallet and try again.',
@@ -277,6 +323,7 @@ final class CreateMyAppointmentAction
                 ['wallet' => 'insufficient_funds'],
             );
         } catch (UniqueConstraintViolationException $e) {
+            $this->sharing->discardNotices();
             if (!SlotLock::isSlotTaken($e)) {
                 throw $e;
             }
@@ -288,6 +335,7 @@ final class CreateMyAppointmentAction
         }
 
         if (!$use->used) {
+            $this->sharing->discardNotices();
             if ($use->value === 'documents') {
                 return $this->error(
                     $response,
@@ -316,9 +364,19 @@ final class CreateMyAppointmentAction
         }
 
         $this->notifyBooked($patient, $appointment);
+        // The attachments' sharing notices, only now that the booking is committed.
+        $this->sharing->dispatchNotices();
         $this->invites->send($appointment);
 
         $a = $appointment->toArray();
+        if ($documentIds !== []) {
+            // Rendered from what happened, never from what was asked for.
+            $a['document_share'] = $shareResult ?? [
+                'outcome'        => $docShare !== null && $docShare['duration'] !== null && !DocumentSharingRules::enabled() ? 'sharing_unavailable' : 'private',
+                'grant_id'       => null,
+                'until_label_at' => null,
+            ];
+        }
         $this->notifier->notifyDoctor(
             $specialist->getId(),
             'appointment',

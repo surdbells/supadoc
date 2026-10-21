@@ -69,6 +69,9 @@ return static function (App $app): void {
         $response->getBody()->write(json_encode([
             'status' => $ready ? 'ready' : 'degraded',
             'checks' => $checks,
+            // The PHP-FPM process time zone: naive timestamps are stored in it,
+            // so the CLI (cron, prod-migrate) must match it (bin/doc-sharing-check.php --expect-tz).
+            'tz'     => date_default_timezone_get(),
         ]));
 
         return $response
@@ -306,9 +309,14 @@ return static function (App $app): void {
             $group->get('/doctor/appointments/{id}/messages', Action\Doctor\ListDoctorMessagesAction::class);
             $group->post('/doctor/appointments/{id}/messages', Action\Doctor\PostDoctorMessageAction::class);
 
-            // Patient's medical documents — reviewable in-call.
+            // Patient's medical documents — only what the patient SHARES with this
+            // doctor (DocumentAccessPolicy), reviewable in-call; every file view is
+            // recorded first. The patient may be asked to share (request / withdraw).
             $group->get('/doctor/appointments/{id}/patient-documents', Action\Doctor\ListPatientDocumentsAction::class);
             $group->get('/doctor/appointments/{id}/patient-documents/{docId}/file', Action\Doctor\DownloadPatientDocumentAction::class);
+            $group->get('/doctor/appointments/{id}/document-access', Action\Doctor\DoctorDocumentAccessAction::class);
+            $group->post('/doctor/appointments/{id}/document-access/request', Action\Doctor\RequestDocumentAccessAction::class);
+            $group->post('/doctor/appointments/{id}/document-access/request/cancel', Action\Doctor\CancelDocumentAccessRequestAction::class);
 
             // In-consultation clinical documentation. Each action re-checks that
             // the signed-in doctor owns the appointment (ResolvesDoctorAppointment).
@@ -466,6 +474,26 @@ return static function (App $app): void {
             $group->get('/documents', Action\Patient\ListMyDocumentsAction::class);
             $group->post('/documents', Action\Patient\UploadMyDocumentAction::class);
             $group->get('/documents/{id}/file', Action\Patient\DownloadMyDocumentAction::class);
+            // Document sharing: the patient decides which doctors (ones they booked)
+            // see their documents, what and for how long; doctors' requests; the
+            // ledger. Static routes before variable ones (FastRoute).
+            $group->get('/document-access/doctors', Action\DocumentSharing\ListSharingDoctorsAction::class);
+            $group->post('/document-access/revoke-all', Action\DocumentSharing\RevokeAllSharingAction::class);
+            $group->post('/document-access/doctors/{specialistId}/revoke', Action\DocumentSharing\StopSharingWithDoctorAction::class);
+            $group->post('/document-access/doctors/{specialistId}/allow-requests', Action\DocumentSharing\AllowAccessRequestsAction::class);
+            $group->get('/document-access/grants', Action\DocumentSharing\ListDocumentGrantsAction::class);
+            $group->post('/document-access/grants', Action\DocumentSharing\CreateDocumentShareAction::class);
+            $group->patch('/document-access/grants/{id}', Action\DocumentSharing\UpdateDocumentGrantAction::class);
+            $group->post('/document-access/grants/{id}/revoke', Action\DocumentSharing\RevokeDocumentGrantAction::class);
+            $group->post('/document-access/grants/{id}/restore', Action\DocumentSharing\RestoreDocumentGrantAction::class);
+            $group->get('/document-access/requests', Action\DocumentSharing\ListAccessRequestsAction::class);
+            $group->get('/document-access/requests/{id}', Action\DocumentSharing\GetAccessRequestAction::class);
+            $group->post('/document-access/requests/{id}/approve', Action\DocumentSharing\ApproveAccessRequestAction::class);
+            $group->post('/document-access/requests/{id}/decline', Action\DocumentSharing\DeclineAccessRequestAction::class);
+            $group->get('/document-access/history', Action\DocumentSharing\ListDocumentAccessHistoryAction::class);
+            $group->get('/documents/{id}/access', Action\DocumentSharing\GetDocumentAccessAction::class);
+            $group->delete('/documents/{id}/access/{specialistId}', Action\DocumentSharing\RemoveDocumentDoctorAccessAction::class);
+            $group->post('/documents/{id}/access/{specialistId}/unhide', Action\DocumentSharing\UnhideDocumentForDoctorAction::class);
             $group->post('/me/2fa/setup', Action\Patient\SetupTwoFactorAction::class);
             $group->post('/me/2fa/enable', Action\Patient\EnableTwoFactorAction::class);
             $group->post('/me/2fa/disable', Action\Patient\DisableTwoFactorAction::class);
@@ -499,6 +527,8 @@ return static function (App $app): void {
             $group->get('/appointments/{id}/call-token', Action\Appointment\GetCallTokenAction::class);
             $group->post('/appointments/{id}/presence', Action\Appointment\ReportMyPresenceAction::class);
             $group->get('/appointments/{id}/consultation', Action\Appointment\GetMyConsultationAction::class);
+            // What this consultation's doctor can see of the patient's documents (polled passively).
+            $group->get('/appointments/{id}/document-access', Action\DocumentSharing\GetAppointmentDocumentAccessAction::class);
             $group->get('/appointments/{id}/messages', Action\Appointment\MyMessagesAction::class);
             $group->post('/appointments/{id}/messages', Action\Appointment\PostMyMessageAction::class);
             $group->get('/appointments/{id}/prescriptions', Action\Appointment\MyPrescriptionsAction::class);

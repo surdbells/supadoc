@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Infrastructure\Service;
 
 use App\Domain\Doctor\DoctorCredentials;
+use App\Domain\Document\DocumentSharingRules;
 use App\Domain\Entity\Appointment;
+use App\Infrastructure\Document\DocumentSharingService;
 use App\Domain\Entity\Specialist;
 use App\Domain\Entity\SpecialistStatusEvent;
 use App\Domain\Enum\AppointmentStatus;
@@ -47,7 +49,9 @@ use DateTimeImmutable;
  * and only bookings still live are cancelled (refunds are idempotent on the
  * appointment). {@see preview()} counts the same without changing anything.
  * Reinstating needs a verified, unexpired practising licence and a note, and
- * restores no booking.
+ * restores no booking. Patients' document shares with a doctor are paused
+ * while they are suspended (DocumentAccessPolicy shows nothing); reinstating
+ * after more than 30 days ends them (DocumentSharingService::doctorReinstated()).
  */
 final class SpecialistSuspensionService
 {
@@ -84,6 +88,7 @@ final class SpecialistSuspensionService
         private readonly SessionService $sessions,
         private readonly UserRepository $users,
         private readonly ConsultationCompleter $completer,
+        private readonly ?DocumentSharingService $sharing = null,
     ) {
     }
 
@@ -388,6 +393,11 @@ final class SpecialistSuspensionService
         }
 
         $code = $s->getSuspensionCode();
+        // Document sharing first, while the suspension time is still known: a
+        // pause of more than 30 days ends every share with this doctor; any
+        // failure aborts the reinstatement (fail private — the admin retries).
+        // The patients are told only once the reinstatement is saved.
+        $notices = $this->sharing?->doctorReinstated($s, DocumentSharingRules::now());
         $s->reinstate();
         $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($credentials, $today)?->getExpiresAt());
         $this->statusEvents->persist(new SpecialistStatusEvent(
@@ -401,6 +411,7 @@ final class SpecialistSuspensionService
             ['lifted_code' => $code],
         ));
         $this->specialists->save($s);
+        $notices?->dispatch();
 
         $this->record($actorName, $actorId, 'specialist.reinstated', $s, [
             'note'        => trim($note),

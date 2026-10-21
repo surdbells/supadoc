@@ -571,6 +571,8 @@ return [
             $c->get(SessionService::class),
             $c->get(UserRepository::class),
             $c->get(\App\Infrastructure\Service\ConsultationCompleter::class),
+            // Reinstating a doctor decides what happens to the patients' shares with them.
+            $c->get(\App\Infrastructure\Document\DocumentSharingService::class),
         ),
 
     // Licence reminders (LICENCE_REMINDER_DAYS, default 30,14,7,1 days before) and
@@ -772,5 +774,75 @@ return [
             $c->get(PricingService::class),
             $c->get(RedisClient::class),
             $c->get(LoggerInterface::class),
+        ),
+
+    // ----- Patient-controlled document sharing (spec: private by default) -----
+    // DocumentAccessPolicy is the ONLY code that decides what a doctor sees.
+    \App\Domain\Repository\DocumentAccessGrantRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DocumentAccessGrantRepository =>
+        new \App\Domain\Repository\DocumentAccessGrantRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Domain\Repository\DocumentAccessRequestRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DocumentAccessRequestRepository =>
+        new \App\Domain\Repository\DocumentAccessRequestRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Domain\Repository\DocumentAccessLogRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DocumentAccessLogRepository =>
+        new \App\Domain\Repository\DocumentAccessLogRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Infrastructure\Document\DocumentAccessPolicy::class => static fn (ContainerInterface $c): \App\Infrastructure\Document\DocumentAccessPolicy =>
+        new \App\Infrastructure\Document\DocumentAccessPolicy($c->get(EntityManagerInterface::class)),
+
+    // Request-scoped: notices queued inside a transaction, sent after its commit.
+    \App\Infrastructure\Document\DocumentAccessNoticeQueue::class => static fn (): \App\Infrastructure\Document\DocumentAccessNoticeQueue =>
+        new \App\Infrastructure\Document\DocumentAccessNoticeQueue(),
+
+    \App\Infrastructure\Document\DocumentAccessNotifier::class => static fn (ContainerInterface $c): \App\Infrastructure\Document\DocumentAccessNotifier =>
+        new \App\Infrastructure\Document\DocumentAccessNotifier(
+            $c->get(\App\Infrastructure\Document\DocumentAccessNoticeQueue::class),
+            $c->get(PatientNotifier::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(RedisClient::class), // "shared with you" coalescing only; fails open
+        ),
+
+    \App\Infrastructure\Document\DocumentAccessTransitions::class => static fn (ContainerInterface $c): \App\Infrastructure\Document\DocumentAccessTransitions =>
+        new \App\Infrastructure\Document\DocumentAccessTransitions(
+            $c->get(EntityManagerInterface::class),
+            $c->get(AuditLogger::class),
+            $c->get(\App\Domain\Repository\DocumentAccessLogRepository::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessNotifier::class),
+        ),
+
+    \App\Infrastructure\Document\DocumentSharingViews::class => static fn (ContainerInterface $c): \App\Infrastructure\Document\DocumentSharingViews =>
+        new \App\Infrastructure\Document\DocumentSharingViews(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessPolicy::class),
+            $c->get(\App\Domain\Repository\DocumentAccessGrantRepository::class),
+            $c->get(\App\Domain\Repository\DocumentAccessRequestRepository::class),
+            $c->get(\App\Domain\Repository\DocumentAccessLogRepository::class),
+            $c->get(MedicalDocumentRepository::class),
+        ),
+
+    \App\Infrastructure\Document\DocumentSharingService::class => static fn (ContainerInterface $c): \App\Infrastructure\Document\DocumentSharingService =>
+        new \App\Infrastructure\Document\DocumentSharingService(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessPolicy::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessTransitions::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessNoticeQueue::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessNotifier::class),
+            $c->get(\App\Domain\Repository\DocumentAccessGrantRepository::class),
+            $c->get(\App\Domain\Repository\DocumentAccessRequestRepository::class),
+            $c->get(\App\Domain\Repository\DocumentAccessLogRepository::class),
+            $c->get(MedicalDocumentRepository::class),
+            $c->get(AuditLogger::class),
+            $c->get(\App\Domain\Repository\SpecialistStatusEventRepository::class),
+            $c->get(\App\Infrastructure\Document\DocumentSharingViews::class),
+        ),
+
+    \App\Infrastructure\Document\DocumentAccessSweeper::class => static fn (ContainerInterface $c): \App\Infrastructure\Document\DocumentAccessSweeper =>
+        new \App\Infrastructure\Document\DocumentAccessSweeper(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessTransitions::class),
+            $c->get(\App\Domain\Repository\DocumentAccessGrantRepository::class),
+            $c->get(\App\Domain\Repository\DocumentAccessRequestRepository::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessNoticeQueue::class),
         ),
 ];

@@ -13,7 +13,13 @@ use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
  *
  *  - {@see PAYMENT_REFERENCE}: one appointment per card payment reference;
  *  - {@see SLOT}: one live booking (pending / confirmed / rescheduled, not
- *    deleted) per doctor per start time.
+ *    deleted) per doctor per start time;
+ *  - document sharing (behind the pair advisory lock): one active folder
+ *    share per pair ({@see DOC_ACTIVE_FOLDER}), one active share per pair and
+ *    client key ({@see DOC_CLIENT_KEY}), one open hidden row per pair and
+ *    document ({@see DOC_HIDDEN_OPEN}), one pending request per pair
+ *    ({@see DOC_REQUEST_PENDING}) and one open request block per pair
+ *    ({@see DOC_BLOCK_OPEN}).
  *
  * {@see ensure()} creates one only when the data already obeys it — otherwise
  * it reports the rows that break it (nothing is changed or deleted; a person
@@ -28,6 +34,18 @@ final class RawIndexes
 {
     public const PAYMENT_REFERENCE = 'uniq_appointments_payment_reference';
     public const SLOT              = 'uniq_appointments_live_slot';
+
+    // Document sharing backstops (behind the pair advisory lock; spec §1.3).
+    /** One active whole-folder share per (patient, doctor). */
+    public const DOC_ACTIVE_FOLDER = 'uniq_doc_grants_active_folder';
+    /** One active share per (patient, doctor, client key / upload batch). */
+    public const DOC_CLIENT_KEY = 'uniq_doc_grants_client_key';
+    /** One open hidden row per (patient, doctor, document). */
+    public const DOC_HIDDEN_OPEN = 'uniq_doc_hidden_open';
+    /** One pending request per (patient, doctor). */
+    public const DOC_REQUEST_PENDING = 'uniq_doc_requests_pending';
+    /** One open request block per (patient, doctor). */
+    public const DOC_BLOCK_OPEN = 'uniq_doc_blocks_open';
 
     /** The appointment statuses that hold a slot for good (a proposal holds it only until it expires, so it is left out). */
     public const LIVE_STATUSES = ['pending', 'confirmed', 'rescheduled'];
@@ -56,6 +74,51 @@ final class RawIndexes
                                         COUNT(*) AS bookings, string_agg(id::text || ':' || status, ',' ORDER BY created_at) AS ids
                                    FROM appointments WHERE {$live}
                                   GROUP BY specialist_id, scheduled_at HAVING COUNT(*) > 1 ORDER BY 1",
+            ],
+            self::DOC_ACTIVE_FOLDER => [
+                'table'      => 'document_access_grants',
+                'ddl'        => 'CREATE UNIQUE INDEX IF NOT EXISTS ' . self::DOC_ACTIVE_FOLDER
+                    . " ON document_access_grants (patient_id, specialist_id) WHERE scope = 'all' AND status = 'active'",
+                'violations' => "SELECT patient_id::text || ':' || specialist_id::text AS conflict, COUNT(*) AS bookings,
+                                        string_agg(id::text, ',' ORDER BY created_at) AS ids
+                                   FROM document_access_grants WHERE scope = 'all' AND status = 'active'
+                                  GROUP BY patient_id, specialist_id HAVING COUNT(*) > 1 ORDER BY 1",
+            ],
+            self::DOC_CLIENT_KEY => [
+                'table'      => 'document_access_grants',
+                'ddl'        => 'CREATE UNIQUE INDEX IF NOT EXISTS ' . self::DOC_CLIENT_KEY
+                    . " ON document_access_grants (patient_id, specialist_id, client_key) WHERE client_key IS NOT NULL AND status = 'active'",
+                'violations' => "SELECT patient_id::text || ':' || specialist_id::text || ':' || client_key AS conflict, COUNT(*) AS bookings,
+                                        string_agg(id::text, ',' ORDER BY created_at) AS ids
+                                   FROM document_access_grants WHERE client_key IS NOT NULL AND status = 'active'
+                                  GROUP BY patient_id, specialist_id, client_key HAVING COUNT(*) > 1 ORDER BY 1",
+            ],
+            self::DOC_HIDDEN_OPEN => [
+                'table'      => 'document_access_hidden',
+                'ddl'        => 'CREATE UNIQUE INDEX IF NOT EXISTS ' . self::DOC_HIDDEN_OPEN
+                    . ' ON document_access_hidden (patient_id, specialist_id, document_id) WHERE cleared_at IS NULL',
+                'violations' => "SELECT patient_id::text || ':' || specialist_id::text || ':' || document_id::text AS conflict, COUNT(*) AS bookings,
+                                        string_agg(id::text, ',' ORDER BY created_at) AS ids
+                                   FROM document_access_hidden WHERE cleared_at IS NULL
+                                  GROUP BY patient_id, specialist_id, document_id HAVING COUNT(*) > 1 ORDER BY 1",
+            ],
+            self::DOC_REQUEST_PENDING => [
+                'table'      => 'document_access_requests',
+                'ddl'        => 'CREATE UNIQUE INDEX IF NOT EXISTS ' . self::DOC_REQUEST_PENDING
+                    . " ON document_access_requests (patient_id, specialist_id) WHERE status = 'pending'",
+                'violations' => "SELECT patient_id::text || ':' || specialist_id::text AS conflict, COUNT(*) AS bookings,
+                                        string_agg(id::text, ',' ORDER BY created_at) AS ids
+                                   FROM document_access_requests WHERE status = 'pending'
+                                  GROUP BY patient_id, specialist_id HAVING COUNT(*) > 1 ORDER BY 1",
+            ],
+            self::DOC_BLOCK_OPEN => [
+                'table'      => 'document_access_blocks',
+                'ddl'        => 'CREATE UNIQUE INDEX IF NOT EXISTS ' . self::DOC_BLOCK_OPEN
+                    . ' ON document_access_blocks (patient_id, specialist_id) WHERE lifted_at IS NULL',
+                'violations' => "SELECT patient_id::text || ':' || specialist_id::text AS conflict, COUNT(*) AS bookings,
+                                        string_agg(id::text, ',' ORDER BY created_at) AS ids
+                                   FROM document_access_blocks WHERE lifted_at IS NULL
+                                  GROUP BY patient_id, specialist_id HAVING COUNT(*) > 1 ORDER BY 1",
             ],
         ];
     }

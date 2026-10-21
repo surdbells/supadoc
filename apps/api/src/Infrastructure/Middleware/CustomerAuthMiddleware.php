@@ -55,9 +55,11 @@ final class CustomerAuthMiddleware implements MiddlewareInterface
         // Tokens carry a jti tied to a revocable, time-boxed session: reject
         // signed-out / idle / expired ones (and a jti-less one: there is no
         // session to check, so it fails closed), and record activity on live
-        // ones (throttled) so the server-side idle clock tracks real use.
+        // ones (throttled) so the server-side idle clock tracks real use. A
+        // background poll (`X-SD-Passive: 1`) is checked the same way but is
+        // not activity: it never keeps an idle session alive.
         $jti   = (string) ($payload->jti ?? '');
-        $state = $this->sessions->customerState($jti, touch: true);
+        $state = $this->sessions->customerState($jti, touch: !AuthMiddleware::isPassive($request));
         if ($state !== SessionState::ACTIVE) {
             $reason = $state === SessionState::EXPIRED ? $this->sessions->customerExpiryReason($jti) : null;
 

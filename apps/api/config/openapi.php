@@ -72,6 +72,10 @@ return [
         ['name' => 'Auth', 'description' => 'Sign-in and token refresh'],
         ['name' => 'Staff', 'description' => 'Staff-scoped endpoints'],
         ['name' => 'Portal', 'description' => 'Customer (patient) portal endpoints'],
+        ['name' => 'Document sharing', 'description' => 'Medical documents are private by default. The patient chooses which doctors they have booked can see the whole folder or selected documents, '
+            . 'and for how long (24h, 7d, 30d, until a date, no end, or until after a consultation); they can change or stop sharing at any time (stopping does not recall copies already downloaded). '
+            . 'Doctors see only what is shared now (one policy decides), every file view is recorded and visible to the patient, and doctors can ask for access. '
+            . 'Background polls send `X-SD-Passive: 1`, which never extends the session idle clock.'],
         ['name' => 'System'],
     ],
     'components' => [
@@ -677,10 +681,206 @@ return [
             'post' => ['tags' => ['Doctor'], 'summary' => 'Post a message to the patient', 'responses' => ['201' => ['description' => 'Created'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
         ],
         '/api/doctor/appointments/{id}/patient-documents' => [
-            'get' => ['tags' => ['Doctor'], 'summary' => "The patient's medical documents (in-call)", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
+            'get' => [
+                'tags'        => ['Doctor', 'Document sharing'],
+                'summary'     => 'Documents the patient has shared with you (legacy list)',
+                'description' => 'Only what the consultation\'s patient chose to share with this doctor, now (DocumentAccessPolicy), newest first, '
+                    . 'as the doctor allowlist (`uploader_name` only for the patient\'s own uploads; `appointment_id` only when that consultation is yours). '
+                    . 'Fails closed to `[]` (reported). New clients use GET …/document-access. `Cache-Control: no-store`.',
+                'responses'   => ['200' => ['description' => 'OK (possibly empty)'], '403' => ['$ref' => '#/components/responses/Forbidden']],
+            ],
         ],
         '/api/doctor/appointments/{id}/patient-documents/{docId}/file' => [
-            'get' => ['tags' => ['Doctor'], 'summary' => "Stream one of the patient's documents", 'responses' => ['200' => ['description' => 'File'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'get' => [
+                'tags'        => ['Doctor', 'Document sharing'],
+                'summary'     => 'Open one document the patient shares with you',
+                'description' => 'Bound to THIS consultation\'s patient. The view is recorded before a byte is streamed (audit `document.viewed`, the patient\'s ledger, the share\'s counter) — '
+                    . 'the patient can see every view.',
+                'responses'   => [
+                    '200' => ['description' => 'File'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` not_shared — not (or no longer) shared with you; nothing is recorded'],
+                    '503' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` view_unavailable — the view could not be recorded, so nothing was streamed'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/document-access' => [
+            'get' => [
+                'tags'        => ['Doctor', 'Document sharing'],
+                'summary'     => 'What the patient shares with you, and whether you may ask (DoctorDocumentAccessDto)',
+                'description' => 'Patients choose what each doctor sees and for how long (time-boxed; stopping a share does not recall copies already downloaded). '
+                    . '`access` (none | active, scope, until_label_at / indefinite = latest end of everything visible, folder_until_label_at / folder_indefinite = the whole-folder share\'s own end, ends_soon …), `documents` (allowlist + via / shared_until_label_at), `request` (can_request, kind access | extend, '
+                    . 'blocked_reason, available_at, pending, last), `server_time`. Audited `document.list_viewed` at most every 15 min — never for `X-SD-Passive: 1`, '
+                    . 'which also never extends the session idle clock. With sharing switched off: 200, state none, blocked_reason sharing_unavailable. `Cache-Control: no-store`.',
+                'parameters'  => [['name' => 'X-SD-Passive', 'in' => 'header', 'required' => false, 'schema' => ['type' => 'string', 'enum' => ['1']], 'description' => 'Background poll']],
+                'responses'   => [
+                    '200' => ['description' => 'OK'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '503' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` sharing_unavailable — could not be worked out right now (never a false empty list)'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/document-access/request' => [
+            'post' => [
+                'tags'        => ['Doctor', 'Document sharing'],
+                'summary'     => 'Ask the patient to share documents (DoctorAccessRequestDto)',
+                'description' => 'Body `{message?}` (≤ 500 characters after cleaning; shown in the patient app only). The patient gets an in-app notice and an email naming the doctor only. '
+                    . 'Pending for 7 days; 72 h cooldown after a decline; ≤ 3 per patient per 30 days and ≤ 30 per day.',
+                'requestBody' => $json(['type' => 'object', 'properties' => ['message' => ['type' => 'string', 'maxLength' => 500, 'nullable' => true]]]),
+                'responses'   => [
+                    '201' => ['description' => 'Request sent'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '409' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` request_pending (+ `errors.request`) | request_cooldown / request_limit (+ `errors.available_at`) | has_full_access | request_blocked'],
+                    '422' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` appointment_not_eligible | doctor_unavailable, or `errors.message`'],
+                    '503' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` sharing_unavailable'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/document-access/request/cancel' => [
+            'post' => [
+                'tags'      => ['Doctor', 'Document sharing'],
+                'summary'   => 'Withdraw your pending request (no patient notice)',
+                'responses' => [
+                    '200' => ['description' => 'Withdrawn (DoctorAccessRequestDto)'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '409' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` request_not_pending (+ `errors.status`)'],
+                    '503' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` sharing_unavailable'],
+                ],
+            ],
+        ],
+
+        // ----- Document sharing (patient) -----
+        '/api/portal/document-access/doctors' => [
+            'get' => [
+                'tags'        => ['Document sharing'],
+                'summary'     => 'Doctors you have booked and what each can see (SharingDoctorDto[])',
+                'description' => 'Most recent consultation first. `access` (state none | active | paused, scope, until_label_at, folder_until_label_at, hidden_count …), '
+                    . '`next_appointment` with its `after_options`, `pending_request`, `requests_blocked`. 503 `sharing_unavailable` while sharing is switched off (every route of this tag).',
+                'responses'   => ['200' => ['description' => 'OK'], '503' => ['description' => '`errors.code` sharing_unavailable']],
+            ],
+        ],
+        '/api/portal/document-access/revoke-all' => [
+            'post' => ['tags' => ['Document sharing'], 'summary' => 'Stop sharing with everyone (one Undo batch; pending requests stay)', 'responses' => ['200' => ['description' => 'RevokeResultDto']]],
+        ],
+        '/api/portal/document-access/doctors/{specialistId}/revoke' => [
+            'post' => ['tags' => ['Document sharing'], 'summary' => 'Stop sharing with one doctor (Undo for 10 minutes)', 'responses' => ['200' => ['description' => 'RevokeResultDto'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/document-access/doctors/{specialistId}/allow-requests' => [
+            'post' => ['tags' => ['Document sharing'], 'summary' => 'Let a doctor ask for access again (idempotent)', 'responses' => ['200' => ['description' => 'SharingDoctorDto'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/document-access/grants' => [
+            'get'  => [
+                'tags'       => ['Document sharing'],
+                'summary'    => 'Your shares (DocumentGrantDto[])',
+                'parameters' => [
+                    ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['active', 'ended'], 'default' => 'active']],
+                    ['name' => 'specialist_id', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'  => ['200' => ['description' => 'OK']],
+            ],
+            'post' => [
+                'tags'        => ['Document sharing'],
+                'summary'     => 'Share documents with doctors you booked (CreateDocumentShareInput)',
+                'description' => 'Patient-chosen and time-boxed: `scope` all (the whole folder, including later uploads, minus hidden ones) or selected (`document_ids`, 1–200); '
+                    . '`duration` 24h | 7d | 30d | until (`expires_at` with Z or ±hh:mm, exclusive) | indefinite | after_24h | after_7d | after_30d (after the `appointment_id` consultation ends). '
+                    . '1–5 doctors, each booked and practising, all in one transaction (any refusal shares nothing). A folder share merges into an existing one taking the later end. '
+                    . '`client_key` (uuid per submission): a repeat within 24 h answers 200 `replayed`. `answers_request_id` closes that request as answered. Stopping a share does not recall copies.',
+                'requestBody' => $json(['type' => 'object', 'required' => ['specialist_ids', 'scope', 'duration', 'client_key', 'surface'], 'properties' => [
+                    'specialist_ids' => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid'], 'maxItems' => 5],
+                    'scope'          => ['type' => 'string', 'enum' => ['all', 'selected']],
+                    'document_ids'   => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid'], 'maxItems' => 200],
+                    'duration'       => ['type' => 'string', 'enum' => ['24h', '7d', '30d', 'until', 'indefinite', 'after_24h', 'after_7d', 'after_30d']],
+                    'expires_at'     => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                    'appointment_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true],
+                    'client_key'     => ['type' => 'string', 'format' => 'uuid'],
+                    'answers_request_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true],
+                    'show_hidden_for_specialist_ids' => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid']],
+                    'surface'        => ['type' => 'string', 'enum' => ['documents_page', 'manage_sharing', 'document_access', 'upload', 'booking', 'appointment_details', 'call', 'request']],
+                ]]),
+                'responses'   => [
+                    '201' => ['description' => 'DocumentShareResultDto (outcomes created | merged | extended | unchanged)'],
+                    '200' => ['description' => 'Replay of the same submission (`replayed: true`)'],
+                    '409' => ['description' => '`errors.code` idempotency_conflict'],
+                    '422' => ['description' => 'Field errors, or `errors.code` doctor_not_eligible | doctor_unavailable | nothing_selected'],
+                    '503' => ['description' => '`errors.code` sharing_unavailable'],
+                ],
+            ],
+        ],
+        '/api/portal/document-access/grants/{id}' => [
+            'patch' => [
+                'tags'        => ['Document sharing'],
+                'summary'     => 'Change a share (UpdateDocumentGrantInput): end, scope, documents',
+                'description' => 'The doctor is told only when access widens. Scope → all merges into an existing folder share (the survivor is returned).',
+                'responses'   => ['200' => ['description' => 'DocumentGrantDto'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => '`errors.code` grant_ended'], '422' => ['$ref' => '#/components/responses/Validation']],
+            ],
+        ],
+        '/api/portal/document-access/grants/{id}/revoke' => [
+            'post' => ['tags' => ['Document sharing'], 'summary' => 'Stop one share (idempotent; Undo for 10 minutes; no doctor notice)', 'responses' => ['200' => ['description' => 'DocumentGrantDto'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/document-access/grants/{id}/restore' => [
+            'post' => ['tags' => ['Document sharing'], 'summary' => 'Undo a revoke within 10 minutes (the whole batch)', 'responses' => ['200' => ['description' => 'RestoreResultDto'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => '`errors.code` restore_expired']]],
+        ],
+        '/api/portal/document-access/requests' => [
+            'get' => [
+                'tags'       => ['Document sharing'],
+                'summary'    => "Doctors' requests to see your documents (DocumentAccessRequestDto[])",
+                'parameters' => [['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['pending', 'all'], 'default' => 'pending']]],
+                'responses'  => ['200' => ['description' => 'OK']],
+            ],
+        ],
+        '/api/portal/document-access/requests/{id}' => [
+            'get' => ['tags' => ['Document sharing'], 'summary' => 'One request (any status)', 'responses' => ['200' => ['description' => 'DocumentAccessRequestDto'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/document-access/requests/{id}/approve' => [
+            'post' => [
+                'tags'      => ['Document sharing'],
+                'summary'   => 'Approve with scope and duration (ApproveAccessRequestInput)',
+                'responses' => [
+                    '200' => ['description' => '`{request, grant}`'],
+                    '404' => ['$ref' => '#/components/responses/NotFound'],
+                    '409' => ['description' => '`errors.code` request_not_pending (+ `errors.status`)'],
+                    '422' => ['description' => 'Field errors, or doctor_unavailable / doctor_not_eligible (the request is closed)'],
+                ],
+            ],
+        ],
+        '/api/portal/document-access/requests/{id}/decline' => [
+            'post' => [
+                'tags'        => ['Document sharing'],
+                'summary'     => 'Decline (optionally stop this doctor asking again)',
+                'requestBody' => $json(['type' => 'object', 'properties' => ['block_future_requests' => ['type' => 'boolean']]]),
+                'responses'   => ['200' => ['description' => 'DocumentAccessRequestDto'], '404' => ['$ref' => '#/components/responses/NotFound'], '409' => ['description' => '`errors.code` request_not_pending']],
+            ],
+        ],
+        '/api/portal/document-access/history' => [
+            'get' => [
+                'tags'       => ['Document sharing'],
+                'summary'    => 'Your sharing ledger, every doctor view included (DocumentAccessEventDto, paginated)',
+                'parameters' => [
+                    ['name' => 'page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 1]],
+                    ['name' => 'per_page', 'in' => 'query', 'schema' => ['type' => 'integer', 'default' => 20, 'maximum' => 50]],
+                    ['name' => 'specialist_id', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                    ['name' => 'document_id', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ],
+                'responses'  => ['200' => ['description' => 'OK']],
+            ],
+        ],
+        '/api/portal/documents/{id}/access' => [
+            'get' => ['tags' => ['Document sharing'], 'summary' => 'Who can see this document (DocumentAccessDetailDto)', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/documents/{id}/access/{specialistId}' => [
+            'delete' => ['tags' => ['Document sharing'], 'summary' => "Remove a doctor's access to this document (lasting; idempotent)", 'responses' => ['200' => ['description' => 'DocumentAccessDetailDto'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/documents/{id}/access/{specialistId}/unhide' => [
+            'post' => ['tags' => ['Document sharing'], 'summary' => "Show this document through the doctor's whole-folder share again", 'responses' => ['200' => ['description' => 'DocumentAccessDetailDto'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+        ],
+        '/api/portal/appointments/{id}/document-access' => [
+            'get' => [
+                'tags'        => ['Document sharing'],
+                'summary'     => 'What this consultation\'s doctor can see (AppointmentDocumentAccessDto)',
+                'description' => 'Same policy query as the doctor\'s own view. `unshared_attachments` = files attached when booking that the doctor cannot see. Accepts `X-SD-Passive: 1`.',
+                'parameters'  => [['name' => 'X-SD-Passive', 'in' => 'header', 'required' => false, 'schema' => ['type' => 'string', 'enum' => ['1']], 'description' => 'Background poll: never extends the session idle clock']],
+                'responses'   => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
         ],
         '/api/doctor/appointments/{id}/prescriptions' => [
             'get'  => ['tags' => ['Doctor'], 'summary' => "This consultation's prescriptions (drafts included)", 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],
@@ -796,7 +996,8 @@ return [
             'get'  => [
                 'tags'        => ['Documents'],
                 'summary'     => 'List my medical documents (?search=&type=&sort_dir=&appointment_id=)',
-                'description' => '`appointment_id` narrows the list to the files attached to one of my bookings (each document carries `appointment_id`, null when it is not attached to one). Booking attachments have `document_type` `booking_attachment`.',
+                'description' => '`appointment_id` narrows the list to the files attached to one of my bookings (each document carries `appointment_id`, null when it is not attached to one). Booking attachments have `document_type` `booking_attachment`. '
+                    . 'Each row carries `shared_with` (DocumentSharedWithDto[]: who can see it now, via folder or document, until when, paused); the key is left out when it could not be worked out.',
                 'parameters'  => [
                     ...$paginationParams,
                     ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
@@ -805,7 +1006,19 @@ return [
                 ],
                 'responses'   => ['200' => ['description' => 'OK'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
-            'post' => ['tags' => ['Documents'], 'summary' => 'Upload a medical document (multipart)', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
+            'post' => [
+                'tags'        => ['Documents', 'Document sharing'],
+                'summary'     => 'Upload a medical document (multipart) and choose who can see it',
+                'description' => 'Fields `file`, `document_type`, `custom_type`; optional sharing: `share_specialist_ids[]` (≤ 5 booked, practising doctors) with `share_duration`, '
+                    . '`share_expires_at`, `share_appointment_id`, `share_batch_id` (one uuid per upload batch), `exclude_specialist_ids[]` (whole-folder holders who must not see it) '
+                    . 'and `share_surface` (documents_page | appointment_details). Checked before the bytes are stored. Without them the file is private except to whole-folder holders. '
+                    . 'Answer UploadedDocumentDto: `shared_with`, `share_outcome` (shared | partly_shared | share_ended | private | sharing_unavailable), `share_ended_for`.',
+                'responses'   => [
+                    '201' => ['description' => 'Created'],
+                    '409' => ['description' => '`errors.code` idempotency_conflict — this batch id was sent with other choices'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
         ],
         '/api/portal/documents/{id}/file' => [
             'get' => ['tags' => ['Documents'], 'summary' => 'Stream one of my documents', 'responses' => ['200' => ['description' => 'File'], '404' => ['$ref' => '#/components/responses/NotFound']]],
@@ -972,7 +1185,11 @@ return [
                 'summary'   => 'Readiness probe (checks Postgres + Redis)',
                 'security'  => [],
                 'responses' => [
-                    '200' => ['description' => 'Ready', ...$json(['type' => 'object', 'properties' => ['status' => ['type' => 'string', 'example' => 'ready'], 'checks' => ['type' => 'object']]])],
+                    '200' => ['description' => 'Ready', ...$json(['type' => 'object', 'properties' => [
+                        'status' => ['type' => 'string', 'example' => 'ready'],
+                        'checks' => ['type' => 'object'],
+                        'tz'     => ['type' => 'string', 'example' => 'UTC', 'description' => 'The PHP process time zone (naive timestamps are stored in it; the CLI must match — bin/doc-sharing-check.php --expect-tz)'],
+                    ]])],
                     '503' => ['description' => 'A dependency is unavailable'],
                 ],
             ],
@@ -1167,9 +1384,11 @@ return [
                     . '`session_expired` (`reason` lifetime: the refresh token expired; idle: no request for SESSION_IDLE_TIMEOUT), `session_revoked` '
                     . '(signed out), `session_invalid` (no such session), `refresh_invalid` (malformed / bad signature / not a refresh token), '
                     . '`account_missing`, `account_deactivated` (the session is revoked too). A 429 (own per-IP bucket, RATE_LIMIT_AUTH_REQUESTS) '
-                    . 'is transient: retry after `Retry-After`.',
+                    . 'is transient: retry after `Retry-After`. A refresh started by a background poll sends `X-SD-Passive: 1`: '
+                    . 'the session is still checked but its idle clock is not extended.',
                 'operationId' => 'refreshToken',
                 'security'    => [],
+                'parameters'  => [['name' => 'X-SD-Passive', 'in' => 'header', 'required' => false, 'schema' => ['type' => 'string', 'enum' => ['1']], 'description' => 'Background poll: never extends the session idle clock']],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['refresh_token'], 'properties' => ['refresh_token' => ['type' => 'string']]])],
                 'responses'   => [
                     '200' => ['description' => 'New access token', ...$json($envelope(['$ref' => '#/components/schemas/AccessToken']))],
@@ -3166,7 +3385,9 @@ return [
                 'summary'     => 'Upload a supporting document for a booking',
                 'description' => 'multipart/form-data with one `document` file (PDF, JPG, PNG, WEBP, DOCX, DICOM or video; <= 10MB — the same checks as POST /portal/documents). '
                     . 'The file is filed privately in the patient\'s medical documents as a `booking_attachment` (never publicly reachable) and returned as a document; '
-                    . 'pass its `id` in the booking\'s `document_ids`. `url` is the authenticated download route, not a public URL.',
+                    . 'pass its `id` in the booking\'s `document_ids`. `url` is the authenticated download route, not a public URL. '
+                    . 'Private by default: hidden from every doctor holding a whole-folder share (the doctor being booked included) except those in `show_specialist_ids[]` '
+                    . '(≤ 20 doctors you booked); whether the booked doctor sees it is the booking\'s `document_share`. The answer adds `shared_with`, `share_outcome`, `share_ended_for`.',
                 'requestBody' => [
                     'required' => true,
                     'content'  => [
@@ -3174,7 +3395,10 @@ return [
                             'schema' => [
                                 'type'       => 'object',
                                 'required'   => ['document'],
-                                'properties' => ['document' => ['type' => 'string', 'format' => 'binary']],
+                                'properties' => [
+                                    'document'              => ['type' => 'string', 'format' => 'binary'],
+                                    'show_specialist_ids[]' => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid'], 'maxItems' => 20],
+                                ],
                             ],
                         ],
                     ],
@@ -3244,6 +3468,17 @@ return [
                             'items'       => ['type' => 'string', 'format' => 'uuid'],
                         ],
                         'document_url'  => ['type' => 'string', 'deprecated' => true, 'description' => 'Older clients: the `url` from POST /portal/appointment-documents, read as one document id. Ignored when `document_ids` is sent.'],
+                        'document_share' => [
+                            'type'        => 'object',
+                            'description' => 'Who can see the attached files (send it whenever `document_ids` is sent; validated before any money moves — 422 `document_share.duration` / `show_specialist_ids.N`). '
+                                . '`duration` non-null shares them with the booked doctor alone, until after this consultation (or with no end); null keeps them private. '
+                                . 'Other doctors with a whole-folder share see them only when listed in `show_specialist_ids`. Reconciled in the booking\'s transaction: a refusal books nothing. '
+                                . 'Without it (older clients) the files stay private. The 201 answer then carries `document_share: {outcome: shared | private | sharing_unavailable, grant_id, until_label_at}`.',
+                            'properties'  => [
+                                'duration'            => ['type' => 'string', 'nullable' => true, 'enum' => ['after_24h', 'after_7d', 'after_30d', 'indefinite', null]],
+                                'show_specialist_ids' => ['type' => 'array', 'items' => ['type' => 'string', 'format' => 'uuid'], 'maxItems' => 20],
+                            ],
+                        ],
                         'payment_reference' => ['type' => 'string', 'description' => 'Paystack reference from pay-init, to pay by card instead of the wallet'],
                         'guests'        => [
                             'type'        => 'array',
@@ -3331,7 +3566,8 @@ return [
             'get' => [
                 'tags'        => ['Portal'],
                 'summary'     => "One of the patient's own appointments",
-                'description' => 'Adds `cancel_policy` {refund_percent, refund_amount, late_cancel_hours} while it can still be cancelled (can_cancel), else null: what cancelling now would refund (100%, or the late-cancellation share; guest fees always in full).',
+                'description' => 'Adds `cancel_policy` {refund_percent, refund_amount, late_cancel_hours} while it can still be cancelled (can_cancel), else null: what cancelling now would refund (100%, or the late-cancellation share; guest fees always in full). '
+                    . 'Adds `pending_document_request`: this doctor\'s pending request to see your documents (DocumentAccessRequestDto), else null.',
                 'operationId' => 'portalGetAppointment',
                 'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']]],
                 'responses'   => [

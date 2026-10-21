@@ -858,7 +858,7 @@ class Appointment
     {
         $now ??= new DateTimeImmutable();
 
-        return [
+        $payload = [
             'id'           => $this->id,
             'patient_id'   => $this->patient->getId(),
             'specialist'   => [
@@ -903,6 +903,14 @@ class Appointment
             'refunded_amount'       => $this->refundedAmount !== null || $this->paymentStatus === 'refunded' ? $this->getRefundedAmount() : null,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
         ] + $this->lifecycleFields($now, $audience);
+        // The legacy public attachment URL is the patient's alone: a doctor or
+        // the back office sees a patient's files only through what the patient
+        // shares (DocumentAccessPolicy), so it is never in their payloads.
+        if ($audience !== 'patient') {
+            unset($payload['document_url']);
+        }
+
+        return $payload;
     }
 
     /**
