@@ -14,6 +14,7 @@ use App\Domain\Enum\ConsultationType;
 use App\Infrastructure\Service\SlotLock;
 use App\Tests\Integration\Card\Support\CardHarness;
 use DateTimeImmutable;
+use DateTimeZone;
 use DI\Container;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Handler\TestHandler;
@@ -94,7 +95,7 @@ final class BookingReceiptTest extends CardIntegrationTestCase
         $this->assertSame(0, $this->countRows('SELECT COUNT(*) FROM wallet_transactions WHERE reference = ?', ['appt_debit_' . $proposalId]));
         $row = $this->em()->getConnection()->fetchAssociative('SELECT status, scheduled_at, payment_status FROM appointments WHERE id = ?', [$proposalId]);
         $this->assertSame('proposed', $row['status'], 'the proposal is as the doctor made it');
-        $this->assertSame((new DateTimeImmutable($slots[1]))->format('Y-m-d H:i:s'), $row['scheduled_at']);
+        $this->assertSame((new DateTimeImmutable($slots[1]))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i:s'), $row['scheduled_at']);
     }
 
     /**

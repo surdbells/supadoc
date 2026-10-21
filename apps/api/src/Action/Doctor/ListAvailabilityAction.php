@@ -119,7 +119,7 @@ final class ListAvailabilityAction
             ];
         }
 
-        usort($rows, static fn (array $a, array $b): int => strcmp($a['starts_at'], $b['starts_at']));
+        usort($rows, static fn (array $a, array $b): int => (new DateTimeImmutable((string) $a['starts_at']))->getTimestamp() <=> (new DateTimeImmutable((string) $b['starts_at']))->getTimestamp());
 
         return $this->success($response, [
             'from'         => $from->format('Y-m-d'),

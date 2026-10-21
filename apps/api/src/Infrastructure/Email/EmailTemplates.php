@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Email;
 
+use App\Domain\Settings\ClinicTime;
 use DateTimeImmutable;
 
 /**
@@ -1128,19 +1129,34 @@ final class EmailTemplates
         return '<span style="display:inline-block;padding:4px 12px;border-radius:999px;background:' . $bg . ';color:' . $fg . ';font-size:12px;font-weight:600;">' . self::e($label !== '' ? $label : ucfirst($status)) . '</span>';
     }
 
+    /** An ISO instant on the clinic's clock (APP_TIMEZONE); a bare Y-m-d is a calendar day and never shifts. Null when empty or unreadable. */
+    private static function inClinic(string $iso): ?DateTimeImmutable
+    {
+        if ($iso === '') {
+            return null;
+        }
+        try {
+            $at = new DateTimeImmutable($iso);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $iso) === 1 ? $at : $at->setTimezone(ClinicTime::zone());
+    }
+
     private static function date(string $iso): string
     {
-        return $iso === '' ? '' : (new DateTimeImmutable($iso))->format('D, j M Y');
+        return self::inClinic($iso)?->format('D, j M Y') ?? '';
     }
 
     private static function time(string $iso): string
     {
-        return $iso === '' ? '' : (new DateTimeImmutable($iso))->format('g:i A');
+        return self::inClinic($iso)?->format('g:i A T') ?? '';
     }
 
     private static function dateTime(string $iso): string
     {
-        return $iso === '' ? '' : (new DateTimeImmutable($iso))->format('D, j M Y \a\t g:i A');
+        return self::inClinic($iso)?->format('D, j M Y \a\t g:i A T') ?? '';
     }
 
     private static function dot(string $suffix): string

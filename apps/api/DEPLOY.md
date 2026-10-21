@@ -329,6 +329,15 @@ has expired") — a `404` means the old code is still served, reload PHP again �
 and Redis answers `PONG` (otherwise fix the `REDIS_*` values in `.env`; calls
 still work, the "in the call" indicators just stay hidden).
 
+`prod-migrate` also prints `clock_repair` (step 13): `done` or `not_needed` is
+normal. `pending` or `would_record` means the clock repair still has to run —
+see "One-time: the clock fix" (scheduling stays paused and the cron refuses to
+run until it has). `stragglers` means rows were written on the wrong clock
+after the recorded repair (scheduling is not paused) — see the same section,
+step 4. `refused` with `recorded_for_other_zone` means `date.timezone` changed
+(see "Never change `date.timezone`" there). `error` means step 13 could not
+run; nothing was changed — see the same section.
+
 > The `git pull` + PHP reload is what makes new code take effect — without the
 > reload, OPcache keeps serving the old bytecode. If `git pull` (run as root)
 > refuses with **"detected dubious ownership"**, run once:
@@ -616,7 +625,7 @@ the patient's wallet. Every slot-taking write holds the doctor's slot lock.
    deploying, the dashboard's webhook log should show `200`s.
 4. **Cron** — no new job: `bin/send-reminders.php` prints a `card payments:`
    line. It re-checks unconfirmed checkouts with Paystack (from 15 minutes old:
-   every 15 minutes for two hours, then every two hours; expired after a day),
+   every 15 minutes for two hours, then every two hours; expired after a day when Paystack says it is still unpaid — while Paystack can't be asked it stays open and is asked again),
    and credits a paid one nothing used for `CARD_INTENT_CREDIT_AFTER_MINUTES`
    (optional `.env`, default `30`) to the wallet, with an in-app notice and the
    wallet receipt. One it can't credit automatically is held for review
@@ -778,6 +787,366 @@ access: …` ends with the `active_grants` / `pending_requests` totals). No new
 cron. Doctor requests email the patient (naming the doctor only) when their
 email notifications are on; preview it with `php bin/preview-email.php`.
 
+### One-time: the clock fix (appointment times) — then switching on the cron
+
+**What was wrong.** This box runs PHP with `date.timezone = PRC` (UTC+8, the
+aaPanel default) in both PHP-FPM and the CLI, and every timestamp column is
+stored without a zone, on that clock. The apps send booking times as UTC
+instants (`…+00:00` / `…Z`). Patient and back-office bookings, both
+reschedules and the doctor's availability editor stored them **without
+converting**: 10:00 UTC was stored as `10:00` and read back as 10:00 PRC
+(02:00 UTC). So those bookings and every published availability slot read
+**8 hours early** — in the apps, the call window, reminders, the
+past-appointment closer and the double-booking check (the 2026-09-16 09:00
+double booking came from this). Doctor follow-up proposals were always
+converted and are right. Locally PHP runs on UTC, which is why tests never
+showed it.
+
+**What this release does.** The server stays on PRC — switching it to UTC would
+shift every other stored time (created_at, expiries, ledgers, audit, sessions).
+Instead:
+
+1. Every time the API stores is converted to the server's clock first, so new
+   bookings, reschedules, proposals and availability slots are right from the
+   PHP reload on.
+2. Two nullable columns mark what the new code wrote:
+   `appointments.scheduled_epoch` and `availability_slots.starts_epoch`
+   (BIGINT; the redeploy one-liner adds them — nothing dropped or retyped).
+3. **`prod-migrate` step 13** moves the rows stored on the wrong clock (+8 h;
+   the document shares that follow those consultations move with them) — **only
+   when run with `--fix-clock`**, after you have reviewed it. Until then
+   **scheduling is paused**: booking, rescheduling, follow-up proposals and
+   acceptances, booking checkouts and the doctor's availability edits answer
+   `503` "Scheduling is paused for a few minutes…"; everything else works.
+   `/health/ready` shows `"clock":{"marker":true,"repair":"pending"}`.
+4. Emails and in-app notices give times on the clinic's clock with the zone
+   ("10:00 AM WAT"); certificates and referrals print the consultation date on
+   the clinic's calendar.
+5. `bin/send-reminders.php` is safer for its first run: it runs no job at all
+   until step 13 has been recorded (`clock repair pending … no jobs run`), one
+   failing job no longer stops the others, follow-up proposals that expired
+   more than 3 days ago close quietly (audited, no messages), and a card
+   checkout is expired only on Paystack's own answer — never because Paystack
+   could not be reached.
+
+No front-end code changes in this release. Do it outside clinic hours.
+Scheduling is paused from the PHP reload in step 2 until step 4 — a few minutes
+if you prepared your decisions in step 1.
+
+**psql access** for the read-only queries below — once per shell, from
+`apps/api` (it reads `.env` the way the app does; if `psql` is not on the PATH,
+use its full path, e.g. `/www/server/pgsql/bin/psql`):
+
+```bash
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && eval "$(php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); foreach (["PGHOST" => ["DB_HOST", "127.0.0.1"], "PGPORT" => ["DB_PORT", "5432"], "PGDATABASE" => ["DB_NAME", "videomed"], "PGUSER" => ["DB_USER", "videomed"], "PGPASSWORD" => ["DB_PASSWORD", ""]] as $pg => [$key, $default]) { echo "export ", $pg, "=", escapeshellarg(trim((string) ($_ENV[$key] ?? $default))), "\n"; }')"
+```
+
+(`unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD` when done.)
+
+**1. Before deploying — read-only preview (changes nothing).** Push first (the
+API only changes when you run the one-liner, and this release changes no
+front-end code), then on the API box:
+
+```bash
+cd /www/wwwroot/api.dosthq.com/supadoc && git fetch origin main && git show origin/main:apps/api/resources/sql/clock-repair-preview.sql > /tmp/clock-repair-preview.sql && cd apps/api && psql -X -v off=28800 -f /tmp/clock-repair-preview.sql > /tmp/clock-repair-preview.txt 2>&1; echo "psql exit=$?"; less /tmp/clock-repair-preview.txt
+```
+
+It runs in a read-only transaction that is rolled back, and prints ids, statuses
+and times only. Read it:
+
+- **Section 0** — the offsets PHP wrote into stored ISO times. Every
+  `appointments.guests[]` and `audit_events` row must say `+08:00`; anything
+  else means PHP did not always run on PRC — stop and ask engineering. (The
+  `app_settings` rows are written by the command line and are only shown.)
+- **Sections 1–2** — every appointment's class. `shift:*` moves +8 h (stored
+  on the wrong clock), `keep:*` stays (doctor proposals, already right),
+  `review:*` needs your decision. `on_published_slot = t` means the patient
+  booked a slot the doctor published that was itself offered 8 h early: decide
+  `shift` (the time the patient picked, as they saw it), `slot` (the doctor's
+  published time — 16 h after today's stored value) or `keep`.
+  `paid_slot_on_process_clock` on a `shift` row also needs a look.
+- **Section 3** — start hours now and after the repair.
+- **Section 4** — double bookings with the same start, now vs after: expect the
+  2026-09-16 pair and nothing new. It does not show bookings that overlap with
+  different starts, open follow-up proposals that would sit on a booked time,
+  or bookings inside a doctor's block — the step's own output lists those
+  (step 2's report, then the dry run in step 3).
+- **Sections 5–6** — values worked out from the wrong time (document shares,
+  follow-up prices, open proposals, refunds) — for information; the repair
+  moves the shares that are still open and reports the rest.
+
+Write down `ID:shift`, `ID:keep` or `ID:slot` for every `review` and
+published-slot row; you pass them in steps 3–4.
+
+**2. Deploy.** Run the redeploy one-liner as usual. Its `prod-migrate` output
+has `clock_repair` with `"status": "pending"` and the same rows (a plain run
+changes nothing and records nothing — `"would_record"` if nothing is on the
+wrong clock; step 4 must still run) and ends with "Clock repair (step 13) …".
+Read its `refusals`, `new_collisions` and `hold_collisions`: they are what
+step 3 will refuse (see there). After the PHP reload:
+
+```bash
+curl -s https://api.dosthq.com/health/ready; echo
+```
+
+Expect `"tz":"PRC"` and `"clock":{"marker":true,"repair":"pending"}`. Until
+step 4 the doctor's Availability page shows the not-yet-repaired slots 8 h
+early; step 4 corrects them. If `marker` is `false`, PHP-FPM is using cached
+old entity mappings, or the two new columns were never added (the schema
+update read the old mappings) — clear the cache, check the schema and reload
+(**never run step 3 or 4, and never use `CLOCK_REPAIR_GATE=off`, while marker
+is false**):
+
+```bash
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql && php bin/doctrine.php orm:generate-proxies && chown -R www:www var && /etc/init.d/php-fpm-84 reload && sleep 2 && curl -s https://api.dosthq.com/health/ready; echo
+```
+
+The schema line must report "Nothing to update". If it prints
+`ALTER TABLE appointments ADD scheduled_epoch …` or
+`ALTER TABLE availability_slots ADD starts_epoch …` instead, run the redeploy
+one-liner again (it adds them now that the cache is clear) and repeat this
+check until `marker` is `true`.
+
+**3. Dry run.** Put your decisions from step 1 in `DECIDE` (comma-separated;
+leave it empty if there are none), then:
+
+```bash
+DECIDE='--clock-decide=<id>:<shift|keep|slot>,<id>:<shift|keep|slot>'
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && FPM_TZ="$(curl -s https://api.dosthq.com/health/ready | php -r '$h = json_decode(stream_get_contents(STDIN)); echo (($h->clock->marker ?? false) === true) ? (string) $h->tz : "";')" && if [ -z "$FPM_TZ" ]; then echo 'STOP: /health/ready does not show "marker":true (see step 2)'; else php bin/prod-migrate.php --dry-run --fix-clock="$FPM_TZ" $DECIDE > /tmp/clock-repair-dry.txt; echo "exit=$?"; less /tmp/clock-repair-dry.txt; fi
+```
+
+(`DECIDE=''` when there is nothing to decide.) It makes every change inside a
+transaction and rolls it back: expect `exit=0` and `clock_repair.status` =
+`would_repair` (`would_record` if nothing is on the wrong clock), with the rows
+of the preview. It refuses — exit 1, nothing changed, the reason under
+`clock_repair.refusals` — when:
+
+- a row still needs a decision (`undecided`), or a decision doesn't fit
+  (`bad_decision`);
+- the corrected times would make two live bookings of one doctor overlap that
+  did not overlap before (`new_collision`, listed under `new_collisions` — a
+  real double booking the offset hid): cancel one in the back office first;
+- an open follow-up proposal would sit on a booked time, or on another open
+  proposal (`hold_collision`, listed under `hold_collisions` — accepting it
+  would double-book): the doctor withdraws it, or cancel it in the back office;
+- the CLI's mappings or the database lack the new columns (`marker_unmapped` —
+  see step 2), the CLI's zone differs from PHP-FPM's (`zone_mismatch`), PHP
+  wrote other offsets in the past (`zone_history`), the zone has daylight
+  saving (`zone_has_transitions`), or a repair was recorded for another zone
+  (`recorded_for_other_zone`).
+
+Cancelling and withdrawing still work while scheduling is paused. Then run the
+dry run again. `busy` means the tables stayed locked by other work for 10 s,
+or Postgres broke a lock cycle between the repair and a request — run it
+again. Also read, for after step 4: `live_overlaps_after` (live bookings of one
+doctor that already overlapped — see step 6), `blocked_after` (upcoming
+bookings inside the doctor's own block — see step 6), `grants_expired_early`
+(document shares that ended early because of the wrong time — the patient can
+share again), `money_review` and `follow_up_pricing_review`.
+
+**4. The repair.** The same command with `--run` instead of `--dry-run`:
+
+```bash
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && FPM_TZ="$(curl -s https://api.dosthq.com/health/ready | php -r '$h = json_decode(stream_get_contents(STDIN)); echo (($h->clock->marker ?? false) === true) ? (string) $h->tz : "";')" && if [ -z "$FPM_TZ" ]; then echo 'STOP: /health/ready does not show "marker":true (see step 2)'; else php bin/prod-migrate.php --run --fix-clock="$FPM_TZ" $DECIDE > /tmp/clock-repair-run.txt; echo "exit=$?"; less /tmp/clock-repair-run.txt; fi
+```
+
+Expect `exit=0` and `"status": "repaired"` (`"recorded"` if nothing was on the
+wrong clock); `/health/ready` now shows `"repair":"done"` and scheduling works
+again. Every change is in the audit log (`appointment.time_corrected`,
+`availability.time_corrected`, `document_access.expiry_corrected`, one
+`maintenance.clock_repaired`) with its old and new time. Running it again —
+with the same `$DECIDE` or with `DECIDE=''` — is safe: it reports `done` and
+changes nothing (a decision on a row the repair already corrected is ignored).
+
+If a later `prod-migrate` reports `stragglers`, rows were written on the wrong
+clock after the recorded repair (an old PHP-FPM worker during the deploy, or a
+marker that disagrees with its time). Scheduling is not paused. The rows are
+listed under `clock_repair.review`: decide each as in step 1 and run steps 3
+and 4 again with those decisions.
+
+**5. Verify** (read-only; with the psql access above):
+
+```bash
+psql -X <<'SQL'
+-- every row marked, and the marker agrees with the stored time (expect 0 | 0, twice)
+SELECT count(*) FILTER (WHERE scheduled_epoch IS NULL) AS unmarked,
+       count(*) FILTER (WHERE scheduled_epoch <> extract(epoch FROM scheduled_at)::bigint - 28800) AS disagree
+  FROM appointments;
+SELECT count(*) FILTER (WHERE starts_epoch IS NULL) AS unmarked,
+       count(*) FILTER (WHERE starts_epoch <> extract(epoch FROM starts_at)::bigint - 28800) AS disagree
+  FROM availability_slots;
+-- nothing starts before it was booked (expect 0, except the rows step 13 listed as
+-- `review:starts_before_booked` (whatever you decided) and rows you decided `keep`)
+SELECT count(*) AS starts_before_booked FROM appointments WHERE scheduled_at < created_at;
+-- start hours on the clinic's clock (WAT = PRC - 7 h): clinic hours, nothing at 00-06
+SELECT extract(hour FROM scheduled_at - interval '7 hours')::int AS wat_hour, count(*)
+  FROM appointments GROUP BY 1 ORDER BY 1;
+-- the repair is recorded and audited
+SELECT value FROM app_settings WHERE setting_key = 'prod_migrate.clock_repair';
+SELECT action, count(*) FROM audit_events
+ WHERE action IN ('appointment.time_corrected', 'availability.time_corrected',
+                  'document_access.expiry_corrected', 'maintenance.clock_repaired')
+ GROUP BY 1 ORDER BY 1;
+-- live bookings of one doctor that overlap: only the pairs the run listed under
+-- live_overlaps_after (at least the 2026-09-16 pair, now 17:00 PRC = 10:00 WAT), until you resolve them
+SELECT a.specialist_id, a.id AS first_id, b.id AS second_id,
+       to_char(a.scheduled_at - interval '7 hours', 'YYYY-MM-DD HH24:MI') AS first_wat,
+       to_char(b.scheduled_at - interval '7 hours', 'YYYY-MM-DD HH24:MI') AS second_wat
+  FROM appointments a
+  JOIN appointments b ON b.specialist_id = a.specialist_id AND a.id < b.id
+  JOIN specialists s ON s.id = a.specialist_id
+ WHERE a.status IN ('pending', 'confirmed', 'rescheduled') AND a.deleted_at IS NULL
+   AND b.status IN ('pending', 'confirmed', 'rescheduled') AND b.deleted_at IS NULL
+   AND a.scheduled_at < b.scheduled_at + (s.slot_minutes || ' minutes')::interval
+   AND b.scheduled_at < a.scheduled_at + (s.slot_minutes || ' minutes')::interval
+ ORDER BY a.scheduled_at;
+-- upcoming consultations on the clinic's clock: compare with what was booked
+SELECT id, status, to_char(scheduled_at - interval '7 hours', 'YYYY-MM-DD HH24:MI') AS wat
+  FROM appointments
+ WHERE deleted_at IS NULL AND status IN ('pending', 'confirmed', 'rescheduled', 'proposed')
+   AND scheduled_at > (now() AT TIME ZONE 'UTC') + interval '8 hours'
+ ORDER BY scheduled_at;
+SQL
+```
+
+Then in the apps: an upcoming consultation shows the time that was booked; the
+doctor's Availability page shows published slots at the times the doctor
+entered; a test booking made by staff shows the right time and its email says
+"… WAT".
+
+**6. Overlapping bookings and bookings inside a block.** The repair moves
+bookings that already overlapped together, so they still overlap: the run
+listed them under `live_overlaps_after` — at least the 2026-09-16 pair (two
+confirmed bookings, one doctor, same start). It listed upcoming bookings that
+fall inside the doctor's own block under `blocked_after` (the old check applied
+blocks 8 h off). Resolve each with the doctor: cancel and refund one booking in
+the back office, or let the doctor move it. Then run
+`php bin/prod-migrate.php --run`: once no two live bookings share a start, step
+10 reports `uniq_appointments_live_slot: created`.
+
+**Rolling back.** Before step 4 nothing has changed: to back out, check out the
+previous commit and reload PHP-FPM (`git checkout 0ee2057`, `composer install
+--no-dev --optimize-autoloader`, `rm -rf var/cache/doctrine*`,
+`php bin/doctrine.php orm:generate-proxies`, `chown -R www:www var`, reload) —
+leave the two new columns (the old code ignores them; don't run
+`schema-tool:update` on the old commit). **After step 4, never roll back**: the
+old code would store new bookings 8 h wrong again — fix forward.
+
+**Stuck before step 4?** Only as a stop-gap, and **only while `/health/ready`
+shows `"marker":true`**: `CLOCK_REPAIR_GATE=off` in `.env` plus a PHP-FPM
+reload lifts the scheduling pause. New bookings are then stored right, but the
+not-yet-repaired ones still read 8 h early and the double-booking check can't
+see them at their real time. (With `"marker":false`, new bookings would be
+stored without the marker and step 13 would later move them 8 h wrong.) The
+cron still refuses to run. Remove the line (and reload) once step 4 has run.
+
+**Never change `date.timezone`** on this box (PHP-FPM or CLI) without converting
+every timestamp column at the same moment. After such a change — to UTC too,
+including a lost `date.timezone` line (PHP then falls back to UTC) — the API
+pauses scheduling (`"repair":"pending"`), the cron refuses to run and step 13
+refuses (`recorded_for_other_zone`) until engineering has dealt with it. If
+only one side changed (the CLI no longer matches PHP-FPM), that side stops:
+the cron and step 13 for the CLI, scheduling for PHP-FPM.
+
+#### Switching on the cron (`bin/send-reminders.php`) — only after step 5 is clean
+
+The 5-minute cron has never run on this box. It refuses to run any job (exit 1,
+`clock repair pending (prod-migrate step 13): no jobs run` on stderr) until
+`/health/ready` shows `"repair":"done"`. Its first run then works through
+everything that piled up — join reminders, closing past consultations (with
+refunds), expiring follow-up proposals, doctors' licence reminders and
+**suspensions**, card-payment checks and wallet credits, prescription expiry,
+document-sharing bookkeeping. Look first (read-only, with the psql access
+above):
+
+```bash
+psql -X <<'SQL'
+-- past consultations the closer will close (started over 3 days ago = closed quietly, no messages;
+-- refunds follow Booking settings — a patient no-show refunds 0 %)
+SELECT a.id, a.status, a.payment_status, to_char(a.scheduled_at - interval '7 hours', 'YYYY-MM-DD HH24:MI') AS wat,
+       a.scheduled_at < (now() AT TIME ZONE 'UTC') + interval '8 hours' - interval '3 days' AS closes_quietly
+  FROM appointments a JOIN specialists s ON s.id = a.specialist_id
+ WHERE a.deleted_at IS NULL AND a.status IN ('pending', 'rescheduled', 'confirmed')
+   AND a.scheduled_at + (s.slot_minutes || ' minutes')::interval < (now() AT TIME ZONE 'UTC') + interval '8 hours'
+ ORDER BY a.scheduled_at;
+-- follow-up proposals past their expiry (expired over 3 days ago = closed quietly)
+SELECT id, to_char(expires_at - interval '7 hours', 'YYYY-MM-DD HH24:MI') AS expired_wat,
+       expires_at < (now() AT TIME ZONE 'UTC') + interval '8 hours' - interval '3 days' AS closes_quietly
+  FROM appointments
+ WHERE status = 'proposed' AND deleted_at IS NULL AND expires_at <= (now() AT TIME ZONE 'UTC') + interval '8 hours'
+ ORDER BY expires_at;
+-- LICENCES: approved doctors whose verified practising licence has expired with no current one
+-- (suspended on the first run, their upcoming bookings cancelled and refunded)
+SELECT c.specialist_id, c.expires_at
+  FROM specialist_credentials c JOIN specialists s ON s.id = c.specialist_id
+ WHERE c.type = 'annual_practising_licence' AND c.status = 'verified' AND c.expires_at < CURRENT_DATE
+   AND s.status = 'approved' AND s.deleted_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM specialist_credentials o
+                    WHERE o.specialist_id = c.specialist_id AND o.type = c.type
+                      AND o.status = 'verified' AND o.expires_at >= CURRENT_DATE)
+ ORDER BY c.expires_at;
+-- card checkouts the sweep will look at (initiated: asked again; paid and unused for 30 min: credited to the wallet)
+SELECT status, count(*) FROM payment_intents WHERE status IN ('initiated', 'paid') GROUP BY 1;
+SQL
+```
+
+- Past consultations you want handled differently: resolve them in the back
+  office first (mark held / cancel with refund).
+- **Licences:** a doctor listed there is **suspended automatically** on the
+  first run (`LICENCE_GRACE_DAYS` in `.env`, default `0`, is the grace after
+  expiry) and their upcoming bookings are cancelled and refunded. If that isn't
+  intended, record the renewed licence in the back office, or set
+  `LICENCE_GRACE_DAYS=<days>` in `.env`, before the first run.
+- **Paystack** must be reachable with the right key (as the web user):
+
+  ```bash
+  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && runuser -u www -- php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $base = rtrim(trim((string) ($_ENV["PAYSTACK_BASE_URL"] ?? "")) ?: "https://api.paystack.co", "/"); $ch = curl_init($base . "/transaction/verify/vma_reachability_check"); curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ["Authorization: Bearer " . trim((string) ($_ENV["PAYSTACK_SECRET_KEY"] ?? ""))], CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 8]); curl_exec($ch); echo "curl=", curl_errno($ch), " http=", curl_getinfo($ch, CURLINFO_HTTP_CODE), PHP_EOL;'
+  ```
+
+  `curl=0 http=400` (or `404`) is right: Paystack answered, accepted the key and
+  doesn't know that made-up reference. `http=401` = wrong key or the other mode
+  (test/live); `curl` other than `0` = the box can't reach Paystack (see
+  `php bin/paystack-check.php`). Nothing is created at Paystack. (While Paystack
+  can't be reached the sweep now leaves checkouts open — nothing is expired —
+  but nothing gets credited either.)
+
+Then, in this order:
+
+1. The log folder, owned by the web user, and the CLI on PHP-FPM's zone:
+
+   ```bash
+   cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && mkdir -p var/log && chown -R www:www var && runuser -u www -- sh -c 'command -v php' && runuser -u www -- php bin/doc-sharing-check.php --expect-tz="$(curl -s https://api.dosthq.com/health/ready | php -r 'echo json_decode(stream_get_contents(STDIN))->tz;')"
+   ```
+
+   Expect a php path (e.g. `/usr/bin/php`) and `tz_check=ok`.
+2. **One manual run** as the web user, with the same lock the cron uses, into
+   the same log:
+
+   ```bash
+   cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && runuser -u www -- sh -c 'flock -n var/send-reminders.lock php bin/send-reminders.php 2>&1 | tee -a var/log/reminders.log'
+   ```
+
+   If it prints `clock repair pending (prod-migrate step 13): no jobs run`, step
+   4 has not run on this database — go back. Otherwise read every line:
+   `reminders: … sent=`, `prescriptions: …`, `consultations: … errors=0`,
+   `follow-ups: expired=… nudged=…`, `licences: … suspended=` (0 unless you
+   expected one), `card payments: … errors=0`, `document access: … errors=0`.
+   Any `errors=` above 0 or any other stderr line: stop and read
+   `var/logs/app.log` and the PHP error log before going on.
+3. **Install the cron** in the web user's crontab (it stops if www already has
+   one — then add the two lines by hand with `crontab -u www -e`); the `HOME`
+   line gives cron a working directory www can enter:
+
+   ```bash
+   crontab -u www -l 2>/dev/null && echo 'STOP: www already has a crontab - add the two lines by hand (crontab -u www -e)' || printf '%s\n' 'HOME=/www/wwwroot/api.dosthq.com/supadoc/apps/api' '*/5 * * * * cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && flock -n var/send-reminders.lock php bin/send-reminders.php >> var/log/reminders.log 2>&1' | crontab -u www - && crontab -u www -l
+   ```
+
+   If step 1 printed a php path other than `/usr/bin/php` or `/bin/php`, use that
+   full path instead of `php` in the line. `flock -n` skips a run while the last
+   one is still going. Don't also add it in aaPanel's Cron page (that runs as
+   root). Ten minutes later `tail -n 20 var/log/reminders.log` shows two more
+   runs.
+
 ---
 
 ## Troubleshooting
@@ -794,3 +1163,7 @@ email notifications are on; preview it with `php bin/preview-email.php`.
 | Patients see "Sharing is unavailable right now" | `DOC_SHARING_ENABLED` is off (or not `true`/`1`) in `apps/api/.env` — set it and reload PHP-FPM. |
 | `doc-sharing-check` exits 1 (`tz_check=MISMATCH`) | The CLI and PHP-FPM run in different time zones; set the same `date.timezone` in both php.ini files before running cron / prod-migrate. |
 | Hard-deleting a patient or doctor fails on a foreign key | Their document-sharing records (`document_access_grants` / `_requests`) reference them (`RESTRICT`) and are medical-record retention data: export and purge them under the retention policy first, never by cascade. |
+| Booking, rescheduling or availability edits answer `503` "Scheduling is paused…" | The clock repair (prod-migrate step 13) hasn't run on this database, or `date.timezone` changed since it ran (to UTC too) — `/health/ready` shows `"repair":"pending"`. See "One-time: the clock fix". |
+| `/health/ready` shows `"marker":false` | PHP-FPM uses stale entity mappings, or the two clock-fix columns are missing: run step 2's remedy in "One-time: the clock fix" (`orm:schema-tool:update --dump-sql` must report "Nothing to update"). |
+| `var/log/reminders.log` says `clock repair pending (prod-migrate step 13): no jobs run` | The clock repair hasn't run on this database, or `date.timezone` changed — see "One-time: the clock fix". The cron runs its jobs again by itself once `/health/ready` shows `"repair":"done"`. |
+| Appointment or availability times 8 hours early | Rows still on the wrong clock (or `date.timezone` was changed) — see "One-time: the clock fix". |

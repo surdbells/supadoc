@@ -829,13 +829,14 @@ final class PaymentIntentService
     /**
      * The cron's reconciliation pass: initiated checkouts over 15 minutes old
      * are re-checked with Paystack (every 15 minutes during their first two
-     * hours, every two hours after that; expired after a day unpaid), and
-     * paid ones nothing used for
+     * hours, every two hours after that; expired after a day when Paystack
+     * says it is still unpaid), and paid ones nothing used for
      * CARD_INTENT_CREDIT_AFTER_MINUTES are credited to the wallet (the patient
      * is told) — or held for review when they can't be. A failure on one is
      * counted, the payment moves to the back of its queue (so failures can't
-     * crowd out the rest), and the rest go on; a checkout Paystack keeps
-     * failing on still expires after a day. When a failure leaves the entity
+     * crowd out the rest), and the rest go on; a checkout Paystack can't be
+     * asked about stays open and is asked again on the slow cadence — only
+     * Paystack's answer expires it. When a failure leaves the entity
      * manager closed the pass stops (`em_closed`) — the caller re-runs on a
      * fresh one, skipping `failed_refs`.
      *
@@ -870,16 +871,13 @@ final class PaymentIntentService
                 $result['errors']++;
                 $result['failed_refs'][] = $reference;
                 error_log('[payments.sweep] re-verify ' . $reference . ' failed: ' . $e->getMessage());
-                // To the back of the queue whatever went wrong; past a day unconfirmed it expires
-                // (a late success still counts — the webhook or the patient's own request records it).
+                // To the back of the queue whatever went wrong. It stays initiated: only
+                // Paystack's own answer (above) may expire it — a failed check is no answer.
                 $this->afterFailure($reference, $now);
                 if (!$this->intents->isOpen()) {
                     $result['em_closed'] = true;
 
                     return $result;
-                }
-                if ($created <= $stale && $this->safely(fn (): bool => $this->intents->expire($reference, $stale, $now))) {
-                    $result['expired']++;
                 }
             }
         }

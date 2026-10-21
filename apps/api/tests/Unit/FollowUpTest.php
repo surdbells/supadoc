@@ -514,6 +514,20 @@ final class FollowUpTest extends TestCase
         }
     }
 
+    public function testAnExpiryOlderThanThreeDaysClosesQuietly(): void
+    {
+        $now = new DateTimeImmutable('2026-10-21T12:00:00Z');
+        $at  = static function (string $expires) use ($now): Appointment {
+            $parent = new Appointment(new Patient('q@example.test', 'Q', 'Uiet'), new Specialist('Dr. Q', 'General Practice'), $now->modify('-10 days'));
+
+            return Appointment::proposeFollowUp($parent, $now->modify('+1 day'), ['amount' => '0.00'], null, $now->modify($expires));
+        };
+
+        $this->assertTrue(FollowUpService::expiresQuietly($at('-4 days'), $now), 'the backlog of a first cron run');
+        $this->assertFalse(FollowUpService::expiresQuietly($at('-2 days'), $now));
+        $this->assertFalse(FollowUpService::expiresQuietly($at('-1 hour'), $now));
+    }
+
     public function testADeclineReasonIsBounded(): void
     {
         $this->expectException(ValidationException::class);

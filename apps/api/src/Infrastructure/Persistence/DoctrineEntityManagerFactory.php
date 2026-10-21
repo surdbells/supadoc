@@ -6,6 +6,7 @@ namespace App\Infrastructure\Persistence;
 
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Types\Type;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\UnderscoreNamingStrategy;
@@ -18,7 +19,8 @@ use Symfony\Component\Cache\Adapter\FilesystemAdapter;
  * One EntityManager per request, reused while open. `UnderscoreNamingStrategy`
  * gives `createdAt` -> `created_at` for free. Pinning `serverVersion` lets DBAL
  * resolve the platform without connecting, so DQL compiles offline in tests
- * (see ARCHITECTURE §12).
+ * (see ARCHITECTURE §12). Timestamps are stored on the PHP process clock
+ * (ProcessZoneDateTimeImmutableType).
  */
 final class DoctrineEntityManagerFactory
 {
@@ -49,6 +51,9 @@ final class DoctrineEntityManagerFactory
 
         if (!Type::hasType('uuid')) {
             Type::addType('uuid', UuidType::class);
+        }
+        if (!Type::getType(Types::DATETIME_IMMUTABLE) instanceof ProcessZoneDateTimeImmutableType) {
+            Type::overrideType(Types::DATETIME_IMMUTABLE, ProcessZoneDateTimeImmutableType::class);
         }
 
         $params = [

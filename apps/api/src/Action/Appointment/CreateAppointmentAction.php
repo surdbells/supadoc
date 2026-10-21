@@ -10,6 +10,7 @@ use App\Domain\Enum\ConsultationType;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
+use App\Domain\Settings\ProcessClock;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
@@ -75,7 +76,7 @@ final class CreateAppointmentAction
             $errors['scheduled_at'] = 'A date and time is required';
         } else {
             try {
-                $scheduledAt = new DateTimeImmutable($scheduledRaw);
+                $scheduledAt = ProcessClock::normalize(new DateTimeImmutable($scheduledRaw));
             } catch (\Throwable) {
                 $errors['scheduled_at'] = 'Invalid date/time';
             }

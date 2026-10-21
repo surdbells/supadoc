@@ -66,12 +66,26 @@ return static function (App $app): void {
             // stays false
         }
         $ready = $checks['database'] && $checks['redis'];
+        // The clock fix (DEPLOY.md "One-time: the clock fix"): whether this process's
+        // mappings AND the database have the marker columns, and the repair state.
+        $clock = ['marker' => false, 'repair' => 'unknown'];
+        try {
+            $clock['marker'] = \App\Infrastructure\Persistence\ClockRepair::markerReady($container->get(EntityManagerInterface::class));
+        } catch (\Throwable) {
+            // stays false
+        }
+        try {
+            $clock['repair'] = \App\Infrastructure\Persistence\ClockRepair::state($container->get(EntityManagerInterface::class)->getConnection());
+        } catch (\Throwable) {
+            // stays unknown
+        }
         $response->getBody()->write(json_encode([
             'status' => $ready ? 'ready' : 'degraded',
             'checks' => $checks,
             // The PHP-FPM process time zone: naive timestamps are stored in it,
             // so the CLI (cron, prod-migrate) must match it (bin/doc-sharing-check.php --expect-tz).
             'tz'     => date_default_timezone_get(),
+            'clock'  => $clock,
         ]));
 
         return $response
@@ -148,6 +162,8 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('appointments.view'));
 
             $group->post('/appointments', Action\Appointment\CreateAppointmentAction::class)
+                // Paused until the clock repair has run (added before RBAC, so RBAC runs first).
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class)
                 // Array + default requireAll:false means ANY of these permissions.
                 ->add(new RbacMiddleware(['appointments.create', 'appointments.book']));
 
@@ -256,13 +272,16 @@ return static function (App $app): void {
             $group->get('/doctor/appointments/{id}', Action\Doctor\GetDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/confirm', Action\Doctor\ConfirmDoctorAppointmentAction::class);
             $group->post('/doctor/appointments/{id}/decline', Action\Doctor\DeclineDoctorAppointmentAction::class);
-            $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class);
+            // Scheduling writes (here and below) are paused until the clock repair has run (ClockRepairGateMiddleware).
+            $group->post('/doctor/appointments/{id}/reschedule', Action\Doctor\RescheduleDoctorAppointmentAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             // End the consultation: CONFIRMED → COMPLETED (moves it to history).
             $group->post('/doctor/appointments/{id}/complete', Action\Doctor\CompleteDoctorAppointmentAction::class);
             // Follow-ups: propose one of consultation {id} at an open slot (PROPOSED
             // until the patient answers), price it first, list them; withdraw a
             // proposal ({id} = the proposal).
-            $group->post('/doctor/appointments/{id}/follow-up', Action\Doctor\ProposeFollowUpAction::class);
+            $group->post('/doctor/appointments/{id}/follow-up', Action\Doctor\ProposeFollowUpAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             $group->get('/doctor/appointments/{id}/follow-up/quote', Action\Doctor\FollowUpQuoteAction::class);
             $group->post('/doctor/appointments/{id}/follow-up/withdraw', Action\Doctor\WithdrawFollowUpAction::class);
             $group->get('/doctor/appointments/{id}/follow-ups', Action\Doctor\ListFollowUpsAction::class);
@@ -290,9 +309,12 @@ return static function (App $app): void {
             $group->delete('/doctor/avatar', Action\Doctor\DeleteDoctorAvatarAction::class);
             // Date-specific availability: publish/remove open slots, block days.
             $group->get('/doctor/availability', Action\Doctor\ListAvailabilityAction::class);
-            $group->post('/doctor/availability', Action\Doctor\AddAvailabilityAction::class);
-            $group->post('/doctor/availability/block', Action\Doctor\BlockAvailabilityAction::class);
-            $group->delete('/doctor/availability/{id}', Action\Doctor\DeleteAvailabilityAction::class);
+            $group->post('/doctor/availability', Action\Doctor\AddAvailabilityAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
+            $group->post('/doctor/availability/block', Action\Doctor\BlockAvailabilityAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
+            $group->delete('/doctor/availability/{id}', Action\Doctor\DeleteAvailabilityAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             // Their own booking calendar (reschedule / follow-up time pickers): not
             // held to the patient horizon. Clinical — refused while suspended.
             $group->get('/doctor/calendar', Action\Doctor\DoctorCalendarAction::class);
@@ -502,18 +524,23 @@ return static function (App $app): void {
             $group->get('/appointments', Action\Appointment\ListMyAppointmentsAction::class);
             // Before /appointments/{id}: FastRoute refuses a static route shadowed by an earlier variable one.
             $group->get('/appointments/presence', Action\Appointment\MyCallPresenceAction::class);
-            $group->post('/appointments', Action\Appointment\CreateMyAppointmentAction::class);
-            $group->post('/appointments/pay-init', Action\Appointment\InitAppointmentPaymentAction::class);
+            // Scheduling writes are paused until the clock repair has run (ClockRepairGateMiddleware).
+            $group->post('/appointments', Action\Appointment\CreateMyAppointmentAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
+            $group->post('/appointments/pay-init', Action\Appointment\InitAppointmentPaymentAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             // Where one of the patient's own card checkouts stands (paid? used? in the wallet?).
             $group->get('/card-payments/{reference}', Action\Appointment\GetMyCardPaymentAction::class);
             $group->post('/appointment-documents', Action\Appointment\UploadAppointmentDocumentAction::class);
             $group->get('/appointments/{id}', Action\Appointment\GetMyAppointmentAction::class);
             $group->post('/appointments/{id}/cancel', Action\Appointment\CancelMyAppointmentAction::class);
-            $group->post('/appointments/{id}/reschedule', Action\Appointment\ReschedulePortalAppointmentAction::class);
+            $group->post('/appointments/{id}/reschedule', Action\Appointment\ReschedulePortalAppointmentAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             $group->post('/appointments/{id}/review', Action\Patient\SubmitReviewAction::class);
             // Follow-ups: answer the doctor's proposal {id}; price / list the follow-ups of
             // consultation {id} (the quote also prices accepting proposal {id} at another slot).
-            $group->post('/appointments/{id}/follow-up/accept', Action\Appointment\AcceptFollowUpAction::class);
+            $group->post('/appointments/{id}/follow-up/accept', Action\Appointment\AcceptFollowUpAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             $group->post('/appointments/{id}/follow-up/decline', Action\Appointment\DeclineFollowUpAction::class);
             $group->get('/appointments/{id}/follow-up/quote', Action\Appointment\MyFollowUpQuoteAction::class);
             $group->get('/appointments/{id}/follow-ups', Action\Appointment\MyFollowUpsAction::class);

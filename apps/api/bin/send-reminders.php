@@ -13,12 +13,17 @@ declare(strict_types=1);
  * run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
- *   * / 5 * * * *  cd /path/to/apps/api && php bin/send-reminders.php >> var/log/reminders.log 2>&1
+ *   * / 5 * * * *  cd /path/to/apps/api && flock -n var/send-reminders.lock php bin/send-reminders.php >> var/log/reminders.log 2>&1
+ *
+ * Install it in the web user's (www) crontab — see DEPLOY.md "Switching on the
+ * cron"; flock skips a run while the last one is still going. It runs no job
+ * (exit 1) until the clock repair (prod-migrate step 13) is recorded.
  *
  * Offsets are configured with REMINDER_OFFSETS (comma-separated minutes-before,
  * default "1440,60"). Each (appointment, offset) reminder is sent exactly once.
  */
 
+use App\Infrastructure\Persistence\ClockRepair;
 use App\Infrastructure\Persistence\SettingsRegistry;
 use App\Infrastructure\Service\PastAppointmentCloser;
 use App\Infrastructure\Service\ReminderService;
@@ -45,16 +50,41 @@ $build = static function (): Container {
 };
 $container = $build();
 
-$reminders = $container->get(ReminderService::class);
-$result    = $reminders->run();
+// The clock repair (prod-migrate step 13) must be recorded for this database and
+// this zone first: until then scheduled times read 8 h off, and the closer's
+// refund / no-show decisions can't be undone. Also after a date.timezone change,
+// to UTC too (a repair recorded for another zone keeps this pending on any zone).
+// Fail closed: no job runs when it can't be checked either.
+try {
+    $clockPending = ClockRepair::isPending($container->get(EntityManagerInterface::class)->getConnection());
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] clock repair check failed (' . $e::class . "): no jobs run\n");
+    exit(1);
+}
+if ($clockPending) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . "] clock repair pending (prod-migrate step 13): no jobs run\n");
+    exit(1);
+}
 
-printf(
-    "[%s] reminders: offsets=%s sent=%d recipients=%d\n",
-    gmdate('Y-m-d H:i:s'),
-    implode(',', $result['offsets']),
-    $result['reminders_sent'],
-    $result['recipients'],
-);
+// Join reminders. A failure here (it can leave the entity manager closed) must
+// not stop the jobs below: they start on a fresh container.
+try {
+    $result = $container->get(ReminderService::class)->run();
+    printf(
+        "[%s] reminders: offsets=%s sent=%d recipients=%d\n",
+        gmdate('Y-m-d H:i:s'),
+        implode(',', $result['offsets']),
+        $result['reminders_sent'],
+        $result['recipients'],
+    );
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] reminders: ' . $e::class . ': ' . $e->getMessage() . "\n");
+    try {
+        $container = $build();
+    } catch (\Throwable $e) {
+        fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] container: ' . $e::class . ': ' . $e->getMessage() . "\n");
+    }
+}
 
 // Prescription housekeeping: store expiries + send "expires in N days" reminders
 // (each prescription is reminded once, so running every 5 minutes is safe).
@@ -162,7 +192,9 @@ try {
 
 // Card payments (PaymentIntentService::sweep): a checkout started over 15
 // minutes ago that never confirmed is re-checked with Paystack (so a charge
-// whose webhook never arrived is still found; unpaid after a day it expires),
+// whose webhook never arrived is still found; unpaid after a day it expires —
+// on Paystack's own answer only; while Paystack can't be asked it stays open and
+// is asked again),
 // and a paid one nothing used for CARD_INTENT_CREDIT_AFTER_MINUTES (default 30)
 // is credited to the patient's wallet — they get an in-app notice and the
 // wallet receipt. Each credit is decided under the payment's row lock and posts

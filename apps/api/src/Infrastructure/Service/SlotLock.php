@@ -23,7 +23,7 @@ use Doctrine\ORM\EntityManagerInterface;
 final class SlotLock
 {
     /** The first key of the two-key advisory lock: "slots" (the second is the doctor). */
-    private const NAMESPACE = 0x5107;
+    public const NAMESPACE = 0x5107;
 
     public const TAKEN = 'That time was just taken — please pick another slot';
 

@@ -11,6 +11,7 @@ use App\Domain\Entity\Specialist;
 use App\Infrastructure\Persistence\RawIndexes;
 use App\Infrastructure\Service\SlotLock;
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
@@ -166,7 +167,7 @@ final class SlotRaceTest extends CardIntegrationTestCase
             $this->assertStringContainsString($a->getId(), $report[RawIndexes::SLOT]['violations'][0]['ids']);
             $this->assertStringContainsString($b->getId(), $report[RawIndexes::SLOT]['violations'][0]['ids']);
             $this->assertFalse(RawIndexes::exists($conn, RawIndexes::SLOT), 'not created over the duplicates');
-            $this->assertSame(2, (int) $conn->fetchOne('SELECT COUNT(*) FROM appointments WHERE scheduled_at = ?', [(new DateTimeImmutable($slots[2]))->format('Y-m-d H:i:s')]), 'nothing deleted');
+            $this->assertSame(2, (int) $conn->fetchOne('SELECT COUNT(*) FROM appointments WHERE scheduled_at = ?', [(new DateTimeImmutable($slots[2]))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i:s')]), 'nothing deleted');
         } finally {
             $conn->rollBack(); // the index and the class's other rows are back as they were
         }
@@ -208,8 +209,8 @@ final class SlotRaceTest extends CardIntegrationTestCase
     {
         return $this->countRows(
             "SELECT COUNT(*) FROM appointments WHERE specialist_id = ? AND scheduled_at = ? AND status IN ('pending','confirmed','rescheduled') AND deleted_at IS NULL",
-            // Stored as the wall-clock time of the value the booking was given (the slot's UTC ISO time).
-            [$doctor->getId(), (new DateTimeImmutable($slot))->format('Y-m-d H:i:s')],
+            // Stored as the slot's instant on the process clock.
+            [$doctor->getId(), (new DateTimeImmutable($slot))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i:s')],
         );
     }
 

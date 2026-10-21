@@ -65,12 +65,23 @@ final class CardSafeguardsTest extends CardIntegrationTestCase
         $this->assertSame(1, FakeCardGateway::calls($this->gatewayFile, $missed));
     }
 
-    public function testACheckoutPaystackKeepsFailingOnStillExpiresAfterADay(): void
+    public function testACheckoutPaystackCannotBeAskedAboutStaysOpenUntilPaystackAnswers(): void
     {
         [$patientId, $doctor] = $this->patientAndDoctor();
         $ref = $this->checkout($patientId, PaymentIntent::PURPOSE_BOOKING, ['specialist_id' => $doctor->getId()], '10000.00')->getReference();
         $this->em()->getConnection()->executeStatement("UPDATE payment_intents SET created_at = NOW() - INTERVAL '25 hours' WHERE reference = ?", [$ref]);
 
+        // Paystack can't be asked (the fake throws): a failed check is no answer, so it stays open.
+        $result = $this->app()->get(PaymentIntentService::class)->sweep();
+        $row    = $this->intentRow($ref);
+        $this->assertSame(PaymentIntent::STATUS_INITIATED, $row['status'], json_encode($result));
+        $this->assertGreaterThanOrEqual(1, $result['errors']);
+        $this->assertSame(0, $result['expired']);
+        $this->assertNotNull($row['last_checked_at'], 'asked: to the back of the queue');
+
+        // Paystack answers that it was abandoned: on the next slow-cadence check it expires.
+        FakeCardGateway::answer($this->gatewayFile, $ref, ['status' => 'abandoned', 'amount_minor' => 0, 'currency' => 'NGN']);
+        $this->em()->getConnection()->executeStatement("UPDATE payment_intents SET last_checked_at = last_checked_at - INTERVAL '3 hours' WHERE reference = ?", [$ref]);
         $result = $this->app()->get(PaymentIntentService::class)->sweep();
         $this->assertSame(PaymentIntent::STATUS_EXPIRED, $this->intentRow($ref)['status'], json_encode($result));
         $this->assertGreaterThanOrEqual(1, $result['expired']);

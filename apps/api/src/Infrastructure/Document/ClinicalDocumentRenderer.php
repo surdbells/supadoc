@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Document;
 
+use App\Domain\Settings\ClinicTime;
+
 /**
  * Renders clinical documents (prescription, referral letter, medical certificate)
  * as standalone, print-ready A4 HTML with a branded letterhead. No PDF engine is
@@ -284,7 +286,12 @@ final class ClinicalDocumentRenderer
             return '';
         }
         try {
-            return (new \DateTimeImmutable($iso))->format('j M Y');
+            $at = new \DateTimeImmutable($iso);
+
+            // A bare Y-m-d (from/to dates, DOB) is a calendar day: never shifted.
+            return preg_match('/^\d{4}-\d{2}-\d{2}$/', $iso) === 1
+                ? $at->format('j M Y')
+                : $at->setTimezone(ClinicTime::zone())->format('j M Y');
         } catch (\Throwable) {
             return $iso;
         }
@@ -296,7 +303,7 @@ final class ClinicalDocumentRenderer
             return '';
         }
         try {
-            return (new \DateTimeImmutable($iso))->format('j M Y, H:i');
+            return (new \DateTimeImmutable($iso))->setTimezone(ClinicTime::zone())->format('j M Y, H:i');
         } catch (\Throwable) {
             return $iso;
         }

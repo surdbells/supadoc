@@ -103,7 +103,7 @@ final class AddAvailabilityAction
         $existing = [];
         foreach ($this->slots->forSpecialistBetween($specialist->getId(), $spanFrom, $spanTo) as $s) {
             if ($s->isOpen()) {
-                $existing[$s->getStartsAt()->format('Y-m-d H:i')] = true;
+                $existing[$s->getStartsAt()->setTimezone($tz)->format('Y-m-d H:i')] = true;
             }
         }
 

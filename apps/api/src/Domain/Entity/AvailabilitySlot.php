@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Domain\Entity;
 
 use App\Domain\Enum\SlotKind;
+use App\Domain\Settings\ProcessClock;
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\ORM\Mapping as ORM;
 use Ramsey\Uuid\Uuid;
 
@@ -16,10 +18,10 @@ use Ramsey\Uuid\Uuid;
  * slots in a window, those become the source of truth for that window; blocks
  * always subtract from whatever availability exists.
  *
- * Times are stored (like the rest of the scheduling code) as UTC wall-clock —
- * the client sends "HH:MM" for a date and the API never reasons about the
- * viewer's timezone. "Booked" is not a stored state: it is derived by matching
- * a live appointment to an OPEN slot's start.
+ * The doctor's editor works in UTC wall-clock (the client sends "HH:MM" on a
+ * UTC date); the instants are stored like every timestamp, on the process
+ * clock, and {@see toArray()} hands them back in UTC. "Booked" is not a stored
+ * state: it is derived by matching a live appointment to an OPEN slot's start.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'availability_slots')]
@@ -43,6 +45,14 @@ class AvailabilitySlot
     #[ORM\Column(name: 'ends_at', type: 'datetime_immutable')]
     private DateTimeImmutable $endsAt;
 
+    /**
+     * The unix time `startsAt` was written as — the clock-repair marker
+     * (prod-migrate step 13). Set by every write of the start; NULL on rows
+     * written before the clock fix.
+     */
+    #[ORM\Column(name: 'starts_epoch', type: 'bigint', nullable: true)]
+    private ?int $startsEpoch = null;
+
     #[ORM\Column(type: 'string', length: 10, enumType: SlotKind::class)]
     private SlotKind $kind = SlotKind::OPEN;
 
@@ -57,11 +67,12 @@ class AvailabilitySlot
         SlotKind $kind = SlotKind::OPEN,
         ?string $reason = null,
     ) {
-        $this->id         = Uuid::uuid4()->toString();
-        $this->specialist = $specialist;
-        $this->startsAt   = $startsAt;
-        $this->endsAt     = $endsAt;
-        $this->kind       = $kind;
+        $this->id          = Uuid::uuid4()->toString();
+        $this->specialist  = $specialist;
+        $this->startsAt    = ProcessClock::normalize($startsAt);
+        $this->endsAt      = ProcessClock::normalize($endsAt);
+        $this->startsEpoch = $startsAt->getTimestamp();
+        $this->kind        = $kind;
         $this->setReason($reason);
     }
 
@@ -83,6 +94,12 @@ class AvailabilitySlot
     public function getEndsAt(): DateTimeImmutable
     {
         return $this->endsAt;
+    }
+
+    /** The clock-repair marker: the unix time the start was written as (null on rows from before the clock fix). */
+    public function getStartsEpoch(): ?int
+    {
+        return $this->startsEpoch;
     }
 
     public function getKind(): SlotKind
@@ -131,8 +148,8 @@ class AvailabilitySlot
     {
         return [
             'id'         => $this->id,
-            'starts_at'  => $this->startsAt->format(DATE_ATOM),
-            'ends_at'    => $this->endsAt->format(DATE_ATOM),
+            'starts_at'  => $this->startsAt->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM),
+            'ends_at'    => $this->endsAt->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM),
             'kind'       => $this->kind->value,
             'reason'     => $this->reason,
         ];

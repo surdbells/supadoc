@@ -9,6 +9,7 @@ use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\NotificationRepository;
+use App\Domain\Settings\ClinicTime;
 use DateTimeImmutable;
 
 /**
@@ -33,9 +34,16 @@ final class PatientNotifier
         }
     }
 
+    /** "Wed, 21 Oct 2026 · 10:00 AM WAT" — the clinic's clock. */
+    public static function timeLabel(DateTimeImmutable $at): string
+    {
+        return $at->setTimezone(ClinicTime::zone())->format('D, j M Y · g:i A T');
+    }
+
     /**
      * Convenience for the appointment lifecycle: writes an APPOINTMENT notification
-     * whose body names the consultation type, specialist and UTC time, optionally
+     * whose body names the consultation type, specialist and the time on the
+     * clinic's clock (e.g. "Wed, 21 Oct 2026 · 10:00 AM WAT"), optionally
      * prefixed with a status-specific sentence, and opens `$link` when tapped.
      */
     public function appointment(Appointment $appointment, string $title, string $detail = '', ?string $link = null): void
@@ -43,9 +51,9 @@ final class PatientNotifier
         $appt = $appointment->toArray();
         $when = '';
         try {
-            $when = (new DateTimeImmutable((string) $appt['scheduled_at']))->format('D, j M Y · g:i A') . ' UTC';
+            $when = self::timeLabel($appointment->getScheduledAt());
         } catch (\Throwable) {
-            // leave the time out if it can't be parsed
+            // leave the time out if it can't be formatted
         }
 
         $body = trim(

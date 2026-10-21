@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit;
 
+use App\Domain\Settings\ClinicTime;
 use App\Infrastructure\Document\ClinicalDocumentRenderer;
 use PHPUnit\Framework\TestCase;
 
@@ -87,5 +88,30 @@ final class ClinicalDocumentRendererTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->renderer()->render('bogus', $this->baseCtx());
+    }
+
+    public function testDatesAreOnTheClinicCalendarWhateverTheProcessZone(): void
+    {
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Asia/Shanghai');
+        ClinicTime::configure('Africa/Lagos');
+        try {
+            $html = $this->renderer()->render('certificate', [
+                'consult_date' => '2026-10-22T06:30:00+08:00', // 21 Oct, 23:30 WAT
+                'issued_at'    => '2026-10-21T17:00:00+08:00', // 21 Oct, 10:00 WAT
+                'type_label'   => 'Sick leave certificate',
+                'statement'    => 'Requires rest.',
+                'from_date'    => '2026-10-21',
+                'to_date'      => '2026-10-22',
+                'days'         => 2,
+            ] + $this->baseCtx());
+
+            self::assertStringContainsString('Issued: 21 Oct 2026, 10:00', $html, 'issued on the clinic clock');
+            // 23:30 WAT on the 21st — already the 22nd in the process zone.
+            self::assertStringContainsString('Consultation: 21 Oct 2026', $html);
+            self::assertStringContainsString('21 Oct 2026 to 22 Oct 2026', $html, 'calendar days are never shifted');
+        } finally {
+            date_default_timezone_set($zone);
+        }
     }
 }

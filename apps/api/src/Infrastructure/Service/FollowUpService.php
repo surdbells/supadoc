@@ -12,11 +12,11 @@ use App\Domain\Exception\InsufficientFundsException;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\ProcessClock;
 use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
-use DateTimeZone;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 
 /**
@@ -57,6 +57,8 @@ final class FollowUpService
     public const MAX_REASON_LENGTH = 500;
     /** A card checkout doesn't start for a proposal closing sooner than this (the payment would outlive it). */
     public const CHECKOUT_MIN_MINUTES = 15;
+    /** An expiry older than this closes quietly (audited, no notices) — e.g. the backlog of a cron's first run. */
+    public const EXPIRY_NOTIFY_WITHIN_DAYS = ConsultationCompleter::NOTIFY_WITHIN_DAYS;
     /** A doctor can propose from a confirmed consultation from this long before it starts (joining early). */
     private const IN_CALL_LEAD_MINUTES = 120;
 
@@ -170,9 +172,11 @@ final class FollowUpService
 
     /**
      * A requested start time: present, valid and in the future — on the
-     * server's clock (UTC). Doctrine stores a datetime's wall-clock time
-     * without its offset, so "15:00+01:00" must become "14:00" before it is
-     * stored or compared, not "15:00".
+     * process clock (php.ini date.timezone — PRC in production, UTC locally):
+     * the columns are naive, so "15:00+01:00" is expressed in the process zone
+     * before it is stored or compared. (The persistence layer converts too —
+     * ProcessZoneDateTimeImmutableType; this keeps the in-memory value
+     * identical to what a read returns.)
      *
      * @throws ValidationException
      */
@@ -191,7 +195,7 @@ final class FollowUpService
             throw new ValidationException([$field => 'Please choose a time in the future']);
         }
 
-        return $at->setTimezone(new DateTimeZone(date_default_timezone_get()));
+        return ProcessClock::normalize($at);
     }
 
     // ----- Prices -----
@@ -674,7 +678,8 @@ final class FollowUpService
      * Expire unanswered proposals past their expiry (→ CANCELLED, both sides
      * told) and nudge patients once about proposals closing soon. Safe to run
      * every few minutes: an expired proposal is never picked again, and the
-     * nudge is recorded before it is sent.
+     * nudge is recorded before it is sent. Expiries older than
+     * EXPIRY_NOTIFY_WITHIN_DAYS days close quietly (audited, no notices).
      *
      * @return array{expired:int, nudged:int}
      */
@@ -685,6 +690,14 @@ final class FollowUpService
         return ['expired' => $this->expireDue($now), 'nudged' => $this->nudgeDue($now)];
     }
 
+    /** Whether a proposal that expired at its `expires_at` closes without telling anyone (over EXPIRY_NOTIFY_WITHIN_DAYS days ago). */
+    public static function expiresQuietly(Appointment $proposal, DateTimeImmutable $now): bool
+    {
+        $expiresAt = $proposal->getExpiresAt();
+
+        return $expiresAt !== null && $expiresAt < $now->modify('-' . self::EXPIRY_NOTIFY_WITHIN_DAYS . ' days');
+    }
+
     public function expireDue(DateTimeImmutable $now): int
     {
         $expired = 0;
@@ -692,6 +705,7 @@ final class FollowUpService
             if (!$this->appointments->claimProposal($proposal->getId(), AppointmentStatus::CANCELLED)) {
                 continue; // answered or withdrawn a moment ago
             }
+            $quiet = self::expiresQuietly($proposal, $now);
             $proposal->transitionTo(AppointmentStatus::CANCELLED);
             $proposal->setFollowUpOutcome('expired');
             $this->appointments->save($proposal);
@@ -703,20 +717,22 @@ final class FollowUpService
                 $proposal->getId(),
                 'appointment',
                 $proposal->getId(),
-                ['parent_appointment_id' => $proposal->getParent()?->getId(), 'expires_at' => $proposal->getExpiresAt()?->format(DATE_ATOM)],
+                ['parent_appointment_id' => $proposal->getParent()?->getId(), 'expires_at' => $proposal->getExpiresAt()?->format(DATE_ATOM), 'quiet' => $quiet],
             );
-            $this->notifyClosed($proposal, 'expired');
-            $this->staffNotifier->notifyDoctor(
-                $proposal->getSpecialist()->getId(),
-                'appointment',
-                'Follow-up expired',
-                sprintf(
-                    "%s didn't reply to the follow-up proposed for %s, so it closed and the time is open again.",
-                    self::patientName($proposal, 'The patient'),
-                    self::whenLabel($proposal->getScheduledAt()),
-                ),
-                '/appointments/' . $proposal->getId(),
-            );
+            if (!$quiet) {
+                $this->notifyClosed($proposal, 'expired');
+                $this->staffNotifier->notifyDoctor(
+                    $proposal->getSpecialist()->getId(),
+                    'appointment',
+                    'Follow-up expired',
+                    sprintf(
+                        "%s didn't reply to the follow-up proposed for %s, so it closed and the time is open again.",
+                        self::patientName($proposal, 'The patient'),
+                        self::whenLabel($proposal->getScheduledAt()),
+                    ),
+                    '/appointments/' . $proposal->getId(),
+                );
+            }
             ++$expired;
         }
 

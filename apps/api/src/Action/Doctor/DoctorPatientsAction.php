@@ -7,7 +7,10 @@ namespace App\Action\Doctor;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ProcessClock;
 use App\Infrastructure\Service\ApiResponse;
+use DateTimeImmutable;
+use DateTimeInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -48,12 +51,7 @@ final class DoctorPatientsAction
         );
 
         $items = array_map(static function (array $r): array {
-            $last = $r['last_visit'] ?? null;
-            if ($last instanceof \DateTimeInterface) {
-                $last = $last->format(DATE_ATOM);
-            } elseif (is_string($last) && $last !== '') {
-                $last = str_replace(' ', 'T', $last);
-            }
+            $last = self::lastVisitIso($r['last_visit'] ?? null);
 
             return [
                 'patient_id'  => (string) $r['patient_id'],
@@ -66,5 +64,26 @@ final class DoctorPatientsAction
         }, $page['items']);
 
         return $this->paginated($response, $items, $page['total'], $params['page'], $params['per_page']);
+    }
+
+    /**
+     * `MAX(scheduledAt)` as an ISO instant with its offset. The database hands
+     * it back as a naive string on the process clock (the column has no zone),
+     * which a browser would otherwise read as its own local time.
+     */
+    public static function lastVisitIso(mixed $raw): ?string
+    {
+        if ($raw instanceof DateTimeInterface) {
+            return $raw->format(DATE_ATOM);
+        }
+        if (is_string($raw) && $raw !== '') {
+            try {
+                return (new DateTimeImmutable($raw, ProcessClock::zone()))->format(DATE_ATOM);
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return null;
     }
 }

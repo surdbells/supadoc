@@ -11,6 +11,7 @@ use App\Infrastructure\Document\DocumentSharingService;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Settings\BookingSettings;
+use App\Domain\Settings\ProcessClock;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
@@ -71,7 +72,7 @@ final class ReschedulePortalAppointmentAction
             return $this->error($response, 'Validation failed', 422, ['scheduled_at' => 'A new date and time is required']);
         }
         try {
-            $scheduledAt = new DateTimeImmutable($raw);
+            $scheduledAt = ProcessClock::normalize(new DateTimeImmutable($raw));
         } catch (\Throwable) {
             return $this->error($response, 'Validation failed', 422, ['scheduled_at' => 'Invalid date/time']);
         }

@@ -20,6 +20,8 @@ use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
+use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\ProcessClock;
 use App\Infrastructure\Document\DocumentSharingService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentCheckout;
@@ -143,7 +145,7 @@ final class CreateMyAppointmentAction
             $errors['scheduled_at'] = 'Please choose a date and time';
         } else {
             try {
-                $scheduledAt = new DateTimeImmutable($scheduledRaw);
+                $scheduledAt = ProcessClock::normalize(new DateTimeImmutable($scheduledRaw));
             } catch (\Throwable) {
                 $errors['scheduled_at'] = 'Invalid date/time';
             }
@@ -437,8 +439,7 @@ final class CreateMyAppointmentAction
             return null;
         }
         $when = $booked->getScheduledAt();
-        // The same instant (stored as the wall-clock time the booking was given, so either reading counts).
-        $same = $when->getTimestamp() === $at->getTimestamp() || $when->format('Y-m-d H:i:s') === $at->format('Y-m-d H:i:s');
+        $same = $when->getTimestamp() === $at->getTimestamp();
 
         return $same ? $booked : null;
     }
@@ -572,7 +573,7 @@ final class CreateMyAppointmentAction
     {
         try {
             $a    = $appointment->toArray();
-            $when = (new DateTimeImmutable((string) $a['scheduled_at']))->format('M j, Y \a\t g:i A');
+            $when = $appointment->getScheduledAt()->setTimezone(ClinicTime::zone())->format('M j, Y \a\t g:i A T');
             $this->notifications->save(new Notification(
                 $patient,
                 NotificationType::APPOINTMENT,

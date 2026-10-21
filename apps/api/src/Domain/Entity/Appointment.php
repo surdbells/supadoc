@@ -7,6 +7,7 @@ namespace App\Domain\Entity;
 use App\Domain\Appointment\AppointmentLifecycle;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Enum\ConsultationType;
+use App\Domain\Settings\ProcessClock;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use DomainException;
@@ -50,6 +51,14 @@ class Appointment
 
     #[ORM\Column(type: 'datetime_immutable')]
     private DateTimeImmutable $scheduledAt;
+
+    /**
+     * The unix time `scheduledAt` was written as — the clock-repair marker
+     * (prod-migrate step 13). Set by every write of the start; NULL on rows
+     * written before the clock fix.
+     */
+    #[ORM\Column(name: 'scheduled_epoch', type: 'bigint', nullable: true)]
+    private ?int $scheduledEpoch = null;
 
     #[ORM\Column(type: 'string', length: 20, enumType: ConsultationType::class)]
     private ConsultationType $type = ConsultationType::VIDEO;
@@ -212,7 +221,7 @@ class Appointment
         $this->id          = Uuid::uuid4()->toString();
         $this->patient     = $patient;
         $this->specialist  = $specialist;
-        $this->scheduledAt = $scheduledAt;
+        $this->placeAt($scheduledAt);
         $this->type        = $type;
         $this->amount      = $specialist->getConsultationFee();
     }
@@ -265,7 +274,7 @@ class Appointment
      */
     public function moveProposal(DateTimeImmutable $scheduledAt, array $pricing): void
     {
-        $this->scheduledAt = $scheduledAt;
+        $this->placeAt($scheduledAt);
         $this->priceFollowUp($pricing);
     }
 
@@ -380,6 +389,22 @@ class Appointment
         return $this->scheduledAt;
     }
 
+    /** The clock-repair marker: the unix time the start was written as (null on rows from before the clock fix). */
+    public function getScheduledEpoch(): ?int
+    {
+        return $this->scheduledEpoch;
+    }
+
+    /**
+     * Every write of the start: on the process clock — what a read returns —
+     * and marked with its unix time (ClockRepair).
+     */
+    private function placeAt(DateTimeImmutable $scheduledAt): void
+    {
+        $this->scheduledAt    = ProcessClock::normalize($scheduledAt);
+        $this->scheduledEpoch = $scheduledAt->getTimestamp();
+    }
+
     /**
      * Move it. A real move clears both first-join stamps: they belonged to the
      * old slot, and the presence stamp is only ever written once
@@ -392,7 +417,7 @@ class Appointment
             $this->doctorFirstJoinedAt  = null;
             $this->patientFirstJoinedAt = null;
         }
-        $this->scheduledAt = $scheduledAt;
+        $this->placeAt($scheduledAt);
     }
 
     public function getAmount(): string

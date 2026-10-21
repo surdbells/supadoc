@@ -61,6 +61,20 @@ final class AvailabilitySlotTest extends TestCase
         ));
     }
 
+    public function testToArrayIsUtcWhateverTheProcessZone(): void
+    {
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Asia/Shanghai');
+        try {
+            $row = $this->slot('2026-01-01T09:00:00Z', '2026-01-01T10:00:00Z')->toArray();
+        } finally {
+            date_default_timezone_set($zone);
+        }
+
+        $this->assertSame('2026-01-01T09:00:00+00:00', $row['starts_at']);
+        $this->assertSame('2026-01-01T10:00:00+00:00', $row['ends_at']);
+    }
+
     public function testOverlapsIsHalfOpenAtTheBoundaries(): void
     {
         $block = $this->slot('2026-01-01 09:00', '2026-01-01 10:00');

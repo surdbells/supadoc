@@ -11,7 +11,7 @@ declare(strict_types=1);
  * in the `prod_migrate.legacy_done` setting; a database an earlier release
  * already migrated is recorded without re-running them), because repeating
  * them would re-multiply a sub-₦1,000 fee, re-grant narrowed admin permissions
- * and reset doctor logins. Steps 3–12 are idempotent — a re-run changes nothing
+ * and reset doctor logins. Steps 3–13 are idempotent — a re-run changes nothing
  * that's already done (the numbers match the steps below):
  *   0. Grants the back-office permissions (settings.manage, specialists.manage,
  *      monitoring.view) to every admin that lacks them.
@@ -77,6 +77,16 @@ declare(strict_types=1);
  *      `prod_migrate.documents_private_notice` / `…_doctor_notice` settings, and
  *      one title per person, so a re-run sends nothing twice. No share is ever
  *      created: on release every document is private.
+ *  13. Clock repair (ClockRepair; DEPLOY.md "One-time: the clock fix"):
+ *      appointments and availability slots stored on the wrong clock (client
+ *      UTC instants written unconverted while PHP runs on PRC) are moved to the
+ *      process clock, with the document shares that follow them. A plain run
+ *      only REPORTS (`clock_repair`) and never writes anything, not even the
+ *      "done" record; rows are changed, and the repair recorded, only with
+ *      `--fix-clock=<zone>` (the PHP-FPM zone from /health/ready; must equal
+ *      the CLI's), after review, with `--clock-decide=<id>:<shift|keep|slot>`
+ *      for every row it can't decide. Until it has been recorded, the API
+ *      pauses scheduling writes and bin/send-reminders.php refuses to run.
  *
  * Before step 0 writes anything it checks that this release's schema update has
  * been applied (tables + columns), and stops with instructions if not — so a
@@ -92,6 +102,8 @@ declare(strict_types=1);
  *   php bin/prod-migrate.php --dry-run    # preview: nothing is saved
  *   php bin/prod-migrate.php --run
  *   DOCTOR_DEFAULT_PASSWORD='S3tByYou!' php bin/prod-migrate.php --run
+ *   php bin/prod-migrate.php --dry-run --fix-clock=PRC [--clock-decide=<id>:<shift|keep|slot>,…]
+ *   php bin/prod-migrate.php --run --fix-clock=PRC [--clock-decide=<id>:<shift|keep|slot>,…]
  *
  * Doctors can also join calls via their emailed preauthenticated link without
  * ever logging in — the portal login is a convenience on top of that.
@@ -113,6 +125,35 @@ use App\Infrastructure\Service\MedicalDocumentStorage;
 require __DIR__ . '/../vendor/autoload.php';
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
+
+// Clock repair (step 13) flags — checked before anything runs.
+$fixClock     = null;
+$decisionArgs = [];
+foreach (array_slice($argv, 1) as $arg) {
+    if ($arg === '--fix-clock') {
+        fwrite(STDERR, "--fix-clock needs a value: --fix-clock=<zone>, e.g. --fix-clock=PRC\n");
+        exit(1);
+    }
+    if ($arg === '--clock-decide') {
+        fwrite(STDERR, "--clock-decide needs a value: --clock-decide=<id>:<shift|keep|slot>[,…]\n");
+        exit(1);
+    }
+    if (str_starts_with($arg, '--fix-clock=')) {
+        $fixClock = trim(substr($arg, strlen('--fix-clock='))); // the last one wins
+        if ($fixClock === '') {
+            fwrite(STDERR, "--fix-clock needs the zone, e.g. --fix-clock=PRC\n");
+            exit(1);
+        }
+    } elseif (str_starts_with($arg, '--clock-decide=')) {
+        $decisionArgs[] = substr($arg, strlen('--clock-decide='));
+    }
+}
+try {
+    $clockDecisions = App\Infrastructure\Persistence\ClockRepair::parseDecisions($decisionArgs);
+} catch (\InvalidArgumentException $e) {
+    fwrite(STDERR, '--clock-decide: ' . $e->getMessage() . "\n");
+    exit(1);
+}
 
 $dryRun = in_array('--dry-run', $argv, true);
 if (!$dryRun && !in_array('--run', $argv, true)) {
@@ -222,7 +263,7 @@ foreach ([
     User::class, Specialist::class, AppSetting::class, Patient::class, Prescription::class, VitalReading::class, MedicalDocument::class, Appointment::class, App\Domain\Entity\SpecialistCredential::class,
     App\Domain\Entity\DocumentAccessGrant::class, App\Domain\Entity\DocumentAccessGrantDocument::class, App\Domain\Entity\DocumentAccessHidden::class,
     App\Domain\Entity\DocumentAccessRequest::class, App\Domain\Entity\DocumentAccessBlock::class, App\Domain\Entity\DocumentAccessLogEntry::class,
-    App\Domain\Entity\DocumentAccessSubmission::class,
+    App\Domain\Entity\DocumentAccessSubmission::class, App\Domain\Entity\AvailabilitySlot::class,
 ] as $class) {
     $meta             = $em->getClassMetadata($class);
     $table            = $unquote($meta->getTableName());
@@ -724,15 +765,70 @@ if ($notice['ran']) {
     $report['completed_steps'][]               = 12;
 }
 
+// 13) Clock repair — see the header and ClockRepair. DBAL only; nothing below flushes.
+$em->clear();
+try {
+    $report['clock_repair'] = App\Infrastructure\Persistence\ClockRepair::run($em, $fixClock, $clockDecisions, $dryRun);
+} catch (\Throwable $e) {
+    // A plain run (the redeploy one-liner) must still reach the PHP-FPM reload: report, don't crash.
+    $report['clock_repair'] = [
+        'status'   => 'error',
+        'error'    => $e::class,
+        'sqlstate' => $e instanceof Doctrine\DBAL\Exception\DriverException ? $e->getSQLState() : null,
+    ];
+    if ($fixClock !== null) {
+        // ClockRepair binds only ids, times and numbers: the message carries no PHI.
+        fwrite(STDERR, 'Clock repair failed: ' . $e::class . ': ' . $e->getMessage() . "\n");
+    }
+}
+$clockStatus = (string) $report['clock_repair']['status'];
+if (in_array($clockStatus, ['not_needed', 'done', 'recorded', 'repaired'], true)) {
+    $report['completed_steps'][] = 13;
+}
+$clockFailed = $fixClock !== null && in_array($clockStatus, ['refused', 'busy', 'conflict', 'error'], true);
+$clockCounts = $report['clock_repair']['counts'] ?? [];
+$clockNote   = match ($clockStatus) {
+    // The repair is recorded for this zone, so the gate is open: rows the old code
+    // wrote after it (an old worker during the deploy), or a marker that disagrees.
+    'stragglers' => sprintf(
+        "\nClock repair (step 13): %d row(s) written on the wrong clock after the recorded repair — see DEPLOY.md \"One-time: the clock fix\" (scheduling is not paused).\n",
+        array_sum(array_diff_key((array) ($clockCounts['appointments'] ?? []), ['marked' => 0, 'review_decided' => 0]))
+        + array_sum(array_diff_key((array) ($clockCounts['slots'] ?? []), ['marked' => 0])),
+    ),
+    'pending' => sprintf(
+        "\nClock repair (step 13) pending: %d appointment(s), %d availability slot(s) are on the wrong clock. Scheduling writes are paused once PHP-FPM runs this release — see DEPLOY.md \"One-time: the clock fix\" (--dry-run --fix-clock=<zone>, then --run --fix-clock=<zone>).\n",
+        ($clockCounts['appointments']['shift'] ?? 0) + ($clockCounts['appointments']['slot'] ?? 0) + ($clockCounts['appointments']['unchanged'] ?? 0),
+        ($clockCounts['slots']['shift'] ?? 0) + ($clockCounts['slots']['unchanged'] ?? 0),
+    ),
+    'would_record' => "\nClock repair (step 13): nothing is on the wrong clock, but the repair is not recorded yet — scheduling writes stay paused until `php bin/prod-migrate.php --run --fix-clock=<zone>` has run (DEPLOY.md \"One-time: the clock fix\", step 4).\n",
+    'recorded'     => "\nClock repair recorded: nothing was on the wrong clock.\n",
+    'refused'      => "\nClock repair refused (" . implode(', ', array_map(
+        static fn (array $r): string => (string) ($r['code'] ?? '?'),
+        (array) ($report['clock_repair']['refusals'] ?? []),
+    )) . ") — nothing was changed. See clock_repair.refusals.\n",
+    'busy', 'conflict' => "\nClock repair {$clockStatus} — nothing was changed; re-run.\n",
+    'error'        => "\nClock repair (step 13) failed (" . ($report['clock_repair']['error'] ?? '?') . ") — nothing was changed. Run it with --dry-run --fix-clock=<zone> to see the error.\n",
+    'would_repair' => "\nClock repair: the dry run shows the changes above (rolled back).\n",
+    'repaired'     => sprintf(
+        "\nClock repair done: %d appointment(s) moved, %d marked, %d availability slot(s) moved, %d document share expiry(ies) moved.\n",
+        ($clockCounts['appointments']['shift'] ?? 0) + ($clockCounts['appointments']['slot'] ?? 0),
+        ($clockCounts['appointments']['mark'] ?? 0),
+        ($clockCounts['slots']['shift'] ?? 0),
+        ($clockCounts['grants']['shift'] ?? 0),
+    ),
+    default => '',
+};
+
 if ($dryRun) {
     $conn->rollBack();
     printReport($report);
-    fwrite(STDOUT, $blockedIndexNote . "\nDry run: nothing was saved or moved. The report shows what --run would change.\n");
-    exit(0);
+    fwrite(STDOUT, $blockedIndexNote . $clockNote . "\nDry run: nothing was saved or moved. The report shows what --run would change.\n");
+    exit($clockFailed ? 1 : 0);
 }
 
 printReport($report);
 fwrite(STDOUT, $blockedIndexNote);
+fwrite(STDOUT, $clockNote);
 if ($report['booking_attachments_quarantined'] !== []) {
     fwrite(STDOUT, "\nSome old booking attachments could not be filed and were moved out of the public folder into\n"
         . "var/quarantine/appointment-docs — review them by hand: see booking_attachments_quarantined above.\n");
@@ -743,3 +839,5 @@ if (($report['emails_set'] ?? 0) > 0) {
     fwrite(STDOUT, "Reminder: the doctor emails set above are placeholders — update each\n");
     fwrite(STDOUT, "specialist's email to the doctor's real inbox so invites + join links land there.\n");
 }
+// A plain run (the redeploy one-liner) never fails because of step 13; a --fix-clock run that didn't finish does.
+exit($clockFailed ? 1 : 0);
