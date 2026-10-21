@@ -637,3 +637,30 @@ html[data-theme='dark'] .sd-call[data-theme='light'] .text-teal {
     color: var(--color-frost);
   }
 }
+
+/* ----- Document sharing in a LIGHT call cockpit -----
+ * The sharing call theme (`sd-share`: the call's sharing dialogs and the
+ * Documents & Records panel) uses the cockpit's bright accents, which are made
+ * for the dark cockpit; theme.css leaves them bright in its light theme, where
+ * they fail AA (warning 1.8, sky 3.0, success ~3, alert 3.9 on #eef4f8). Here
+ * they take the portal's ink tones. Scoped to `sd-share` so the rest of the
+ * cockpit keeps its own colours. Written as `html …` and placed after the
+ * cockpit guard so they also win over it when the portal itself is dark. */
+html .sd-call[data-theme='light'] .sd-share .text-warning {
+  color: #8a5a00; /* warning-ink: 5.35 on the cockpit page, 4.87 / 5.33 on warning/15 over page / white */
+}
+html .sd-call[data-theme='light'] .sd-share .text-sky {
+  color: #0a4fbf; /* cerulean-dark: 6.57 on the page, 6.22 / 5.74 on the white/10 and white/15 fills */
+}
+html .sd-call[data-theme='light'] .sd-share .text-success {
+  color: #006b21; /* success-ink: 6.06 on the page, 6.7 on white */
+}
+html .sd-call[data-theme='light'] .sd-share .text-alert {
+  color: #b71c1c; /* alert-ink: 5.92 on the page, 4.83 on alert/15 over the page */
+}
+@media (hover: hover) {
+  /* `hover:text-white` (links, icon buttons) would turn near-white on the light fills. */
+  html .sd-call[data-theme='light'] .sd-share .hover\:text-white:hover {
+    color: #1c2b3a; /* ink, as theme.css maps text-white */
+  }
+}

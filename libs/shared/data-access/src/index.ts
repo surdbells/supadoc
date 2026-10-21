@@ -8,6 +8,7 @@ export * from './lib/admin-patients.api';
 export * from './lib/admin-payouts.api';
 export * from './lib/doctor.api';
 export * from './lib/documents.api';
+export * from './lib/document-sharing.api';
 export * from './lib/monitoring.api';
 export * from './lib/admin-dashboard.api';
 export * from './lib/settings.api';

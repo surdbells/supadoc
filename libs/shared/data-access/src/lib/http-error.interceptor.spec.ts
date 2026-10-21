@@ -144,6 +144,88 @@ describe('httpErrorInterceptor', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  describe('blob requests (file downloads)', () => {
+    function blobError(http: HttpClient, url: string): Promise<ApiError> {
+      return new Promise<ApiError>((resolve) => {
+        http
+          .get(url, { responseType: 'blob' })
+          .subscribe({ error: (e: ApiError) => resolve(e) });
+      });
+    }
+
+    it('parses a JSON error body so errors.code and the API message survive', async () => {
+      const { http, ctl, logger } = setup();
+      const url = `${BASE}/api/doctor/appointments/a1/patient-documents/d1/file`;
+      const pending = blobError(http, url);
+      ctl.expectOne(url).flush(
+        new Blob(
+          [
+            JSON.stringify({
+              status: 'error',
+              message: 'This document is no longer shared with you.',
+              errors: { code: 'not_shared' },
+            }),
+          ],
+          { type: 'application/json' },
+        ),
+        { status: 404, statusText: 'Not Found' },
+      );
+      const error = await pending;
+      expect(error.statusCode).toBe(404);
+      expect(error.errors).toEqual({ code: 'not_shared' });
+      expect(error.message).toBe('This document is no longer shared with you.');
+      expect(logger.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps Retry-After and the session-ended warning for a parsed blob 401', async () => {
+      const { http, ctl, logger } = setup();
+      const url = `${BASE}/api/portal/documents/d1/file`;
+      const pending = blobError(http, url);
+      ctl.expectOne(url).flush(
+        new Blob([
+          JSON.stringify({
+            message: 'Signed out',
+            errors: { auth: 'Signed out', code: 'session_revoked' },
+          }),
+        ]),
+        {
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new HttpHeaders({ 'Retry-After': '3' }),
+        },
+      );
+      const error = await pending;
+      expect(error.errors?.['code']).toBe('session_revoked');
+      expect(error.retryAfterMs).toBe(3000);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the generic message for a non-JSON blob body', async () => {
+      const { http, ctl } = setup();
+      const url = `${BASE}/api/portal/documents/d2/file`;
+      const pending = blobError(http, url);
+      ctl.expectOne(url).flush(new Blob(['<html>Bad gateway</html>'], { type: 'text/html' }), {
+        status: 404,
+        statusText: 'Not Found',
+      });
+      const error = await pending;
+      expect(error.statusCode).toBe(404);
+      expect(error.errors).toBeUndefined();
+      expect(error.message).toBe('Something went wrong. Please try again.');
+    });
+
+    it('does not read a blob body over 64 KB', async () => {
+      const { http, ctl } = setup();
+      const url = `${BASE}/api/portal/documents/d3/file`;
+      const pending = blobError(http, url);
+      const big = JSON.stringify({ message: 'x'.repeat(70 * 1024), errors: { code: 'not_shared' } });
+      ctl.expectOne(url).flush(new Blob([big]), { status: 404, statusText: 'Not Found' });
+      const error = await pending;
+      expect(error.errors).toBeUndefined();
+    });
+  });
+
   it('never logs a request body (refresh / logout bodies carry the refresh token) and redacts call links', () => {
     const { http, ctl, logger } = setup();
     http

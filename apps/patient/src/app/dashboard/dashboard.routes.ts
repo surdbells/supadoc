@@ -53,6 +53,12 @@ export const dashboardRoutes: Route[] = [
         canDeactivate: [unsavedChangesGuard],
       },
       {
+        // Static before any `documents/:x` route.
+        path: 'documents/sharing',
+        loadComponent: () =>
+          import('./manage-sharing').then((m) => m.ManageSharing),
+      },
+      {
         path: 'documents',
         loadComponent: () =>
           import('./documents').then((m) => m.PatientDocuments),

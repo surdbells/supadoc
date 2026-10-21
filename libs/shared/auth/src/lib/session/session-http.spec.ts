@@ -19,6 +19,7 @@ import { TestBed } from '@angular/core/testing';
 import {
   httpErrorInterceptor,
   LOGGER,
+  PASSIVE_REQUEST_HEADER as PASSIVE,
   provideSupadocDataAccess,
 } from '@supadoc/data-access';
 import type { ApiError } from '@supadoc/models';
@@ -167,6 +168,8 @@ for (const silo of SILOS) {
       const refreshes = ctl.match(isRefresh);
       expect(refreshes).toHaveLength(1);
       expect(refreshes[0].request.body).toEqual({ refresh_token: 'R1' });
+      // Started by user-initiated requests: an active refresh.
+      expect(refreshes[0].request.headers.has(PASSIVE)).toBe(false);
       refreshes[0].flush({ data: { access_token: B } });
       await settle();
       for (let i = 0; i < 5; i++) {
@@ -182,10 +185,59 @@ for (const silo of SILOS) {
       const { ctl, auth } = setup({ access: tokenFor('u1', -10) });
       const result = auth.refresh();
       await settle();
-      ctl
-        .expectOne(isRefresh)
-        .flush({ data: { access_token: tokenFor('u1', 900) } });
+      const refresh = ctl.expectOne(isRefresh);
+      // A plain refresh (the timed pre-expiry one, the guards') counts as activity.
+      expect(refresh.request.headers.has(PASSIVE)).toBe(false);
+      refresh.flush({ data: { access_token: tokenFor('u1', 900) } });
       await expect(result).resolves.toBe(true);
+      ctl.verify();
+    });
+
+    it('a background poll (X-SD-Passive) needing a fresh token sends its refresh passive too', async () => {
+      const A = tokenFor('u1', 30);
+      const B = tokenFor('u1', 900);
+      const { http, ctl, logger } = setup({ access: A });
+      let done = false;
+      http
+        .get(`${BASE}/api/poll`, { headers: new HttpHeaders({ [PASSIVE]: '1' }) })
+        .subscribe(() => (done = true));
+      await settle();
+      expect(ctl.match(`${BASE}/api/poll`)).toHaveLength(0);
+      const refresh = ctl.expectOne(isRefresh);
+      expect(refresh.request.headers.get(PASSIVE)).toBe('1');
+      expect(refresh.request.body).toEqual({ refresh_token: 'R1' });
+      refresh.flush({ data: { access_token: B } });
+      await settle();
+      const poll = ctl.expectOne(`${BASE}/api/poll`);
+      expect(bearer(poll)).toBe(`Bearer ${B}`);
+      expect(poll.request.headers.get(PASSIVE)).toBe('1');
+      poll.flush({});
+      expect(done).toBe(true);
+      expect(logger.error).not.toHaveBeenCalled();
+      ctl.verify();
+    });
+
+    it("a background poll's 401 token_expired refreshes passively, then retries once", async () => {
+      const A = tokenFor('u1', 900);
+      const B = tokenFor('u1', 900, { n: 2 });
+      const { http, ctl } = setup({ access: A });
+      let body: unknown;
+      http
+        .get(`${BASE}/api/poll`, { headers: new HttpHeaders({ [PASSIVE]: '1' }) })
+        .subscribe((b) => (body = b));
+      await settle();
+      const r = unauthorized('token_expired');
+      ctl.expectOne(`${BASE}/api/poll`).flush(r.body, r);
+      await settle();
+      const refresh = ctl.expectOne(isRefresh);
+      expect(refresh.request.headers.get(PASSIVE)).toBe('1');
+      refresh.flush({ data: { access_token: B } });
+      await settle();
+      const retry = ctl.expectOne(`${BASE}/api/poll`);
+      expect(bearer(retry)).toBe(`Bearer ${B}`);
+      expect(retry.request.headers.get(PASSIVE)).toBe('1');
+      retry.flush({ ok: true });
+      expect(body).toEqual({ ok: true });
       ctl.verify();
     });
 

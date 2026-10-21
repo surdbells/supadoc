@@ -6,6 +6,7 @@ export * from './lib/appointment-api';
 export * from './lib/staff';
 export * from './lib/doctor-management';
 export * from './lib/message';
+export * from './lib/document-sharing';
 export * from './lib/support';
 export * from './lib/wallet';
 export * from './lib/auth-dto';

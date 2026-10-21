@@ -213,12 +213,21 @@ export class AppointmentsApi {
    * booking, filed privately in the patient's medical documents. Emits
    * HttpEvents (UploadProgress for the bar, Response for the document); the
    * booking then attaches it by id in `document_ids`.
+   *
+   * The file is hidden from every doctor who can see the patient's whole
+   * folder, except those in `show_specialist_ids` (the ticked "Also let Dr X
+   * see these files"). Whether the booked doctor sees it is the booking's
+   * `document_share` choice.
    */
   uploadDocument(
     file: File,
+    options?: { show_specialist_ids?: string[] },
   ): Observable<HttpEvent<SuccessResponse<AppointmentDocumentDto>>> {
     const form = new FormData();
     form.append('document', file, file.name);
+    for (const id of options?.show_specialist_ids ?? []) {
+      if (id) form.append('show_specialist_ids[]', id);
+    }
     const base = this.config.baseUrl.replace(/\/+$/, '');
     return this.http.post<SuccessResponse<AppointmentDocumentDto>>(
       `${base}/api/portal/appointment-documents`,

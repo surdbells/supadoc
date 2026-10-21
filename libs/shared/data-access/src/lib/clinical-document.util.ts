@@ -1,5 +1,5 @@
 import { Observable } from 'rxjs';
-import { apiErrorMessage } from './api-error.util';
+import { apiErrorCode, apiErrorMessage } from './api-error.util';
 
 /**
  * Replace the placeholder tab's content with an error message. The message can
@@ -46,12 +46,36 @@ export function openClinicalDocument(document$: Observable<string>): void {
   });
 }
 
+export interface OpenBlobOptions {
+  /**
+   * Called instead of writing the error into the placeholder tab (which is
+   * then closed): the host page shows its own message, e.g. for `code`
+   * `not_shared` ("This document is no longer shared with you.") or
+   * `view_unavailable`. `status` 0 = no response (offline).
+   */
+  onError?: (status: number, code: string | null) => void;
+}
+
+/** The HTTP status of either error shape (`ApiError.statusCode` / `HttpErrorResponse.status`), else 0. */
+function errorStatus(err: unknown): number {
+  if (!err || typeof err !== 'object') return 0;
+  const e = err as { statusCode?: unknown; status?: unknown };
+  if (typeof e.statusCode === 'number') return e.statusCode;
+  if (typeof e.status === 'number') return e.status;
+  return 0;
+}
+
 /**
  * Opens a fetched binary file (PDF, image, video, …) in a new tab for viewing.
  * Same popup-safe pattern as {@link openClinicalDocument}: open the tab on the
  * click, then point it at a blob URL once the bytes arrive.
+ *
+ * On failure, with `options.onError` the placeholder tab is closed and the
+ * host is told the status and the API's `errors.code` (readable for blob
+ * requests because the http-error interceptor parses JSON error bodies);
+ * without it the error text is shown in the tab, as before.
  */
-export function openBlobDocument(file$: Observable<Blob>): void {
+export function openBlobDocument(file$: Observable<Blob>, options?: OpenBlobOptions): void {
   const tab = window.open('', '_blank');
   if (tab) {
     tab.document.write(
@@ -68,6 +92,18 @@ export function openBlobDocument(file$: Observable<Blob>): void {
       setTimeout(() => URL.revokeObjectURL(url), 120_000);
     },
     error: (err: unknown) => {
+      const onError = options?.onError;
+      if (onError) {
+        if (tab) {
+          try {
+            tab.close();
+          } catch {
+            // A tab we can no longer reach — nothing to close.
+          }
+        }
+        onError(errorStatus(err), apiErrorCode(err));
+        return;
+      }
       if (tab) {
         showTabError(tab, apiErrorMessage(err, 'Could not open the document. Please try again.'));
       }

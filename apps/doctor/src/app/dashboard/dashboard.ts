@@ -61,6 +61,7 @@ const NOTE_ICON: Record<string, string> = {
   review: 'star',
   payout: 'wallet',
   system: 'info',
+  document_access: 'folder-open',
 };
 
 /** Doctor home (route `/dashboard`) — stats, today's schedule, notifications. */

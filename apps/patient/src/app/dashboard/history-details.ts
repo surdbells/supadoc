@@ -16,6 +16,7 @@ import { catchError, forkJoin, map, of, startWith, Subscription, switchMap } fro
 import {
   apiErrorMessage,
   AppointmentsApi,
+  DocumentSharingApi,
   openClinicalDocument,
   openPendingTab,
   PrescriptionsApi,
@@ -39,6 +40,7 @@ import {
   StatusBadge,
   statusBadge,
 } from './appointment-status';
+import { accessUntilPhrase, countNoun, drName } from './document-sharing';
 import { dayLabel, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
@@ -406,6 +408,17 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                     <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxError() }}
                   </p>
                 }
+                <!-- What the doctor can see of the patient's own documents -->
+                @if (sharingLine()) {
+                  <div class="flex flex-col gap-2 border-t border-cloud pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p class="flex items-start gap-2 font-sans text-body-sm text-ink">
+                      <sd-icon name="share-2" [size]="18" class="mt-0.5 shrink-0 text-slate" />Your documents: {{ sharingLine() }}
+                    </p>
+                    <a [routerLink]="'/dashboard/documents/sharing'" [queryParams]="{ doctor: a.specialist.id }" class="inline-flex min-h-11 shrink-0 items-center gap-1 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean">
+                      Manage<sd-icon name="chevron-right" [size]="16" />
+                    </a>
+                  </div>
+                }
               </section>
 
               <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
@@ -446,6 +459,10 @@ export class HistoryDetails {
   protected readonly docsError = signal('');
   /** Opening a prescription PDF failed. */
   protected readonly rxError = signal('');
+  /** "Your documents: …" — what this doctor can see now ('' until known, or when it can't be read). */
+  protected readonly sharingLine = signal('');
+  private readonly sharingApi = inject(DocumentSharingApi);
+  private sharingSub?: Subscription;
   /** Id of the prescription whose PDF link is being fetched. */
   protected readonly openingRx = signal('');
 
@@ -493,7 +510,10 @@ export class HistoryDetails {
         this.reviewNote.set('');
         this.reviewRating.set(0);
         this.reviewComment.set('');
-        if (id !== '') this.loadExtras(id);
+        if (id !== '') {
+          this.loadExtras(id);
+          this.loadSharingLine(id);
+        }
         return this.api.getMine(id).pipe(
           map((res) => ({ state: 'loaded' as const, appt: res.data, error: '' })),
           catchError((err: unknown) =>
@@ -619,6 +639,32 @@ export class HistoryDetails {
     this.reviewState.set('done');
     // The form (and its focused button) is gone — say so where focus lands.
     afterNextRender(() => this.reviewDone()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  /** "Your documents: Dr X can see 2 documents · until …" (best effort; hidden when it can't be read). */
+  private loadSharingLine(id: string): void {
+    this.sharingSub?.unsubscribe();
+    this.sharingLine.set('');
+    this.sharingSub = this.sharingApi
+      .forAppointment(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          const d = res.data;
+          const doctor = drName(d.specialist.name);
+          const a = d.access;
+          if (a.state === 'paused') this.sharingLine.set(`sharing with ${doctor} is paused`);
+          else if (a.state === 'none') this.sharingLine.set(`not shared with ${doctor}`);
+          else {
+            // A whole-folder share says so: it covers files added later too.
+            const what = a.scope === 'all' ? 'all your documents, including new uploads' : countNoun(a.document_count, 'document');
+            // …and runs to the folder share's own end (not the latest end of all shares).
+            const tail = accessUntilPhrase(a);
+            this.sharingLine.set(`${doctor} can see ${what}${tail ? ` · ${tail}` : ''}`);
+          }
+        },
+        error: () => this.sharingLine.set(''),
+      });
   }
 
   private loadExtras(id: string): void {

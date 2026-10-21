@@ -17,6 +17,8 @@ const ICON: Record<string, string> = {
   review: 'star',
   payout: 'banknote',
   message: 'message-square',
+  // A patient shared documents, or answered your request to see them.
+  document_access: 'folder-open',
 };
 
 /** Doctor notifications (route `/notifications`). */

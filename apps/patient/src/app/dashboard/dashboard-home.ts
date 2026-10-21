@@ -59,6 +59,7 @@ function safeAppLink(link: string | null | undefined): string | null {
 const NOTIF_STYLE: Record<string, { icon: string; tint: string }> = {
   appointment: { icon: 'calendar-days', tint: 'bg-frost text-cerulean-dark' },
   prescription: { icon: 'pill', tint: 'bg-teal/10 text-teal-ink' },
+  document: { icon: 'folder-open', tint: 'bg-frost text-cerulean-dark' },
   payment: { icon: 'banknote', tint: 'bg-sage/10 text-sage-ink' },
   system: { icon: 'bell', tint: 'bg-sky/10 text-cerulean-dark' },
 };

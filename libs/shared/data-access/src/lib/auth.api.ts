@@ -193,13 +193,20 @@ export class AuthApi {
     });
   }
 
-  /** Exchange a refresh token for a fresh access token (POST /api/auth/refresh). */
+  /**
+   * Exchange a refresh token for a fresh access token (POST /api/auth/refresh).
+   * `passive`: the refresh was needed by a background poll, so it is sent with
+   * `X-SD-Passive: 1` and the API checks the session without restarting its
+   * idle clock (a poll alone never keeps an idle session alive).
+   */
   refresh(
     refreshToken: string,
+    passive = false,
   ): Observable<{ data: { access_token: string } }> {
     return this.api.post<{ data: { access_token: string } }>(
       'api/auth/refresh',
       { refresh_token: refreshToken },
+      passive ? { passive: true } : undefined,
     );
   }
 

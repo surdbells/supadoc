@@ -33,6 +33,7 @@ type Count = NotificationTypeCount;
 const TYPES: readonly Type[] = [
   'appointment',
   'prescription',
+  'document',
   'payment',
   'message',
   'system',
@@ -74,6 +75,11 @@ const TYPE: Record<Type, { label: string; icon: string; tint: string }> = {
     label: 'Prescription',
     icon: 'pill',
     tint: 'bg-teal/10 text-teal-ink',
+  },
+  document: {
+    label: 'Documents',
+    icon: 'folder-open',
+    tint: 'bg-frost text-cerulean-dark',
   },
   payment: {
     label: 'Payment',
@@ -420,6 +426,7 @@ export class Notification {
       label: 'Prescriptions',
       noun: 'prescription notifications',
     },
+    { key: 'document', label: 'Documents', noun: 'document notifications' },
     { key: 'payment', label: 'Payments', noun: 'payment notifications' },
     { key: 'message', label: 'Messages', noun: 'messages' },
     { key: 'system', label: 'System', noun: 'system notifications' },

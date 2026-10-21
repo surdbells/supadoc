@@ -4,6 +4,12 @@
  * envelope. Distinct from the richer domain types in `appointment.ts`, which
  * predate the real API.
  */
+import type {
+  BookingShareDuration,
+  DocumentAccessRequestDto,
+  DocumentSharedWithDto,
+  UploadedDocumentDto,
+} from './document-sharing';
 import type { MedicalDocumentDto } from './message';
 import type { VitalReadingDto } from './vitals';
 
@@ -273,10 +279,30 @@ export interface AppointmentDto {
   patient_first_joined_at?: string | null;
   /** GET /portal/appointments/{id} only: set while it can be cancelled (`can_cancel`), else null. */
   cancel_policy?: AppointmentCancelPolicyDto | null;
+  /**
+   * GET /portal/appointments/{id} only (patient audience): this doctor's
+   * pending request to see the patient's documents, else null. Rides the
+   * call's existing poll — no new interval.
+   */
+  readonly pending_document_request?: DocumentAccessRequestDto | null;
+  /**
+   * POST /portal/appointments (the booking response) only: what happened to
+   * the attachments' sharing choice (`document_share` in the body). Render
+   * the confirmation from this, never from what was asked for.
+   */
+  readonly document_share?: {
+    readonly outcome: 'shared' | 'private' | 'sharing_unavailable';
+    readonly grant_id: string | null;
+    readonly until_label_at: string | null;
+  };
 }
 
-/** POST /appointments/{id}/resolve and a staff cancel answer the appointment plus what this call refunded. */
-export interface ResolvedAppointmentDto extends AppointmentDto {
+/**
+ * POST /appointments/{id}/resolve and a staff cancel answer the appointment
+ * plus what this call refunded. Staff audience: no patient-only fields.
+ */
+export interface ResolvedAppointmentDto
+  extends Omit<AppointmentDto, 'document_url' | 'pending_document_request' | 'document_share'> {
   refunded_now: string;
 }
 
@@ -506,6 +532,15 @@ export interface BookAppointmentParams {
    * (422 `parent_appointment_id` / `specialist_id` otherwise).
    */
   parent_appointment_id?: string;
+  /**
+   * Whether the booked doctor can see the attached files (always sent when
+   * `document_ids` is non-empty): `duration` null = keep them private, else
+   * one selected share to the booked doctor. `show_specialist_ids` = the
+   * other folder-share holders the patient ticked "Also let Dr X see these
+   * files" for (everyone else is hidden from them). Validated before any
+   * money moves (422 `document_share.duration`, `show_specialist_ids.N`).
+   */
+  document_share?: { duration: BookingShareDuration | null; show_specialist_ids?: string[] };
 }
 
 /** Body for POST /api/doctor/appointments/{id}/follow-up (the doctor proposes). */
@@ -553,6 +588,13 @@ export interface PayInitFollowUp {
  */
 export interface AppointmentDocumentDto extends MedicalDocumentDto {
   readonly url: string;
+  /**
+   * Sharing APIs: who can see the file now (hidden from every folder-share
+   * holder unless listed in `show_specialist_ids`). Absent from older APIs.
+   */
+  readonly shared_with?: readonly DocumentSharedWithDto[];
+  readonly share_outcome?: UploadedDocumentDto['share_outcome'];
+  readonly share_ended_for?: UploadedDocumentDto['share_ended_for'];
 }
 
 /** Response of POST /portal/appointments/pay-init — a direct card checkout. */
@@ -1349,7 +1391,7 @@ export interface SessionDto {
 }
 
 /** One notification, from `Notification::toArray()`. */
-export type NotificationType = 'appointment' | 'prescription' | 'payment' | 'message' | 'system';
+export type NotificationType = 'appointment' | 'prescription' | 'payment' | 'message' | 'document' | 'system';
 
 /** How many notifications of one type the patient has, and how many are unread. */
 export interface NotificationTypeCount {

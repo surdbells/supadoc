@@ -25,6 +25,7 @@ import {
   apiErrorMessage,
   AppointmentsApi,
   AvailabilityCalendarStore,
+  DocumentSharingApi,
   slotLabel,
   SpecialistsApi,
   WalletApi,
@@ -35,9 +36,11 @@ import type {
   AppointmentDocumentDto,
   AppointmentDto,
   AvailabilityRangeDto,
+  BookingShareDuration,
   FollowUpQuoteDto,
   GuestInvite,
   PricingDto,
+  SharingDoctorDto,
   SpecialistDto,
   SuccessResponse,
 } from '@supadoc/models';
@@ -56,6 +59,16 @@ import {
   type FileDropRejection,
 } from '@supadoc/ui';
 import { calendarErrorText, httpStatus, notBookableText } from './booking-helpers';
+import {
+  BOOKING_DURATIONS,
+  bookingDocumentShare,
+  type BookingShareChoice,
+  bookingShareCards,
+  bookingShareReady,
+  bookingShareSummary,
+  drName,
+  otherFolderHolders,
+} from './document-sharing';
 import { dayLabel, priceNote, whenLabel } from './follow-up';
 import { loadPaystack } from './paystack';
 import { SimilarDoctors } from './similar-doctors';
@@ -723,9 +736,28 @@ function daysApart(a: string, b: string): number {
               }
             </div>
             <p class="font-sans text-body-sm text-slate">
-              Add lab results, scans or photos for your doctor. Each file is
-              also saved to your medical documents.
+              Add lab results, scans or photos. They're saved to your medical
+              documents. You choose below who can see them.
             </p>
+
+            <!-- Other doctors with whole-folder access: asked before the files go up (each upload uses the ticks) -->
+            @if (folderHolders().length > 0) {
+              <fieldset class="flex flex-col gap-2 rounded-card border border-cloud p-4">
+                <legend class="px-1 font-sans text-body-sm font-semibold text-ink">Other doctors who can see your whole folder</legend>
+                @for (d of folderHolders(); track d.specialist.id) {
+                  <label class="flex min-h-11 cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      class="size-5 shrink-0 accent-cerulean"
+                      [checked]="showTo().includes(d.specialist.id)"
+                      (change)="toggleShowTo(d.specialist.id, $any($event.target).checked)"
+                    />
+                    <span class="font-sans text-body-sm text-ink">Also let {{ drOf(d.specialist.name) }} see these files</span>
+                  </label>
+                }
+                <p class="font-sans text-caption text-slate">Unticked doctors won't see these files.</p>
+              </fieldset>
+            }
 
             <!-- Upload progress and outcomes, announced to screen readers -->
             <p class="sr-only" aria-live="polite" aria-atomic="true">{{ docsLiveStatus() }}</p>
@@ -840,6 +872,50 @@ function daysApart(a: string, b: string): number {
                 Files that failed won't be attached. Retry or remove them.
               </p>
             }
+
+            <!-- Can the booked doctor see the attached files? (required, no default) -->
+            @if (attachedCount() > 0) {
+              <fieldset class="flex flex-col gap-3" role="radiogroup" aria-required="true" [attr.aria-describedby]="shareChoice() === null ? 'share-choice-help' : null">
+                <legend class="mb-3 font-sans text-body font-semibold text-ink">Can {{ bookedName() }} see these files?</legend>
+                <div class="flex flex-col gap-3 rounded-card border-2 p-4 transition-colors" [class]="shareChoice() === 'share' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'">
+                  <label class="flex min-h-11 cursor-pointer items-start gap-3">
+                    <input type="radio" name="booking-share" value="share" class="mt-1 size-5 shrink-0 accent-cerulean" [checked]="shareChoice() === 'share'" (change)="shareChoice.set('share')" />
+                    <span class="flex flex-col gap-0.5">
+                      <span class="font-sans text-body-sm font-semibold text-ink">{{ shareCards().share.label }}</span>
+                      <span class="font-sans text-caption text-slate">{{ shareCards().share.hint }}</span>
+                    </span>
+                  </label>
+                  @if (shareChoice() === 'share') {
+                    <label class="ml-8 flex flex-col gap-1.5">
+                      <span class="font-sans text-caption font-semibold text-ink">For how long</span>
+                      <span class="relative block w-full sm:w-80">
+                        <select
+                          class="min-h-11 w-full appearance-none rounded-field border border-cloud bg-white px-4 pr-10 font-sans text-body-sm text-ink outline-none focus:border-cerulean"
+                          [value]="shareDuration()"
+                          (change)="shareDuration.set($any($event.target).value)"
+                        >
+                          @for (o of bookingDurations; track o.value) {
+                            <option [value]="o.value" [selected]="o.value === shareDuration()">{{ o.label }}</option>
+                          }
+                        </select>
+                        <sd-icon name="chevron-down" [size]="16" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate" />
+                      </span>
+                    </label>
+                  }
+                </div>
+                <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 p-4 transition-colors" [class]="shareChoice() === 'private' ? 'border-cerulean bg-frost/30' : 'border-cloud hover:border-cerulean/40'">
+                  <input type="radio" name="booking-share" value="private" class="mt-1 size-5 shrink-0 accent-cerulean" [checked]="shareChoice() === 'private'" (change)="shareChoice.set('private')" />
+                  <span class="flex flex-col gap-0.5">
+                    <span class="font-sans text-body-sm font-semibold text-ink">{{ shareCards().private.label }}</span>
+                    <span class="font-sans text-caption text-slate">{{ shareCards().private.hint }}</span>
+                  </span>
+                </label>
+                <p class="font-sans text-caption text-slate">You can change this any time in Medical Documents.</p>
+                @if (shareChoice() === null) {
+                  <p id="share-choice-help" class="font-sans text-caption font-semibold text-slate">Choose whether {{ bookedName() }} can see your files.</p>
+                }
+              </fieldset>
+            }
           </div>
           <ng-container [ngTemplateOutlet]="navRow" />
         }
@@ -932,6 +1008,19 @@ function daysApart(a: string, b: string): number {
                   {{ attachedSummary() }}
                 </dd>
               </div>
+              @if (attachedCount() > 0) {
+                <div class="flex justify-between gap-4">
+                  <dt class="flex items-center gap-2 text-slate">
+                    <sd-icon name="share-2" [size]="16" />Shared with doctor
+                  </dt>
+                  <dd class="flex max-w-[60%] flex-col text-right text-ink">
+                    <span>{{ shareSummary() }}</span>
+                    @if (showToNames()) {
+                      <span class="text-caption text-slate">Also: {{ showToNames() }}</span>
+                    }
+                  </dd>
+                </div>
+              }
             </dl>
             <div
               class="mt-5 flex flex-col gap-2 border-t border-cloud pt-4 font-sans text-body-sm"
@@ -1318,6 +1407,51 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
   private nextDocKey = 1;
   /** The in-flight upload per attachment, so Remove can cancel it. */
   private readonly uploads = new Map<number, Subscription>();
+
+  // ----- Who can see the attachments (nothing is shared silently) -----
+  private readonly sharingApi = inject(DocumentSharingApi);
+  /** Doctors the patient booked before, with what each can see (loaded once, at step 5). */
+  private readonly sharingDoctors = signal<SharingDoctorDto[]>([]);
+  private sharingRequested = false;
+  /** Other doctors with whole-folder access — listed with "Also let Dr X see these files". */
+  protected readonly folderHolders = computed(() => otherFolderHolders(this.sharingDoctors(), this.doctorId()));
+  /** The folder holders ticked to see these files too (nobody by default). */
+  protected readonly showTo = signal<string[]>([]);
+  /** The ticks that still apply (a holder listed now). */
+  private readonly showToIds = computed(() => {
+    const listed = new Set(this.folderHolders().map((d) => d.specialist.id));
+    return this.showTo().filter((id) => listed.has(id));
+  });
+  protected readonly showToNames = computed(() => {
+    const ids = this.showToIds();
+    return this.folderHolders()
+      .filter((d) => ids.includes(d.specialist.id))
+      .map((d) => drName(d.specialist.name))
+      .join(', ');
+  });
+  /** "Can Dr X see these files?" — required once files are attached, no default. */
+  protected readonly shareChoice = signal<BookingShareChoice | null>(null);
+  protected readonly shareDuration = signal<BookingShareDuration>('after_24h');
+  protected readonly bookingDurations = BOOKING_DURATIONS;
+  protected readonly attachedCount = computed(() => this.attachedIds().length);
+  protected readonly bookedName = computed(() => drName(this.specialist()?.name));
+  protected readonly shareCards = computed(() =>
+    bookingShareCards(
+      this.specialist()?.name ?? '',
+      this.sharingDoctors().find((d) => d.specialist.id === this.doctorId()) ?? null,
+    ),
+  );
+  protected readonly shareSummary = computed(() => bookingShareSummary(this.shareChoice(), this.shareDuration()));
+  /** Step 5 needs to know who can see the whole folder: read it once, when the patient gets there. */
+  private readonly loadSharingOnStep5 = effect(() => {
+    if (this.step() !== 5 || this.sharingRequested) return;
+    this.sharingRequested = true;
+    untracked(() => this.loadSharingDoctors());
+  });
+  /** Removing every attachment resets the question (nothing left to share). */
+  private readonly resetShareChoice = effect(() => {
+    if (this.attachedCount() === 0) untracked(() => this.shareChoice.set(null));
+  });
 
   protected readonly submitting = signal(false);
   protected readonly submitError = signal('');
@@ -2218,7 +2352,8 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
             !this.guestError(i).email,
         );
       case 5:
-        return !this.docsBusy(); // wait for files still uploading
+        // Wait for files still uploading; attached files need the sharing answer.
+        return !this.docsBusy() && bookingShareReady(this.attachedCount(), this.shareChoice());
       default:
         return true;
     }
@@ -2309,8 +2444,9 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
     if (!next) return;
     this.patchAttachment(next.key, { status: 'uploading', progress: 0, error: '' });
 
+    // Hidden from every doctor with whole-folder access, except the ticked ones.
     const sub = this.appointments
-      .uploadDocument(next.file)
+      .uploadDocument(next.file, { show_specialist_ids: this.showToIds() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (event) => {
@@ -2345,6 +2481,26 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
 
   private patchAttachment(key: number, changes: Partial<Attachment>): void {
     this.attachments.update((list) => list.map((a) => (a.key === key ? { ...a, ...changes } : a)));
+  }
+
+  /** Who can see the patient's whole folder now (for the folder ticks and the private card's wording). */
+  private loadSharingDoctors(): void {
+    this.sharingApi
+      .doctors()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.sharingDoctors.set(res.data ?? []),
+        // Unavailable or failing: no folder list (attachments stay hidden from folder holders by default).
+        error: () => this.sharingDoctors.set([]),
+      });
+  }
+
+  protected toggleShowTo(id: string, on: boolean): void {
+    this.showTo.update((ids) => (on ? [...new Set([...ids, id])] : ids.filter((x) => x !== id)));
+  }
+
+  protected drOf(name: string): string {
+    return drName(name);
   }
 
   private skip(list: SkippedFile[]): void {
@@ -2403,13 +2559,16 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
         email: g.email.trim(),
       }));
       const documentIds = this.attachedIds();
-      await firstValueFrom(
+      const choice = this.shareChoice();
+      const res = await firstValueFrom(
         this.appointments.book({
           specialist_id: this.doctorId(),
           scheduled_at: this.selectedTime(),
           type: 'video',
           notes: this.reason().trim() || undefined,
           document_ids: documentIds.length > 0 ? documentIds : undefined,
+          // Always sent with attachments: whether the booked doctor sees them, and which folder holders may.
+          document_share: bookingDocumentShare(documentIds.length, choice, this.shareDuration(), this.showToIds()),
           guests: guests.length > 0 ? guests : undefined,
           payment_reference: paymentReference,
           // A follow-up: linked to the consultation and priced as one by the server.
@@ -2418,6 +2577,23 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       );
       this.booked = true;
       this.forgetPendingCard();
+      // Asked to share but the answer says otherwise: open the booking, which says so and offers Share.
+      const outcome = res.data?.document_share?.outcome;
+      if (documentIds.length > 0 && choice === 'share' && outcome && outcome !== 'shared' && res.data?.id) {
+        await this.router.navigate(['/dashboard/appointments', res.data.id], {
+          queryParams: { docs: outcome === 'sharing_unavailable' ? 'unavailable' : 'private' },
+        });
+        return;
+      }
+      // Shared as asked: open the booking, which confirms who sees the files and
+      // until when — from the answer (`document_share`), never from what was asked.
+      if (documentIds.length > 0 && outcome === 'shared' && res.data?.id) {
+        await this.router.navigate(['/dashboard/appointments', res.data.id], {
+          queryParams: { docs: 'shared' },
+          state: { documentShare: res.data.document_share, doctorName: res.data.specialist?.name ?? null },
+        });
+        return;
+      }
       await this.router.navigate(['/dashboard/appointments'], {
         queryParams: { booked: '1' },
       });
@@ -2759,7 +2935,12 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
         'Nothing has been booked yet. ' +
         (n === 1
           ? 'The document you uploaded stays in your medical documents.'
-          : `The ${n} documents you uploaded stay in your medical documents.`),
+          : `The ${n} documents you uploaded stay in your medical documents.`) +
+        (this.showToIds().length > 0
+          ? ` Only the doctors you ticked can see ${n === 1 ? 'it' : 'them'}.`
+          : n === 1
+            ? ' It stays private.'
+            : ' They stay private.'),
       confirmLabel: 'Leave without booking',
       cancelLabel: 'Keep booking',
     };

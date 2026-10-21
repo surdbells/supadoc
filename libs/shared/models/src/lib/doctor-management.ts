@@ -308,8 +308,13 @@ export interface AdminSpecialistUpdate extends Omit<UpdateSpecialistParams, 'ver
   expertise?: string[];
 }
 
-/** A row of GET /api/specialists/{id}/appointments (no patient contact details). */
-export interface SpecialistAppointmentRowDto extends AppointmentDto {
+/**
+ * A row of GET /api/specialists/{id}/appointments (no patient contact details,
+ * no patient-only fields: `document_url`, `pending_document_request`,
+ * `document_share`).
+ */
+export interface SpecialistAppointmentRowDto
+  extends Omit<AppointmentDto, 'document_url' | 'pending_document_request' | 'document_share'> {
   patient_name: string;
 }
 

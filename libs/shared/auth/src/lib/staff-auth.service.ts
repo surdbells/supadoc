@@ -3,7 +3,7 @@ import { firstValueFrom, timeout } from 'rxjs';
 import { ApiService, apiErrorCode, apiErrorMessage, apiErrorReason } from '@supadoc/data-access';
 import type { StaffLoginData, StaffUserDto } from '@supadoc/models';
 import { STAFF_AUTH_CONFIG } from './provide-staff-auth';
-import type { SessionAuth, SessionEndReason } from './session/session-auth';
+import type { RefreshOptions, SessionAuth, SessionEndReason } from './session/session-auth';
 import {
   consumeSessionNotice,
   SESSION_END_MESSAGES,
@@ -184,17 +184,17 @@ export class StaffAuthService implements SessionAuth {
    * the session; a transient one (offline, 5xx, 429) leaves the user signed in
    * and makes further attempts wait a little (see {@link RefreshBackoff}).
    */
-  refresh(): Promise<boolean> {
+  refresh(options?: RefreshOptions): Promise<boolean> {
     if (this.refreshInFlight) return this.refreshInFlight;
     if (this.backoff.blocked()) return Promise.resolve(false);
-    this.refreshInFlight = this.doRefresh().finally(() => {
+    this.refreshInFlight = this.doRefresh(options?.passive === true).finally(() => {
       this.refreshInFlight = null;
     });
     return this.refreshInFlight;
   }
 
   /** {@inheritDoc TokenSession.ensureFreshToken} */
-  async ensureFreshToken(minMs = 60_000): Promise<void> {
+  async ensureFreshToken(minMs = 60_000, options?: RefreshOptions): Promise<void> {
     if (this.refreshInFlight) {
       await this.refreshInFlight;
       return;
@@ -204,7 +204,7 @@ export class StaffAuthService implements SessionAuth {
     const exp = this.accessExpiresAt();
     // An opaque token (no readable expiry) is never refreshed ahead — no loop.
     if (exp === null || exp - Date.now() > refreshMarginMs(token, minMs)) return;
-    await this.refresh();
+    await this.refresh(options);
   }
 
   /** {@inheritDoc SessionAuth.accessExpiresAt} */
@@ -212,7 +212,8 @@ export class StaffAuthService implements SessionAuth {
     return localExpiryMs(this._token(), this.clockOffset());
   }
 
-  private async doRefresh(): Promise<boolean> {
+  /** `passive`: started for a background poll — the API then doesn't count it as activity. */
+  private async doRefresh(passive: boolean): Promise<boolean> {
     const refresh = this.read(this.refreshKey);
     if (!refresh) return false;
     const before = this._token();
@@ -222,9 +223,11 @@ export class StaffAuthService implements SessionAuth {
       try {
         const res = await firstValueFrom(
           this.api
-            .post<{ data: { access_token?: string } }>('api/auth/refresh', {
-              refresh_token: refresh,
-            })
+            .post<{ data: { access_token?: string } }>(
+              'api/auth/refresh',
+              { refresh_token: refresh },
+              passive ? { passive: true } : undefined,
+            )
             // An unanswered refresh is a transient failure (no status → back-off below).
             .pipe(timeout({ first: REFRESH_TIMEOUT_MS })),
         );

@@ -6,6 +6,7 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   Injector,
   OnDestroy,
@@ -15,7 +16,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, type Subscription, tap } from 'rxjs';
 import AgoraRTC, {
   IAgoraRTCClient,
   ICameraVideoTrack,
@@ -26,6 +27,7 @@ import AgoraRTC, {
 import { type CanLeave, isSessionEndError, SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
 import {
   ApiService,
+  apiErrorCode,
   apiErrorMessage,
   type CallPresenceState,
   DoctorApi,
@@ -43,11 +45,13 @@ import {
   type CallRefusalCode,
   type ConsentDto,
   type CopilotDraftDto,
+  type DoctorAccessRequestDto,
+  type DoctorDocumentAccessDto,
+  type DoctorSharedDocumentDto,
   type DoctorStandingCode,
   type JoinInfoDto,
   type LabOrderDto,
   type MedicalCertificateDto,
-  type MedicalDocumentDto,
   PATIENT_CALL_UID,
   type ReferralDto,
   type TranscriptSegmentDto,
@@ -71,9 +75,28 @@ import {
 } from '@supadoc/ui';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
+import {
+  accessBanner,
+  CALL_POLL_MS,
+  CALL_SIGNED_OUT,
+  callEmptyCopy,
+  callHeaderLine,
+  isStaleRequestCode,
+  LOAD_FAILED,
+  nextRefreshDelay,
+  openErrorCopy,
+  REQUEST_SENT,
+  REQUEST_WITHDRAWN,
+  requestErrorCopy,
+  unavailableBanner,
+  WITHDRAW_FAILED,
+  WITHDRAW_PROMPT,
+} from './appointment/document-access';
 import { FollowUpPlanner } from './appointment/follow-up-planner';
+import { RequestAccessDialog } from './appointment/request-access-dialog';
 import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointment/note-draft';
 import { callHoldWanted, FIRST_WAIT_HOLD_MS } from './call-hold';
+import { focusAfterDialogs } from './focus-after-dialog';
 import { RxPanel } from './prescriptions/rx-panel';
 import { UNSAVED_RX_LEAVE } from './prescriptions/rx-shared';
 import {
@@ -165,6 +188,13 @@ function fetchError(status: number, body: unknown): Error {
   });
 }
 
+/** The HTTP status of an API error (`ApiError.statusCode` / `HttpErrorResponse.status`), else 0. */
+function errorStatus(err: unknown): number {
+  const e = (err && typeof err === 'object' ? err : {}) as { statusCode?: unknown; status?: unknown };
+  if (typeof e.statusCode === 'number') return e.statusCode;
+  return typeof e.status === 'number' ? e.status : 0;
+}
+
 /** `fetch()` whose network failure (offline, DNS, CORS) rejects as status 0. */
 async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
@@ -185,7 +215,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 @Component({
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CallTilesComponent, DialogComponent, FollowUpPlanner, IconComponent, RxPanel, SmoothHeightDirective],
+  imports: [
+    CallTilesComponent,
+    DialogComponent,
+    FollowUpPlanner,
+    IconComponent,
+    RequestAccessDialog,
+    RxPanel,
+    SmoothHeightDirective,
+  ],
   host: {
     class: 'sd-call block min-h-screen bg-abyss text-white',
     '[attr.data-theme]': 'theme()',
@@ -1323,57 +1361,120 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 
         <!-- ===================== RECORDS + PARTICIPANTS ===================== -->
         <aside class="relative order-5 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-3 font-sans text-body font-semibold text-white">Medical Records</h3>
-            <div class="mb-3 flex gap-1 overflow-x-auto">
-              @for (t of recordsTabs; track t.key) {
+          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4" [attr.aria-busy]="docsLoading() || null">
+            <!-- Focus lands here when a request's Send / Withdraw button gives way to its result. -->
+            <h3 #docsHeading tabindex="-1" class="font-sans text-body font-semibold text-white outline-none">Medical Records</h3>
+            @if (!portalSignedIn()) {
+              <!-- Joined by an emailed link (or the portal session ended): nothing is fetched. -->
+              <div class="mt-3 flex flex-col items-start gap-2 rounded-2xl bg-white/[0.04] px-3 py-2.5">
+                <p class="flex items-start gap-1.5 font-sans text-caption text-white/70">
+                  <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />{{ docsSignedOut }}
+                </p>
                 <button
                   type="button"
-                  class="whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
-                  [class]="recordsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/60 hover:bg-white/10'"
-                  (click)="recordsTab.set(t.key)"
+                  class="inline-flex min-h-11 items-center gap-1.5 rounded-field px-1 font-sans text-caption font-semibold text-frost underline underline-offset-2"
+                  (click)="openPortalSignIn()"
                 >
-                  {{ t.label }}
+                  <sd-icon name="external-link" [size]="14" /> Sign in (opens a new tab)
                 </button>
-              }
-            </div>
-            @if (docsLoading()) {
-              <div class="flex flex-col gap-2">
-                @for (i of [1, 2]; track i) { <div class="sd-shimmer h-12 rounded-2xl bg-white/[0.04]"></div> }
               </div>
-            } @else if (docsError()) {
-              <div class="flex flex-col items-center gap-2 py-6 text-center">
-                <sd-icon name="wifi-off" [size]="26" class="text-alert" />
-                <p class="font-sans text-caption text-alert">{{ docsError() }}</p>
-              </div>
-            } @else if (visibleDocs().length) {
-              <ul class="flex flex-col gap-2">
-                @for (d of visibleDocs(); track d.id) {
-                  <li>
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 text-left transition-colors hover:bg-white/[0.07]"
-                      (click)="openPatientDoc(d)"
-                      [attr.title]="'Open ' + d.title"
-                    >
-                      <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
-                        <sd-icon [name]="docIcon(d)" [size]="16" />
-                      </span>
-                      <span class="flex min-w-0 flex-1 flex-col">
-                        <span class="truncate font-sans text-body-sm text-white">{{ d.title }}</span>
-                        <span class="truncate font-sans text-[10px] uppercase text-white/45">{{ d.type_label }} · {{ d.extension }} · {{ d.size_label }}</span>
-                      </span>
-                      <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px]" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-frost/15 text-frost'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
-                    </button>
-                  </li>
-                }
-              </ul>
             } @else {
-              <div class="flex flex-col items-center gap-2 py-6 text-center">
-                <sd-icon name="clipboard-list" [size]="26" class="text-white/30" />
-                <p class="font-sans text-caption text-white/40">{{ docsEmptyLabel() }}</p>
+              @if (docsHeaderLine(); as line) {
+                <p class="mt-0.5 flex items-center gap-1.5 font-sans text-caption text-white/60">
+                  <sd-icon [name]="docAccess()?.access?.state === 'active' ? 'shield-check' : 'lock'" [size]="13" class="shrink-0" />{{ line }}
+                </p>
+              }
+              <!-- Where your request stands, and asking to extend / for more (compact). -->
+              @if (callDocBanner(); as b) {
+                @if (b.access.state === 'ends_soon' || b.access.action?.kind === 'more') {
+                  <div class="mt-3 flex flex-col items-start gap-1.5 rounded-2xl bg-white/[0.04] px-3 py-2.5">
+                    @if (b.access.state === 'ends_soon' && b.access.detail) {
+                      <p class="flex items-start gap-1.5 font-sans text-caption text-white/70"><sd-icon name="hourglass" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ b.access.detail }}</p>
+                    }
+                    @if (b.access.action; as act) {
+                      <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15" (click)="openDocRequest()">
+                        <sd-icon [name]="act.icon" [size]="14" />{{ act.label }}
+                      </button>
+                    }
+                  </div>
+                }
+                @if (b.request; as r) {
+                  <div class="mt-3 flex flex-col items-start gap-1.5 rounded-2xl bg-white/[0.04] px-3 py-2.5">
+                    <p class="flex items-start gap-1.5 font-sans text-caption text-white/70">
+                      <sd-icon [name]="r.icon" [size]="14" class="mt-0.5 shrink-0" [class]="r.tone === 'warning' ? 'text-warning' : 'text-frost'" />{{ r.text }}
+                    </p>
+                    @if (r.action; as act) {
+                      <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60" [disabled]="withdrawingRequest()" (click)="withdrawDocRequest()">
+                        <sd-icon [name]="act.icon" [size]="14" />{{ withdrawingRequest() ? 'Withdrawing…' : act.label }}
+                      </button>
+                    }
+                  </div>
+                }
+              }
+              <div class="mb-3 mt-3 flex gap-1 overflow-x-auto">
+                @for (t of recordsTabs; track t.key) {
+                  <button
+                    type="button"
+                    class="whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
+                    [class]="recordsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/60 hover:bg-white/10'"
+                    [attr.aria-pressed]="recordsTab() === t.key"
+                    (click)="recordsTab.set(t.key)"
+                  >
+                    {{ t.label }}
+                  </button>
+                }
               </div>
+              @if (docsLoading() && !docAccess()) {
+                <div class="flex flex-col gap-2" aria-hidden="true">
+                  @for (i of [1, 2]; track i) { <div class="sd-shimmer h-12 rounded-2xl bg-white/[0.04]"></div> }
+                </div>
+              } @else if (docsFailed() || callDocBanner()?.access?.state === 'unavailable') {
+                <div class="flex flex-col items-center gap-2 py-6 text-center">
+                  <sd-icon name="triangle-alert" [size]="26" class="text-alert" />
+                  <p class="font-sans text-caption text-alert" role="alert">{{ docsLoadFailed }}</p>
+                  <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60" [disabled]="docsLoading()" (click)="retryDocumentAccess()">
+                    <sd-icon name="refresh-cw" [size]="14" />Try again
+                  </button>
+                </div>
+              } @else if (visibleDocs().length) {
+                <ul class="flex flex-col gap-2">
+                  @for (d of visibleDocs(); track d.id) {
+                    <li>
+                      <button
+                        type="button"
+                        class="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                        (click)="openPatientDoc(d)"
+                        [attr.title]="'Open ' + d.title"
+                      >
+                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
+                          <sd-icon [name]="docIcon(d)" [size]="16" />
+                        </span>
+                        <span class="flex min-w-0 flex-1 flex-col">
+                          <span class="truncate font-sans text-body-sm text-white">{{ d.title }}</span>
+                          <span class="truncate font-sans text-[10px] uppercase text-white/45">{{ d.type_label }} · {{ d.extension }} · {{ d.size_label }}</span>
+                        </span>
+                        <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px]" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-frost/15 text-frost'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              } @else if (docAccess(); as acc) {
+                @let empty = docsEmpty(acc.access.state);
+                <div class="flex flex-col items-center gap-2 py-6 text-center">
+                  <sd-icon [name]="acc.access.state === 'active' ? 'folder-open' : 'lock'" [size]="26" class="text-white/30" />
+                  <p class="font-sans text-caption font-semibold text-white/60">{{ empty.title }}</p>
+                  @if (empty.body) {
+                    <p class="font-sans text-caption text-white/60">{{ empty.body }}</p>
+                  }
+                  @if (recordsTab() === 'documents' && callDocBanner()?.access?.action?.kind === 'request') {
+                    <button type="button" class="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15" (click)="openDocRequest()">
+                      <sd-icon name="key-round" [size]="14" />Request access
+                    </button>
+                  }
+                </div>
+              }
             }
+            <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
             @if (docOpenError()) {
               <p class="mt-3 flex items-start gap-1.5 font-sans text-caption text-alert" role="alert">
                 <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" /> {{ docOpenError() }}
@@ -1556,6 +1657,21 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </button>
       </div>
     </sd-dialog>
+
+    <!-- Ask the patient to share documents (or to keep sharing) — over the portal session. -->
+    @if (appointmentIdForDocs(); as apptId) {
+      <doc-request-access-dialog
+        theme="call"
+        [open]="docRequestOpen()"
+        [appointmentId]="apptId"
+        [patientName]="patientName()"
+        [kind]="callDocBanner()?.requestKind ?? 'access'"
+        (closed)="docRequestOpen.set(false)"
+        (sent)="onDocRequestSent($event)"
+        (refused)="loadDocumentAccess('refresh')"
+        (afterClose)="focusDocsIfAsked()"
+      />
+    }
   `,
 })
 export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
@@ -1866,10 +1982,47 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** The API's earliest leave start (clinic calendar), from the certificates list; '' until it loads. */
   protected readonly certEarliestFrom = signal('');
 
-  // The patient's uploaded medical documents (reviewed in-call, right panel).
-  protected readonly patientDocs = signal<MedicalDocumentDto[]>([]);
+  // The documents the patient shares with this doctor (reviewed in-call, right
+  // panel) — DoctorApi over the portal session, re-read every 30 s while
+  // connected and on screen (passive: never extends the idle clock).
+  protected readonly docAccess = signal<DoctorDocumentAccessDto | null>(null);
+  protected readonly patientDocs = computed<readonly DoctorSharedDocumentDto[]>(() => this.docAccess()?.documents ?? []);
   protected readonly docsLoading = signal(false);
-  protected readonly docsError = signal('');
+  /** The last read failed with nothing to show: an error with Try again (never "nothing shared"). */
+  protected readonly docsFailed = signal(false);
+  protected readonly docsSignedOut = CALL_SIGNED_OUT;
+  protected readonly docsLoadFailed = LOAD_FAILED;
+  /** The request dialog (theme `call`) is showing. */
+  protected readonly docRequestOpen = signal(false);
+  /** The withdraw POST is running ("Withdrawing…") — not while the doctor is still being asked. */
+  protected readonly withdrawingRequest = signal(false);
+  /** "Withdraw your request?" is being asked or answered (guards a second click). */
+  private withdrawAsked = false;
+  /** A request was sent: once its dialog has closed, focus the panel heading (the opener is gone). */
+  private focusDocsAfterClose = false;
+  private readonly docsHeading = viewChild<ElementRef<HTMLElement>>('docsHeading');
+  /** Sharing results for screen readers ("Request sent."). */
+  protected readonly docAnnounce = signal('');
+  /** The consultation, once the join resolved it (the request dialog needs it). */
+  protected readonly appointmentIdForDocs = signal<string | null>(null);
+  protected readonly callDocBanner = computed(() => {
+    if (this.docsFailed()) return unavailableBanner();
+    const dto = this.docAccess();
+    return dto ? accessBanner(dto, this.patientName()) : null;
+  });
+  /** "Shared by the patient · until 4:30 PM" — left out when the empty Documents tab says "No documents shared". */
+  protected readonly docsHeaderLine = computed(() => {
+    const dto = this.docAccess();
+    if (!dto || this.callDocBanner()?.access.state === 'unavailable') return '';
+    if (dto.access.state !== 'active' && this.recordsTab() === 'documents' && this.patientDocs().length === 0) return '';
+    return callHeaderLine(dto, this.docsClock());
+  });
+  /** Ticks with each read, so "until 4:30 PM" (today) / a date stays right across midnight. */
+  private readonly docsClock = signal(Date.now());
+  private docsSeq = 0;
+  private docsRead: Subscription | null = null;
+  private docsPoll?: ReturnType<typeof setInterval>;
+  private docsChangeTimer?: ReturnType<typeof setTimeout>;
   /** Why the last document could not be opened (when there is no tab to say it in). */
   protected readonly docOpenError = signal('');
   /** A document whose new tab was blocked — offered as a link, never opened in this tab. */
@@ -2009,25 +2162,19 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     const a = this.info()?.patient?.allergies ?? [];
     return a.length ? a.map((x) => x.allergen).join(', ') : 'None recorded';
   });
-  /** Documents shown for the active Records tab (all / imaging / labs). */
-  protected readonly visibleDocs = computed(() => {
+  /** Shared documents shown for the active Records tab (all / imaging / labs). */
+  protected readonly visibleDocs = computed<readonly DoctorSharedDocumentDto[]>(() => {
     const tab = this.recordsTab();
     const docs = this.patientDocs();
     if (tab === 'imaging') return docs.filter((d) => DoctorCall.IMAGING_TYPES.has(d.document_type));
     if (tab === 'labs') return docs.filter((d) => DoctorCall.LAB_TYPES.has(d.document_type));
     return docs; // timeline + documents show everything
   });
-  protected docsEmptyLabel(): string {
-    switch (this.recordsTab()) {
-      case 'imaging':
-        return 'No imaging on file.';
-      case 'labs':
-        return 'No lab reports on file.';
-      default:
-        return 'No documents uploaded yet.';
-    }
+  /** The empty Records tab: nothing shared, or nothing of that kind. */
+  protected docsEmpty(state: 'none' | 'active'): { title: string; body: string | null } {
+    return callEmptyCopy(this.recordsTab(), state);
   }
-  protected docIcon(d: MedicalDocumentDto): string {
+  protected docIcon(d: Pick<DoctorSharedDocumentDto, 'extension'>): string {
     const ext = d.extension.toLowerCase();
     if (['mp4', 'webm', 'mov'].includes(ext)) return 'video';
     if (['jpg', 'jpeg', 'png'].includes(ext)) return 'camera';
@@ -2126,6 +2273,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       if (!this.portalSignedIn()) return;
       untracked(() => this.onPortalSignedIn());
     });
+    // Signed out of the portal (or another doctor signed in on this machine):
+    // the shared documents leave the screen, and nothing is fetched until the
+    // doctor signs in again (onPortalSignedIn reads them afresh).
+    effect(() => {
+      if (this.portalSignedIn()) return;
+      untracked(() => this.clearDocumentAccess());
+    });
 
     // Keep the prescribing panel mounted once it has been shown.
     effect(() => {
@@ -2178,7 +2332,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     void this.loadCarePlan();
     void this.loadReferrals();
     void this.loadCertificates();
-    void this.loadPatientDocuments();
+    this.loadDocumentAccess('load');
     void this.loadConsents();
     void this.loadRecording();
     void this.loadCopilot();
@@ -2196,6 +2350,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.loadClinical();
       return;
     }
+    if (!this.docAccess() && !this.docsLoading()) this.loadDocumentAccess('load');
     if (this.noteLoad() === 'error') {
       void this.loadNote();
       return;
@@ -2245,6 +2400,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       const data = await this.resolveJoin();
       this.info.set(data);
       this.appointmentId = data.appointment_id;
+      this.appointmentIdForDocs.set(data.appointment_id || null);
       this.loadClinical();
 
       if (!data.configured || !data.app_id || !data.channel) {
@@ -2311,6 +2467,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       if (!this.left) this.startHeartbeat();
       this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
       this.startMetricsReport();
+      if (!this.left) this.startDocsPoll();
     } catch (err: unknown) {
       this.errorMessage.set(apiErrorMessage(err, 'This join link is invalid or has expired.'));
       this.joinStanding.set(doctorStandingCode(err));
@@ -2614,30 +2771,156 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     );
   }
 
-  // ---- Patient medical documents (in-call review) ----
-  private async loadPatientDocuments(): Promise<void> {
-    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
+  // ---- Documents the patient shares (in-call review) ----
+  /**
+   * What the patient shares with this doctor (`DoctorApi.documentAccess`, over
+   * the portal session: fresh token, refreshed if need be). `load`: at join,
+   * on sign-in, Try again — a failure with nothing on screen shows the error;
+   * `refresh`: after a request or a refused open — a failure keeps the list;
+   * `poll`: the 30-second / next-change re-read, passive (never extends the
+   * idle clock) and skipped while another read runs. Nothing without a session.
+   */
+  protected loadDocumentAccess(mode: 'load' | 'refresh' | 'poll'): void {
+    if (!this.appointmentId || !this.portalSignedIn() || this.left) return;
+    if (mode === 'poll' && this.docsRead && !this.docsRead.closed) return;
+    this.docsRead?.unsubscribe();
+    const seq = ++this.docsSeq;
     this.docsLoading.set(true);
-    this.docsError.set('');
+    if (mode === 'load') this.docsFailed.set(false);
+    this.docsRead = this.doctorApi
+      .documentAccess(this.appointmentId, mode === 'poll' ? { passive: true } : undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          if (seq !== this.docsSeq) return;
+          this.docsLoading.set(false);
+          // Signed out (or another doctor signed in) while it was on its way: drop it.
+          if (!this.portalSignedIn()) return;
+          this.docAccess.set(res.data);
+          this.docsFailed.set(false);
+          this.docsClock.set(Date.now());
+          this.scheduleDocsChange(res.data);
+        },
+        error: (err: unknown) => {
+          if (seq !== this.docsSeq) return;
+          this.docsLoading.set(false);
+          if (isSessionEndError(err)) return;
+          // A re-read that fails keeps what is on screen (each file is still checked when opened).
+          if (mode !== 'load' && this.docAccess()) return;
+          this.docAccess.set(null);
+          this.docsFailed.set(true);
+        },
+      });
+  }
+
+  protected retryDocumentAccess(): void {
+    this.loadDocumentAccess('load');
+  }
+
+  /** Signed out: nothing shared stays on screen, no read is pending, no timer runs. */
+  private clearDocumentAccess(): void {
+    this.docsSeq++;
+    this.docsRead?.unsubscribe();
+    this.docsRead = null;
+    clearTimeout(this.docsChangeTimer);
+    this.docsChangeTimer = undefined;
+    this.docAccess.set(null);
+    this.docsFailed.set(false);
+    this.docsLoading.set(false);
+    this.docRequestOpen.set(false);
+  }
+
+  /** Every 30 s while connected and on screen (the call holds the session; this never extends it). */
+  private startDocsPoll(): void {
+    if (this.docsPoll) return;
+    this.docsPoll = setInterval(() => {
+      if (!this.inLiveCall() || document.visibilityState !== 'visible') return;
+      this.loadDocumentAccess('poll');
+    }, CALL_POLL_MS);
+  }
+
+  /** Re-read when the next share starts or ends (`next_change_at`, by the server's clock). */
+  private scheduleDocsChange(dto: DoctorDocumentAccessDto): void {
+    clearTimeout(this.docsChangeTimer);
+    this.docsChangeTimer = undefined;
+    const serverNow = Date.parse(dto.server_time);
+    const delay = nextRefreshDelay(dto.access.next_change_at, Number.isFinite(serverNow) ? serverNow : Date.now());
+    if (delay !== null) this.docsChangeTimer = setTimeout(() => this.loadDocumentAccess('poll'), delay);
+  }
+
+  protected openDocRequest(): void {
+    if (!this.portalSignedIn() || !this.appointmentIdForDocs()) return;
+    this.docOpenError.set('');
+    this.docRequestOpen.set(true);
+  }
+
+  /** The request was made: show it as waiting (from the answer), then re-read. */
+  protected onDocRequestSent(request: DoctorAccessRequestDto): void {
+    this.docRequestOpen.set(false);
+    // "Request access" / "Ask for more" / "Ask to extend" gives way to the waiting line.
+    this.focusDocsAfterClose = true;
+    this.docAccess.update((d) =>
+      d ? { ...d, request: { ...d.request, can_request: false, blocked_reason: 'request_pending', pending: request } } : d,
+    );
+    this.announceDocs(REQUEST_SENT);
+    this.loadDocumentAccess('refresh');
+  }
+
+  /** The request dialog has fully closed: after a send, keep keyboard focus in the panel (never `<body>` mid-call). */
+  protected focusDocsIfAsked(): void {
+    if (!this.focusDocsAfterClose) return;
+    this.focusDocsAfterClose = false;
+    this.docsHeading()?.nativeElement.focus();
+  }
+
+  /** "Withdraw your request?" — the patient is no longer asked. */
+  protected async withdrawDocRequest(): Promise<void> {
+    if (this.withdrawAsked || !this.appointmentId || !this.portalSignedIn()) return;
+    this.withdrawAsked = true;
     try {
-      const body = await this.noteFetch(
-        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/patient-documents`,
-        { method: 'GET' },
+      const { confirmed } = await this.dialogs.confirm({
+        ...WITHDRAW_PROMPT,
+        errorMessage: (err) => requestErrorCopy(apiErrorCode(err), null) ?? apiErrorMessage(err, WITHDRAW_FAILED),
+        // Busy only while the cancel runs (the dialog shows its own spinner meanwhile).
+        action: () => {
+          this.withdrawingRequest.set(true);
+          return this.doctorApi.cancelDocumentAccessRequest(this.appointmentId).pipe(
+            tap({
+              error: (err: unknown) => {
+                this.withdrawingRequest.set(false);
+                if (isStaleRequestCode(apiErrorCode(err))) this.loadDocumentAccess('refresh');
+              },
+            }),
+          );
+        },
+      });
+      if (!confirmed) return;
+      this.docAccess.update((d) =>
+        d ? { ...d, request: { ...d.request, can_request: false, blocked_reason: null, pending: null } } : d,
       );
-      this.patientDocs.set(Array.isArray(body.data) ? body.data : []);
-    } catch (err: unknown) {
-      this.docsError.set(apiErrorMessage(err, "Could not load the patient's documents."));
+      this.announceDocs(REQUEST_WITHDRAWN);
+      this.loadDocumentAccess('refresh');
+      // "Withdraw request" is gone: focus the panel heading once the prompt has fully closed.
+      focusAfterDialogs(this.injector, () => this.docsHeading()?.nativeElement);
     } finally {
-      this.docsLoading.set(false);
+      this.withdrawAsked = false;
+      this.withdrawingRequest.set(false);
     }
+  }
+
+  private announceDocs(text: string): void {
+    // Cleared first, so the same words twice are announced twice.
+    this.docAnnounce.set('');
+    setTimeout(() => this.docAnnounce.set(text), 50);
   }
 
   /**
    * Open a patient document in a new tab (authenticated blob — no public URL).
    * Never opens it in THIS tab: leaving the cockpit would end the call. If the
    * browser blocks (or the doctor closes) the new tab, a link is offered here.
+   * No longer shared: the tab closes, this panel says so and re-reads the list.
    */
-  protected openPatientDoc(doc: MedicalDocumentDto): void {
+  protected openPatientDoc(doc: DoctorSharedDocumentDto): void {
     this.docOpenError.set('');
     this.clearDocLink();
     let tab: Window | null = null;
@@ -2665,6 +2948,18 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         }
       })
       .catch((err: unknown) => {
+        const code = apiErrorCode(err);
+        if (code === 'not_shared' || code === 'view_unavailable') {
+          // Said here, beside the list, and the placeholder tab goes away.
+          try {
+            tab?.close();
+          } catch {
+            /* a tab we can no longer reach */
+          }
+          this.docOpenError.set(openErrorCopy(errorStatus(err), code));
+          if (code === 'not_shared') this.loadDocumentAccess('refresh');
+          return;
+        }
         const msg = apiErrorMessage(err, 'Could not open the document.');
         if (!tab || tab.closed) {
           this.docOpenError.set(msg);
@@ -3510,6 +3805,11 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     if (this.metricsTimer) clearInterval(this.metricsTimer);
     if (this.transcriptPoll) clearInterval(this.transcriptPoll);
+    if (this.docsPoll) clearInterval(this.docsPoll);
+    this.docsPoll = undefined;
+    clearTimeout(this.docsChangeTimer);
+    this.docsChangeTimer = undefined;
+    this.docsRead?.unsubscribe();
     if (this.renewRetry) clearTimeout(this.renewRetry);
     if (this.rosterRefreshTimer) clearTimeout(this.rosterRefreshTimer);
     this.heldBack.clear();

@@ -34,6 +34,7 @@ import {
   AppointmentsApi,
   AvailabilityCalendarStore,
   DocumentsApi,
+  DocumentSharingApi,
   injectCallPresence,
   openBlobDocument,
   openClinicalDocument,
@@ -43,12 +44,17 @@ import {
 } from '@supadoc/data-access';
 import type {
   AcceptFollowUpParams,
+  AppointmentDocumentAccessDto,
   AppointmentDto,
   ClinicalDocumentKind,
+  DocumentAccessRequestDto,
+  DocumentGrantDto,
+  DocumentShareResultDto,
   FollowUpPriceDto,
   FollowUpQuoteDto,
   MedicalDocumentDto,
   MessageDto,
+  PatientVisibleDocumentDto,
   PrescriptionDto,
   PrescriptionStatus,
 } from '@supadoc/models';
@@ -65,11 +71,24 @@ import {
 } from '@supadoc/ui';
 import { doctorTitle } from '../call/call-helpers';
 import { afterDialogsClose } from '../dialog-helpers';
+import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
 import { detailsLink, isPast, nairaLabel, OPEN_STATUSES, phaseOf, StatusBadge, statusBadge } from './appointment-status';
 import { calendarErrorText } from './booking-helpers';
+import {
+  accessUntilPhrase,
+  bookedShareLine,
+  countNoun,
+  isSharingUnavailable,
+  possessive,
+  shareResultLine,
+  SHARING_UNAVAILABLE,
+  untilPhrase,
+} from './document-sharing';
+import { DocumentUploadDialog } from './document-upload-dialog';
 import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './follow-up';
 import { GuestsPanel } from './guests-panel';
 import { loadPaystack } from './paystack';
+import { ShareDialog } from './share-dialog';
 
 /** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
 interface DocumentItem {
@@ -233,9 +252,12 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
     ButtonComponent,
     CallPresenceComponent,
     DialogComponent,
+    ApproveRequestDialog,
+    DocumentUploadDialog,
     GuestsPanel,
     IconComponent,
     MessageThreadComponent,
+    ShareDialog,
   ],
   // One doctor's calendar: the reschedule dialog's or the follow-up's "another
   // time" (never both — a proposal can't be rescheduled).
@@ -649,10 +671,9 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                     Join the consultation 5-10minutes early.
                   </p>
                   <p>
-                    Your doctor can review the documents shared below and
-                    everything in your
-                    <a routerLink="/dashboard/documents" class="font-semibold text-cerulean hover:underline">medical documents</a>,
-                    where you can add more at any time.
+                    Your doctor can only see the documents you share with them.
+                    You can share, change or stop sharing below or in
+                    <a [routerLink]="'/dashboard/documents/sharing'" [queryParams]="{ doctor: v.specialistId }" class="font-semibold text-cerulean hover:underline">Manage sharing</a>.
                   </p>
                 </div>
               </div>
@@ -733,49 +754,126 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                 <h2
                   class="flex items-center gap-2 font-sans text-body font-semibold text-cerulean"
                 >
-                  <sd-icon name="file-text" [size]="20" />
-                  Shared Documents
+                  <sd-icon name="share-2" [size]="20" />
+                  Shared with {{ doctorDisplayName() }}
                 </h2>
-                <!-- The files attached when booking (opened through the authenticated document route) -->
-                @if (sharedLoading()) {
+                <p class="sr-only" aria-live="polite" aria-atomic="true">{{ sharingLive() }}</p>
+                <!-- What this doctor can see, from the sharing API (refetched when a share ends) -->
+                @if (sharingLoading() && !sharing()) {
                   <div class="sd-shimmer h-14 rounded-field"></div>
-                } @else if (sharedError()) {
-                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ sharedError() }}
+                } @else if (sharingOff()) {
+                  <p class="flex items-start gap-2 font-sans text-body-sm text-slate" role="status">
+                    <sd-icon name="lock" [size]="18" class="mt-0.5 shrink-0" />{{ sharingOffText }}
+                  </p>
+                } @else if (sharingError() && !sharing()) {
+                  <p class="flex items-start gap-2 font-sans text-caption text-alert-ink" role="alert">
+                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />Could not load what you share with {{ doctorDisplayName() }}.
                   </p>
                   <button
                     type="button"
                     class="min-h-11 w-fit rounded-field border border-haze bg-white px-5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
-                    (click)="loadSharedDocs(v.id)"
+                    (click)="loadSharing(v.id)"
                   >
                     Try again
                   </button>
-                } @else {
-                  <ul class="flex flex-col gap-2">
-                    @for (d of sharedDocs(); track d.id) {
-                      <li>
-                        <button
-                          type="button"
-                          class="flex min-h-11 w-full items-center gap-3 rounded-field border border-cloud px-3 py-2 text-left transition-colors hover:border-cerulean/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-                          [attr.aria-label]="'Open ' + d.title + ', ' + d.type_label"
-                          (click)="openShared(d)"
-                        >
-                          <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
-                          <span class="flex min-w-0 flex-1 flex-col">
-                            <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
-                            <span class="truncate font-sans text-caption text-slate"
-                              ><span class="uppercase">{{ d.extension }}</span> · {{ d.size_label }} · {{ d.type_label }}</span
+                } @else if (sharing(); as s) {
+                  @if (sharingNotice()) {
+                    <!-- Announced once, by the section's live region (no second role="status" here). -->
+                    <p class="flex items-start gap-2 rounded-field bg-sage/15 px-3 py-2 font-sans text-caption text-sage-ink">
+                      <sd-icon name="circle-check" [size]="16" class="mt-0.5 shrink-0" />{{ sharingNotice() }}
+                    </p>
+                  }
+                  @if (s.pending_request; as r) {
+                    <div class="flex flex-col gap-2 rounded-field bg-warning/15 px-3 py-3 font-sans text-body-sm text-warning-ink">
+                      <p class="flex items-start gap-2"><sd-icon name="key-round" [size]="18" class="mt-0.5 shrink-0" />{{ doctorDisplayName() }} asked to see your documents.</p>
+                      <div class="flex flex-wrap gap-2 pl-6">
+                        <button type="button" class="inline-flex min-h-11 items-center rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="reviewRequest(r)">Review</button>
+                        <button type="button" class="inline-flex min-h-11 items-center rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-slate shadow-control transition hover:border-cerulean" (click)="reviewRequest(r, true)">Decline</button>
+                      </div>
+                    </div>
+                  }
+                  <p class="font-sans text-body-sm text-ink">{{ sharingSummary() }}</p>
+
+                  @if (s.visible_documents.length > 0) {
+                    <ul class="flex flex-col gap-2" [attr.aria-label]="'Documents ' + doctorDisplayName() + ' can see'">
+                      @for (d of s.visible_documents; track d.id) {
+                        <li class="flex items-center gap-1 rounded-field border border-cloud pr-1">
+                          <button
+                            type="button"
+                            class="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-field px-3 py-2 text-left transition-colors hover:text-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                            [attr.aria-label]="'Open ' + d.title + ', ' + d.type_label"
+                            (click)="openShared(d)"
+                          >
+                            <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
+                            <span class="flex min-w-0 flex-1 flex-col">
+                              <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
+                              <span class="truncate font-sans text-caption text-slate"
+                                ><span class="uppercase">{{ d.extension }}</span> · {{ d.size_label }} · {{ d.type_label }} · {{ visibleUntil(d) }}</span
+                              >
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field px-2 font-sans text-caption font-semibold text-alert-ink transition-colors hover:bg-alert/5"
+                            [attr.aria-label]="'Remove ' + doctorDisplayName() + '’s access to ' + d.title"
+                            (click)="removeAccess(v.id, d)"
+                          >
+                            <sd-icon name="user-x" [size]="16" />Remove
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  }
+
+                  @if (s.unshared_attachments.length > 0) {
+                    <div class="flex flex-col gap-2">
+                      <h3 class="font-sans text-body-sm font-semibold text-ink">Attached when you booked — not shared</h3>
+                      <ul class="flex flex-col gap-2">
+                        @for (d of s.unshared_attachments; track d.id) {
+                          <li class="flex flex-wrap items-center gap-2 rounded-field border border-cloud px-3 py-2">
+                            <button type="button" class="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left" [attr.aria-label]="'Open ' + d.title" (click)="openShared(d)">
+                              <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
+                              <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
+                            </button>
+                            <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-medium text-slate inset-ring inset-ring-current/20">
+                              <sd-icon name="lock" [size]="12" />Private
+                            </span>
+                            <button
+                              type="button"
+                              class="inline-flex min-h-11 items-center gap-1 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean disabled:opacity-60"
+                              [disabled]="!s.can_share"
+                              [attr.aria-label]="'Share ' + d.title + ' with ' + doctorDisplayName()"
+                              (click)="shareOne(s.specialist.id, d.id)"
                             >
-                          </span>
-                          <sd-icon name="eye" [size]="18" class="shrink-0 text-cerulean" />
-                        </button>
-                      </li>
-                    } @empty {
-                      <li class="font-sans text-body-sm text-slate">
-                        No documents were shared for this consultation.
-                      </li>
+                              <sd-icon name="share-2" [size]="14" />Share
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
+
+                  @if (s.visible_documents.length === 0 && s.unshared_attachments.length === 0) {
+                    <p class="font-sans text-body-sm text-slate">No documents shared for this consultation yet.</p>
+                  }
+                  @if (!s.can_share) {
+                    <p class="flex items-start gap-2 font-sans text-caption text-slate">
+                      <sd-icon name="hourglass" [size]="16" class="mt-0.5 shrink-0" />{{ doctorDisplayName() }} isn't practising on VideoMed right now.
+                    </p>
+                  }
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!s.can_share" (click)="shareWithDoctor(s.specialist.id)">
+                      <sd-icon name="share-2" [size]="16" />Share documents
+                    </button>
+                    @if (!v.past || v.live) {
+                      <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean disabled:opacity-60" [disabled]="!s.can_share" (click)="uploadOpen.set(true)">
+                        <sd-icon name="upload" [size]="16" />Upload and share
+                      </button>
                     }
-                  </ul>
+                    <a [routerLink]="'/dashboard/documents/sharing'" [queryParams]="{ doctor: s.specialist.id }" class="inline-flex min-h-11 items-center gap-1 px-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean">
+                      Manage sharing<sd-icon name="chevron-right" [size]="16" />
+                    </a>
+                  </div>
                 }
               </section>
 
@@ -1044,6 +1142,35 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
         </sd-button>
       </div>
     </sd-dialog>
+
+    <!-- Document sharing with this consultation's doctor -->
+    @if (shareReq(); as r) {
+      <pat-share-dialog
+        [preselectDoctorIds]="[r.doctorId]"
+        [preselectDocumentIds]="r.documentIds"
+        [initialScope]="r.documentIds.length > 0 ? 'selected' : null"
+        [lockDoctor]="true"
+        [appointment]="sharingAnchor()"
+        [answersRequest]="sharing()?.pending_request ?? null"
+        initialDuration="after_24h"
+        surface="appointment_details"
+        (done)="sharingDone($event)"
+        (closed)="shareReq.set(null)"
+      />
+    }
+    @if (uploadOpen() && sharing(); as s) {
+      <pat-document-upload-dialog
+        [presetDoctorId]="s.specialist.id"
+        [appointment]="sharingAnchor()"
+        [lockDoctor]="true"
+        surface="appointment_details"
+        doneLabel="Done"
+        (closed)="uploadClosed($event.uploaded)"
+      />
+    }
+    @if (requestReview(); as rr) {
+      <pat-approve-request-dialog [request]="rr.request" [startWithDecline]="rr.decline" (done)="requestAnswered($event)" (closed)="requestReview.set(null)" />
+    }
   `,
 })
 export class AppointmentDetails {
@@ -1086,10 +1213,43 @@ export class AppointmentDetails {
   /** Id of the prescription whose PDF link is being fetched. */
   protected readonly openingRx = signal('');
 
-  // Files the patient attached when booking (their own medical documents).
-  protected readonly sharedDocs = signal<MedicalDocumentDto[]>([]);
-  protected readonly sharedLoading = signal(false);
-  protected readonly sharedError = signal('');
+  // What this consultation's doctor can see (GET …/appointments/{id}/document-access).
+  private readonly sharingApi = inject(DocumentSharingApi);
+  protected readonly sharing = signal<AppointmentDocumentAccessDto | null>(null);
+  protected readonly sharingLoading = signal(false);
+  protected readonly sharingError = signal('');
+  /** 503 `sharing_unavailable`: sharing is switched off. */
+  protected readonly sharingOff = signal(false);
+  protected readonly sharingOffText = SHARING_UNAVAILABLE;
+  protected readonly sharingNotice = signal('');
+  protected readonly sharingLive = signal('');
+  protected readonly shareReq = signal<{ doctorId: string; documentIds: string[] } | null>(null);
+  /**
+   * The consultation "after the consultation" ends anchor to. Never a
+   * follow-up proposal: it has no such ends, and the API refuses its id.
+   */
+  protected readonly sharingAnchor = computed(() =>
+    this.appt()?.status === 'proposed' ? null : (this.sharing()?.appointment ?? null),
+  );
+  protected readonly uploadOpen = signal(false);
+  protected readonly requestReview = signal<{ request: DocumentAccessRequestDto; decline: boolean } | null>(null);
+  /** Refetch (passively) when a share ends or starts. */
+  private sharingTimer?: ReturnType<typeof setTimeout>;
+  protected readonly sharingSummary = computed(() => {
+    const s = this.sharing();
+    if (!s) return '';
+    const doctor = this.doctorDisplayName();
+    const a = s.access;
+    if (a.state === 'paused') return `${doctor} isn't practising on VideoMed right now, so they can't see anything.`;
+    if (a.state === 'none') return `You haven't shared any documents with ${doctor}.`;
+    // A folder holder: the folder share's own end ("including new uploads").
+    const tail = accessUntilPhrase(a);
+    const what =
+      a.scope === 'all'
+        ? 'all your documents, including new uploads'
+        : countNoun(a.document_count, 'document');
+    return `${doctor} can see ${what}${tail ? ` · ${tail}` : ''}`;
+  });
 
   // ----- Follow-up proposal (status `proposed`) -----
   private readonly walletApi = inject(WalletApi);
@@ -1242,12 +1402,38 @@ export class AppointmentDetails {
         this.unusedPayment.set('');
         this.loadMessages(id);
         this.loadDocuments(id);
-        this.loadSharedDocs(id);
+        this.sharing.set(null);
+        this.sharingNotice.set('');
+        this.shareReq.set(null);
+        this.requestReview.set(null);
+        this.loadSharing(id);
       });
+
+    // Just booked with files (from Book a Consultation): what happened to the
+    // sharing choice — shared (who and until when, from the booking's answer),
+    // or not as asked.
+    const docs = this.route.snapshot.queryParamMap.get('docs');
+    if (docs === 'shared') {
+      const shared = this.bookedShare();
+      if (shared) this.notice.set({ ok: true, text: bookedShareLine(shared.doctorName, shared.untilLabelAt) });
+    }
+    if (docs === 'unavailable' || docs === 'private') {
+      this.notice.set({
+        ok: true,
+        text:
+          docs === 'unavailable'
+            ? 'Booked. Sharing is unavailable right now, so your files stay private — you can share them below later.'
+            : 'Booked. Your files weren’t shared with your doctor — you can share them below.',
+      });
+    }
+    if (docs) {
+      void this.router.navigate([], { relativeTo: this.route, queryParams: { docs: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    }
 
     const tick = setInterval(() => this.clock.set(Date.now()), 30_000);
     this.destroyRef.onDestroy(() => {
       clearInterval(tick);
+      clearTimeout(this.sharingTimer);
       this.quoteSub?.unsubscribe();
     });
 
@@ -1558,28 +1744,132 @@ export class AppointmentDetails {
     if (confirmed) afterDialogsClose(this.dialogs, this.injector, () => this.pageTitle()?.nativeElement.focus());
   }
 
-  /** The booking's attachments, in the order they were added. */
-  protected loadSharedDocs(id: string): void {
-    this.sharedLoading.set(true);
-    this.sharedError.set('');
-    this.documentsApi
-      .list({ appointment_id: id, per_page: 50, sort_dir: 'asc' })
+  /**
+   * What this consultation's doctor can see, their pending request and the
+   * booking's attachments that aren't shared. `passive` for the refetch when a
+   * share ends (it never extends the idle session).
+   */
+  protected loadSharing(id: string, passive = false): void {
+    clearTimeout(this.sharingTimer);
+    if (!passive) {
+      this.sharingLoading.set(true);
+      this.sharingError.set('');
+    }
+    this.sharingApi
+      .forAppointment(id, { passive })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.sharedDocs.set(res.data ?? []);
-          this.sharedLoading.set(false);
+          if (this.appt()?.id && res.data.appointment.id !== this.appt()?.id) return;
+          this.sharing.set(res.data);
+          this.sharingLoading.set(false);
+          this.sharingError.set('');
+          this.sharingOff.set(false);
+          this.scheduleSharingRefresh(id, res.data.access.next_change_at);
         },
         error: (err: unknown) => {
-          this.sharedError.set(apiErrorMessage(err, 'Could not load the shared documents.'));
-          this.sharedLoading.set(false);
+          this.sharingLoading.set(false);
+          if (isSharingUnavailable(err)) {
+            this.sharingOff.set(true);
+            this.sharing.set(null);
+            return;
+          }
+          if (!passive) this.sharingError.set(apiErrorMessage(err, 'Could not load what you share with your doctor.'));
         },
       });
+  }
+
+  /** One refetch when the next share ends (clamped to 1 s – 24 h), passively. */
+  private scheduleSharingRefresh(id: string, nextChangeAt: string | null): void {
+    clearTimeout(this.sharingTimer);
+    const at = nextChangeAt ? Date.parse(nextChangeAt) : NaN;
+    if (isNaN(at)) return;
+    const delay = Math.min(Math.max(at - Date.now() + 1000, 1000), 24 * 60 * 60_000);
+    this.sharingTimer = setTimeout(() => this.loadSharing(id, true), delay);
   }
 
   /** Same authenticated view as the Documents page: fetched as a blob, opened in a new tab. */
   protected openShared(d: MedicalDocumentDto): void {
     openBlobDocument(this.documentsApi.fileBlob(d.id));
+  }
+
+  /**
+   * The sharing answer Book a Consultation handed over with the navigation
+   * (`document_share` of the booking response, and the doctor's name), or null.
+   */
+  private bookedShare(): { doctorName: string | null; untilLabelAt: string | null } | null {
+    const state = (this.router.currentNavigation()?.extras.state ??
+      (typeof history !== 'undefined' ? history.state : null)) as Record<string, unknown> | null | undefined;
+    const share = state?.['documentShare'] as AppointmentDto['document_share'] | null | undefined;
+    if (!share || share.outcome !== 'shared') return null;
+    const name = state?.['doctorName'];
+    return { doctorName: typeof name === 'string' ? name : null, untilLabelAt: share.until_label_at ?? null };
+  }
+
+  /** "until 30 Oct 2026" / "no end date" for a visible document's sub-line. */
+  protected visibleUntil(d: PatientVisibleDocumentDto): string {
+    return d.indefinite ? 'no end date' : untilPhrase(d.until_label_at, false) || 'no end date';
+  }
+
+  protected shareWithDoctor(doctorId: string): void {
+    this.sharingNotice.set('');
+    this.shareReq.set({ doctorId, documentIds: [] });
+  }
+
+  protected shareOne(doctorId: string, documentId: string): void {
+    this.sharingNotice.set('');
+    this.shareReq.set({ doctorId, documentIds: [documentId] });
+  }
+
+  protected reviewRequest(request: DocumentAccessRequestDto, decline = false): void {
+    this.sharingNotice.set('');
+    this.requestReview.set({ request, decline });
+  }
+
+  private sharingSay(text: string): void {
+    this.sharingNotice.set(text);
+    this.sharingLive.set(text);
+  }
+
+  protected sharingDone(result: DocumentShareResultDto | DocumentGrantDto): void {
+    this.sharingSay('outcomes' in result ? shareResultLine(result) : 'Changes saved.');
+    const id = this.appt()?.id;
+    if (id) this.loadSharing(id);
+  }
+
+  protected requestAnswered(outcome: ApproveOutcome): void {
+    const line = approveOutcomeLine(outcome);
+    if (line) this.sharingSay(line);
+    const id = this.appt()?.id;
+    if (id) this.loadSharing(id);
+  }
+
+  protected uploadClosed(uploaded: number): void {
+    this.uploadOpen.set(false);
+    const id = this.appt()?.id;
+    if (uploaded > 0 && id) this.loadSharing(id);
+  }
+
+  /** Remove the doctor's access to one document (asked first; their other access stays). */
+  protected async removeAccess(appointmentId: string, d: PatientVisibleDocumentDto): Promise<void> {
+    const s = this.sharing();
+    if (!s) return;
+    const doctor = this.doctorDisplayName();
+    this.sharingNotice.set('');
+    const { confirmed } = await this.dialogs.confirm({
+      tone: 'danger',
+      icon: 'user-x',
+      title: `Remove ${possessive(doctor)} access to this document?`,
+      message: `They won't be able to open "${d.title}" any more, even through your whole-folder share. Everything else you share with them stays as it is. Copies they've already downloaded aren't affected.`,
+      confirmLabel: 'Remove access',
+      cancelLabel: 'Keep access',
+      action: () => firstValueFrom(this.documentsApi.removeDoctorAccess(d.id, s.specialist.id)),
+      errorMessage: (err) =>
+        isSharingUnavailable(err) ? SHARING_UNAVAILABLE : apiErrorMessage(err, 'Could not remove access. Please try again.'),
+    });
+    if (!confirmed) return;
+    this.sharingSay('Access removed.');
+    this.loadSharing(appointmentId);
   }
 
   private loadDocuments(id: string): void {

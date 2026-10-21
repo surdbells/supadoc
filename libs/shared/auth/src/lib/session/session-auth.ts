@@ -3,6 +3,19 @@ import { InjectionToken, Signal } from '@angular/core';
 /** Why a session ended without the user signing out in this tab. */
 export type SessionEndReason = 'idle' | 'expired' | 'revoked' | 'elsewhere';
 
+/** How a token refresh was started. */
+export interface RefreshOptions {
+  /**
+   * Started on behalf of a background poll (a request carrying
+   * `X-SD-Passive: 1`): the refresh is sent passive too, so the API checks the
+   * session without restarting its idle clock. The timed pre-expiry refresh,
+   * the guards and user-initiated requests never pass it — the call hold and
+   * an active user's session rely on those counting as activity. A passive
+   * caller joining a refresh already in flight shares it either way.
+   */
+  readonly passive?: boolean;
+}
+
 /**
  * What the request handler ({@link handleSessionRequest}) needs from an auth
  * silo: the access token, and a way to renew it or end the session.
@@ -17,13 +30,13 @@ export interface TokenSession {
    * many callers. False when it failed: definitively (the session was ended)
    * or for now (offline, 5xx, rate limited — still signed in, backing off).
    */
-  refresh(): Promise<boolean>;
+  refresh(options?: RefreshOptions): Promise<boolean>;
   /**
    * Resolve once the access token is good for at least `minMs` more (default
    * 60 s): waits for a refresh already running, refreshes once when the token
    * is about to expire, and never throws or loops.
    */
-  ensureFreshToken(minMs?: number): Promise<void>;
+  ensureFreshToken(minMs?: number, options?: RefreshOptions): Promise<void>;
   /**
    * End the session involuntarily (idle timeout, expiry, server rejection):
    * revoke it server-side, clear it locally (and in other tabs) and leave a

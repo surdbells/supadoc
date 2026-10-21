@@ -24,7 +24,9 @@ import type {
   DoctorAppointmentDto,
   DaySlotsDto,
   DoctorAvailabilityDto,
+  DoctorAccessRequestDto,
   DoctorCopilotStateDto,
+  DoctorDocumentAccessDto,
   DoctorDashboardDto,
   DoctorFollowUpDto,
   FollowUpQuoteDto,
@@ -69,7 +71,7 @@ import type {
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
 import { apiErrorFields } from './api-error.util';
-import { ApiService, QueryParams } from './api.service';
+import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 
 const STANDING_CODES: readonly DoctorStandingCode[] = ['doctor_suspended', 'doctor_not_approved', 'terms_required'];
 
@@ -276,17 +278,66 @@ export class DoctorApi {
     );
   }
 
-  /** GET .../patient-documents — the patient's uploaded files for this consultation. */
+  /**
+   * GET .../patient-documents — the documents the patient has shared with you
+   * (an empty list when they share none, or when it could not be worked out).
+   *
+   * @deprecated use documentAccess(): it also says until when, and tells
+   * "nothing shared" apart from "could not load".
+   */
   patientDocuments(id: string): Observable<SuccessResponse<MedicalDocumentDto[]>> {
     return this.api.get<SuccessResponse<MedicalDocumentDto[]>>(
       `${this.base(id)}/patient-documents`,
     );
   }
 
-  /** GET a patient document's bytes (authenticated) for preview/download. */
+  /**
+   * GET a patient document's bytes (authenticated) for preview/download. Every
+   * open is recorded and shown to the patient. 404 `errors.code = 'not_shared'`
+   * when it is no longer shared with you; 503 `view_unavailable` when the
+   * open could not be recorded (nothing is streamed then).
+   */
   patientDocumentBlob(id: string, docId: string): Observable<Blob> {
     return this.api.getBlob(
       `${this.base(id)}/patient-documents/${encodeURIComponent(docId)}/file`,
+    );
+  }
+
+  /**
+   * GET .../document-access — what the patient shares with you (scope, until
+   * when, the documents) and whether you can ask for access. 503
+   * `sharing_unavailable` when it could not be loaded — show an error with
+   * Try again, never "No documents". Background refreshes pass
+   * `{ passive: true }` so they never extend your idle session.
+   */
+  documentAccess(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<DoctorDocumentAccessDto>> {
+    return this.api.get<SuccessResponse<DoctorDocumentAccessDto>>(
+      `${this.base(id)}/document-access`,
+      undefined,
+      options,
+    );
+  }
+
+  /**
+   * POST .../document-access/request — ask the patient to share documents
+   * (an optional note, ≤ 500 characters, shown to the patient in the app
+   * only). 409 `request_pending` / `request_cooldown` / `request_limit` /
+   * `has_full_access` / `request_blocked` (+ `errors.available_at`); 422
+   * `appointment_not_eligible` / `doctor_unavailable` / `message`.
+   */
+  requestDocumentAccess(id: string, message?: string): Observable<SuccessResponse<DoctorAccessRequestDto>> {
+    const note = message?.trim();
+    return this.api.post<SuccessResponse<DoctorAccessRequestDto>>(
+      `${this.base(id)}/document-access/request`,
+      note ? { message: note } : {},
+    );
+  }
+
+  /** POST .../document-access/request/cancel — withdraw your pending request (409 `request_not_pending`). */
+  cancelDocumentAccessRequest(id: string): Observable<SuccessResponse<DoctorAccessRequestDto>> {
+    return this.api.post<SuccessResponse<DoctorAccessRequestDto>>(
+      `${this.base(id)}/document-access/request/cancel`,
+      {},
     );
   }
 

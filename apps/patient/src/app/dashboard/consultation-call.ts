@@ -27,6 +27,7 @@ import {
   apiErrorMessage,
   AppointmentsApi,
   DocumentsApi,
+  DocumentSharingApi,
   openBlobDocument,
   openPendingTab,
   PatientApi,
@@ -37,11 +38,15 @@ import {
 import {
   DOCTOR_CALL_UID,
   type AllergyRow,
+  type AppointmentDocumentAccessDto,
   type AppointmentDto,
   type CallParticipantDto,
   type ConditionRow,
   type ConsentDto,
   type ConsultationSummaryDto,
+  type DocumentAccessRequestDto,
+  type DocumentGrantDto,
+  type DocumentShareResultDto,
   type HealthProfileDto,
   type LabOrderDto,
   type MedicalDocumentDto,
@@ -70,8 +75,12 @@ import {
 } from '@supadoc/ui';
 import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call-helpers';
 import { openLocalMedia } from '../call/call-media';
+import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
+import { isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
 import { isOpenProposal, whenLabel } from './follow-up';
 import { InviteGuestDialog } from './invite-guest-dialog';
+import { ShareConfirmSheet } from './share-confirm-sheet';
+import { ShareDialog } from './share-dialog';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
@@ -166,7 +175,15 @@ interface RecordItem {
 @Component({
   selector: 'pat-consultation-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CallTilesComponent, IconComponent, InviteGuestDialog, SmoothHeightDirective],
+  imports: [
+    ApproveRequestDialog,
+    CallTilesComponent,
+    IconComponent,
+    InviteGuestDialog,
+    ShareConfirmSheet,
+    ShareDialog,
+    SmoothHeightDirective,
+  ],
   host: { class: 'block' },
   styles: [
     `
@@ -1103,9 +1120,49 @@ interface RecordItem {
             }
           </div>
 
-          <!-- Documents & records -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-3 font-sans text-body font-semibold text-white">Documents &amp; Records</h3>
+          <!-- Documents & records (sd-share: readable sharing accents in the light cockpit, styles.css) -->
+          <div class="sd-share rounded-card border border-white/10 bg-white/[0.03] p-4">
+            <h3 class="mb-1 font-sans text-body font-semibold text-white">Documents &amp; Records</h3>
+            <p class="sr-only" aria-live="polite" aria-atomic="true">{{ docShareLive() }}</p>
+            <!-- What this doctor can see (they only see what the patient shares) -->
+            @if (docAccess(); as da) {
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p class="font-sans text-caption text-white/70">Shared with {{ docDoctor() }}: {{ sharedCount() }}</p>
+                <a href="/dashboard/documents/sharing" target="_blank" rel="noopener" class="inline-flex min-h-11 items-center gap-1 font-sans text-caption font-semibold text-sky transition-colors hover:text-white" aria-label="Manage sharing (opens in a new tab)">
+                  Manage<sd-icon name="external-link" [size]="14" />
+                </a>
+              </div>
+            } @else if (docAccessOff()) {
+              <p class="mb-3 flex items-start gap-1.5 font-sans text-caption text-white/60">
+                <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />{{ sharingOffText }}
+              </p>
+            } @else if (!docAccessError()) {
+              <div class="mb-3"></div>
+            }
+            @if (docAccessError()) {
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p class="flex items-start gap-1.5 font-sans text-caption text-alert" role="alert">
+                  <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />Could not {{ docAccess() ? 'refresh' : 'load' }} what you share with {{ docDoctor() }}.
+                </p>
+                <button type="button" class="inline-flex min-h-11 items-center rounded-field border border-white/15 px-4 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10" (click)="retryDocAccess()">Try again</button>
+              </div>
+            }
+            @if (pendingDocRequest(); as pr) {
+              <div class="mb-3 flex flex-col gap-2 rounded-2xl border border-warning/30 bg-warning/10 p-3" role="status">
+                <p class="flex items-start gap-2 font-sans text-body-sm text-white">
+                  <sd-icon name="key-round" [size]="16" class="mt-0.5 shrink-0 text-warning" />{{ docDoctor() }} asked to see your documents
+                </p>
+                <div class="flex flex-wrap gap-2 pl-6">
+                  <button type="button" class="inline-flex min-h-11 items-center rounded-field bg-cerulean px-4 font-sans text-caption font-semibold text-white transition-colors hover:bg-ocean" (click)="reviewDocRequest.set(pr)">Review</button>
+                  <button type="button" class="inline-flex min-h-11 items-center rounded-field border border-white/15 px-4 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10" (click)="dismissedRequest.set(pr.id)">Not now</button>
+                </div>
+              </div>
+            }
+            @if (docShareNotice()) {
+              <p class="mb-3 flex items-start gap-1.5 font-sans text-caption text-success">
+                <sd-icon name="circle-check" [size]="14" class="mt-0.5 shrink-0" />{{ docShareNotice() }}
+              </p>
+            }
             <div class="mb-3 flex gap-1 overflow-x-auto">
               @for (t of docsTabs; track t.key) {
                 <button
@@ -1121,26 +1178,47 @@ interface RecordItem {
             @if (visibleRecords().length) {
               <ul class="flex flex-col divide-y divide-white/10">
                 @for (r of visibleRecords(); track r.docId ?? r.title) {
-                  <li class="flex items-center gap-3 py-2.5">
-                    <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
-                      <sd-icon [name]="r.kind === 'imaging' ? 'camera' : 'file-text'" [size]="18" />
-                    </span>
-                    <span class="flex min-w-0 flex-1 flex-col">
-                      <span class="truncate font-sans text-body-sm font-medium text-white">{{ r.title }}</span>
-                      <span class="font-sans text-caption text-white/45">{{ r.date }}</span>
-                    </span>
-                    <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-white/60">
-                      {{ r.badge }}
-                    </span>
-                    <button
-                      type="button"
-                      class="flex size-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
-                      aria-label="Open document"
-                      [disabled]="!r.url && !r.docId"
-                      (click)="download(r)"
-                    >
-                      <sd-icon name="download" [size]="16" />
-                    </button>
+                  <li class="flex flex-col gap-2 py-2.5">
+                    <div class="flex items-center gap-3">
+                      <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
+                        <sd-icon [name]="r.kind === 'imaging' ? 'camera' : 'file-text'" [size]="18" />
+                      </span>
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate font-sans text-body-sm font-medium text-white">{{ r.title }}</span>
+                        <span class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-white/45">
+                          {{ r.date }}
+                          @if (shareState(r); as st) {
+                            @if (st === 'shared') {
+                              <span class="inline-flex items-center gap-1 rounded-pill bg-white/[0.06] px-2 py-0.5 text-frost"><sd-icon name="share-2" [size]="12" />Shared</span>
+                            } @else {
+                              <span class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-white/50"><sd-icon name="lock" [size]="12" />Private</span>
+                            }
+                          }
+                        </span>
+                      </span>
+                      <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-white/60">
+                        {{ r.badge }}
+                      </span>
+                      <button
+                        type="button"
+                        class="flex size-11 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
+                        [attr.aria-label]="'Open ' + r.title"
+                        [disabled]="!r.url && !r.docId"
+                        (click)="download(r)"
+                      >
+                        <sd-icon name="download" [size]="16" />
+                      </button>
+                    </div>
+                    @if (shareState(r) === 'private' && canShareInCall()) {
+                      <button
+                        type="button"
+                        class="ml-12 inline-flex min-h-11 w-fit items-center gap-1.5 rounded-field border border-white/15 px-3 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10"
+                        [attr.aria-label]="'Share ' + r.title + ' with ' + docDoctor()"
+                        (click)="confirmShare.set(r)"
+                      >
+                        <sd-icon name="share-2" [size]="14" />Share with your doctor
+                      </button>
+                    }
                   </li>
                 }
               </ul>
@@ -1241,6 +1319,39 @@ interface RecordItem {
           (added)="guestAdded($event)"
           (closed)="inviteOpen.set(false)"
         />
+      }
+
+      <!-- Document sharing with this doctor, in the cockpit's colours -->
+      @if (confirmShare(); as r) {
+        @if (docAccess(); as da) {
+          <pat-share-confirm-sheet
+            [documentId]="r.docId ?? ''"
+            [documentTitle]="r.title"
+            [doctorId]="da.specialist.id"
+            [doctorName]="da.specialist.name"
+            [appointment]="da.appointment"
+            (done)="docShared($event)"
+            (more)="shareMore.set(r.docId ?? null)"
+            (closed)="confirmShare.set(null)"
+          />
+        }
+      }
+      @if (shareMore() !== null && docAccess(); as da) {
+        <pat-share-dialog
+          [preselectDoctorIds]="[da.specialist.id]"
+          [preselectDocumentIds]="shareMore() ? [shareMore() ?? ''] : []"
+          [lockDoctor]="true"
+          [appointment]="da.appointment"
+          [answersRequest]="pendingDocRequest()"
+          initialDuration="after_24h"
+          surface="call"
+          theme="call"
+          (done)="docShared($event)"
+          (closed)="shareMore.set(null)"
+        />
+      }
+      @if (reviewDocRequest(); as rq) {
+        <pat-approve-request-dialog [request]="rq" theme="call" (done)="docRequestAnswered($event)" (closed)="reviewDocRequest.set(null)" />
       }
     </div>
   `,
@@ -1565,6 +1676,118 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   });
   /** The patient's medical-document library (loaded once in-call). */
   private readonly libraryDocs = signal<MedicalDocumentDto[]>([]);
+
+  // ---- Document sharing with this consultation's doctor ----
+  // No new interval: the 15 s appointment poll carries `pending_document_request`;
+  // what the doctor can see is read at start, after the patient's own share
+  // actions, when that request changes, and (passively) when a share ends.
+  private readonly sharingApi = inject(DocumentSharingApi);
+  protected readonly docAccess = signal<AppointmentDocumentAccessDto | null>(null);
+  /** 503 `sharing_unavailable`: sharing is switched off. */
+  protected readonly docAccessOff = signal(false);
+  /** The last read failed some other way (shown with "Try again"). */
+  protected readonly docAccessError = signal(false);
+  protected readonly sharingOffText = SHARING_UNAVAILABLE;
+  /** A private row's "Share with your doctor" (the confirm sheet). */
+  protected readonly confirmShare = signal<RecordItem | null>(null);
+  /** The full Share dialog ('' = no document preselected). */
+  protected readonly shareMore = signal<string | null>(null);
+  protected readonly reviewDocRequest = signal<DocumentAccessRequestDto | null>(null);
+  /** "Not now": hidden for this visit only. */
+  protected readonly dismissedRequest = signal<string | null>(null);
+  protected readonly docShareNotice = signal('');
+  protected readonly docShareLive = signal('');
+  private docAccessTimer?: ReturnType<typeof setTimeout>;
+  /** The pending request id the poll last carried (undefined until the first poll). */
+  private lastDocRequestId: string | null | undefined = undefined;
+  protected readonly docDoctor = computed(() =>
+    doctorTitle(this.docAccess()?.specialist.name ?? this.appointment()?.specialist.name),
+  );
+  private readonly visibleDocIds = computed(
+    () => new Set((this.docAccess()?.visible_documents ?? []).map((d) => d.id)),
+  );
+  /** "Shared with Dr X: 3 | all | none". */
+  protected readonly sharedCount = computed(() => {
+    const a = this.docAccess()?.access;
+    if (!a || a.state === 'none') return 'none';
+    if (a.state === 'paused') return 'paused';
+    return a.scope === 'all' ? 'all' : String(a.document_count);
+  });
+  protected readonly canShareInCall = computed(() => !!this.docAccess()?.can_share);
+  /** The doctor's pending request: from the poll when the API sends it, else from the panel's read. */
+  protected readonly pendingDocRequest = computed<DocumentAccessRequestDto | null>(() => {
+    const fromPoll = this.appointment()?.pending_document_request;
+    const r = fromPoll !== undefined ? fromPoll : (this.docAccess()?.pending_request ?? null);
+    if (!r || r.status !== 'pending' || r.id === this.dismissedRequest()) return null;
+    return r;
+  });
+  /** A new (or answered) request on the poll: read what the doctor can see again, passively. */
+  private readonly watchDocRequest = effect(() => {
+    const id = this.appointment()?.pending_document_request?.id ?? null;
+    untracked(() => {
+      if (this.lastDocRequestId !== undefined && id !== this.lastDocRequestId) void this.loadDocAccess(true);
+      this.lastDocRequestId = id;
+    });
+  });
+
+  /** A library row's sharing chip relative to this doctor (null: not a library file, or unknown). */
+  protected shareState(r: RecordItem): 'shared' | 'private' | null {
+    if (!r.docId || !this.docAccess()) return null;
+    return this.visibleDocIds().has(r.docId) ? 'shared' : 'private';
+  }
+
+  private async loadDocAccess(passive = false): Promise<void> {
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
+    clearTimeout(this.docAccessTimer);
+    try {
+      const res = await firstValueFrom(this.sharingApi.forAppointment(this.appointmentId, { passive }));
+      this.docAccess.set(res.data);
+      this.docAccessOff.set(false);
+      this.docAccessError.set(false);
+      const at = res.data.access.next_change_at ? Date.parse(res.data.access.next_change_at) : NaN;
+      if (!isNaN(at)) {
+        const delay = Math.min(Math.max(at - Date.now() + 1000, 1000), 24 * 60 * 60_000);
+        this.docAccessTimer = setTimeout(() => void this.loadDocAccess(true), delay);
+      }
+    } catch (err: unknown) {
+      if (isSharingUnavailable(err)) {
+        this.docAccessOff.set(true);
+        this.docAccess.set(null);
+        this.docAccessError.set(false);
+        return;
+      }
+      // Offline, a server hiccup…: say so with "Try again" (what was shown,
+      // if anything, stays — it may be out of date). A signed-out session
+      // stays quiet: the session layer handles that.
+      if (this.auth.isAuthenticated()) this.docAccessError.set(true);
+    }
+  }
+
+  /** "Try again" after the panel could not read what the doctor can see. */
+  protected retryDocAccess(): void {
+    this.docAccessError.set(false);
+    void this.loadDocAccess();
+  }
+
+  private docSay(text: string): void {
+    this.docShareNotice.set(text);
+    this.docShareLive.set(text);
+  }
+
+  protected docShared(result: DocumentShareResultDto | DocumentGrantDto): void {
+    this.docSay('outcomes' in result ? shareResultLine(result) : 'Changes saved.');
+    if ('outcomes' in result && result.approved_request_ids.length > 0) {
+      this.dismissedRequest.set(result.approved_request_ids[0]);
+    }
+    void this.loadDocAccess();
+  }
+
+  protected docRequestAnswered(outcome: ApproveOutcome): void {
+    if (outcome.kind !== 'stale') this.dismissedRequest.set(outcome.request.id);
+    const line = approveOutcomeLine(outcome);
+    if (line) this.docSay(line);
+    void this.loadDocAccess();
+  }
 
   private readonly records = computed<RecordItem[]>(() => {
     const list: RecordItem[] = [];
@@ -2129,6 +2352,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     } catch {
       /* library optional in-call */
     }
+    // Which of them this doctor can see (chips, Share, the doctor's request).
+    await this.loadDocAccess();
     await this.refreshClinical();
     try {
       const cs = await firstValueFrom(this.appointments.consents(this.appointmentId));
@@ -2793,6 +3018,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     // Safety net: always drop the idle-timer hold, however the page is left.
     this.session.release(CALL_HOLD);
+    clearTimeout(this.docAccessTimer);
     void this.teardown();
   }
 }

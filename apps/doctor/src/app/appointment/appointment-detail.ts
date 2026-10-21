@@ -9,6 +9,7 @@ import {
   ElementRef,
   inject,
   Injector,
+  NgZone,
   OnInit,
   signal,
   untracked,
@@ -16,9 +17,10 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { type Observable, tap, throwError } from 'rxjs';
-import { StaffAuthService } from '@supadoc/auth';
+import { type Observable, type Subscription, tap, throwError } from 'rxjs';
+import { isSessionEndError, StaffAuthService } from '@supadoc/auth';
 import {
+  apiErrorCode,
   apiErrorFields,
   apiErrorMessage,
   AvailabilityCalendarStore,
@@ -36,12 +38,14 @@ import type {
   ClinicalNoteDto,
   ConsentDto,
   CopilotDraftDto,
+  DoctorAccessRequestDto,
   DoctorAppointmentDto,
+  DoctorDocumentAccessDto,
   DoctorPatientRecordDto,
   DoctorRecordingStateDto,
+  DoctorSharedDocumentDto,
   LabOrderDto,
   MedicalCertificateDto,
-  MedicalDocumentDto,
   MessageDto,
   RecordingFileDto,
   ReferralDto,
@@ -87,6 +91,24 @@ import {
 } from './clinical/clinical-prompts';
 import { ClinicalReferrals } from './clinical/clinical-referrals';
 import { ClinicalBadge, ClinicalHeader } from './clinical/clinical-ui';
+import {
+  type AccessActionKind,
+  accessBanner,
+  type AccessTone,
+  FINE_PRINT,
+  isStaleRequestCode,
+  nextRefreshDelay,
+  openErrorCopy,
+  PAGE_POLL_MS,
+  REQUEST_SENT,
+  REQUEST_WITHDRAWN,
+  requestErrorCopy,
+  sharedUntilText,
+  shouldBackgroundPoll,
+  unavailableBanner,
+  WITHDRAW_FAILED,
+  WITHDRAW_PROMPT,
+} from './document-access';
 import { FollowUpPlanner } from './follow-up-planner';
 import { draftIsNewer, NoteDraftStore } from './note-draft';
 import {
@@ -101,8 +123,42 @@ import {
   whenLabel,
   withdrewProposal,
 } from './follow-ups';
+import { RequestAccessDialog } from './request-access-dialog';
 
 type PrimaryTab = 'overview' | 'history' | 'documents' | 'visits' | 'clinical';
+
+const PRIMARY_TABS: readonly PrimaryTab[] = ['overview', 'history', 'documents', 'visits', 'clinical'];
+const isPrimaryTab = (v: string | null): v is PrimaryTab => !!v && (PRIMARY_TABS as readonly string[]).includes(v);
+
+/** Coming back to the Documents tab after this long re-reads what the patient shares. */
+const DOCS_STALE_MS = 30_000;
+
+/**
+ * A read of what the patient shares: `load` (first load or Try again — a
+ * failure shows the error), `refresh` (focus, back to the tab, after a
+ * request — a failure keeps what is on screen), `poll` (background, passive:
+ * never extends the session).
+ */
+type DocsLoad = 'load' | 'refresh' | 'poll';
+
+const DOC_TONE_CHIP: Record<AccessTone, string> = {
+  success: 'bg-sage/15 text-sage-ink',
+  warning: 'bg-warning/15 text-warning-ink',
+  neutral: 'bg-cloud text-slate',
+  info: 'bg-frost text-cerulean-dark',
+  error: 'bg-alert/10 text-alert-ink',
+};
+const DOC_TONE_TEXT: Record<AccessTone, string> = {
+  success: 'text-sage-ink',
+  warning: 'text-warning-ink',
+  neutral: 'text-slate',
+  info: 'text-cerulean-dark',
+  error: 'text-alert-ink',
+};
+const DOC_BUTTON_PRIMARY =
+  'inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field bg-cerulean px-4 py-2 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none';
+const DOC_BUTTON_OUTLINE =
+  'inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-slate shadow-control transition hover:border-cerulean hover:text-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none';
 
 type TabKey =
   | 'notes'
@@ -203,6 +259,7 @@ function timeLeft(ms: number): TimeLeft | null {
     ClinicalReferrals,
     FollowUpPlanner,
     MedicationItem,
+    RequestAccessDialog,
     VisitStatusBadge,
   ],
   host: { class: 'block' },
@@ -612,47 +669,102 @@ function timeLeft(ms: number): TimeLeft | null {
             }
           }
 
-          <!-- ===== Documents ===== -->
+          <!-- ===== Documents: only what the patient chooses to share with you ===== -->
           @case ('documents') {
             <div class="flex flex-col gap-4">
-              @if (patientDocs().length > 0) {
-                <div class="flex flex-wrap items-center gap-3">
-                  <div class="relative min-w-[220px] flex-1">
-                    <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
-                    <input class="w-full rounded-field border border-haze bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 hover:border-cerulean/30 focus:border-cerulean focus:outline-none" placeholder="Search Document" [value]="docSearch()" (input)="docSearch.set($any($event.target).value)" />
-                  </div>
-                </div>
-              }
-              @if (loadingDocs()) {
-                <div class="sd-shimmer h-24 rounded-card"></div>
-              } @else if (docsError()) {
-                <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white py-16 text-center shadow-card">
-                  <sd-icon name="wifi-off" [size]="32" class="text-alert" />
-                  <p class="font-sans text-body-sm text-slate">{{ docsError() }}</p>
-                </div>
-              } @else if (filteredDocs().length === 0) {
-                <div class="flex flex-col items-center gap-3 py-16 text-center">
-                  <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="34" /></span>
-                  <p class="font-sans text-body-sm text-slate">{{ docSearch() ? 'No documents match your search.' : 'No document yet' }}</p>
-                </div>
-              } @else {
-                <ul class="flex flex-col gap-3">
-                  @for (d of filteredDocs(); track d.id) {
-                    <li>
-                      <button type="button" class="flex w-full items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover" (click)="openPatientDoc(d)">
-                        <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="20" /></span>
-                        <div class="flex min-w-0 flex-1 flex-col">
-                          <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
-                          <span class="font-sans text-caption text-slate">{{ d.extension || d.mime_type }} · {{ d.size_label }}</span>
-                        </div>
-                        <span class="hidden font-sans text-body-sm text-slate sm:block">{{ d.type_label }}</span>
-                        <span class="hidden font-sans text-caption text-slate md:block">{{ shortDate(d.created_at) }}</span>
-                        <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-warning-ink'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
-                        <sd-icon name="chevron-right" [size]="20" class="shrink-0 text-slate" />
+              @if (loadingDocs() && !docAccess() && !docsError()) {
+                <div class="sd-shimmer h-24 rounded-card" aria-hidden="true"></div>
+                <div class="sd-shimmer h-16 rounded-card" aria-hidden="true"></div>
+                <p class="sr-only" role="status">Loading the documents the patient shares…</p>
+              } @else if (docBanner(); as b) {
+                <!-- What the patient shares now, and where your request stands. -->
+                <section #docBannerEl tabindex="-1" class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card outline-none sm:p-5" aria-labelledby="doc-access-heading" [attr.aria-busy]="loadingDocs() || null">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="flex min-w-0 items-start gap-3">
+                      <span class="flex size-10 shrink-0 items-center justify-center rounded-full" [class]="docToneChip(b.access.tone)" aria-hidden="true"><sd-icon [name]="b.access.icon" [size]="18" /></span>
+                      <div class="flex min-w-0 flex-col gap-0.5">
+                        @if (b.access.title) {
+                          <h2 id="doc-access-heading" class="font-heading text-body font-semibold text-ink">{{ b.access.title }}</h2>
+                        } @else {
+                          <h2 id="doc-access-heading" class="sr-only">Documents the patient shares with you</h2>
+                        }
+                        <p class="font-sans text-body-sm text-ink" [attr.role]="b.access.state === 'unavailable' ? 'alert' : null">{{ b.access.body }}</p>
+                        @if (b.access.detail) {
+                          <p class="font-sans text-caption text-slate">{{ b.access.detail }}</p>
+                        }
+                      </div>
+                    </div>
+                    @if (b.access.action; as act) {
+                      <button type="button" [class]="docActionClass(act.kind)" [disabled]="withdrawing() || (act.kind === 'retry' && loadingDocs())" (click)="onDocAction(act.kind)">
+                        <sd-icon [name]="act.icon" [size]="16" />{{ act.label }}
                       </button>
-                    </li>
+                    }
+                  </div>
+                  @if (b.request; as r) {
+                    <div class="flex flex-col gap-2 border-t border-cloud pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p class="flex min-w-0 items-start gap-2 font-sans text-body-sm text-ink">
+                        <sd-icon [name]="r.icon" [size]="16" class="mt-0.5 shrink-0" [class]="docToneText(r.tone)" /><span>{{ r.text }}</span>
+                      </p>
+                      @if (r.action; as act) {
+                        <button type="button" [class]="docActionClass(act.kind)" [disabled]="withdrawing()" (click)="onDocAction(act.kind)">
+                          <sd-icon [name]="act.icon" [size]="16" />{{ withdrawing() ? 'Withdrawing…' : act.label }}
+                        </button>
+                      }
+                    </div>
                   }
-                </ul>
+                </section>
+                @if (b.access.state !== 'unavailable') {
+                  <p class="flex items-start gap-1.5 font-sans text-caption text-slate"><sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />{{ finePrint }}</p>
+                }
+              }
+
+              @if (docOpenError()) {
+                <sd-alert tone="error">{{ docOpenError() }}</sd-alert>
+              }
+
+              @if (docAccess(); as acc) {
+                @if (!docsError() && acc.request.blocked_reason !== 'sharing_unavailable') {
+                  @if (patientDocs().length > 0) {
+                    <div class="flex flex-wrap items-center gap-3">
+                      <div class="relative min-w-0 flex-1 sm:min-w-[220px]">
+                        <sd-icon name="search" [size]="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate" />
+                        <input class="w-full rounded-field border border-haze bg-white py-2.5 pl-9 pr-3 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 hover:border-cerulean/30 focus:border-cerulean focus:outline-none" placeholder="Search Document" aria-label="Search the shared documents" [value]="docSearch()" (input)="docSearch.set($any($event.target).value)" />
+                      </div>
+                    </div>
+                    @if (filteredDocs().length === 0) {
+                      <div class="flex flex-col items-center gap-3 py-16 text-center">
+                        <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="34" /></span>
+                        <p class="font-sans text-body-sm text-slate">No documents match your search.</p>
+                      </div>
+                    } @else {
+                      <ul class="flex flex-col gap-3">
+                        @for (d of filteredDocs(); track d.id) {
+                          <li>
+                            <button type="button" class="flex w-full items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover" (click)="openPatientDoc(d)">
+                              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="20" /></span>
+                              <div class="flex min-w-0 flex-1 flex-col">
+                                <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
+                                <span class="font-sans text-caption text-slate">{{ d.extension || d.mime_type }} · {{ d.size_label }}</span>
+                                @if (sharedUntil(d); as until) {
+                                  <span class="font-sans text-caption text-slate">{{ until }}</span>
+                                }
+                              </div>
+                              <span class="hidden font-sans text-body-sm text-slate sm:block">{{ d.type_label }}</span>
+                              <span class="hidden font-sans text-caption text-slate md:block">{{ shortDate(d.created_at) }}</span>
+                              <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-warning-ink'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
+                              <sd-icon name="chevron-right" [size]="20" class="shrink-0 text-slate" />
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  } @else if (acc.access.state === 'active') {
+                    <div class="flex flex-col items-center gap-3 py-12 text-center">
+                      <span class="flex size-20 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="folder-open" [size]="34" /></span>
+                      <p class="max-w-md font-sans text-body-sm text-slate">{{ a.patient_name || 'The patient' }} hasn't uploaded any documents yet. New uploads will appear here while access lasts.</p>
+                    </div>
+                  }
+                }
               }
             </div>
           }
@@ -831,9 +943,23 @@ function timeLeft(ms: number): TimeLeft | null {
             </div>
           }
         }
+
+        <!-- Ask the patient to share (or to keep sharing); kept mounted so it can animate out. -->
+        <doc-request-access-dialog
+          [open]="requestOpen()"
+          [appointmentId]="id"
+          [patientName]="a.patient_name"
+          [kind]="docBanner()?.requestKind ?? 'access'"
+          (closed)="requestOpen.set(false)"
+          (sent)="onRequestSent($event)"
+          (refused)="loadDocs('refresh')"
+          (afterClose)="focusDocBannerIfAsked()"
+        />
       } @else {
         <div class="sd-shimmer h-40 rounded-card"></div>
       }
+      <!-- Sharing results for screen readers (request sent / withdrawn). -->
+      <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
     </div>
 
     <ng-template #unavailable>
@@ -862,6 +988,7 @@ export class DoctorAppointmentDetail implements OnInit {
   private readonly dialogs = inject(DialogService);
   private readonly auth = inject(StaffAuthService);
   private readonly drafts = inject(NoteDraftStore);
+  private readonly zone = inject(NgZone);
 
   protected readonly tabs = TABS;
   protected readonly primaryTabs: ReadonlyArray<{ key: PrimaryTab; label: string }> = [
@@ -886,10 +1013,39 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly patientRecord = signal<DoctorPatientRecordDto | null>(null);
   protected readonly loadingRecord = signal(true);
   protected readonly recordError = signal('');
-  protected readonly patientDocs = signal<MedicalDocumentDto[]>([]);
+  // Documents the patient shares with you (the API's policy decides; this only shows its answer).
+  protected readonly docAccess = signal<DoctorDocumentAccessDto | null>(null);
+  protected readonly patientDocs = computed<readonly DoctorSharedDocumentDto[]>(() => this.docAccess()?.documents ?? []);
   protected readonly loadingDocs = signal(true);
-  protected readonly docsError = signal('');
+  /** The last load failed (or sharing is unavailable): an error with Try again — never a false "nothing shared". */
+  protected readonly docsError = signal(false);
   protected readonly docSearch = signal('');
+  /** Why a shared document did not open (e.g. no longer shared). */
+  protected readonly docOpenError = signal('');
+  /** Sharing results for screen readers ("Request sent."). */
+  protected readonly docAnnounce = signal('');
+  /** The request dialog is showing. */
+  protected readonly requestOpen = signal(false);
+  /** The withdraw POST is running ("Withdrawing…") — not while the doctor is still being asked. */
+  protected readonly withdrawing = signal(false);
+  /** "Withdraw your request?" is being asked or answered (guards a second click). */
+  private withdrawAsked = false;
+  protected readonly finePrint = FINE_PRINT;
+  protected readonly docBanner = computed(() => {
+    if (this.docsError()) return unavailableBanner();
+    const dto = this.docAccess();
+    return dto ? accessBanner(dto, this.appt()?.patient_name) : null;
+  });
+  private readonly docBannerEl = viewChild<ElementRef<HTMLElement>>('docBannerEl');
+  /** Orders reads: a slower, older answer never replaces a newer one. */
+  private docsSeq = 0;
+  private docsLoading: Subscription | null = null;
+  private docsLoadedAt = 0;
+  private docsChangeTimer?: ReturnType<typeof setTimeout>;
+  /** This tab's own last pointer / key press (the shared activity stamp may be unreadable). */
+  private lastLocalActivity = Date.now();
+  /** After the request dialog closes, focus the banner (the button that opened it is gone). */
+  private focusBannerAfterClose = false;
 
   protected readonly age = computed(() => this.ageFrom(this.patientRecord()?.patient?.date_of_birth));
   protected readonly medications = computed(() => this.patientRecord()?.medical?.medications ?? []);
@@ -903,7 +1059,7 @@ export class DoctorAppointmentDetail implements OnInit {
       (a) => a.id !== this.id && new Date(a.scheduled_at).getTime() < now && isPast(a, now),
     );
   });
-  protected readonly filteredDocs = computed(() => {
+  protected readonly filteredDocs = computed<readonly DoctorSharedDocumentDto[]>(() => {
     const q = this.docSearch().trim().toLowerCase();
     const docs = this.patientDocs();
     return q ? docs.filter((d) => d.title.toLowerCase().includes(q) || d.type_label.toLowerCase().includes(q)) : docs;
@@ -1140,17 +1296,199 @@ export class DoctorAppointmentDetail implements OnInit {
 
     this.loadAppointment(true);
 
-    this.docsError.set('');
-    this.api
-      .patientDocuments(this.id)
+    // A notification's link (`?tab=documents`) opens that tab — also when this
+    // page is already showing (the router keeps the component).
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      const tab = params.get('tab');
+      if (isPrimaryTab(tab) && tab !== this.primary()) void this.setPrimary(tab);
+    });
+
+    this.loadDocs('load');
+    this.watchDocs();
+  }
+
+  // ----- Documents the patient shares -----
+
+  /**
+   * What the patient shares with you now (`DoctorApi.documentAccess`). Reads
+   * are ordered (an older answer never replaces a newer one); a background
+   * poll is skipped while another read runs and is sent passive, so it never
+   * extends the session's idle clock.
+   */
+  protected loadDocs(mode: DocsLoad): void {
+    if (!this.id) return;
+    if (mode === 'poll' && this.docsLoading && !this.docsLoading.closed) return;
+    this.docsLoading?.unsubscribe();
+    const seq = ++this.docsSeq;
+    if (mode === 'load') {
+      this.docsError.set(false);
+      // Busy also over an answer already on screen (Try again on "sharing unavailable"):
+      // the banner is aria-busy and Try again disabled until this read settles.
+      this.loadingDocs.set(true);
+    }
+    this.docsLoading = this.api
+      .documentAccess(this.id, mode === 'poll' ? { passive: true } : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.patientDocs.set(r.data); this.loadingDocs.set(false); },
-        error: (err: unknown) => {
-          this.docsError.set(apiErrorMessage(err, "Could not load the patient's documents."));
+        next: (res) => {
+          if (seq !== this.docsSeq) return;
+          this.docAccess.set(res.data);
+          this.docsError.set(false);
           this.loadingDocs.set(false);
+          this.docsLoadedAt = Date.now();
+          this.scheduleDocsChange(res.data);
+        },
+        error: (err: unknown) => {
+          if (seq !== this.docsSeq) return;
+          this.loadingDocs.set(false);
+          // An ended session takes the doctor to sign in (and back here after).
+          if (isSessionEndError(err)) return;
+          // A refresh or poll that fails keeps what is on screen (each file is still checked when opened).
+          if (mode !== 'load' && this.docAccess()) return;
+          // Never a stale list under an error, never a false "nothing shared".
+          this.docAccess.set(null);
+          this.docsError.set(true);
         },
       });
+  }
+
+  /** Re-read when the next share starts or ends (`next_change_at`, by the server's clock). */
+  private scheduleDocsChange(dto: DoctorDocumentAccessDto): void {
+    clearTimeout(this.docsChangeTimer);
+    const serverNow = Date.parse(dto.server_time);
+    const delay = nextRefreshDelay(dto.access.next_change_at, Number.isFinite(serverNow) ? serverNow : Date.now());
+    if (delay !== null) this.docsChangeTimer = setTimeout(() => this.loadDocs('poll'), delay);
+  }
+
+  /**
+   * Keep the Documents tab current: re-read on returning to the window (while
+   * on the tab), and every minute in the background — only while the page is
+   * visible and someone used the portal in the last 5 minutes (shared activity
+   * stamp, else this tab's own presses), so an idle tab never polls.
+   */
+  private watchDocs(): void {
+    const onActivity = () => {
+      this.lastLocalActivity = Date.now();
+    };
+    const onFocus = () => {
+      if (this.primary() === 'documents') this.zone.run(() => this.loadDocs('refresh'));
+    };
+    let poll: ReturnType<typeof setInterval> | undefined;
+    this.zone.runOutsideAngular(() => {
+      document.addEventListener('pointerdown', onActivity, { capture: true, passive: true });
+      document.addEventListener('keydown', onActivity, { capture: true, passive: true });
+      window.addEventListener('focus', onFocus);
+      poll = setInterval(() => {
+        if (this.primary() !== 'documents') return;
+        const visible = document.visibilityState === 'visible';
+        if (!shouldBackgroundPoll(visible, this.lastActivity(), Date.now())) return;
+        this.zone.run(() => this.loadDocs('poll'));
+      }, PAGE_POLL_MS);
+    });
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('pointerdown', onActivity, { capture: true });
+      document.removeEventListener('keydown', onActivity, { capture: true });
+      window.removeEventListener('focus', onFocus);
+      clearInterval(poll);
+      clearTimeout(this.docsChangeTimer);
+    });
+  }
+
+  /** The latest portal activity: the shared stamp the session timeout writes (any tab), or this tab's own. */
+  private lastActivity(): number {
+    let shared = 0;
+    try {
+      const raw = localStorage.getItem(this.auth.activityKey);
+      const at = raw === null ? NaN : Number(raw);
+      if (Number.isFinite(at)) shared = at;
+    } catch {
+      /* storage unavailable — this tab's own presses only */
+    }
+    return Math.max(shared, this.lastLocalActivity);
+  }
+
+  protected docToneChip(tone: AccessTone): string {
+    return DOC_TONE_CHIP[tone];
+  }
+  protected docToneText(tone: AccessTone): string {
+    return DOC_TONE_TEXT[tone];
+  }
+  protected docActionClass(kind: AccessActionKind): string {
+    return kind === 'request' || kind === 'extend' ? DOC_BUTTON_PRIMARY : DOC_BUTTON_OUTLINE;
+  }
+  protected sharedUntil(d: DoctorSharedDocumentDto): string {
+    return sharedUntilText(d);
+  }
+
+  protected onDocAction(kind: AccessActionKind): void {
+    this.docOpenError.set('');
+    switch (kind) {
+      case 'retry':
+        this.loadDocs('load');
+        return;
+      case 'withdraw':
+        void this.withdrawRequest();
+        return;
+      default:
+        this.requestOpen.set(true);
+    }
+  }
+
+  /** The request was made: show it as waiting (from the answer), then re-read. */
+  protected onRequestSent(request: DoctorAccessRequestDto): void {
+    this.requestOpen.set(false);
+    this.focusBannerAfterClose = true;
+    this.docAccess.update((d) =>
+      d ? { ...d, request: { ...d.request, can_request: false, blocked_reason: 'request_pending', pending: request } } : d,
+    );
+    this.announce(REQUEST_SENT);
+    this.loadDocs('refresh');
+  }
+
+  protected focusDocBannerIfAsked(): void {
+    if (!this.focusBannerAfterClose) return;
+    this.focusBannerAfterClose = false;
+    this.docBannerEl()?.nativeElement.focus();
+  }
+
+  /** "Withdraw your request?" — the patient is no longer asked. */
+  private async withdrawRequest(): Promise<void> {
+    if (this.withdrawAsked) return;
+    this.withdrawAsked = true;
+    try {
+      const { confirmed } = await this.dialogs.confirm({
+        ...WITHDRAW_PROMPT,
+        errorMessage: (err) => requestErrorCopy(apiErrorCode(err), null) ?? apiErrorMessage(err, WITHDRAW_FAILED),
+        // Busy only while the cancel runs (the dialog shows its own spinner meanwhile).
+        action: () => {
+          this.withdrawing.set(true);
+          return this.api.cancelDocumentAccessRequest(this.id).pipe(
+            tap({
+              error: (err: unknown) => {
+                this.withdrawing.set(false);
+                if (isStaleRequestCode(apiErrorCode(err))) this.loadDocs('refresh');
+              },
+            }),
+          );
+        },
+      });
+      if (!confirmed) return;
+      this.docAccess.update((d) =>
+        d ? { ...d, request: { ...d.request, can_request: false, blocked_reason: null, pending: null } } : d,
+      );
+      this.announce(REQUEST_WITHDRAWN);
+      this.loadDocs('refresh');
+      focusAfterDialogs(this.injector, () => this.docBannerEl()?.nativeElement);
+    } finally {
+      this.withdrawAsked = false;
+      this.withdrawing.set(false);
+    }
+  }
+
+  private announce(text: string): void {
+    // Cleared first, so the same words twice are announced twice.
+    this.docAnnounce.set('');
+    setTimeout(() => this.docAnnounce.set(text), 50);
   }
 
   /**
@@ -1199,10 +1537,18 @@ export class DoctorAppointmentDetail implements OnInit {
       });
   }
 
-  protected openPatientDoc(doc: MedicalDocumentDto): void {
+  protected openPatientDoc(doc: DoctorSharedDocumentDto): void {
+    this.docOpenError.set('');
     // Popup-safe: open the tab synchronously on the click, then swap in the blob
     // once the bytes arrive (a post-await window.open is blocked by Safari etc.).
-    openBlobDocument(this.api.patientDocumentBlob(this.id, doc.id));
+    // A refusal closes that tab and is said here: no longer shared (the list is
+    // re-read), or the open could not be recorded (nothing was sent).
+    openBlobDocument(this.api.patientDocumentBlob(this.id, doc.id), {
+      onError: (status, code) => {
+        this.docOpenError.set(openErrorCopy(status, code));
+        if (code === 'not_shared') this.loadDocs('refresh');
+      },
+    });
   }
 
   /** Route guard hook: never drop an unsaved prescription when leaving the page. */
@@ -1214,6 +1560,11 @@ export class DoctorAppointmentDetail implements OnInit {
   protected async setPrimary(key: PrimaryTab): Promise<void> {
     if (this.primary() === 'clinical' && key !== 'clinical' && !(await (this.rxPanel()?.canLeave() ?? true))) return;
     this.primary.set(key);
+    // Back on Documents after a while: re-read what the patient shares.
+    const reading = !!this.docsLoading && !this.docsLoading.closed;
+    if (key === 'documents' && !reading && this.docsLoadedAt > 0 && Date.now() - this.docsLoadedAt > DOCS_STALE_MS) {
+      this.loadDocs('refresh');
+    }
   }
 
   protected async select(tab: TabKey): Promise<void> {

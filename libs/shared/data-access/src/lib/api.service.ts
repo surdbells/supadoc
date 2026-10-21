@@ -1,10 +1,23 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { API_CONFIG } from './api-config';
 
 type ParamValue = string | number | boolean;
 export type QueryParams = Record<string, ParamValue | undefined>;
+
+/**
+ * Request header marking a background poll (`X-SD-Passive: 1`). The API still
+ * checks the session on such a request (an ended session is refused as usual)
+ * but never counts it as activity, so a page left polling cannot keep an idle
+ * session alive. It also never records a "list viewed" audit row.
+ */
+export const PASSIVE_REQUEST_HEADER = 'X-SD-Passive';
+
+export interface ApiRequestOptions {
+  /** Background poll: never extends the session idle clock. */
+  passive?: boolean;
+}
 
 /**
  * Thin, strongly-typed wrapper around `HttpClient` that every feature service
@@ -19,8 +32,17 @@ export class ApiService {
   private readonly http = inject(HttpClient);
   private readonly config = inject(API_CONFIG);
 
-  get<T>(path: string, params?: QueryParams): Observable<T> {
-    return this.http.get<T>(this.url(path), { params: this.toParams(params) });
+  /**
+   * GET a JSON resource. `{ passive: true }` marks a background poll (adds
+   * `X-SD-Passive: 1`, see {@link PASSIVE_REQUEST_HEADER}); user-initiated
+   * loads leave it off.
+   */
+  get<T>(path: string, params?: QueryParams, options?: ApiRequestOptions): Observable<T> {
+    const headers = this.headersFor(options);
+    return this.http.get<T>(this.url(path), {
+      params: this.toParams(params),
+      ...(headers ? { headers } : {}),
+    });
   }
 
   /**
@@ -45,8 +67,15 @@ export class ApiService {
     });
   }
 
-  post<T>(path: string, body?: unknown): Observable<T> {
-    return this.http.post<T>(this.url(path), body);
+  /**
+   * POST a JSON body. `{ passive: true }` marks it as started by a background
+   * poll (e.g. the token refresh a poll needed), so it is no activity either.
+   */
+  post<T>(path: string, body?: unknown, options?: ApiRequestOptions): Observable<T> {
+    const headers = this.headersFor(options);
+    return headers
+      ? this.http.post<T>(this.url(path), body, { headers })
+      : this.http.post<T>(this.url(path), body);
   }
 
   put<T>(path: string, body?: unknown): Observable<T> {
@@ -75,6 +104,12 @@ export class ApiService {
   /** The absolute URL of an API path (for requests made outside HttpClient). */
   absoluteUrl(path: string): string {
     return this.url(path);
+  }
+
+  private headersFor(options?: ApiRequestOptions): HttpHeaders | undefined {
+    return options?.passive
+      ? new HttpHeaders({ [PASSIVE_REQUEST_HEADER]: '1' })
+      : undefined;
   }
 
   private url(path: string): string {

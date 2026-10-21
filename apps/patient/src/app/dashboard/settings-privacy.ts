@@ -230,6 +230,7 @@ export class SettingsPrivacy {
   protected password = '';
 
   protected readonly links = [
+    { icon: 'share-2', title: 'Document sharing', desc: 'Choose which doctors can see your documents', route: '/dashboard/documents/sharing' },
     { icon: 'activity', title: 'Login Activity', desc: 'Recent account sign-ins', route: '/dashboard/settings/privacy/login-activity' },
     { icon: 'monitor-smartphone', title: 'Connected Devices', desc: 'Manage signed-in devices', route: '/dashboard/settings/privacy/devices' },
   ];

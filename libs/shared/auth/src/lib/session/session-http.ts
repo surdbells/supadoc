@@ -19,6 +19,7 @@ import {
   apiErrorCode,
   apiErrorMessage,
   apiErrorReason,
+  PASSIVE_REQUEST_HEADER,
 } from '@supadoc/data-access';
 import type { TokenSession } from './session-auth';
 import { peekSessionNotice, SESSION_END_MESSAGES } from './session-notice';
@@ -113,6 +114,11 @@ function refreshUnavailableError(req: HttpRequest<unknown>): HttpErrorResponse {
  *    - session / account codes: the session is ended at once with the
  *      server's message (no refresh that is bound to fail);
  *    - anything else (a token for the wrong portal): passed on untouched.
+ * 4. A background poll (`X-SD-Passive: 1`) that needs a refresh — before it
+ *    leaves or after its 401 — sends that refresh passive too, so the poll
+ *    never restarts the server's idle clock through the back door. (The timed
+ *    pre-expiry refresh and the guards' refresh stay active: the call hold
+ *    relies on them.)
  *
  * It sees raw `HttpErrorResponse`s, so register its interceptor INNERMOST
  * (after `httpErrorInterceptor`), which then never sees — or logs — a 401
@@ -128,6 +134,7 @@ export function handleSessionRequest(
   }
 
   const upload = isUpload(req);
+  const passive = req.headers.get(PASSIVE_REQUEST_HEADER) === '1';
   // Only apps with an idle timeout (not mobile) hold it for uploads.
   const timeout =
     upload && inject(SESSION_TIMEOUT_CONFIG, { optional: true })
@@ -140,6 +147,7 @@ export function handleSessionRequest(
       ? auth
           .ensureFreshToken(
             upload ? UPLOAD_TOKEN_MARGIN_MS : REQUEST_TOKEN_MARGIN_MS,
+            { passive },
           )
           .catch(() => undefined)
       : Promise.resolve();
@@ -212,7 +220,7 @@ export function handleSessionRequest(
       auth.expire('expired');
       return throwError(() => signedOutError(req));
     }
-    return from(auth.refresh().catch(() => false)).pipe(
+    return from(auth.refresh({ passive }).catch(() => false)).pipe(
       switchMap((ok) => {
         const fresh = auth.token();
         if (ok && fresh !== null) return retry(fresh);

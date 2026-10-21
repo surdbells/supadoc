@@ -162,8 +162,13 @@ export interface DoctorProfileUpdate {
 
 // ----- Doctor schedule -----
 
-/** A row in the doctor's schedule — an appointment plus join affordances. */
-export interface DoctorAppointmentDto extends AppointmentDto {
+/**
+ * A row in the doctor's schedule — an appointment plus join affordances.
+ * Never carries the patient-only fields (the legacy `document_url`, the
+ * patient's `pending_document_request`, the booking's `document_share`).
+ */
+export interface DoctorAppointmentDto
+  extends Omit<AppointmentDto, 'document_url' | 'pending_document_request' | 'document_share'> {
   patient_name: string;
   /**
    * Preauthenticated call link; null on a follow-up proposal the patient hasn't
@@ -182,9 +187,10 @@ export interface DoctorAppointmentDto extends AppointmentDto {
 /**
  * A follow-up as the doctor sees it (GET .../follow-ups, POST .../follow-up):
  * the appointment plus the patient's name. `status` 'proposed' = awaiting the
- * patient; `decline_reason` is set when they declined.
+ * patient; `decline_reason` is set when they declined. No patient-only fields.
  */
-export interface DoctorFollowUpDto extends AppointmentDto {
+export interface DoctorFollowUpDto
+  extends Omit<AppointmentDto, 'document_url' | 'pending_document_request' | 'document_share'> {
   patient_name: string;
 }
 

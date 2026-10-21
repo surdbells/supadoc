@@ -9,7 +9,7 @@ import type {
   TwoFactorChallenge,
 } from '@supadoc/models';
 import { AuthFlowService } from './auth-flow.service';
-import type { SessionAuth, SessionEndReason } from './session/session-auth';
+import type { RefreshOptions, SessionAuth, SessionEndReason } from './session/session-auth';
 import {
   consumeSessionNotice,
   SESSION_END_MESSAGES,
@@ -300,17 +300,17 @@ export class AuthService implements SessionAuth {
    * further attempts wait a little (see {@link RefreshBackoff}). Concurrent
    * callers (e.g. several requests at once) share a single in-flight refresh.
    */
-  refresh(): Promise<boolean> {
+  refresh(options?: RefreshOptions): Promise<boolean> {
     if (this.refreshInFlight) return this.refreshInFlight;
     if (this.backoff.blocked()) return Promise.resolve(false);
-    this.refreshInFlight = this.doRefresh().finally(() => {
+    this.refreshInFlight = this.doRefresh(options?.passive === true).finally(() => {
       this.refreshInFlight = null;
     });
     return this.refreshInFlight;
   }
 
   /** {@inheritDoc TokenSession.ensureFreshToken} */
-  async ensureFreshToken(minMs = 60_000): Promise<void> {
+  async ensureFreshToken(minMs = 60_000, options?: RefreshOptions): Promise<void> {
     if (this.refreshInFlight) {
       await this.refreshInFlight;
       return;
@@ -320,7 +320,7 @@ export class AuthService implements SessionAuth {
     const exp = this.accessExpiresAt();
     // An opaque token (no readable expiry) is never refreshed ahead — no loop.
     if (exp === null || exp - Date.now() > refreshMarginMs(token, minMs)) return;
-    await this.refresh();
+    await this.refresh(options);
   }
 
   /** {@inheritDoc SessionAuth.accessExpiresAt} */
@@ -328,7 +328,8 @@ export class AuthService implements SessionAuth {
     return localExpiryMs(this._token(), this.clockOffset());
   }
 
-  private async doRefresh(): Promise<boolean> {
+  /** `passive`: started for a background poll — the API then doesn't count it as activity. */
+  private async doRefresh(passive: boolean): Promise<boolean> {
     const refresh = this.readStored(REFRESH_KEY);
     if (!refresh) return false;
     const before = this._token();
@@ -338,7 +339,7 @@ export class AuthService implements SessionAuth {
       try {
         const res = await firstValueFrom(
           // An unanswered refresh is a transient failure (no status → back-off below).
-          this.authApi.refresh(refresh).pipe(timeout({ first: REFRESH_TIMEOUT_MS })),
+          this.authApi.refresh(refresh, passive).pipe(timeout({ first: REFRESH_TIMEOUT_MS })),
         );
         // Signed out (or someone else signed in) meanwhile: never bring this session back.
         if (this.readStored(REFRESH_KEY) !== refresh) return this._token() !== null;

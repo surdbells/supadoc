@@ -81,7 +81,7 @@ export class SettingsFaqs {
     },
     {
       q: 'Can I share records with my doctor?',
-      a: 'Yes — from Records, tap Share and choose the specialist. Access expires after 14 days.',
+      a: 'Yes. Open Medical Documents, tap Share, choose the doctor, what they can see and for how long. You can change or stop sharing any time.',
     },
     {
       q: 'How is my data protected?',

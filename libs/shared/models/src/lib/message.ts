@@ -1,3 +1,5 @@
+import type { DocumentSharedWithDto } from './document-sharing';
+
 /** One selectable medical-document type (value + human label). */
 export interface DocumentTypeOption {
   readonly value: string;
@@ -21,6 +23,12 @@ export interface MedicalDocumentDto {
   readonly size_bytes: number;
   readonly size_label: string;
   readonly created_at: string;
+  /**
+   * The doctors who can see this document now (GET /portal/documents only —
+   * the patient's own list; never in a doctor payload). Absent when the API
+   * could not work it out: hide the access chip then.
+   */
+  readonly shared_with?: readonly DocumentSharedWithDto[];
 }
 
 /** One message in a per-appointment secure thread between patient and doctor. */

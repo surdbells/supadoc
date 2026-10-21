@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   apiErrorCode,
+  apiErrorFields,
   apiErrorMessage,
   apiErrorReason,
 } from './api-error.util';
@@ -49,6 +50,55 @@ describe('apiErrorMessage — machine tags', () => {
         errors: { reason: 'Say why you are cancelling it' },
       }),
     ).toBe('Say why you are cancelling it');
+  });
+});
+
+describe('apiErrorMessage — document-sharing 409s', () => {
+  it('request_not_pending: never shows the bare status ("approved")', () => {
+    const raw = new HttpErrorResponse({
+      status: 409,
+      error: {
+        message: 'This request has already been answered.',
+        errors: { code: 'request_not_pending', status: 'approved' },
+      },
+    });
+    expect(apiErrorMessage(raw)).toBe('This request has already been answered.');
+    // the status itself stays readable for the page
+    expect(apiErrorFields(raw)['status']).toBe('approved');
+  });
+
+  it('request_cooldown / request_limit: never shows the raw available_at instant', () => {
+    for (const code of ['request_cooldown', 'request_limit']) {
+      const normalised = {
+        statusCode: 409,
+        message: 'You can ask again later.',
+        errors: { code, available_at: '2026-10-24T09:00:00+01:00' },
+      };
+      expect(apiErrorMessage(normalised)).toBe('You can ask again later.');
+      expect(apiErrorFields(normalised)['available_at']).toBe('2026-10-24T09:00:00+01:00');
+    }
+  });
+
+  it('a human errors.status (a field error) is still the message', () => {
+    expect(
+      apiErrorMessage({
+        statusCode: 422,
+        message: 'Validation failed',
+        errors: { status: 'Not reschedulable' },
+      }),
+    ).toBe('Not reschedulable');
+  });
+
+  it('request_pending: the errors.request object is not a string field, so the top message wins', () => {
+    const raw = new HttpErrorResponse({
+      status: 409,
+      error: {
+        message: 'You already asked this patient.',
+        errors: { code: 'request_pending', request: { id: 'r-1', status: 'pending' } },
+      },
+    });
+    expect(apiErrorMessage(raw)).toBe('You already asked this patient.');
+    expect(apiErrorFields(raw)['request']).toBeUndefined();
   });
 });
 
