@@ -382,4 +382,12 @@
   body {
     overflow-x: clip;
   }
+
+  /* A fieldset is at least as wide as its widest unbreakable line by default
+   * (min-inline-size: min-content), so one long truncated title inside it
+   * widens it past its dialog and the right side is cut off. Let it shrink
+   * like any other block; a min-w-* utility still wins. */
+  fieldset {
+    min-inline-size: 0;
+  }
 }
