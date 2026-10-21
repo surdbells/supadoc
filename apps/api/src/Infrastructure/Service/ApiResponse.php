@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Enum\AuthErrorCode;
 use Psr\Http\Message\ResponseInterface;
 
 /**
@@ -73,6 +74,23 @@ trait ApiResponse
         }
 
         return $this->json($response, $payload, $status);
+    }
+
+    /**
+     * A refused token / session: the usual error envelope plus
+     * `errors: {auth: <message>, code, ...$extra}`, the human message first so
+     * a client that shows the first error field still shows words.
+     *
+     * @param array<string,string> $extra e.g. ['reason' => 'idle']
+     */
+    protected function authError(
+        ResponseInterface $response,
+        string $message,
+        AuthErrorCode $code,
+        int $status = 401,
+        array $extra = [],
+    ): ResponseInterface {
+        return $this->error($response, $message, $status, ['auth' => $message, 'code' => $code->value] + $extra);
     }
 
     protected function json(

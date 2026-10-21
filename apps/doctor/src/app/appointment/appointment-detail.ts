@@ -17,6 +17,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { type Observable, tap, throwError } from 'rxjs';
+import { StaffAuthService } from '@supadoc/auth';
 import {
   apiErrorFields,
   apiErrorMessage,
@@ -87,6 +88,7 @@ import {
 import { ClinicalReferrals } from './clinical/clinical-referrals';
 import { ClinicalBadge, ClinicalHeader } from './clinical/clinical-ui';
 import { FollowUpPlanner } from './follow-up-planner';
+import { draftIsNewer, NoteDraftStore } from './note-draft';
 import {
   doctorStatusLabel,
   followUpPriceLabel,
@@ -708,6 +710,13 @@ function timeLeft(ms: number): TimeLeft | null {
               <div #clinicalPane tabindex="-1" class="flex min-w-0 flex-col gap-6 outline-none">
                 @switch (tab()) {
                   @case ('notes') {
+                    @if (noteRestored() && !finalized()) {
+                      <p class="flex items-start gap-2 rounded-field bg-cerulean/10 px-3 py-2 font-sans text-caption text-ink" role="status">
+                        <sd-icon name="info" [size]="16" class="mt-0.5 shrink-0 text-cerulean" />
+                        Your unsaved edits were kept on this device when your session ended — they are back in the note.
+                        Save to keep them in the record.
+                      </p>
+                    }
                     <doc-clinical-note
                       [state]="noteState()"
                       [note]="note()"
@@ -851,6 +860,8 @@ export class DoctorAppointmentDetail implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly dialogs = inject(DialogService);
+  private readonly auth = inject(StaffAuthService);
+  private readonly drafts = inject(NoteDraftStore);
 
   protected readonly tabs = TABS;
   protected readonly primaryTabs: ReadonlyArray<{ key: PrimaryTab; label: string }> = [
@@ -1046,6 +1057,10 @@ export class DoctorAppointmentDetail implements OnInit {
   /** Which note button started the in-flight save (only drives its spinner). */
   protected readonly noteSaveMode = signal<NoteSaveMode | null>(null);
   protected readonly finalized = computed(() => this.note()?.status === 'finalized');
+  /** Whose note is in the editor (the portal user it loaded for) — a copy kept on the device is theirs only. */
+  private noteSub: string | null = null;
+  /** The editor holds unsaved words kept on this device after a session ended (not saved to the record yet). */
+  protected readonly noteRestored = signal(false);
 
   protected readonly messages = signal<MessageDto[]>([]);
   protected readonly messagesLoading = signal(false);
@@ -1099,6 +1114,13 @@ export class DoctorAppointmentDetail implements OnInit {
         if (this.loaded.has('recording')) this.refreshRecording();
       });
     });
+    // An involuntary sign-out (idle, expiry, another tab) takes the doctor to
+    // the sign-in page: unsaved note edits are kept on this device first, and
+    // offered back here once they sign in again.
+    effect(() => {
+      if (!this.auth.isAuthenticated()) untracked(() => this.keepUnsavedNote());
+    });
+    this.destroyRef.onDestroy(() => this.keepUnsavedNote());
   }
 
   ngOnInit(): void {
@@ -1259,10 +1281,23 @@ export class DoctorAppointmentDetail implements OnInit {
   private loadNote(): void {
     this.noteState.set('loading');
     this.noteLoadError.set('');
+    const sub = this.auth.subject();
     this.api.getNote(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.note.set(r.data);
+        this.noteSub = sub;
         this.noteDraft.set({ subjective: r.data.subjective ?? '', objective: r.data.objective ?? '', assessment: r.data.assessment ?? '', plan: r.data.plan ?? '' });
+        // Words this doctor wrote here (or in the call) after their session
+        // ended come back into the editor, to be saved with Save as usual —
+        // unless the note was finalized, or saved since (e.g. edited on
+        // another device): the newer record wins and the kept copy is dropped.
+        const kept = this.drafts.take(this.id, sub);
+        if (kept && (r.data.status === 'finalized' || !draftIsNewer(kept, r.data.updated_at, this.auth.clockOffset()))) {
+          this.drafts.clear(this.id);
+        } else if (kept) {
+          this.noteDraft.set({ ...kept.payload });
+          this.noteRestored.set(true);
+        }
         this.noteState.set('ready');
       },
       error: (err: unknown) => {
@@ -1285,7 +1320,37 @@ export class DoctorAppointmentDetail implements OnInit {
     const d = this.noteDraft();
     const input = { subjective: d['subjective'], objective: d['objective'], assessment: d['assessment'], plan: d['plan'] };
     const call = finalize ? this.api.finalizeNote(this.id, input) : this.api.saveNote(this.id, input);
-    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.note.set(r.data); this.savingNote.set(false); }, error: (err: unknown) => { this.sectionError.set(apiErrorMessage(err, 'Could not save the note.')); this.savingNote.set(false); } });
+    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.note.set(r.data);
+        this.savingNote.set(false);
+        this.drafts.clear(this.id);
+        this.noteRestored.set(false);
+      },
+      error: (err: unknown) => { this.sectionError.set(apiErrorMessage(err, 'Could not save the note.')); this.savingNote.set(false); },
+    });
+  }
+
+  /** The editor differs from the saved note (and the note can still be edited). */
+  private noteUnsaved(): boolean {
+    if (this.noteState() !== 'ready' || this.finalized()) return false;
+    const saved = this.note();
+    const d = this.noteDraft();
+    return (['subjective', 'objective', 'assessment', 'plan'] as const).some(
+      (k) => (d[k] ?? '') !== ((saved?.[k] as string | null | undefined) ?? ''),
+    );
+  }
+
+  /** Signed out with unsaved note edits: keep them on this device for the same doctor. */
+  private keepUnsavedNote(): void {
+    if (this.auth.isAuthenticated() || !this.noteSub || !this.noteUnsaved()) return;
+    const d = this.noteDraft();
+    this.drafts.save(this.id, this.noteSub, {
+      subjective: d['subjective'] ?? '',
+      objective: d['objective'] ?? '',
+      assessment: d['assessment'] ?? '',
+      plan: d['plan'] ?? '',
+    });
   }
 
   private async confirmFinalize(): Promise<boolean> {

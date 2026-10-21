@@ -15,7 +15,10 @@ export const dashboardRoutes: Route[] = [
   {
     path: '',
     component: DashboardShell,
+    // Every page, not just the shell: a token about to expire is refreshed
+    // before the page's first requests, and a signed-out visitor never sees one.
     canActivate: [authGuard],
+    canActivateChild: [authGuard],
     children: [
       {
         path: '',

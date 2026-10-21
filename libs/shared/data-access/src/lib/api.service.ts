@@ -61,6 +61,17 @@ export class ApiService {
     return this.http.delete<T>(this.url(path));
   }
 
+  /**
+   * Any method (e.g. `'PUT'`) with an optional JSON body — for callers that
+   * pick the method at run time. Goes through the interceptors like the rest.
+   */
+  request<T>(method: string, path: string, body?: unknown): Observable<T> {
+    return this.http.request<T>(method.toUpperCase(), this.url(path), {
+      body,
+      responseType: 'json',
+    });
+  }
+
   /** The absolute URL of an API path (for requests made outside HttpClient). */
   absoluteUrl(path: string): string {
     return this.url(path);

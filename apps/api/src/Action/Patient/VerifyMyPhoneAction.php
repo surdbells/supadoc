@@ -42,7 +42,12 @@ final class VerifyMyPhoneAction
 
         $phone = $this->jwt->verifyPhoneProof($token);
         if ($phone === null) {
-            return $this->error($response, 'Phone verification expired — please verify again', 401);
+            // 422, not 401: the patient's sign-in is fine — only the SMS proof
+            // ran out — and a 401 here would send the portal refreshing tokens.
+            return $this->error($response, 'Phone verification expired — please verify again', 422, [
+                'verification_token' => 'Phone verification expired — please verify again',
+                'code'               => 'phone_proof_expired',
+            ]);
         }
 
         /** @var Patient $patient */

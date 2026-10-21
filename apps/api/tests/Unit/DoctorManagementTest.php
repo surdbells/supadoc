@@ -445,6 +445,10 @@ final class DoctorManagementTest extends TestCase
         $refused = $middleware->process($as('GET', '/api/appointments', ['doctor']), $handler);
         $this->assertSame(403, $refused->getStatusCode(), 'every patient\'s appointments are not a doctor\'s');
         $this->assertSame('doctor_portal_only', json_decode((string) $refused->getBody(), true)['errors']['code'] ?? null);
+        // The human message is the first error field, so a portal showing the first field shows words, not the code.
+        $refusedBody = json_decode((string) $refused->getBody(), true);
+        $this->assertSame(['standing', 'code'], array_keys($refusedBody['errors']));
+        $this->assertSame($refusedBody['message'], $refusedBody['errors']['standing']);
 
         $suspended = $middleware->process($as('GET', '/api/doctor/appointments', ['doctor']), $handler);
         $this->assertSame(403, $suspended->getStatusCode());

@@ -77,10 +77,41 @@ export function apiErrorFields(err: unknown): Record<string, string> {
   return out;
 }
 
+/** A machine-readable value (`doctor_portal_only`, `idle`) rather than words for a person. */
+const MACHINE_VALUE = /^[a-z][a-z0-9_]*$/;
+
+/**
+ * Keys the API uses for machine-readable tags beside the human message
+ * (`errors: { auth: "…", code: "session_revoked", reason: "idle" }`). A value
+ * under them that reads like words ("Invalid code", "Say why…") is still a
+ * field error, so only identifier-like values are skipped.
+ */
+const TAG_KEYS = new Set(['code', 'reason']);
+
+function isTag(field: string, value: string): boolean {
+  return TAG_KEYS.has(field) && MACHINE_VALUE.test(value.trim());
+}
+
+/**
+ * The machine-readable `errors.code` an error carries (e.g. `session_revoked`,
+ * `doctor_suspended`, `cancelled`), from either error shape — or null.
+ */
+export function apiErrorCode(err: unknown): string | null {
+  const code = apiErrorFields(err)['code'];
+  return typeof code === 'string' && MACHINE_VALUE.test(code.trim()) ? code.trim() : null;
+}
+
+/** The machine-readable `errors.reason` (e.g. `idle` / `lifetime` on `session_expired`), or null. */
+export function apiErrorReason(err: unknown): string | null {
+  const reason = apiErrorFields(err)['reason'];
+  return typeof reason === 'string' && MACHINE_VALUE.test(reason.trim()) ? reason.trim() : null;
+}
+
 /**
  * The single best human-facing message for a thrown error. In priority order:
  *   1. a friendly connectivity message when no response reached us (status 0),
- *   2. the first specific field-level validation error,
+ *   2. the first specific field-level validation error (machine tags such as
+ *      `errors.code: "doctor_portal_only"` are never shown),
  *   3. a meaningful top-level API message (ignoring Angular transport noise),
  *   4. a friendly server-error message for a 5xx with no useful body,
  *   5. the caller's contextual `fallback`.
@@ -94,7 +125,7 @@ export function apiErrorMessage(err: unknown, fallback: string = GENERIC_ERROR_M
   if (status === 0) return NETWORK_ERROR_MESSAGE;
 
   // A specific field error is the most useful thing we can show.
-  const firstField = Object.values(apiErrorFields(err))[0];
+  const firstField = Object.entries(apiErrorFields(err)).find(([field, value]) => !isTag(field, value))?.[1];
   if (firstField) return firstField;
 
   // A real message from the API body — never Angular's transport noise, never

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Action;
 use App\Infrastructure\Middleware\AuthMiddleware;
 use App\Infrastructure\Middleware\CustomerAuthMiddleware;
+use App\Infrastructure\Middleware\RateLimitMiddleware;
 use App\Infrastructure\Middleware\RbacMiddleware;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Service\SessionService;
@@ -23,6 +24,15 @@ return static function (App $app): void {
     $container = $app->getContainer();
     $jwt       = $container->get(JwtService::class);
     $sessions  = $container->get(SessionService::class);
+    // Per signed-in user (runs after the group's auth middleware, which
+    // publishes the id), so a clinic sharing one IP is limited user by user.
+    $userLimit = new RateLimitMiddleware(
+        $container->get(RedisClient::class),
+        (int) ($_ENV['RATE_LIMIT_USER_REQUESTS'] ?? 240),
+        (int) ($_ENV['RATE_LIMIT_WINDOW'] ?? 60),
+        prefix: 'user',
+        perUser: true,
+    );
 
     // NB: route/group closures must NOT be `static` — Slim binds them to the
     // container via Closure::bindTo(), which returns null for static closures.
@@ -70,7 +80,7 @@ return static function (App $app): void {
     $app->get('/api/docs', Action\Docs\SwaggerUiAction::class);
     $app->get('/api/docs/openapi.json', Action\Docs\OpenApiAction::class);
 
-    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions): void {
+    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions, $userLimit): void {
         // ----- Public -----
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
         $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
@@ -425,7 +435,9 @@ return static function (App $app): void {
         })
             // A suspended / not-yet-approved doctor, or one who owes the terms
             // acceptance, is kept out of clinical work (runs after the auth below).
+            // Slim runs the last-added first: auth → per-user limit → standing.
             ->add(\App\Infrastructure\Middleware\DoctorStandingMiddleware::class)
+            ->add($userLimit)
             ->add(new AuthMiddleware($jwt, $sessions));
 
         // ----- Customer portal (customer audience) -----
@@ -520,6 +532,9 @@ return static function (App $app): void {
             $group->post('/support/tickets', Action\Support\CreateTicketAction::class);
             $group->get('/support/tickets/{id}', Action\Support\GetMyTicketAction::class);
             $group->post('/support/tickets/{id}/messages', Action\Support\ReplyToMyTicketAction::class);
-        })->add(new CustomerAuthMiddleware($jwt, $sessions));
+        })
+            // Slim runs the last-added first: auth → per-user limit.
+            ->add($userLimit)
+            ->add(new CustomerAuthMiddleware($jwt, $sessions));
     });
 };

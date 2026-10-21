@@ -44,7 +44,9 @@ final class CorsMiddleware implements MiddlewareInterface
             ->withHeader('Vary', 'Origin')
             ->withHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With')
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-            ->withHeader('Access-Control-Max-Age', '86400');
+            ->withHeader('Access-Control-Max-Age', '86400')
+            // Readable by the portals, so a 429 can back off for exactly as long as asked.
+            ->withHeader('Access-Control-Expose-Headers', 'Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining');
 
         // Credentials may only be combined with a specific, allow-listed origin —
         // never with a reflected/wildcard origin (that would defeat the same-origin

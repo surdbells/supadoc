@@ -21,10 +21,27 @@ import { SessionTimeoutService } from './session-timeout.service';
         <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning">
           <sd-icon name="clock" [size]="18" />
         </span>
-        <p class="min-w-0 flex-1 font-sans text-body-sm text-ink">
-          <strong class="font-semibold">Your session ends at {{ deadlineTime() }}.</strong>
-          For your security you'll need to sign in again then — save any work before that time.
-        </p>
+        <div class="min-w-0 flex-1 font-sans text-body-sm text-ink">
+          @if (session.holding()) {
+            <p>
+              <strong class="font-semibold">Your sign-in ends at {{ deadlineTime() }}.</strong>
+              Your call carries on. To keep saving to your account after that time, sign in again in a
+              new tab — this call isn't interrupted.
+            </p>
+            <button
+              type="button"
+              class="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-semibold text-white transition-colors hover:bg-cerulean-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              (click)="signInInNewTab()"
+            >
+              <sd-icon name="external-link" [size]="16" /> Sign in again (new tab)
+            </button>
+          } @else {
+            <p>
+              <strong class="font-semibold">Your session ends at {{ deadlineTime() }}.</strong>
+              For your security you'll need to sign in again then — save any work before that time.
+            </p>
+          }
+        </div>
         <button
           type="button"
           class="shrink-0 rounded-full p-1 text-slate transition-colors hover:bg-glacier hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
@@ -97,5 +114,13 @@ export class SessionTimeoutDialog {
 
   protected stay(): void {
     this.session.staySignedIn();
+  }
+
+  /**
+   * The sign-in page in a NEW tab, so a live call is never interrupted. The new
+   * session reaches this tab by itself (shared storage).
+   */
+  protected signInInNewTab(): void {
+    window.open(this.session.loginUrl, '_blank', 'noopener');
   }
 }

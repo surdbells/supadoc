@@ -1898,6 +1898,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * nobody else is in it (a doctor still in the channel may be saying goodbye).
    */
   private async checkConsultationClosed(): Promise<void> {
+    // Signed out mid-call (the page leaves once the call ends): nothing to ask the API.
+    if (!this.auth.isAuthenticated()) return;
     try {
       const res = await firstValueFrom(this.appointments.getMine(this.appointmentId));
       this.appointment.set(res.data);
@@ -1955,7 +1957,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     if (this.heartbeatStop) return;
     const url = this.appointments.presenceUrl(this.appointmentId);
     const client = this.client;
-    this.heartbeatStop = startCallPresence((s) =>
+    this.heartbeatStop = startCallPresence((s) => {
+      // Signed out mid-call: a beat without a token is only refused (and logged) — skip it.
+      if (!this.auth.isAuthenticated()) return;
       sendCallPresence(url, s, this.authHeader(), {
         onBeat: (beat) => {
           if (client !== this.client) return;
@@ -1965,8 +1969,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         onRefused: () => {
           if (client === this.client) void this.checkConsultationClosed();
         },
-      }),
-    );
+      });
+    });
   }
 
   /** Stop the heartbeat, saying "out" (a no-op when none is running). */
@@ -2142,6 +2146,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * tab when a new script arrives and the patient isn't already looking at it.
    */
   private async refreshClinical(): Promise<void> {
+    if (!this.auth.isAuthenticated()) return;
     try {
       const rx = await firstValueFrom(this.appointments.prescriptions(this.appointmentId));
       const list = rx.data ?? [];
@@ -2360,6 +2365,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private startRecordingPoll(): void {
     if (this.recordingPoll) return;
     const check = async (): Promise<void> => {
+      if (!this.auth.isAuthenticated()) return;
       try {
         const res = await firstValueFrom(this.appointments.recordings(this.appointmentId));
         this.recordingActive.set(res.data?.active === true);
@@ -2394,7 +2400,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private startMetricsReport(): void {
     if (this.metricsTimer) return;
     const report = (): void => {
-      if (!this.client) return;
+      if (!this.client || !this.auth.isAuthenticated()) return;
       let rtt: number | null = null;
       try {
         const stats = this.client.getRTCStats();
@@ -2436,6 +2442,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   private async loadCaptions(): Promise<void> {
+    if (!this.auth.isAuthenticated()) return;
     try {
       const res = await firstValueFrom(this.appointments.transcript(this.appointmentId));
       this.captions.set(res.data ?? []);

@@ -21,7 +21,7 @@ use DateTimeImmutable;
  * `$absoluteTimeout`. Authenticated requests refresh the activity timestamp
  * (throttled), so the idle clock only runs while nothing talks to the API.
  */
-final class SessionService
+final class SessionService implements SessionStateReader
 {
     public function __construct(
         private readonly SessionRepository $sessions,
@@ -86,6 +86,26 @@ final class SessionService
         return $this->evaluate($session, $touch, fn () => $this->staffSessions->save($session));
     }
 
+    /**
+     * Why an expired patient session ran out ('idle' / 'lifetime'), or null
+     * when it is live, revoked or unknown. Read-only; right after
+     * {@see customerState()} the session comes from the identity map (no query).
+     */
+    public function customerExpiryReason(string $id): ?string
+    {
+        $session = $id === '' ? null : $this->sessions->find($id);
+
+        return $session instanceof Session ? $this->expiryReason($session) : null;
+    }
+
+    /** Why an expired staff session ran out; see {@see customerExpiryReason()}. */
+    public function staffExpiryReason(string $id): ?string
+    {
+        $session = $id === '' ? null : $this->staffSessions->find($id);
+
+        return $session instanceof StaffSession ? $this->expiryReason($session) : null;
+    }
+
     /** Sign out a session by its jti, whichever audience it belongs to. */
     public function revokeById(string $id): void
     {
@@ -147,6 +167,13 @@ final class SessionService
     public function idleTimeout(): int
     {
         return $this->idleTimeout;
+    }
+
+    private function expiryReason(Session|StaffSession $session): ?string
+    {
+        return $session->isRevoked()
+            ? null
+            : $session->expiryReason(new DateTimeImmutable(), $this->idleTimeout, $this->absoluteTimeout);
     }
 
     /** @param callable():void $persist */

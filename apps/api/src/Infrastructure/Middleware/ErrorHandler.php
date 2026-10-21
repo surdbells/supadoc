@@ -74,7 +74,8 @@ final class ErrorHandler
     {
         return match (true) {
             $e instanceof ValidationException          => [422, $e->getMessage(), $e->getErrors()],
-            $e instanceof AuthenticationException       => [401, $e->getMessage(), []],
+            // A token / session refusal carries {auth, code}; a wrong password, none.
+            $e instanceof AuthenticationException       => [401, $e->getMessage(), $e->errors()],
             $e instanceof EntityNotFoundException       => [404, $e->getMessage(), []],
             $e instanceof HttpNotFoundException         => [404, 'Not found', []],
             // A business-rule violation (e.g. an illegal appointment transition):

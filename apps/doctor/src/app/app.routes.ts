@@ -33,7 +33,11 @@ export const appRoutes: Route[] = [
   },
   {
     path: '',
+    // Every page, not just the shell: a token about to expire is refreshed
+    // first (before the standing guard reads /api/doctor/onboarding), and a
+    // signed-out doctor never sees one.
     canActivate: [staffAuthGuard],
+    canActivateChild: [staffAuthGuard],
     loadComponent: () => import('./doctor-shell').then((m) => m.DoctorShell),
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },

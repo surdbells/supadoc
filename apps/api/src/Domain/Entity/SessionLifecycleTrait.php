@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Entity;
 
+use App\Domain\Enum\SessionState;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 
@@ -47,12 +48,28 @@ trait SessionLifecycleTrait
      */
     public function isExpired(DateTimeImmutable $now, int $idleSeconds, int $absoluteSeconds): bool
     {
-        $nowTs = $now->getTimestamp();
-        if ($idleSeconds > 0 && $nowTs - $this->getLastActiveAt()->getTimestamp() > $idleSeconds) {
-            return true;
+        return $this->expiryReason($now, $idleSeconds, $absoluteSeconds) !== null;
+    }
+
+    /**
+     * Why the session has run out at `$now`: 'idle' (no activity for longer than
+     * `$idleSeconds`) or 'lifetime' (older than `$absoluteSeconds`), whichever
+     * limit was crossed first (a tie counts as 'lifetime'); null while it is
+     * still within both. A non-positive limit disables that check.
+     */
+    public function expiryReason(DateTimeImmutable $now, int $idleSeconds, int $absoluteSeconds): ?string
+    {
+        $nowTs  = $now->getTimestamp();
+        $idleAt = $idleSeconds > 0 ? $this->getLastActiveAt()->getTimestamp() + $idleSeconds : null;
+        $lifeAt = $absoluteSeconds > 0 ? $this->createdAt->getTimestamp() + $absoluteSeconds : null;
+        $idle   = $idleAt !== null && $nowTs > $idleAt;
+        $life   = $lifeAt !== null && $nowTs > $lifeAt;
+
+        if ($idle && (!$life || $idleAt < $lifeAt)) {
+            return SessionState::REASON_IDLE;
         }
 
-        return $absoluteSeconds > 0 && $nowTs - $this->createdAt->getTimestamp() > $absoluteSeconds;
+        return $life ? SessionState::REASON_LIFETIME : null;
     }
 
     /**

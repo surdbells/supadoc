@@ -104,7 +104,7 @@ describe('AdminSpecialists — New specialist', () => {
         provideSupadocIcons(),
         { provide: API_CONFIG, useValue: { baseUrl: BASE } },
         // No review badge reads.
-        { provide: StaffAuthService, useValue: { hasPermission: () => false } },
+        { provide: StaffAuthService, useValue: { hasPermission: () => false, isAuthenticated: () => true } },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(AdminSpecialists);

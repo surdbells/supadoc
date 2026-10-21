@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { isSessionEndError } from '@supadoc/auth';
 import { apiErrorMessage, DoctorApi, todayLocal } from '@supadoc/data-access';
 import type { CredentialType, DoctorOnboardingDto, OnboardingItemKey, SpecialistCredentialDto } from '@supadoc/models';
 import { AlertComponent, ButtonComponent, DialogService, IconComponent } from '@supadoc/ui';
@@ -345,6 +346,8 @@ export class DoctorOnboarding implements OnInit {
           this.loading.set(false);
         },
         error: (err: unknown) => {
+          // The session ended: the sign-in page is on its way (with the reason) — no error here.
+          if (isSessionEndError(err)) return;
           this.loadError.set(apiErrorMessage(err, 'Could not load your onboarding checklist.'));
           this.loading.set(false);
         },

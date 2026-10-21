@@ -12,7 +12,11 @@ use stdClass;
  * Stateless JWT. One signing secret serves several audiences via a `scope`
  * claim (staff / customer / investor); the audience-scoped middleware reject
  * tokens minted for a different scope (see ARCHITECTURE §8). Permissions ride
- * in the token, so a permission change only takes effect at next sign-in.
+ * in the access token, but every refresh re-reads the user's roles and
+ * permissions (AuthService::refresh), so a change applies within one access
+ * token lifetime (JWT_ACCESS_TTL). The refresh token is not rotated: its `exp`
+ * is the session's absolute lifetime (JWT_REFRESH_TTL), and the session behind
+ * its `jti` decides whether it still works.
  */
 final class JwtService
 {

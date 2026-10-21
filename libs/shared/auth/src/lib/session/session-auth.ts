@@ -4,28 +4,54 @@ import { InjectionToken, Signal } from '@angular/core';
 export type SessionEndReason = 'idle' | 'expired' | 'revoked' | 'elsewhere';
 
 /**
- * What the idle/expiry machinery needs from an auth silo. Both the patient
- * `AuthService` and the staff `StaffAuthService` implement it, so one
- * {@link SessionTimeoutService} serves every portal.
+ * What the request handler ({@link handleSessionRequest}) needs from an auth
+ * silo: the access token, and a way to renew it or end the session.
  */
-export interface SessionAuth {
+export interface TokenSession {
+  readonly token: Signal<string | null>;
   readonly isAuthenticated: Signal<boolean>;
+  /** Whether a refresh token is stored (an expired access token can be renewed). */
+  hasRefreshToken(): boolean;
+  /**
+   * Exchange the refresh token for a new access token — one request however
+   * many callers. False when it failed: definitively (the session was ended)
+   * or for now (offline, 5xx, rate limited — still signed in, backing off).
+   */
+  refresh(): Promise<boolean>;
+  /**
+   * Resolve once the access token is good for at least `minMs` more (default
+   * 60 s): waits for a refresh already running, refreshes once when the token
+   * is about to expire, and never throws or loops.
+   */
+  ensureFreshToken(minMs?: number): Promise<void>;
   /**
    * End the session involuntarily (idle timeout, expiry, server rejection):
    * revoke it server-side, clear it locally (and in other tabs) and leave a
    * notice for the sign-in screen explaining why.
    */
   expire(reason: SessionEndReason, message?: string): void;
+}
+
+/**
+ * What the idle/expiry machinery needs from an auth silo. Both the patient
+ * `AuthService` and the staff `StaffAuthService` implement it, so one
+ * {@link SessionTimeoutService} serves every portal.
+ */
+export interface SessionAuth extends TokenSession {
   /** Sign out on purpose (no notice). */
   logout(): unknown;
   /** Touch the server session so its idle clock restarts (refreshing if needed). */
   keepAlive(): Promise<void>;
   /** Epoch ms when the session hits its absolute lifetime, or null if unknown. */
   sessionDeadline(): number | null;
+  /** Epoch ms (this device's clock) when the access token expires, or null if unknown. */
+  accessExpiresAt(): number | null;
   /** Remember where to return after signing back in. */
   rememberRedirect(url: string): void;
   /** localStorage key holding the last-activity timestamp shared across tabs. */
   readonly activityKey: string;
 }
 
-export const SESSION_AUTH = new InjectionToken<SessionAuth>('SUPADOC_SESSION_AUTH');
+export const SESSION_AUTH = new InjectionToken<SessionAuth>(
+  'SUPADOC_SESSION_AUTH',
+);

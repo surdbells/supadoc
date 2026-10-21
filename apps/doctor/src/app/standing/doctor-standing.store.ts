@@ -1,5 +1,6 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { StaffAuthService } from '@supadoc/auth';
 import { DoctorApi } from '@supadoc/data-access';
 import type { DoctorOnboardingDto, DoctorStandingCode, DoctorStandingDto } from '@supadoc/models';
 import { isBlockingStanding } from './standing-rules';
@@ -12,11 +13,20 @@ const FRESH_MS = 60_000;
  * (status, checklist, documents, terms, licence, suspension) and whether they
  * may do clinical work now. The route guard, the 403 interceptor, the shell's
  * terms banner, the dashboard and the onboarding pages all read it; a page
- * that loads the payload itself hands it over with `set()`.
+ * that loads the payload itself hands it over with `set()`. It forgets the
+ * doctor the moment the session ends, however it ends (idle, expiry, another
+ * tab), so the next sign-in never sees the last one's standing.
  */
 @Injectable({ providedIn: 'root' })
 export class DoctorStandingStore {
   private readonly api = inject(DoctorApi);
+  private readonly auth = inject(StaffAuthService);
+
+  constructor() {
+    effect(() => {
+      if (!this.auth.isAuthenticated()) untracked(() => this.clear());
+    });
+  }
 
   /** GET /api/doctor/onboarding, once loaded (null before, or when it couldn't be read). */
   readonly onboarding = signal<DoctorOnboardingDto | null>(null);
@@ -41,9 +51,11 @@ export class DoctorStandingStore {
    * resolves to what is known (null when it can't be read; the API still
    * enforces everything). A forced load always reads afresh — after a read
    * already in flight, which began before whatever made it forced — and
-   * resolves to null, never an older copy, when that read fails.
+   * resolves to null, never an older copy, when that read fails. Signed out:
+   * null at once, with no request.
    */
   load(force = false): Promise<DoctorOnboardingDto | null> {
+    if (!this.auth.isAuthenticated()) return Promise.resolve(null);
     const known = this.onboarding();
     if (!force && known && Date.now() - this.loadedAt < FRESH_MS) return Promise.resolve(known);
     if (!this.inflight) return this.read(force);
@@ -68,7 +80,8 @@ export class DoctorStandingStore {
         this.set(res.data);
         return res.data;
       })
-      .catch(() => (force ? null : this.onboarding()))
+      // The session ended under the read: forget the doctor rather than keep a copy.
+      .catch(() => (force || !this.auth.isAuthenticated() ? null : this.onboarding()))
       .finally(() => {
         if (this.inflight === req) this.inflight = null;
       });

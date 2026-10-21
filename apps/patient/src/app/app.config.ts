@@ -11,7 +11,6 @@ import {
 } from '@supadoc/data-access';
 import {
   AuthService,
-  authInterceptor,
   provideSessionTimeout,
   provideSupadocAuth,
   refreshInterceptor,
@@ -26,13 +25,10 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(appRoutes),
     provideHttpClient(
-      // refreshInterceptor is last so it runs innermost and sees the raw 401
-      // (before httpErrorInterceptor maps it) to refresh + retry.
-      withInterceptors([
-        authInterceptor,
-        httpErrorInterceptor,
-        refreshInterceptor,
-      ]),
+      // refreshInterceptor is innermost: it attaches the bearer, refreshes a
+      // token about to expire before sending, and sees the raw 401 to refresh +
+      // retry — so httpErrorInterceptor (outside) never logs a handled expiry.
+      withInterceptors([httpErrorInterceptor, refreshInterceptor]),
     ),
     provideSupadocDataAccess({
       baseUrl: environment.apiBaseUrl,

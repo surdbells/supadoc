@@ -30,7 +30,9 @@ export const appConfig: ApplicationConfig = {
     { provide: RouteReuseStrategy, useClass: DoctorRouteReuseStrategy },
     provideHttpClient(
       // Outermost: sees a standing refusal (403) after any token refresh, already normalised.
-      withInterceptors([doctorStandingInterceptor, staffAuthInterceptor, httpErrorInterceptor]),
+      // staffAuthInterceptor is innermost: it sees the raw 401 to refresh + retry,
+      // so httpErrorInterceptor never logs a handled token expiry.
+      withInterceptors([doctorStandingInterceptor, httpErrorInterceptor, staffAuthInterceptor]),
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Doctor silo: its own token key, and only `doctor` accounts may sign in.

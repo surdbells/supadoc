@@ -9,7 +9,16 @@ export * from './lib/staff-auth.interceptor';
 export * from './lib/staff-auth.guard';
 export * from './lib/provide-staff-auth';
 export * from './lib/session/session-auth';
+export * from './lib/session/session-http';
 export * from './lib/session/session-notice';
 export * from './lib/session/session-timeout.service';
 export * from './lib/session/session-timeout-dialog';
+export {
+  classifyAuth401,
+  endReasonFor,
+  isSafeReturnUrl,
+  isSessionEndError,
+  jwtSubject,
+  RELOAD_PAGE,
+} from './lib/session/session-utils';
 export * from './lib/unsaved-changes.guard';

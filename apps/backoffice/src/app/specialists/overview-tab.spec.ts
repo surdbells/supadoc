@@ -96,7 +96,7 @@ describe('SpecialistOverviewTab — specialty and photo', () => {
         provideHttpClientTesting(),
         provideSupadocIcons(),
         { provide: API_CONFIG, useValue: { baseUrl: BASE } },
-        { provide: StaffAuthService, useValue: { hasPermission: () => false } },
+        { provide: StaffAuthService, useValue: { hasPermission: () => false, isAuthenticated: () => true } },
       ],
     }).compileComponents();
     asked = [];

@@ -25,20 +25,38 @@ return static function (App $app): void {
     $debug     = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
     $logger    = $container->get(LoggerInterface::class);
 
-    // Added 1st → runs LAST.
-    $rateLimit = new RateLimitMiddleware(
-        $container->get(RedisClient::class),
-        (int) ($_ENV['RATE_LIMIT_REQUESTS'] ?? 60),
-        (int) ($_ENV['RATE_LIMIT_WINDOW'] ?? 60),
-    );
+    // Added 1st → runs LAST. Per-IP buckets, kept apart by prefix (the
+    // per-user limit lives on the authenticated route groups, after auth —
+    // see config/routes.php):
+    //  - anonymous traffic, incl. every sign-in / OTP endpoint (brute force);
+    //  - token refresh + sign-out, so a busy clinic NAT can always refresh;
+    //  - bearer requests to authenticated routes: a coarse flood guard for a
+    //    clinic behind one address (users are limited one by one after auth).
+    $redis  = $container->get(RedisClient::class);
+    $window = (int) ($_ENV['RATE_LIMIT_WINDOW'] ?? 60);
+    $rateLimit = new RateLimitMiddleware($redis, (int) ($_ENV['RATE_LIMIT_REQUESTS'] ?? 60), $window, 'ip');
+    $authLimit = new RateLimitMiddleware($redis, (int) ($_ENV['RATE_LIMIT_AUTH_REQUESTS'] ?? 60), $window, 'auth');
+    $bearerIpLimit = new RateLimitMiddleware($redis, (int) ($_ENV['RATE_LIMIT_BEARER_IP_REQUESTS'] ?? 1200), $window, 'bearer');
     // Paystack's webhook is exempt: every event comes from Paystack's few
     // addresses (a busy minute would be throttled into retries and delays),
     // and it is gated by its mandatory HMAC signature instead.
     // NOT `static`: Slim binds closure middleware to the container, and binding
     // a static closure fails — every request would then be a fatal error.
-    $app->add(function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($rateLimit): ResponseInterface {
-        if (rtrim($request->getUri()->getPath(), '/') === '/api/webhooks/paystack') {
+    $app->add(function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($rateLimit, $authLimit, $bearerIpLimit): ResponseInterface {
+        $path = rtrim($request->getUri()->getPath(), '/');
+        if ($path === '/api/webhooks/paystack') {
             return $handler->handle($request);
+        }
+        if ($path === '/api/auth/refresh' || $path === '/api/auth/logout') {
+            return $authLimit->process($request, $handler);
+        }
+        // Only authenticated routes get the roomier bearer bucket: the public,
+        // sign-in and OTP endpoints stay on the anonymous one whatever headers
+        // arrive (a made-up bearer must not lift the brute-force limit).
+        $anonymousRoute = !str_starts_with($path, '/api/')
+            || preg_match('#^/api/(auth|portal/auth|public|webhooks|docs)(/|$)#', $path) === 1;
+        if (!$anonymousRoute && preg_match('/^Bearer\s+\S/i', $request->getHeaderLine('Authorization')) === 1) {
+            return $bearerIpLimit->process($request, $handler);
         }
 
         return $rateLimit->process($request, $handler);

@@ -120,7 +120,7 @@ describe('AppointmentResolveDialog', () => {
         provideSupadocIcons(),
         { provide: API_CONFIG, useValue: { baseUrl: BASE } },
         // No settings.manage: the no-show shares stay generic and nothing loads them.
-        { provide: StaffAuthService, useValue: { hasPermission: () => false } },
+        { provide: StaffAuthService, useValue: { hasPermission: () => false, isAuthenticated: () => true } },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(HostComponent);

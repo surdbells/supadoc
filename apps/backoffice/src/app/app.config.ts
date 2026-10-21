@@ -25,7 +25,9 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(appRoutes),
     provideHttpClient(
-      withInterceptors([staffAuthInterceptor, httpErrorInterceptor]),
+      // staffAuthInterceptor is innermost: it sees the raw 401 to refresh + retry,
+      // so httpErrorInterceptor never logs a handled token expiry.
+      withInterceptors([httpErrorInterceptor, staffAuthInterceptor]),
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Back-office silo: its own token key; nav/routes gate on RBAC permissions.

@@ -81,7 +81,7 @@ describe('AdminReferenceData', () => {
         provideHttpClientTesting(),
         provideSupadocIcons(),
         { provide: API_CONFIG, useValue: { baseUrl: BASE } },
-        { provide: StaffAuthService, useValue: { hasPermission: (p: string) => perms.has(p) } },
+        { provide: StaffAuthService, useValue: { hasPermission: (p: string) => perms.has(p), isAuthenticated: () => true } },
       ],
     }).compileComponents();
     asked = [];

@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
-import { ApiService, apiErrorMessage } from '@supadoc/data-access';
+import { firstValueFrom, timeout } from 'rxjs';
+import { ApiService, apiErrorCode, apiErrorMessage, apiErrorReason } from '@supadoc/data-access';
 import type { StaffLoginData, StaffUserDto } from '@supadoc/models';
 import { STAFF_AUTH_CONFIG } from './provide-staff-auth';
 import type { SessionAuth, SessionEndReason } from './session/session-auth';
@@ -9,11 +9,19 @@ import {
   SESSION_END_MESSAGES,
   setSessionNotice,
 } from './session/session-notice';
+import { clearReturnTarget, readReturnTarget, returnUrlFor, writeReturnTarget } from './session/return-url';
+import { REFRESH_TIMEOUT_MS, RefreshBackoff, withRefreshLock } from './session/session-refresh';
 import {
-  isDefinitiveAuthFailure,
   clockOffsetFrom,
+  endReasonFor,
+  isDefinitiveAuthFailure,
+  isSafeReturnUrl,
+  jwtSubject,
   localExpiryMs,
   readEndedMarker,
+  refreshMarginMs,
+  RELOAD_PAGE,
+  retryAfterMsOf,
   writeEndedMarker,
 } from './session/session-utils';
 
@@ -31,13 +39,17 @@ const REDIRECT_KEY = 'videomed.staff.redirect';
 export class StaffAuthService implements SessionAuth {
   private readonly api = inject(ApiService);
   private readonly config = inject(STAFF_AUTH_CONFIG);
+  private readonly reloadPage = inject(RELOAD_PAGE);
 
   private readonly _token = signal<string | null>(this.read(this.tokenKey));
   private readonly _user = signal<StaffUserDto | null>(this.readUser());
+  private readonly backoff = new RefreshBackoff();
 
   readonly token = this._token.asReadonly();
   readonly user = this._user.asReadonly();
   readonly isAuthenticated = computed(() => this._token() !== null);
+  /** The signed-in staff user's id (the access token's `sub`), or null. */
+  readonly subject = computed(() => jwtSubject(this._token()));
   readonly roles = computed(() => this._user()?.roles ?? []);
   readonly permissions = computed(() => this._user()?.permissions ?? []);
   readonly displayName = computed(() => {
@@ -166,41 +178,93 @@ export class StaffAuthService implements SessionAuth {
 
   private refreshInFlight: Promise<boolean> | null = null;
 
-  /** Exchange the refresh token for a fresh access token (shared in-flight). */
+  /**
+   * Exchange the refresh token for a fresh access token (one request however
+   * many callers). False when it failed: a definitive rejection has then ended
+   * the session; a transient one (offline, 5xx, 429) leaves the user signed in
+   * and makes further attempts wait a little (see {@link RefreshBackoff}).
+   */
   refresh(): Promise<boolean> {
     if (this.refreshInFlight) return this.refreshInFlight;
+    if (this.backoff.blocked()) return Promise.resolve(false);
     this.refreshInFlight = this.doRefresh().finally(() => {
       this.refreshInFlight = null;
     });
     return this.refreshInFlight;
   }
 
+  /** {@inheritDoc TokenSession.ensureFreshToken} */
+  async ensureFreshToken(minMs = 60_000): Promise<void> {
+    if (this.refreshInFlight) {
+      await this.refreshInFlight;
+      return;
+    }
+    const token = this._token();
+    if (token === null || !this.hasRefreshToken() || this.backoff.blocked()) return;
+    const exp = this.accessExpiresAt();
+    // An opaque token (no readable expiry) is never refreshed ahead — no loop.
+    if (exp === null || exp - Date.now() > refreshMarginMs(token, minMs)) return;
+    await this.refresh();
+  }
+
+  /** {@inheritDoc SessionAuth.accessExpiresAt} */
+  accessExpiresAt(): number | null {
+    return localExpiryMs(this._token(), this.clockOffset());
+  }
+
   private async doRefresh(): Promise<boolean> {
     const refresh = this.read(this.refreshKey);
     if (!refresh) return false;
-    try {
-      const res = await firstValueFrom(
-        this.api.post<{ data: { access_token?: string } }>(
-          'api/auth/refresh',
-          { refresh_token: refresh },
-        ),
-      );
-      const access = res?.data?.access_token;
-      if (!access) {
-        this.expire('expired');
+    const before = this._token();
+    return withRefreshLock(`${this.tokenKey}.refresh`, async () => {
+      // Another tab refreshed while this one waited for the lock: use its token.
+      if (this.adoptStoredToken(before)) return true;
+      try {
+        const res = await firstValueFrom(
+          this.api
+            .post<{ data: { access_token?: string } }>('api/auth/refresh', {
+              refresh_token: refresh,
+            })
+            // An unanswered refresh is a transient failure (no status → back-off below).
+            .pipe(timeout({ first: REFRESH_TIMEOUT_MS })),
+        );
+        // Signed out (or someone else signed in) meanwhile: never bring this session back.
+        if (this.read(this.refreshKey) !== refresh) return this._token() !== null;
+        const access = res?.data?.access_token;
+        if (!access) {
+          this.expire('expired');
+          return false;
+        }
+        this.backoff.reset();
+        this._token.set(access);
+        this.write(this.tokenKey, access);
+        this.write(this.clockKey, String(clockOffsetFrom(access)));
+        return true;
+      } catch (err) {
+        if (this.read(this.refreshKey) !== refresh) return this._token() !== null;
+        // Only a definitive rejection ends the session — offline / 5xx / a CDN error page must not.
+        if (isDefinitiveAuthFailure(err)) {
+          this.expire(
+            endReasonFor(apiErrorCode(err), apiErrorReason(err)),
+            apiErrorMessage(err, SESSION_END_MESSAGES.expired),
+          );
+        } else {
+          this.backoff.fail(retryAfterMsOf(err));
+        }
         return false;
       }
-      this._token.set(access);
-      this.write(this.tokenKey, access);
-      this.write(this.clockKey, String(clockOffsetFrom(access)));
-      return true;
-    } catch (err) {
-      // Only a definitive rejection ends the session — offline / 5xx must not.
-      if (isDefinitiveAuthFailure(err)) {
-        this.expire('expired', apiErrorMessage(err, SESSION_END_MESSAGES.expired));
-      }
-      return false;
-    }
+    });
+  }
+
+  /** A token another tab stored since `before`, with a minute or more left, is adopted. */
+  private adoptStoredToken(before: string | null): boolean {
+    const stored = this.read(this.tokenKey);
+    if (stored === null || stored === before || jwtSubject(stored) !== jwtSubject(before)) return false;
+    const exp = localExpiryMs(stored, this.clockOffset());
+    if (exp === null || exp - Date.now() <= 60_000) return false;
+    if (this._token() !== stored) this._token.set(stored);
+    this.backoff.reset();
+    return true;
   }
 
   /**
@@ -210,6 +274,8 @@ export class StaffAuthService implements SessionAuth {
   logout(): void {
     const refresh = this.read(this.refreshKey);
     writeEndedMarker(this.endedKey, { reason: 'signed-out' });
+    // A page remembered for this user is not for whoever signs in next.
+    clearReturnTarget(REDIRECT_KEY);
     this.clear();
     this.revokeOnServer(refresh);
   }
@@ -218,6 +284,7 @@ export class StaffAuthService implements SessionAuth {
   expire(reason: SessionEndReason, message?: string): void {
     if (this._token() === null && !this.hasRefreshToken()) return;
     const refresh = this.read(this.refreshKey);
+    this.tieReturnTarget();
     setSessionNotice(reason, message);
     writeEndedMarker(this.endedKey, { reason, message });
     this.clear();
@@ -232,8 +299,28 @@ export class StaffAuthService implements SessionAuth {
   /** {@inheritDoc SessionAuth.sessionDeadline} */
   sessionDeadline(): number | null {
     // Token expiries are server time; translate to this device's clock.
-    const offset = Number(this.read(this.clockKey) ?? 0) || 0;
+    const offset = this.clockOffset();
     return localExpiryMs(this.read(this.refreshKey), offset) ?? localExpiryMs(this._token(), offset);
+  }
+
+  /**
+   * Device-clock minus server-clock (ms), from when the current token was
+   * issued — to compare a time taken on this device with one the API gave.
+   */
+  clockOffset(): number {
+    return Number(this.read(this.clockKey) ?? 0) || 0;
+  }
+
+  /**
+   * The session is ending under this user: whatever page is remembered next
+   * in this tab (the one they were on) is theirs only.
+   */
+  private tieReturnTarget(): void {
+    const sub = jwtSubject(this._token());
+    if (sub === null) return;
+    const prev = readReturnTarget(REDIRECT_KEY);
+    const url = prev && (!prev.sub || prev.sub === sub) ? prev.url : undefined;
+    writeReturnTarget(REDIRECT_KEY, { url, sub });
   }
 
   private revokeOnServer(refresh: string | null): void {
@@ -245,43 +332,54 @@ export class StaffAuthService implements SessionAuth {
 
   /** Mirror a sign-in, token refresh or sign-out made in another tab. */
   private onStorage(e: StorageEvent): void {
+    // The user is written after the token (see `store`): the token's event can
+    // arrive before it, so take the user (roles, name) when its own write lands.
+    if (e.key === this.userKey) {
+      this._user.set(this.readUser());
+      return;
+    }
     if (e.key !== null && e.key !== this.tokenKey) return;
     const next = e.key === null ? null : e.newValue;
-    if (next === this._token()) return;
+    const prev = this._token();
+    if (next === prev) return;
     if (next === null) {
-      if (this._token() !== null) {
+      if (prev !== null) {
         const marker = readEndedMarker(this.endedKey);
         setSessionNotice(
           marker && marker.reason !== 'signed-out' ? marker.reason : 'elsewhere',
           marker?.message,
         );
+        this.tieReturnTarget();
       }
       this._user.set(null);
     } else {
       this._user.set(this.readUser());
+      this.backoff.reset();
     }
     this._token.set(next);
+    // Someone else signed in in another tab: start this one over under them,
+    // rather than showing the previous user's page (and data) with their token.
+    if (next !== null && prev !== null && jwtSubject(next) !== jwtSubject(prev)) this.reloadPage();
   }
 
-  // ----- redirect memory (shared across staff apps via sessionStorage) -----
+  // ----- redirect memory (per tab, via sessionStorage) -----
 
+  /**
+   * Remember a page to return to after signing in. Only same-app paths are
+   * kept; a page left by an involuntary sign-out is tied to that user, so
+   * someone else signing in at this screen lands on their own home instead.
+   */
   rememberRedirect(url: string): void {
-    if (!url || url.startsWith('/auth')) return;
-    try {
-      sessionStorage.setItem(REDIRECT_KEY, url);
-    } catch {
-      /* best-effort */
-    }
+    if (!isSafeReturnUrl(url)) return;
+    const sub = jwtSubject(this._token()) ?? readReturnTarget(REDIRECT_KEY)?.sub ?? null;
+    writeReturnTarget(REDIRECT_KEY, { url, sub });
   }
 
+  /** The remembered page (cleared) — null when none, or when it was another user's. */
   consumeRedirect(): string | null {
-    try {
-      const url = sessionStorage.getItem(REDIRECT_KEY);
-      sessionStorage.removeItem(REDIRECT_KEY);
-      return url;
-    } catch {
-      return null;
-    }
+    const url = returnUrlFor(readReturnTarget(REDIRECT_KEY), jwtSubject(this._token()));
+    clearReturnTarget(REDIRECT_KEY);
+    return url;
   }
 
   // ----- storage -----
@@ -306,6 +404,7 @@ export class StaffAuthService implements SessionAuth {
   private store(access: string, refresh: string | null, user: StaffUserDto): void {
     // A fresh sign-in supersedes any "you were signed out" note still pending.
     consumeSessionNotice();
+    this.backoff.reset();
     this._token.set(access);
     this._user.set(user);
     this.write(this.tokenKey, access);

@@ -80,7 +80,8 @@ final class DoctorStandingMiddleware implements MiddlewareInterface
             // otherwise open with every patient's contact details.
             return self::alsoStaff($user->getRoles())
                 ? $handler->handle($request)
-                : $this->error(new Response(), self::PORTAL_ONLY, 403, ['code' => 'doctor_portal_only']);
+                // The human message first: a client showing the first error field shows words.
+                : $this->error(new Response(), self::PORTAL_ONLY, 403, ['standing' => self::PORTAL_ONLY, 'code' => 'doctor_portal_only']);
         }
         if ($user->getSpecialistId() === null) {
             return $handler->handle($request); // the action itself refuses an unlinked login

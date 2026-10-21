@@ -54,7 +54,16 @@ return [
         'description' => "Patient telehealth backend (Slim 4 · Doctrine · PostgreSQL).\n\n"
             . "Every response uses one envelope: `{status, message, data}`, plus `meta` when "
             . "paginated and `errors` on validation failures. Authenticate with a bearer token "
-            . "from a login endpoint; tokens are audience-scoped (staff vs customer).",
+            . "from a login endpoint; tokens are audience-scoped (staff vs customer).\n\n"
+            . "**401 contract.** Every 401 from an authenticated route or from `/api/auth/refresh` "
+            . "carries `errors: {auth: <message>, code, reason?}` (the human message first; `message` "
+            . "is unchanged). `token_missing`, `token_expired` and `token_invalid` mean *refresh the access "
+            . "token once and retry*; `token_wrong_audience` is a client bug (no refresh fixes it); "
+            . "`session_expired` (with `reason` `idle` or `lifetime`), `session_revoked`, `session_invalid`, "
+            . "`refresh_invalid`, `account_missing` and `account_deactivated` mean *the sign-in is over: "
+            . "sign out now*. A 401 without a code is a credential failure on a sign-in endpoint.\n\n"
+            . "**429.** Rate-limited requests answer 429 with `errors: {rate, code: rate_limited}` and a "
+            . "`Retry-After` header (seconds), exposed to browsers by CORS.",
     ],
     'servers' => [
         ['url' => 'http://localhost:8080', 'description' => 'Local dev'],
@@ -86,9 +95,46 @@ return [
                     'message' => ['type' => 'string', 'example' => 'Invalid email or password'],
                     'errors'  => [
                         'type'                 => 'object',
+                        'description'          => 'Field → message. May also carry a machine-readable `code` (e.g. `rate_limited`, `phone_proof_expired`, `doctor_portal_only`), always after a human message key.',
                         'additionalProperties' => ['type' => 'string'],
                         'nullable'             => true,
                         'example'              => ['email' => 'Email is required'],
+                    ],
+                ],
+            ],
+            'AuthError' => [
+                'type'        => 'object',
+                'description' => 'A refused token or session (401). Branch on `errors.code`, show `message`.',
+                'properties'  => [
+                    'status'  => ['type' => 'string', 'example' => 'error'],
+                    'message' => ['type' => 'string', 'example' => 'Invalid or expired token'],
+                    'errors'  => [
+                        'type'       => 'object',
+                        'required'   => ['auth', 'code'],
+                        'properties' => [
+                            'auth'   => ['type' => 'string', 'description' => 'The human message again (first key)', 'example' => 'Invalid or expired token'],
+                            'code'   => [
+                                'type'        => 'string',
+                                'enum'        => ['token_missing', 'token_expired', 'token_invalid', 'token_wrong_audience', 'session_expired', 'session_revoked', 'session_invalid', 'refresh_invalid', 'account_missing', 'account_deactivated'],
+                                'description' => 'token_missing / token_expired / token_invalid: refresh once and retry. token_wrong_audience: wrong portal\'s token, do not refresh. The rest: the sign-in is over, sign out.',
+                                'example'     => 'token_expired',
+                            ],
+                            'reason' => ['type' => 'string', 'enum' => ['idle', 'lifetime'], 'description' => 'session_expired only: idle window or absolute lifetime'],
+                        ],
+                    ],
+                ],
+            ],
+            'RateLimited' => [
+                'type'       => 'object',
+                'properties' => [
+                    'status'  => ['type' => 'string', 'example' => 'error'],
+                    'message' => ['type' => 'string', 'example' => 'Too many requests'],
+                    'errors'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'rate' => ['type' => 'string', 'example' => 'Too many requests. Please wait a moment and try again.'],
+                            'code' => ['type' => 'string', 'enum' => ['rate_limited']],
+                        ],
                     ],
                 ],
             ],
@@ -564,7 +610,11 @@ return [
             ],
         ],
         'responses' => [
-            'Unauthorized' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Missing/invalid token'],
+            'Unauthorized' => $json(['oneOf' => [['$ref' => '#/components/schemas/AuthError'], ['$ref' => '#/components/schemas/Error']]]) + ['description' => 'Missing / expired / invalid token or ended session (`errors.code`, see AuthError), or wrong credentials on a sign-in endpoint (no code)'],
+            'TooManyRequests' => $json(['$ref' => '#/components/schemas/RateLimited']) + [
+                'description' => 'Rate limited (`errors.code` rate_limited)',
+                'headers'     => ['Retry-After' => ['description' => 'Seconds until the limit resets', 'schema' => ['type' => 'integer']]],
+            ],
             'Forbidden'    => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Not allowed'],
             'NotFound'     => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Not found'],
             'Validation'   => $json(['$ref' => '#/components/schemas/Error']) + ['description' => 'Validation failed'],
@@ -1113,12 +1163,19 @@ return [
             'post' => [
                 'tags'        => ['Auth'],
                 'summary'     => 'Exchange a refresh token for a new access token',
+                'description' => 'The refresh token is not rotated; its expiry is the absolute session lifetime. Every 401 means the sign-in is over: '
+                    . '`session_expired` (`reason` lifetime: the refresh token expired; idle: no request for SESSION_IDLE_TIMEOUT), `session_revoked` '
+                    . '(signed out), `session_invalid` (no such session), `refresh_invalid` (malformed / bad signature / not a refresh token), '
+                    . '`account_missing`, `account_deactivated` (the session is revoked too). A 429 (own per-IP bucket, RATE_LIMIT_AUTH_REQUESTS) '
+                    . 'is transient: retry after `Retry-After`.',
                 'operationId' => 'refreshToken',
                 'security'    => [],
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['refresh_token'], 'properties' => ['refresh_token' => ['type' => 'string']]])],
                 'responses'   => [
                     '200' => ['description' => 'New access token', ...$json($envelope(['$ref' => '#/components/schemas/AccessToken']))],
-                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '401' => $json(['$ref' => '#/components/schemas/AuthError']) + ['description' => 'The sign-in is over (see the codes above)'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                    '429' => ['$ref' => '#/components/responses/TooManyRequests'],
                 ],
             ],
         ],
@@ -1957,7 +2014,8 @@ return [
             'post' => [
                 'tags'        => ['Portal'],
                 'summary'     => "Confirm the signed-in patient's phone number",
-                'description' => 'Consumes a verification_token from verify-otp and marks the number verified.',
+                'description' => 'Consumes a verification_token from verify-otp and marks the number verified. An expired or invalid proof is a 422 '
+                    . '(`errors.verification_token` + `errors.code` phone_proof_expired), not a 401: the sign-in itself is fine.',
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'required' => ['verification_token'], 'properties' => ['verification_token' => ['type' => 'string']]])],
                 'responses'   => [
                     '200' => ['description' => 'Verified', ...$json($envelope(['$ref' => '#/components/schemas/PatientProfile']))],

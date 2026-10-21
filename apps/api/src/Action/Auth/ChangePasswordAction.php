@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Auth;
 
 use App\Domain\Entity\User;
+use App\Domain\Enum\AuthErrorCode;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -40,7 +41,7 @@ final class ChangePasswordAction
 
         $user = $this->users->find($userId);
         if (!$user instanceof User) {
-            return $this->error($response, 'Not authenticated', 401);
+            return $this->authError($response, 'Not authenticated', AuthErrorCode::ACCOUNT_MISSING);
         }
 
         if (!$user->verifyPassword($current)) {

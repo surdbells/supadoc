@@ -9,7 +9,10 @@ export const appRoutes: Route[] = [
   },
   {
     path: '',
+    // Every page, not just the shell: a token about to expire is refreshed
+    // first, and a signed-out user never sees one.
     canActivate: [staffAuthGuard],
+    canActivateChild: [staffAuthGuard],
     loadComponent: () => import('./admin-shell').then((m) => m.AdminShell),
     children: [
       // Each user lands on the first page their role may open.

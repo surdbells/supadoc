@@ -113,7 +113,8 @@ DB_SERVER_VERSION=16          # set to your installed major (e.g. 17)
 
 JWT_SECRET=<openssl output>
 JWT_ACCESS_TTL=900
-JWT_REFRESH_TTL=1209600
+JWT_REFRESH_TTL=43200         # also the ABSOLUTE session lifetime (12h); never 1209600 (14 days)
+SESSION_IDLE_TIMEOUT=3600     # server idle limit; keep >= the portals' idle timeout + 5 min
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
@@ -128,6 +129,19 @@ REDIS_PREFIX=videomed:
 CORS_ALLOWED_ORIGINS=https://app.dosthq.com,https://backoffice.dosthq.com,https://doctor.dosthq.com
 # Used to build links in transactional emails:
 APP_WEB_URL=https://app.dosthq.com
+
+# How many proxies in front of the API append to X-Forwarded-For (Cloudflare,
+# nginx…): the rate limiter takes the client IP that many entries from the
+# right. Check against one real request's X-Forwarded-For on the box: set too
+# low and everyone behind Cloudflare shares one bucket; too high and the IP can
+# be spoofed.
+TRUSTED_PROXY_HOPS=1
+# Rate limits per RATE_LIMIT_WINDOW seconds (defaults shown; all optional):
+RATE_LIMIT_WINDOW=60
+RATE_LIMIT_REQUESTS=60              # anonymous traffic per IP, incl. sign-in + OTP endpoints
+RATE_LIMIT_AUTH_REQUESTS=60         # /api/auth/refresh + /api/auth/logout per IP (own bucket)
+RATE_LIMIT_BEARER_IP_REQUESTS=1200  # signed-in traffic per IP (a clinic behind one NAT address)
+RATE_LIMIT_USER_REQUESTS=240        # signed-in traffic per user
 ```
 
 Integrations (leave blank to **no-op** cleanly — nothing bills until configured):

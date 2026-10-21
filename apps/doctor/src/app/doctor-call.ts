@@ -23,8 +23,9 @@ import AgoraRTC, {
   ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
-import { type CanLeave, SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
+import { type CanLeave, isSessionEndError, SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
 import {
+  ApiService,
   apiErrorMessage,
   type CallPresenceState,
   DoctorApi,
@@ -71,6 +72,8 @@ import {
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import { FollowUpPlanner } from './appointment/follow-up-planner';
+import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointment/note-draft';
+import { callHoldWanted, FIRST_WAIT_HOLD_MS } from './call-hold';
 import { RxPanel } from './prescriptions/rx-panel';
 import { UNSAVED_RX_LEAVE } from './prescriptions/rx-shared';
 import {
@@ -113,6 +116,12 @@ const RECORDER_UID = '525252';
 
 /** At most one extra heartbeat (to refresh the participants) this often. */
 const ROSTER_REFRESH_MS = 3_000;
+
+/** The call screen's hold on the portal idle timeout (see `SessionTimeoutService.hold`). */
+const CALL_HOLD = 'call';
+
+/** Shown beside the note while it is kept on this device for a signed-out doctor. */
+const NOTE_KEPT_ON_DEVICE = 'Saved on this device — sign in to sync';
 
 /**
  * A token renewal that failed for a passing reason (network, server) is tried
@@ -723,9 +732,26 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
 
                   @if (!canDocument()) {
-                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
-                      Sign in to the doctor portal to document this consultation.
-                    </p>
+                    <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="status">
+                      <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                        @if (noteEditable()) {
+                          <span>
+                            You are signed out of the doctor portal. Keep writing — the note is kept on this device and
+                            saved to the record when you sign in again (in a new tab — this call keeps going).
+                          </span>
+                        } @else {
+                          <span>Sign in to the doctor portal to document this consultation.</span>
+                        }
+                      </span>
+                      <button
+                        type="button"
+                        class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                        (click)="openPortalSignIn()"
+                      >
+                        <sd-icon name="external-link" [size]="14" /> Sign in
+                      </button>
+                    </div>
                   }
                   @if (noteLoad() === 'loading') {
                     <p class="mb-3 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
@@ -1536,8 +1562,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly auth = inject(StaffAuthService);
+  private readonly api = inject(ApiService);
   private readonly doctorApi = inject(DoctorApi);
   private readonly session = inject(SessionTimeoutService);
+  private readonly drafts = inject(NoteDraftStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
@@ -1722,23 +1750,33 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    */
   protected readonly noteLoad = signal<LoadState>('idle');
   protected readonly noteFinalized = computed(() => this.noteStatus() === 'finalized');
-  protected readonly canDocument = computed(() => this.doctorToken() !== null);
-  protected readonly noteEditable = computed(
-    () => this.noteLoad() === 'ready' && !this.noteFinalized() && this.canDocument(),
-  );
+  /** Signed in to the portal (the clinical tools need it) — follows sign-in / sign-out, here or in another tab. */
+  protected readonly canDocument = computed(() => this.portalSignedIn());
+  /**
+   * The loaded draft note can be written in — signed in or not: an edit made
+   * after the session ended is kept on this device and saved to the record
+   * once the doctor signs in again (finalizing still needs a session).
+   */
+  protected readonly noteEditable = computed(() => this.noteLoad() === 'ready' && !this.noteFinalized());
+  /** Whose note this is (the portal user it loaded for) — a draft kept on the device is theirs only. */
+  private readonly noteSub = signal<string | null>(null);
 
   // ePrescribing (GVM-RX-02) — the shared <doc-rx-panel>, over the portal
   // session (DoctorApi + staffAuthInterceptor, which refreshes tokens).
   /** Bumped when the window regains focus, so the portal sign-in is re-checked. */
   private readonly authCheck = signal(0);
   /**
-   * Signed in to the doctor portal in this browser? The cockpit can be opened
-   * from an emailed join link without one. StaffAuthService mirrors a sign-in
-   * made in another tab; the focus tick re-evaluates on return to this tab.
+   * Signed in to the doctor portal in this browser — as the doctor this call's
+   * note loaded for? The cockpit can be opened from an emailed join link
+   * without one. StaffAuthService mirrors a sign-in made in another tab; the
+   * focus tick re-evaluates on return to this tab. Another doctor signing in
+   * on this machine mid-call counts as signed out here (the page reloads only
+   * after the call): the clinical actions must never run under their account.
    */
   protected readonly portalSignedIn = computed(() => {
     this.authCheck();
-    return this.auth.isAuthenticated();
+    const noteSub = this.noteSub();
+    return this.auth.isAuthenticated() && (noteSub === null || this.auth.subject() === noteSub);
   });
   /** Patient id looked up via the portal when the join payload lacks one. */
   private readonly lookedUpPatientId = signal<string | null>(null);
@@ -2020,8 +2058,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private token = '';
   private appointmentId = '';
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
-  private readonly DOCTOR_TOKEN_KEY = 'videomed.doctor.token';
   private left = false;
+  /** The portal idle timeout is held (see syncHold). */
+  private holding = false;
+  /** Someone else has been in the call (the first-wait hold no longer applies). */
+  private readonly someoneJoined = signal(false);
+  /** Waited FIRST_WAIT_HOLD_MS for the patient without anyone arriving. */
+  private readonly firstWaitOver = signal(false);
+  private firstWaitTimer?: ReturnType<typeof setTimeout>;
+  /** The clinical panels (note, orders, documents…) have been loaded over the portal session. */
+  private clinicalLoaded = false;
   /** Stops the "in the call" heartbeat; set only while one is running. */
   private heartbeatStop?: () => void;
 
@@ -2049,8 +2095,36 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   constructor() {
     // The idle timeout is paused while in the call; always resume it on exit.
     this.destroyRef.onDestroy(() => {
-      this.session.release('call');
+      this.releaseHold();
+      clearTimeout(this.firstWaitTimer);
       this.clearDocLink();
+    });
+
+    // Hold the portal idle timeout only while a consultation is going on:
+    // connected and someone else is here, or (for a bounded time) waiting for
+    // the patient to first arrive. An ended call left open on a shared
+    // computer still times out.
+    effect(() => {
+      const live = this.status() === 'in-call' && !this.callClosed();
+      const othersInCall = this.people().length;
+      if (live && othersInCall > 0 && !untracked(this.someoneJoined)) {
+        untracked(() => this.someoneJoined.set(true));
+      }
+      const want = callHoldWanted({
+        live,
+        othersInCall,
+        someoneJoined: this.someoneJoined(),
+        firstWaitOver: this.firstWaitOver(),
+      });
+      untracked(() => this.syncHold(want));
+    });
+
+    // Signed in to the portal (at join, later in another tab, or again after
+    // the session ended mid-call): load the clinical panels if they haven't
+    // loaded yet, and save a note kept on this device meanwhile to the record.
+    effect(() => {
+      if (!this.portalSignedIn()) return;
+      untracked(() => this.onPortalSignedIn());
     });
 
     // Keep the prescribing panel mounted once it has been shown.
@@ -2079,6 +2153,58 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** Window regained focus — the doctor may have just signed in in another tab. */
   protected recheckPortalSignIn(): void {
     this.authCheck.update((n) => n + 1);
+  }
+
+  /** Hold (or release) the portal idle timeout — never held after leaving. */
+  private syncHold(want: boolean): void {
+    const on = want && !this.left;
+    if (on === this.holding) return;
+    this.holding = on;
+    if (on) this.session.hold(CALL_HOLD);
+    else this.session.release(CALL_HOLD);
+  }
+
+  private releaseHold(): void {
+    this.holding = false;
+    this.session.release(CALL_HOLD);
+  }
+
+  /** The clinical panels, over the portal session — once per call, as soon as the doctor is signed in. */
+  private loadClinical(): void {
+    if (this.clinicalLoaded || !this.appointmentId || !this.auth.isAuthenticated()) return;
+    this.clinicalLoaded = true;
+    void this.loadNote();
+    void this.loadLabOrders();
+    void this.loadCarePlan();
+    void this.loadReferrals();
+    void this.loadCertificates();
+    void this.loadPatientDocuments();
+    void this.loadConsents();
+    void this.loadRecording();
+    void this.loadCopilot();
+  }
+
+  /**
+   * Signed in to the portal: the panels load if they never did (the call was
+   * opened from an emailed link, or the first load met an ended session); a
+   * note kept on this device while signed out is saved to the record — when
+   * it is the same doctor's.
+   */
+  private onPortalSignedIn(): void {
+    if (this.left) return;
+    if (!this.clinicalLoaded) {
+      this.loadClinical();
+      return;
+    }
+    if (this.noteLoad() === 'error') {
+      void this.loadNote();
+      return;
+    }
+    if (this.noteLoad() !== 'ready' || this.noteFinalized()) return;
+    const sub = this.auth.subject();
+    if (sub !== null && sub === this.noteSub() && this.drafts.take(this.appointmentId, sub)) {
+      void this.saveNote();
+    }
   }
 
   /** Open the portal sign-in in a NEW tab, so the live call is not interrupted. */
@@ -2119,15 +2245,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       const data = await this.resolveJoin();
       this.info.set(data);
       this.appointmentId = data.appointment_id;
-      void this.loadNote();
-      void this.loadLabOrders();
-      void this.loadCarePlan();
-      void this.loadReferrals();
-      void this.loadCertificates();
-      void this.loadPatientDocuments();
-      void this.loadConsents();
-      void this.loadRecording();
-      void this.loadCopilot();
+      this.loadClinical();
 
       if (!data.configured || !data.app_id || !data.channel) {
         this.errorMessage.set('Video calling isn’t enabled on this environment yet.');
@@ -2183,9 +2301,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       await client.publish([mic, cam]);
 
       this.status.set('in-call');
-      // Nobody touches the keyboard for long stretches in a consultation —
-      // pause the portal idle timeout until the doctor leaves (see teardown).
-      if (!this.left) this.session.hold('call');
+      // Nobody touches the keyboard for long stretches in a consultation: the
+      // portal idle timeout is held while the call goes on (the hold effect) —
+      // waiting for the patient to first arrive holds it for a bounded time.
+      if (!this.left) {
+        this.firstWaitTimer = setTimeout(() => this.firstWaitOver.set(true), FIRST_WAIT_HOLD_MS);
+      }
       // Let schedules show the doctor is in the call (stopped in teardown).
       if (!this.left) this.startHeartbeat();
       this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
@@ -2495,7 +2616,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Patient medical documents (in-call review) ----
   private async loadPatientDocuments(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     this.docsLoading.set(true);
     this.docsError.set('');
     try {
@@ -2532,15 +2653,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
           '<body style="margin:0;font-family:sans-serif;color:#546e7a;display:flex;align-items:center;justify-content:center;height:100vh">Opening document…</body>',
       );
     }
-    const token = this.doctorToken();
-    rawFetch(
-      `${this.base}/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/patient-documents/${encodeURIComponent(doc.id)}/file`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-    )
-      .then(async (res) => {
-        if (!res.ok) throw fetchError(res.status, await res.json().catch(() => null));
-        return res.blob();
-      })
+    // Over the portal session (fresh token, refreshed if need be) — never a raw token from storage.
+    firstValueFrom(this.doctorApi.patientDocumentBlob(this.appointmentId, doc.id))
       .then((blob) => {
         const url = URL.createObjectURL(blob);
         if (tab && !tab.closed) {
@@ -2591,7 +2705,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Medical certificate ----
   private async loadCertificates(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/certificates`,
@@ -2615,7 +2729,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   protected async issueCertificate(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.certBusy()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.certBusy()) return;
     if (this.certStatement().trim() === '') {
       this.certError.set('Add a certifying statement.');
       return;
@@ -2668,30 +2782,18 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   // ---- Clinical note (SOAP) persistence ----
-  private doctorToken(): string | null {
-    try {
-      return localStorage.getItem(this.DOCTOR_TOKEN_KEY);
-    } catch {
-      return null;
-    }
+  /**
+   * A clinical call over the portal session (HttpClient + staffAuthInterceptor):
+   * the token is refreshed before it expires and on a 401, and a session that
+   * ended is handled like anywhere else in the portal. Errors arrive as the
+   * shared `ApiError` (`apiErrorMessage` reads them).
+   */
+  private noteFetch(path: string, init: RequestInit): Promise<any> {
+    const body = typeof init.body === 'string' && init.body !== '' ? JSON.parse(init.body) : undefined;
+    return firstValueFrom(this.api.request<unknown>(init.method ?? 'GET', path, body));
   }
 
-  private async noteFetch(path: string, init: RequestInit): Promise<any> {
-    const token = this.doctorToken();
-    const res = await rawFetch(`${this.base}${path}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    const body = await res.json().catch(() => null);
-    // Carries the status + the API body's message/errors for `apiErrorMessage`.
-    if (!res.ok) throw fetchError(res.status, body);
-    return body;
-  }
-
-  private notePayload(): Record<string, string> {
+  private notePayload(): NoteDraftPayload {
     return {
       subjective: this.subjective(),
       objective: this.objective(),
@@ -2701,9 +2803,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   private async loadNote(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.noteLoad() === 'loading') return;
+    if (!this.appointmentId || !this.auth.isAuthenticated() || this.noteLoad() === 'loading') return;
     this.noteLoad.set('loading');
     this.noteError.set('');
+    const sub = this.auth.subject();
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note`,
@@ -2716,44 +2819,99 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.plan.set(n.plan ?? '');
       this.noteStatus.set(n.status === 'finalized' ? 'finalized' : 'draft');
       if (n.updated_at) this.noteSaved.set('Saved');
+      this.noteSub.set(sub);
       this.noteLoad.set('ready');
+      this.restoreDraft(sub, n.updated_at ?? null);
     } catch (err: unknown) {
       // The editor stays read-only (and nothing is saved) until a retry
-      // succeeds — otherwise auto-save would overwrite the real note.
-      this.noteError.set(apiErrorMessage(err, 'Could not load the saved note.'));
+      // succeeds — otherwise auto-save would overwrite the real note. A
+      // session that ended meanwhile loads it again after signing in.
+      this.noteError.set(
+        isSessionEndError(err) || !this.auth.isAuthenticated()
+          ? 'Sign in to the doctor portal to load the saved note.'
+          : apiErrorMessage(err, 'Could not load the saved note.'),
+      );
       this.noteLoad.set('error');
     }
+  }
+
+  /**
+   * A note this doctor wrote here while signed out (e.g. the page was reloaded
+   * before it could be saved): put it back in the editor and save it now. A
+   * note finalized meanwhile — or saved after the draft was kept (edited on
+   * another device) — wins: the kept copy is dropped, never saved over it.
+   */
+  private restoreDraft(sub: string | null, updatedAt: string | null): void {
+    const draft = this.drafts.take(this.appointmentId, sub);
+    if (!draft) return;
+    if (this.noteFinalized() || !draftIsNewer(draft, updatedAt, this.auth.clockOffset())) {
+      this.drafts.clear(this.appointmentId);
+      return;
+    }
+    const kept = draft.payload;
+    this.subjective.set(kept.subjective);
+    this.objective.set(kept.objective);
+    this.assessment.set(kept.assessment);
+    this.plan.set(kept.plan);
+    this.noteSaved.set('Saving the note kept on this device…');
+    void this.saveNote();
   }
 
   protected retryLoadNote(): void {
     void this.loadNote();
   }
 
-  /** Debounced auto-save while the note is still a draft (only once it has loaded). */
+  /**
+   * Debounced auto-save while the note is still a draft (only once it has
+   * loaded). Signed out meanwhile, the note is kept on this device instead.
+   */
   protected scheduleSave(): void {
-    if (!this.noteEditable() || !this.doctorToken()) return;
+    if (!this.noteEditable()) return;
     this.noteSaved.set('Saving…');
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     this.noteSaveTimer = setTimeout(() => void this.saveNote(), 1200);
   }
 
   private async saveNote(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.noteLoad() !== 'ready') return;
+    if (!this.appointmentId || this.noteLoad() !== 'ready' || this.noteFinalized()) return;
+    // The session ended (idle, expiry, signed out elsewhere): never lose the words.
+    const noteSub = this.noteSub();
+    if (!this.auth.isAuthenticated() || (noteSub !== null && this.auth.subject() !== noteSub)) {
+      this.keepNoteOnDevice();
+      return;
+    }
     try {
       await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/note`,
         { method: 'PUT', body: JSON.stringify(this.notePayload()) },
       );
+      this.drafts.clear(this.appointmentId);
       this.noteSaved.set('Saved');
       this.noteError.set('');
     } catch (err: unknown) {
+      if (isSessionEndError(err) || !this.auth.isAuthenticated()) {
+        this.keepNoteOnDevice();
+        return;
+      }
       this.noteSaved.set('Save failed — retry');
       this.noteError.set(apiErrorMessage(err, 'Could not save the note.'));
     }
   }
 
+  /** Keep the note on this device for the doctor it belongs to, until they sign in again. */
+  private keepNoteOnDevice(): void {
+    const sub = this.noteSub() ?? this.auth.subject();
+    if (sub && this.drafts.save(this.appointmentId, sub, this.notePayload())) {
+      this.noteSaved.set(NOTE_KEPT_ON_DEVICE);
+      this.noteError.set('');
+      return;
+    }
+    this.noteSaved.set('Not saved — sign in to save');
+    this.noteError.set('Sign in to the doctor portal (new tab) to save this note — keep this page open until then.');
+  }
+
   protected async finalizeNote(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.finalizing()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.finalizing()) return;
     // Never lock in a note that may be blank only because it failed to load.
     if (this.noteLoad() !== 'ready') return;
     // Signing locks it for good and shares the summary: ask first.
@@ -2767,6 +2925,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         { method: 'POST', body: JSON.stringify(this.notePayload()) },
       );
       this.noteStatus.set(body.data?.status === 'finalized' ? 'finalized' : 'draft');
+      this.drafts.clear(this.appointmentId);
       this.noteSaved.set('Finalized & locked');
       this.noteError.set('');
     } catch (err: unknown) {
@@ -2779,7 +2938,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Lab orders ----
   private async loadLabOrders(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/lab-orders`,
@@ -2792,7 +2951,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   protected async issueLab(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.labBusy()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.labBusy()) return;
     const tests = this.labTests()
       .split(/\r?\n|,/)
       .map((t) => t.trim())
@@ -2830,7 +2989,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Care plan ----
   private async loadCarePlan(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.carePlanLoad() === 'loading') return;
+    if (!this.appointmentId || !this.auth.isAuthenticated() || this.carePlanLoad() === 'loading') return;
     this.carePlanLoad.set('loading');
     this.carePlanError.set('');
     try {
@@ -2875,7 +3034,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   protected async saveCarePlan(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.carePlanBusy()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.carePlanBusy()) return;
     if (this.carePlanLoad() !== 'ready') return;
     const items = this.carePlanItems().map((s) => s.trim()).filter(Boolean);
     if (!(await this.dialogs.confirm(carePlanPrompt(this.patientName(), items.length, this.carePlanPublished()))).confirmed) return;
@@ -2900,7 +3059,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Referrals ----
   private async loadReferrals(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/referrals`,
@@ -2913,7 +3072,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   protected async createReferral(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.refBusy()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.refBusy()) return;
     if (this.refTarget().trim() === '' || this.refReason().trim() === '') {
       this.refError.set('Target and reason are required.');
       return;
@@ -2948,7 +3107,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Consent (read-only) ----
   private async loadConsents(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/consents`,
@@ -2963,7 +3122,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   // ---- Cloud recording ----
   private async loadRecording(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/recording`,
@@ -2977,7 +3136,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   protected async toggleRecording(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.recordingBusy()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.recordingBusy()) return;
     // What the click meant, fixed before any prompt: a state refresh while the
     // question is open must never turn "Stop recording" into a start.
     const stopping = this.recordingActive();
@@ -3175,7 +3334,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** Report an RTC quality sample every 15s for back-office monitoring. */
   private startMetricsReport(): void {
     const report = async (): Promise<void> => {
-      if (!this.client || !this.doctorToken()) return;
+      if (!this.client || !this.portalSignedIn()) return;
       let rtt: number | null = null;
       try {
         const stats = this.client.getRTCStats();
@@ -3202,7 +3361,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   private async loadCopilot(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/copilot`,
@@ -3218,7 +3377,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   private async loadTranscript(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken()) return;
+    if (!this.appointmentId || !this.portalSignedIn()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/transcript`,
@@ -3310,7 +3469,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   protected async generateDraft(): Promise<void> {
-    if (!this.appointmentId || !this.doctorToken() || this.copilotBusy()) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.copilotBusy()) return;
     this.copilotError.set('');
     this.copilotBusy.set(true);
     try {
@@ -3341,7 +3500,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   private async teardown(): Promise<void> {
     this.left = true;
-    this.session.release('call');
+    this.releaseHold();
+    clearTimeout(this.firstWaitTimer);
     // Says "out" at once, so schedules stop showing the doctor in the call.
     this.heartbeatStop?.();
     this.heartbeatStop = undefined;

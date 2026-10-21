@@ -6,7 +6,12 @@ import { App } from './app';
 
 /** Signed-out stand-in for the auth silo the idle-timeout dialog watches. */
 const sessionAuthStub: SessionAuth = {
+  token: signal<string | null>(null),
   isAuthenticated: signal(false),
+  hasRefreshToken: () => false,
+  refresh: () => Promise.resolve(false),
+  ensureFreshToken: () => Promise.resolve(),
+  accessExpiresAt: () => null,
   expire: () => undefined,
   logout: () => undefined,
   keepAlive: () => Promise.resolve(),

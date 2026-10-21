@@ -6,6 +6,7 @@ namespace App\Infrastructure\Service;
 
 use App\Domain\Entity\Notification;
 use App\Domain\Entity\Patient;
+use App\Domain\Enum\AuthErrorCode;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Enum\SessionState;
 use App\Domain\Settings\WebUrls;
@@ -16,6 +17,7 @@ use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
+use Firebase\JWT\ExpiredException;
 
 /**
  * Authentication behaviour. Keeps password verification and token issuance out
@@ -281,63 +283,118 @@ final class AuthService
         return $this->issueCustomerTokens($patient, $userAgent, $ip);
     }
 
-    /** @return array{access_token:string, token_type:string, expires_in:int} */
+    /**
+     * Mint a new access token for the live session a refresh token is bound to.
+     * The refresh token is not rotated and its `exp` is the session's absolute
+     * lifetime (both JWT_REFRESH_TTL), so a refresh never extends a sign-in.
+     *
+     * Every refusal is an {@see AuthenticationException} with a code that means
+     * "sign out now" (session_expired [+ reason], session_revoked,
+     * session_invalid, refresh_invalid, account_missing, account_deactivated);
+     * the messages are unchanged.
+     *
+     * @return array{access_token:string, token_type:string, expires_in:int}
+     */
     public function refresh(string $refreshToken): array
     {
         try {
             $payload = $this->jwt->validateRefreshToken($refreshToken);
+        } catch (ExpiredException) {
+            // Signature checked: the refresh JWT outlived the absolute session lifetime.
+            throw new AuthenticationException(
+                SessionState::EXPIRED->message(),
+                AuthErrorCode::SESSION_EXPIRED,
+                ['reason' => SessionState::REASON_LIFETIME],
+            );
         } catch (\Throwable) {
-            throw new AuthenticationException('Your session has expired. Please sign in again.');
+            // Malformed, bad signature, or not a refresh token.
+            throw new AuthenticationException(SessionState::EXPIRED->message(), AuthErrorCode::REFRESH_INVALID);
         }
 
-        $scope = $payload->scope ?? 'staff';
-        $jti   = isset($payload->jti) ? (string) $payload->jti : null;
-        if ($scope === 'staff') {
-            // Staff refresh tokens must be bound to a live server session — a
-            // pre-session (jti-less) token simply forces one fresh sign-in.
-            $state = $jti === null ? SessionState::UNKNOWN : $this->sessions->staffState($jti, touch: true);
-            if ($state !== SessionState::ACTIVE) {
-                throw new AuthenticationException($state->message());
-            }
-            $user = $this->users->find($payload->sub);
-            if ($user === null) {
-                throw new AuthenticationException('Account no longer exists');
-            }
-            // A deactivated account loses its session at the next refresh.
-            if (!$user->isActive()) {
-                $this->sessions->revokeById((string) $jti);
-                throw new AuthenticationException('This account has been deactivated. Please contact your administrator.');
-            }
-            $this->rememberStaffSite($user);
-            $access = $this->jwt->issueAccessToken(
-                $user->getId(),
-                'staff',
-                $user->getRoles(),
-                $user->getPermissions(),
-                $jti,
-            );
-        } else {
-            $patient = $this->patients->find($payload->sub);
-            if ($patient === null) {
-                throw new AuthenticationException('Account no longer exists');
-            }
-            // Reuse the session the refresh token is bound to; if it was signed
-            // out, or has been idle / alive too long, the refresh must fail too.
-            if ($jti !== null) {
-                $state = $this->sessions->customerState($jti, touch: true);
-                if ($state !== SessionState::ACTIVE) {
-                    throw new AuthenticationException($state->message());
-                }
-            }
-            $this->rememberPatientSite($patient);
-            $access = $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti);
-        }
+        $subject = (string) ($payload->sub ?? '');
+        $jti     = isset($payload->jti) && (string) $payload->jti !== '' ? (string) $payload->jti : null;
+        $access  = match ($payload->scope ?? null) {
+            'staff'    => $this->refreshStaff($subject, $jti),
+            'customer' => $this->refreshCustomer($subject, $jti),
+            // We only mint these two: anything else fails closed.
+            default    => throw new AuthenticationException(SessionState::UNKNOWN->message(), AuthErrorCode::REFRESH_INVALID),
+        };
 
         return [
             'access_token' => $access,
             'token_type'   => 'Bearer',
             'expires_in'   => $this->jwt->accessTtl(),
         ];
+    }
+
+    private function refreshStaff(string $userId, ?string $jti): string
+    {
+        // The account first, so a deactivated login hears why (an admin's
+        // deactivation also revokes the sessions, which would otherwise answer
+        // "signed out").
+        $user = $userId !== '' ? $this->users->find($userId) : null;
+        if ($user === null) {
+            throw new AuthenticationException('Account no longer exists', AuthErrorCode::ACCOUNT_MISSING);
+        }
+        // A deactivated account loses its session at the next refresh.
+        if (!$user->isActive()) {
+            if ($jti !== null) {
+                $this->sessions->revokeById($jti);
+            }
+            throw new AuthenticationException(
+                'This account has been deactivated. Please contact your administrator.',
+                AuthErrorCode::ACCOUNT_DEACTIVATED,
+            );
+        }
+        // Staff refresh tokens must be bound to a live server session — a
+        // pre-session (jti-less) token simply forces one fresh sign-in.
+        $this->assertLive(
+            $jti === null ? SessionState::UNKNOWN : $this->sessions->staffState($jti, touch: true),
+            fn (): ?string => $jti === null ? null : $this->sessions->staffExpiryReason($jti),
+        );
+        $this->rememberStaffSite($user);
+
+        return $this->jwt->issueAccessToken(
+            $user->getId(),
+            'staff',
+            $user->getRoles(),
+            $user->getPermissions(),
+            $jti,
+        );
+    }
+
+    private function refreshCustomer(string $patientId, ?string $jti): string
+    {
+        $patient = $patientId !== '' ? $this->patients->find($patientId) : null;
+        if ($patient === null) {
+            throw new AuthenticationException('Account no longer exists', AuthErrorCode::ACCOUNT_MISSING);
+        }
+        // Reuse the session the refresh token is bound to; if it was signed
+        // out, or has been idle / alive too long, the refresh must fail too. A
+        // jti-less token has no session to check, so it fails closed (every
+        // such token is older than the absolute lifetime anyway).
+        $this->assertLive(
+            $jti === null ? SessionState::UNKNOWN : $this->sessions->customerState($jti, touch: true),
+            fn (): ?string => $jti === null ? null : $this->sessions->customerExpiryReason($jti),
+        );
+        $this->rememberPatientSite($patient);
+
+        return $this->jwt->issueAccessToken($patient->getId(), 'customer', jti: $jti);
+    }
+
+    /** @param callable():?string $expiryReason read only when the session has expired */
+    private function assertLive(SessionState $state, callable $expiryReason): void
+    {
+        if ($state === SessionState::ACTIVE) {
+            return;
+        }
+        $reason = $state === SessionState::EXPIRED ? $expiryReason() : null;
+
+        throw new AuthenticationException(
+            $state->message(),
+            $state->code() ?? AuthErrorCode::SESSION_INVALID,
+            $reason !== null ? ['reason' => $reason] : [],
+        );
     }
 
     /**
