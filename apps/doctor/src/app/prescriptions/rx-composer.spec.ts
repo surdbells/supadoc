@@ -288,4 +288,19 @@ describe('RxComposer', () => {
     expect(c.drawn()).toBeNull();
     expect(c.saveDrawn()).toBe(false);
   });
+
+  it("names the missing registration number the doctor's way (MDCN, or their regulator abroad)", async () => {
+    const ng = setup({ summary: summary(), options: () => of({ data: { ...OPTIONS, mdcn_number: null } }) });
+    await ng.fixture.whenStable();
+    ng.fixture.detectChanges();
+    expect(ng.text()).toContain('Add your MDCN number in your profile');
+    TestBed.resetTestingModule();
+    const abroad = setup({
+      summary: summary(),
+      options: () => of({ data: { ...OPTIONS, mdcn_number: null, registration_label: 'General Medical Council number' } }),
+    });
+    await abroad.fixture.whenStable();
+    abroad.fixture.detectChanges();
+    expect(abroad.text()).toContain('Add your General Medical Council number in your profile');
+  });
 });

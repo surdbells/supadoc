@@ -29,19 +29,23 @@ import {
   BTN_DANGER_OUTLINE,
   BTN_GHOST,
   BTN_SUCCESS,
-  CHECKLIST,
+  checklistFor,
   dateOnly,
   dateTime,
+  doctorLicenceWording,
   type DoctorTab,
   FIELD,
   FIELD_INVALID,
   LABEL,
+  type LicenceWording,
   PILL,
+  registrationNumber,
   statusBadge,
 } from '../specialist-ui';
 
 type ChangeKey = keyof PendingChanges;
 
+/** The change-request fields; `mdcn_number` reads as the doctor's registration ("MDCN number" or "{regulator} number"). */
 const CHANGE_LABELS: Record<ChangeKey, string> = {
   name: 'Name',
   specialty: 'Specialty',
@@ -50,6 +54,10 @@ const CHANGE_LABELS: Record<ChangeKey, string> = {
   qualification_entries: 'Qualifications',
   certifications: 'Certifications',
 };
+
+function changeLabel(key: ChangeKey, w: LicenceWording): string {
+  return key === 'mdcn_number' ? w.numberLabel : CHANGE_LABELS[key];
+}
 
 /** What each approval problem points the reviewer to. */
 const PROBLEM_TABS: Record<string, { tab: DoctorTab; label: string } | undefined> = {
@@ -102,7 +110,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         }
         @if (detail().approved_snapshot; as snap) {
           <p class="font-sans text-caption text-slate">
-            Approved by {{ snap.approved_by_name || 'a reviewer' }} on {{ day(snap.approved_at) }} — name, specialty, MDCN number, qualifications and certifications are locked to what was approved.
+            Approved by {{ snap.approved_by_name || 'a reviewer' }} on {{ day(snap.approved_at) }} — name, specialty, {{ wording().numberLabel }}, qualifications and certifications are locked to what was approved.
           </p>
         }
       </section>
@@ -115,7 +123,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
             <span class="rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate">{{ detail().completed }} of {{ detail().total }} done</span>
           </div>
           <ul class="flex flex-col gap-2">
-            @for (c of checklist; track c.key) {
+            @for (c of checklist(); track c.key) {
               <li class="flex items-center gap-2 font-sans text-body-sm" [class]="detail().checklist[c.key] ? 'text-ink' : 'text-slate'">
                 <sd-icon [name]="detail().checklist[c.key] ? 'circle-check' : 'circle-x'" [size]="16" [class]="detail().checklist[c.key] ? 'text-sage' : 'text-alert'" />
                 <span>{{ c.label }}<span class="sr-only">: {{ detail().checklist[c.key] ? 'done' : 'missing' }}</span></span>
@@ -170,7 +178,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
             <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border px-4 py-3" [class]="approveErrors()['attest'] ? 'border-alert' : 'border-cloud'">
               <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-sage" [checked]="attest()" [disabled]="!ready()" (change)="attest.set($any($event.target).checked)" aria-describedby="bo-rv-attest-hint" />
               <span class="flex flex-col">
-                <span class="font-sans text-body-sm text-ink">I checked the MDCN full-registration certificate and the current practising licence against the MDCN register.</span>
+                <span class="font-sans text-body-sm text-ink">I checked the {{ wording().abroad ? 'Certificate of Good Standing' : 'MDCN full-registration certificate' }} and the current practising licence against {{ wording().registerName }}.</span>
                 <span id="bo-rv-attest-hint" class="font-sans text-caption text-slate">Recorded with your name in the approval and the audit log.</span>
               </span>
             </label>
@@ -259,7 +267,10 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Name</dt><dd class="break-words text-ink">{{ detail().profile.name }}</dd></div>
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Specialty</dt><dd class="break-words text-ink">{{ detail().profile.specialty }}</dd></div>
-          <div class="flex flex-col gap-0.5"><dt class="${LABEL}">MDCN number</dt><dd class="break-all text-ink">{{ detail().profile.mdcn_number || '—' }}</dd></div>
+          <div class="flex flex-col gap-0.5"><dt class="${LABEL}">{{ wording().numberLabel }}</dt><dd class="break-all text-ink">{{ registration() || '—' }}</dd></div>
+          @if (wording().abroad) {
+            <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Regulator</dt><dd class="break-words text-ink">{{ wording().regulator }}{{ regulatorCountry() ? ' (' + regulatorCountry() + ')' : '' }}</dd></div>
+          }
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Signature</dt><dd class="text-ink">{{ detail().profile.has_signature ? 'Saved' : 'Not saved' }}</dd></div>
           <div class="flex flex-col gap-0.5 sm:col-span-2">
             <dt class="${LABEL}">Qualifications</dt>
@@ -293,7 +304,13 @@ export class SpecialistReviewTab {
   readonly updated = output<Partial<SpecialistDetailDto>>();
   readonly openTab = output<DoctorTab>();
 
-  protected readonly checklist = CHECKLIST;
+  /** MDCN wording, or the doctor's regulator when licensed abroad (an application doctor whose go-live fell back to review). */
+  protected readonly wording = computed(() => doctorLicenceWording(this.detail()));
+  protected readonly checklist = computed(() => checklistFor(this.wording()));
+  protected readonly registration = computed(() => registrationNumber(this.detail()));
+  protected readonly regulatorCountry = computed(
+    () => this.detail().registration?.regulator_country ?? this.detail().profile.regulator_country ?? null,
+  );
   protected readonly attest = signal(false);
   protected readonly approveNote = signal('');
   protected readonly approveErrors = signal<Record<string, string>>({});
@@ -347,11 +364,12 @@ export class SpecialistReviewTab {
       const v = source[key];
       return typeof v === 'string' && v.trim() !== '' ? [v] : [];
     };
+    const w = this.wording();
     return (Object.keys(pending) as ChangeKey[])
       .filter((key) => key in CHANGE_LABELS)
       .map((key) => ({
         key,
-        label: CHANGE_LABELS[key],
+        label: changeLabel(key, w),
         before: lines(key, base as PendingChanges),
         after: lines(key, pending),
       }));
@@ -360,7 +378,7 @@ export class SpecialistReviewTab {
   protected approve(): void {
     if (this.busy() || !this.ready()) return;
     if (!this.attest()) {
-      this.approveErrors.set({ attest: 'Confirm that you checked their documents against the MDCN register.' });
+      this.approveErrors.set({ attest: `Confirm that you checked their documents against ${this.wording().registerName}.` });
       return;
     }
     this.run('approve', this.api.approve(this.detail().profile.id, { attest: true, note: this.approveNote().trim() || undefined }), 'Could not approve this doctor.', 'Approved. The doctor is listed and has been emailed.');

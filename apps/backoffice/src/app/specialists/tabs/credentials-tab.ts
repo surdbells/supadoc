@@ -27,27 +27,36 @@ import {
   credentialBadge,
   dateOnly,
   dateTime,
+  doctorLicenceWording,
   fileSize,
   licenceStateBadge,
   PILL,
 } from '../specialist-ui';
 
+/**
+ * The list order: what approval rests on first (the registration document —
+ * the MDCN certificate, or the Certificate of Good Standing abroad — then the
+ * practising licence), then the rest; the documents carried over from an
+ * application (indemnity, ID, degree, CV) last.
+ */
 const ORDER: Record<CredentialType, number> = {
   mdcn_full_registration: 0,
-  annual_practising_licence: 1,
-  specialist_certificate: 2,
-  good_standing_certificate: 3,
-  foreign_practising_licence: 4,
-  government_id: 5,
-  medical_degree: 6,
-  curriculum_vitae: 7,
-  indemnity_certificate: 8,
+  good_standing_certificate: 1,
+  annual_practising_licence: 2,
+  foreign_practising_licence: 3,
+  specialist_certificate: 4,
+  indemnity_certificate: 5,
+  government_id: 6,
+  medical_degree: 7,
+  curriculum_vitae: 8,
 };
 
 /**
- * The doctor page's Credentials tab: the MDCN certificate and practising
- * licence the approval rests on, every document the doctor uploaded (replaced
- * ones folded away), and per document View / Verify / Reject — all through
+ * The doctor page's Credentials tab: the registration certificate and
+ * practising licence the approval rests on (MDCN's for a doctor licensed in
+ * Nigeria; a Certificate of Good Standing and their regulator's licence for
+ * one licensed abroad), every document the doctor has (replaced ones folded
+ * away), and per document View / Verify / Reject — all through
  * {@link CredentialDialog}, which shows the file itself.
  */
 @Component({
@@ -58,11 +67,11 @@ const ORDER: Record<CredentialType, number> = {
     <div class="flex flex-col gap-6">
       <section class="grid gap-3 sm:grid-cols-2" aria-label="Licensing summary">
         <div class="${STAT_TILE}">
-          <span class="font-sans text-caption font-semibold text-slate">MDCN full-registration certificate</span>
+          <span class="font-sans text-caption font-semibold text-slate">{{ wording().registrationDoc }}</span>
           <span class="${PILL} w-fit" [class]="mdcnBadge().cls"><sd-icon [name]="mdcnBadge().icon" [size]="13" />{{ mdcnBadge().label }}</span>
         </div>
         <div class="${STAT_TILE}">
-          <span class="font-sans text-caption font-semibold text-slate">Annual practising licence</span>
+          <span class="font-sans text-caption font-semibold text-slate">{{ wording().licenceDoc }}{{ wording().abroad ? ' · ' + wording().regulator : '' }}</span>
           <span class="${PILL} w-fit" [class]="licence().cls"><sd-icon [name]="licence().icon" [size]="13" />{{ licence().label }}</span>
         </div>
       </section>
@@ -157,6 +166,7 @@ const ORDER: Record<CredentialType, number> = {
       [doctorName]="detail().profile.name"
       [credential]="selected()"
       [mode]="mode()"
+      [registerName]="wording().registerName"
       (closed)="dialogOpen.set(false)"
       (decided)="onDecided($event)"
     />
@@ -188,9 +198,12 @@ export class SpecialistCredentialsTab {
   protected readonly current = computed(() => this.sorted().filter((c) => c.status !== 'superseded'));
   protected readonly replaced = computed(() => this.sorted().filter((c) => c.status === 'superseded'));
 
+  /** MDCN wording, or the doctor's regulator when licensed abroad. */
+  protected readonly wording = computed(() => doctorLicenceWording(this.detail()));
   protected readonly licence = computed(() => licenceStateBadge(this.detail().licence));
   protected readonly mdcnBadge = computed<Badge>(() => {
-    const docs = this.current().filter((c) => c.type === 'mdcn_full_registration');
+    const type = this.wording().registrationType;
+    const docs = this.current().filter((c) => c.type === type);
     if (docs.some((c) => c.status === 'verified')) return credentialBadge('verified');
     if (docs.some((c) => c.status === 'pending')) return credentialBadge('pending');
     if (docs.some((c) => c.status === 'rejected')) return credentialBadge('rejected');

@@ -88,6 +88,20 @@ export const appRoutes: Route[] = [
           import('./specialists/specialist-detail').then((m) => m.AdminSpecialistDetail),
       },
       {
+        // Doctor applications from the onboarding site: the review queue.
+        path: 'applications',
+        canActivate: [permissionGuard('specialists.manage')],
+        loadComponent: () =>
+          import('./applications/applications').then((m) => m.AdminApplications),
+      },
+      {
+        // One application: details, documents, timeline, notes and the review actions.
+        path: 'applications/:id',
+        canActivate: [permissionGuard('specialists.manage')],
+        loadComponent: () =>
+          import('./applications/application-detail').then((m) => m.AdminApplicationDetail),
+      },
+      {
         path: 'staff',
         canActivate: [permissionGuard('staff.manage')],
         // Asks before leaving with the account editor open and edited.

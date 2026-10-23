@@ -95,6 +95,61 @@ export function ymdLabel(ymd: string | null | undefined): string {
 }
 
 /**
+ * How the doctor's licensing reads. A doctor licensed in Nigeria holds an MDCN
+ * number, the MDCN full-registration certificate and an annual practising
+ * licence; one licensed abroad (approved from an application) holds a
+ * registration with their own regulator, a Certificate of Good Standing and
+ * that regulator's practising licence. Older payloads without a route read
+ * as Nigeria.
+ */
+export interface LicenceWording {
+  readonly abroad: boolean;
+  /** "MDCN", or the regulator's name ("General Medical Council"); "your regulator" when unknown. */
+  readonly regulator: string;
+  /** "MDCN number" / "General Medical Council number" (the API's `registration_label`). */
+  readonly numberLabel: string;
+  /** "the MDCN register" / "the General Medical Council register". */
+  readonly registerName: string;
+  /** The document in place of the MDCN full-registration certificate. */
+  readonly registrationDoc: string;
+  readonly registrationType: CredentialType;
+  /** The practising licence. */
+  readonly licenceDoc: string;
+  readonly licenceType: CredentialType;
+}
+
+export function licenceWording(
+  o: Pick<DoctorOnboardingDto, 'licence_route' | 'registration'> | null | undefined,
+): LicenceWording {
+  if (o?.licence_route !== 'abroad') {
+    return {
+      abroad: false,
+      regulator: 'MDCN',
+      numberLabel: 'MDCN number',
+      registerName: 'the MDCN register',
+      registrationDoc: 'MDCN full-registration certificate',
+      registrationType: 'mdcn_full_registration',
+      licenceDoc: 'Annual practising licence',
+      licenceType: 'annual_practising_licence',
+    };
+  }
+  const name = (o.registration?.regulator_name ?? '').trim();
+  return {
+    abroad: true,
+    regulator: name || 'your regulator',
+    numberLabel: name ? `${name} number` : 'Registration number',
+    registerName: name ? `the ${name} register` : "your regulator's register",
+    registrationDoc: 'Certificate of Good Standing',
+    registrationType: 'good_standing_certificate',
+    licenceDoc: 'Practising licence',
+    licenceType: 'foreign_practising_licence',
+  };
+}
+
+/** Documents only an application carries (verified with it; shown, never uploaded or deleted here). */
+export const APPLICATION_ONLY_TYPES: readonly CredentialType[] = ['government_id', 'medical_degree', 'curriculum_vitae'];
+
+/**
  * The document of `type` the doctor sees now — the newest one that hasn't been
  * replaced (the API lists newest first and leaves replaced ones out).
  */
@@ -110,18 +165,20 @@ export function latestCredential(
  * is in force (`licence.status` valid / expiring) a newer upload still waiting
  * for verification, or turned down, doesn't replace it: `current` stays the
  * verified licence it rests on and the upload is the `renewal`. Otherwise the
- * newest upload is the licence and there is no renewal.
+ * newest upload is the licence and there is no renewal. `type` is the route's
+ * licence (the annual practising licence, or the foreign one abroad).
  */
 export function licenceDocuments(
   credentials: readonly SpecialistCredentialDto[] | null | undefined,
   licence: LicenceStateDto | null | undefined,
+  type: CredentialType = 'annual_practising_licence',
 ): { current: SpecialistCredentialDto | null; renewal: SpecialistCredentialDto | null } {
-  const latest = latestCredential(credentials, 'annual_practising_licence');
+  const latest = latestCredential(credentials, type);
   const inForce = licence?.status === 'valid' || licence?.status === 'expiring';
   if (!inForce || !latest || (latest.status !== 'pending' && latest.status !== 'rejected')) {
     return { current: latest, renewal: null };
   }
-  const current = (credentials ?? []).find((c) => c.type === 'annual_practising_licence' && c.status === 'verified') ?? null;
+  const current = (credentials ?? []).find((c) => c.type === type && c.status === 'verified') ?? null;
   return { current, renewal: latest };
 }
 
@@ -154,9 +211,14 @@ export const CHANGE_FIELD_LABELS: Readonly<Record<string, string>> = {
   certifications: 'Certifications',
 };
 
-/** "Name, MDCN number and Qualifications" — what a change request asks to change. */
-export function changedFieldsLabel(fields: readonly string[]): string {
-  const names = [...new Set(fields.map((f) => CHANGE_FIELD_LABELS[f] ?? f))];
+/**
+ * "Name, MDCN number and Qualifications" — what a change request asks to
+ * change. `numberLabel` names the registration number ("MDCN number", or the
+ * regulator's abroad).
+ */
+export function changedFieldsLabel(fields: readonly string[], numberLabel = 'MDCN number'): string {
+  const label = (f: string): string => (f === 'mdcn_number' ? numberLabel : (CHANGE_FIELD_LABELS[f] ?? f));
+  const names = [...new Set(fields.map(label))];
   if (names.length <= 1) return names[0] ?? '';
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
@@ -187,6 +249,10 @@ export function standingNotices(o: DoctorOnboardingDto, todayYmd: string): Stand
     ];
   }
 
+  const w = licenceWording(o);
+  // A doctor approved from an application: vetted already, they go live themselves.
+  const fromApplication = !!o.application;
+
   switch (o.status) {
     case 'pending_review':
       return [
@@ -194,8 +260,10 @@ export function standingNotices(o: DoctorOnboardingDto, todayYmd: string): Stand
           key: 'review',
           tone: 'info',
           icon: 'hourglass',
-          title: 'Your profile is being reviewed',
-          text: "We'll email you once it's approved. Until then patients can't find or book you.",
+          title: fromApplication ? 'Your profile is having a quick final check' : 'Your profile is being reviewed',
+          text: fromApplication
+            ? "We'll email you when you're live. Until then patients can't find or book you."
+            : "We'll email you once it's approved. Until then patients can't find or book you.",
           cta: 'View status',
           link: '/onboarding',
         },
@@ -214,15 +282,25 @@ export function standingNotices(o: DoctorOnboardingDto, todayYmd: string): Stand
       ];
     case 'invited':
       return [
-        {
-          key: 'setup',
-          tone: 'info',
-          icon: 'list-checks',
-          title: 'Finish setting up your profile',
-          text: `${o.completed} of ${o.total} steps done — patients can book you once your profile is approved.`,
-          cta: 'Continue setup',
-          link: '/onboarding',
-        },
+        fromApplication
+          ? {
+              key: 'setup',
+              tone: 'info',
+              icon: 'list-checks',
+              title: 'Finish setting up your profile to go live',
+              text: `${o.completed} of ${o.total} steps done — your documents were verified with your application.`,
+              cta: 'Continue setup',
+              link: '/onboarding',
+            }
+          : {
+              key: 'setup',
+              tone: 'info',
+              icon: 'list-checks',
+              title: 'Finish setting up your profile',
+              text: `${o.completed} of ${o.total} steps done — patients can book you once your profile is approved.`,
+              cta: 'Continue setup',
+              link: '/onboarding',
+            },
       ];
   }
 
@@ -255,7 +333,7 @@ export function standingNotices(o: DoctorOnboardingDto, todayYmd: string): Stand
     });
   } else if (licence?.status === 'expiring' && licence.expires_at) {
     const days = daysUntil(licence.expires_at, todayYmd);
-    const { renewal } = licenceDocuments(o.credentials, licence);
+    const { renewal } = licenceDocuments(o.credentials, licence, w.licenceType);
     const waiting = renewal?.status === 'pending' && (renewal.expires_at ?? '') > licence.expires_at;
     notices.push({
       key: 'licence-expiring',
@@ -278,18 +356,20 @@ export function standingNotices(o: DoctorOnboardingDto, todayYmd: string): Stand
       icon: 'file-check',
       title: uploaded ? 'Your documents are being verified' : 'Upload your licensing documents',
       text: uploaded
-        ? 'A reviewer is checking your MDCN certificate and practising licence against the MDCN register.'
-        : `Add your MDCN full-registration certificate and current annual practising licence by ${ymdLabel(o.credentials_due_at)}.`,
+        ? `A reviewer is checking your ${w.abroad ? 'Certificate of Good Standing' : 'MDCN certificate'} and practising licence against ${w.registerName}.`
+        : w.abroad
+          ? `Add your Certificate of Good Standing and current practising licence by ${ymdLabel(o.credentials_due_at)}.`
+          : `Add your MDCN full-registration certificate and current annual practising licence by ${ymdLabel(o.credentials_due_at)}.`,
       cta: uploaded ? 'View documents' : 'Upload documents',
       link: '/onboarding/credentials',
     });
   }
 
-  for (const type of ['mdcn_full_registration', 'annual_practising_licence'] as const) {
+  for (const type of [w.registrationType, w.licenceType]) {
     const doc = latestCredential(o.credentials, type);
     if (doc?.status === 'rejected') {
       // A refused renewal beside a licence still in force: the licence itself stands.
-      const renewal = type === 'annual_practising_licence' && licenceDocuments(o.credentials, licence).renewal === doc;
+      const renewal = type === w.licenceType && licenceDocuments(o.credentials, licence, w.licenceType).renewal === doc;
       notices.push({
         key: `rejected-${type}`,
         tone: 'warning',
@@ -308,7 +388,7 @@ export function standingNotices(o: DoctorOnboardingDto, todayYmd: string): Stand
       tone: 'info',
       icon: 'hourglass',
       title: 'Your profile changes are waiting for review',
-      text: `${changedFieldsLabel(Object.keys(o.pending_changes))}: patients see your current details until a reviewer approves the change.`,
+      text: `${changedFieldsLabel(Object.keys(o.pending_changes), w.numberLabel)}: patients see your current details until a reviewer approves the change.`,
       cta: 'View request',
       link: '/profile',
     });

@@ -230,7 +230,7 @@ const DD = 'font-sans text-body-sm text-ink break-words';
                 <div class="flex flex-col gap-0.5"><dt class="${DT}">Doctor</dt><dd class="${DD}">{{ r.prescriber_details.name || r.prescriber || '—' }}</dd></div>
                 <div class="flex flex-col gap-0.5"><dt class="${DT}">Specialty</dt><dd class="${DD}">{{ r.prescriber_details.specialty || '—' }}</dd></div>
                 <div class="flex flex-col gap-0.5"><dt class="${DT}">Qualifications</dt><dd class="${DD}">{{ r.prescriber_details.qualifications || '—' }}</dd></div>
-                <div class="flex flex-col gap-0.5"><dt class="${DT}">MDCN number</dt><dd class="${DD}">{{ r.prescriber_details.mdcn_number || '—' }}</dd></div>
+                <div class="flex flex-col gap-0.5"><dt class="${DT}">{{ r.prescriber_details.registration_label || 'MDCN number' }}</dt><dd class="${DD}">{{ r.prescriber_details.mdcn_number || '—' }}</dd></div>
                 <div class="flex flex-col gap-0.5">
                   <dt class="${DT}">Signed</dt>
                   <dd class="${DD}">

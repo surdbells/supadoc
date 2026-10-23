@@ -17,7 +17,18 @@ import {
 import { StaffAuthService } from '@supadoc/auth';
 import { DialogService, IconComponent } from '@supadoc/ui';
 import { filter } from 'rxjs';
-import { canOpen, landingLink, NAV } from './nav';
+import { ApplicationsQueue } from './applications/applications-queue';
+import {
+  badgeCount,
+  badgeLabel,
+  canOpen,
+  landingLink,
+  NAV,
+  type NavBadge,
+  type NavBadgeCounts,
+  type NavItem,
+  waitingSummary,
+} from './nav';
 import { ReviewQueue } from './specialists/review-queue';
 
 /** Back-office shell — permission-gated side nav + header. */
@@ -45,9 +56,9 @@ import { ReviewQueue } from './specialists/review-queue';
       <div class="flex min-w-0 flex-1 flex-col">
         <header class="flex h-16 items-center justify-between gap-4 px-5 lg:h-20 lg:justify-end lg:px-6">
           <div class="flex items-center gap-3 lg:hidden">
-            <button type="button" class="relative text-ink transition-colors hover:text-cerulean" [attr.aria-label]="reviewCount() > 0 ? 'Open menu (' + reviewLabel() + ')' : 'Open menu'" (click)="menuOpen.set(true)">
+            <button type="button" class="relative text-ink transition-colors hover:text-cerulean" [attr.aria-label]="waiting() ? 'Open menu (' + waiting() + ')' : 'Open menu'" (click)="menuOpen.set(true)">
               <sd-icon name="menu" [size]="24" />
-              @if (reviewCount() > 0) {
+              @if (badgeCounts().review + badgeCounts().applications > 0) {
                 <span class="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-warning ring-2 ring-glacier"></span>
               }
             </button>
@@ -91,9 +102,10 @@ import { ReviewQueue } from './specialists/review-queue';
               (click)="menuOpen.set(false)"
             >
               <sd-icon [name]="item.icon" [size]="20" />{{ item.label }}
-              @if (item.reviewBadge && reviewCount() > 0) {
-                <span class="ml-auto rounded-pill bg-warning/20 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-warning/40" [attr.title]="reviewLabel()">
-                  {{ reviewCount() }}<span class="sr-only"> {{ reviewLabel() }}</span>
+              @let n = count(item);
+              @if (n > 0 && item.badge) {
+                <span class="ml-auto rounded-pill bg-warning/20 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-warning/40" [attr.title]="label(item.badge, n)">
+                  {{ n }}<span class="sr-only"> {{ label(item.badge, n) }}</span>
                 </span>
               }
             </a>
@@ -120,19 +132,23 @@ export class AdminShell {
   private readonly auth = inject(StaffAuthService);
   private readonly router = inject(Router);
   private readonly reviewQueue = inject(ReviewQueue);
+  private readonly applicationsQueue = inject(ApplicationsQueue);
   private readonly dialogs = inject(DialogService);
 
   /**
-   * What waits for a reviewer — profiles in review, change requests and
-   * documents to verify (reviewers only; 0 hides the badge).
+   * What waits for a reviewer (reviewers only; 0 hides a badge): profiles in
+   * review, change requests and documents to verify (`review`, on
+   * Specialists), and doctor applications that need action (`applications`).
    */
-  protected readonly reviewCount = computed(() =>
-    this.auth.hasPermission('specialists.manage') ? this.reviewQueue.count() : 0,
-  );
-  protected readonly reviewLabel = computed(() => {
-    const n = this.reviewCount();
-    return `${n} ${n === 1 ? 'item' : 'items'} waiting for review`;
+  protected readonly badgeCounts = computed<NavBadgeCounts>(() => {
+    const reviewer = this.auth.hasPermission('specialists.manage');
+    return {
+      review: reviewer ? this.reviewQueue.count() : 0,
+      applications: reviewer ? this.applicationsQueue.count() : 0,
+    };
   });
+  /** The mobile menu button's words for what is waiting ('' when nothing). */
+  protected readonly waiting = computed(() => waitingSummary(this.badgeCounts()));
 
   protected readonly menuOpen = signal(false);
   protected readonly displayName = computed(() => this.auth.displayName());
@@ -155,14 +171,26 @@ export class AdminShell {
 
   constructor() {
     void this.auth.loadMe();
-    // Keep the review badge current as the admin moves around.
+    // Keep the review and applications badges current as the admin moves around.
     this.reviewQueue.refresh();
+    this.applicationsQueue.refresh();
     this.router.events
       .pipe(
         filter((e) => e instanceof NavigationEnd),
         takeUntilDestroyed(),
       )
-      .subscribe(() => this.reviewQueue.refresh());
+      .subscribe(() => {
+        this.reviewQueue.refresh();
+        this.applicationsQueue.refresh();
+      });
+  }
+
+  protected count(item: NavItem): number {
+    return badgeCount(item, this.badgeCounts());
+  }
+
+  protected label(badge: NavBadge, n: number): string {
+    return badgeLabel(badge, n);
   }
 
   protected async askLogout(): Promise<void> {

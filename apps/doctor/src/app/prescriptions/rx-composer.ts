@@ -249,7 +249,7 @@ function nullIfBlank(v: string): string | null {
           <div class="flex items-start gap-2.5 rounded-field bg-warning/10 px-4 py-3 font-sans text-body-sm text-ink" role="alert">
             <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0 text-warning" />
             <span class="min-w-0 flex-1">
-              Add your MDCN number in your profile — it is printed on your prescriptions.
+              Add your {{ registrationLabel() }} in your profile — it is printed on your prescriptions.
               <a routerLink="/profile" target="_blank" rel="noopener" class="font-semibold text-cerulean underline">Open my profile</a>
             </span>
             <button type="button" class="shrink-0 text-slate transition-colors hover:text-ink" aria-label="Dismiss" (click)="mdcnDismissed.set(true)">
@@ -1254,6 +1254,8 @@ export class RxComposer {
     const o = this.options();
     return !!o && !o.mdcn_number && !this.mdcnDismissed() && !this.locked();
   });
+  /** "MDCN number", or "{regulator} number" for a doctor licensed abroad (the API's label). */
+  protected readonly registrationLabel = computed(() => this.options()?.registration_label?.trim() || 'MDCN number');
   protected readonly infoBodyClass = computed(() => {
     if (this.infoOpen()) return 'mt-3 block';
     return this.compact() ? 'hidden' : 'hidden @4xl:block';

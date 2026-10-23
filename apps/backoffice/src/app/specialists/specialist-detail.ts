@@ -23,12 +23,14 @@ import {
   BACK_LINK,
   BTN_SECONDARY,
   CARD_RAISED,
+  CHIP,
   DETAIL_ACTIONS,
   DETAIL_NAME,
   EMPTY_FRAME,
   PAGE,
   PAGE_HEADER_DETAIL,
   PAGE_TITLE,
+  TAG,
 } from '../shared/layout';
 import { ReviewQueue } from './review-queue';
 import { SpecialistAppointmentsTab } from './tabs/appointments-tab';
@@ -48,8 +50,10 @@ import {
   BTN_SUCCESS,
   calendarDay,
   dateOnly,
+  doctorLicenceWording,
   type DoctorTab,
   FOCUS_RING,
+  licenceWording,
   licenceStateBadge,
   loginBadge,
   money,
@@ -135,6 +139,18 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
                     <span class="${PILL}" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
                   }
                 </div>
+                @if (d.application || wording().abroad) {
+                  <div class="flex flex-wrap items-center justify-center gap-1.5 sm:justify-start">
+                    @if (d.application; as app) {
+                      <a [routerLink]="['/applications', app.id]" class="${TAG} inline-flex min-h-8 items-center gap-1.5 transition-colors hover:bg-cerulean/15 ${FOCUS_RING}">
+                        <sd-icon name="clipboard-list" [size]="14" />From application <span class="font-mono">{{ app.reference }}</span>
+                      </a>
+                    }
+                    @if (wording().abroad) {
+                      <span class="${CHIP} bg-glacier text-ink"><sd-icon name="globe" [size]="14" />Abroad · {{ wording().regulator }}</span>
+                    }
+                  </div>
+                }
               </div>
             </div>
             @if (d.status === 'approved' || d.status === 'suspended') {
@@ -308,6 +324,11 @@ export class AdminSpecialistDetail implements OnInit, HasUnsavedChanges {
   private loadSub?: Subscription;
 
   protected readonly photoSrc = computed(() => this.api.assetUrl(this.detail()?.profile.photo_url ?? null));
+  /** "Abroad · {regulator}" for a doctor licensed outside Nigeria. */
+  protected readonly wording = computed(() => {
+    const d = this.detail();
+    return d ? doctorLicenceWording(d) : licenceWording('ng');
+  });
 
   protected readonly badges = computed<Badge[]>(() => {
     const d = this.detail();

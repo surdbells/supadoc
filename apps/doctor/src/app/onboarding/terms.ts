@@ -17,6 +17,7 @@ import { apiErrorFields, apiErrorMessage, DoctorApi } from '@supadoc/data-access
 import type { PractitionerTermsDto, TermsBlock } from '@supadoc/models';
 import { AlertComponent, ButtonComponent, IconComponent } from '@supadoc/ui';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
+import { licenceWording } from '../standing/standing-rules';
 
 /**
  * The terms text as render-ready parts: a heading or paragraph (`text`), or
@@ -135,7 +136,7 @@ export function termsParts(blocks: readonly TermsBlock[]): TermsPart[] {
                 (change)="setAgree($any($event.target).checked)"
               />
               <span class="font-sans text-body-sm text-ink">
-                I have read and agree to the VideoMed practitioner terms (version {{ t.version }}), and I will keep my MDCN registration and annual practising licence current.
+                I have read and agree to the VideoMed practitioner terms (version {{ t.version }}), and I will keep {{ keepCurrent() }} current.
               </span>
             </label>
             @if (agreeError()) {
@@ -191,6 +192,18 @@ export class DoctorPractitionerTerms implements OnInit {
   protected readonly backLink = computed(() => (this.approved() ? '/dashboard' : '/onboarding'));
   protected readonly nextLink = computed(() => (this.approved() ? '/dashboard' : '/onboarding'));
   protected readonly nextLabel = computed(() => (this.approved() ? 'Go to your dashboard' : 'Back to your checklist'));
+  /**
+   * What the doctor undertakes to keep current: MDCN registration and the
+   * annual practising licence, or — licensed abroad — their registration with
+   * their regulator and its practising licence (wording pending product's
+   * confirmation of the abroad policy, O1).
+   */
+  protected readonly keepCurrent = computed(() => {
+    const w = licenceWording(this.standing.onboarding());
+    return w.abroad
+      ? `my registration with ${w.regulator} and my practising licence`
+      : 'my MDCN registration and annual practising licence';
+  });
 
   ngOnInit(): void {
     void this.standing.load();

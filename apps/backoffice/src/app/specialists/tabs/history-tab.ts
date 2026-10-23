@@ -19,6 +19,8 @@ import { Badge, BTN_SECONDARY, codeLabel, dateTime, statusBadge } from '../speci
 
 const ACTIONS: Record<string, { label: string; icon: string }> = {
   'specialist.created': { label: 'Created', icon: 'user-plus' },
+  'specialist.created_from_application': { label: 'Created from application', icon: 'clipboard-list' },
+  'specialist.went_live': { label: 'Went live after setup', icon: 'badge-check' },
   'specialist.invited': { label: 'Invite sent', icon: 'mail' },
   'specialist.updated': { label: 'Profile edited', icon: 'pencil' },
   'specialist.submitted': { label: 'Submitted for review', icon: 'send' },

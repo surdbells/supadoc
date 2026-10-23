@@ -1,10 +1,13 @@
 import { ymdInZone } from '@supadoc/data-access';
 import type {
   CredentialStatus,
+  CredentialType,
   DoctorLoginStateDto,
+  LicenceRoute,
   LicenceStateDto,
   LicenceStatus,
   OnboardingItemKey,
+  SpecialistDetailDto,
   SpecialistStatus,
 } from '@supadoc/models';
 
@@ -43,7 +46,7 @@ export {
   PILL,
 } from '../shared/layout';
 
-/** The onboarding checklist, in the order a doctor works through it. */
+/** The onboarding checklist, in the order a doctor works through it (a doctor licensed in Nigeria). */
 export const CHECKLIST: readonly { key: OnboardingItemKey; label: string }[] = [
   { key: 'photo', label: 'Profile photo' },
   { key: 'bio', label: 'Bio' },
@@ -56,6 +59,83 @@ export const CHECKLIST: readonly { key: OnboardingItemKey; label: string }[] = [
   { key: 'payout', label: 'Payout account' },
   { key: 'terms', label: 'Practitioner terms accepted' },
 ];
+
+/**
+ * How a doctor's licensing reads. Doctors licensed in Nigeria hold an MDCN
+ * number, the MDCN full-registration certificate and an annual practising
+ * licence; doctors licensed abroad hold a registration with their own
+ * regulator, a Certificate of Good Standing and a practising licence (the
+ * API's `Specialist::licence_route`, `registrationLabel()`).
+ */
+export interface LicenceWording {
+  readonly abroad: boolean;
+  /** "MDCN", or the regulator's name ("General Medical Council"). */
+  readonly regulator: string;
+  /** "MDCN number" / "General Medical Council number" (or "Registration number"). */
+  readonly numberLabel: string;
+  /** "the MDCN register" / "the General Medical Council register". */
+  readonly registerName: string;
+  /** The document in place of the MDCN full-registration certificate. */
+  readonly registrationDoc: string;
+  readonly registrationType: CredentialType;
+  /** The practising licence. */
+  readonly licenceDoc: string;
+  readonly licenceType: CredentialType;
+}
+
+/** Both licence types: a licence needs a number and an expiry, and decides the licence in force. */
+export const LICENCE_TYPES: readonly CredentialType[] = ['annual_practising_licence', 'foreign_practising_licence'];
+
+export function licenceWording(route: LicenceRoute | null | undefined, regulatorName?: string | null): LicenceWording {
+  if (route !== 'abroad') {
+    return {
+      abroad: false,
+      regulator: 'MDCN',
+      numberLabel: 'MDCN number',
+      registerName: 'the MDCN register',
+      registrationDoc: 'MDCN full-registration certificate',
+      registrationType: 'mdcn_full_registration',
+      licenceDoc: 'Annual practising licence',
+      licenceType: 'annual_practising_licence',
+    };
+  }
+  const name = (regulatorName ?? '').trim();
+  return {
+    abroad: true,
+    regulator: name || 'their regulator',
+    numberLabel: name ? `${name} number` : 'Registration number',
+    registerName: name ? `the ${name} register` : "the regulator's register",
+    registrationDoc: 'Certificate of Good Standing',
+    registrationType: 'good_standing_certificate',
+    licenceDoc: 'Practising licence',
+    licenceType: 'foreign_practising_licence',
+  };
+}
+
+/** The wording for a doctor page (the onboarding payload's route, else the profile's). */
+export function doctorLicenceWording(d: SpecialistDetailDto): LicenceWording {
+  return licenceWording(
+    d.licence_route ?? d.profile?.licence_route,
+    d.registration?.regulator_name ?? d.profile?.regulator_name,
+  );
+}
+
+/** The doctor's registration number: the MDCN number, or the one with their regulator abroad. */
+export function registrationNumber(d: SpecialistDetailDto): string | null {
+  if (!doctorLicenceWording(d).abroad) return d.profile?.mdcn_number ?? null;
+  return d.registration?.registration_number ?? d.profile?.registration_number ?? null;
+}
+
+/** The checklist with the route's licensing items. */
+export function checklistFor(w: LicenceWording): readonly { key: OnboardingItemKey; label: string }[] {
+  if (!w.abroad) return CHECKLIST;
+  const abroad: Partial<Record<OnboardingItemKey, string>> = {
+    mdcn: 'Licence or registration number',
+    mdcn_certificate: 'Certificate of Good Standing',
+    practising_licence: 'Practising licence',
+  };
+  return CHECKLIST.map((c) => ({ key: c.key, label: abroad[c.key] ?? c.label }));
+}
 
 /** Mirrors the API's SpecialistSuspensionService::CODES (the preview sends the live list). */
 export const SUSPENSION_CODE_LABELS: Record<string, string> = {

@@ -59,6 +59,7 @@ import {
   inDaysLabel,
   latestCredential,
   licenceDocuments,
+  licenceWording,
   renewalText,
   ymdLabel,
 } from '../standing/standing-rules';
@@ -292,7 +293,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (locked()) {
                     <p class="flex items-start gap-2 rounded-field bg-glacier px-3 py-2 font-sans text-caption text-slate">
                       <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
-                      Your name, speciality, MDCN number, qualifications and certifications were verified when you were approved. Changes to them go to a reviewer first.
+                      {{ lockedCopy() }} Changes to them go to a reviewer first.
                     </p>
                   }
                   <div class="flex flex-col gap-1 border-b border-cloud pb-4">
@@ -308,20 +309,35 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                       </span>
                     }
                   </div>
-                  <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-                    <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
-                      MDCN registration number
-                      @if (isPending('mdcn_number')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
-                    </span>
-                    @if (profile()?.mdcn_number) {
-                      <span class="break-all font-sans text-body-sm font-medium text-ink">{{ profile()?.mdcn_number }}</span>
-                    } @else {
-                      <span class="flex items-start gap-1.5 font-sans text-body-sm text-warning">
-                        <sd-icon name="circle-alert" [size]="16" class="mt-0.5 shrink-0" />
-                        {{ locked() ? 'Not added yet. Use “Request a change” to add it — it is printed on your prescriptions.' : 'Not added yet. It is printed on your prescriptions — add it with Edit Profile.' }}
+                  @if (wording().abroad) {
+                    <!-- Licensed abroad: the registration approval recorded (no edit path). -->
+                    <div class="flex flex-col gap-2 border-b border-cloud pb-4" role="group" aria-labelledby="licensing-heading">
+                      <span id="licensing-heading" class="flex items-center gap-1.5 font-sans text-caption font-semibold text-slate"><sd-icon name="globe" [size]="14" />Licensing</span>
+                      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 font-sans text-body-sm">
+                        <dt class="text-slate">Regulator</dt><dd class="break-words font-medium text-ink">{{ registration().regulator_name || '—' }}</dd>
+                        <dt class="text-slate">Country</dt><dd class="break-words font-medium text-ink">{{ regulatorCountry() || '—' }}</dd>
+                        <dt class="text-slate">Registration number</dt><dd class="break-all font-medium text-ink">{{ registration().registration_number || '—' }}</dd>
+                      </dl>
+                      <p class="flex items-start gap-1.5 font-sans text-caption text-slate">
+                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />Verified with your application. Contact support to change it.
+                      </p>
+                    </div>
+                  } @else {
+                    <div class="flex flex-col gap-1 border-b border-cloud pb-4">
+                      <span class="flex flex-wrap items-center gap-2 font-sans text-caption text-slate">
+                        MDCN registration number
+                        @if (isPending('mdcn_number')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
                       </span>
-                    }
-                  </div>
+                      @if (profile()?.mdcn_number) {
+                        <span class="break-all font-sans text-body-sm font-medium text-ink">{{ profile()?.mdcn_number }}</span>
+                      } @else {
+                        <span class="flex items-start gap-1.5 font-sans text-body-sm text-warning">
+                          <sd-icon name="circle-alert" [size]="16" class="mt-0.5 shrink-0" />
+                          {{ locked() ? 'Not added yet. Use “Request a change” to add it — it is printed on your prescriptions.' : 'Not added yet. It is printed on your prescriptions — add it with Edit Profile.' }}
+                        </span>
+                      }
+                    </div>
+                  }
                   <div class="flex flex-col gap-1 border-b border-cloud pb-4">
                     <span class="font-sans text-caption text-slate">Years of experience</span>
                     <span class="font-sans text-body-sm font-medium text-ink">{{ profile()?.years_experience ?? '—' }} {{ profile()?.years_experience ? 'years' : '' }}</span>
@@ -450,13 +466,13 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (account(); as o) {
                     <dl class="flex flex-col divide-y divide-cloud">
                       <div class="flex flex-wrap items-center justify-between gap-2 py-3">
-                        <dt class="font-sans text-caption text-slate">MDCN full-registration certificate</dt>
-                        <dd><doc-credential-status [status]="docStatus('mdcn_full_registration')" /></dd>
+                        <dt class="font-sans text-caption text-slate">{{ wording().registrationDoc }}</dt>
+                        <dd><doc-credential-status [status]="docStatus(wording().registrationType)" /></dd>
                       </div>
                       <div class="flex flex-wrap items-center justify-between gap-2 py-3">
-                        <dt class="font-sans text-caption text-slate">Annual practising licence</dt>
+                        <dt class="font-sans text-caption text-slate">{{ wording().licenceDoc }}</dt>
                         <dd class="flex flex-col items-end gap-1">
-                          <doc-credential-status [status]="docStatus('annual_practising_licence')" />
+                          <doc-credential-status [status]="docStatus(wording().licenceType)" />
                           @if (licenceLine(); as line) { <span class="font-sans text-caption" [class]="line.tone">{{ line.text }}</span> }
                           @if (licenceRenewal(); as r) {
                             <!-- A renewal beside the licence in force: said on its own line. -->
@@ -479,7 +495,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                       </div>
                     </dl>
                   } @else {
-                    <p class="font-sans text-body-sm text-slate">Your MDCN certificate, practising licence and the practitioner terms.</p>
+                    <p class="font-sans text-body-sm text-slate">Your {{ wording().abroad ? 'Certificate of Good Standing' : 'MDCN certificate' }}, practising licence and the practitioner terms.</p>
                   }
                   <div class="flex flex-wrap gap-2">
                     <a routerLink="/onboarding/credentials" class="inline-flex min-h-11 items-center gap-2 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none">
@@ -622,16 +638,18 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                       </div>
                     }
                   }
-                  <div class="flex w-full flex-col gap-1.5">
-                    <sd-input label="MDCN registration number" placeholder="e.g. MDCN/12345" formControlName="mdcn" autocomplete="off" [error]="mdcnError()" />
-                    @if (!mdcnError()) {
-                      <span class="font-sans text-caption text-slate">Printed on your prescriptions. Letters, numbers, / or -.</span>
-                    }
-                  </div>
+                  @if (!wording().abroad) {
+                    <div class="flex w-full flex-col gap-1.5">
+                      <sd-input label="MDCN registration number" placeholder="e.g. MDCN/12345" formControlName="mdcn" autocomplete="off" [error]="mdcnError()" />
+                      @if (!mdcnError()) {
+                        <span class="font-sans text-caption text-slate">Printed on your prescriptions. Letters, numbers, / or -.</span>
+                      }
+                    </div>
+                  }
                 } @else {
                   <p class="flex items-start gap-2 rounded-field bg-glacier px-3 py-2 font-sans text-caption text-slate">
                     <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
-                    Your name, speciality, MDCN number, qualifications and certifications were verified when you were approved. To change them, save or cancel here, then use “Request a change” on your profile.
+                    {{ lockedCopy() }} To change them, save or cancel here, then use “Request a change” on your profile.
                   </p>
                   <div class="flex w-full flex-col gap-2">
                     <span class="font-sans text-body font-semibold text-ink">Medical Speciality</span>
@@ -641,8 +659,8 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     }
                   </div>
                   <div class="flex w-full flex-col gap-2">
-                    <span class="font-sans text-body font-semibold text-ink">MDCN registration number</span>
-                    <p class="${LOCKED_VALUE}"><sd-icon name="lock" [size]="16" class="shrink-0 text-slate" /><span class="min-w-0 break-all">{{ profile()?.mdcn_number || '—' }}</span></p>
+                    <span class="font-sans text-body font-semibold text-ink">{{ wording().abroad ? 'Licence or registration number' : 'MDCN registration number' }}</span>
+                    <p class="${LOCKED_VALUE}"><sd-icon name="lock" [size]="16" class="shrink-0 text-slate" /><span class="min-w-0 break-all">{{ (wording().abroad ? registration().registration_number : profile()?.mdcn_number) || '—' }}</span></p>
                   </div>
                 }
                 @if (!changing) {
@@ -851,7 +869,7 @@ export class DoctorProfile implements OnInit {
     if (p.name !== undefined) rows.push({ label: CHANGE_FIELD_LABELS['name'], value: p.name, current: now.name });
     if (p.specialty !== undefined) rows.push({ label: CHANGE_FIELD_LABELS['specialty'], value: p.specialty, current: now.specialty });
     if (p.mdcn_number !== undefined) {
-      rows.push({ label: CHANGE_FIELD_LABELS['mdcn_number'], value: p.mdcn_number ?? '', current: now.mdcn_number ?? '' });
+      rows.push({ label: this.wording().numberLabel, value: p.mdcn_number ?? '', current: now.mdcn_number ?? '' });
     }
     if (p.qualification_entries !== undefined) {
       rows.push({ label: 'Qualifications', value: entriesText(p.qualification_entries), current: entriesText(now.qualification_entries) });
@@ -879,7 +897,44 @@ export class DoctorProfile implements OnInit {
     return { text: `Valid until ${ymdLabel(l.expires_at)}`, tone: 'text-slate' };
   });
   /** The licence in force, and a renewal waiting for verification (or turned down) beside it. */
-  private readonly licenceDocs = computed(() => licenceDocuments(this.account()?.credentials, this.account()?.licence));
+  private readonly licenceDocs = computed(() =>
+    licenceDocuments(this.account()?.credentials, this.account()?.licence, this.wording().licenceType),
+  );
+
+  // ----- Licence route (a doctor licensed abroad: their regulator, set at approval, no edit path) -----
+  /** Their registration with the regulator (the profile's, else the onboarding payload's). */
+  protected readonly registration = computed(() => {
+    const p = this.profile();
+    const r = this.account()?.registration;
+    return {
+      regulator_name: p?.regulator_name ?? r?.regulator_name ?? null,
+      regulator_country: p?.regulator_country ?? r?.regulator_country ?? null,
+      registration_number: p?.registration_number ?? r?.registration_number ?? null,
+    };
+  });
+  /** MDCN wording, or their regulator's when licensed abroad. */
+  protected readonly wording = computed(() =>
+    licenceWording({
+      licence_route: this.profile()?.licence_route ?? this.account()?.licence_route,
+      registration: this.registration(),
+    }),
+  );
+  protected readonly regulatorCountry = computed(() => {
+    const code = (this.registration().regulator_country ?? '').trim().toUpperCase();
+    if (!code) return '';
+    try {
+      return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+    } catch {
+      return code;
+    }
+  });
+  /** What was verified, and when: at approval, or with their application. */
+  protected readonly lockedCopy = computed(() => {
+    const fields = this.wording().abroad
+      ? 'Your name, speciality, qualifications and certifications'
+      : 'Your name, speciality, MDCN number, qualifications and certifications';
+    return `${fields} were verified ${this.account()?.application ? 'with your application' : 'when you were approved'}.`;
+  });
   protected readonly licenceRenewal = computed(() => this.licenceDocs().renewal);
   protected readonly renewalText = renewalText;
   protected readonly photoPath = signal<string | null>(null);
@@ -1627,7 +1682,7 @@ export class DoctorProfile implements OnInit {
 
   protected docStatus(type: CredentialType): CredentialChipState {
     const doc =
-      type === 'annual_practising_licence' ? this.licenceDocs().current : latestCredential(this.account()?.credentials, type);
+      type === this.wording().licenceType ? this.licenceDocs().current : latestCredential(this.account()?.credentials, type);
     return doc?.status ?? 'missing';
   }
 

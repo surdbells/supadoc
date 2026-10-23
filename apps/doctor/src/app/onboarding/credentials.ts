@@ -26,7 +26,15 @@ import {
 } from '@supadoc/ui';
 import { focusAfterDialogs } from '../focus-after-dialog';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
-import { latestCredential, licenceDocuments, renewalText, ymdLabel } from '../standing/standing-rules';
+import {
+  APPLICATION_ONLY_TYPES,
+  latestCredential,
+  licenceDocuments,
+  type LicenceWording,
+  licenceWording,
+  renewalText,
+  ymdLabel,
+} from '../standing/standing-rules';
 import { CredentialStatusChip } from './credential-status';
 
 const FIELD =
@@ -35,8 +43,14 @@ const LABEL = 'font-sans text-body-sm font-semibold text-ink';
 const ACTION =
   'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold shadow-control transition active:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:opacity-60 disabled:shadow-none';
 
-/** The two documents every doctor must have verified, in the order they are asked for. */
-const REQUIRED: readonly { type: CredentialType; label: string; hint: string }[] = [
+export interface RequiredDocument {
+  readonly type: CredentialType;
+  readonly label: string;
+  readonly hint: string;
+}
+
+/** The two documents every doctor licensed in Nigeria must have verified, in the order they are asked for. */
+const REQUIRED: readonly RequiredDocument[] = [
   {
     type: 'mdcn_full_registration',
     label: 'MDCN full-registration certificate',
@@ -49,6 +63,23 @@ const REQUIRED: readonly { type: CredentialType; label: string; hint: string }[]
   },
 ];
 
+/** The two required documents for the doctor's licence route (abroad: their regulator's). */
+export function requiredFor(w: LicenceWording): readonly RequiredDocument[] {
+  if (!w.abroad) return REQUIRED;
+  return [
+    {
+      type: 'good_standing_certificate',
+      label: 'Certificate of Good Standing',
+      hint: `Issued by ${w.regulator} within the last 6 months.`,
+    },
+    {
+      type: 'foreign_practising_licence',
+      label: 'Practising licence',
+      hint: `Your current licence from ${w.regulator}, with its number and expiry date. Upload the renewal before it runs out.`,
+    },
+  ];
+}
+
 /** What a file the picker turned away needs instead. */
 function rejectionText(r: FileDropRejection, maxBytes: number): string {
   return r.reason === 'size'
@@ -59,11 +90,15 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
 /**
  * Licensing documents (route `/onboarding/credentials`): the doctor uploads
  * their MDCN full-registration certificate, current annual practising licence
- * (number + expiry) and any specialist certificates; sees each one's review
- * state and a reviewer's reason for turning one down; replaces, views (their
- * own file only, from a blob) or deletes one still waiting for review. Files
- * are stored encrypted; only the doctor and VideoMed reviewers can open them.
- * Open whatever the doctor's standing (a suspended doctor renews here).
+ * (number + expiry) and any specialist certificates — licensed abroad, a
+ * Certificate of Good Standing and their regulator's practising licence (the
+ * API's list of types is already the route's); sees each one's review state
+ * and a reviewer's reason for turning one down; replaces, views (their own
+ * file only, from a blob) or deletes one still waiting for review. Documents
+ * verified with an approved application (ID, degree, CV) are listed read-only
+ * under "On file". Files are stored encrypted; only the doctor and VideoMed
+ * reviewers can open them. Open whatever the doctor's standing (a suspended
+ * doctor renews here).
  */
 @Component({
   selector: 'doc-credentials',
@@ -83,7 +118,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
         <header class="flex flex-col gap-1">
           <h1 class="font-heading text-h3 text-ink">Licensing documents</h1>
           <p class="font-sans text-body text-slate">
-            Reviewers verify your documents against the MDCN register. They're stored encrypted, and only you and VideoMed reviewers can open them.
+            Reviewers verify your documents against {{ wording().registerName }}. They're stored encrypted, and only you and VideoMed reviewers can open them.
           </p>
         </header>
         <a [routerLink]="backLink()" class="flex min-h-11 shrink-0 items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
@@ -104,7 +139,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
       } @else if (data(); as d) {
         <!-- The two required documents, at a glance -->
         <section class="grid gap-3 sm:grid-cols-2" aria-label="Required documents">
-          @for (r of required; track r.type) {
+          @for (r of required(); track r.type) {
             @let doc = latest(r.type);
             <div class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5">
               <div class="flex flex-col gap-2">
@@ -117,7 +152,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
                   <span class="font-semibold">Reviewer's note:</span> {{ doc?.rejection_reason }}
                 </p>
               }
-              @if (r.type === 'annual_practising_licence' && licenceRenewal(); as renewal) {
+              @if (r.type === wording().licenceType && licenceRenewal(); as renewal) {
                 <!-- A renewal beside the licence in force: said on its own line. -->
                 <p class="flex items-start gap-1.5 font-sans text-caption" [class]="renewal.status === 'rejected' ? 'text-alert' : 'text-slate'">
                   <sd-icon [name]="renewal.status === 'rejected' ? 'circle-x' : 'hourglass'" [size]="13" class="mt-0.5 shrink-0" />
@@ -125,7 +160,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
                 </p>
               }
               <button type="button" class="${ACTION} mt-auto w-fit text-cerulean hover:border-cerulean" (click)="startUpload(r.type)">
-                <sd-icon name="upload" [size]="16" />{{ doc ? (r.type === 'annual_practising_licence' ? 'Upload renewal' : 'Replace') : 'Upload' }}
+                <sd-icon name="upload" [size]="16" />{{ doc ? (r.type === wording().licenceType ? 'Upload renewal' : 'Replace') : 'Upload' }}
                 <span class="sr-only">— {{ r.label }}</span>
               </button>
             </div>
@@ -138,7 +173,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
             <h2 #uploadTitle id="upload-title" tabindex="-1" class="flex items-center gap-2 font-heading text-body-lg text-ink outline-none">
               <sd-icon name="upload" [size]="20" class="text-cerulean" />Upload a document
             </h2>
-            <p class="font-sans text-caption text-slate">PDF, JPG or PNG, up to {{ maxMb() }}MB. A new MDCN certificate or licence replaces the one waiting for review.</p>
+            <p class="font-sans text-caption text-slate">PDF, JPG or PNG, up to {{ maxMb() }}MB. A new {{ wording().abroad ? 'certificate' : 'MDCN certificate' }} or licence replaces the one waiting for review.</p>
           </div>
 
           <form class="flex flex-col gap-5" novalidate (submit)="$event.preventDefault(); upload()">
@@ -155,7 +190,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
               >
                 <!-- [selected] per option, so a preset type shows even before the options render. -->
                 <option value="" disabled [selected]="!type()">Choose the document</option>
-                @for (t of d.types; track t.type) {
+                @for (t of uploadTypes(); track t.type) {
                   <option [value]="t.type" [selected]="t.type === type()">{{ t.label }}</option>
                 }
               </select>
@@ -166,7 +201,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
               <div class="grid gap-4 sm:grid-cols-3">
                 <div class="flex flex-col gap-1.5">
                   <label class="${LABEL}" for="cred-number">
-                    {{ type() === 'annual_practising_licence' ? 'Licence number' : 'Certificate number' }}
+                    {{ isLicence() ? 'Licence number' : isIndemnity() ? 'Policy number' : 'Certificate number' }}
                     @if (needsNumber()) { <span class="text-alert" aria-hidden="true">*</span> } @else { <span class="font-normal text-slate">(optional)</span> }
                   </label>
                   <input
@@ -283,14 +318,14 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
           @if (actionError()) {
             <sd-alert tone="error">{{ actionError() }}</sd-alert>
           }
-          @if (d.credentials.length === 0) {
+          @if (ownDocuments().length === 0) {
             <div class="flex flex-col items-center gap-2 rounded-card border border-dashed border-ash bg-white px-5 py-10 text-center">
               <sd-icon name="folder-open" [size]="28" class="text-slate" />
               <p class="font-sans text-body-sm text-slate">No documents uploaded yet.</p>
             </div>
           } @else {
             <ul class="flex flex-col gap-3">
-              @for (c of d.credentials; track c.id) {
+              @for (c of ownDocuments(); track c.id) {
                 <li class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5">
                   <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="flex min-w-0 flex-col gap-0.5">
@@ -328,6 +363,36 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
             </ul>
           }
         </section>
+
+        <!-- Documents only an application carries: verified with it, kept on file (no replace, no delete). -->
+        @if (onFile().length > 0) {
+          <section class="flex flex-col gap-3" aria-labelledby="on-file-title">
+            <div class="flex flex-col gap-1">
+              <h2 id="on-file-title" class="font-heading text-body-lg text-ink">On file — verified with your application</h2>
+              <p class="font-sans text-caption text-slate">Checked by our team when your application was approved. Contact support if one needs changing.</p>
+            </div>
+            <ul class="flex flex-col gap-3">
+              @for (c of onFile(); track c.id) {
+                <li class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                  <div class="flex min-w-0 flex-col gap-1">
+                    <span class="flex flex-wrap items-center gap-2">
+                      <span class="font-heading text-body font-semibold text-ink">{{ c.type_label }}</span>
+                      <doc-credential-status [status]="c.status" />
+                    </span>
+                    <p class="flex min-w-0 items-center gap-1.5 font-sans text-caption text-slate">
+                      <sd-icon name="file-text" [size]="14" class="shrink-0" />
+                      <span class="truncate">{{ c.original_name }}</span>
+                      <span class="shrink-0">· {{ size(c.size_bytes) }}</span>
+                    </p>
+                  </div>
+                  <button type="button" class="${ACTION} w-fit shrink-0 text-cerulean hover:border-cerulean" (click)="view(c)">
+                    <sd-icon name="eye" [size]="16" />View<span class="sr-only"> {{ c.type_label }} (opens in a new tab)</span>
+                  </button>
+                </li>
+              }
+            </ul>
+          </section>
+        }
       }
     </div>
   `,
@@ -339,7 +404,6 @@ export class DoctorCredentials implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
-  protected readonly required = REQUIRED;
   protected readonly today = todayLocal();
 
   protected readonly loading = signal(true);
@@ -365,6 +429,27 @@ export class DoctorCredentials implements OnInit {
   private readonly uploadTitle = viewChild<ElementRef<HTMLElement>>('uploadTitle');
   private readonly typeSelect = viewChild<ElementRef<HTMLSelectElement>>('typeSelect');
   private readonly noticeEl = viewChild<ElementRef<HTMLElement>>('noticeEl');
+
+  /** MDCN wording, or the doctor's regulator when licensed abroad (from the standing payload). */
+  protected readonly wording = computed(() => licenceWording(this.standing.onboarding()));
+  protected readonly required = computed(() => requiredFor(this.wording()));
+  /** What can be uploaded here (the API's list for the route; never an application-only document). */
+  protected readonly uploadTypes = computed(() =>
+    (this.data()?.types ?? []).filter((t) => !APPLICATION_ONLY_TYPES.includes(t.type)),
+  );
+  /** The doctor's own documents… */
+  protected readonly ownDocuments = computed(() =>
+    (this.data()?.credentials ?? []).filter((c) => !APPLICATION_ONLY_TYPES.includes(c.type)),
+  );
+  /** …and those verified with their application (read-only). */
+  protected readonly onFile = computed(() =>
+    (this.data()?.credentials ?? []).filter((c) => APPLICATION_ONLY_TYPES.includes(c.type)),
+  );
+  protected readonly isLicence = computed(
+    () => this.type() === 'annual_practising_licence' || this.type() === 'foreign_practising_licence',
+  );
+  /** Indemnity cover: a policy number and the date the cover ends. */
+  protected readonly isIndemnity = computed(() => this.type() === 'indemnity_certificate');
 
   private readonly option = computed(() => this.data()?.types.find((t) => t.type === this.type()) ?? null);
   protected readonly needsNumber = computed(() => this.option()?.requires_number ?? false);
@@ -417,14 +502,14 @@ export class DoctorCredentials implements OnInit {
 
   /** The licence in force (from the standing's licence state) and a renewal beside it. */
   private readonly licenceDocs = computed(() =>
-    licenceDocuments(this.data()?.credentials, this.standing.onboarding()?.licence),
+    licenceDocuments(this.data()?.credentials, this.standing.onboarding()?.licence, this.wording().licenceType),
   );
   protected readonly licenceRenewal = computed(() => this.licenceDocs().renewal);
   protected readonly renewalText = renewalText;
 
   /** The document a summary card shows — for the licence, the one in force (a renewal has its own line). */
   protected latest(type: CredentialType): SpecialistCredentialDto | null {
-    if (type === 'annual_practising_licence') return this.licenceDocs().current;
+    if (type === this.wording().licenceType) return this.licenceDocs().current;
     return latestCredential(this.data()?.credentials, type);
   }
 
@@ -485,11 +570,20 @@ export class DoctorCredentials implements OnInit {
     const errs: Record<string, string> = {};
     if (!this.type()) errs['type'] = 'Choose the document type.';
     if (this.needsNumber() && !this.number().trim()) {
-      errs['number'] = this.type() === 'annual_practising_licence' ? 'Enter the licence number.' : 'Enter the certificate number.';
+      errs['number'] = this.isLicence()
+        ? 'Enter the licence number.'
+        : this.isIndemnity()
+          ? 'Enter the policy number.'
+          : 'Enter the certificate number.';
     }
     if (this.issuedAt() && this.issuedAt() > this.today) errs['issued_at'] = 'The issue date cannot be in the future.';
-    if (this.needsExpiry() && !this.expiresAt()) errs['expires_at'] = 'Enter the date the licence expires.';
-    else if (this.expiresAt() && this.expiresAt() < this.today) {
+    if (this.needsExpiry() && !this.expiresAt()) {
+      errs['expires_at'] = this.isLicence()
+        ? 'Enter the date the licence expires.'
+        : this.isIndemnity()
+          ? 'Enter the date your cover expires.'
+          : 'Enter the expiry date.';
+    } else if (this.expiresAt() && this.expiresAt() < this.today) {
       errs['expires_at'] = 'This document has already expired — upload your current one.';
     } else if (this.expiresAt() && this.issuedAt() && this.expiresAt() < this.issuedAt()) {
       // The API's rule: the same day is allowed.

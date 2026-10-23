@@ -421,4 +421,25 @@ describe('DoctorProfile — speciality', () => {
     search?.dispatchEvent(enter);
     expect(enter.defaultPrevented).toBe(true);
   });
+
+  it('shows a doctor licensed abroad their regulator’s registration, read-only, and no MDCN number', async () => {
+    await setup(
+      profile({
+        licence_route: 'abroad',
+        regulator_name: 'General Medical Council',
+        regulator_country: 'GB',
+        registration_number: 'GMC-7001',
+        locked_fields: ['name', 'specialty', 'mdcn_number', 'qualifications', 'qualification_entries', 'certifications'],
+      }),
+      () => of({ data: LIST }),
+    );
+    const block = el.querySelector('[aria-labelledby="licensing-heading"]');
+    expect(block?.textContent).toContain('General Medical Council');
+    expect(block?.textContent).toContain('United Kingdom');
+    expect(block?.textContent).toContain('GMC-7001');
+    expect(block?.textContent).toContain('Verified with your application. Contact support to change it.');
+    expect(el.textContent).not.toContain('MDCN registration number');
+    expect(el.textContent).toContain('Your name, speciality, qualifications and certifications were verified');
+    expect(el.textContent).not.toContain('MDCN');
+  });
 });

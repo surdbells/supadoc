@@ -778,9 +778,18 @@ export class AdminSpecialists implements OnInit {
     });
   }
 
-  /** Status, licence, login and what needs attention — icon + words each. */
+  /**
+   * Status, licence, login and what needs attention — icon + words each. A
+   * doctor still setting up after an approved application reads "From
+   * application · Setting up" (they go live themselves once every step is done).
+   */
   protected badgesFor(s: SpecialistAdminRowDto): Badge[] {
-    const out: Badge[] = [statusBadge(s.status)];
+    const fromApplication = s.status === 'invited' && !!s.application_id;
+    const out: Badge[] = [
+      fromApplication
+        ? { label: 'From application · Setting up', icon: 'clipboard-list', cls: 'bg-frost text-cerulean-dark' }
+        : statusBadge(s.status),
+    ];
     const live = !s.status || s.status === 'approved' || s.status === 'suspended';
     if (live || s.licence_status !== 'missing') out.push(licenceBadge(s.licence_status, s.licence_expires_at));
     out.push(loginBadge(s.login));

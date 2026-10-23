@@ -92,7 +92,9 @@ function newDeviceId(): string {
  * Public pharmacist check (GVM-RX-02 Part G) — printed at the bottom of every
  * prescription PDF. A pharmacist enters the prescription number and the
  * patient's date of birth; the page answers with the status, date sent, doctor
- * and MDCN number only — never the medicines or any patient details. No
+ * and their registration number (the MDCN number, or the one with their
+ * regulator for a doctor licensed abroad — labelled by the API's
+ * `registration_label`) only — never the medicines or any patient details. No
  * sign-in. Repeated misses from one device lock it for a while (server-side).
  */
 @Component({
@@ -253,7 +255,7 @@ function newDeviceId(): string {
                       </dd>
                     </div>
                     <div class="flex flex-col gap-1">
-                      <dt class="font-sans text-caption text-slate">MDCN number</dt>
+                      <dt class="font-sans text-caption text-slate">{{ m.registration_label || 'MDCN number' }}</dt>
                       <dd class="break-words font-sans text-body font-semibold text-ink">
                         {{ m.mdcn_number || 'Not provided' }}
                       </dd>

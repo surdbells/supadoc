@@ -8,6 +8,7 @@ import {
   isBlockingStanding,
   latestCredential,
   licenceDocuments,
+  licenceWording,
   pageAllowed,
   renewalText,
   sectionOf,
@@ -231,6 +232,72 @@ describe('changedFieldsLabel', () => {
   it('lists each field once', () => {
     expect(changedFieldsLabel(['qualifications', 'qualification_entries'])).toBe('Qualifications');
     expect(changedFieldsLabel(['name', 'specialty', 'certifications'])).toBe('Name, Speciality and Certifications');
+  });
+
+  it("names the registration number the doctor's way", () => {
+    expect(changedFieldsLabel(['name', 'mdcn_number'])).toBe('Name and MDCN number');
+    expect(changedFieldsLabel(['mdcn_number'], 'General Medical Council number')).toBe('General Medical Council number');
+  });
+});
+
+describe('licenceWording — MDCN in Nigeria, the regulator abroad', () => {
+  const abroad = {
+    licence_route: 'abroad' as const,
+    registration: { regulator_name: 'General Medical Council', regulator_country: 'GB', registration_number: 'GMC-7001' },
+  };
+
+  it('reads an older payload (no route) as Nigeria', () => {
+    expect(licenceWording(null)).toMatchObject({ abroad: false, numberLabel: 'MDCN number', registerName: 'the MDCN register', licenceType: 'annual_practising_licence' });
+    expect(licenceWording({ licence_route: 'ng', registration: null }).registrationType).toBe('mdcn_full_registration');
+  });
+
+  it('names the regulator, its register and the abroad documents', () => {
+    expect(licenceWording(abroad)).toEqual({
+      abroad: true,
+      regulator: 'General Medical Council',
+      numberLabel: 'General Medical Council number',
+      registerName: 'the General Medical Council register',
+      registrationDoc: 'Certificate of Good Standing',
+      registrationType: 'good_standing_certificate',
+      licenceDoc: 'Practising licence',
+      licenceType: 'foreign_practising_licence',
+    });
+    expect(licenceWording({ licence_route: 'abroad', registration: null }).numberLabel).toBe('Registration number');
+  });
+
+  it('keeps the foreign licence in force beside its renewal', () => {
+    const verified = credential({ id: 'old', type: 'foreign_practising_licence' });
+    const pending = credential({ id: 'new', type: 'foreign_practising_licence', status: 'pending', expires_at: '2027-12-31' });
+    const inForce = { expires_at: '2026-12-31', status: 'valid' } as const;
+    expect(licenceDocuments([pending, verified], inForce, 'foreign_practising_licence')).toEqual({ current: verified, renewal: pending });
+    expect(licenceDocuments([pending, verified], inForce)).toEqual({ current: null, renewal: null });
+  });
+
+  it('words the onboarding notices for a doctor from an application', () => {
+    const [setup] = standingNotices(onboarding({ status: 'invited', completed: 7, application: { id: 'a1', reference: 'GVM-DR-2026-48213', approved_at: '2026-10-20T10:00:00Z' } }), TODAY);
+    expect(setup.title).toBe('Finish setting up your profile to go live');
+    expect(setup.text).toContain('7 of 10 steps done');
+    const [review] = standingNotices(onboarding({ status: 'pending_review', application: { id: 'a1', reference: 'GVM-DR-2026-48213', approved_at: null } }), TODAY);
+    expect(review.title).toBe('Your profile is having a quick final check');
+    expect(review.text).toContain("We'll email you when you're live.");
+  });
+
+  it('points an abroad doctor at their own documents and register', () => {
+    const notices = standingNotices(
+      onboarding({
+        ...abroad,
+        credentials_due_at: '2026-11-14',
+        credentials: [
+          credential({ id: 'gcs', type: 'good_standing_certificate', type_label: 'Certificate of Good Standing', status: 'rejected', rejection_reason: 'Older than 6 months' }),
+        ],
+        pending_changes: { mdcn_number: 'X' },
+      }),
+      TODAY,
+    );
+    expect(notices.map((n) => n.key)).toEqual(['credentials-missing', 'rejected-good_standing_certificate', 'changes-pending']);
+    expect(notices[0].text).toBe('A reviewer is checking your Certificate of Good Standing and practising licence against the General Medical Council register.');
+    expect(notices[1].title).toBe("Your certificate of good standing wasn't accepted");
+    expect(notices[2].text).toContain('General Medical Council number:');
   });
 });
 

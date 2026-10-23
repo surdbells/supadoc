@@ -3,9 +3,12 @@ import {
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
@@ -13,6 +16,7 @@ import { isSessionEndError } from '@supadoc/auth';
 import { apiErrorMessage, DoctorApi, todayLocal } from '@supadoc/data-access';
 import type { CredentialType, DoctorOnboardingDto, OnboardingItemKey, SpecialistCredentialDto } from '@supadoc/models';
 import { AlertComponent, ButtonComponent, DialogService, IconComponent } from '@supadoc/ui';
+import { focusAfterDialogs } from '../focus-after-dialog';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import {
   changedFieldsLabel,
@@ -20,12 +24,14 @@ import {
   inDaysLabel,
   latestCredential,
   licenceDocuments,
+  type LicenceWording,
+  licenceWording,
   renewalText,
   ymdLabel,
 } from '../standing/standing-rules';
 import { CredentialStatusChip } from './credential-status';
 
-interface ChecklistItem {
+export interface ChecklistItem {
   readonly key: OnboardingItemKey;
   readonly label: string;
   readonly hint: string;
@@ -35,7 +41,7 @@ interface ChecklistItem {
   readonly document?: CredentialType;
 }
 
-/** The steps, in order (the API's), and where each one is completed. */
+/** The steps, in order (the API's), and where each one is completed — a doctor licensed in Nigeria. */
 const ITEMS: readonly ChecklistItem[] = [
   { key: 'photo', label: 'Profile photo', hint: 'A clear, professional headshot patients will see.', icon: 'camera', link: '/profile' },
   { key: 'bio', label: 'About you', hint: 'A short bio for your public profile.', icon: 'file-text', link: '/profile' },
@@ -64,12 +70,44 @@ const ITEMS: readonly ChecklistItem[] = [
 ];
 
 /**
+ * The checklist for the doctor's licence route: abroad, the registration
+ * number is the one with their regulator, the MDCN certificate's place is
+ * taken by a Certificate of Good Standing and the licence is their
+ * regulator's practising licence.
+ */
+export function itemsFor(w: LicenceWording): readonly ChecklistItem[] {
+  if (!w.abroad) return ITEMS;
+  const abroad: Partial<Record<OnboardingItemKey, Partial<ChecklistItem>>> = {
+    mdcn: { label: 'Licence or registration number', hint: `Your ${w.regulator} number.` },
+    mdcn_certificate: {
+      label: 'Certificate of Good Standing',
+      hint: `Issued by ${w.regulator} within the last 6 months.`,
+      document: 'good_standing_certificate',
+    },
+    practising_licence: {
+      label: 'Practising licence',
+      hint: `Your current licence from ${w.regulator}, with its number and expiry date.`,
+      document: 'foreign_practising_licence',
+    },
+  };
+  return ITEMS.map((item) => ({ ...item, ...(abroad[item.key] ?? {}) }));
+}
+
+/** The steps an approved application already filled in ("From your application"). */
+const FROM_APPLICATION: ReadonlySet<OnboardingItemKey> = new Set(['bio', 'qualifications', 'mdcn', 'mdcn_certificate', 'practising_licence']);
+
+/**
  * Onboarding (route `/onboarding`): the checklist a new doctor works through
  * (each step links to the page where it's done; the documents show their
  * review state and a reviewer's reason for turning one down), progress,
- * "Submit for review" and the review outcome. Once approved it is the
- * account's status page too: a suspension and its reason, the licence, the
- * terms in force and a change request waiting for review. Profile,
+ * "Submit for review" and the review outcome. A doctor approved from an
+ * application is welcomed instead, sees what their application already filled
+ * in ("From your application") and finishes with "Go live", which approves
+ * them at once when every check passes (else a quick final check). A doctor
+ * licensed abroad sees their regulator's registration, Certificate of Good
+ * Standing and practising licence in place of the MDCN ones. Once approved it
+ * is the account's status page too: a suspension and its reason, the licence,
+ * the terms in force and a change request waiting for review. Profile,
  * availability, payouts, documents and terms stay reachable throughout.
  */
 @Component({
@@ -80,10 +118,12 @@ const ITEMS: readonly ChecklistItem[] = [
   template: `
     <div class="flex max-w-3xl flex-col gap-6 py-2">
       <header class="flex flex-col gap-1">
-        <h1 class="font-heading text-h3 text-ink">{{ live() ? 'Your account' : 'Get set up on VideoMed' }}</h1>
+        <h1 class="font-heading text-h3 text-ink">{{ live() ? 'Your account' : welcome() ? 'Welcome aboard' : 'Get set up on VideoMed' }}</h1>
         <p class="font-sans text-body text-slate">
           @if (live()) {
             Your profile checklist, licensing documents and practitioner terms.
+          } @else if (welcome(); as app) {
+            Your application {{ app.reference }} was approved. Set up your profile and availability so patients can start booking you.
           } @else {
             Complete each step, then submit your profile for review. Patients can find and book you once it's approved.
           }
@@ -105,10 +145,17 @@ const ITEMS: readonly ChecklistItem[] = [
         <!-- Where the review stands -->
         @switch (d.status) {
           @case ('pending_review') {
-            <sd-alert tone="info">
-              <span class="font-semibold">Your profile is with our team for review.</span>
-              We'll email you as soon as it's approved{{ d.submitted_at ? ' (submitted ' + date(d.submitted_at) + ')' : '' }}. You can keep updating your details in the meantime.
-            </sd-alert>
+            @if (d.application) {
+              <sd-alert tone="info">
+                <span class="font-semibold">Sent for a quick final check.</span>
+                We'll email you when you're live{{ d.submitted_at ? ' (sent ' + date(d.submitted_at) + ')' : '' }}. You can keep updating your details in the meantime.
+              </sd-alert>
+            } @else {
+              <sd-alert tone="info">
+                <span class="font-semibold">Your profile is with our team for review.</span>
+                We'll email you as soon as it's approved{{ d.submitted_at ? ' (submitted ' + date(d.submitted_at) + ')' : '' }}. You can keep updating your details in the meantime.
+              </sd-alert>
+            }
           }
           @case ('rejected') {
             <sd-alert tone="warning">
@@ -120,11 +167,21 @@ const ITEMS: readonly ChecklistItem[] = [
             </sd-alert>
           }
           @case ('approved') {
-            <sd-alert tone="success">
-              <span class="font-semibold">You're approved.</span>
-              Patients can find you in the directory and book the times you've made available.
-              <a routerLink="/dashboard" class="font-semibold underline">Go to your dashboard</a>
-            </sd-alert>
+            <div #liveNotice tabindex="-1" class="rounded-card outline-none">
+              @if (wentLive()) {
+                <sd-alert tone="success">
+                  <span class="font-semibold">You're live.</span>
+                  Patients can now find and book you.
+                  <a routerLink="/dashboard" class="font-semibold underline">Go to your dashboard</a>
+                </sd-alert>
+              } @else {
+                <sd-alert tone="success">
+                  <span class="font-semibold">You're approved.</span>
+                  Patients can find you in the directory and book the times you've made available.
+                  <a routerLink="/dashboard" class="font-semibold underline">Go to your dashboard</a>
+                </sd-alert>
+              }
+            </div>
           }
           @case ('suspended') {
             <div class="flex flex-col gap-3 rounded-card border border-alert/30 bg-white p-5 shadow-card" role="alert">
@@ -200,7 +257,7 @@ const ITEMS: readonly ChecklistItem[] = [
           </div>
 
           <ul class="flex flex-col divide-y divide-cloud">
-            @for (item of items; track item.key) {
+            @for (item of items(); track item.key) {
               @let done = d.checklist[item.key];
               @let doc = item.document ? document(d, item.document) : null;
               <li class="flex flex-col gap-2 px-4 py-3.5 sm:px-5">
@@ -212,15 +269,20 @@ const ITEMS: readonly ChecklistItem[] = [
                     <sd-icon [name]="done ? 'circle-check' : item.icon" [size]="20" />
                   </span>
                   <div class="flex min-w-0 flex-1 flex-col gap-1">
-                    <span class="font-sans text-body-sm font-semibold text-ink">
+                    <span class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-semibold text-ink">
                       {{ item.label }}<span class="sr-only">{{ done ? ' — done' : ' — to do' }}</span>
+                      @if (fromApplication(item)) {
+                        <span class="inline-flex items-center gap-1 rounded-pill bg-frost px-2 py-0.5 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">
+                          <sd-icon name="clipboard-list" [size]="12" />From your application
+                        </span>
+                      }
                     </span>
                     <span class="font-sans text-caption text-slate">{{ itemHint(item, d) }}</span>
                     @if (item.document) {
                       <doc-credential-status [status]="doc?.status ?? 'missing'" />
                     }
-                    @if (item.document === 'annual_practising_licence') {
-                      @if (licenceDocuments(d.credentials, d.licence).renewal; as r) {
+                    @if (item.key === 'practising_licence') {
+                      @if (licenceDocuments(d.credentials, d.licence, wording().licenceType).renewal; as r) {
                         <!-- A renewal beside the licence in force: said on its own line. -->
                         <span class="flex items-start gap-1.5 font-sans text-caption" [class]="r.status === 'rejected' ? 'text-alert' : 'text-slate'">
                           <sd-icon [name]="r.status === 'rejected' ? 'circle-x' : 'hourglass'" [size]="13" class="mt-0.5 shrink-0" />
@@ -256,24 +318,44 @@ const ITEMS: readonly ChecklistItem[] = [
         </section>
 
         @if (canSubmit()) {
-          <section class="flex flex-col gap-4 rounded-card bg-frost/60 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div class="flex items-start gap-3">
-              <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-control">
-                <sd-icon name="send" [size]="20" />
-              </span>
-              <div class="flex min-w-0 flex-col">
-                <p class="font-heading text-body-lg text-ink">
-                  {{ d.status === 'rejected' ? 'Submit your changes' : 'Ready when you are' }}
-                </p>
-                <p class="font-sans text-body-sm text-slate">
-                  {{ d.complete ? 'An admin will review your profile and verify your documents, usually within a few working days.' : 'Complete every step above to submit your profile for review.' }}
-                </p>
+          @if (goLive()) {
+            <!-- An approved application: finishing setup takes them live straight away. -->
+            <section class="flex flex-col gap-4 rounded-card bg-frost/60 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6" aria-labelledby="go-live-title">
+              <div class="flex items-start gap-3">
+                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-control">
+                  <sd-icon name="badge-check" [size]="20" />
+                </span>
+                <div class="flex min-w-0 flex-col">
+                  <h2 id="go-live-title" class="font-heading text-body-lg text-ink">Ready to go live</h2>
+                  <p class="font-sans text-body-sm text-slate">
+                    Finish every step and you go live straight away — your documents were verified with your application.
+                  </p>
+                </div>
               </div>
-            </div>
-            <sd-button class="shrink-0" [disabled]="!d.complete || submitting()" (click)="submit()">
-              {{ submitting() ? 'Submitting…' : 'Submit for review' }}
-            </sd-button>
-          </section>
+              <sd-button class="shrink-0" [disabled]="!d.complete || submitting()" (click)="submit()">
+                {{ submitting() ? 'Going live…' : 'Go live' }}
+              </sd-button>
+            </section>
+          } @else {
+            <section class="flex flex-col gap-4 rounded-card bg-frost/60 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div class="flex items-start gap-3">
+                <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-cerulean shadow-control">
+                  <sd-icon name="send" [size]="20" />
+                </span>
+                <div class="flex min-w-0 flex-col">
+                  <p class="font-heading text-body-lg text-ink">
+                    {{ d.status === 'rejected' ? 'Submit your changes' : 'Ready when you are' }}
+                  </p>
+                  <p class="font-sans text-body-sm text-slate">
+                    {{ d.complete ? 'An admin will review your profile and verify your documents, usually within a few working days.' : 'Complete every step above to submit your profile for review.' }}
+                  </p>
+                </div>
+              </div>
+              <sd-button class="shrink-0" [disabled]="!d.complete || submitting()" (click)="submit()">
+                {{ submitting() ? 'Submitting…' : 'Submit for review' }}
+              </sd-button>
+            </section>
+          }
         }
         @if (submitError()) {
           <sd-alert tone="error">{{ submitError() }}</sd-alert>
@@ -287,13 +369,27 @@ export class DoctorOnboarding implements OnInit {
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly dialogs = inject(DialogService);
+  private readonly injector = inject(Injector);
+  private readonly liveNotice = viewChild<ElementRef<HTMLElement>>('liveNotice');
 
-  protected readonly items = ITEMS;
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
   protected readonly data = signal<DoctorOnboardingDto | null>(null);
   protected readonly submitting = signal(false);
   protected readonly submitError = signal('');
+  /** "Go live" just approved them (the notice says so). */
+  protected readonly wentLive = signal(false);
+
+  /** MDCN wording, or their regulator's when licensed abroad. */
+  protected readonly wording = computed(() => licenceWording(this.data()));
+  protected readonly items = computed(() => itemsFor(this.wording()));
+  /** An approved application still being set up: the welcome header. */
+  protected readonly welcome = computed(() => {
+    const d = this.data();
+    return d?.application && (d.status === 'invited' || d.status === 'pending_review') ? d.application : null;
+  });
+  /** Finishing setup takes them live at once (an approved application, still invited). */
+  protected readonly goLive = computed(() => !!this.data()?.go_live_on_submit);
 
   protected readonly percent = computed(() => {
     const d = this.data();
@@ -309,7 +405,9 @@ export class DoctorOnboarding implements OnInit {
     const s = this.data()?.status;
     return s === 'approved' || s === 'suspended';
   });
-  protected readonly pendingLabel = computed(() => changedFieldsLabel(Object.keys(this.data()?.pending_changes ?? {})));
+  protected readonly pendingLabel = computed(() =>
+    changedFieldsLabel(Object.keys(this.data()?.pending_changes ?? {}), this.wording().numberLabel),
+  );
   /** The current licence running out, or gone (approved doctors; a suspension already explains itself). */
   protected readonly licenceText = computed<{ tone: 'warning' | 'error'; text: string; cta: string } | null>(() => {
     const d = this.data();
@@ -354,19 +452,37 @@ export class DoctorOnboarding implements OnInit {
       });
   }
 
-  /** "Submit for review?" first — then sent; any failure shows under the button as before. */
+  /**
+   * "Submit for review?" (or, for an approved application, "Go live?") first —
+   * then sent; any failure shows under the button as before. Going live
+   * approves them at once when every check passes; otherwise it is sent for a
+   * quick final check.
+   */
   protected async submit(): Promise<void> {
     if (this.submitting()) return;
+    const goLive = this.goLive();
     const again = this.data()?.status === 'rejected';
-    const { confirmed } = await this.dialogs.confirm({
-      tone: 'info',
-      icon: 'send',
-      title: again ? 'Send your profile for review again?' : 'Submit your profile for review?',
-      message:
-        "An admin reviews your profile and verifies your documents, usually within a few working days. We'll email you as soon as it's approved — you can keep updating your details meanwhile.",
-      confirmLabel: 'Submit for review',
-      cancelLabel: 'Not yet',
-    });
+    const { confirmed } = await this.dialogs.confirm(
+      goLive
+        ? {
+            tone: 'info',
+            icon: 'badge-check',
+            title: 'Go live now?',
+            message:
+              "We check every step is in place. If it is, patients can find and book you straight away; if anything needs a second look, we'll send it for a quick final check and email you when you're live.",
+            confirmLabel: 'Go live',
+            cancelLabel: 'Not yet',
+          }
+        : {
+            tone: 'info',
+            icon: 'send',
+            title: again ? 'Send your profile for review again?' : 'Submit your profile for review?',
+            message:
+              "An admin reviews your profile and verifies your documents, usually within a few working days. We'll email you as soon as it's approved — you can keep updating your details meanwhile.",
+            confirmLabel: 'Submit for review',
+            cancelLabel: 'Not yet',
+          },
+    );
     if (!confirmed || this.submitting()) return;
     this.submitting.set(true);
     this.submitError.set('');
@@ -375,12 +491,22 @@ export class DoctorOnboarding implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          const live = goLive && res.data.status === 'approved';
+          this.wentLive.set(live);
           this.data.set(res.data);
           this.standing.set(res.data);
           this.submitting.set(false);
+          if (live) {
+            // The clinical pages open now: the guard and banners read the fresh standing.
+            void this.standing.load(true);
+            // The Go live button is gone: say it where focus can find it.
+            focusAfterDialogs(this.injector, () => this.liveNotice()?.nativeElement);
+          }
         },
         error: (err: unknown) => {
-          this.submitError.set(apiErrorMessage(err, 'Could not submit your profile. Please try again.'));
+          this.submitError.set(
+            apiErrorMessage(err, goLive ? 'Could not take your profile live. Please try again.' : 'Could not submit your profile. Please try again.'),
+          );
           this.submitting.set(false);
         },
       });
@@ -389,16 +515,22 @@ export class DoctorOnboarding implements OnInit {
   protected readonly licenceDocuments = licenceDocuments;
   protected readonly renewalText = renewalText;
 
+  /** Pre-filled by the approved application ("From your application"). */
+  protected fromApplication(item: ChecklistItem): boolean {
+    return !!this.data()?.application && FROM_APPLICATION.has(item.key);
+  }
+
   /** The document a step shows — for the licence, the one in force (a renewal has its own line). */
   protected document(d: DoctorOnboardingDto, type: CredentialType): SpecialistCredentialDto | null {
-    if (type === 'annual_practising_licence') return licenceDocuments(d.credentials, d.licence).current;
+    const licenceType = this.wording().licenceType;
+    if (type === licenceType) return licenceDocuments(d.credentials, d.licence, licenceType).current;
     return latestCredential(d.credentials, type);
   }
 
   /** A document's hint says what is on file; others keep their own. */
   protected itemHint(item: ChecklistItem, d: DoctorOnboardingDto): string {
     if (item.key === 'practising_licence') {
-      const doc = this.document(d, 'annual_practising_licence');
+      const doc = this.document(d, this.wording().licenceType);
       if (doc?.expires_at && doc.status !== 'rejected') {
         const until = doc.status === 'verified' ? 'valid until' : 'expires';
         return `${doc.number ? 'No. ' + doc.number + ' · ' : ''}${until} ${ymdLabel(doc.expires_at)}.`;

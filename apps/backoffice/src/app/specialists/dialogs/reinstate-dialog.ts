@@ -21,6 +21,7 @@ import {
   BTN_SUCCESS,
   calendarDay,
   clinicTodayYmd,
+  doctorLicenceWording,
   type DoctorTab,
   FIELD,
   FIELD_INVALID,
@@ -58,7 +59,7 @@ import {
         <sd-alert tone="info">Bookings cancelled by the suspension stay cancelled — patients were refunded and can book again.</sd-alert>
         <label class="flex flex-col gap-1.5">
           <span class="${LABEL}">Why the suspension is lifted (required)</span>
-          <textarea rows="3" maxlength="2000" class="${FIELD}" [class]="err('note') ? '${FIELD_INVALID}' : ''" [disabled]="!licence()" [value]="note()" (input)="note.set($any($event.target).value); clearErr('note')" placeholder="e.g. Renewed licence verified on the MDCN register." [attr.aria-invalid]="err('note') ? 'true' : null" [attr.aria-describedby]="err('note') ? 'bo-reinstate-note-err' : null"></textarea>
+          <textarea rows="3" maxlength="2000" class="${FIELD}" [class]="err('note') ? '${FIELD_INVALID}' : ''" [disabled]="!licence()" [value]="note()" (input)="note.set($any($event.target).value); clearErr('note')" [placeholder]="'e.g. Renewed licence verified on ' + wording().registerName + '.'" [attr.aria-invalid]="err('note') ? 'true' : null" [attr.aria-describedby]="err('note') ? 'bo-reinstate-note-err' : null"></textarea>
           @if (err('note'); as e) { <span id="bo-reinstate-note-err" class="font-sans text-caption text-alert">{{ e }}</span> }
         </label>
         <div aria-live="assertive">
@@ -91,12 +92,16 @@ export class ReinstateDialog {
   protected readonly error = signal('');
   protected readonly errors = signal<Record<string, string>>({});
 
-  /** The verified licence that hasn't expired (the API checks the same). */
+  /** MDCN wording, or the doctor's regulator when licensed abroad. */
+  protected readonly wording = computed(() => doctorLicenceWording(this.detail()));
+
+  /** The verified licence of the doctor's route that hasn't expired (the API checks the same). */
   protected readonly licence = computed(() => {
     const today = clinicTodayYmd();
+    const type = this.wording().licenceType;
     return (
       this.detail().credentials.find(
-        (c) => c.type === 'annual_practising_licence' && c.status === 'verified' && !!c.expires_at && c.expires_at >= today,
+        (c) => c.type === type && c.status === 'verified' && !!c.expires_at && c.expires_at >= today,
       ) ?? null
     );
   });

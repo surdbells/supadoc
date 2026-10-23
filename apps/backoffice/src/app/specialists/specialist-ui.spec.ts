@@ -1,12 +1,18 @@
+import type { SpecialistDetailDto } from '@supadoc/models';
 import {
   calendarDay,
+  CHECKLIST,
+  checklistFor,
   clinicTodayYmd,
   codeLabel,
   credentialBadge,
+  doctorLicenceWording,
   licenceBadge,
+  licenceWording,
   loginBadge,
   money,
   plural,
+  registrationNumber,
   statusBadge,
 } from './specialist-ui';
 
@@ -54,5 +60,45 @@ describe('specialist-ui', () => {
     // 23:30 UTC is already the next day in Lagos (UTC+1) — the day the API uses.
     expect(clinicTodayYmd(new Date('2026-10-14T23:30:00Z'))).toBe('2026-10-15');
     expect(clinicTodayYmd(new Date('2026-10-14T22:59:00Z'))).toBe('2026-10-14');
+  });
+
+  it('words licensing by route: MDCN in Nigeria, the regulator abroad', () => {
+    const ng = licenceWording('ng');
+    expect(ng).toMatchObject({
+      abroad: false,
+      numberLabel: 'MDCN number',
+      registerName: 'the MDCN register',
+      registrationType: 'mdcn_full_registration',
+      licenceType: 'annual_practising_licence',
+    });
+    expect(licenceWording(undefined).abroad).toBe(false);
+    const gmc = licenceWording('abroad', 'General Medical Council');
+    expect(gmc).toMatchObject({
+      abroad: true,
+      regulator: 'General Medical Council',
+      numberLabel: 'General Medical Council number',
+      registerName: 'the General Medical Council register',
+      registrationDoc: 'Certificate of Good Standing',
+      registrationType: 'good_standing_certificate',
+      licenceDoc: 'Practising licence',
+      licenceType: 'foreign_practising_licence',
+    });
+    expect(licenceWording('abroad', '  ').numberLabel).toBe('Registration number');
+    expect(checklistFor(ng)).toBe(CHECKLIST);
+    const abroad = checklistFor(gmc);
+    expect(abroad.find((c) => c.key === 'mdcn')?.label).toBe('Licence or registration number');
+    expect(abroad.find((c) => c.key === 'mdcn_certificate')?.label).toBe('Certificate of Good Standing');
+    expect(abroad.find((c) => c.key === 'practising_licence')?.label).toBe('Practising licence');
+    expect(abroad).toHaveLength(CHECKLIST.length);
+  });
+
+  it("reads a doctor page's route from the onboarding payload, else the profile", () => {
+    const detail = (over: Partial<SpecialistDetailDto>) =>
+      ({ profile: { mdcn_number: 'MDCN/1', registration_number: 'GMC-9', regulator_name: 'General Medical Council' }, ...over }) as unknown as SpecialistDetailDto;
+    expect(doctorLicenceWording(detail({})).abroad).toBe(false);
+    expect(registrationNumber(detail({}))).toBe('MDCN/1');
+    const abroad = detail({ licence_route: 'abroad', registration: { regulator_name: 'Medical Council of Ireland', regulator_country: 'IE', registration_number: 'IMC-5' } });
+    expect(doctorLicenceWording(abroad).regulator).toBe('Medical Council of Ireland');
+    expect(registrationNumber(abroad)).toBe('IMC-5');
   });
 });

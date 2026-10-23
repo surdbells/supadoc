@@ -32,11 +32,13 @@ import {
   BTN_PRIMARY,
   BTN_SECONDARY,
   BTN_GHOST,
+  doctorLicenceWording,
   FIELD,
   FIELD_INVALID,
   LABEL,
   loginBadge,
   PILL,
+  registrationNumber,
 } from '../specialist-ui';
 import { isActiveSpecialty, SpecialtyChoices, specialtyField } from '../specialty-choices';
 import { FORM_ACTIONS, SECTION, SECTION_SM, SECTION_SUBTITLE, SECTION_TITLE } from '../../shared/layout';
@@ -329,7 +331,12 @@ function toForm(d: SpecialistDetailDto): Form {
                 <span class="block text-caption text-slate">Not on the specialty list — kept until it is changed.</span>
               }
             </dd>
-            <dt class="text-slate">MDCN no.</dt><dd class="break-all text-ink">{{ detail().profile.mdcn_number || '—' }}</dd>
+            @if (wording().abroad) {
+              <dt class="text-slate">Regulator</dt><dd class="break-words text-ink">{{ wording().regulator }}{{ regulatorCountry() ? ' (' + regulatorCountry() + ')' : '' }}</dd>
+              <dt class="text-slate">Registration no.</dt><dd class="break-all text-ink">{{ registration() || '—' }}</dd>
+            } @else {
+              <dt class="text-slate">MDCN no.</dt><dd class="break-all text-ink">{{ detail().profile.mdcn_number || '—' }}</dd>
+            }
             <dt class="text-slate">Phone</dt><dd class="break-all text-ink">{{ detail().profile.phone || '—' }}</dd>
             <dt class="text-slate">Signature</dt><dd class="text-ink">{{ detail().profile.has_signature ? 'Saved' : 'Not saved' }}</dd>
             <dt class="text-slate">Consult length</dt><dd class="text-ink">{{ detail().profile.slot_minutes ? detail().profile.slot_minutes + ' minutes' : '—' }}</dd>
@@ -399,6 +406,12 @@ export class SpecialistOverviewTab {
 
   protected readonly login = computed(() => loginBadge(this.detail().login));
   protected readonly locked = computed(() => (this.detail().locked_fields ?? []).length > 0);
+  /** MDCN wording, or the doctor's regulator when licensed abroad (set by the application; no edit path). */
+  protected readonly wording = computed(() => doctorLicenceWording(this.detail()));
+  protected readonly registration = computed(() => registrationNumber(this.detail()));
+  protected readonly regulatorCountry = computed(
+    () => this.detail().registration?.regulator_country ?? this.detail().profile.regulator_country ?? null,
+  );
   protected readonly canManageStaff = computed(() => this.auth.hasPermission('staff.manage'));
   protected readonly photoSrc = computed(() => this.api.assetUrl(this.detail().profile.photo_url?.trim() || null));
 

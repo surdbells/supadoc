@@ -10,8 +10,37 @@ export interface NavItem {
   readonly permission: string;
   /** A rule wider than one permission (the dashboard). */
   readonly allowed?: (auth: StaffAuthService) => boolean;
-  /** Show the "waiting for review" count (profiles, change requests, documents) next to this item. */
-  readonly reviewBadge?: boolean;
+  /**
+   * The count shown next to this item: `review` — doctors waiting for review
+   * (profiles, change requests, documents); `applications` — doctor
+   * applications that need action.
+   */
+  readonly badge?: NavBadge;
+}
+
+export type NavBadge = 'review' | 'applications';
+
+/** The counts behind the nav badges (each 0 for someone who can't act on it). */
+export type NavBadgeCounts = Readonly<Record<NavBadge, number>>;
+
+/** The count an item shows (0 hides its pill). */
+export function badgeCount(item: NavItem, counts: NavBadgeCounts): number {
+  return item.badge ? Math.max(0, counts[item.badge] || 0) : 0;
+}
+
+/** What a badge's number means, for its title and screen readers. */
+export function badgeLabel(badge: NavBadge, n: number): string {
+  return badge === 'review'
+    ? `${n} ${n === 1 ? 'item' : 'items'} waiting for review`
+    : `${n} ${n === 1 ? 'application needs' : 'applications need'} action`;
+}
+
+/** The mobile menu button's words: every waiting count, or nothing. */
+export function waitingSummary(counts: NavBadgeCounts): string {
+  return (['review', 'applications'] as const)
+    .filter((b) => counts[b] > 0)
+    .map((b) => badgeLabel(b, counts[b]))
+    .join(', ');
 }
 
 /**
@@ -54,7 +83,8 @@ export const NAV: readonly NavItem[] = [
   { label: 'Analytics', icon: 'chart-column', link: '/analytics', permission: 'monitoring.view' },
   { label: 'Monitoring', icon: 'activity', link: '/monitoring', permission: 'monitoring.view' },
   { label: 'Patients', icon: 'user-round', link: '/patients', permission: 'monitoring.view' },
-  { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage', reviewBadge: true },
+  { label: 'Specialists', icon: 'stethoscope', link: '/specialists', permission: 'specialists.manage', badge: 'review' },
+  { label: 'Applications', icon: 'clipboard-list', link: '/applications', permission: 'specialists.manage', badge: 'applications' },
   { label: 'Staff & roles', icon: 'users', link: '/staff', permission: 'staff.manage' },
   { label: 'Payouts', icon: 'wallet', link: '/payouts', permission: 'payouts.manage' },
   { label: 'Support', icon: 'headphones', link: '/support', permission: 'support.manage' },

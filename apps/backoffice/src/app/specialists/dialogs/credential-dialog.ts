@@ -4,21 +4,19 @@ import {
   computed,
   DestroyRef,
   effect,
-  ElementRef,
   inject,
   input,
-  OnDestroy,
   output,
   signal,
   untracked,
-  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { Subscription } from 'rxjs';
+import type { Observable } from 'rxjs';
 import { apiErrorFields, apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistCredentialDto, SpecialistReviewSummaryDto, VerifyCredentialInput } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
 import { BoDialog } from '../../shared/dialog';
+import { DocumentViewer } from '../../shared/document-viewer';
 import {
   BTN_DANGER,
   BTN_GHOST,
@@ -29,27 +27,26 @@ import {
   dateTime,
   FIELD,
   FIELD_INVALID,
-  fileSize,
   LABEL,
+  LICENCE_TYPES,
   PILL,
 } from '../specialist-ui';
 
 export type CredentialDialogMode = 'view' | 'verify' | 'reject';
 
-/** File types shown inline — anything else is offered as a download only. */
-const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-
 /**
  * One licensing document, opened from the Credentials tab: the file itself
- * (fetched as a blob — every open is audited server-side — and shown from a
- * blob URL that is revoked on close) beside its details, with the reviewer's
- * decision: verify with an attestation (register checked + reference, and for
- * a licence its number and expiry) or reject with a reason the doctor sees.
+ * (the shared {@link DocumentViewer} — fetched as a blob, every open audited
+ * server-side, shown from a blob URL that is revoked on close) beside its
+ * details, with the reviewer's decision: verify with an attestation (register
+ * checked + reference, and for a licence its number and expiry) or reject with
+ * a reason the doctor sees. The register named is the doctor's: MDCN, or their
+ * regulator abroad (`registerName`).
  */
 @Component({
   selector: 'bo-credential-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, AlertComponent, BoDialog],
+  imports: [IconComponent, AlertComponent, BoDialog, DocumentViewer],
   template: `
     <bo-dialog
       [open]="open()"
@@ -61,40 +58,19 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
     >
       @if (credential(); as c) {
         <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <!-- The document -->
-          <div class="flex min-w-0 flex-col gap-2">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <p class="min-w-0 break-all font-sans text-caption text-slate">{{ c.original_name }} · {{ size(c.size_bytes) }}</p>
-              @if (objectUrl(); as url) {
-                <span class="flex gap-1">
-                  <a [href]="url" target="_blank" rel="noopener" class="${BTN_GHOST} !min-h-11 !px-3 !py-1.5 text-caption"><sd-icon name="external-link" [size]="16" />Open in new tab</a>
-                  <a [href]="url" [attr.download]="c.original_name" class="${BTN_GHOST} !min-h-11 !px-3 !py-1.5 text-caption"><sd-icon name="download" [size]="16" />Download</a>
-                </span>
-              }
-            </div>
-            <div class="flex min-h-[320px] items-center justify-center overflow-hidden rounded-field border border-cloud bg-glacier lg:min-h-[60vh]" [attr.aria-busy]="fileLoading() || null">
-              @if (fileLoading()) {
-                <span class="flex items-center gap-2 font-sans text-body-sm text-slate" role="status"><sd-icon name="loader-circle" [size]="18" class="animate-spin" />Opening the document…</span>
-              } @else if (fileError()) {
-                <div class="flex flex-col items-center gap-3 p-6 text-center">
-                  <sd-icon name="triangle-alert" [size]="28" class="text-alert" />
-                  <p class="font-sans text-body-sm text-slate" role="alert">{{ fileError() }}</p>
-                  @if (!fileGone()) {
-                    <button type="button" class="${BTN_GHOST}" (click)="loadFile()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
-                  }
-                </div>
-              } @else if (kind() === 'pdf') {
-                <iframe #frame [title]="'Document: ' + c.original_name" class="h-[60vh] min-h-[320px] w-full bg-white"></iframe>
-              } @else if (kind() === 'image' && objectUrl()) {
-                <img [src]="objectUrl()" [alt]="c.type_label + ' uploaded by the doctor'" class="max-h-[70vh] w-auto max-w-full object-contain" />
-              } @else if (objectUrl()) {
-                <p class="p-6 text-center font-sans text-body-sm text-slate">This file type can't be shown here. Download it to check it.</p>
-              }
-            </div>
-            <p class="flex items-start gap-1.5 font-sans text-caption text-slate">
-              <sd-icon name="shield-check" [size]="14" class="mt-0.5 shrink-0" />Confidential. Opening a document is recorded in the audit log.
-            </p>
-          </div>
+          <!-- The document (only while open: closing releases the file) -->
+          @if (open()) {
+            <bo-document-viewer
+              [load]="loadFile()"
+              [mime]="c.mime"
+              [name]="c.original_name"
+              [sizeBytes]="c.size_bytes"
+              [alt]="c.type_label + ' uploaded by the doctor'"
+              goneMessage="This document could not be read. Ask the doctor to upload it again."
+            />
+          } @else {
+            <div></div>
+          }
 
           <!-- Details + decision -->
           <div class="flex min-w-0 flex-col gap-4">
@@ -142,12 +118,12 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
                 <form id="bo-cred-verify" class="flex flex-col gap-4" novalidate (submit)="$event.preventDefault(); verify()">
                   <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-field border px-4 py-3" [class]="err('register_checked') ? 'border-alert' : 'border-cloud'">
                     <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-sage" [checked]="registerChecked()" (change)="registerChecked.set($any($event.target).checked); clearErr('register_checked')" [attr.aria-invalid]="err('register_checked') ? 'true' : null" [attr.aria-describedby]="err('register_checked') ? 'bo-cred-checked-err' : null" data-autofocus />
-                    <span class="font-sans text-body-sm text-ink">I checked this document against the MDCN register, and the doctor's name and number match.</span>
+                    <span class="font-sans text-body-sm text-ink">I checked this document against {{ registerName() }}, and the doctor's name and number match.</span>
                   </label>
                   @if (err('register_checked'); as e) { <span id="bo-cred-checked-err" class="-mt-2 font-sans text-caption text-alert">{{ e }}</span> }
                   <label class="flex flex-col gap-1.5">
                     <span class="${LABEL}">Register reference (required)</span>
-                    <input type="text" maxlength="120" class="${FIELD}" [class]="err('register_reference') ? '${FIELD_INVALID}' : ''" [value]="reference()" (input)="reference.set($any($event.target).value); clearErr('register_reference')" placeholder="e.g. MDCN search 15 Oct 2026, entry 12345" [attr.aria-invalid]="err('register_reference') ? 'true' : null" [attr.aria-describedby]="err('register_reference') ? 'bo-cred-ref-err' : null" />
+                    <input type="text" maxlength="120" class="${FIELD}" [class]="err('register_reference') ? '${FIELD_INVALID}' : ''" [value]="reference()" (input)="reference.set($any($event.target).value); clearErr('register_reference')" [placeholder]="registerName() === 'the MDCN register' ? 'e.g. MDCN search 15 Oct 2026, entry 12345' : 'e.g. Online register search 15 Oct 2026, entry 12345'" [attr.aria-invalid]="err('register_reference') ? 'true' : null" [attr.aria-describedby]="err('register_reference') ? 'bo-cred-ref-err' : null" />
                     @if (err('register_reference'); as e) { <span id="bo-cred-ref-err" class="font-sans text-caption text-alert">{{ e }}</span> }
                   </label>
                   @if (isLicence() || c.number) {
@@ -207,7 +183,7 @@ const PREVIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png']);
     </bo-dialog>
   `,
 })
-export class CredentialDialog implements OnDestroy {
+export class CredentialDialog {
   private readonly api = inject(SpecialistsApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -216,18 +192,22 @@ export class CredentialDialog implements OnDestroy {
   readonly doctorName = input('');
   readonly credential = input<SpecialistCredentialDto | null>(null);
   readonly mode = input<CredentialDialogMode>('view');
+  /** The register the reviewer checks: "the MDCN register", or the doctor's regulator's abroad. */
+  readonly registerName = input('the MDCN register');
   readonly closed = output<void>();
   /** A decision was saved — the doctor's new review summary. */
   readonly decided = output<SpecialistReviewSummaryDto>();
 
   protected readonly today = clinicTodayYmd();
   protected readonly action = signal<'verify' | 'reject' | null>(null);
-  protected readonly objectUrl = signal<string | null>(null);
-  protected readonly kind = signal<'pdf' | 'image' | 'other'>('other');
-  protected readonly fileLoading = signal(false);
-  protected readonly fileError = signal('');
-  /** The stored file can't be read (404) — retrying won't help. */
-  protected readonly fileGone = signal(false);
+
+  /** Re-keyed on the document's id only, so a refreshed copy of the same document isn't fetched (and audited) again. */
+  private readonly credentialId = computed(() => this.credential()?.id ?? null);
+  protected readonly loadFile = computed<(() => Observable<Blob>) | null>(() => {
+    const id = this.credentialId();
+    const specialistId = this.specialistId();
+    return id ? () => this.api.credentialFile(specialistId, id) : null;
+  });
 
   protected readonly registerChecked = signal(false);
   protected readonly reference = signal('');
@@ -245,22 +225,16 @@ export class CredentialDialog implements OnDestroy {
     const s = this.credential()?.status;
     return s === 'pending' || s === 'verified';
   });
-  protected readonly isLicence = computed(() => this.credential()?.type === 'annual_practising_licence');
-
-  private readonly frame = viewChild<ElementRef<HTMLIFrameElement>>('frame');
-  private fileSub?: Subscription;
+  protected readonly isLicence = computed(() => LICENCE_TYPES.includes(this.credential()?.type ?? 'specialist_certificate'));
 
   constructor() {
-    // Each open: reset the decision, fetch the file afresh.
+    // Each open: reset the decision (the viewer fetches the file afresh).
     effect(() => {
       const open = this.open();
       const c = this.credential();
       const mode = this.mode();
       untracked(() => {
-        if (!open || !c) {
-          this.releaseFile();
-          return;
-        }
+        if (!open || !c) return;
         this.action.set(mode === 'view' ? null : mode);
         this.registerChecked.set(false);
         this.reference.set('');
@@ -270,59 +244,8 @@ export class CredentialDialog implements OnDestroy {
         this.reason.set('');
         this.error.set('');
         this.errors.set({});
-        this.loadFile();
       });
     });
-    // A PDF goes into the frame from our own blob URL (typed from the allow-list above).
-    effect(() => {
-      const frame = this.frame()?.nativeElement;
-      const url = this.objectUrl();
-      if (frame && url && this.kind() === 'pdf' && frame.src !== url) frame.src = url;
-    });
-  }
-
-  ngOnDestroy(): void {
-    this.releaseFile();
-  }
-
-  protected loadFile(): void {
-    const c = this.credential();
-    if (!c) return;
-    this.releaseFile();
-    this.fileLoading.set(true);
-    this.fileError.set('');
-    this.fileGone.set(false);
-    this.fileSub = this.api.credentialFile(this.specialistId(), c.id).subscribe({
-      next: (blob) => {
-        this.fileLoading.set(false);
-        const mime = PREVIEWABLE.has(c.mime) ? c.mime : 'application/octet-stream';
-        // Re-type the bytes from the stored, sniffed type — never trust the response's.
-        const typed = new Blob([blob], { type: mime });
-        this.kind.set(mime === 'application/pdf' ? 'pdf' : mime.startsWith('image/') ? 'image' : 'other');
-        this.objectUrl.set(URL.createObjectURL(typed));
-      },
-      error: (err: unknown) => {
-        this.fileLoading.set(false);
-        // A blob request's JSON error body arrives as a Blob, so the API's own
-        // message is lost: a 404 is the vault file that can't be read.
-        const e = err as { statusCode?: number; status?: number } | null;
-        if ((e?.statusCode ?? e?.status) === 404) {
-          this.fileGone.set(true);
-          this.fileError.set('This document could not be read. Ask the doctor to upload it again.');
-          return;
-        }
-        this.fileError.set(apiErrorMessage(err, 'Could not open this document. Please try again.'));
-      },
-    });
-  }
-
-  private releaseFile(): void {
-    this.fileSub?.unsubscribe();
-    this.fileSub = undefined;
-    const url = this.objectUrl();
-    if (url) URL.revokeObjectURL(url);
-    this.objectUrl.set(null);
-    this.fileLoading.set(false);
   }
 
   protected setAction(a: 'verify' | 'reject'): void {
@@ -348,7 +271,7 @@ export class CredentialDialog implements OnDestroy {
     const c = this.credential();
     if (!c || this.saving()) return;
     const errors: Record<string, string> = {};
-    if (!this.registerChecked()) errors['register_checked'] = 'Confirm that you checked the MDCN register.';
+    if (!this.registerChecked()) errors['register_checked'] = `Confirm that you checked ${this.registerName()}.`;
     const reference = this.reference().trim();
     if (!reference) errors['register_reference'] = 'Enter the register reference you checked.';
     const number = this.number().trim();
@@ -399,9 +322,6 @@ export class CredentialDialog implements OnDestroy {
     });
   }
 
-  protected size(bytes: number): string {
-    return fileSize(bytes);
-  }
   protected day(ymd: string | null): string {
     return calendarDay(ymd);
   }
