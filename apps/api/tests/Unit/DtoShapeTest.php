@@ -118,6 +118,88 @@ final class DtoShapeTest extends TestCase
     // ----- Helpers -----
 
     /** @param list<string> $expected @param array<string,mixed> $actual */
+    // ----- Doctor applications (libs/shared/models/src/lib/doctor-application.ts) -----
+    public const APP_DOCUMENT       = ['id', 'slot', 'slot_label', 'label', 'original_name', 'mime', 'size_bytes', 'state', 'uploaded_during', 'uploaded_at'];
+    public const APP_SUBMITTED      = ['id', 'reference', 'status', 'submitted_at', 'email', 'phone'];
+    public const APP_ROW            = ['id', 'reference', 'status', 'status_label', 'full_name', 'email', 'specialty', 'licence_route', 'licence_label', 'submitted_at', 'awaiting_staff', 'interview_starts_at', 'last_activity_at'];
+    public const APP_INTERVIEW      = ['starts_at', 'starts_at_label', 'duration_minutes', 'meeting_url', 'meeting_host', 'note'];
+    public const APP_INFO_REQUEST   = ['id', 'message', 'items', 'requested_at', 'responded_at', 'response_note'];
+    public const APP_EVENT          = ['id', 'kind', 'label', 'from_status', 'to_status', 'actor_type', 'actor_name', 'applicant_visible', 'public_message', 'channel', 'created_at'];
+    public const APP_NOTE           = ['id', 'author_name', 'body', 'created_at'];
+    public const APP_SECTIONS       = ['personal', 'professional', 'licence', 'qualifications', 'indemnity', 'consent'];
+    public const APP_DRAFT          = ['id', 'status', 'licence_route', 'sections', 'documents', 'steps', 'next_step', 'ready_to_submit', 'email_verified', 'expires_at', 'last_saved_at'];
+    public const APP_STATUS         = ['id', 'reference', 'status', 'status_label', 'full_name', 'licence_route', 'submitted_at', 'timeline', 'interview', 'info_request', 'rejection_reason', 'can_withdraw', 'doctor_portal_url', 'email_masked'];
+    public const APP_APPLICANT_APP  = ['id', 'reference', 'status', 'licence_route', 'sections', 'documents', 'info_request'];
+    public const APP_DETAIL_EXTRA   = ['phone', 'email_verified_at', 'sections', 'documents', 'info_requests', 'interview', 'rejection_reason', 'withdraw_reason', 'withdraw_reason_label', 'review_started_at', 'review_started_by_name', 'decided_at', 'decided_by_name', 'consent', 'specialist', 'actions', 'approval', 'events', 'notes_count'];
+    public const APP_APPROVAL       = ['ready', 'problems', 'documents', 'login', 'specialty_on_list', 'register_name'];
+    public const APP_PREFILL        = ['document_id', 'slot', 'slot_label', 'original_name', 'credential_type', 'needs_number', 'needs_issue_date', 'needs_expiry', 'prefill', 'reference_hint', 'expiry_hint'];
+    public const APP_CONFIG         = ['consent_version', 'max_upload_bytes', 'accepted_mime', 'doctor_portal_url', 'support_email', 'draft_ttl_days', 'good_standing_max_age_months', 'sms_enabled', 'legal_terms_url', 'legal_privacy_url', 'patient_site_url'];
+
+    /** The key lists above ARE the TypeScript contract's (parsed from doctor-application.ts). */
+    public function testTheApplicationKeyListsMatchTheTypeScriptContract(): void
+    {
+        $ts = (string) file_get_contents(__DIR__ . '/../../../../libs/shared/models/src/lib/doctor-application.ts');
+        $keys = static function (string $name) use ($ts): array {
+            if (preg_match('/export interface ' . $name . '\b[^{]*\{\n(.*?)\n\}/s', $ts, $m) !== 1) {
+                throw new \RuntimeException('interface not found: ' . $name);
+            }
+            preg_match_all('/^  ([a-z_0-9]+)\??:/m', $m[1], $k);
+
+            return $k[1];
+        };
+        $same = function (array $expected, array $actual, string $name): void {
+            sort($expected);
+            sort($actual);
+            $this->assertSame($expected, $actual, $name);
+        };
+        $same([...self::APP_DOCUMENT, 'credential_id', 'sha256'], $keys('ApplicationDocumentDto'), 'ApplicationDocumentDto');
+        $same(self::APP_SUBMITTED, $keys('SubmittedApplicationDto'), 'SubmittedApplicationDto');
+        $same(self::APP_ROW, $keys('DoctorApplicationRowDto'), 'DoctorApplicationRowDto');
+        $same(self::APP_INTERVIEW, $keys('ApplicationInterviewDto'), 'ApplicationInterviewDto');
+        $same([...self::APP_INFO_REQUEST, 'requested_by_name', 'closed_at', 'close_reason', 'updated_sections'], $keys('ApplicationInfoRequestDto'), 'ApplicationInfoRequestDto');
+        $same(self::APP_EVENT, $keys('DoctorApplicationEventDto'), 'DoctorApplicationEventDto');
+        $same(self::APP_NOTE, $keys('DoctorApplicationNoteDto'), 'DoctorApplicationNoteDto');
+        $same(self::APP_SECTIONS, $keys('ApplicationSections'), 'ApplicationSections');
+        $same(self::APP_DRAFT, $keys('ApplicationDraftDto'), 'ApplicationDraftDto');
+        $same(self::APP_STATUS, $keys('ApplicationStatusDto'), 'ApplicationStatusDto');
+        $same(self::APP_APPLICANT_APP, $keys('ApplicantApplicationDto'), 'ApplicantApplicationDto');
+        $same(self::APP_DETAIL_EXTRA, $keys('DoctorApplicationDetailDto'), 'DoctorApplicationDetailDto');
+        $same(self::APP_APPROVAL, $keys('ApprovalPreviewDto'), 'ApprovalPreviewDto');
+        $same(self::APP_PREFILL, $keys('ApprovalDocumentPrefillDto'), 'ApprovalDocumentPrefillDto');
+        $same(self::APP_CONFIG, $keys('ApplicationConfigDto'), 'ApplicationConfigDto');
+    }
+
+    public function testDoctorApplicationShapes(): void
+    {
+        $app = new \App\Domain\Entity\DoctorApplication('abroad', 'ada@example.com');
+        $app->initTimestamps();
+        $app->setNames('Ada', 'Obi');
+        $app->markSubmitted('GVM-DR-2026-12345', new DateTimeImmutable('2026-10-20 10:00:00'));
+        $app->scheduleInterview(new DateTimeImmutable('2026-10-28T10:00:00+01:00'), 30, 'https://meet.google.com/abc', 'Bring ID');
+
+        $doc = new \App\Domain\Entity\DoctorApplicationDocument($app->getId(), 'government_id', 'applications/' . str_repeat('a', 32) . '.bin', 'id.pdf', 'application/pdf', 10, str_repeat('b', 64));
+        $doc->initTimestamps();
+        $this->assertKeys(self::APP_DOCUMENT, \App\Infrastructure\Application\ApplicationViews::document($doc, 'abroad'));
+        $this->assertKeys([...self::APP_DOCUMENT, 'credential_id', 'sha256'], \App\Infrastructure\Application\ApplicationViews::document($doc, 'abroad', true));
+        $this->assertKeys(self::APP_SUBMITTED, \App\Infrastructure\Application\ApplicationViews::submitted($app));
+        $row = \App\Infrastructure\Application\ApplicationViews::row($app);
+        $this->assertKeys(self::APP_ROW, $row);
+        $this->assertSame('Abroad · ', $row['licence_label'], 'no regulator country yet');
+        $interview = \App\Infrastructure\Application\ApplicationViews::interview($app);
+        $this->assertKeys(self::APP_INTERVIEW, (array) $interview);
+        $this->assertSame('Wednesday 28 October, 10:00 WAT', $interview['starts_at_label']);
+        $this->assertSame('meet.google.com', $interview['meeting_host']);
+        $this->assertKeys(self::APP_SECTIONS, \App\Infrastructure\Application\ApplicationViews::sections($app));
+
+        $request = new \App\Domain\Entity\DoctorApplicationInfoRequest($app->getId(), null, 'Rev', 'Please', [['kind' => 'section', 'key' => 'licence', 'label' => 'Licence']], new DateTimeImmutable());
+        $this->assertKeys(self::APP_INFO_REQUEST, $request->toArray());
+        $this->assertKeys([...self::APP_INFO_REQUEST, 'requested_by_name', 'closed_at', 'close_reason'], $request->toArray(true));
+        $this->assertKeys(self::APP_EVENT, (new \App\Domain\Entity\DoctorApplicationEvent($app->getId(), 'email_sent', 'system', metadata: ['channel' => 'email']))->toArray());
+        $note = new \App\Domain\Entity\DoctorApplicationNote($app->getId(), null, 'Rev', 'Body');
+        $note->initTimestamps();
+        $this->assertKeys(self::APP_NOTE, $note->toArray());
+    }
+
     private function assertKeys(array $expected, array $actual): void
     {
         $keys = array_keys($actual);

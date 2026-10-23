@@ -542,7 +542,7 @@ final class GuestInvitesTest extends TestCase
         $mailed = [];
         $logger = $this->createMock(LoggerInterface::class);
         $logger->method('info')->willReturnCallback(static function (string $message, array $context = []) use (&$mailed): void {
-            $mailed[] = $context['to'] ?? '';
+            $mailed[] = $context['to_hash'] ?? ''; // the log never holds the address (spec §3.7)
         });
         // Redis down too: presence reads as "nobody", and nothing stops the notices.
         $redis = new class extends RedisClient {
@@ -572,7 +572,11 @@ final class GuestInvitesTest extends TestCase
 
         $invitations->notifyCancelled($appointment);
 
-        $this->assertSame(['bola@example.test', 'chidi@example.test'], $mailed, 'every guest is still told');
+        $this->assertSame(
+            [MailService::toHash('bola@example.test'), MailService::toHash('chidi@example.test')],
+            $mailed,
+            'every guest is still told',
+        );
     }
 
     public function testEveryoneSeesWhoIsInTheCallByUidNamesOnly(): void

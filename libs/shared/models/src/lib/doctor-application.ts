@@ -395,6 +395,11 @@ export interface ApplicationInfoRequestDto {
   closed_at?: string | null;
   /** Staff view only. */
   close_reason?: 'staff_resumed' | 'rejected' | 'withdrawn' | null;
+  /**
+   * Respond page only (GET track/application and the info-section save): the
+   * requested sections already saved since the request, in the request's order.
+   */
+  updated_sections?: ApplicationSectionKey[];
 }
 
 export type WithdrawReason =

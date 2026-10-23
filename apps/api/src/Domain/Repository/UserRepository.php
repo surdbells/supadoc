@@ -104,4 +104,20 @@ final class UserRepository extends BaseRepository
             ->getQuery()
             ->getResult();
     }
+
+    /**
+     * Whether ANY login holds this email, deleted ones included —
+     * `uniq_users_email` covers soft-deleted rows, which {@see findByEmail()}
+     * skips; creating a login over one would fail with a unique violation.
+     */
+    public function existsIncludingDeleted(string $email): bool
+    {
+        return (int) $this->em->createQueryBuilder()
+            ->select('COUNT(e.id)')
+            ->from(User::class, 'e')
+            ->andWhere('e.email = :email')
+            ->setParameter('email', strtolower(trim($email)))
+            ->getQuery()
+            ->getSingleScalarResult() > 0;
+    }
 }

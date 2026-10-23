@@ -68,5 +68,29 @@ final class WebUrlsTest extends TestCase
         WebUrls::configureFromEnv(['APP_WEB_URL' => 'https://patient.dosthq.com', 'STAFF_WEB_URL' => 'https://doctor.dosthq.com']);
         $this->assertSame('https://patient.dosthq.com', WebUrls::patientDefault());
         $this->assertSame('https://doctor.dosthq.com', WebUrls::staffDefault());
+        $this->assertSame('http://localhost:4205', WebUrls::onboardingDefault(), 'the onboarding default');
+    }
+
+    public function testOnboardingSitesPairWithTheDoctorPortals(): void
+    {
+        WebUrls::configureFromEnv([
+            'STAFF_WEB_URLS'      => 'https://doctor.dosthq.com,https://doctor.betacrest.com',
+            'ONBOARDING_WEB_URLS' => 'https://join.dosthq.com, https://join.betacrest.com/',
+        ]);
+        $this->assertSame('https://join.dosthq.com', WebUrls::onboardingDefault());
+        $this->assertSame('https://join.betacrest.com', WebUrls::matchOnboarding('https://JOIN.betacrest.com/'));
+        $this->assertNull(WebUrls::matchOnboarding('https://evil.example'));
+        $this->assertSame('https://doctor.betacrest.com', WebUrls::staffForOnboardingOrigin('https://join.betacrest.com'));
+        $this->assertSame('https://doctor.dosthq.com', WebUrls::staffForOnboardingOrigin(null), 'unknown → the first portal');
+        $this->assertSame('https://join.betacrest.com', WebUrls::forApplication('https://join.betacrest.com'));
+        $this->assertSame('https://join.dosthq.com', WebUrls::forApplication('https://evil.example'));
+
+        WebUrls::setRequestOrigin('https://join.betacrest.com');
+        $this->assertSame('https://join.betacrest.com', WebUrls::requestOnboardingOrigin());
+        WebUrls::setRequestOrigin('');
+
+        // The single value is the fallback.
+        WebUrls::configureFromEnv(['ONBOARDING_WEB_URL' => 'https://join.example.com']);
+        $this->assertSame('https://join.example.com', WebUrls::onboardingDefault());
     }
 }

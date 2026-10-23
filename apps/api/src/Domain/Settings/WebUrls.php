@@ -17,9 +17,12 @@ use App\Domain\Entity\User;
  * Configuration (comma-separated origins, the FIRST is the default):
  *   PATIENT_WEB_URLS=https://patient.dosthq.com,https://patient.betacrest.com
  *   STAFF_WEB_URLS=https://doctor.dosthq.com,https://doctor.betacrest.com
+ *   ONBOARDING_WEB_URLS=https://join.dosthq.com
  * Lists are paired by position, so a doctor on the 2nd staff site gets the 2nd
- * patient site for patient-app links (e.g. call join links). Without the lists
- * the single APP_WEB_URL / STAFF_WEB_URL values are used.
+ * patient site for patient-app links (e.g. call join links), and an applicant
+ * from the 1st onboarding site gets set-password links to the 1st doctor
+ * portal. Without the lists the single APP_WEB_URL / STAFF_WEB_URL /
+ * ONBOARDING_WEB_URL values are used.
  */
 final class WebUrls
 {
@@ -27,25 +30,30 @@ final class WebUrls
     private static array $patient = [];
     /** @var list<string> */
     private static array $staff = [];
+    /** @var list<string> */
+    private static array $onboarding = [];
     private static string $requestOrigin = '';
 
     /**
      * @param list<string> $patientUrls
      * @param list<string> $staffUrls
+     * @param list<string> $onboardingUrls
      */
-    public static function configure(array $patientUrls, array $staffUrls): void
+    public static function configure(array $patientUrls, array $staffUrls, array $onboardingUrls = []): void
     {
-        self::$patient = self::clean($patientUrls) ?: ['http://localhost:4201'];
-        self::$staff   = self::clean($staffUrls) ?: ['http://localhost:4204'];
+        self::$patient    = self::clean($patientUrls) ?: ['http://localhost:4201'];
+        self::$staff      = self::clean($staffUrls) ?: ['http://localhost:4204'];
+        self::$onboarding = self::clean($onboardingUrls) ?: ['http://localhost:4205'];
     }
 
     /** Build the lists from the environment (see class doc). */
     public static function configureFromEnv(array $env): void
     {
         $list = static fn (string $key): array => array_values(array_filter(array_map('trim', explode(',', (string) ($env[$key] ?? '')))));
-        $patient = $list('PATIENT_WEB_URLS') ?: $list('APP_WEB_URL');
-        $staff   = $list('STAFF_WEB_URLS') ?: ($list('STAFF_WEB_URL') ?: $list('APP_WEB_URL'));
-        self::configure($patient, $staff);
+        $patient    = $list('PATIENT_WEB_URLS') ?: $list('APP_WEB_URL');
+        $staff      = $list('STAFF_WEB_URLS') ?: ($list('STAFF_WEB_URL') ?: $list('APP_WEB_URL'));
+        $onboarding = $list('ONBOARDING_WEB_URLS') ?: $list('ONBOARDING_WEB_URL');
+        self::configure($patient, $staff, $onboarding);
     }
 
     /** The Origin header of the request being served (set once per request). */
@@ -64,6 +72,12 @@ final class WebUrls
         return self::$staff[0] ?? 'http://localhost:4204';
     }
 
+    /** The doctor-applications site (apps/onboarding) links default to. */
+    public static function onboardingDefault(): string
+    {
+        return self::$onboarding[0] ?? 'http://localhost:4205';
+    }
+
     /** `$origin` if it is a configured patient site, else null. */
     public static function matchPatient(?string $origin): ?string
     {
@@ -80,6 +94,14 @@ final class WebUrls
         return in_array($o, self::$staff, true) ? $o : null;
     }
 
+    /** `$origin` if it is a configured onboarding site, else null. */
+    public static function matchOnboarding(?string $origin): ?string
+    {
+        $o = self::normalise($origin);
+
+        return in_array($o, self::$onboarding, true) ? $o : null;
+    }
+
     /** The patient site the current request came from, if it is one. */
     public static function requestPatientOrigin(): ?string
     {
@@ -92,6 +114,12 @@ final class WebUrls
         return self::matchStaff(self::$requestOrigin);
     }
 
+    /** The onboarding site the current request came from, if it is one. */
+    public static function requestOnboardingOrigin(): ?string
+    {
+        return self::matchOnboarding(self::$requestOrigin);
+    }
+
     /** Base URL for links sent to this patient (their site, else the default). */
     public static function forPatient(?Patient $patient): string
     {
@@ -102,6 +130,23 @@ final class WebUrls
     public static function forStaff(?User $user): string
     {
         return self::matchStaff($user?->getWebOrigin()) ?? self::staffDefault();
+    }
+
+    /** Base URL of the onboarding site for an application's links (its own site, else the default). */
+    public static function forApplication(?string $webOrigin): string
+    {
+        return self::matchOnboarding($webOrigin) ?? self::onboardingDefault();
+    }
+
+    /**
+     * The doctor portal paired with an onboarding site (same position in the
+     * lists): where an approved applicant sets their password and signs in.
+     */
+    public static function staffForOnboardingOrigin(?string $onboardingOrigin): string
+    {
+        $i = array_search(self::normalise($onboardingOrigin), self::$onboarding, true);
+
+        return $i !== false && isset(self::$staff[$i]) ? self::$staff[$i] : self::staffDefault();
     }
 
     /**

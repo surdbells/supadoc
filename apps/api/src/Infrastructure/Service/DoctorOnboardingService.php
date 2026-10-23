@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Application\GoLiveRules;
 use App\Domain\Doctor\DoctorCredentials;
 use App\Domain\Doctor\DoctorStanding;
+use App\Domain\Entity\DoctorApplication;
 use App\Domain\Entity\Specialist;
 use App\Domain\Entity\SpecialistCredential;
 use App\Domain\Entity\SpecialistStatusEvent;
@@ -13,6 +15,7 @@ use App\Domain\Entity\User;
 use App\Domain\Enum\SpecialistStatus;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AvailabilitySlotRepository;
+use App\Domain\Repository\DoctorApplicationRepository;
 use App\Domain\Repository\PayoutAccountRepository;
 use App\Domain\Repository\SpecialistCredentialRepository;
 use App\Domain\Repository\SpecialistRepository;
@@ -57,6 +60,13 @@ final class DoctorOnboardingService
         'terms'              => 'your acceptance of the practitioner terms',
     ];
 
+    /** The same, for a doctor licensed abroad (spec §4.4). */
+    private const MISSING_LABELS_ABROAD = [
+        'mdcn'               => 'your licence or registration number',
+        'mdcn_certificate'   => 'your Certificate of Good Standing',
+        'practising_licence' => 'your current practising licence',
+    ];
+
     /** A change-request / send-back reason's limit. */
     public const MAX_REASON = 2000;
 
@@ -73,7 +83,15 @@ final class DoctorOnboardingService
         private readonly AuditLogger $audit,
         /** Back-office base URL for the reviewers' email ('' = no link, see {@see backofficeUrlFromEnv()}). */
         private readonly string $backofficeUrl = '',
+        /** The applications doctors came from (invite wording, go-live). */
+        private readonly ?DoctorApplicationRepository $applications = null,
     ) {
+    }
+
+    /** What a missing checklist item asks for, worded for the doctor's licence route. */
+    public static function missingLabel(string $key, string $route = 'ng'): string
+    {
+        return ($route === 'abroad' ? (self::MISSING_LABELS_ABROAD[$key] ?? null) : null) ?? self::MISSING_LABELS[$key] ?? $key;
     }
 
     /**
@@ -139,14 +157,15 @@ final class DoctorOnboardingService
             static fn (mixed $windows): bool => is_array($windows) && $windows !== [],
         );
         $today = $todayYmd ?? ClinicTime::todayYmd();
+        $route = $s->getLicenceRoute();
 
         return [
             'photo'              => ($s->getPhotoUrl() ?? '') !== '',
             'bio'                => trim((string) $s->getBio()) !== '',
             'qualifications'     => trim((string) $s->getQualifications()) !== '' || $s->getQualificationEntries() !== [],
-            'mdcn'               => ($s->getMdcnNumber() ?? '') !== '',
-            'mdcn_certificate'   => DoctorCredentials::mdcnProvided($credentials),
-            'practising_licence' => DoctorCredentials::licenceProvided($credentials, $today),
+            'mdcn'               => ($s->registrationNumberForRoute() ?? '') !== '',
+            'mdcn_certificate'   => DoctorCredentials::mdcnProvided($credentials, $route),
+            'practising_licence' => DoctorCredentials::licenceProvided($credentials, $today, $route),
             'signature'          => $s->getSignatureKey() !== null,
             'availability'       => $hours !== [] || $hasOpenSlots,
             'payout'             => $hasPayoutAccount,
@@ -197,6 +216,36 @@ final class DoctorOnboardingService
             return ['status' => "This doctor hasn't submitted their profile for review yet"];
         }
 
+        $problems = self::readinessProblems($s, $checklist, $credentials, $termsVersion, $todayYmd);
+        if (!$attested) {
+            $problems['attest'] = $s->getLicenceRoute() === 'abroad'
+                ? 'Confirm that you checked their documents against the ' . (trim((string) $s->getRegulatorName()) !== '' ? trim((string) $s->getRegulatorName()) : "regulator's") . ' register.'
+                : 'Confirm that you checked their documents against the MDCN register.';
+        }
+
+        return $problems;
+    }
+
+    /**
+     * Everything an approval rests on apart from the status and the reviewer's
+     * attestation (spec §4.4): the checklist done, the registration document
+     * and a current practising licence VERIFIED (for the doctor's licence
+     * route), the terms in force accepted. Also the first gate of go-live
+     * ({@see \App\Domain\Application\GoLiveRules}).
+     *
+     * @param array<string,bool>         $checklist
+     * @param list<SpecialistCredential> $credentials
+     * @return array<string,string>
+     */
+    public static function readinessProblems(
+        Specialist $s,
+        array $checklist,
+        array $credentials,
+        string $termsVersion,
+        string $todayYmd,
+    ): array {
+        $route    = $s->getLicenceRoute();
+        $abroad   = $route === 'abroad';
         $problems = [];
         $missing  = array_keys(array_filter(
             $checklist,
@@ -205,21 +254,22 @@ final class DoctorOnboardingService
         ));
         if ($missing !== []) {
             $problems['checklist'] = 'The profile is missing ' . self::humanList(array_map(
-                static fn (string $k): string => str_replace('your ', 'their ', self::MISSING_LABELS[$k] ?? $k),
+                static fn (string $k): string => str_replace('your ', 'their ', self::missingLabel($k, $route)),
                 $missing,
             )) . '.';
         }
-        if (!DoctorCredentials::hasVerifiedMdcn($credentials)) {
-            $problems['mdcn_certificate'] = 'Verify their MDCN full-registration certificate first.';
+        if (!DoctorCredentials::hasVerifiedRegistration($credentials, $route)) {
+            $problems['mdcn_certificate'] = $abroad
+                ? 'Verify their Certificate of Good Standing first.'
+                : 'Verify their MDCN full-registration certificate first.';
         }
-        if (DoctorCredentials::currentLicence($credentials, $todayYmd) === null) {
-            $problems['practising_licence'] = 'Verify a current annual practising licence first.';
+        if (DoctorCredentials::currentLicence($credentials, $todayYmd, $route) === null) {
+            $problems['practising_licence'] = $abroad
+                ? 'Verify a current practising licence first.'
+                : 'Verify a current annual practising licence first.';
         }
         if (!$s->hasAcceptedTerms($termsVersion)) {
             $problems['terms'] = 'The doctor has not accepted the practitioner terms (version ' . $termsVersion . ') yet.';
-        }
-        if (!$attested) {
-            $problems['attest'] = 'Confirm that you checked their documents against the MDCN register.';
         }
 
         return $problems;
@@ -265,7 +315,7 @@ final class DoctorOnboardingService
             'total'           => count($checklist),
             'complete'        => self::isComplete($checklist),
             'credentials'     => array_map(static fn (SpecialistCredential $c): array => $c->toArray($forReviewer), $shown),
-            'locked_fields'   => $s->hasLockedFields() ? Specialist::LOCKED_FIELDS : [],
+            'locked_fields'   => $s->identityLocked() ? Specialist::LOCKED_FIELDS : [],
             'pending_changes' => $pending !== [] ? $pending : null,
             'pending_changes_submitted_at' => $pending !== [] ? $s->getPendingChangesSubmittedAt() : null,
             'changes_review_note' => $s->getChangesReviewNote(),
@@ -286,6 +336,15 @@ final class DoctorOnboardingService
                 'suspended_at' => $s->getSuspendedAt()?->format(DATE_ATOM),
             ] : null,
             'standing'        => DoctorStanding::payload($s, $terms),
+            // Spec §4.6: where they are licensed, how they came, whether "Go live" approves at once.
+            'licence_route'   => $s->getLicenceRoute(),
+            'registration'    => $s->getLicenceRoute() === 'abroad' ? [
+                'regulator_name'      => $s->getRegulatorName(),
+                'regulator_country'   => $s->getRegulatorCountry(),
+                'registration_number' => $s->getRegistrationNumber(),
+            ] : null,
+            'application'       => $this->applicationLink($s),
+            'go_live_on_submit' => $s->getApplicationId() !== null && $s->getStatus() === SpecialistStatus::INVITED,
         ];
         if ($forReviewer) {
             $problems           = self::approvalProblems($s, $checklist, $credentials, $terms, $today, true);
@@ -355,13 +414,116 @@ final class DoctorOnboardingService
             throw new ValidationException(['email' => "This doctor's login is deactivated. Reactivate it in Staff first."]);
         }
 
-        $result = $this->passwords->sendInvite($user, $s->getName(), WebUrls::forSpecialist($s));
+        // A doctor who came from an application gets its "Welcome aboard" wording (spec §4.7).
+        $template    = null;
+        $application = $s->getApplicationId() !== null ? $this->applications?->find($s->getApplicationId()) : null;
+        if ($application instanceof DoctorApplication) {
+            $first     = (string) ($application->getFirstName() ?? $user->getFirstName());
+            $last      = (string) ($application->getLastName() ?? '');
+            $reference = (string) $application->getReference();
+            $template  = static fn (string $name, string $link, int $days): array => EmailTemplates::applicationApproved($first, $last, $reference, $link, $days);
+        }
+        $result = $this->passwords->sendInvite($user, $s->getName(), WebUrls::forSpecialist($s), $template);
 
         return $result + ['login' => $this->loginArray($user)];
     }
 
-    /** The doctor submits a complete checklist for review; admins are notified. */
-    public function submit(Specialist $s, ?string $actorId = null): void
+    /**
+     * The doctor presses "Submit for review" — or, for a doctor vetted through
+     * an application and still onboarding, "Go live" (spec §4.6): approved at
+     * once when {@see GoLiveRules} finds nothing, otherwise sent for a quick
+     * final check like any submission. Returns the status reached.
+     *
+     * @return 'approved'|'pending_review'
+     */
+    public function submit(Specialist $s, ?string $actorId = null): string
+    {
+        if ($s->getApplicationId() === null || $s->getStatus() !== SpecialistStatus::INVITED) {
+            $this->submitForReview($s, $actorId);
+
+            return SpecialistStatus::PENDING_REVIEW->value;
+        }
+
+        $credentials = $this->credentials->forSpecialist($s->getId());
+        $checklist   = $this->checklist($s, $credentials);
+        $missing     = array_keys(array_filter($checklist, static fn (bool $done): bool => !$done));
+        if ($missing !== []) {
+            $route  = $s->getLicenceRoute();
+            $labels = array_map(static fn (string $k): string => self::missingLabel($k, $route), $missing);
+            throw new ValidationException(['checklist' => 'Before submitting, add ' . self::humanList($labels) . '.']);
+        }
+
+        $application = $this->applications?->find($s->getApplicationId());
+        $application = $application instanceof DoctorApplication ? $application : null;
+        $today       = ClinicTime::todayYmd();
+        $terms       = PractitionerTerms::version();
+        $problems    = GoLiveRules::problems($s, $application, $checklist, $credentials, $terms, $today);
+        if ($problems !== []) {
+            $this->submitForReview($s, $actorId, ['go_live_blocked' => array_keys($problems)]);
+
+            return SpecialistStatus::PENDING_REVIEW->value;
+        }
+
+        $reference = (string) $application?->getReference();
+        $route     = $s->getLicenceRoute();
+        $decidedBy = $application?->getDecidedById();
+        $s->approve($decidedBy);
+        $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($credentials, $today, $route)?->getExpiresAt());
+        $s->setCredentialsDueAt(null);
+        $s->snapshotApproval(
+            DoctorCredentials::verifiedIds($credentials, $today, $route),
+            $decidedBy,
+            trim((string) $application?->getDecidedByName()) . ' (application ' . $reference . ')',
+        );
+        $user = $this->users->findBySpecialist($s->getId());
+        $this->statusEvents->persist(new SpecialistStatusEvent(
+            $s->getId(),
+            SpecialistStatus::INVITED->value,
+            SpecialistStatus::APPROVED->value,
+            $user?->getId() ?? $actorId,
+            $s->getName(),
+            'Went live after setup (application ' . $reference . ')',
+            'went_live',
+        ));
+        $this->specialists->save($s);
+        $this->recordAudit($s->getName(), 'doctor', 'specialist.went_live', $s, ['application_id' => $s->getApplicationId(), 'reference' => $reference], $actorId);
+
+        // An FYI for the reviewers (in-app only); the doctor is told and emailed.
+        $this->notifier->notifyPermission('specialists.manage', 'onboarding', 'Doctor now live: ' . $s->getName(), 'Vetted at application ' . $reference . '.', '/specialists/' . $s->getId());
+        $this->notifier->notifyDoctor($s->getId(), 'onboarding', "You're live", 'Patients can now find and book you.', '/dashboard');
+        $this->emailDoctor($s, EmailTemplates::doctorApproved($s->getName(), WebUrls::forSpecialist($s)));
+
+        return SpecialistStatus::APPROVED->value;
+    }
+
+    /** The application a doctor came from, as SpecialistApplicationLinkDto, or null. @return array{id:string, reference:string, approved_at:?string}|null */
+    public function applicationLink(Specialist $s): ?array
+    {
+        if ($s->getApplicationId() === null) {
+            return null;
+        }
+        try {
+            $application = $this->applications?->find($s->getApplicationId());
+        } catch (\Throwable) {
+            $application = null;
+        }
+        if (!$application instanceof DoctorApplication) {
+            return null;
+        }
+
+        return [
+            'id'          => $application->getId(),
+            'reference'   => (string) $application->getReference(),
+            'approved_at' => $application->getDecidedAt()?->format(DATE_ATOM),
+        ];
+    }
+
+    /**
+     * The doctor submits a complete checklist for review; admins are notified.
+     *
+     * @param array<string,mixed> $auditExtra e.g. why "Go live" fell back to review
+     */
+    private function submitForReview(Specialist $s, ?string $actorId, array $auditExtra = []): void
     {
         $status = $s->getStatus();
         if ($status === SpecialistStatus::APPROVED) {
@@ -376,14 +538,15 @@ final class DoctorOnboardingService
 
         $missing = array_keys(array_filter($this->checklist($s), static fn (bool $done): bool => !$done));
         if ($missing !== []) {
-            $labels = array_map(static fn (string $k): string => self::MISSING_LABELS[$k] ?? $k, $missing);
+            $route  = $s->getLicenceRoute();
+            $labels = array_map(static fn (string $k): string => self::missingLabel($k, $route), $missing);
             throw new ValidationException(['checklist' => 'Before submitting, add ' . self::humanList($labels) . '.']);
         }
 
         $s->submitForReview();
         $this->statusEvents->persist(new SpecialistStatusEvent($s->getId(), $status->value, SpecialistStatus::PENDING_REVIEW->value, $actorId, $s->getName()));
         $this->specialists->save($s);
-        $this->recordAudit($s->getName(), 'doctor', 'specialist.submitted', $s, [], $actorId);
+        $this->recordAudit($s->getName(), 'doctor', 'specialist.submitted', $s, $auditExtra, $actorId);
 
         $this->notifier->notifyPermission(
             'specialists.manage',
@@ -438,11 +601,12 @@ final class DoctorOnboardingService
         }
 
         $from    = $s->getStatus()->value;
-        $licence = DoctorCredentials::currentLicence($credentials, $today);
+        $route   = $s->getLicenceRoute();
+        $licence = DoctorCredentials::currentLicence($credentials, $today, $route);
         $s->approve($actorId !== '' ? $actorId : null);
         $s->setLicenceExpiresAt($licence?->getExpiresAt());
         $s->setCredentialsDueAt(null);
-        $s->snapshotApproval(DoctorCredentials::verifiedIds($credentials, $today), $actorId !== '' ? $actorId : null, $actorName);
+        $s->snapshotApproval(DoctorCredentials::verifiedIds($credentials, $today, $route), $actorId !== '' ? $actorId : null, $actorName);
         $this->statusEvents->persist(new SpecialistStatusEvent(
             $s->getId(),
             $from,
@@ -521,7 +685,7 @@ final class DoctorOnboardingService
         }
         $before      = $s->approvePendingChanges();
         $credentials = $this->credentials->forSpecialist($s->getId());
-        $s->snapshotApproval(DoctorCredentials::verifiedIds($credentials, ClinicTime::todayYmd()), $actorId, $actorName);
+        $s->snapshotApproval(DoctorCredentials::verifiedIds($credentials, ClinicTime::todayYmd(), $s->getLicenceRoute()), $actorId, $actorName);
         $this->specialists->save($s);
 
         $this->recordAudit($actorName, 'admin', 'specialist.changes_approved', $s, ['before' => $before, 'after' => $after], $actorId);
@@ -608,11 +772,12 @@ final class DoctorOnboardingService
     }
 
     /**
-     * Email a template to every reviewer. Best-effort.
+     * Email a template to every reviewer (`specialists.manage`, super admins
+     * included). Best-effort. Also used by the doctor-application notices.
      *
      * @param array{subject:string, html:string} $tpl
      */
-    private function emailReviewersTemplate(array $tpl): int
+    public function emailReviewersTemplate(array $tpl, string $templateKey = 'reviewerNotice'): int
     {
         $sent = 0;
         try {
@@ -622,7 +787,7 @@ final class DoctorOnboardingService
         }
         foreach ($reviewers as $reviewer) {
             try {
-                if ($this->mail->send($reviewer->getEmail(), $reviewer->getFirstName(), $tpl['subject'], $tpl['html'])) {
+                if ($this->mail->send($reviewer->getEmail(), $reviewer->getFirstName(), $tpl['subject'], $tpl['html'], $templateKey)) {
                     $sent++;
                 }
             } catch (\Throwable) {

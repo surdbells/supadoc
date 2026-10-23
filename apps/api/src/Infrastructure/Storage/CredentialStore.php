@@ -47,12 +47,12 @@ final class CredentialStore
     {
         if ($file->getError() !== UPLOAD_ERR_OK) {
             throw new ValidationException(['file' => $file->getError() === UPLOAD_ERR_INI_SIZE || $file->getError() === UPLOAD_ERR_FORM_SIZE
-                ? 'The file must be 10MB or smaller'
+                ? self::tooLarge(self::MAX_BYTES)
                 : 'No file was uploaded']);
         }
         $size = (int) ($file->getSize() ?? 0);
         if ($size > self::MAX_BYTES) {
-            throw new ValidationException(['file' => 'The file must be 10MB or smaller']);
+            throw new ValidationException(['file' => self::tooLarge(self::MAX_BYTES)]);
         }
         $bytes = (string) $file->getStream();
 
@@ -65,18 +65,18 @@ final class CredentialStore
      * @return array{bytes:string, name:string, mime:string, size:int, sha256:string}
      * @throws ValidationException
      */
-    public static function inspect(string $bytes, string $clientName): array
+    public static function inspect(string $bytes, string $clientName, int $maxBytes = self::MAX_BYTES, string $kinds = 'PDF, JPG or PNG'): array
     {
         $size = strlen($bytes);
         if ($size === 0) {
             throw new ValidationException(['file' => 'The file is empty']);
         }
-        if ($size > self::MAX_BYTES) {
-            throw new ValidationException(['file' => 'The file must be 10MB or smaller']);
+        if ($size > $maxBytes) {
+            throw new ValidationException(['file' => self::tooLarge($maxBytes)]);
         }
         $ext = strtolower(pathinfo($clientName, PATHINFO_EXTENSION));
         if (!isset(self::TYPES[$ext])) {
-            throw new ValidationException(['file' => 'Upload a PDF, JPG or PNG file']);
+            throw new ValidationException(['file' => 'Upload a ' . $kinds . ' file' . ($kinds === 'PDF, JPG or PNG' ? '' : '.')]);
         }
 
         $matches = match ($ext) {
@@ -85,7 +85,7 @@ final class CredentialStore
             default        => self::imageType($bytes) === IMAGETYPE_JPEG,
         };
         if (!$matches) {
-            throw new ValidationException(['file' => 'The file content does not match its type. Upload a PDF, JPG or PNG file.']);
+            throw new ValidationException(['file' => 'The file content does not match its type. Upload a ' . $kinds . ' file.']);
         }
 
         $base = trim(preg_replace('/[^\p{L}\p{N} ._()-]+/u', '_', pathinfo($clientName, PATHINFO_FILENAME)) ?? '');
@@ -98,6 +98,12 @@ final class CredentialStore
             'size'   => $size,
             'sha256' => hash('sha256', $bytes),
         ];
+    }
+
+    /** "The file must be 10MB or smaller" — built from the limit. */
+    public static function tooLarge(int $maxBytes): string
+    {
+        return 'The file must be ' . intdiv($maxBytes, 1024 * 1024) . 'MB or smaller';
     }
 
     /** @throws DomainException when secure storage isn't set up */

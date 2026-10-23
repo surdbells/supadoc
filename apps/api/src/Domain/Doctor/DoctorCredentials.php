@@ -11,22 +11,46 @@ use App\Domain\Entity\SpecialistCredential;
  * documents and the clinic's date (Y-m-d, see ClinicTime), so the onboarding
  * checklist, the approval gate, reinstatement and the licence cron all read
  * them the same way.
+ *
+ * Route-aware (spec §4.4): a doctor licensed abroad (`$route` 'abroad') is
+ * registered by a Certificate of Good Standing instead of the MDCN certificate
+ * and practises on a foreign practising licence instead of an APL. A null
+ * route reads as Nigeria, so existing callers are unchanged.
  */
 final class DoctorCredentials
 {
     /** How many days before expiry a licence counts as "expiring" in the back office. */
     public const EXPIRING_DAYS = 30;
 
-    /** @param list<SpecialistCredential> $credentials */
-    public static function hasVerifiedMdcn(array $credentials): bool
+    /** The document that registers the doctor: the MDCN certificate, or a Certificate of Good Standing abroad. */
+    public static function registrationType(?string $route): string
     {
+        return $route === 'abroad' ? SpecialistCredential::TYPE_GOOD_STANDING : SpecialistCredential::TYPE_MDCN;
+    }
+
+    /** The practising licence: an APL, or a foreign practising licence abroad. */
+    public static function licenceType(?string $route): string
+    {
+        return $route === 'abroad' ? SpecialistCredential::TYPE_FOREIGN_LICENCE : SpecialistCredential::TYPE_LICENCE;
+    }
+
+    /** @param list<SpecialistCredential> $credentials */
+    public static function hasVerifiedRegistration(array $credentials, ?string $route = null): bool
+    {
+        $type = self::registrationType($route);
         foreach ($credentials as $c) {
-            if ($c->getType() === SpecialistCredential::TYPE_MDCN && $c->isVerified()) {
+            if ($c->getType() === $type && $c->isVerified()) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /** @param list<SpecialistCredential> $credentials */
+    public static function hasVerifiedMdcn(array $credentials): bool
+    {
+        return self::hasVerifiedRegistration($credentials, 'ng');
     }
 
     /**
@@ -35,12 +59,13 @@ final class DoctorCredentials
      *
      * @param list<SpecialistCredential> $credentials
      */
-    public static function currentLicence(array $credentials, string $todayYmd): ?SpecialistCredential
+    public static function currentLicence(array $credentials, string $todayYmd, ?string $route = null): ?SpecialistCredential
     {
+        $type = self::licenceType($route);
         $best = null;
         foreach ($credentials as $c) {
             if (
-                $c->getType() !== SpecialistCredential::TYPE_LICENCE
+                $c->getType() !== $type
                 || !$c->isVerified()
                 || $c->expiresYmd() === null
                 || $c->isExpiredOn($todayYmd)
@@ -55,11 +80,12 @@ final class DoctorCredentials
         return $best;
     }
 
-    /** MDCN certificate uploaded and not turned down (waiting or verified) — the doctor's checklist item. @param list<SpecialistCredential> $credentials */
-    public static function mdcnProvided(array $credentials): bool
+    /** Registration document uploaded and not turned down (waiting or verified) — the doctor's checklist item. @param list<SpecialistCredential> $credentials */
+    public static function mdcnProvided(array $credentials, ?string $route = null): bool
     {
+        $type = self::registrationType($route);
         foreach ($credentials as $c) {
-            if ($c->getType() === SpecialistCredential::TYPE_MDCN && ($c->isPending() || $c->isVerified())) {
+            if ($c->getType() === $type && ($c->isPending() || $c->isVerified())) {
                 return true;
             }
         }
@@ -68,11 +94,12 @@ final class DoctorCredentials
     }
 
     /** A practising licence uploaded, not turned down and not expired — the doctor's checklist item. @param list<SpecialistCredential> $credentials */
-    public static function licenceProvided(array $credentials, string $todayYmd): bool
+    public static function licenceProvided(array $credentials, string $todayYmd, ?string $route = null): bool
     {
+        $type = self::licenceType($route);
         foreach ($credentials as $c) {
             if (
-                $c->getType() === SpecialistCredential::TYPE_LICENCE
+                $c->getType() === $type
                 && ($c->isPending() || $c->isVerified())
                 && $c->expiresYmd() !== null
                 && !$c->isExpiredOn($todayYmd)
@@ -84,24 +111,25 @@ final class DoctorCredentials
         return false;
     }
 
-    /** Both the MDCN certificate and a current licence are verified. @param list<SpecialistCredential> $credentials */
-    public static function complete(array $credentials, string $todayYmd): bool
+    /** Both the registration document and a current licence are verified. @param list<SpecialistCredential> $credentials */
+    public static function complete(array $credentials, string $todayYmd, ?string $route = null): bool
     {
-        return self::hasVerifiedMdcn($credentials) && self::currentLicence($credentials, $todayYmd) !== null;
+        return self::hasVerifiedRegistration($credentials, $route) && self::currentLicence($credentials, $todayYmd, $route) !== null;
     }
 
     /**
-     * The ids of the verified documents an approval rests on (the MDCN
-     * certificate, the current licence, verified specialist certificates).
+     * The ids of the verified documents an approval rests on (the registration
+     * document, the current licence, verified specialist certificates…) — an
+     * expired licence of either kind is left out.
      *
      * @param list<SpecialistCredential> $credentials
      * @return list<string>
      */
-    public static function verifiedIds(array $credentials, string $todayYmd): array
+    public static function verifiedIds(array $credentials, string $todayYmd, ?string $route = null): array
     {
         $ids = [];
         foreach ($credentials as $c) {
-            if (!$c->isVerified() || ($c->getType() === SpecialistCredential::TYPE_LICENCE && $c->isExpiredOn($todayYmd))) {
+            if (!$c->isVerified() || (in_array($c->getType(), SpecialistCredential::LICENCE_TYPES, true) && $c->isExpiredOn($todayYmd))) {
                 continue;
             }
             $ids[] = $c->getId();

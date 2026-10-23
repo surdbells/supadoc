@@ -126,7 +126,17 @@ REDIS_PREFIX=videomed:
 
 # Exact browser origin(s) of the frontend(s) that may call the API (comma-separated):
 # the patient app plus the backoffice + doctor portals (each its own domain).
-CORS_ALLOWED_ORIGINS=https://app.dosthq.com,https://backoffice.dosthq.com,https://doctor.dosthq.com
+CORS_ALLOWED_ORIGINS=https://app.dosthq.com,https://backoffice.dosthq.com,https://doctor.dosthq.com,https://join.dosthq.com
+# Doctor applications site (apps/onboarding). Paired by position with STAFF_WEB_URLS:
+# applicants from the 1st onboarding site get set-password links to the 1st doctor portal.
+ONBOARDING_WEB_URL=https://join.dosthq.com
+# SMS for applicant status updates + status codes (Termii plain SMS). Blank key = SMS skipped, email still sent.
+TERMII_SMS_CHANNEL=generic        # or dnd once Termii activates it for the sender id
+SUPPORT_EMAIL=support@videomed.app
+# Consent links. Blank = the consent shows without links; set both before go-live.
+LEGAL_TERMS_URL=
+LEGAL_PRIVACY_URL=
+# APPLICATION_UPLOAD_DAILY_BYTES=2147483648   # optional: total applicant upload bytes a day (default 2GB)
 # Used to build links in transactional emails:
 APP_WEB_URL=https://app.dosthq.com
 
@@ -284,6 +294,7 @@ Create one Cloudflare Pages project per app with:
 | --- | --- | --- |
 | backoffice | `npx nx build backoffice --configuration=production` | `dist/apps/backoffice/browser` |
 | doctor | `npx nx build doctor --configuration=production` | `dist/apps/doctor/browser` |
+| onboarding (`videomed-onboarding` → `join.dosthq.com`) | `npx nx build onboarding --configuration=production` | `dist/apps/onboarding/browser` |
 
 Set `NODE_VERSION=22` and, for SPA routing, add a `_redirects` rule
 `/* /index.html 200` (or Cloudflare's SPA fallback) so deep links resolve.
@@ -786,6 +797,71 @@ shares and closes doctors' requests after 7 days (its log line `document
 access: …` ends with the `active_grants` / `pending_requests` totals). No new
 cron. Doctor requests email the patient (naming the doctor only) when their
 email notifications are on; preview it with `php bin/preview-email.php`.
+
+### One-time: doctor applications (join.dosthq.com)
+
+Doctors apply without an account at **join.dosthq.com** (`apps/onboarding`); reviewers
+work in the back office under **Applications** (`specialists.manage`). Approval creates
+the doctor's login + profile (status *Onboarding*, not bookable) with their documents
+verified, and emails a set-password link; the doctor goes live from the portal once
+setup is done. No cron is needed (drafts expire lazily).
+
+0. **Clock fix first.** `origin/main` already contains 87e3e86 (the clock fix), and the API box
+   was last recorded deployed at 0ee2057, so the first redeploy for this section also ships
+   the clock fix. Before the one-liner run `curl -s https://api.dosthq.com/health/ready; echo`.
+   If it shows no `"clock":{"marker":…}`, follow **"One-time: the clock fix"** below first: its
+   read-only preview comes before the redeploy one-liner, and scheduling stays paused until
+   `--fix-clock` has run. Do this section together with it.
+
+1. **Cloudflare Pages.** Create project **`videomed-onboarding`** (Git: `surdbells/supadoc`,
+   branch `main`, framework *None*), build command
+   `npx nx build onboarding --configuration=production`, output
+   `dist/apps/onboarding/browser`, root `/`, `NODE_VERSION` = the same value as the
+   `doctor` project. Add the custom domain **join.dosthq.com** (CNAME as Pages shows).
+   `public/_redirects` gives the SPA fallback and `public/_headers` the security headers.
+   After the first push, confirm the check-run **"Cloudflare Pages: videomed-onboarding"**
+   (a push can silently get no build) and open https://join.dosthq.com. Check that it is
+   styled: the built `index.html` must have no `onload=` (§6.11).
+
+2. **API `.env`** (CRLF line endings on the box — edit with `nano`, not by appending):
+   - add `https://join.dosthq.com` to `CORS_ALLOWED_ORIGINS`;
+   - `ONBOARDING_WEB_URL=https://join.dosthq.com`;
+   - check `STAFF_WEB_URLS` starts with `https://doctor.dosthq.com` (approval links go to the 1st);
+   - `TERMII_API_KEY`, `TERMII_SENDER_ID` (a registered sender id, e.g. `VideoMed`),
+     `TERMII_SMS_CHANNEL=generic`; leave the key blank to send email only;
+   - `FILE_ENCRYPTION_KEY` must already be set (uploads fail with 503 otherwise);
+   - `BACKOFFICE_WEB_URL=https://backoffice.dosthq.com` (reviewer email links);
+   - `LEGAL_TERMS_URL` and `LEGAL_PRIVACY_URL`: the https pages for the consent links. Until
+     they are set the consent shows without links; set them before go-live (O2).
+
+3. **Upload limits** (5MB files): in aaPanel → PHP 8.4 → Configuration set
+   `upload_max_filesize = 8M` and `post_max_size = 8M`; in the API site's nginx config
+   add `client_max_body_size 8m;` inside `server { }`. Check:
+   `php -i | grep -E 'upload_max_filesize|post_max_size'` and `nginx -t && nginx -s reload`.
+
+4. **Schema + migrate** — the normal redeploy one-liner. It adds the tables
+   `doctor_applications`, `doctor_application_documents`, `doctor_application_events`,
+   `doctor_application_info_requests`, `doctor_application_notes` and the nullable
+   `specialists` columns `application_id`, `licence_route`, `regulator_name`,
+   `regulator_country`, `registration_number` (no DROP / type change). `prod-migrate`
+   step 10 then creates `uniq_doctor_applications_open_email` (one open application per
+   email); it reports `exists`/`created` — a new table is never `blocked`.
+
+5. **Reload PHP** (`/etc/init.d/php-fpm-84 reload`, part of the one-liner) — applicants
+   on the new site see CORS errors until the new origin is loaded.
+
+6. **Smoke test** (production is a pre-launch test environment):
+   apply at join.dosthq.com with a test inbox → Save & continue later → resume from the
+   email → submit (confirm the email code) → back office **Applications** shows it with a
+   badge → Start review → Approve (fill each document's reference) → set the password from
+   the email → doctor portal shows "Welcome aboard" → finish setup (for availability set
+   **weekly hours** in the profile: slot editing stays paused until the clock repair is done)
+   → **Go live** → the
+   doctor appears in the patient directory. Then withdraw a second test application from
+   its status page. Remove test doctors before go-live like the other seed data.
+
+Optional housekeeping (no cron): `php bin/application-drafts-purge.php --dry-run`
+(counts only), then `--run`, deletes drafts not saved for 30 days and their files.
 
 ### One-time: the clock fix (appointment times) — then switching on the cron
 

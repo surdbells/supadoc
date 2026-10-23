@@ -1001,6 +1001,223 @@ final class EmailTemplates
         ];
     }
 
+    // ----- Doctor applications (apps/onboarding; spec §5.2) -----
+
+    /** The footer of every email to an applicant (they have no account). */
+    public const APPLICANT_WHY = "You're receiving this because you applied to join VideoMed as a doctor.";
+
+    /** The footer of the resume email — whoever typed the address may not own it. */
+    public const SAVED_WHY = "You're receiving this because someone started a VideoMed doctor application with this email address.";
+
+    /**
+     * The resume email: the 6-character draft code and the link (D26).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function applicationSaved(string $first, string $link, string $code, int $linkDays, int $draftDays): array
+    {
+        $body = self::heading('Pick up where you left off')
+            . self::lead('Hi ' . self::e($first !== '' ? $first : 'there') . ', your application to join VideoMed as a doctor is saved.')
+            . self::codeBox($code)
+            . self::button('Continue my application', $link)
+            . self::note('The link works for ' . $linkDays . ' days. The code works until you submit, or for ' . $draftDays
+                . ' days after your last save. Each new email replaces the previous link and code. '
+                . "Didn't start an application? Ignore this email and it will be deleted.");
+
+        return [
+            'subject' => 'Your VideoMed application is saved',
+            'html'    => self::layout('Application saved', 'Your link and code to continue your application.', $body, self::SAVED_WHY),
+        ];
+    }
+
+    /**
+     * A one-time code: `confirm_email` (before submit) or `track` (status check).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function applicationCode(string $code, string $purpose): array
+    {
+        [$heading, $lead] = $purpose === 'track'
+            ? ['Your status code', 'Enter this code to see your application status.']
+            : ['Confirm your email', 'Enter this code to confirm your email and submit your application.'];
+        $body = self::heading($heading)
+            . self::lead(self::e($lead))
+            . self::codeBox($code)
+            . self::note("This code expires in 10 minutes. If you didn't ask for it, you can ignore this email.");
+
+        return [
+            'subject' => 'Your VideoMed code',
+            'html'    => self::layout($heading, 'Your VideoMed code', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function applicationSubmitted(string $first, string $ref, string $track): array
+    {
+        $body = self::heading('Application submitted')
+            . self::lead('Thank you, ' . self::e($first !== '' ? $first : 'Doctor') . ". We've received your application to join VideoMed as a doctor.")
+            . self::infoCard(['Reference' => $ref])
+            . self::steps([
+                ['We review.', 'Our team verifies your licence, qualifications and documents.'],
+                ['We keep you posted.', "You'll get an email and SMS whenever your status changes."],
+                ['Decision.', "If you're approved, we'll guide you through setting up your profile."],
+            ])
+            . self::button('Check status', $track)
+            . self::note("Keep your reference safe. You'll need it, plus your email or phone number, to check your status.");
+
+        return [
+            'subject' => 'Application received — ' . $ref,
+            'html'    => self::layout('Application submitted', 'We received your application ' . $ref . '.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function applicationUnderReview(string $first, string $ref, string $track): array
+    {
+        $body = self::heading('Your application is under review')
+            . self::lead('Hi ' . self::e($first !== '' ? $first : 'Doctor') . ", we're verifying your licence, qualifications and documents. You don't need to do anything right now.")
+            . self::infoCard(['Reference' => $ref])
+            . self::button('Check status', $track);
+
+        return [
+            'subject' => 'Your application is under review — ' . $ref,
+            'html'    => self::layout('Under review', 'Application ' . $ref . ' is under review.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /**
+     * @param list<string> $itemLabels
+     * @return array{subject: string, html: string}
+     */
+    public static function applicationInfoRequested(string $first, string $ref, string $message, array $itemLabels, string $track, ?string $cancelledInterviewLabel = null): array
+    {
+        $items = '';
+        foreach ($itemLabels as $label) {
+            $items .= '<li style="margin:0 0 4px;">' . self::e($label) . '</li>';
+        }
+        $body = self::heading('We need a little more from you')
+            . self::lead('Hi ' . self::e($first !== '' ? $first : 'Doctor') . ', we need a little more from you before we can continue your review.')
+            . ($cancelledInterviewLabel !== null && $cancelledInterviewLabel !== ''
+                ? '<p style="margin:0 0 16px;font-size:14px;line-height:21px;color:' . self::INK . ';">Your interview on ' . self::e($cancelledInterviewLabel)
+                    . " is cancelled. We'll arrange a new time if we still need one.</p>"
+                : '')
+            . self::message('Message from our team', $message)
+            . ($items !== ''
+                ? '<p style="margin:20px 0 6px;font-size:14px;font-weight:600;color:' . self::INK . ';">We asked for:</p>'
+                    . '<ul style="margin:0;padding-left:20px;font-size:14px;line-height:21px;color:' . self::INK . ';">' . $items . '</ul>'
+                : '')
+            . self::button('Send requested items', $track)
+            . self::note('Your review resumes as soon as we receive them.');
+
+        return [
+            'subject' => 'Action needed on your application — ' . $ref,
+            'html'    => self::layout('Action needed', 'We need more information for application ' . $ref . '.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function applicationInfoReceived(string $first, string $ref): array
+    {
+        $body = self::heading("We've received your update")
+            . self::lead('Thanks, ' . self::e($first !== '' ? $first : 'Doctor') . ". We've received the items you sent and your review has resumed.")
+            . self::infoCard(['Reference' => $ref]);
+
+        return [
+            'subject' => "We've received your update — " . $ref,
+            'html'    => self::layout('Update received', 'Your review of ' . $ref . ' has resumed.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function applicationInterview(string $first, string $ref, string $startsIso, int $minutes, string $meetingUrl, ?string $note, bool $rescheduled, string $support = 'support@videomed.app'): array
+    {
+        $host = (string) (parse_url($meetingUrl, PHP_URL_HOST) ?? '');
+        $body = self::heading($rescheduled ? 'Your interview has moved' : 'Interview scheduled')
+            . self::lead('Hi ' . self::e($first !== '' ? $first : 'Doctor') . ', join your interview at the scheduled time and have your ID and licence to hand.')
+            . self::infoCard([
+                'When'   => self::dateTime($startsIso),
+                'Length' => $minutes . ' minutes',
+                'Where'  => 'Video call' . ($host !== '' ? ' (' . $host . ')' : ''),
+            ])
+            . ($note !== null && trim($note) !== '' ? self::message('Note from our team', $note) : '')
+            . self::button('Join interview', $meetingUrl)
+            . self::note("Times are West Africa Time (Lagos). Can't make it? Email " . $support . '.');
+
+        return [
+            'subject' => ($rescheduled ? 'Your interview has moved — ' : 'Interview scheduled — ') . $ref,
+            'html'    => self::layout('Interview', 'Your interview for application ' . $ref . '.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /**
+     * The approval, with the doctor portal's set-password link (U2).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function applicationApproved(string $first, string $last, string $ref, string $link, int $days): array
+    {
+        $name = trim($last) !== '' ? trim($last) : trim($first);
+        $body = self::heading('Welcome aboard')
+            . self::lead('Congratulations, Dr ' . self::e($name) . '. Your application ' . self::e($ref)
+                . ' has been approved. Set up your profile and availability so patients can start booking you.')
+            . self::button('Set your password', $link)
+            . '<p style="margin:24px 0 0;font-size:14px;line-height:21px;color:' . self::INK . ';">'
+            . 'Still to do: profile photo, signature, availability, payout account and the practitioner terms. Your documents are already verified.</p>'
+            . self::note('This link works once and expires in ' . $days . ' day' . ($days === 1 ? '' : 's')
+                . '. If it expires, use “Forgot password?” on the doctor portal sign-in page.');
+
+        return [
+            'subject' => 'Welcome aboard — your VideoMed doctor account is ready',
+            'html'    => self::layout('Welcome aboard', 'Your application ' . $ref . ' has been approved.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function applicationRejected(string $first, string $ref, string $reason, string $support): array
+    {
+        $body = self::heading('Update on your application')
+            . self::lead('Hi ' . self::e($first !== '' ? $first : 'Doctor') . ", thank you for applying to join VideoMed. After careful review, we're unable to approve your application at this time.")
+            . self::message('Reason', $reason)
+            . self::note("You're welcome to apply again. If you'd like to talk it through, contact " . $support . '.');
+
+        return [
+            'subject' => 'Update on your application — ' . $ref,
+            'html'    => self::layout('Application update', 'An update on application ' . $ref . '.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function applicationWithdrawn(string $first, string $ref): array
+    {
+        $body = self::heading('Application withdrawn')
+            . self::lead('Hi ' . self::e($first !== '' ? $first : 'Doctor') . ", as you asked, we've withdrawn your application and stopped reviewing it. You can apply again at any time.")
+            . self::infoCard(['Reference' => $ref]);
+
+        return [
+            'subject' => 'Application withdrawn — ' . $ref,
+            'html'    => self::layout('Application withdrawn', 'Application ' . $ref . ' was withdrawn.', $body, self::APPLICANT_WHY),
+        ];
+    }
+
+    /** A big, letter-spaced code (as {@see verificationCode()}). */
+    private static function codeBox(string $code): string
+    {
+        return '<div style="margin:8px 0;text-align:center;font-size:34px;font-weight:700;'
+            . 'letter-spacing:10px;color:' . self::OCEAN . ';">' . self::e($code) . '</div>';
+    }
+
+    /** @param list<array{0:string, 1:string}> $steps bold lead-in + text */
+    private static function steps(array $steps): string
+    {
+        $html = '';
+        foreach ($steps as [$lead, $text]) {
+            $html .= '<p style="margin:16px 0 0;font-size:14px;line-height:21px;color:' . self::INK . ';"><strong>'
+                . self::e($lead) . '</strong> ' . self::e($text) . '</p>';
+        }
+
+        return $html;
+    }
+
     // ----- Building blocks -----
 
     private static function layout(string $title, string $preheader, string $body, ?string $why = null): string

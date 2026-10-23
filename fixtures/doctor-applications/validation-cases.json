@@ -3259,6 +3259,179 @@
     }
   },
   {
+    "title": "qualifications: no entries",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": []
+    },
+    "errors": {
+      "entries": "Add your primary medical degree."
+    }
+  },
+  {
+    "title": "qualifications: the entries list missing altogether",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {},
+    "errors": {
+      "entries": "Add your primary medical degree."
+    }
+  },
+  {
+    "title": "qualifications: more than 10 entries",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        }
+      ]
+    },
+    "errors": {
+      "entries": "You can add up to 10 qualifications."
+    }
+  },
+  {
+    "title": "qualifications (partial): no entries is skipped",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "entries": []
+    },
+    "errors": {}
+  },
+  {
+    "title": "qualifications (partial): more than 10 entries still counts",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "entries": [
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        }
+      ]
+    },
+    "errors": {
+      "entries": "You can add up to 10 qualifications."
+    }
+  },
+  {
     "title": "indemnity: a complete valid section",
     "section": "indemnity",
     "route": "ng",
@@ -3915,6 +4088,106 @@
     "context": {
       "personal": {
         "first_name": "Zoë",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: without the saved names no signature can match",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Ada Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    }
+  },
+  {
+    "title": "consent (partial): unticked boxes and a missing signature are skipped",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": false,
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent (partial): a blank signature is skipped",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "accept_terms": false,
+      "authorise_verification": false,
+      "confirm_accurate": false,
+      "signature_name": "   ",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent (partial): a truthy non-boolean is still not a tick",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "accept_terms": "true",
+      "authorise_verification": 1,
+      "confirm_accurate": false,
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "accept_terms": "Tick each statement to continue.",
+      "authorise_verification": "Tick each statement to continue."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent (partial): a signature that doesn't match still counts",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "signature_name": "Ada Okafor",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
         "last_name": "Obi"
       }
     }

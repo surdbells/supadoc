@@ -203,7 +203,7 @@ final class PrescriptionPdfRenderer
             ['Name', (string) ($prescriber['name'] ?? '-')],
             ['Specialty', (string) (($prescriber['specialty'] ?? '') !== '' ? $prescriber['specialty'] : '-')],
             ['Qualifications', (string) (($prescriber['qualifications'] ?? '') !== '' ? $prescriber['qualifications'] : '-')],
-            ['MDCN number', (string) (($prescriber['mdcn_number'] ?? '') !== '' ? $prescriber['mdcn_number'] : 'Not provided')],
+            [self::registrationLabel($prescriber), (string) (($prescriber['mdcn_number'] ?? '') !== '' ? $prescriber['mdcn_number'] : 'Not provided')],
         ]);
 
         return $y + 29;
@@ -446,8 +446,9 @@ final class PrescriptionPdfRenderer
         $pdf->Line(self::M + 4, $y + 20.6, self::M + $w - 4, $y + 20.6);
         $pdf->SetFont('Helvetica', 'B', 8.2);
         $this->text($pdf, self::INK);
-        $mdcn = trim((string) ($prescriber['mdcn_number'] ?? ''));
-        $pdf->Text(self::M + 4, $y + 24.4, PrescriptionPdf::enc(($prescriber['name'] ?? 'Prescriber') . ($mdcn !== '' ? '  -  MDCN ' . $mdcn : '')));
+        $mdcn  = trim((string) ($prescriber['mdcn_number'] ?? ''));
+        $label = (string) preg_replace('/ number$/', '', self::registrationLabel($prescriber));
+        $pdf->Text(self::M + 4, $y + 24.4, PrescriptionPdf::enc(($prescriber['name'] ?? 'Prescriber') . ($mdcn !== '' ? '  -  ' . $label . ' ' . $mdcn : '')));
         $pdf->SetFont('Helvetica', '', 7);
         $this->text($pdf, self::SLATE);
         $signed = $rx->getSignedAt();
@@ -611,5 +612,18 @@ final class PrescriptionPdfRenderer
         file_put_contents($path, $png);
 
         return $path;
+    }
+
+    /**
+     * "MDCN number", or "{regulator} number" for a doctor licensed abroad — as
+     * frozen on the prescription (older ones have no label and read as MDCN).
+     *
+     * @param array<string,mixed> $prescriber
+     */
+    private static function registrationLabel(array $prescriber): string
+    {
+        $label = trim((string) ($prescriber['registration_label'] ?? ''));
+
+        return $label !== '' ? $label : 'MDCN number';
     }
 }

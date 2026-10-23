@@ -39,6 +39,21 @@ final class AuditEventDescriber
         'specialist.credential_deleted'  => 'Doctor document deleted',
         'specialist.credential_viewed'   => 'Doctor document viewed',
         'specialist.terms_accepted'      => 'Practitioner terms accepted',
+        'specialist.created_from_application' => 'Doctor created from an application',
+        'specialist.went_live'           => 'Doctor went live after setup',
+        // Doctor applications (the reference is the subject — never the applicant's details)
+        'doctor_application.submitted'             => 'Doctor application submitted',
+        'doctor_application.review_started'        => 'Doctor application review started',
+        'doctor_application.info_requested'        => 'More information requested from an applicant',
+        'doctor_application.info_received'        => 'Applicant sent the requested items',
+        'doctor_application.interview_scheduled'   => 'Applicant interview scheduled',
+        'doctor_application.interview_rescheduled' => 'Applicant interview rescheduled',
+        'doctor_application.interview_resent'      => 'Applicant interview details resent',
+        'doctor_application.approved'              => 'Doctor application approved',
+        'doctor_application.rejected'              => 'Doctor application rejected',
+        'doctor_application.withdrawn'             => 'Doctor application withdrawn',
+        'doctor_application.document_viewed'       => 'Applicant document viewed',
+        'doctor_application.note_added'            => 'Note added to a doctor application',
         'signature.updated'              => 'Prescribing signature updated',
         'signature.removed'              => 'Prescribing signature removed',
         // Consultations
@@ -177,6 +192,9 @@ final class AuditEventDescriber
             }
         }
         $keys = $reference ? ['label'] : ['doctor', 'patient_name', 'patient', 'guest_name', 'specialist'];
+        if ($action !== null && str_starts_with($action, 'doctor_application.')) {
+            $keys = ['reference']; // an application reads as its reference (GVM-DR-…)
+        }
         foreach ($keys as $key) {
             $value = $metadata[$key] ?? null;
             if (is_string($value) && trim($value) !== '') {
@@ -213,6 +231,9 @@ final class AuditEventDescriber
         $id = is_string($resourceId) ? trim($resourceId) : '';
         if ($resourceType === 'specialist' && self::isUuid($id)) {
             return ['path' => '/specialists/' . $id, 'query' => [], 'permission' => 'specialists.manage'];
+        }
+        if ($resourceType === 'doctor_application' && self::isUuid($id)) {
+            return ['path' => '/applications/' . $id, 'query' => [], 'permission' => 'specialists.manage'];
         }
         if ($resourceType === 'appointment' && self::isUuid($id)) {
             return ['path' => '/appointments/' . $id, 'query' => [], 'permission' => 'appointments.view'];

@@ -35,7 +35,9 @@ final class PrescriptionOptionsAction
 
         return $this->success($response, $this->service->formOptions() + [
             'has_signature' => $doctor->getSignatureKey() !== null,
-            'mdcn_number'   => $doctor->getMdcnNumber(),
+            // The number prescriptions print (MDCN, or the foreign registration) and what it is called.
+            'mdcn_number'        => $doctor->registrationNumberForRoute(),
+            'registration_label' => $doctor->registrationLabel(),
         ]);
     }
 }

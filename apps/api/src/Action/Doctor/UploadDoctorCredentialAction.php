@@ -14,10 +14,13 @@ use Psr\Http\Message\UploadedFileInterface;
 
 /**
  * POST /api/doctor/credentials (multipart) — the doctor uploads a licensing
- * document: `file` (PDF, JPG or PNG, ≤ 10MB, checked by content), `type`
- * (mdcn_full_registration | annual_practising_licence |
- * specialist_certificate), `number` and `expires_at` (YYYY-MM-DD; both
- * required for a licence, which must not have expired), optional `issued_at`.
+ * document: `file` (PDF, JPG or PNG, ≤ 10MB, checked by content), `type` —
+ * by where the doctor is licensed (SpecialistCredential::uploadableTypes):
+ * mdcn_full_registration | annual_practising_licence, or abroad
+ * good_standing_certificate | foreign_practising_licence; plus
+ * specialist_certificate | indemnity_certificate — `number` and `expires_at`
+ * (YYYY-MM-DD; both required for a licence, an expiry for indemnity, never
+ * already past), optional `issued_at`.
  * Stored encrypted; replaces an older one of the same kind still waiting.
  * A live doctor's upload notifies the reviewers. 201 with the document; 422
  * per field; 409 when secure storage isn't set up.

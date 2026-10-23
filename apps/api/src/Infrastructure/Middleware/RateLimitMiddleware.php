@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Middleware;
 
+use App\Infrastructure\Http\TrustedClientIp;
 use App\Infrastructure\Service\ApiResponse;
 use Predis\Client as RedisClient;
 use Psr\Http\Message\ResponseInterface;
@@ -106,32 +107,9 @@ final class RateLimitMiddleware implements MiddlewareInterface
         return $customer !== '' ? 'c:' . $customer : null;
     }
 
-    /**
-     * The client IP used to bucket anonymous requests.
-     *
-     * X-Forwarded-For is client-controlled, so trusting its leftmost value lets an
-     * attacker rotate the header to get a fresh bucket per request and bypass the
-     * limit entirely. We only read XFF when TRUSTED_PROXY_HOPS says how many
-     * reverse proxies sit in front, and then take the entry those proxies set
-     * (Nth-from-right); otherwise we use the connecting address only.
-     */
+    /** The client IP used to bucket anonymous requests (TRUSTED_PROXY_HOPS-aware, see TrustedClientIp). */
     private function clientIp(ServerRequestInterface $request): string
     {
-        $params = $request->getServerParams();
-        $remote = (string) ($params['REMOTE_ADDR'] ?? 'unknown');
-        $hops   = (int) ($_ENV['TRUSTED_PROXY_HOPS'] ?? 0);
-
-        if ($hops > 0) {
-            $fwd = $request->getHeaderLine('X-Forwarded-For');
-            if ($fwd !== '') {
-                $chain = array_values(array_filter(array_map('trim', explode(',', $fwd)), static fn (string $v): bool => $v !== ''));
-                $idx   = count($chain) - $hops;
-                if ($idx >= 0 && isset($chain[$idx])) {
-                    return $chain[$idx];
-                }
-            }
-        }
-
-        return $remote;
+        return TrustedClientIp::from($request);
     }
 }

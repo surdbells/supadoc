@@ -141,12 +141,13 @@ final class SpecialistCredentialRepository extends BaseRepository
 
     public function verifiedLicencesExpiringByQuery(DateTimeImmutable $until, int $limit = 500): Query
     {
+        // Both kinds of practising licence: an APL, or a foreign licence abroad (spec §4.4).
         return $this->qb()
-            ->andWhere('e.type = :licence')
+            ->andWhere('e.type IN (:licences)')
             ->andWhere('e.status = :verified')
             ->andWhere('e.expiresAt IS NOT NULL')
             ->andWhere('e.expiresAt <= :until')
-            ->setParameter('licence', SpecialistCredential::TYPE_LICENCE)
+            ->setParameter('licences', SpecialistCredential::LICENCE_TYPES)
             ->setParameter('verified', SpecialistCredential::STATUS_VERIFIED)
             ->setParameter('until', $until)
             ->orderBy('e.expiresAt', 'ASC')

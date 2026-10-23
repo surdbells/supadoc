@@ -269,6 +269,48 @@ final class JwtService
         return ($payload->type ?? null) === 'file_link' ? (array) $payload : null;
     }
 
+    /** A doctor applicant's draft session (4 h) — the draft endpoints only. */
+    public const APPLICATION_DRAFT = 'application_draft';
+
+    /** A doctor applicant's status session (30 min) — the track endpoints only. */
+    public const APPLICATION_ACCESS = 'application_access';
+
+    /**
+     * A token for an applicant who has no account (spec §2.8): `type` is the
+     * scope (application_draft / application_access), `sub` the application.
+     * validateAccessToken refuses both — they open nothing but their own routes.
+     */
+    public function issueApplicantToken(string $applicationId, string $scope, int $ttl): string
+    {
+        if (!in_array($scope, [self::APPLICATION_DRAFT, self::APPLICATION_ACCESS], true)) {
+            throw new \InvalidArgumentException('Unknown applicant token scope');
+        }
+        $now = time();
+
+        return JWT::encode([
+            'sub'  => $applicationId,
+            'type' => $scope,
+            'iat'  => $now,
+            'exp'  => $now + $ttl,
+            'jti'  => bin2hex(random_bytes(16)),
+        ], $this->secret, self::ALGO);
+    }
+
+    /** The application id of a valid, unexpired applicant token of `$scope`, or null. */
+    public function verifyApplicantToken(string $token, string $scope): ?string
+    {
+        try {
+            $payload = JWT::decode($token, new Key($this->secret, self::ALGO));
+        } catch (\Throwable) {
+            return null;
+        }
+        if (($payload->type ?? null) !== $scope || !is_string($payload->sub ?? null) || $payload->sub === '') {
+            return null;
+        }
+
+        return $payload->sub;
+    }
+
     /** The verified email from a valid, unexpired proof token, or null. */
     public function verifyEmailProof(string $token): ?string
     {

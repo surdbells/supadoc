@@ -56,7 +56,9 @@ declare(strict_types=1);
  *      and on document sharing (one active folder share per patient + doctor,
  *      one active share per client key, one open hidden row per document, one
  *      pending request and one open request block per patient + doctor),
- *      created only when no rows break them; rows that do are reported
+ *      and one open doctor application per email
+ *      (`uniq_doctor_applications_open_email`), created only when no rows
+ *      break them; rows that do are reported
  *      (`unique_indexes_blocked`), never changed or deleted. Plus a read-only
  *      report of card payments used twice / used and credited / held for
  *      review (`card_payment_anomalies`).
@@ -256,6 +258,12 @@ $required = [
     'document_access_blocks'          => [],
     'document_access_log'             => [],
     'document_access_submissions'     => ['patient_id', 'client_key', 'request_hash'], // share replay (spec §3.5)
+    // Doctor applications (apps/onboarding; step 10 adds their open-email index): five new tables.
+    'doctor_applications'              => ['status', 'email', 'reference', 'licence_route', 'interview_epoch', 'awaiting_staff'],
+    'doctor_application_documents'     => ['application_id', 'slot', 'state', 'vault_key'],
+    'doctor_application_events'        => ['application_id', 'kind'],
+    'doctor_application_info_requests' => ['application_id', 'responded_at', 'closed_at'],
+    'doctor_application_notes'         => ['application_id'],
 ];
 // …and every column the entities used below map, so no Doctrine load or write
 // can fail on a column the schema update has not added yet.
@@ -264,6 +272,8 @@ foreach ([
     App\Domain\Entity\DocumentAccessGrant::class, App\Domain\Entity\DocumentAccessGrantDocument::class, App\Domain\Entity\DocumentAccessHidden::class,
     App\Domain\Entity\DocumentAccessRequest::class, App\Domain\Entity\DocumentAccessBlock::class, App\Domain\Entity\DocumentAccessLogEntry::class,
     App\Domain\Entity\DocumentAccessSubmission::class, App\Domain\Entity\AvailabilitySlot::class,
+    App\Domain\Entity\DoctorApplication::class, App\Domain\Entity\DoctorApplicationDocument::class, App\Domain\Entity\DoctorApplicationEvent::class,
+    App\Domain\Entity\DoctorApplicationInfoRequest::class, App\Domain\Entity\DoctorApplicationNote::class,
 ] as $class) {
     $meta             = $em->getClassMetadata($class);
     $table            = $unquote($meta->getTableName());

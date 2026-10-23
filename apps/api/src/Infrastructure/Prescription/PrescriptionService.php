@@ -660,7 +660,9 @@ final class PrescriptionService
             'name'           => $doctor->getName(),
             'specialty'      => $doctor->getSpecialty(),
             'qualifications' => (string) ($doctor->getQualifications() ?? ''),
-            'mdcn_number'    => (string) ($doctor->getMdcnNumber() ?? ''),
+            // The MDCN number — or, for a doctor licensed abroad, their regulator's (spec §3.7).
+            'mdcn_number'        => (string) ($doctor->registrationNumberForRoute() ?? ''),
+            'registration_label' => $doctor->registrationLabel(),
         ];
     }
 

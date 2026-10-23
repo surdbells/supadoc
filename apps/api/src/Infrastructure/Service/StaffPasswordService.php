@@ -53,18 +53,23 @@ final class StaffPasswordService
      * Issue (or re-issue — a resend replaces the old link) an invite link and
      * email it. Saves the user.
      *
+     * `$template` (name, link, days) => {subject, html} replaces the doctor
+     * invite wording — an approved applicant gets "Welcome aboard".
+     *
+     * @param (\Closure(string, string, int): array{subject:string, html:string})|null $template
      * @return array{email_sent:bool, expires_at:string, dev_link?:string}
      */
-    public function sendInvite(User $user, string $displayName, string $baseUrl): array
+    public function sendInvite(User $user, string $displayName, string $baseUrl, ?\Closure $template = null): array
     {
         $token = $user->issuePasswordToken(User::TOKEN_INVITE, self::INVITE_TTL);
         $this->users->save($user);
 
         $link = rtrim($baseUrl, '/') . '/auth/set-password?token=' . $token;
-        $mail = EmailTemplates::doctorInvite($displayName, $link, intdiv(self::INVITE_TTL, 86400));
+        $days = intdiv(self::INVITE_TTL, 86400);
+        $mail = $template !== null ? $template($displayName, $link, $days) : EmailTemplates::doctorInvite($displayName, $link, $days);
         $sent = false;
         try {
-            $sent = $this->mail->send($user->getEmail(), $displayName, $mail['subject'], $mail['html']);
+            $sent = $this->mail->send($user->getEmail(), $displayName, $mail['subject'], $mail['html'], $template !== null ? 'applicationApproved' : 'doctorInvite');
         } catch (\Throwable) {
             // send() never throws by contract; the link stays valid for a resend.
         }

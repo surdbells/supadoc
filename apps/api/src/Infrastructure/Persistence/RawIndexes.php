@@ -19,7 +19,9 @@ use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
  *    client key ({@see DOC_CLIENT_KEY}), one open hidden row per pair and
  *    document ({@see DOC_HIDDEN_OPEN}), one pending request per pair
  *    ({@see DOC_REQUEST_PENDING}) and one open request block per pair
- *    ({@see DOC_BLOCK_OPEN}).
+ *    ({@see DOC_BLOCK_OPEN});
+ *  - doctor applications (behind the submit lock): one open application per
+ *    email ({@see APPLICATION_OPEN_EMAIL}) — reported by application ids only.
  *
  * {@see ensure()} creates one only when the data already obeys it — otherwise
  * it reports the rows that break it (nothing is changed or deleted; a person
@@ -46,6 +48,9 @@ final class RawIndexes
     public const DOC_REQUEST_PENDING = 'uniq_doc_requests_pending';
     /** One open request block per (patient, doctor). */
     public const DOC_BLOCK_OPEN = 'uniq_doc_blocks_open';
+
+    /** One open doctor application per email (behind the submit lock; spec §2.2, D10). */
+    public const APPLICATION_OPEN_EMAIL = 'uniq_doctor_applications_open_email';
 
     /** The appointment statuses that hold a slot for good (a proposal holds it only until it expires, so it is left out). */
     public const LIVE_STATUSES = ['pending', 'confirmed', 'rescheduled'];
@@ -119,6 +124,16 @@ final class RawIndexes
                                         string_agg(id::text, ',' ORDER BY created_at) AS ids
                                    FROM document_access_blocks WHERE lifted_at IS NULL
                                   GROUP BY patient_id, specialist_id HAVING COUNT(*) > 1 ORDER BY 1",
+            ],
+            // Reported by application ids only — never the email (prod-migrate prints these columns).
+            self::APPLICATION_OPEN_EMAIL => [
+                'table'      => 'doctor_applications',
+                'ddl'        => 'CREATE UNIQUE INDEX IF NOT EXISTS ' . self::APPLICATION_OPEN_EMAIL
+                    . " ON doctor_applications (email) WHERE status IN ('submitted','under_review','more_info_needed','interview_scheduled')",
+                'violations' => "SELECT min(id::text) AS conflict, COUNT(*) AS bookings, string_agg(id::text, ',' ORDER BY submitted_at) AS ids
+                                   FROM doctor_applications
+                                  WHERE status IN ('submitted','under_review','more_info_needed','interview_scheduled')
+                                  GROUP BY email HAVING COUNT(*) > 1",
             ],
         ];
     }

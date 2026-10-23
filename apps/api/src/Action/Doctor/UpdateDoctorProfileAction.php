@@ -243,7 +243,8 @@ final class UpdateDoctorProfileAction
         }
 
         $staged = false;
-        if ($specialist->hasLockedFields()) {
+        // Locked once they have practised here — or from the start for a doctor vetted through an application (D5).
+        if ($specialist->identityLocked()) {
             $staged = $specialist->stageChanges($locked);
         } else {
             $specialist->applyLockedValues($locked);

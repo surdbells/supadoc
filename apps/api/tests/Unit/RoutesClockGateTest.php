@@ -77,6 +77,22 @@ final class RoutesClockGateTest extends TestCase
         $this->assertStringNotContainsString(self::GATE, substr($source, $at, strpos($source, ';', $at) - $at));
     }
 
+    /** Doctor applications write no scheduled appointment time: none of their routes is gated (spec §9.1). */
+    public function testTheApplicationRoutesAreNotGated(): void
+    {
+        $source = $this->routes();
+        $offset = 0;
+        $found  = 0;
+        while (($at = strpos($source, 'Action\DoctorApplication\\', $offset)) !== false) {
+            $end = strpos($source, ';', $at);
+            $this->assertNotFalse($end);
+            $this->assertStringNotContainsString(self::GATE, substr($source, $at, $end - $at));
+            $offset = $end;
+            $found++;
+        }
+        $this->assertSame(39, $found, 'every application route checked');
+    }
+
     public function testTheGateResolvesFromTheContainer(): void
     {
         $_ENV['DB_SERVER_VERSION'] = '16';

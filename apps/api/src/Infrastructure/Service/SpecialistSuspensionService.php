@@ -145,8 +145,10 @@ final class SpecialistSuspensionService
         } elseif (mb_strlen($note) > DoctorOnboardingService::MAX_REASON) {
             $problems['note'] = 'Keep the note under 2000 characters';
         }
-        if (DoctorCredentials::currentLicence($credentials, $todayYmd) === null) {
-            $problems['practising_licence'] = 'Verify a current annual practising licence before reinstating';
+        if (DoctorCredentials::currentLicence($credentials, $todayYmd, $s->getLicenceRoute()) === null) {
+            $problems['practising_licence'] = $s->getLicenceRoute() === 'abroad'
+                ? 'Verify a current practising licence from ' . (trim((string) $s->getRegulatorName()) !== '' ? trim((string) $s->getRegulatorName()) : 'their regulator') . ' before reinstating'
+                : 'Verify a current annual practising licence before reinstating';
         }
 
         return $problems;
@@ -399,7 +401,7 @@ final class SpecialistSuspensionService
         // The patients are told only once the reinstatement is saved.
         $notices = $this->sharing?->doctorReinstated($s, DocumentSharingRules::now());
         $s->reinstate();
-        $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($credentials, $today)?->getExpiresAt());
+        $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($credentials, $today, $s->getLicenceRoute())?->getExpiresAt());
         $this->statusEvents->persist(new SpecialistStatusEvent(
             $s->getId(),
             SpecialistStatus::SUSPENDED->value,

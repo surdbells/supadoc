@@ -91,6 +91,33 @@ final class ContainerTest extends TestCase
         ] as $class) {
             $this->assertIsObject($container->get($class), "could not resolve $class");
         }
+
+        // Doctor applications: the services and every action (27 applicant + 12 staff).
+        foreach ([
+            \App\Infrastructure\Application\DoctorApplicationService::class,
+            \App\Infrastructure\Application\ApplicationReviewService::class,
+            \App\Infrastructure\Application\ApplicationApprovalService::class,
+            \App\Infrastructure\Application\ApplicationCodeService::class,
+            \App\Infrastructure\Application\ApplicationNotifier::class,
+            \App\Infrastructure\Application\ApplicationDraftPurger::class,
+            \App\Infrastructure\Application\ApplicationViews::class,
+            \App\Infrastructure\Storage\ApplicationDocumentStore::class,
+            \App\Infrastructure\Application\CodeStore::class,
+            \App\Infrastructure\Service\TermiiService::class,
+            \App\Infrastructure\Service\AdminDashboardService::class,
+        ] as $id) {
+            $this->assertIsObject($container->get($id), "could not resolve $id");
+        }
+        $applicationActions = [];
+        foreach (['Public', 'Admin'] as $side) {
+            foreach (glob(__DIR__ . '/../../src/Action/DoctorApplication/' . $side . '/*Action.php') ?: [] as $file) {
+                $applicationActions[] = 'App\\Action\\DoctorApplication\\' . $side . '\\' . basename($file, '.php');
+            }
+        }
+        $this->assertCount(39, $applicationActions);
+        foreach ($applicationActions as $class) {
+            $this->assertIsObject($container->get($class), "could not resolve $class");
+        }
     }
 
     /**
@@ -110,6 +137,18 @@ final class ContainerTest extends TestCase
 
         $result = $app->getRouteResolver()->computeRoutingResults('/api/portal/appointments/presence', 'GET');
         $this->assertSame(RoutingResults::FOUND, $result->getRouteStatus());
+
+        // Doctor applications: static routes resolve to themselves, not to a variable sibling.
+        foreach ([
+            ['GET', '/api/doctor-applications/queue'],
+            ['POST', '/api/public/doctor-applications/drafts/resume'],
+            ['GET', '/api/public/doctor-applications/drafts/current'],
+            ['POST', '/api/public/doctor-applications/drafts/current/submit'],
+            ['PUT', '/api/public/doctor-applications/drafts/current/sections/personal'],
+            ['GET', '/api/public/doctor-applications/track/status'],
+        ] as [$method, $path]) {
+            $this->assertSame(RoutingResults::FOUND, $app->getRouteResolver()->computeRoutingResults($path, $method)->getRouteStatus(), "$method $path");
+        }
     }
 
     /**

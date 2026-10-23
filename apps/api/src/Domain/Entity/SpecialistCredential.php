@@ -34,13 +34,55 @@ class SpecialistCredential
     public const TYPE_MDCN       = 'mdcn_full_registration';
     public const TYPE_LICENCE    = 'annual_practising_licence';
     public const TYPE_SPECIALIST = 'specialist_certificate';
+    // Doctors licensed abroad (spec D2): these play the MDCN certificate's and the APL's roles.
+    public const TYPE_GOOD_STANDING   = 'good_standing_certificate';
+    public const TYPE_FOREIGN_LICENCE = 'foreign_practising_licence';
+    // Carried over from an approved application (verified there).
+    public const TYPE_GOVERNMENT_ID  = 'government_id';
+    public const TYPE_MEDICAL_DEGREE = 'medical_degree';
+    public const TYPE_CV             = 'curriculum_vitae';
+    public const TYPE_INDEMNITY      = 'indemnity_certificate';
 
     /** type => label */
     public const TYPES = [
-        self::TYPE_MDCN       => 'MDCN full-registration certificate',
-        self::TYPE_LICENCE    => 'Annual practising licence',
-        self::TYPE_SPECIALIST => 'Specialist certificate',
+        self::TYPE_MDCN            => 'MDCN full-registration certificate',
+        self::TYPE_LICENCE         => 'Annual practising licence',
+        self::TYPE_SPECIALIST      => 'Specialist certificate',
+        self::TYPE_GOOD_STANDING   => 'Certificate of Good Standing',
+        self::TYPE_FOREIGN_LICENCE => 'Practising licence (outside Nigeria)',
+        self::TYPE_GOVERNMENT_ID   => 'Government-issued ID',
+        self::TYPE_MEDICAL_DEGREE  => 'Medical degree certificate',
+        self::TYPE_CV              => 'Curriculum vitae',
+        self::TYPE_INDEMNITY       => 'Professional indemnity certificate',
     ];
+
+    /** The practising licences (an expiry and a number each; watched by the licence cron). */
+    public const LICENCE_TYPES = [self::TYPE_LICENCE, self::TYPE_FOREIGN_LICENCE];
+
+    /** Only ever carried over from an application (verified there); doctors never upload them. */
+    public const APPLICATION_ONLY = [self::TYPE_GOVERNMENT_ID, self::TYPE_MEDICAL_DEGREE, self::TYPE_CV];
+
+    /**
+     * What a doctor may upload, by where they are licensed.
+     *
+     * @return list<string>
+     */
+    public static function uploadableTypes(string $route): array
+    {
+        return $route === 'abroad'
+            ? [self::TYPE_GOOD_STANDING, self::TYPE_FOREIGN_LICENCE, self::TYPE_SPECIALIST, self::TYPE_INDEMNITY]
+            : [self::TYPE_MDCN, self::TYPE_LICENCE, self::TYPE_SPECIALIST, self::TYPE_INDEMNITY];
+    }
+
+    public static function requiresExpiry(string $type): bool
+    {
+        return in_array($type, self::LICENCE_TYPES, true) || $type === self::TYPE_INDEMNITY;
+    }
+
+    public static function requiresNumber(string $type): bool
+    {
+        return in_array($type, self::LICENCE_TYPES, true);
+    }
 
     public const STATUS_PENDING    = 'pending';
     public const STATUS_VERIFIED   = 'verified';

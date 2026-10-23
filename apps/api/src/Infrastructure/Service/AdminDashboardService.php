@@ -82,6 +82,7 @@ final class AdminDashboardService
         private readonly PricingService $pricing,
         private readonly RedisClient $redis,
         private readonly ?LoggerInterface $logger = null,
+        private readonly ?\App\Domain\Repository\DoctorApplicationRepository $applications = null,
     ) {
     }
 
@@ -422,6 +423,15 @@ final class AdminDashboardService
             $items[] = self::item('profile_change_requests', 'Profile change requests', 'Approved doctors asking to change locked profile fields.', $d['changes'], null, 'info', '/specialists', ['filter' => 'changes']);
             $items[] = self::item('licences_expiring', 'Licences expiring in 30 days', 'Live doctors whose practising licence runs out soon.', $d['expiring'], null, 'warning', '/specialists', ['filter' => 'licence_expiring']);
             $items[] = self::item('licences_expired', 'Licences expired', 'Doctors whose practising licence has run out.', $d['expired'], null, 'alert', '/specialists', ['filter' => 'licence_expired']);
+            if ($this->applications !== null) {
+                // Not cached: the nav badge reads the same figure live (spec §3.3.2).
+                try {
+                    $waiting = $this->applications->countNeedsAction(ClinicTime::now()->getTimestamp());
+                    $items[] = self::item('doctor_applications_waiting', 'Doctor applications waiting', 'Submitted or answered applications to review.', $waiting, null, 'info', '/applications', ['filter' => 'needs_action']);
+                } catch (\Throwable $e) {
+                    $this->logger?->warning('Dashboard: doctor applications count unavailable', ['error' => $e::class]);
+                }
+            }
         }
 
         if ($part('attention.payouts')) {

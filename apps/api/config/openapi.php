@@ -76,11 +76,16 @@ return [
             . 'and for how long (24h, 7d, 30d, until a date, no end, or until after a consultation); they can change or stop sharing at any time (stopping does not recall copies already downloaded). '
             . 'Doctors see only what is shared now (one policy decides), every file view is recorded and visible to the patient, and doctors can ask for access. '
             . 'Background polls send `X-SD-Passive: 1`, which never extends the session idle clock.'],
+        ['name' => 'Doctor applications', 'description' => 'Doctors apply without an account (apps/onboarding): drafts, uploads, submit, the status check, more-info responses and withdraw; '
+            . 'reviewers (`specialists.manage`) list, review, interview, approve (creating the doctor) or reject. Coded errors carry `errors.code`.'],
         ['name' => 'System'],
     ],
     'components' => [
         'securitySchemes' => [
             'bearerAuth' => ['type' => 'http', 'scheme' => 'bearer', 'bearerFormat' => 'JWT'],
+            // Doctor applicants (no account): a draft token (4 h) or a status access token (30 min).
+            'applicantDraft'  => ['type' => 'http', 'scheme' => 'bearer', 'bearerFormat' => 'JWT (application_draft)'],
+            'applicantAccess' => ['type' => 'http', 'scheme' => 'bearer', 'bearerFormat' => 'JWT (application_access)'],
         ],
         'schemas' => [
             'PageMeta' => [
@@ -3913,6 +3918,6 @@ return [
                 ],
             ],
         ],
-    ],
+    ] + (require __DIR__ . '/openapi-doctor-applications.php')($envelope, $json, $paginated),
     'security' => [['bearerAuth' => []]],
 ];

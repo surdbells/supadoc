@@ -10,6 +10,11 @@ use Psr\Log\LoggerInterface;
  * Transactional email via ZeptoMail. Deliberately fire-and-forget: send() never
  * throws into the request flow — a mail hiccup must not fail a booking. When
  * unconfigured (no token) it logs and no-ops, so nothing is sent in dev/tests.
+ *
+ * Logs are PHI-free (spec §3.7): a line carries only `to_hash` (the first 12
+ * hex of the sha256 of the lower-cased address), the HTTP code when there is
+ * one and the template key — never the address, the subject (reviewer
+ * subjects hold a name), the response body or an exception's message.
  */
 final class MailService
 {
@@ -27,13 +32,19 @@ final class MailService
         return $this->token !== '' && $this->fromAddress !== '';
     }
 
-    /** Returns true only when ZeptoMail accepted the message. */
-    public function send(string $toAddress, string $toName, string $subject, string $htmlBody): bool
+    /** The recipient as logs show it: a short hash, never the address. */
+    public static function toHash(string $address): string
+    {
+        return substr(hash('sha256', strtolower(trim($address))), 0, 12);
+    }
+
+    /** Returns true only when ZeptoMail accepted the message. `$template` names it in the logs. */
+    public function send(string $toAddress, string $toName, string $subject, string $htmlBody, string $template = 'unknown'): bool
     {
         if (!$this->isConfigured()) {
             $this->logger->info('Email skipped — ZeptoMail not configured', [
-                'to'      => $toAddress,
-                'subject' => $subject,
+                'to_hash'  => self::toHash($toAddress),
+                'template' => $template,
             ]);
 
             return false;
@@ -74,9 +85,9 @@ final class MailService
 
             if (!is_string($body) || $code < 200 || $code >= 300) {
                 $this->logger->error('Email send failed', [
-                    'to'   => $toAddress,
-                    'code' => $code,
-                    'body' => is_string($body) ? substr($body, 0, 500) : null,
+                    'to_hash'  => self::toHash($toAddress),
+                    'code'     => $code,
+                    'template' => $template,
                 ]);
 
                 return false;
@@ -85,8 +96,9 @@ final class MailService
             return true;
         } catch (\Throwable $e) {
             $this->logger->error('Email send threw', [
-                'to'    => $toAddress,
-                'error' => $e->getMessage(),
+                'to_hash'  => self::toHash($toAddress),
+                'error'    => $e::class,
+                'template' => $template,
             ]);
 
             return false;

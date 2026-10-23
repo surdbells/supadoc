@@ -190,7 +190,8 @@ final class CredentialExpiryService
             return 'none'; // within the grace: still verified, picked again tomorrow
         }
         $expiredOn = self::dateLabel((string) $licence->expiresYmd());
-        $current   = DoctorCredentials::currentLicence($this->credentials->forSpecialist($doctor->getId()), $todayYmd);
+        // Route-aware: an abroad doctor's renewed foreign licence counts (spec §4.4).
+        $current   = DoctorCredentials::currentLicence($this->credentials->forSpecialist($doctor->getId()), $todayYmd, $doctor->getLicenceRoute());
         $step      = self::expiryStep($doctor, $current !== null);
 
         $outcome = 'marked';
@@ -198,7 +199,10 @@ final class CredentialExpiryService
             $affected = $this->suspensions->suspend(
                 $doctor,
                 'licence_expired',
-                'Your annual practising licence expired on ' . $expiredOn . ' and no renewed licence has been verified. Upload your current licence to be reinstated.',
+                ($doctor->getLicenceRoute() === 'abroad'
+                    ? 'Your practising licence (' . (trim((string) $doctor->getRegulatorName()) !== '' ? trim((string) $doctor->getRegulatorName()) : 'your regulator') . ') expired on '
+                    : 'Your annual practising licence expired on ')
+                . $expiredOn . ' and no renewed licence has been verified. Upload your current licence to be reinstated.',
                 null,
                 'System',
             );
@@ -262,7 +266,7 @@ final class CredentialExpiryService
         $set      = 0;
         $reminded = 0;
         foreach ($this->specialists->legacyWithoutCredentialsDue() as $doctor) {
-            if (DoctorCredentials::complete($this->credentials->forSpecialist($doctor->getId()), $todayYmd)) {
+            if (DoctorCredentials::complete($this->credentials->forSpecialist($doctor->getId()), $todayYmd, $doctor->getLicenceRoute())) {
                 continue;
             }
             $doctor->setCredentialsDueAt($today->modify('+' . self::LEGACY_DUE_DAYS . ' days'));
@@ -281,7 +285,7 @@ final class CredentialExpiryService
             }
             // Both uploaded and waiting for a reviewer: nothing more to ask of the doctor.
             $documents = $this->credentials->forSpecialist($doctor->getId());
-            if (DoctorCredentials::mdcnProvided($documents) && DoctorCredentials::licenceProvided($documents, $todayYmd)) {
+            if (DoctorCredentials::mdcnProvided($documents, $doctor->getLicenceRoute()) && DoctorCredentials::licenceProvided($documents, $todayYmd, $doctor->getLicenceRoute())) {
                 continue;
             }
             $doctor->setCredentialsReminderStage($stage);
@@ -313,7 +317,9 @@ final class CredentialExpiryService
             $doctor->getId(),
             'onboarding',
             'Upload your licensing documents',
-            sprintf('Please upload your MDCN full-registration certificate and current practising licence by %s.', $due),
+            $doctor->getLicenceRoute() === 'abroad'
+                ? sprintf('Please upload your Certificate of Good Standing and current practising licence by %s.', $due)
+                : sprintf('Please upload your MDCN full-registration certificate and current practising licence by %s.', $due),
             '/onboarding',
         );
         $this->emailDoctor($doctor, EmailTemplates::doctorCredentialsDue($doctor->getName(), max(0, $daysLeft), $due, WebUrls::forSpecialist($doctor)));

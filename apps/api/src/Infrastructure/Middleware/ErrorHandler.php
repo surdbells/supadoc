@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Middleware;
 
+use App\Domain\Exception\ApplicationProblem;
 use App\Domain\Exception\AuthenticationException;
 use App\Domain\Exception\EntityNotFoundException;
 use App\Domain\Exception\ValidationException;
@@ -43,7 +44,9 @@ final class ErrorHandler
     ): ResponseInterface {
         [$status, $message, $errors] = $this->map($exception);
 
-        if ($status >= 500) {
+        // A coded application refusal (spec §3.1) is fixed copy for the person —
+        // its 503s included — so it is neither logged nor masked.
+        if ($status >= 500 && !$exception instanceof ApplicationProblem) {
             $this->logger->error($exception->getMessage(), ['exception' => $exception]);
             if (function_exists('\Sentry\captureException')) {
                 \Sentry\captureException($exception);
@@ -60,6 +63,13 @@ final class ErrorHandler
         }
 
         $response = $this->error($this->responseFactory->createResponse(), $message, $status, $errors);
+
+        // A coded cooldown (`resend_cooldown`, …) also answers in the standard
+        // header: the shared client reads waits from Retry-After only (CORS
+        // exposes it), the body copy stays for the API docs.
+        if ($exception instanceof ApplicationProblem && is_int($exception->extra['retry_after'] ?? null)) {
+            $response = $response->withHeader('Retry-After', (string) max(1, $exception->extra['retry_after']));
+        }
 
         // Re-apply CORS so the error is readable by the browser, not opaque.
         // Same fail-closed default as the global middleware.
@@ -78,6 +88,8 @@ final class ErrorHandler
             $e instanceof AuthenticationException       => [401, $e->getMessage(), $e->errors()],
             $e instanceof EntityNotFoundException       => [404, $e->getMessage(), []],
             $e instanceof HttpNotFoundException         => [404, 'Not found', []],
+            // Before \DomainException: a doctor-application refusal carries its own status + code.
+            $e instanceof ApplicationProblem            => [$e->status, $e->getMessage(), ['code' => $e->errorCode] + $e->extra],
             // A business-rule violation (e.g. an illegal appointment transition):
             // the message is written for people, so surface it instead of a 500.
             $e instanceof \DomainException              => [409, $e->getMessage(), []],

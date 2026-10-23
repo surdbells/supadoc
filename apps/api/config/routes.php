@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use App\Action;
+use App\Domain\Repository\DoctorApplicationRepository;
+use App\Infrastructure\Application\ApplicationDraftPurger;
+use App\Infrastructure\Middleware\ApplicantTokenMiddleware;
 use App\Infrastructure\Middleware\AuthMiddleware;
 use App\Infrastructure\Middleware\CustomerAuthMiddleware;
 use App\Infrastructure\Middleware\RateLimitMiddleware;
@@ -97,7 +100,30 @@ return static function (App $app): void {
     $app->get('/api/docs', Action\Docs\SwaggerUiAction::class);
     $app->get('/api/docs/openapi.json', Action\Docs\OpenApiAction::class);
 
-    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions, $userLimit): void {
+    // Doctor applications (apps/onboarding; spec §3.1): per-route limits on top of
+    // the anonymous `ip` bucket (the routes live under /api/public, so a made-up
+    // Bearer never lifts them), and the applicant's two token scopes.
+    $redis   = $container->get(RedisClient::class);
+    $limit   = fn (int $max, int $window, string $prefix): RateLimitMiddleware => new RateLimitMiddleware($redis, $max, $window, prefix: $prefix);
+    $onb     = [
+        'create'      => $limit(5, 3600, 'onb-draft-create'),
+        'resume'      => $limit(10, 900, 'onb-resume'),
+        'resend'      => $limit(3, 3600, 'onb-resend'),
+        'upload'      => $limit(30, 3600, 'onb-upload'),
+        'email_code'  => $limit(5, 3600, 'onb-email-code'),
+        'verify'      => $limit(10, 900, 'onb-verify'),
+        'track_start' => $limit(10, 900, 'onb-track-start'),
+        'track_code'  => $limit(5, 3600, 'onb-track-code'),
+        'submit'      => $limit(10, 3600, 'onb-submit'),
+    ];
+    $applications = $container->get(DoctorApplicationRepository::class);
+    $purger       = $container->get(ApplicationDraftPurger::class);
+    $draftToken   = new ApplicantTokenMiddleware($jwt, JwtService::APPLICATION_DRAFT, $applications, $purger);
+    // Submit alone lets a submitted application through: the idempotent replay.
+    $submitToken  = new ApplicantTokenMiddleware($jwt, JwtService::APPLICATION_DRAFT, $applications, $purger, allowSubmitted: true);
+    $trackToken   = new ApplicantTokenMiddleware($jwt, JwtService::APPLICATION_ACCESS, $applications);
+
+    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions, $userLimit, $onb, $draftToken, $submitToken, $trackToken): void {
         // ----- Public -----
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
         $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
@@ -145,6 +171,63 @@ return static function (App $app): void {
 
         // Paystack webhook (public) — signature-verified + re-verified server-side.
         $group->post('/webhooks/paystack', Action\Wallet\PaystackWebhookAction::class);
+
+        // ----- Doctor applications: the applicant (no account; spec §3.2) -----
+        // The draft token rides on /drafts/current…, the access token on /track/status…
+        // Static routes only; Slim runs the last-added middleware first (limit → token).
+        $group->get('/public/doctor-applications/config', Action\DoctorApplication\Public\GetApplicationConfigAction::class);
+        $group->post('/public/doctor-applications/drafts', Action\DoctorApplication\Public\CreateDraftAction::class)
+            ->add($onb['create']);
+        $group->post('/public/doctor-applications/drafts/resume', Action\DoctorApplication\Public\ResumeDraftAction::class)
+            ->add($onb['resume']);
+        $group->post('/public/doctor-applications/drafts/resume-link', Action\DoctorApplication\Public\ResumeDraftLinkAction::class)
+            ->add($onb['resume']);
+        $group->post('/public/doctor-applications/drafts/resend', Action\DoctorApplication\Public\ResendDraftAction::class)
+            ->add($onb['resend']);
+        $group->get('/public/doctor-applications/drafts/current', Action\DoctorApplication\Public\GetDraftAction::class)
+            ->add($draftToken);
+        $group->patch('/public/doctor-applications/drafts/current', Action\DoctorApplication\Public\ChangeDraftRouteAction::class)
+            ->add($draftToken);
+        $group->delete('/public/doctor-applications/drafts/current', Action\DoctorApplication\Public\DiscardDraftAction::class)
+            ->add($draftToken);
+        $group->post('/public/doctor-applications/drafts/current/resume-email', Action\DoctorApplication\Public\SendResumeEmailAction::class)
+            ->add($draftToken)->add($onb['resend']);
+        $group->post('/public/doctor-applications/drafts/current/email-code', Action\DoctorApplication\Public\SendEmailCodeAction::class)
+            ->add($draftToken)->add($onb['email_code']);
+        $group->post('/public/doctor-applications/drafts/current/email-verify', Action\DoctorApplication\Public\VerifyEmailCodeAction::class)
+            ->add($draftToken)->add($onb['verify']);
+        $group->post('/public/doctor-applications/drafts/current/submit', Action\DoctorApplication\Public\SubmitDraftAction::class)
+            ->add($submitToken)->add($onb['submit']);
+        $group->post('/public/doctor-applications/drafts/current/documents', Action\DoctorApplication\Public\UploadDraftDocumentAction::class)
+            ->add($draftToken)->add($onb['upload']);
+        $group->put('/public/doctor-applications/drafts/current/sections/{section}', Action\DoctorApplication\Public\SaveDraftSectionAction::class)
+            ->add($draftToken);
+        $group->delete('/public/doctor-applications/drafts/current/documents/{docId}', Action\DoctorApplication\Public\DeleteDraftDocumentAction::class)
+            ->add($draftToken);
+        $group->get('/public/doctor-applications/drafts/current/documents/{docId}/file', Action\DoctorApplication\Public\DraftDocumentFileAction::class)
+            ->add($draftToken);
+        $group->post('/public/doctor-applications/track/start', Action\DoctorApplication\Public\TrackStartAction::class)
+            ->add($onb['track_start']);
+        $group->post('/public/doctor-applications/track/request-code', Action\DoctorApplication\Public\TrackRequestCodeAction::class)
+            ->add($onb['track_code']);
+        $group->post('/public/doctor-applications/track/verify', Action\DoctorApplication\Public\TrackVerifyAction::class)
+            ->add($onb['verify']);
+        $group->get('/public/doctor-applications/track/status', Action\DoctorApplication\Public\TrackStatusAction::class)
+            ->add($trackToken);
+        $group->get('/public/doctor-applications/track/application', Action\DoctorApplication\Public\TrackApplicationAction::class)
+            ->add($trackToken);
+        $group->post('/public/doctor-applications/track/info-response/submit', Action\DoctorApplication\Public\SubmitInfoResponseAction::class)
+            ->add($trackToken)->add($onb['submit']);
+        $group->post('/public/doctor-applications/track/info-response/documents', Action\DoctorApplication\Public\UploadInfoDocumentAction::class)
+            ->add($trackToken)->add($onb['upload']);
+        $group->post('/public/doctor-applications/track/withdraw', Action\DoctorApplication\Public\WithdrawApplicationAction::class)
+            ->add($trackToken)->add($onb['submit']);
+        $group->put('/public/doctor-applications/track/info-response/sections/{section}', Action\DoctorApplication\Public\SaveInfoSectionAction::class)
+            ->add($trackToken);
+        $group->delete('/public/doctor-applications/track/info-response/documents/{docId}', Action\DoctorApplication\Public\DeleteInfoDocumentAction::class)
+            ->add($trackToken);
+        $group->get('/public/doctor-applications/track/documents/{docId}/file', Action\DoctorApplication\Public\TrackDocumentFileAction::class)
+            ->add($trackToken);
 
         // ----- Staff (default audience) -----
         $group->group('', function (RouteCollectorProxy $group): void {
@@ -259,6 +342,33 @@ return static function (App $app): void {
             $group->post('/specialists/{id}/changes/approve', Action\Specialist\ApproveSpecialistChangesAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
             $group->post('/specialists/{id}/changes/reject', Action\Specialist\RejectSpecialistChangesAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+
+            // Doctor applications (back office; spec §3.3) — the same reviewers.
+            // /queue before /{id} (FastRoute: static first).
+            $group->get('/doctor-applications', Action\DoctorApplication\Admin\ListApplicationsAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/doctor-applications/queue', Action\DoctorApplication\Admin\ApplicationQueueAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/doctor-applications/{id}', Action\DoctorApplication\Admin\GetApplicationAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/doctor-applications/{id}/documents/{docId}/file', Action\DoctorApplication\Admin\ApplicationDocumentFileAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/start-review', Action\DoctorApplication\Admin\StartReviewAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/request-info', Action\DoctorApplication\Admin\RequestInfoAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/schedule-interview', Action\DoctorApplication\Admin\ScheduleInterviewAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/resend-interview', Action\DoctorApplication\Admin\ResendInterviewAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/approve', Action\DoctorApplication\Admin\ApproveApplicationAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/reject', Action\DoctorApplication\Admin\RejectApplicationAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->get('/doctor-applications/{id}/notes', Action\DoctorApplication\Admin\ListApplicationNotesAction::class)
+                ->add(new RbacMiddleware('specialists.manage'));
+            $group->post('/doctor-applications/{id}/notes', Action\DoctorApplication\Admin\AddApplicationNoteAction::class)
                 ->add(new RbacMiddleware('specialists.manage'));
 
             // Minimal doctor portal — a doctor login (role 'doctor') sees only

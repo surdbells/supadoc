@@ -185,7 +185,7 @@ final class UpdateSpecialistAction
             if ($wanted === '') {
                 $errors['specialty'] = 'Speciality is required';
             } elseif (ReferenceItem::keyOf($wanted) !== ReferenceItem::keyOf($specialist->getSpecialty())) {
-                if ($specialist->hasLockedFields()) {
+                if ($specialist->identityLocked()) {
                     $errors['specialty'] = "An approved doctor's specialty changes only through their own change request";
                 } else {
                     $choice = $this->reference->resolveChoice(ReferenceCategory::SPECIALTY, $wanted);

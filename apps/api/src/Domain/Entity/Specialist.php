@@ -20,6 +20,7 @@ use Ramsey\Uuid\Uuid;
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'specialists')]
+#[ORM\UniqueConstraint(name: 'uniq_specialists_application', columns: ['application_id'])]
 #[ORM\HasLifecycleCallbacks]
 class Specialist
 {
@@ -247,6 +248,24 @@ class Specialist
     /** The most urgent "credentials due" reminder already sent (days before). */
     #[ORM\Column(name: 'credentials_reminder_stage', type: 'smallint', nullable: true)]
     private ?int $credentialsReminderStage = null;
+
+    /** The approved doctor application this doctor came from (spec §2.7); null for doctors staff added. */
+    #[ORM\Column(name: 'application_id', type: 'uuid', nullable: true)]
+    private ?string $applicationId = null;
+
+    /** Where they are licensed: 'ng' or 'abroad' (null reads as 'ng'). */
+    #[ORM\Column(name: 'licence_route', type: 'string', length: 10, nullable: true)]
+    private ?string $licenceRoute = null;
+
+    /** Abroad only: the regulator, its country (ISO2) and their registration number — written by approval only. */
+    #[ORM\Column(name: 'regulator_name', type: 'string', length: 150, nullable: true)]
+    private ?string $regulatorName = null;
+
+    #[ORM\Column(name: 'regulator_country', type: 'string', length: 2, nullable: true)]
+    private ?string $regulatorCountry = null;
+
+    #[ORM\Column(name: 'registration_number', type: 'string', length: 40, nullable: true)]
+    private ?string $registrationNumber = null;
 
     public function __construct(string $name, string $specialty)
     {
@@ -577,6 +596,71 @@ class Specialist
         $this->verified = true;
     }
 
+    // ----- Doctor applications + licence route -----
+
+    public function getApplicationId(): ?string
+    {
+        return $this->applicationId;
+    }
+
+    public function setApplicationId(?string $id): void
+    {
+        $this->applicationId = $id;
+    }
+
+    /** 'ng' (MDCN) or 'abroad' (a foreign regulator + a Certificate of Good Standing). */
+    public function getLicenceRoute(): string
+    {
+        return $this->licenceRoute ?? 'ng';
+    }
+
+    public function setLicenceRoute(string $route): void
+    {
+        $this->licenceRoute = $route === 'abroad' ? 'abroad' : 'ng';
+    }
+
+    public function getRegulatorName(): ?string
+    {
+        return $this->regulatorName;
+    }
+
+    public function getRegulatorCountry(): ?string
+    {
+        return $this->regulatorCountry;
+    }
+
+    public function getRegistrationNumber(): ?string
+    {
+        return $this->registrationNumber;
+    }
+
+    /** The abroad licensing details (approval only — no endpoint edits them). */
+    public function setRegistration(?string $name, ?string $country, ?string $number): void
+    {
+        $name    = $name !== null ? trim($name) : '';
+        $country = $country !== null ? strtoupper(trim($country)) : '';
+        $number  = $number !== null ? trim($number) : '';
+        $this->regulatorName      = $name !== '' ? mb_substr($name, 0, 150) : null;
+        $this->regulatorCountry   = strlen($country) === 2 ? $country : null;
+        $this->registrationNumber = $number !== '' ? mb_substr($number, 0, 40) : null;
+    }
+
+    /** The registration number that goes on prescriptions: the MDCN number, or the foreign one. */
+    public function registrationNumberForRoute(): ?string
+    {
+        return $this->getLicenceRoute() === 'abroad' ? $this->registrationNumber : $this->mdcnNumber;
+    }
+
+    /** "MDCN number", or "{regulator} number" for a doctor licensed abroad. */
+    public function registrationLabel(): string
+    {
+        if ($this->getLicenceRoute() !== 'abroad') {
+            return 'MDCN number';
+        }
+
+        return $this->regulatorName !== null && $this->regulatorName !== '' ? $this->regulatorName . ' number' : 'Registration number';
+    }
+
     // ----- Locked fields + change review -----
 
     /** Approved (or legacy) or suspended — they have practised here, so their identity fields are locked. */
@@ -585,6 +669,36 @@ class Specialist
         $status = $this->getStatus();
 
         return $status === SpecialistStatus::APPROVED || $status === SpecialistStatus::SUSPENDED;
+    }
+
+    /**
+     * Identity edits go through a review (spec D5): once they have practised
+     * here, or from the start for a doctor vetted through an application. Used
+     * by the two edit paths and the `locked_fields` payloads only —
+     * {@see hasLockedFields()} keeps driving the legacy-doctor rules.
+     */
+    public function identityLocked(): bool
+    {
+        return $this->hasLockedFields() || $this->applicationId !== null;
+    }
+
+    /**
+     * Whether two sets of locked values read the same ({@see comparable()}:
+     * entry key order, spacing and blank rows aside). Only the keys of
+     * {@see LOCKED_FIELDS} are compared.
+     *
+     * @param array<string,mixed> $a
+     * @param array<string,mixed> $b
+     */
+    public static function sameLockedValues(array $a, array $b): bool
+    {
+        foreach (self::LOCKED_FIELDS as $key) {
+            if (self::comparable($key, $a[$key] ?? null) !== self::comparable($key, $b[$key] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -916,6 +1030,18 @@ class Specialist
             'has_pending_changes' => $this->getPendingFields() !== [],
             'terms_version'       => $this->termsVersion,
             'terms_accepted_at'   => $this->termsAcceptedAt?->format(DATE_ATOM),
+        ] + $this->licensingArray();
+    }
+
+    /** @return array{licence_route:string, regulator_name:?string, regulator_country:?string, registration_number:?string, application_id:?string} */
+    private function licensingArray(): array
+    {
+        return [
+            'licence_route'       => $this->getLicenceRoute(),
+            'regulator_name'      => $this->regulatorName,
+            'regulator_country'   => $this->regulatorCountry,
+            'registration_number' => $this->registrationNumber,
+            'application_id'      => $this->applicationId,
         ];
     }
 
@@ -964,10 +1090,10 @@ class Specialist
             'weekly_hours'    => $this->weeklyHours,
             'mdcn_number'     => $this->mdcnNumber,
             'has_signature'   => $this->signatureKey !== null,
-            'locked_fields'   => $this->hasLockedFields() ? self::LOCKED_FIELDS : [],
+            'locked_fields'   => $this->identityLocked() ? self::LOCKED_FIELDS : [],
             'pending_changes' => $pending !== [] ? $pending : null,
             'pending_changes_submitted_at' => $pending !== [] ? $this->getPendingChangesSubmittedAt() : null,
             'changes_review_note' => $this->changesReviewNote,
-        ];
+        ] + $this->licensingArray();
     }
 }

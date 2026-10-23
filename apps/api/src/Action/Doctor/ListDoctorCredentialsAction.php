@@ -47,15 +47,15 @@ final class ListDoctorCredentialsAction
 
         return $this->success($response, [
             'credentials' => array_map(static fn (SpecialistCredential $c): array => $c->toArray(), $shown),
+            // What this doctor may upload — by where they are licensed (spec §4.4).
             'types'       => array_map(
-                static fn (string $type, string $label): array => [
+                static fn (string $type): array => [
                     'type'             => $type,
-                    'label'            => $label,
-                    'requires_expiry'  => $type === SpecialistCredential::TYPE_LICENCE,
-                    'requires_number'  => $type === SpecialistCredential::TYPE_LICENCE,
+                    'label'            => SpecialistCredential::TYPES[$type] ?? $type,
+                    'requires_expiry'  => SpecialistCredential::requiresExpiry($type),
+                    'requires_number'  => SpecialistCredential::requiresNumber($type),
                 ],
-                array_keys(SpecialistCredential::TYPES),
-                array_values(SpecialistCredential::TYPES),
+                SpecialistCredential::uploadableTypes($specialist->getLicenceRoute()),
             ),
             'max_bytes'   => CredentialStore::MAX_BYTES,
             'accepted'    => ['application/pdf', 'image/jpeg', 'image/png'],

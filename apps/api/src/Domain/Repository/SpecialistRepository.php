@@ -602,4 +602,25 @@ final class SpecialistRepository extends BaseRepository
 
         return $changes;
     }
+
+    /**
+     * Doctor profiles with this contact email, any status — `specialists.email`
+     * is not unique (a legacy doctor without a login, one staff added and
+     * haven't invited). Doctor applications check it at submit and approval.
+     *
+     * @return list<Specialist>
+     */
+    public function findByEmail(string $email): array
+    {
+        return $this->findByEmailQuery($email)->getResult();
+    }
+
+    public function findByEmailQuery(string $email): \Doctrine\ORM\Query
+    {
+        return $this->qb()
+            ->andWhere('LOWER(e.email) = :email')
+            ->setParameter('email', strtolower(trim($email)))
+            ->orderBy('e.createdAt', 'ASC')
+            ->getQuery();
+    }
 }

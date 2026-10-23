@@ -62,12 +62,13 @@ final class DoctorCredentialService
      * @return array{type:string, number:?string, issued_at:?DateTimeImmutable, expires_at:?DateTimeImmutable}
      * @throws ValidationException
      */
-    public static function uploadFields(array $body, string $todayYmd): array
+    public static function uploadFields(array $body, string $todayYmd, string $route = 'ng'): array
     {
-        $errors = [];
-        $type   = trim((string) ($body['type'] ?? ''));
-        if (!isset(SpecialistCredential::TYPES[$type])) {
-            $errors['type'] = 'Choose the document type: ' . implode(', ', array_keys(SpecialistCredential::TYPES));
+        $errors  = [];
+        $type    = trim((string) ($body['type'] ?? ''));
+        $allowed = SpecialistCredential::uploadableTypes($route);
+        if (!in_array($type, $allowed, true)) {
+            $errors['type'] = 'Choose the document type: ' . implode(', ', $allowed);
         }
         $number = self::number($body['number'] ?? null, $errors);
         $issued = self::date($body['issued_at'] ?? null, 'issued_at', $errors);
@@ -76,13 +77,11 @@ final class DoctorCredentialService
         if ($issued !== null && $issued->format('Y-m-d') > $todayYmd) {
             $errors['issued_at'] = 'The issue date cannot be in the future';
         }
-        if ($type === SpecialistCredential::TYPE_LICENCE) {
-            if ($number === null && !isset($errors['number'])) {
-                $errors['number'] = 'Enter the licence number';
-            }
-            if ($expiry === null && !isset($errors['expires_at'])) {
-                $errors['expires_at'] = 'Enter the date the licence expires';
-            }
+        if (SpecialistCredential::requiresNumber($type) && $number === null && !isset($errors['number'])) {
+            $errors['number'] = 'Enter the licence number';
+        }
+        if (SpecialistCredential::requiresExpiry($type) && $expiry === null && !isset($errors['expires_at'])) {
+            $errors['expires_at'] = $type === SpecialistCredential::TYPE_INDEMNITY ? 'Enter the date the cover expires' : 'Enter the date the licence expires';
         }
         if ($expiry !== null && $expiry->format('Y-m-d') < $todayYmd) {
             $errors['expires_at'] = 'This document has already expired — upload your current one';
@@ -105,7 +104,7 @@ final class DoctorCredentialService
      * @return array{attestation: array{register_checked:bool, register_reference:string, note:?string}, expires_at:?DateTimeImmutable, number:?string}
      * @throws ValidationException
      */
-    public static function verifyFields(SpecialistCredential $c, array $body, string $todayYmd): array
+    public static function verifyFields(SpecialistCredential $c, array $body, string $todayYmd, string $route = 'ng'): array
     {
         if (!$c->isPending()) {
             $message = $c->isVerified() ? 'This document is already verified' : 'Only a document waiting for review can be verified';
@@ -115,7 +114,9 @@ final class DoctorCredentialService
         $errors  = [];
         $checked = $body['register_checked'] ?? null;
         if (!in_array($checked, [true, 1, '1', 'true'], true)) {
-            $errors['register_checked'] = 'Confirm that you checked the MDCN register';
+            $errors['register_checked'] = $route === 'abroad'
+                ? "Confirm that you checked the regulator's register"
+                : 'Confirm that you checked the MDCN register';
         }
         $reference = trim((string) ($body['register_reference'] ?? ''));
         if ($reference === '') {
@@ -130,8 +131,8 @@ final class DoctorCredentialService
         $number = array_key_exists('number', $body) ? self::number($body['number'], $errors) : null;
         $expiry = self::date($body['expires_at'] ?? null, 'expires_at', $errors);
         $final  = $expiry ?? $c->getExpiresAt();
-        if ($c->getType() === SpecialistCredential::TYPE_LICENCE && $final === null && !isset($errors['expires_at'])) {
-            $errors['expires_at'] = 'Enter the date the licence expires';
+        if (SpecialistCredential::requiresExpiry($c->getType()) && $final === null && !isset($errors['expires_at'])) {
+            $errors['expires_at'] = $c->getType() === SpecialistCredential::TYPE_INDEMNITY ? 'Enter the date the cover expires' : 'Enter the date the licence expires';
         } elseif ($final !== null && $final->format('Y-m-d') < $todayYmd && !isset($errors['expires_at'])) {
             $errors['expires_at'] = 'This document has expired, so it cannot be verified';
         }
@@ -157,7 +158,7 @@ final class DoctorCredentialService
     {
         $legacy = $s->getCredentialsDueAt() !== null || ($s->hasLockedFields() && $s->getApprovedSnapshot() === null);
 
-        return $legacy && DoctorCredentials::complete($credentials, $todayYmd);
+        return $legacy && DoctorCredentials::complete($credentials, $todayYmd, $s->getLicenceRoute());
     }
 
     // ----- Doctor -----
@@ -169,7 +170,7 @@ final class DoctorCredentialService
      */
     public function upload(Specialist $s, UploadedFileInterface $file, array $body, ?string $actorId): SpecialistCredential
     {
-        $fields = self::uploadFields($body, ClinicTime::todayYmd());
+        $fields = self::uploadFields($body, ClinicTime::todayYmd(), $s->getLicenceRoute());
         if ($this->credentials->countPendingFor($s->getId()) >= self::MAX_PENDING) {
             throw new ValidationException(['file' => 'You already have ' . self::MAX_PENDING . ' documents waiting for review. Delete one, or wait until they are checked.']);
         }
@@ -250,7 +251,8 @@ final class DoctorCredentialService
     public function verify(Specialist $s, SpecialistCredential $c, array $body, ?string $actorId, string $actorName): SpecialistCredential
     {
         $today  = ClinicTime::todayYmd();
-        $fields = self::verifyFields($c, $body, $today);
+        $route  = $s->getLicenceRoute();
+        $fields = self::verifyFields($c, $body, $today, $route);
         if ($fields['expires_at'] !== null) {
             $c->setExpiresAt($fields['expires_at']);
         }
@@ -268,8 +270,8 @@ final class DoctorCredentialService
                 }
             }
         }
-        if ($c->getType() === SpecialistCredential::TYPE_LICENCE) {
-            $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($all, $today)?->getExpiresAt());
+        if (in_array($c->getType(), SpecialistCredential::LICENCE_TYPES, true)) {
+            $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($all, $today, $route)?->getExpiresAt());
         }
         // A doctor approved before documents existed is complete once both are
         // verified: no longer due, and snapshotted like an approval — so the
@@ -277,7 +279,7 @@ final class DoctorCredentialService
         if (self::completesLegacy($s, $all, $today)) {
             $s->setCredentialsDueAt(null);
             $s->markVerified();
-            $s->snapshotApproval(DoctorCredentials::verifiedIds($all, $today), $actorId, $actorName);
+            $s->snapshotApproval(DoctorCredentials::verifiedIds($all, $today, $route), $actorId, $actorName);
         }
         $this->specialists->save($s); // flushes the documents with it
 
@@ -314,8 +316,8 @@ final class DoctorCredentialService
 
         $wasVerified = $c->isVerified();
         $c->reject($reason, $actorId, $actorName);
-        if ($wasVerified && $c->getType() === SpecialistCredential::TYPE_LICENCE) {
-            $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($this->credentials->forSpecialist($s->getId()), ClinicTime::todayYmd())?->getExpiresAt());
+        if ($wasVerified && in_array($c->getType(), SpecialistCredential::LICENCE_TYPES, true)) {
+            $s->setLicenceExpiresAt(DoctorCredentials::currentLicence($this->credentials->forSpecialist($s->getId()), ClinicTime::todayYmd(), $s->getLicenceRoute())?->getExpiresAt());
         }
         $this->specialists->save($s);
 

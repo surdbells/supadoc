@@ -107,6 +107,10 @@ final class PrescriptionCheckService
                 'valid_until' => $rx->getValidUntil()?->format('Y-m-d'),
                 'doctor'      => (string) ($prescriber['name'] ?? ''),
                 'mdcn_number' => ($prescriber['mdcn_number'] ?? '') !== '' ? (string) $prescriber['mdcn_number'] : null,
+                // "MDCN number", or "{regulator} number" for a doctor licensed abroad (older prescriptions: MDCN).
+                'registration_label' => is_string($prescriber['registration_label'] ?? null) && $prescriber['registration_label'] !== ''
+                    ? $prescriber['registration_label']
+                    : 'MDCN number',
             ];
         }
 

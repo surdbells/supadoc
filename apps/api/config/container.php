@@ -300,10 +300,13 @@ return [
         baseUrl: trim($_ENV['COPILOT_BASE_URL'] ?? '') ?: 'https://api.anthropic.com',
     ),
 
-    TermiiService::class => static fn (): TermiiService => new TermiiService(
-        apiKey:   $_ENV['TERMII_API_KEY'] ?? '',
-        senderId: $_ENV['TERMII_SENDER_ID'] ?? '',
-        baseUrl:  $_ENV['TERMII_BASE_URL'] ?? 'https://api.ng.termii.com',
+    TermiiService::class => static fn (ContainerInterface $c): TermiiService => new TermiiService(
+        apiKey:     $_ENV['TERMII_API_KEY'] ?? '',
+        senderId:   $_ENV['TERMII_SENDER_ID'] ?? '',
+        baseUrl:    $_ENV['TERMII_BASE_URL'] ?? 'https://api.ng.termii.com',
+        // Plain SMS (doctor-application updates + codes): generic, or dnd once Termii enables it.
+        smsChannel: trim((string) ($_ENV['TERMII_SMS_CHANNEL'] ?? '')) !== '' ? trim((string) $_ENV['TERMII_SMS_CHANNEL']) : 'generic',
+        logger:     $c->get(LoggerInterface::class),
     ),
 
     AgoraTokenService::class => static fn (ContainerInterface $c): AgoraTokenService => new AgoraTokenService(
@@ -526,6 +529,8 @@ return [
             $c->get(AuditLogger::class),
             // Link in the "doctor ready for review" email to the reviewers.
             \App\Infrastructure\Service\DoctorOnboardingService::backofficeUrlFromEnv($_ENV),
+            // The applications doctors came from (invite wording, "Go live").
+            $c->get(\App\Domain\Repository\DoctorApplicationRepository::class),
         ),
 
     // ----- Doctor management: documents, standing, suspension, licence cron -----
@@ -774,6 +779,7 @@ return [
             $c->get(PricingService::class),
             $c->get(RedisClient::class),
             $c->get(LoggerInterface::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationRepository::class),
         ),
 
     // ----- Patient-controlled document sharing (spec: private by default) -----
@@ -844,5 +850,125 @@ return [
             $c->get(\App\Domain\Repository\DocumentAccessGrantRepository::class),
             $c->get(\App\Domain\Repository\DocumentAccessRequestRepository::class),
             $c->get(\App\Infrastructure\Document\DocumentAccessNoticeQueue::class),
+        ),
+
+    // ----- Doctor applications (apps/onboarding + the back office's Applications) -----
+    \App\Domain\Repository\DoctorApplicationRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DoctorApplicationRepository =>
+        new \App\Domain\Repository\DoctorApplicationRepository($c->get(EntityManagerInterface::class)),
+    \App\Domain\Repository\DoctorApplicationDocumentRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DoctorApplicationDocumentRepository =>
+        new \App\Domain\Repository\DoctorApplicationDocumentRepository($c->get(EntityManagerInterface::class)),
+    \App\Domain\Repository\DoctorApplicationEventRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DoctorApplicationEventRepository =>
+        new \App\Domain\Repository\DoctorApplicationEventRepository($c->get(EntityManagerInterface::class)),
+    \App\Domain\Repository\DoctorApplicationInfoRequestRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DoctorApplicationInfoRequestRepository =>
+        new \App\Domain\Repository\DoctorApplicationInfoRequestRepository($c->get(EntityManagerInterface::class)),
+    \App\Domain\Repository\DoctorApplicationNoteRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\DoctorApplicationNoteRepository =>
+        new \App\Domain\Repository\DoctorApplicationNoteRepository($c->get(EntityManagerInterface::class)),
+
+    // Codes, cooldowns and caps in Redis (fail closed); codes are HMACed with a key from JWT_SECRET.
+    \App\Infrastructure\Application\CodeStore::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\CodeStore =>
+        new \App\Infrastructure\Application\RedisCodeStore($c->get(RedisClient::class)),
+    \App\Infrastructure\Application\ApplicationCodeService::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\ApplicationCodeService =>
+        new \App\Infrastructure\Application\ApplicationCodeService(
+            $c->get(\App\Infrastructure\Application\CodeStore::class),
+            \App\Infrastructure\Application\ApplicationCodeService::codeKeyFrom((string) ($_ENV['JWT_SECRET'] ?? 'change-me')),
+            // Outside production the codes and resume links come back as dev_* fields (never logged).
+            ($_ENV['APP_ENV'] ?? 'production') !== 'production',
+        ),
+
+    // Applicant uploads: vault folder applications/, 5MB, a global daily byte budget.
+    \App\Infrastructure\Storage\ApplicationDocumentStore::class => static fn (ContainerInterface $c): \App\Infrastructure\Storage\ApplicationDocumentStore =>
+        new \App\Infrastructure\Storage\ApplicationDocumentStore(
+            static fn (): FileVault => $c->get(FileVault::class),
+            $c->get(LoggerInterface::class),
+            $c->get(RedisClient::class),
+            dailyBytes: max(1, (int) ($_ENV['APPLICATION_UPLOAD_DAILY_BYTES'] ?? 2147483648)),
+        ),
+
+    \App\Infrastructure\Application\ApplicationNotifier::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\ApplicationNotifier =>
+        new \App\Infrastructure\Application\ApplicationNotifier(
+            $c->get(MailService::class),
+            $c->get(TermiiService::class),
+            $c->get(StaffNotifier::class),
+            $c->get(\App\Infrastructure\Service\DoctorOnboardingService::class),
+            $c->get(\App\Infrastructure\Application\ApplicationCodeService::class),
+            $c->get(EntityManagerInterface::class),
+            $c->get(LoggerInterface::class),
+            backofficeUrl: \App\Infrastructure\Service\DoctorOnboardingService::backofficeUrlFromEnv($_ENV),
+            supportEmail: trim((string) ($_ENV['SUPPORT_EMAIL'] ?? '')) !== '' ? trim((string) $_ENV['SUPPORT_EMAIL']) : 'support@videomed.app',
+        ),
+
+    \App\Infrastructure\Application\ApplicationDraftPurger::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\ApplicationDraftPurger =>
+        new \App\Infrastructure\Application\ApplicationDraftPurger(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationDocumentRepository::class),
+            $c->get(\App\Infrastructure\Storage\ApplicationDocumentStore::class),
+            $c->get(LoggerInterface::class),
+        ),
+
+    \App\Infrastructure\Application\ApplicationViews::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\ApplicationViews =>
+        new \App\Infrastructure\Application\ApplicationViews(
+            $c->get(\App\Domain\Repository\DoctorApplicationDocumentRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationEventRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationInfoRequestRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationNoteRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(UserRepository::class),
+            $c->get(\App\Infrastructure\Service\ReferenceDataService::class),
+            $c->get(\App\Infrastructure\Service\DoctorOnboardingService::class),
+        ),
+
+    \App\Infrastructure\Application\DoctorApplicationService::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\DoctorApplicationService =>
+        new \App\Infrastructure\Application\DoctorApplicationService(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationDocumentRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationEventRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationInfoRequestRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(UserRepository::class),
+            $c->get(\App\Infrastructure\Storage\ApplicationDocumentStore::class),
+            $c->get(\App\Infrastructure\Application\ApplicationCodeService::class),
+            $c->get(\App\Infrastructure\Application\ApplicationNotifier::class),
+            $c->get(\App\Infrastructure\Application\ApplicationDraftPurger::class),
+            $c->get(\App\Infrastructure\Application\ApplicationViews::class),
+            $c->get(JwtService::class),
+            $c->get(AuditLogger::class),
+            $c->get(TermiiService::class),
+            $c->get(LoggerInterface::class),
+            // Consent links (https only; blank = shown without links until set — spec O2).
+            legalTermsUrl: (string) ($_ENV['LEGAL_TERMS_URL'] ?? ''),
+            legalPrivacyUrl: (string) ($_ENV['LEGAL_PRIVACY_URL'] ?? ''),
+        ),
+
+    \App\Infrastructure\Application\ApplicationReviewService::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\ApplicationReviewService =>
+        new \App\Infrastructure\Application\ApplicationReviewService(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationDocumentRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationInfoRequestRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationNoteRepository::class),
+            $c->get(\App\Domain\Repository\SpecialistCredentialRepository::class),
+            $c->get(\App\Infrastructure\Storage\ApplicationDocumentStore::class),
+            $c->get(\App\Infrastructure\Storage\CredentialStore::class),
+            $c->get(\App\Infrastructure\Application\ApplicationNotifier::class),
+            $c->get(\App\Infrastructure\Application\ApplicationViews::class),
+            $c->get(AuditLogger::class),
+            $c->get(LoggerInterface::class),
+        ),
+
+    \App\Infrastructure\Application\ApplicationApprovalService::class => static fn (ContainerInterface $c): \App\Infrastructure\Application\ApplicationApprovalService =>
+        new \App\Infrastructure\Application\ApplicationApprovalService(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationRepository::class),
+            $c->get(\App\Domain\Repository\DoctorApplicationDocumentRepository::class),
+            $c->get(UserRepository::class),
+            $c->get(\App\Infrastructure\Storage\ApplicationDocumentStore::class),
+            $c->get(\App\Infrastructure\Storage\CredentialStore::class),
+            $c->get(\App\Infrastructure\Service\StaffPasswordService::class),
+            $c->get(\App\Infrastructure\Application\ApplicationNotifier::class),
+            $c->get(\App\Infrastructure\Application\ApplicationViews::class),
+            $c->get(AuditLogger::class),
+            $c->get(LoggerInterface::class),
         ),
 ];
