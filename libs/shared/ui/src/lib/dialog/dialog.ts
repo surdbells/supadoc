@@ -193,6 +193,10 @@ const FOCUSABLE =
       .sd-dialog--xl {
         max-width: 64rem;
       }
+      /* [maxWidth]: an exact panel width from the design (e.g. 470 or 557px). */
+      .sd-dialog--custom {
+        max-width: var(--sd-dialog-max);
+      }
       .sd-dialog--leaving {
         transform: translateY(8px) scale(0.98);
       }
@@ -230,6 +234,7 @@ const FOCUSABLE =
         #dialog
         class="sd-dialog"
         [class]="sizeClass()"
+        [style.--sd-dialog-max]="maxWidthCss()"
         [attr.role]="dialogRole()"
         aria-modal="true"
         tabindex="-1"
@@ -285,6 +290,8 @@ export class DialogComponent implements OnDestroy {
   readonly subtitle = input('');
   /** Max width from `sm` up (phones always get a full-width bottom sheet). */
   readonly size = input<DialogSize>('md');
+  /** An exact max width in px from `sm` up, used instead of `size` (phones still get the sheet). */
+  readonly maxWidth = input<number | null>(null);
   /** While true (a request is in flight) Esc, the scrim and × do nothing. */
   readonly busy = input(false);
   /** False: only the parent can close it (no ×, Esc and the scrim do nothing). */
@@ -314,7 +321,13 @@ export class DialogComponent implements OnDestroy {
   protected readonly rendered = signal(false);
   protected readonly closing = signal(false);
 
-  protected readonly sizeClass = computed(() => `sd-dialog--${this.size()}`);
+  protected readonly sizeClass = computed(() =>
+    this.maxWidth() ? 'sd-dialog--custom' : `sd-dialog--${this.size()}`,
+  );
+  protected readonly maxWidthCss = computed(() => {
+    const px = this.maxWidth();
+    return px ? `${px}px` : null;
+  });
   protected readonly bodyClass = computed(() => (this.layout() === 'standard' ? 'px-5 py-5 sm:px-6' : ''));
   protected readonly labelledById = computed(
     () => this.labelledBy() ?? (this.layout() === 'standard' ? this.titleId : null),

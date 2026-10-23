@@ -151,6 +151,13 @@ import {
   LucideKeyRound,
   LucideMessageSquareX,
   LucideDoorOpen,
+  LucideCalendar,
+  LucideCheckCheck,
+  LucideCircleCheckBig,
+  LucideCircle,
+  LucideChevronsUpDown,
+  LucideFile,
+  LucideTarget,
 } from '@lucide/angular';
 
 /**
@@ -320,6 +327,15 @@ export const SUPADOC_ICONS = [
   LucideKeyRound,
   LucideMessageSquareX,
   LucideDoorOpen,
+  // Doctor applications (apps/onboarding): date fields, checklist ticks, review
+  // sections, the status timeline, the number stepper, uploaded files, Why cards.
+  LucideCalendar,
+  LucideCheckCheck,
+  LucideCircleCheckBig,
+  LucideCircle,
+  LucideChevronsUpDown,
+  LucideFile,
+  LucideTarget,
 ];
 
 /**

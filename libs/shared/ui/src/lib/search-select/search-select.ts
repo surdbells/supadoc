@@ -11,6 +11,8 @@ import {
 } from '@angular/core';
 import { IconComponent } from '../icon/icon';
 
+let nextId = 0;
+
 interface Option {
   value: string;
   label: string;
@@ -53,7 +55,17 @@ interface Option {
   ],
   template: `
     <div class="relative">
-      <button type="button" [class]="triggerClass()" (click)="toggle()">
+      <button
+        #trigger
+        type="button"
+        [id]="inputId()"
+        [class]="triggerClass()"
+        aria-haspopup="listbox"
+        [attr.aria-expanded]="open()"
+        [attr.aria-describedby]="describedBy()"
+        [attr.aria-invalid]="invalid() || null"
+        (click)="toggle()"
+      >
         @if (icon()) {
           <sd-icon [name]="icon()!" [size]="16" class="shrink-0 text-slate" />
         }
@@ -65,7 +77,7 @@ interface Option {
         </span>
         <sd-icon
           name="chevron-down"
-          [size]="16"
+          [size]="size() === 'field' ? 20 : 16"
           class="shrink-0 text-slate transition-transform"
           [class.rotate-180]="open()"
         />
@@ -81,8 +93,10 @@ interface Option {
           (click)="close()"
         ></button>
 
+        <!-- tabindex -1: a click inside (Safari does not focus clicked buttons) keeps focus in the control. -->
         <div
-          class="sd-menu absolute left-0 right-0 z-30 mt-2 min-w-[200px] overflow-hidden rounded-card border border-haze bg-white shadow-overlay"
+          tabindex="-1"
+          class="sd-menu absolute left-0 right-0 z-30 mt-2 min-w-[200px] overflow-hidden rounded-card border border-haze bg-white shadow-overlay focus:outline-none"
         >
           <div class="flex items-center gap-2 border-b border-cloud px-3 py-2">
             <sd-icon name="search" [size]="16" class="shrink-0 text-slate" />
@@ -91,17 +105,21 @@ interface Option {
               type="text"
               [value]="filter()"
               (input)="filter.set($any($event.target).value)"
-              (keydown.escape)="close()"
+              (keydown.escape)="close(true)"
               [placeholder]="searchPlaceholder()"
-              class="w-full bg-transparent font-sans text-body-sm text-ink placeholder:text-slate/60 focus:outline-none"
+              [attr.aria-label]="searchPlaceholder()"
+              [class]="searchClass()"
             />
           </div>
-          <ul class="max-h-56 overflow-y-auto py-1">
+          <ul role="listbox" class="max-h-56 overflow-y-auto py-1">
             @if (clearable()) {
-              <li>
+              <li role="none">
                 <button
                   type="button"
+                  role="option"
+                  [attr.aria-selected]="value() === ''"
                   class="w-full px-3 py-2 text-left font-sans text-body-sm text-slate transition-colors hover:bg-glacier"
+                  (keydown.escape)="close(true)"
                   (click)="pick('')"
                 >
                   {{ placeholder() }}
@@ -109,11 +127,14 @@ interface Option {
               </li>
             }
             @for (o of filtered(); track o.value) {
-              <li>
+              <li role="none">
                 <button
                   type="button"
+                  role="option"
+                  [attr.aria-selected]="o.value === value()"
                   class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left font-sans text-body-sm transition-colors hover:bg-glacier"
                   [class]="o.value === value() ? 'text-cerulean' : 'text-ink'"
+                  (keydown.escape)="close(true)"
                   (click)="pick(o.value)"
                 >
                   <span class="truncate">{{ o.label }}</span>
@@ -124,7 +145,7 @@ interface Option {
               </li>
             }
             @if (filtered().length === 0) {
-              <li class="px-3 py-2 font-sans text-body-sm text-slate">
+              <li role="none" class="px-3 py-2 font-sans text-body-sm text-slate">
                 No matches
               </li>
             }
@@ -146,9 +167,18 @@ export class SearchSelectComponent {
   readonly searchPlaceholder = input('Search…');
   readonly icon = input<string | undefined>(undefined);
   readonly clearable = input(true);
-  /** 'md' (compact, default) or 'lg' to match sd-input's field height in forms. */
-  readonly size = input<'md' | 'lg'>('md');
+  /**
+   * 'md' (compact, default), 'lg' to match sd-input's field height in forms, or
+   * 'field' for a 48px control with 14px text (the doctor application forms).
+   */
+  readonly size = input<'md' | 'lg' | 'field'>('md');
   readonly error = input<string>();
+  /** Id of the trigger button, for an outside `<label for>`. */
+  readonly inputId = input<string>(`sd-search-select-${++nextId}`);
+  /** Id(s) of the helper / error text describing the trigger. */
+  readonly describedBy = input<string | null>(null);
+  /** Alert border and `aria-invalid` (an outside error is shown). */
+  readonly invalid = input(false);
 
   protected readonly open = signal(false);
 
@@ -158,11 +188,15 @@ export class SearchSelectComponent {
    */
   protected readonly triggerClass = computed(() => {
     const size =
-      this.size() === 'lg' ? 'px-4 py-4 text-body' : 'px-4 py-2.5 text-body-sm';
+      this.size() === 'lg'
+        ? 'px-4 py-4 text-body'
+        : this.size() === 'field'
+          ? 'px-4 py-3 text-body-sm'
+          : 'px-4 py-2.5 text-body-sm';
     // `shadow-control` sits on the resting states (not the base) because a
     // named shadow utility sorts after an arbitrary one and would hide the
     // open-state focus glow.
-    const state = this.error()
+    const state = this.error() || this.invalid()
       ? 'border-alert ring-2 ring-alert/20 shadow-control'
       : this.open()
         ? 'border-cerulean ring-2 ring-cerulean/20 shadow-[0_2px_10px_rgba(21,101,192,0.08)]'
@@ -173,8 +207,15 @@ export class SearchSelectComponent {
       `${size} ${state}`
     );
   });
+  /** The search box: 'field' (doctor application) uses a Slate placeholder for AA; the others keep Slate/60. */
+  protected readonly searchClass = computed(
+    () =>
+      'w-full bg-transparent font-sans text-body-sm text-ink focus:outline-none ' +
+      (this.size() === 'field' ? 'placeholder:text-slate' : 'placeholder:text-slate/60'),
+  );
   protected readonly filter = signal('');
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('q');
+  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
 
   private readonly normalized = computed<Option[]>(() =>
     this.options().map((o) =>
@@ -208,12 +249,13 @@ export class SearchSelectComponent {
     if (this.open()) this.filter.set('');
   }
 
-  protected close(): void {
+  protected close(refocus = false): void {
     this.open.set(false);
+    if (refocus) this.trigger()?.nativeElement.focus();
   }
 
   protected pick(value: string): void {
     this.value.set(value);
-    this.close();
+    this.close(true);
   }
 }

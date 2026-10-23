@@ -24,6 +24,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["nx", "serve", "mobile", "--port", "4203"],
       "port": 4203
+    },
+    {
+      "name": "onboarding",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nx", "serve", "onboarding", "--port", "4205"],
+      "port": 4205
     }
   ]
 }

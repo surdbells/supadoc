@@ -9,6 +9,7 @@
     "start:patient": "nx serve patient",
     "start:backoffice": "nx serve backoffice",
     "start:mobile": "nx serve mobile",
+    "start:onboarding": "nx serve onboarding",
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",
     "lint": "nx run-many -t lint",

@@ -1,0 +1,100 @@
+{
+  "name": "onboarding",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "prefix": "onb",
+  "sourceRoot": "apps/onboarding/src",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@angular/build:application",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/onboarding",
+        "browser": "apps/onboarding/src/main.ts",
+        "polyfills": ["zone.js"],
+        "tsConfig": "apps/onboarding/tsconfig.app.json",
+        "inlineStyleLanguage": "scss",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/onboarding/public"
+          }
+        ],
+        "styles": [
+          "node_modules/@fontsource-variable/lexend/wght.css",
+          "node_modules/@fontsource/poppins/index.css",
+          "apps/onboarding/src/styles.css"
+        ]
+      },
+      "configurations": {
+        "production": {
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "500kb",
+              "maximumError": "1mb"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "4kb",
+              "maximumError": "8kb"
+            }
+          ],
+          "outputHashing": "all",
+          "optimization": {
+            "scripts": true,
+            "styles": {
+              "minify": true,
+              "inlineCritical": false
+            },
+            "fonts": true
+          },
+          "fileReplacements": [
+            {
+              "replace": "apps/onboarding/src/environments/environment.ts",
+              "with": "apps/onboarding/src/environments/environment.prod.ts"
+            }
+          ]
+        },
+        "development": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true
+        }
+      }
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "@angular/build:dev-server",
+      "defaultConfiguration": "development",
+      "configurations": {
+        "production": {
+          "buildTarget": "onboarding:build:production"
+        },
+        "development": {
+          "buildTarget": "onboarding:build:development"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "executor": "@angular/build:unit-test",
+      "options": {
+        "watch": false
+      }
+    },
+    "serve-static": {
+      "continuous": true,
+      "executor": "@nx/web:file-server",
+      "options": {
+        "buildTarget": "onboarding:build",
+        "staticFilePath": "dist/apps/onboarding/browser",
+        "spa": true
+      }
+    }
+  }
+}

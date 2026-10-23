@@ -10,6 +10,7 @@ all managed with [Nx](https://nx.dev).
 | `patient`    | `apps/patient`    | Angular 22 + Tailwind          | Patient portal                   |
 | `backoffice` | `apps/backoffice` | Angular 22 + Tailwind          | System control center            |
 | `mobile`     | `apps/mobile`     | Angular 22 + Ionic + Capacitor | Patient mobile app (iOS/Android) |
+| `onboarding` | `apps/onboarding` | Angular 22 + Tailwind          | Doctor applications (join.dosthq.com) |
 
 The backend API is built by a separate team and integrated as endpoints are
 delivered — see [API integration](#api-integration).

@@ -18,6 +18,7 @@ export * from './lib/file-drop/file-drop';
 export * from './lib/message-thread/message-thread';
 export * from './lib/input/input';
 export * from './lib/phone-input/phone-input';
+export * from './lib/phone-input/countries';
 export * from './lib/toggle/toggle';
 export * from './lib/logo/logo';
 export * from './lib/otp/otp';

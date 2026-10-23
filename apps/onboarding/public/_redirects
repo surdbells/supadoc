@@ -1,0 +1,3 @@
+# SPA fallback for the Angular Router — serve index.html for any path that
+# isn't a real file, so deep links work on refresh.
+/*    /index.html   200

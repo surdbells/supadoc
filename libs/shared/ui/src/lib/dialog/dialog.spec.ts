@@ -394,4 +394,28 @@ describe('DialogComponent (sd-dialog)', () => {
     expect(d?.textContent).toContain('Alias');
     alias.destroy();
   });
+
+  it('takes an exact max width instead of a size class', async () => {
+    const custom = TestBed.createComponent(MaxWidthHostComponent);
+    custom.detectChanges();
+    await custom.whenStable();
+    custom.detectChanges();
+    const d = (custom.nativeElement as HTMLElement).querySelector<HTMLDialogElement>('dialog');
+    expect(d?.classList.contains('sd-dialog--custom')).toBe(true);
+    expect(d?.classList.contains('sd-dialog--md')).toBe(false);
+    expect(d?.style.getPropertyValue('--sd-dialog-max')).toBe('470px');
+    custom.componentInstance.width.set(null);
+    custom.detectChanges();
+    expect(d?.classList.contains('sd-dialog--custom')).toBe(false);
+    expect(d?.classList.contains('sd-dialog--md')).toBe(true);
+    custom.destroy();
+  });
 });
+
+@Component({
+  imports: [DialogComponent],
+  template: `<sd-dialog [open]="true" title="Custom" [maxWidth]="width()"><p>Body</p></sd-dialog>`,
+})
+class MaxWidthHostComponent {
+  readonly width = signal<number | null>(470);
+}
