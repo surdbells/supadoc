@@ -318,6 +318,7 @@ const ATTENTION_ICON: Record<AdminDashboardAttentionKey, string> = {
   support_open: 'headphones',
   topups_held: 'wallet',
   card_payments_review: 'credit-card',
+  doctor_applications_waiting: 'clipboard-list',
 };
 
 const ATTENTION_TINT: Record<AdminDashboardAttentionItem['tone'], string> = {

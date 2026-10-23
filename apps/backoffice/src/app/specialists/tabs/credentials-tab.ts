@@ -36,6 +36,12 @@ const ORDER: Record<CredentialType, number> = {
   mdcn_full_registration: 0,
   annual_practising_licence: 1,
   specialist_certificate: 2,
+  good_standing_certificate: 3,
+  foreign_practising_licence: 4,
+  government_id: 5,
+  medical_degree: 6,
+  curriculum_vitae: 7,
+  indemnity_certificate: 8,
 };
 
 /**

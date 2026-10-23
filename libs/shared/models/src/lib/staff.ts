@@ -20,6 +20,7 @@ import type {
   SuspensionCode,
   TermsStateDto,
 } from './doctor-management';
+import type { LicenceRoute, SpecialistApplicationLinkDto } from './doctor-application';
 
 /** Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end] "HH:MM". */
 export type WeeklyHours = Record<string, [string, string][]>;
@@ -106,6 +107,13 @@ export interface DoctorOnboardingDto {
   suspension: DoctorSuspensionDto | null;
   /** Why they may not do clinical work now, or null when they may. */
   standing: DoctorStandingDto | null;
+  /** 'ng' unless licensed abroad (null on older payloads reads as 'ng'). */
+  licence_route?: LicenceRoute;
+  registration?: { regulator_name: string | null; regulator_country: string | null; registration_number: string | null } | null;
+  /** Set when the doctor came from an approved application. */
+  application?: SpecialistApplicationLinkDto | null;
+  /** Application doctor still onboarding: "Go live" approves at once when ready. */
+  go_live_on_submit?: boolean;
 }
 
 /** GET /api/specialists/{id}/onboarding — the back-office review panel. */

@@ -131,7 +131,8 @@ export type AdminDashboardAttentionKey =
   | 'payouts_awaiting_approval'
   | 'support_open'
   | 'topups_held'
-  | 'card_payments_review';
+  | 'card_payments_review'
+  | 'doctor_applications_waiting';
 
 /** A router link to an already-filtered back-office page. */
 export interface AdminDashboardLink {

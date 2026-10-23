@@ -10,6 +10,7 @@ import type {
   DocumentSharedWithDto,
   UploadedDocumentDto,
 } from './document-sharing';
+import type { LicenceRoute } from './doctor-application';
 import type { MedicalDocumentDto } from './message';
 import type { VitalReadingDto } from './vitals';
 
@@ -469,6 +470,13 @@ export type SpecialistAdminDto = SpecialistDto & {
   approved_at?: string | null;
   /** The doctor login linked to this specialist, or null when not invited yet. */
   login?: DoctorLoginStateDto | null;
+  /** 'ng' unless licensed abroad (absent on older payloads reads as 'ng'). */
+  licence_route?: LicenceRoute;
+  regulator_name?: string | null;
+  regulator_country?: string | null;
+  registration_number?: string | null;
+  /** Set when the doctor came from an application (list badge "From application"). */
+  application_id?: string | null;
 };
 
 /**

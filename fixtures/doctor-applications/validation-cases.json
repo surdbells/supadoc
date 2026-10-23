@@ -1,0 +1,3922 @@
+[
+  {
+    "title": "personal: a complete valid section",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: every required field missing",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {},
+    "errors": {
+      "first_name": "Enter your first name.",
+      "last_name": "Enter your last name.",
+      "email": "Enter a valid email address.",
+      "phone": "Enter a valid phone number.",
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21.",
+      "gender": "Select an option.",
+      "country_of_residence": "Select your country of residence.",
+      "city": "Enter your city."
+    }
+  },
+  {
+    "title": "personal: blank and whitespace-only strings count as missing",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "   ",
+      "last_name": "",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": " \t "
+    },
+    "errors": {
+      "first_name": "Enter your first name.",
+      "last_name": "Enter your last name.",
+      "city": "Enter your city."
+    }
+  },
+  {
+    "title": "personal: null values count as missing",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": null,
+      "country_of_residence": null,
+      "city": "Lagos"
+    },
+    "errors": {
+      "gender": "Select an option.",
+      "country_of_residence": "Select your country of residence."
+    }
+  },
+  {
+    "title": "personal: the abroad route has the same rules",
+    "section": "personal",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+44 7700 900123",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "GB",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: names with apostrophe, hyphen, dot and space",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Mary-Jane O'Neil",
+      "last_name": "Okafor Jr.",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: accented and Yoruba letters are letters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ọlátúndé",
+      "last_name": "Adébáyọ",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: other scripts are letters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Zoë",
+      "last_name": "Müller-Łukasz",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: surrounding spaces are trimmed",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "  Ada  ",
+      "last_name": " Obi ",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: control characters are stripped before checking",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "A\u0000da",
+      "last_name": "Obi\u0007",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "La\u001fgos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: a name must start with a letter",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "'Ada",
+      "last_name": "-Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "first_name": "Enter your first name.",
+      "last_name": "Enter your last name."
+    }
+  },
+  {
+    "title": "personal: digits and symbols are not allowed in names",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada2",
+      "last_name": "Obi_Okafor",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "first_name": "Enter your first name.",
+      "last_name": "Enter your last name."
+    }
+  },
+  {
+    "title": "personal: names of exactly 100 characters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_name": "Oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: names over 100 characters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_name": "Oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "first_name": "Enter your first name.",
+      "last_name": "Enter your last name."
+    }
+  },
+  {
+    "title": "personal: email is trimmed and case-insensitive",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "  Ada.Obi@Example.COM  ",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: email with a plus tag and a two-part TLD",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada+applications@example.co.uk",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: email with no domain is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with no @ is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi.example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with a space inside is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with two @ is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada@@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with a domain without a dot is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada@localhost",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with consecutive dots is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada..obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with a leading dot is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": ".ada@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: email with a local part over 64 characters is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: an email of exactly 254 characters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: an email of 255 characters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "email": "Enter a valid email address."
+    }
+  },
+  {
+    "title": "personal: phone accepted (E.164)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (local with trunk 0)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "08031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (10 national digits starting with 8)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "8031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (10 national digits starting with 7)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "7031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (10 national digits starting with 9)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "9031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (spaces)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "0803 123 4567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (brackets, hyphens and dots)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "(0803) 123-45.67",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (+234 then a trunk 0)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+234 0803 123 4567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (00 international prefix)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "00234 803 123 4567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (a UK mobile)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+44 7700 900123",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (a UK mobile with 00)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "0044 7700 900123",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (a US number)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+1 (202) 555-0143",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (8 digits after +)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+12345678",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone accepted (15 digits after +)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+123456789012345",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: phone rejected (0 then 9 digits)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "0803123456",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (0 then 11 digits)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "080312345678",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (+234 with 9 national digits)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+234803123456",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (+234 with 11 national digits)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+23480312345678",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (10 digits starting with 6)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "6031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (too short)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "12345",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (7 digits after +)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+1234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (16 digits after +)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+1234567890123456",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (letters)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "0803-CALL-ME",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: phone rejected (a lone +)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "phone": "Enter a valid phone number."
+    }
+  },
+  {
+    "title": "personal: exactly 21 today",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "2005-10-23",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: 21 tomorrow is too young",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "2005-10-24",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: 100 years old (101 tomorrow)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1925-10-24",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: 101 today is too old",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1925-10-23",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: a born-on-29-February applicant is 20 on 28 February",
+    "section": "personal",
+    "route": "ng",
+    "today": "2025-02-28",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "2004-02-29",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: a born-on-29-February applicant is 21 on 1 March",
+    "section": "personal",
+    "route": "ng",
+    "today": "2025-03-01",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "2004-02-29",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: date of birth as DD/MM/YYYY is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "12/03/1985",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: date of birth as an impossible day is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-02-30",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: date of birth as an impossible month is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-13-01",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: date of birth as a date with a time is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12T00:00:00",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: date of birth as a date in the future is invalid",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "2027-01-01",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21."
+    }
+  },
+  {
+    "title": "personal: gender \"male\"",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "male",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: gender \"female\"",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: gender \"prefer_not_to_say\"",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "prefer_not_to_say",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: an unknown gender value",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "other",
+      "country_of_residence": "NG",
+      "city": "Lagos"
+    },
+    "errors": {
+      "gender": "Select an option."
+    }
+  },
+  {
+    "title": "personal: residence outside Nigeria",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "GB",
+      "city": "Lagos"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: residence as an unknown code",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "XX",
+      "city": "Lagos"
+    },
+    "errors": {
+      "country_of_residence": "Select your country of residence."
+    }
+  },
+  {
+    "title": "personal: residence as a code with no dial code (dropped from the list)",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "AQ",
+      "city": "Lagos"
+    },
+    "errors": {
+      "country_of_residence": "Select your country of residence."
+    }
+  },
+  {
+    "title": "personal: residence as a 3-letter code",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NGA",
+      "city": "Lagos"
+    },
+    "errors": {
+      "country_of_residence": "Select your country of residence."
+    }
+  },
+  {
+    "title": "personal: a city of 100 characters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Laaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal: a city over 100 characters",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "first_name": "Ada",
+      "last_name": "Obi",
+      "email": "ada.obi@example.com",
+      "phone": "+2348031234567",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "country_of_residence": "NG",
+      "city": "Laaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "errors": {
+      "city": "Enter your city."
+    }
+  },
+  {
+    "title": "personal (partial): only the email",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "email": "ada.obi@example.com"
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal (partial): blank fields are skipped",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "email": "ada.obi@example.com",
+      "first_name": "",
+      "phone": "",
+      "date_of_birth": "",
+      "gender": "",
+      "country_of_residence": "",
+      "city": ""
+    },
+    "errors": {}
+  },
+  {
+    "title": "personal (partial): format errors still count",
+    "section": "personal",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "email": "ada.obi@",
+      "first_name": "Ada2",
+      "phone": "12345",
+      "date_of_birth": "2010-01-01",
+      "gender": "other",
+      "country_of_residence": "XX",
+      "city": "Laaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "errors": {
+      "email": "Enter a valid email address.",
+      "first_name": "Enter your first name.",
+      "phone": "Enter a valid phone number.",
+      "date_of_birth": "Enter a valid date of birth. You must be at least 21.",
+      "gender": "Select an option.",
+      "country_of_residence": "Select your country of residence.",
+      "city": "Enter your city."
+    }
+  },
+  {
+    "title": "professional: a complete valid section",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: every required field missing (workplace is optional)",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {},
+    "errors": {
+      "specialty": "Choose a speciality from the list.",
+      "years_experience": "Enter a number from 0 to 60.",
+      "languages": "Select at least one language.",
+      "bio": "Write at least 30 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: specialty matches the list ignoring case and extra spaces",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "  ent   (OTOLARYNGOLOGY) ",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a specialty not on the list",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Astrology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "specialty": "Choose a speciality from the list."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a blank specialty",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "  ",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "specialty": "Choose a speciality from the list."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: 0 years of experience",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 0,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: 60 years of experience",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 60,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: years of experience as 61",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 61,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "years_experience": "Enter a number from 0 to 60."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: years of experience as -1",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": -1,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "years_experience": "Enter a number from 0 to 60."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: years of experience as a fraction",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 2.5,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "years_experience": "Enter a number from 0 to 60."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: years of experience as null",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": null,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "years_experience": "Enter a number from 0 to 60."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: years of experience as a word",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": "twelve",
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "years_experience": "Enter a number from 0 to 60."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: workplace may be null",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": null,
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: workplace may be blank",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: workplace may be left out",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: workplace of 150 characters",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen.",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: workplace over 150 characters",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen t",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "workplace": "Keep this under 150 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: one language",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: five languages",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba",
+        "Igbo",
+        "Hausa",
+        "Nigerian Pidgin"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: six languages",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba",
+        "Igbo",
+        "Hausa",
+        "Nigerian Pidgin",
+        "French"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "languages": "Select at least one language."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: no languages",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "languages": "Select at least one language."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a language not on the list",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Klingon"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "languages": "Select at least one language."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: languages as a string, not a list",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": "English",
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressur"
+    },
+    "errors": {
+      "languages": "Select at least one language."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a bio of 30 characters",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with t"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a bio of 280 characters",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen to see patients by video across Nigeria and beyond. Consultant cardiologist with twelve years of practice in Lagos, caring for adu"
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a bio of 29 characters",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with."
+    },
+    "errors": {
+      "bio": "Write at least 30 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: a bio of 281 characters",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen to see patients by video across Nigeria and beyond. Consultant cardiologist with twelve years of practice in Lagos, caring for adul"
+    },
+    "errors": {
+      "bio": "Keep your bio to 280 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional: surrounding spaces do not count towards the bio",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "specialty": "Cardiology",
+      "years_experience": 12,
+      "workplace": "Lagos University Teaching Hospital",
+      "languages": [
+        "English",
+        "Yoruba"
+      ],
+      "bio": "   Consultant cardiologist with.   "
+    },
+    "errors": {
+      "bio": "Write at least 30 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional (partial): blank fields are skipped",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "specialty": "",
+      "years_experience": null,
+      "workplace": null,
+      "languages": [],
+      "bio": ""
+    },
+    "errors": {},
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional (partial): format errors still count",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "specialty": "Astrology",
+      "years_experience": 61,
+      "workplace": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen t",
+      "languages": [
+        "English",
+        "Yoruba",
+        "Igbo",
+        "Hausa",
+        "Nigerian Pidgin",
+        "French"
+      ],
+      "bio": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen to see patients by video across Nigeria and beyond. Consultant cardiologist with twelve years of practice in Lagos, caring for adul"
+    },
+    "errors": {
+      "specialty": "Choose a speciality from the list.",
+      "years_experience": "Enter a number from 0 to 60.",
+      "workplace": "Keep this under 150 characters.",
+      "languages": "Select at least one language.",
+      "bio": "Keep your bio to 280 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "professional (partial): a bio under 30 characters is a format error",
+    "section": "professional",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "bio": "Cardiologist in Lagos."
+    },
+    "errors": {
+      "bio": "Write at least 30 characters."
+    },
+    "context": {
+      "specialties": [
+        "General Practice",
+        "Cardiology",
+        "ENT (Otolaryngology)",
+        "Pediatrics"
+      ]
+    }
+  },
+  {
+    "title": "licence ng: a complete valid section",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: every required field missing",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {},
+    "errors": {
+      "mdcn_number": "Enter your MDCN registration number (letters, numbers, / or -).",
+      "full_registration_year": "Enter a 4-digit year, no later than this year.",
+      "licence_expires_on": "Expiry date must be in the future."
+    }
+  },
+  {
+    "title": "licence ng: MDCN number with lower case (upper-cased first)",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "mdcn/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: MDCN number with digits only",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: MDCN number with inner space and hyphen",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN-12 345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: MDCN number with 3 characters",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "A12",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: MDCN number with 40 characters",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: MDCN number with 2 characters",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "AB",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "mdcn_number": "Enter your MDCN registration number (letters, numbers, / or -)."
+    }
+  },
+  {
+    "title": "licence ng: MDCN number with 41 characters",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "mdcn_number": "Enter your MDCN registration number (letters, numbers, / or -)."
+    }
+  },
+  {
+    "title": "licence ng: MDCN number with a #",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN#123",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "mdcn_number": "Enter your MDCN registration number (letters, numbers, / or -)."
+    }
+  },
+  {
+    "title": "licence ng: MDCN number with a dot",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN.123",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "mdcn_number": "Enter your MDCN registration number (letters, numbers, / or -)."
+    }
+  },
+  {
+    "title": "licence ng: full registration in 1960",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 1960,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: full registration in 2026",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2026,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: full registration year 1959",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 1959,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "full_registration_year": "Enter a 4-digit year, no later than this year."
+    }
+  },
+  {
+    "title": "licence ng: full registration year next year",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2027,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "full_registration_year": "Enter a 4-digit year, no later than this year."
+    }
+  },
+  {
+    "title": "licence ng: full registration year a 2-digit year",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 12,
+      "licence_expires_on": "2026-12-31"
+    },
+    "errors": {
+      "full_registration_year": "Enter a 4-digit year, no later than this year."
+    }
+  },
+  {
+    "title": "licence ng: the current year follows the clinic date",
+    "section": "licence",
+    "route": "ng",
+    "today": "2027-01-01",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2027,
+      "licence_expires_on": "2027-12-31"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: a licence expiring tomorrow",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-10-24"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng: a licence expiring today",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2026-10-23"
+    },
+    "errors": {
+      "licence_expires_on": "Expiry date must be in the future."
+    }
+  },
+  {
+    "title": "licence ng: an expired licence",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2025-12-31"
+    },
+    "errors": {
+      "licence_expires_on": "Expiry date must be in the future."
+    }
+  },
+  {
+    "title": "licence ng: an impossible expiry date",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "2027-02-30"
+    },
+    "errors": {
+      "licence_expires_on": "Expiry date must be in the future."
+    }
+  },
+  {
+    "title": "licence ng: an expiry date as DD/MM/YYYY",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "mdcn_number": "MDCN/12345",
+      "full_registration_year": 2012,
+      "licence_expires_on": "31/12/2026"
+    },
+    "errors": {
+      "licence_expires_on": "Expiry date must be in the future."
+    }
+  },
+  {
+    "title": "licence ng (partial): blank fields are skipped",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "mdcn_number": "",
+      "full_registration_year": null,
+      "licence_expires_on": ""
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence ng (partial): format errors still count",
+    "section": "licence",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "mdcn_number": "AB",
+      "full_registration_year": 1959,
+      "licence_expires_on": "2026-10-23"
+    },
+    "errors": {
+      "mdcn_number": "Enter your MDCN registration number (letters, numbers, / or -).",
+      "full_registration_year": "Enter a 4-digit year, no later than this year.",
+      "licence_expires_on": "Expiry date must be in the future."
+    }
+  },
+  {
+    "title": "licence abroad: a complete valid section",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: every required field missing",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {},
+    "errors": {
+      "regulator_country": "Select the country of your regulator.",
+      "regulator_name": "Enter your regulator's name.",
+      "registration_number": "Enter your licence or registration number.",
+      "good_standing_issued_on": "Must be issued on or after 23 April 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad: a Nigerian regulator is refused",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "NG",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "regulator_country": "For a Nigerian licence, go back and choose Nigeria."
+    }
+  },
+  {
+    "title": "licence abroad: a regulator country that is not a 2-letter code",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GBR",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "regulator_country": "Select the country of your regulator."
+    }
+  },
+  {
+    "title": "licence abroad: other regulator countries",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "US",
+      "regulator_name": "Medical Board of California",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: a regulator name of 2 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "GM",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: a regulator name of 150 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen.",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: a regulator name of 1 character",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "G",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "regulator_name": "Enter your regulator's name."
+    }
+  },
+  {
+    "title": "licence abroad: a regulator name over 150 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen t",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "regulator_name": "Enter your regulator's name."
+    }
+  },
+  {
+    "title": "licence abroad: registration number with letters, digits and a space",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "GMC 7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: registration number with lower case, dot, slash and hyphen",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "reg.no/70-12",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: registration number with 3 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "701",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: registration number with 40 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7777777777777777777777777777777777777777",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: registration number with 2 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "70",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "registration_number": "Enter your licence or registration number."
+    }
+  },
+  {
+    "title": "licence abroad: registration number with 41 characters",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "77777777777777777777777777777777777777777",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "registration_number": "Enter your licence or registration number."
+    }
+  },
+  {
+    "title": "licence abroad: registration number with a #",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "GMC#7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "registration_number": "Enter your licence or registration number."
+    }
+  },
+  {
+    "title": "licence abroad: registration number with an underscore",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "GMC_7012345",
+      "good_standing_issued_on": "2026-09-01"
+    },
+    "errors": {
+      "registration_number": "Enter your licence or registration number."
+    }
+  },
+  {
+    "title": "licence abroad: good standing issued today",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-10-23"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: good standing issued exactly 6 months ago",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-04-23"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: good standing issued 6 months and a day ago",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-04-22"
+    },
+    "errors": {
+      "good_standing_issued_on": "Must be issued on or after 23 April 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad: good standing dated in the future",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-10-24"
+    },
+    "errors": {
+      "good_standing_issued_on": "Must be issued on or after 23 April 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad: an impossible good standing date",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-09-31"
+    },
+    "errors": {
+      "good_standing_issued_on": "Must be issued on or after 23 April 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad: the earliest date has no leading zero on the day",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-09-03",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-03-02"
+    },
+    "errors": {
+      "good_standing_issued_on": "Must be issued on or after 3 March 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad: 6 months before 31 August is 28 February (clamped to the month end)",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-08-31",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-02-28"
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad: the day before the clamped month end is too old",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-08-31",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2026-02-27"
+    },
+    "errors": {
+      "good_standing_issued_on": "Must be issued on or after 28 February 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad: 6 months before 31 August in a leap year is 29 February",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2028-08-31",
+    "partial": false,
+    "values": {
+      "regulator_country": "GB",
+      "regulator_name": "General Medical Council",
+      "registration_number": "7012345",
+      "good_standing_issued_on": "2028-02-28"
+    },
+    "errors": {
+      "good_standing_issued_on": "Must be issued on or after 29 February 2028 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "licence abroad (partial): blank fields are skipped",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "regulator_country": "",
+      "regulator_name": "",
+      "registration_number": "",
+      "good_standing_issued_on": ""
+    },
+    "errors": {}
+  },
+  {
+    "title": "licence abroad (partial): the Nigerian regulator refusal still applies",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "regulator_country": "NG"
+    },
+    "errors": {
+      "regulator_country": "For a Nigerian licence, go back and choose Nigeria."
+    }
+  },
+  {
+    "title": "licence abroad (partial): format errors still count",
+    "section": "licence",
+    "route": "abroad",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "regulator_name": "G",
+      "registration_number": "70",
+      "good_standing_issued_on": "2026-04-22"
+    },
+    "errors": {
+      "regulator_name": "Enter your regulator's name.",
+      "registration_number": "Enter your licence or registration number.",
+      "good_standing_issued_on": "Must be issued on or after 23 April 2026 (within the last 6 months)."
+    }
+  },
+  {
+    "title": "qualifications: one valid entry",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        }
+      ]
+    },
+    "errors": {}
+  },
+  {
+    "title": "qualifications: ten valid entries",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "Degree 1",
+          "institution": "University of Ibadan",
+          "year_awarded": 2000
+        },
+        {
+          "degree": "Degree 2",
+          "institution": "University of Ibadan",
+          "year_awarded": 2001
+        },
+        {
+          "degree": "Degree 3",
+          "institution": "University of Ibadan",
+          "year_awarded": 2002
+        },
+        {
+          "degree": "Degree 4",
+          "institution": "University of Ibadan",
+          "year_awarded": 2003
+        },
+        {
+          "degree": "Degree 5",
+          "institution": "University of Ibadan",
+          "year_awarded": 2004
+        },
+        {
+          "degree": "Degree 6",
+          "institution": "University of Ibadan",
+          "year_awarded": 2005
+        },
+        {
+          "degree": "Degree 7",
+          "institution": "University of Ibadan",
+          "year_awarded": 2006
+        },
+        {
+          "degree": "Degree 8",
+          "institution": "University of Ibadan",
+          "year_awarded": 2007
+        },
+        {
+          "degree": "Degree 9",
+          "institution": "University of Ibadan",
+          "year_awarded": 2008
+        },
+        {
+          "degree": "Degree 10",
+          "institution": "University of Ibadan",
+          "year_awarded": 2009
+        }
+      ]
+    },
+    "errors": {}
+  },
+  {
+    "title": "qualifications: a blank entry",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {}
+      ]
+    },
+    "errors": {
+      "entries.0.degree": "Enter the degree.",
+      "entries.0.institution": "Enter the institution.",
+      "entries.0.year_awarded": "Enter a 4-digit year."
+    }
+  },
+  {
+    "title": "qualifications: errors are keyed by entry index",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010
+        },
+        {
+          "degree": "M",
+          "institution": "U",
+          "year_awarded": 1949
+        }
+      ]
+    },
+    "errors": {
+      "entries.1.degree": "Enter the degree.",
+      "entries.1.institution": "Enter the institution.",
+      "entries.1.year_awarded": "Enter a 4-digit year."
+    }
+  },
+  {
+    "title": "qualifications: boundary lengths and years",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "MB",
+          "institution": "UI",
+          "year_awarded": 1950
+        },
+        {
+          "degree": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease",
+          "institution": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen.",
+          "year_awarded": 2026
+        }
+      ]
+    },
+    "errors": {}
+  },
+  {
+    "title": "qualifications: over-long text and a future year",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease,",
+          "institution": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen t",
+          "year_awarded": 2027
+        }
+      ]
+    },
+    "errors": {
+      "entries.0.degree": "Enter the degree.",
+      "entries.0.institution": "Enter the institution.",
+      "entries.0.year_awarded": "Enter a 4-digit year."
+    }
+  },
+  {
+    "title": "qualifications: a year that is not a whole number",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "MBBS",
+          "institution": "University of Lagos",
+          "year_awarded": 2010.5
+        }
+      ]
+    },
+    "errors": {
+      "entries.0.year_awarded": "Enter a 4-digit year."
+    }
+  },
+  {
+    "title": "qualifications: surrounding spaces are trimmed before the length check",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "entries": [
+        {
+          "degree": "  M  ",
+          "institution": "  University of Lagos  ",
+          "year_awarded": 2010
+        }
+      ]
+    },
+    "errors": {
+      "entries.0.degree": "Enter the degree."
+    }
+  },
+  {
+    "title": "qualifications (partial): blank fields in an entry are skipped",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "entries": [
+        {
+          "degree": "MBBS",
+          "institution": "",
+          "year_awarded": null
+        }
+      ]
+    },
+    "errors": {}
+  },
+  {
+    "title": "qualifications (partial): format errors still count",
+    "section": "qualifications",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "entries": [
+        {
+          "degree": "M",
+          "institution": "U",
+          "year_awarded": 1949
+        }
+      ]
+    },
+    "errors": {
+      "entries.0.degree": "Enter the degree.",
+      "entries.0.institution": "Enter the institution.",
+      "entries.0.year_awarded": "Enter a 4-digit year."
+    }
+  },
+  {
+    "title": "indemnity: a complete valid section",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "MDU-2026/00123",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {}
+  },
+  {
+    "title": "indemnity: every required field missing",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {},
+    "errors": {
+      "provider": "Enter your indemnity provider.",
+      "policy_number": "Enter the policy number.",
+      "cover_expires_on": "Cover expiry date must be in the future."
+    }
+  },
+  {
+    "title": "indemnity: boundary lengths",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "MD",
+      "policy_number": "P-1",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {}
+  },
+  {
+    "title": "indemnity: maximum lengths",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen.",
+      "policy_number": "999999999999999999999999999999999999999999999999999999999999",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {}
+  },
+  {
+    "title": "indemnity: a policy number with lower case, dot and space",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "mdu pol.2026/7",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {}
+  },
+  {
+    "title": "indemnity: too short",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "M",
+      "policy_number": "P1",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {
+      "provider": "Enter your indemnity provider.",
+      "policy_number": "Enter the policy number."
+    }
+  },
+  {
+    "title": "indemnity: too long",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Consultant cardiologist with twelve years of practice in Lagos, caring for adults with heart disease, high blood pressure and heart failure, and keen t",
+      "policy_number": "9999999999999999999999999999999999999999999999999999999999999",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {
+      "provider": "Enter your indemnity provider.",
+      "policy_number": "Enter the policy number."
+    }
+  },
+  {
+    "title": "indemnity: a policy number with a #",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "MDU#2026",
+      "cover_expires_on": "2027-06-30"
+    },
+    "errors": {
+      "policy_number": "Enter the policy number."
+    }
+  },
+  {
+    "title": "indemnity: cover expiring tomorrow",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "MDU-2026/00123",
+      "cover_expires_on": "2026-10-24"
+    },
+    "errors": {}
+  },
+  {
+    "title": "indemnity: cover expiring today",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "MDU-2026/00123",
+      "cover_expires_on": "2026-10-23"
+    },
+    "errors": {
+      "cover_expires_on": "Cover expiry date must be in the future."
+    }
+  },
+  {
+    "title": "indemnity: cover already expired",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "MDU-2026/00123",
+      "cover_expires_on": "2026-01-01"
+    },
+    "errors": {
+      "cover_expires_on": "Cover expiry date must be in the future."
+    }
+  },
+  {
+    "title": "indemnity: an impossible cover date",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "provider": "Medical Defence Union",
+      "policy_number": "MDU-2026/00123",
+      "cover_expires_on": "2027-04-31"
+    },
+    "errors": {
+      "cover_expires_on": "Cover expiry date must be in the future."
+    }
+  },
+  {
+    "title": "indemnity (partial): blank fields are skipped",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "provider": "",
+      "policy_number": "",
+      "cover_expires_on": ""
+    },
+    "errors": {}
+  },
+  {
+    "title": "indemnity (partial): format errors still count",
+    "section": "indemnity",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": true,
+    "values": {
+      "provider": "M",
+      "policy_number": "P#",
+      "cover_expires_on": "2026-10-23"
+    },
+    "errors": {
+      "provider": "Enter your indemnity provider.",
+      "policy_number": "Enter the policy number.",
+      "cover_expires_on": "Cover expiry date must be in the future."
+    }
+  },
+  {
+    "title": "consent: all ticked and signed",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Ada Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: nothing ticked or signed",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "accept_terms": "Tick each statement to continue.",
+      "authorise_verification": "Tick each statement to continue.",
+      "confirm_accurate": "Tick each statement to continue.",
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: accept_terms false",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": false,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Ada Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "accept_terms": "Tick each statement to continue."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: authorise_verification false",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": false,
+      "confirm_accurate": true,
+      "signature_name": "Ada Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "authorise_verification": "Tick each statement to continue."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: confirm_accurate false",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": false,
+      "signature_name": "Ada Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "confirm_accurate": "Tick each statement to continue."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: a truthy non-boolean is not a tick",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": "true",
+      "authorise_verification": true,
+      "confirm_accurate": 1,
+      "signature_name": "Ada Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "accept_terms": "Tick each statement to continue.",
+      "confirm_accurate": "Tick each statement to continue."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature ignores case and extra spaces",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "  ada    OBI ",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature may add a title and middle name",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Dr. Ada Ngozi Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature with the names reversed",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Obi Ada",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature missing the last name",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Ada Okafor",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature missing the first name",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Chioma Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature under 3 characters",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "AO",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "A",
+        "last_name": "O"
+      }
+    }
+  },
+  {
+    "title": "consent: signature of exactly 3 characters",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "A O",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "A",
+        "last_name": "O"
+      }
+    }
+  },
+  {
+    "title": "consent: signature of 200 characters",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Ada Obi xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: signature over 200 characters",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Ada Obi xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Ada",
+        "last_name": "Obi"
+      }
+    }
+  },
+  {
+    "title": "consent: accented names, plain signature",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Zoe Adebayo",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Zoë",
+        "last_name": "Adébáyọ"
+      }
+    }
+  },
+  {
+    "title": "consent: plain names, accented signature",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Zoë Adébáyọ",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Zoe",
+        "last_name": "Adebayo"
+      }
+    }
+  },
+  {
+    "title": "consent: Yoruba dot-below letters fold to plain vowels",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Olatunde Nwankwo",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ọlátúndé",
+        "last_name": "Nwankwọ"
+      }
+    }
+  },
+  {
+    "title": "consent: accents and case together",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "EMILE CELIK",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Émile",
+        "last_name": "Çelik"
+      }
+    }
+  },
+  {
+    "title": "consent: a signature written with combining accents",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Adébáyọ Ọla",
+      "consent_version": "2026-10"
+    },
+    "errors": {},
+    "context": {
+      "personal": {
+        "first_name": "Ọla",
+        "last_name": "Adébáyọ"
+      }
+    }
+  },
+  {
+    "title": "consent: folding accents does not make a different letter match",
+    "section": "consent",
+    "route": "ng",
+    "today": "2026-10-23",
+    "partial": false,
+    "values": {
+      "accept_terms": true,
+      "authorise_verification": true,
+      "confirm_accurate": true,
+      "signature_name": "Zoa Obi",
+      "consent_version": "2026-10"
+    },
+    "errors": {
+      "signature_name": "Type your full name as it appears on your application."
+    },
+    "context": {
+      "personal": {
+        "first_name": "Zoë",
+        "last_name": "Obi"
+      }
+    }
+  }
+]

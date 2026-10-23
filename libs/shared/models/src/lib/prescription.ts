@@ -100,6 +100,8 @@ export interface PrescriberDetails {
   specialty?: string;
   qualifications?: string;
   mdcn_number?: string;
+  /** "MDCN number" or "{regulator} number". */
+  registration_label?: string;
 }
 
 /** Patient details as printed (frozen at send). */
@@ -239,6 +241,8 @@ export interface PrescriptionOptionsDto {
   follow_up_modes: Record<FollowUpMode, string>;
   has_signature: boolean;
   mdcn_number: string | null;
+  /** "MDCN number" or "{regulator} number". */
+  registration_label?: string;
 }
 
 export type AllergySeverity =
@@ -310,6 +314,8 @@ export type PrescriptionCheckResult =
       valid_until: string | null;
       doctor: string;
       mdcn_number: string | null;
+      /** "MDCN number" or "{regulator} number". */
+      registration_label?: string;
     }
   | { result: 'no_match'; attempts_left: number }
   | { result: 'locked'; retry_at: string };

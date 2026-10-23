@@ -22,7 +22,13 @@ import type {
 export type CredentialType =
   | 'mdcn_full_registration'
   | 'annual_practising_licence'
-  | 'specialist_certificate';
+  | 'specialist_certificate'
+  | 'good_standing_certificate'
+  | 'foreign_practising_licence'
+  | 'government_id'
+  | 'medical_degree'
+  | 'curriculum_vitae'
+  | 'indemnity_certificate';
 
 /** pending → verified | rejected; a verified licence past its date → expired; replaced → superseded. */
 export type CredentialStatus = 'pending' | 'verified' | 'rejected' | 'expired' | 'superseded';
