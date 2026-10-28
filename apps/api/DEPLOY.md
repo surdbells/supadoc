@@ -1230,6 +1230,7 @@ Then, in this order:
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `could not find driver` / DB connection fails | `pdo_pgsql` not enabled for the PHP 8.2 build (see step 1). |
+| CLI errors but the site works: `schema-tool --dump-sql` prints nothing, Composer wants `ext-gd`, `php --ini` lists `/etc/php/8.4/cli` | `php` on the PATH is Debian's PHP (an `apt install` of `php-pear`, `php-cli` or `composer` pulled in `php8.4-cli` and took over `/usr/bin/php`), which has no `pdo_pgsql`/`gd` and runs on UTC instead of PRC. Point it back at aaPanel's: `update-alternatives --install /usr/bin/php php /www/server/php/84/bin/php 100 && update-alternatives --set php /www/server/php/84/bin/php`, then `php -r 'echo date_default_timezone_get(), " ", (int) extension_loaded("pdo_pgsql"), PHP_EOL;'` must print `PRC 1`. Until then run the one-liner with `/www/server/php/84/bin/php` in place of `php`. |
 | Browser: CORS error on API calls | Frontend origin missing from `CORS_ALLOWED_ORIGINS`; must be the exact scheme+host. |
 | `500` with a blank body | Check `apps/api/var/logs/app.log`; often a missing `.env` value or unwritable `var/`. |
 | Avatar upload succeeds but image 404s | `public/uploads/avatars` not writable by `www`, or the Nginx `try_files` rewrite is missing. |
