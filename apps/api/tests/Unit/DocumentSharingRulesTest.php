@@ -124,6 +124,9 @@ final class DocumentSharingRulesTest extends TestCase
     {
         $this->assertContains('call', Rules::UPLOAD_SURFACES);
         $this->assertContains('call', Rules::SURFACES);
+        // A lab result: its own surface (the lab upload route), never one the generic upload may claim.
+        $this->assertContains('lab_request', Rules::SURFACES);
+        $this->assertNotContains('lab_request', Rules::UPLOAD_SURFACES);
     }
 
     public function testViewableMatchesWhatStorageActuallyStores(): void

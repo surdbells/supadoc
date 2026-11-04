@@ -204,6 +204,119 @@ final class DtoShapeTest extends TestCase
         $this->assertKeys(self::APP_NOTE, $note->toArray());
     }
 
+    // ----- Lab requests (libs/shared/models/src/lib/lab-request.ts; Wave 0's key fixture) -----
+
+    /** The lab spec §2 key lists — the fixture, when present, must say the same. */
+    public const LAB_KEYS = [
+        'doctor_summary' => ['id', 'number', 'status', 'priority', 'appointment_id', 'patient', 'clinical_question', 'tests_label', 'items_count', 'counts',
+            'results_count', 'unreviewed_count', 'abnormal', 'sent_at', 'valid_until', 'expires_at', 'last_activity_at'],
+        'doctor_detail_extra' => ['appointment_scheduled_at', 'purpose', 'history', 'medication', 'allergies', 'clinical', 'imaging_safety', 'catalogue_version', 'items',
+            'prescriber', 'patient_snapshot', 'consent', 'lab_name', 'lab_date', 'declined_at', 'decline_reason', 'sample_at', 'result_ready_at', 'reviewed_at',
+            'cancelled_at', 'cancel_reason', 'expired_at', 'duplicated_from', 'results', 'timeline', 'can'],
+        'doctor_result'  => ['id', 'uploaded_at', 'item_ids', 'visible', 'reviewable', 'document', 'review'],
+        'patient_summary' => ['id', 'number', 'status', 'priority', 'doctor', 'items_count', 'results_count', 'reviewed', 'awaiting_review', 'appointment_id',
+            'sent_at', 'valid_until', 'expires_at', 'last_activity_at'],
+        'patient_detail_extra' => ['clinical_question', 'purpose', 'items', 'instructions', 'consent_version', 'consent_statements', 'consent', 'lab_name', 'lab_date',
+            'declined_at', 'decline_reason', 'sample_at', 'result_ready_at', 'cancelled_at', 'cancel_reason', 'expired_at', 'results_sharing', 'doctor_available',
+            'results', 'timeline', 'can', 'result_document_types', 'default_document_type'],
+        'patient_result' => ['id', 'uploaded_at', 'item_ids', 'document', 'share_outcome', 'shared_now', 'viewable', 'reviewable', 'review'],
+        'admin_row'      => ['id', 'number', 'status', 'priority', 'doctor_name', 'items_count', 'results_count', 'sent_at', 'last_activity_at', 'corrections',
+            'consented_on', 'last_correction_note'],
+    ];
+
+    public function testTheLabRequestPresentersEmitTheContractKeys(): void
+    {
+        $catalogue = new \App\Domain\Lab\LabCatalogue(\App\Domain\Lab\LabCatalogue::defaultPath());
+        [$form] = \App\Domain\Lab\LabRequestForm::check([
+            'client_key' => '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b', 'catalogue_version' => '2026-11.1', 'priority' => 'urgent', 'clinical_question' => 'Chest pain',
+            'items' => [['code' => 'TROPI'], ['code' => 'ECG12'], ['code' => 'XR-CHEST']], 'attest' => true, 'signature' => ['mode' => 'saved'],
+            // An imaging study, so the nested imaging_safety shape is exercised too.
+            'imaging_safety' => ['contrast_allergy' => 'no', 'mobility' => 'walking'],
+        ], false, $catalogue);
+        $now = new DateTimeImmutable();
+        $r   = new \App\Domain\Entity\LabRequest('a0000000-0000-4000-8000-000000000001', 'GVM-REQ-20261104-00012', 'p-1', 's-1', null, null, null, null, $form, '2026-11.1',
+            ['id' => 's-1', 'name' => 'Dr. Test', 'specialty' => 'Cardiology', 'qualifications' => '', 'mdcn_number' => '1', 'registration_label' => 'MDCN number'],
+            ['name' => 'Pat Patient', 'reference' => 'P-00000000', 'email' => 'p@example.test', 'date_of_birth' => '', 'dob_iso' => '', 'sex' => ''],
+            'saved', 'lab-signatures/x', 'b0000000-0000-4000-8000-000000000002', \App\Domain\Lab\LabRequestRules::validity($now), $now);
+        foreach ($form['items'] as $n => $snap) {
+            $r->addItem(new \App\Domain\Entity\LabRequestItem($r, $n + 1, $snap));
+        }
+        $r->markAccepted(['version' => \App\Domain\Lab\LabRequestRules::CONSENT_VERSION], true, null, null, $now);
+        $result = new \App\Domain\Entity\LabRequestResult($r, 'd-1', $r->itemIds(), true, $now);
+        // Reviewed, so both sides' nested review shapes are checked (the patient's
+        // must never carry the outcome).
+        $result->review('abnormal', 'Please book a follow-up.', 's-1', $now);
+        $r->addResult($result);
+        $r->addResultCounts($now);
+        $doc = $this->document('patient', null);
+        $event = new \App\Domain\Entity\LabRequestEvent($r->getId(), 'sent', null, 'awaiting_consent', 'doctor', 's-1', 'Dr. Test', null, $now);
+
+        $keys = self::LAB_KEYS;
+        $fixture = dirname(__DIR__, 4) . '/libs/shared/models/src/lib/lab-request-keys.fixture.json';
+        if (is_file($fixture)) {
+            $json = json_decode((string) file_get_contents($fixture), true);
+            $this->assertIsArray($json);
+            $this->assertSame([...$keys['doctor_summary'], ...$keys['doctor_detail_extra']], $json['doctor_detail']);
+            $this->assertSame([...$keys['patient_summary'], ...$keys['patient_detail_extra']], $json['patient_detail']);
+            foreach (['doctor_summary', 'doctor_result', 'patient_summary', 'patient_result', 'admin_row'] as $list) {
+                $this->assertSame($keys[$list], $json[$list], $list);
+            }
+        }
+
+        $L = \App\Infrastructure\Lab\LabRequestPresenter::class;
+        $this->assertSame($keys['doctor_summary'], array_keys($L::doctorSummary($r, $now, 0)));
+        $detail = $L::doctorDetail($r, $now, ['d-1' => $this->visible($doc)], null, [$event]);
+        $this->assertSame([...$keys['doctor_summary'], ...$keys['doctor_detail_extra']], array_keys($detail));
+        $this->assertSame($keys['doctor_result'], array_keys($detail['results'][0]));
+        $this->assertSame(['title', 'type_label', 'extension', 'size_label', 'viewable'], array_keys($detail['results'][0]['document']));
+        $this->assertSame(['event', 'from_status', 'to_status', 'actor_role', 'actor_name', 'at', 'sample_date'], array_keys($detail['timeline'][0]));
+        $this->assertSame(['id', 'position', 'code', 'kind', 'category', 'modality', 'site', 'label', 'short', 'specimen_mode', 'specimen_code', 'specimen_label',
+            'preparation_code', 'preparation_label', 'contrast_possible', 'ionising'], array_keys($detail['items'][0]));
+        $this->assertSame(['id', 'name', 'specialty', 'qualifications', 'registration_label', 'registration_number'], array_keys($detail['prescriber']));
+        $this->assertSame(['name', 'reference', 'email', 'date_of_birth', 'age', 'sex'], array_keys($detail['patient_snapshot']));
+        $this->assertSame(['cancel', 'review', 'duplicate'], array_keys($detail['can']));
+
+        $this->assertSame($keys['patient_summary'], array_keys($L::patientSummary($r, $now, ['reviewed' => false, 'awaiting_review' => false])));
+        $patient = $L::patient($r, $now, ['d-1' => $doc], ['d-1' => true], true, 'active', [$event], $catalogue);
+        $this->assertSame([...$keys['patient_summary'], ...$keys['patient_detail_extra']], array_keys($patient));
+        $this->assertSame($keys['patient_result'], array_keys($patient['results'][0]));
+        $this->assertSame(['id', 'title', 'type_label', 'extension', 'size_label'], array_keys($patient['results'][0]['document']));
+        $this->assertSame(['id', 'kind', 'label', 'short', 'specimen_label', 'preparation_code', 'preparation_label'], array_keys($patient['items'][0]));
+        $this->assertSame(['accept', 'decline', 'sample', 'upload', 'pdf'], array_keys($patient['can']));
+        $this->assertSame($keys['admin_row'], array_keys($L::admin($r, $now, null, false)));
+
+        // The TypeScript contract's nested sections ("<section>.<field>") against the
+        // real presenter output: a renamed or leaked nested key fails here too.
+        if (isset($json)) {
+            $bases = [
+                'doctor_summary' => $detail, 'doctor_detail' => $detail, 'doctor_result' => $detail['results'][0],
+                'patient_summary' => $patient, 'patient_detail' => $patient, 'patient_result' => $patient['results'][0],
+            ];
+            $unchecked = [];
+            foreach ($json as $section => $expected) {
+                if (!str_contains($section, '.')) {
+                    continue;
+                }
+                [$base, $field] = explode('.', $section, 2);
+                $this->assertArrayHasKey($base, $bases, "no presenter output mapped for {$section}");
+                $this->assertArrayHasKey($field, $bases[$base], $section);
+                $value = $bases[$base][$field];
+                if (is_array($value) && array_is_list($value)) {
+                    $value = $value[0] ?? null;
+                }
+                if ($value === null) {
+                    $unchecked[] = $section;
+                    continue;
+                }
+                $this->assertIsArray($value, $section);
+                $this->assertSame($expected, array_keys($value), $section);
+            }
+            // The sample request fills every nested section, so none may go unchecked.
+            $this->assertSame([], $unchecked, 'nested contract sections left unchecked');
+            $this->assertArrayNotHasKey('outcome', $patient['results'][0]['review']);
+        }
+    }
+
     private function assertKeys(array $expected, array $actual): void
     {
         $keys = array_keys($actual);

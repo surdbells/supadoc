@@ -602,6 +602,7 @@ return [
             $c->get(SpecialistRepository::class),
             $c->get(AppointmentRepository::class),
             $c->get(PrescriptionRepository::class),
+            $c->get(\App\Domain\Repository\LabRequestRepository::class),
         ),
 
     PatientNotifier::class => static fn (ContainerInterface $c): PatientNotifier =>
@@ -760,6 +761,65 @@ return [
 
     PrescriptionCheckThrottleRepository::class => static fn (ContainerInterface $c): PrescriptionCheckThrottleRepository =>
         new PrescriptionCheckThrottleRepository($c->get(EntityManagerInterface::class)),
+
+    // ----- Laboratory & diagnostics requests (lab spec) -----
+    // The versioned catalogue ships as a file; a bad file throws here (ContainerTest).
+    \App\Domain\Lab\LabCatalogue::class => static fn (): \App\Domain\Lab\LabCatalogue =>
+        new \App\Domain\Lab\LabCatalogue(\App\Domain\Lab\LabCatalogue::defaultPath()),
+
+    \App\Domain\Repository\LabRequestRepository::class => static fn (ContainerInterface $c): \App\Domain\Repository\LabRequestRepository =>
+        new \App\Domain\Repository\LabRequestRepository($c->get(EntityManagerInterface::class)),
+
+    \App\Infrastructure\Lab\LabRequestNumberGenerator::class => static fn (ContainerInterface $c): \App\Infrastructure\Lab\LabRequestNumberGenerator =>
+        new \App\Infrastructure\Lab\LabRequestNumberGenerator($c->get(EntityManagerInterface::class)->getConnection()),
+
+    \App\Infrastructure\Lab\LabRequestPdfRenderer::class => static fn (ContainerInterface $c): \App\Infrastructure\Lab\LabRequestPdfRenderer =>
+        new \App\Infrastructure\Lab\LabRequestPdfRenderer(
+            $c->get(\App\Domain\Lab\LabCatalogue::class),
+            clinicName:    trim($_ENV['CLINIC_NAME'] ?? '') !== '' ? trim($_ENV['CLINIC_NAME']) : 'VideoMed',
+            clinicTagline: trim($_ENV['CLINIC_TAGLINE'] ?? '') !== '' ? trim($_ENV['CLINIC_TAGLINE']) : 'Telehealth Consultations',
+            clinicContact: trim($_ENV['CLINIC_CONTACT'] ?? ''),
+        ),
+
+    \App\Infrastructure\Lab\LabRequestNotifier::class => static fn (ContainerInterface $c): \App\Infrastructure\Lab\LabRequestNotifier =>
+        new \App\Infrastructure\Lab\LabRequestNotifier(
+            $c->get(PatientNotifier::class),
+            $c->get(StaffNotifier::class),
+            $c->get(MailService::class),
+            $c->get(PatientRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(UserRepository::class),
+        ),
+
+    \App\Infrastructure\Lab\LabRequestService::class => static fn (ContainerInterface $c): \App\Infrastructure\Lab\LabRequestService =>
+        new \App\Infrastructure\Lab\LabRequestService(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\LabRequestRepository::class),
+            $c->get(PatientRepository::class),
+            $c->get(SpecialistRepository::class),
+            $c->get(AppointmentRepository::class),
+            $c->get(UserRepository::class),
+            $c->get(MedicalDocumentRepository::class),
+            $c->get(\App\Domain\Lab\LabCatalogue::class),
+            $c->get(\App\Infrastructure\Lab\LabRequestNumberGenerator::class),
+            $c->get(SignatureStore::class),
+            $c->get(PrescriptionService::class),
+            $c->get(\App\Infrastructure\Document\DocumentAccessPolicy::class),
+            $c->get(\App\Infrastructure\Document\DocumentSharingService::class),
+            $c->get(MedicalDocumentStorage::class),
+            $c->get(\App\Infrastructure\Lab\LabRequestNotifier::class),
+            $c->get(\App\Infrastructure\Lab\LabRequestPdfRenderer::class),
+            $c->get(JwtService::class),
+            $c->get(AuditLogger::class),
+        ),
+
+    \App\Infrastructure\Lab\LabRequestSweeper::class => static fn (ContainerInterface $c): \App\Infrastructure\Lab\LabRequestSweeper =>
+        new \App\Infrastructure\Lab\LabRequestSweeper(
+            $c->get(EntityManagerInterface::class),
+            $c->get(\App\Domain\Repository\LabRequestRepository::class),
+            $c->get(\App\Infrastructure\Lab\LabRequestService::class),
+            $c->get(\App\Infrastructure\Lab\LabRequestNotifier::class),
+        ),
 
     // ----- Doctor headshots (the doctor's own upload + the back office's) -----
     \App\Infrastructure\Storage\ProfilePhotoStore::class => static fn (): \App\Infrastructure\Storage\ProfilePhotoStore =>

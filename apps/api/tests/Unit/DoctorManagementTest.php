@@ -415,6 +415,21 @@ final class DoctorManagementTest extends TestCase
         $this->assertFalse(DoctorStanding::allows(DoctorStanding::SUSPENDED, 'POST', '/doctor/appointments/{id}/patient-documents/{docId}/printed'), 'suspended: nothing clinical');
     }
 
+    public function testLabRequestsAreClinicalWork(): void
+    {
+        // Owing the terms: read lab requests and print a result they view, but send nothing new.
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/lab-requests'));
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/lab-requests/{labId}/cancel'));
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/lab-requests/{labId}/results/{resultId}/review'));
+        $this->assertTrue(DoctorStanding::allows(DoctorStanding::TERMS, 'GET', '/doctor/lab-requests'));
+        $this->assertTrue(DoctorStanding::allows(DoctorStanding::TERMS, 'GET', '/doctor/lab-requests/{labId}/results/{resultId}/file'));
+        $this->assertTrue(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/lab-requests/{labId}/results/{resultId}/printed'));
+        foreach ([DoctorStanding::SUSPENDED, DoctorStanding::NOT_APPROVED] as $code) {
+            $this->assertFalse(DoctorStanding::allows($code, 'GET', '/doctor/lab-requests'), $code);
+            $this->assertFalse(DoctorStanding::allows($code, 'POST', '/doctor/lab-requests'), $code);
+        }
+    }
+
     public function testTheStandingMiddlewareCostsNothingForOtherStaff(): void
     {
         $em         = $this->em();

@@ -41,6 +41,14 @@ $samples = [
     // Names the doctor only — never the note, a document, a specialty or a reason.
     'document-access-requested' => EmailTemplates::documentAccessRequested('Pat', 'Dr. Grace Bell', $webUrl . '/dashboard/documents?request=00000000-0000-0000-0000-000000000000'),
 
+    // Lab requests (lab spec §7): never a test, a condition or a review outcome; the doctor emails never name the patient.
+    'lab-request-sent'      => EmailTemplates::labRequestSent('Pat', 'Dr. Grace Bell', 'GVM-REQ-20261104-00012', 'STAT', true, '4 Dec 2026', $webUrl . '/dashboard/lab-requests/00000000-0000-0000-0000-000000000000'),
+    'lab-request-reminder'  => EmailTemplates::labRequestReminder('Pat', 'Dr. Grace Bell', 'GVM-REQ-20261104-00012', '4 Dec 2026', $webUrl . '/dashboard/lab-requests/00000000-0000-0000-0000-000000000000'),
+    'lab-request-cancelled' => EmailTemplates::labRequestCancelled('Pat', 'Dr. Grace Bell', 'GVM-REQ-20261104-00012', $webUrl . '/dashboard/lab-requests/00000000-0000-0000-0000-000000000000'),
+    'lab-result-reviewed'   => EmailTemplates::labResultReviewed('Pat', 'Dr. Grace Bell', 'GVM-REQ-20261104-00012', $webUrl . '/dashboard/lab-requests/00000000-0000-0000-0000-000000000000'),
+    'lab-result-added'      => EmailTemplates::labResultAdded('Dr. Grace Bell', 'GVM-REQ-20261104-00012', 'http://localhost:4204/prescriptions/labs/00000000-0000-0000-0000-000000000000', 'STAT'),
+    'lab-review-reminder'   => EmailTemplates::labReviewReminder('Dr. Grace Bell', 'GVM-REQ-20261104-00012', 'http://localhost:4204/prescriptions/labs/00000000-0000-0000-0000-000000000000'),
+
     // Doctor applications (apps/onboarding; spec §5.2).
     'application-saved'          => EmailTemplates::applicationSaved('Ada', 'http://localhost:4205/resume#t=sample', 'K7Q2MX', 7, 30),
     'application-code-confirm'   => EmailTemplates::applicationCode('482913', 'confirm_email'),

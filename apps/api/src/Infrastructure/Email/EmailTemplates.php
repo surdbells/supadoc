@@ -698,6 +698,115 @@ final class EmailTemplates
         ];
     }
 
+    // ----- Lab requests (lab spec §7). Never a test, a condition, a clinical
+    // question, an infection alert, pregnancy, a medicine or a review outcome;
+    // the doctor emails never name the patient either. -----
+
+    /**
+     * The patient has a new lab request. `$validUntil` is the request's
+     * calendar date ("4 Dec 2026", no zone conversion — as the PDF prints it).
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function labRequestSent(string $firstName, string $doctorName, string $number, string $priorityLabel, bool $stat, string $validUntil, string $url): array
+    {
+        $body = self::heading('You have a new lab request')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', '
+                . self::e($doctorName) . ' has sent you lab request <strong style="color:' . self::INK . ';">' . self::e($number) . '</strong>.')
+            . self::infoCard(['Request number' => $number, 'Priority' => $priorityLabel, 'Valid until' => $validUntil])
+            . self::button('Review the request', $url)
+            . self::note("Sign in to see what's requested and how to prepare, and to accept it. You choose the lab and pay it directly — VideoMed doesn't charge for these tests.")
+            . ($stat ? self::note('Your doctor marked this request STAT (most urgent). If you feel very unwell, go to the nearest emergency department.') : '');
+
+        return [
+            'subject' => $doctorName . ' sent you lab request ' . $number,
+            'html'    => self::layout('You have a new lab request', $doctorName . ' has sent you lab request ' . $number . '.', $body),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function labRequestReminder(string $firstName, string $doctorName, string $number, string $validUntil, string $url): array
+    {
+        $body = self::heading('Your lab request is waiting')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', '
+                . self::e($doctorName) . "'s lab request <strong style=\"color:" . self::INK . ';">' . self::e($number) . '</strong> is waiting for your answer.')
+            . self::infoCard(['Request number' => $number, 'Valid until' => $validUntil])
+            . self::button('Review the request', $url)
+            . self::note("If you don't want these tests, you can decline the request.");
+
+        return [
+            'subject' => 'Reminder: lab request ' . $number . ' is waiting',
+            'html'    => self::layout('Your lab request is waiting', $doctorName . "'s lab request " . $number . ' is waiting for your answer.', $body),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function labRequestCancelled(string $firstName, string $doctorName, string $number, string $url): array
+    {
+        $body = self::heading('A lab request was cancelled')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', '
+                . self::e($doctorName) . ' has cancelled lab request <strong style="color:' . self::INK . ';">' . self::e($number) . '</strong>.')
+            . self::infoCard(['Request number' => $number])
+            . self::button('See the request', $url)
+            . self::note("You don't need to do these tests. Sign in to see your doctor's reason.");
+
+        return [
+            'subject' => $doctorName . ' cancelled lab request ' . $number,
+            'html'    => self::layout('A lab request was cancelled', $doctorName . ' has cancelled lab request ' . $number . '.', $body),
+        ];
+    }
+
+    /** @return array{subject: string, html: string} */
+    public static function labResultReviewed(string $firstName, string $doctorName, string $number, string $url): array
+    {
+        $body = self::heading('Your doctor reviewed your result')
+            . self::lead('Hi ' . self::e($firstName !== '' ? $firstName : 'there') . ', '
+                . self::e($doctorName) . ' has reviewed a result for lab request <strong style="color:' . self::INK . ';">' . self::e($number) . '</strong>.')
+            . self::infoCard(['Request number' => $number])
+            . self::button("Read your doctor's note", $url)
+            . self::note('Sign in to read the note. If you have questions, you can book a follow-up.');
+
+        return [
+            'subject' => $doctorName . ' reviewed your result',
+            'html'    => self::layout('Your doctor reviewed your result', $doctorName . ' has reviewed a result for lab request ' . $number . '.', $body),
+        ];
+    }
+
+    /**
+     * A STAT or urgent result was added (sent at once, no cron). No patient
+     * name, no test: only the request number and its priority.
+     *
+     * @return array{subject: string, html: string}
+     */
+    public static function labResultAdded(string $doctorName, string $number, string $url, string $priorityLabel = 'Urgent'): array
+    {
+        $body = self::heading('A result is ready for review')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor') . ', a result was added to lab request <strong style="color:' . self::INK . ';">'
+                . self::e($number) . '</strong> (' . self::e($priorityLabel) . ').')
+            . self::button('Open the request', $url)
+            . self::note('Sign in to the doctor portal to see it.');
+
+        return [
+            'subject' => 'A result is ready for lab request ' . $number,
+            'html'    => self::layout('A result is ready for review', 'A result was added to lab request ' . $number . '.', $body, "You're receiving this because you requested these tests on VideoMed."),
+        ];
+    }
+
+    /** The review safety net's reminder (cron). @return array{subject: string, html: string} */
+    public static function labReviewReminder(string $doctorName, string $number, string $url): array
+    {
+        $body = self::heading('A result is waiting for your review')
+            . self::lead('Hi ' . self::e($doctorName !== '' ? $doctorName : 'Doctor') . ', a result on lab request <strong style="color:' . self::INK . ';">'
+                . self::e($number) . '</strong> is still waiting for your review.')
+            . self::button('Open the request', $url)
+            . self::note('Sign in to the doctor portal to review it.');
+
+        return [
+            'subject' => 'Reminder: a result is waiting for your review',
+            'html'    => self::layout('A result is waiting for your review', 'A result on lab request ' . $number . ' is waiting for your review.', $body, "You're receiving this because you requested these tests on VideoMed."),
+        ];
+    }
+
     /**
      * Invite a doctor to the portal: a one-time link to choose their password,
      * then they finish their profile and submit it for review.

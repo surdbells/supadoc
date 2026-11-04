@@ -50,8 +50,11 @@ final class DocumentSharingRules
     /** Ended grants listed for this long. */
     public const ENDED_LIST_DAYS = 90;
 
-    /** Where the patient made the decision (`grants.surface`). */
-    public const SURFACES = ['documents_page', 'manage_sharing', 'document_access', 'upload', 'booking', 'appointment_details', 'call', 'request'];
+    /**
+     * Where the patient made the decision (`grants.surface`). `lab_request`: a
+     * result added to a lab request (its own upload route, never an upload surface).
+     */
+    public const SURFACES = ['documents_page', 'manage_sharing', 'document_access', 'upload', 'booking', 'appointment_details', 'call', 'request', 'lab_request'];
 
     /** Upload surfaces (`share_surface`); `call` is an upload made inside a consultation (its own rules, see DocumentSharingService). */
     public const UPLOAD_SURFACES = ['documents_page', 'appointment_details', 'call'];

@@ -658,15 +658,7 @@ final class PrescriptionService
     /** @return array<string,string> */
     private function prescriberDetails(Specialist $doctor): array
     {
-        return [
-            'id'             => $doctor->getId(),
-            'name'           => $doctor->getName(),
-            'specialty'      => $doctor->getSpecialty(),
-            'qualifications' => (string) ($doctor->getQualifications() ?? ''),
-            // The MDCN number — or, for a doctor licensed abroad, their regulator's (spec §3.7).
-            'mdcn_number'        => (string) ($doctor->registrationNumberForRoute() ?? ''),
-            'registration_label' => $doctor->registrationLabel(),
-        ];
+        return PrescriberSnapshot::of($doctor);
     }
 
     /** @return array<string,string> */

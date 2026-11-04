@@ -8,6 +8,7 @@ use App\Domain\Appointment\RecipientZones;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\ClinicalNote;
 use App\Domain\Entity\LabOrder;
+use App\Domain\Entity\LabRequest;
 use App\Domain\Entity\MedicalCertificate;
 use App\Domain\Entity\Prescription;
 use App\Domain\Entity\Referral;
@@ -63,6 +64,8 @@ final class ConsultationCompleter
         'certificate'   => [MedicalCertificate::class, 'ev_c', null],
         'referral'      => [Referral::class, 'ev_r', null],
         'lab_order'     => [LabOrder::class, 'ev_l', null],
+        // A lab request sent from this consultation (a standalone one has no appointment_id, so never counts).
+        'lab_request'   => [LabRequest::class, 'ev_lq', null],
         'transcript'    => [TranscriptSegment::class, 'ev_t', 'ev_t.role = :ev_doctor'],
         'session'       => [SessionMetric::class, 'ev_md', 'ev_md.role = :ev_doctor AND EXISTS (SELECT ev_mp.appointmentId FROM '
             . SessionMetric::class . ' ev_mp WHERE ev_mp.appointmentId = ev_md.appointmentId AND ev_mp.role = :ev_patient'

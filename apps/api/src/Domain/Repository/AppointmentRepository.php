@@ -541,6 +541,70 @@ final class AppointmentRepository extends BaseRepository
     }
 
     /**
+     * The patients a specialist has CONSULTED (the {@see hasConsultedWith()}
+     * predicate: completed, or not cancelled / proposed / missed and started —
+     * or starting within `$leadMinutes`), for the lab request picker. One row
+     * per patient: `last_visit` = the latest of those consultations that has
+     * already started (`<= $now`; null when the only one is still in its lead
+     * window), newest first (nulls last); `search` matches name or email.
+     * Deleted patients are left out.
+     *
+     * @return array{items: list<array{patient_id:string, first_name:string, last_name:string, email:string, avatar_url:?string, last_visit:?string}>, total: int}
+     */
+    public function consultedPatientsForSpecialist(
+        int $offset,
+        int $perPage,
+        string $specialistId,
+        ?string $search,
+        DateTimeImmutable $now,
+        int $leadMinutes = 120,
+    ): array {
+        $process = new \DateTimeZone(date_default_timezone_get());
+        $params  = [
+            's'         => strtolower($specialistId),
+            'completed' => AppointmentStatus::COMPLETED->value,
+            'cancelled' => AppointmentStatus::CANCELLED->value,
+            'proposed'  => AppointmentStatus::PROPOSED->value,
+            'missed'    => AppointmentStatus::MISSED->value,
+            // Naive timestamps on the process clock (never SQL NOW()).
+            'cutoff'    => $now->modify("+{$leadMinutes} minutes")->setTimezone($process)->format('Y-m-d H:i:s'),
+        ];
+        $where = 'a.specialist_id = :s AND a.deleted_at IS NULL AND p.deleted_at IS NULL
+              AND (a.status = :completed OR (a.status NOT IN (:cancelled, :proposed, :missed) AND a.scheduled_at <= :cutoff))';
+        if ($search !== null && trim($search) !== '') {
+            $where      .= " AND (LOWER(p.first_name || ' ' || p.last_name) LIKE :q OR LOWER(p.email) LIKE :q)";
+            $params['q'] = '%' . strtolower(trim($search)) . '%';
+        }
+        $conn  = $this->em->getConnection();
+        $total = (int) $conn->fetchOne(
+            'SELECT COUNT(DISTINCT a.patient_id) FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE ' . $where,
+            $params,
+        );
+        $rows = $conn->fetchAllAssociative(
+            'SELECT a.patient_id, p.first_name, p.last_name, p.email, p.avatar_url,
+                    MAX(CASE WHEN a.scheduled_at <= :now THEN a.scheduled_at END) AS last_visit
+               FROM appointments a JOIN patients p ON p.id = a.patient_id
+              WHERE ' . $where . '
+              GROUP BY a.patient_id, p.first_name, p.last_name, p.email, p.avatar_url
+              ORDER BY last_visit DESC NULLS LAST, a.patient_id ASC
+              LIMIT ' . max(1, $perPage) . ' OFFSET ' . max(0, $offset),
+            $params + ['now' => $now->setTimezone($process)->format('Y-m-d H:i:s')],
+        );
+
+        return [
+            'items' => array_map(static fn (array $r): array => [
+                'patient_id' => strtolower((string) $r['patient_id']),
+                'first_name' => (string) ($r['first_name'] ?? ''),
+                'last_name'  => (string) ($r['last_name'] ?? ''),
+                'email'      => (string) ($r['email'] ?? ''),
+                'avatar_url' => $r['avatar_url'] !== null ? (string) $r['avatar_url'] : null,
+                'last_visit' => $r['last_visit'] !== null ? (string) $r['last_visit'] : null,
+            ], $rows),
+            'total' => $total,
+        ];
+    }
+
+    /**
      * Distinct patients a specialist has had an appointment with — all-time, or
      * within an optional [from, to) booking-start window (for period deltas).
      */

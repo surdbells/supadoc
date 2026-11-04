@@ -35,6 +35,8 @@ trait ManagesStaff
         'staff.manage',
         'payouts.manage',
         'support.manage',
+        // Lab requests: correct a status, open a request PDF (monitoring.view sees summary rows only).
+        'labs.manage',
     ];
 
     /** @return list<string> the given roles filtered to the known set */

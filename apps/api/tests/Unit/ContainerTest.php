@@ -118,6 +118,30 @@ final class ContainerTest extends TestCase
         foreach ($applicationActions as $class) {
             $this->assertIsObject($container->get($class), "could not resolve $class");
         }
+
+        // Lab requests: the catalogue (a bad file throws here), the services and every action.
+        foreach ([
+            \App\Domain\Lab\LabCatalogue::class,
+            \App\Infrastructure\Lab\LabRequestService::class,
+            \App\Infrastructure\Lab\LabRequestSweeper::class,
+            \App\Infrastructure\Lab\LabRequestNotifier::class,
+            \App\Infrastructure\Lab\LabRequestPdfRenderer::class,
+            \App\Infrastructure\Lab\LabRequestNumberGenerator::class,
+            \App\Infrastructure\Middleware\DoctorStandingMiddleware::class,
+            \App\Action\Admin\MonitoringOverviewAction::class,
+        ] as $id) {
+            $this->assertIsObject($container->get($id), "could not resolve $id");
+        }
+        $labActions = [];
+        foreach (['Doctor', 'Patient', 'Public', 'Admin'] as $side) {
+            foreach (glob(__DIR__ . '/../../src/Action/LabRequest/' . $side . '/*Action.php') ?: [] as $file) {
+                $labActions[] = 'App\\Action\\LabRequest\\' . $side . '\\' . basename($file, '.php');
+            }
+        }
+        $this->assertCount(22, $labActions, '11 doctor + 7 patient + 1 public + 3 back-office lab actions');
+        foreach ($labActions as $class) {
+            $this->assertIsObject($container->get($class), "could not resolve $class");
+        }
     }
 
     /**
@@ -146,6 +170,11 @@ final class ContainerTest extends TestCase
             ['POST', '/api/public/doctor-applications/drafts/current/submit'],
             ['PUT', '/api/public/doctor-applications/drafts/current/sections/personal'],
             ['GET', '/api/public/doctor-applications/track/status'],
+            // Lab requests: the static doctor routes before /{labId}.
+            ['GET', '/api/doctor/lab-requests/options'],
+            ['GET', '/api/doctor/lab-requests/patients'],
+            ['GET', '/api/doctor/lab-requests/context'],
+            ['GET', '/api/public/lab-requests/file'],
         ] as [$method, $path]) {
             $this->assertSame(RoutingResults::FOUND, $app->getRouteResolver()->computeRoutingResults($path, $method)->getRouteStatus(), "$method $path");
         }

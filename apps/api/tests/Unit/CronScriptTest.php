@@ -17,6 +17,7 @@ final class CronScriptTest extends TestCase
     private const JOBS = [
         ['ReminderService', 'class'],
         ['PrescriptionExpiryService', 'class'],
+        ['LabRequestSweeper', 'class'],
         ['PastAppointmentCloser', 'runWithRetries'],
         ['FollowUpService', 'class'],
         ['CredentialExpiryService', 'class'],

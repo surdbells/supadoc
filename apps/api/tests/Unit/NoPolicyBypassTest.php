@@ -31,14 +31,19 @@ final class NoPolicyBypassTest extends TestCase
 
     public function testNoDoctorActionReadsTheDocumentRepository(): void
     {
-        foreach (glob(dirname(__DIR__, 2) . '/src/Action/Doctor/*.php') ?: [] as $file) {
+        foreach ([
+            ...(glob(dirname(__DIR__, 2) . '/src/Action/Doctor/*.php') ?: []),
+            // Lab requests: the doctor and back-office actions see results only through the policy.
+            ...(glob(dirname(__DIR__, 2) . '/src/Action/LabRequest/Doctor/*.php') ?: []),
+            ...(glob(dirname(__DIR__, 2) . '/src/Action/LabRequest/Admin/*.php') ?: []),
+        ] as $file) {
             $this->assertStringNotContainsString('MedicalDocumentRepository', (string) file_get_contents($file), basename($file));
         }
     }
 
     public function testTheDoctorDocumentRoutesGoThroughThePolicy(): void
     {
-        foreach ([ListPatientDocumentsAction::class, DownloadPatientDocumentAction::class] as $action) {
+        foreach ([ListPatientDocumentsAction::class, DownloadPatientDocumentAction::class, \App\Action\LabRequest\Doctor\ViewLabResultAction::class, \App\Action\LabRequest\Doctor\RecordLabResultPrintAction::class] as $action) {
             $types = array_map(
                 static fn (\ReflectionParameter $p): string => (string) $p->getType(),
                 (new \ReflectionMethod($action, '__construct'))->getParameters(),

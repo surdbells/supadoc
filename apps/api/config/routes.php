@@ -116,6 +116,13 @@ return static function (App $app): void {
         'track_code'  => $limit(5, 3600, 'onb-track-code'),
         'submit'      => $limit(10, 3600, 'onb-submit'),
     ];
+    // Lab requests (lab spec §2.1): per-user limits on top of the groups' `user` bucket
+    // (they run after the group's auth middleware, which publishes the id).
+    $labLimit = [
+        'send'   => new RateLimitMiddleware($redis, 30, 3600, prefix: 'lab-send', perUser: true),
+        'result' => new RateLimitMiddleware($redis, 20, 3600, prefix: 'lab-result', perUser: true),
+        'link'   => new RateLimitMiddleware($redis, 60, 3600, prefix: 'lab-link', perUser: true),
+    ];
     $applications = $container->get(DoctorApplicationRepository::class);
     $purger       = $container->get(ApplicationDraftPurger::class);
     $draftToken   = new ApplicantTokenMiddleware($jwt, JwtService::APPLICATION_DRAFT, $applications, $purger);
@@ -123,7 +130,7 @@ return static function (App $app): void {
     $submitToken  = new ApplicantTokenMiddleware($jwt, JwtService::APPLICATION_DRAFT, $applications, $purger, allowSubmitted: true);
     $trackToken   = new ApplicantTokenMiddleware($jwt, JwtService::APPLICATION_ACCESS, $applications);
 
-    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions, $userLimit, $onb, $draftToken, $submitToken, $trackToken): void {
+    $app->group('/api', function (RouteCollectorProxy $group) use ($jwt, $sessions, $userLimit, $onb, $draftToken, $submitToken, $trackToken, $labLimit): void {
         // ----- Public -----
         $group->post('/auth/login', Action\Auth\LoginAction::class);            // staff
         $group->post('/portal/auth/login', Action\Auth\CustomerLoginAction::class); // customer
@@ -163,6 +170,8 @@ return static function (App $app): void {
         // PDF; the pharmacist check needs no sign-in (throttled per device/IP).
         $group->get('/public/prescriptions/file', Action\Prescription\PrescriptionFileAction::class);
         $group->post('/public/prescriptions/check', Action\Prescription\CheckPrescriptionAction::class);
+        // Lab requests: the signed 15-minute token IS the credential for the request PDF.
+        $group->get('/public/lab-requests/file', Action\LabRequest\Public\LabRequestFileAction::class);
         // Preauthenticated join — the signed token in the path IS the credential.
         $group->get('/public/call/{token}', Action\Call\JoinCallAction::class);
         $group->get('/public/call/{token}/lobby', Action\Call\CallLobbyAction::class);
@@ -230,7 +239,7 @@ return static function (App $app): void {
             ->add($trackToken);
 
         // ----- Staff (default audience) -----
-        $group->group('', function (RouteCollectorProxy $group): void {
+        $group->group('', function (RouteCollectorProxy $group) use ($labLimit): void {
             $group->get('/me', Action\Auth\MeAction::class);
             $group->post('/me/password', Action\Auth\ChangePasswordAction::class);
             $group->get('/me/notifications', Action\Auth\ListStaffNotificationsAction::class);
@@ -481,11 +490,29 @@ return static function (App $app): void {
             $group->post('/doctor/signature', Action\Prescription\DoctorSignatureAction::class);
             $group->delete('/doctor/signature', Action\Prescription\DoctorSignatureAction::class);
 
-            // Lab orders + care plan.
+            // Lab orders (read-only legacy: creating one answers 410 lab_orders_retired) + care plan.
             $group->get('/doctor/appointments/{id}/lab-orders', Action\Doctor\ListLabOrdersAction::class);
             $group->post('/doctor/appointments/{id}/lab-orders', Action\Doctor\CreateLabOrderAction::class);
             $group->get('/doctor/appointments/{id}/care-plan', Action\Doctor\GetCarePlanAction::class);
             $group->put('/doctor/appointments/{id}/care-plan', Action\Doctor\SaveCarePlanAction::class);
+
+            // Laboratory & diagnostics requests (lab spec §2.2): the composer's lists, the
+            // consulted-patient picker and context (static routes before {labId}: FastRoute),
+            // the list, send, detail, cancel, review, the PDF link, and a result's
+            // view-only file + print (recorded as the consultation documents are).
+            $group->get('/doctor/lab-requests/options', Action\LabRequest\Doctor\LabOptionsAction::class);
+            $group->get('/doctor/lab-requests/patients', Action\LabRequest\Doctor\LabPatientsAction::class);
+            $group->get('/doctor/lab-requests/context', Action\LabRequest\Doctor\LabContextAction::class);
+            $group->get('/doctor/lab-requests', Action\LabRequest\Doctor\ListDoctorLabRequestsAction::class);
+            $group->post('/doctor/lab-requests', Action\LabRequest\Doctor\CreateLabRequestAction::class)
+                ->add($labLimit['send']);
+            $group->get('/doctor/lab-requests/{labId}', Action\LabRequest\Doctor\GetDoctorLabRequestAction::class);
+            $group->post('/doctor/lab-requests/{labId}/cancel', Action\LabRequest\Doctor\CancelLabRequestAction::class);
+            $group->post('/doctor/lab-requests/{labId}/link', Action\LabRequest\Doctor\DoctorLabRequestLinkAction::class)
+                ->add($labLimit['link']);
+            $group->post('/doctor/lab-requests/{labId}/results/{resultId}/review', Action\LabRequest\Doctor\ReviewLabResultAction::class);
+            $group->get('/doctor/lab-requests/{labId}/results/{resultId}/file', Action\LabRequest\Doctor\ViewLabResultAction::class);
+            $group->post('/doctor/lab-requests/{labId}/results/{resultId}/printed', Action\LabRequest\Doctor\RecordLabResultPrintAction::class);
 
             // Referrals + consent (doctor reads consent to know what's permitted).
             $group->get('/doctor/appointments/{id}/referrals', Action\Doctor\ListReferralsAction::class);
@@ -544,6 +571,15 @@ return static function (App $app): void {
                 ->add(new RbacMiddleware('monitoring.view'));
             $group->post('/admin/prescriptions/{rxId}/link', Action\Prescription\AdminPrescriptionLinkAction::class)
                 ->add(new RbacMiddleware('monitoring.view'));
+            // Lab requests: summary rows (no clinical content) for monitoring.view; status
+            // corrections and the request PDF need labs.manage.
+            $group->get('/admin/patients/{id}/lab-requests', Action\LabRequest\Admin\AdminPatientLabRequestsAction::class)
+                ->add(new RbacMiddleware('monitoring.view'));
+            $group->post('/admin/lab-requests/{labId}/status', Action\LabRequest\Admin\CorrectLabRequestStatusAction::class)
+                ->add(new RbacMiddleware('labs.manage'));
+            $group->post('/admin/lab-requests/{labId}/link', Action\LabRequest\Admin\AdminLabRequestLinkAction::class)
+                ->add(new RbacMiddleware('labs.manage'))
+                ->add($labLimit['link']);
             // Prescription rules the Platform Admin can change without a release.
             $group->get('/settings/prescriptions', Action\Prescription\PrescriptionSettingsAction::class)
                 ->add(new RbacMiddleware('settings.manage'));
@@ -586,7 +622,7 @@ return static function (App $app): void {
             ->add(new AuthMiddleware($jwt, $sessions));
 
         // ----- Customer portal (customer audience) -----
-        $group->group('/portal', function (RouteCollectorProxy $group): void {
+        $group->group('/portal', function (RouteCollectorProxy $group) use ($labLimit): void {
             $group->get('/me', Action\Patient\MyProfileAction::class);
             $group->patch('/me', Action\Patient\UpdateMyProfileAction::class);
             // The zone their emails, texts and notices are written in (detected after sign-in, or chosen).
@@ -681,6 +717,17 @@ return static function (App $app): void {
             $group->get('/prescriptions/{id}', Action\Prescription\MyPrescriptionAction::class);
             $group->post('/prescriptions/{id}/link', Action\Prescription\MyPrescriptionLinkAction::class);
             $group->get('/appointments/{id}/lab-orders', Action\Appointment\MyLabOrdersAction::class);
+            // Lab requests (lab spec §2.3): list, detail, accept / decline, "I've given my
+            // sample", add a result (one transaction with its sharing), the PDF link.
+            $group->get('/lab-requests', Action\LabRequest\Patient\ListMyLabRequestsAction::class);
+            $group->get('/lab-requests/{labId}', Action\LabRequest\Patient\GetMyLabRequestAction::class);
+            $group->post('/lab-requests/{labId}/accept', Action\LabRequest\Patient\AcceptLabRequestAction::class);
+            $group->post('/lab-requests/{labId}/decline', Action\LabRequest\Patient\DeclineLabRequestAction::class);
+            $group->post('/lab-requests/{labId}/sample', Action\LabRequest\Patient\ReportLabSampleAction::class);
+            $group->post('/lab-requests/{labId}/results', Action\LabRequest\Patient\UploadLabResultAction::class)
+                ->add($labLimit['result']);
+            $group->post('/lab-requests/{labId}/link', Action\LabRequest\Patient\MyLabRequestLinkAction::class)
+                ->add($labLimit['link']);
             $group->get('/appointments/{id}/care-plan', Action\Appointment\MyCarePlanAction::class);
             $group->get('/appointments/{id}/referrals', Action\Appointment\MyReferralsAction::class);
             $group->get('/appointments/{id}/certificates', Action\Appointment\MyCertificatesAction::class);

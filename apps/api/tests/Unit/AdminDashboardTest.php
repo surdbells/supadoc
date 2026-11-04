@@ -215,6 +215,18 @@ final class AdminDashboardTest extends TestCase
         $this->assertFalse($tile['higher_is_better']);
     }
 
+    public function testLabRequestEventsReadInWordsAndOpenThePatient(): void
+    {
+        $this->assertSame('Lab request sent', AuditEventDescriber::label('lab_request.sent'));
+        $this->assertSame('Lab request status corrected', AuditEventDescriber::summary('lab_request.status_corrected', ['number' => 'GVM-REQ-20261104-00001', 'from' => 'booked', 'to' => 'in_lab', 'reason_given' => true]));
+        $this->assertSame('Lab result review escalated', AuditEventDescriber::label('lab_result.review_escalated'));
+        $patient = '11111111-1111-4111-8111-111111111111';
+        $link    = ['path' => '/patients/' . $patient, 'query' => [], 'permission' => 'monitoring.view'];
+        $this->assertSame($link, AuditEventDescriber::link('lab_request', '22222222-2222-4222-8222-222222222222', null, ['patient_id' => $patient]));
+        $this->assertSame($link, AuditEventDescriber::link('lab_result', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', ['patient_id' => $patient]), 'the patient page, not the consultation');
+        $this->assertNull(AuditEventDescriber::link('lab_request', '22222222-2222-4222-8222-222222222222', null));
+    }
+
     public function testActivityReadsInPlainWords(): void
     {
         $this->assertSame('Doctor approved', AuditEventDescriber::label('specialist.approved'));

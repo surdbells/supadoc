@@ -1,0 +1,1807 @@
+{
+    "version": "2026-11.1",
+    "quick_add": [
+        "FBC",
+        "MP",
+        "RBS",
+        "HIV",
+        "WIDAL",
+        "UA",
+        "HBSAG"
+    ],
+    "specimens": [
+        {
+            "code": "serum",
+            "label": "Venous blood: serum",
+            "manual": true
+        },
+        {
+            "code": "plasma_edta",
+            "label": "Venous blood: plasma (EDTA)",
+            "manual": true
+        },
+        {
+            "code": "plasma_fluoride",
+            "label": "Venous blood: plasma (fluoride)",
+            "manual": true
+        },
+        {
+            "code": "plasma_citrate",
+            "label": "Venous blood: plasma (citrate)",
+            "manual": true
+        },
+        {
+            "code": "whole_blood_edta",
+            "label": "Whole blood (EDTA)",
+            "manual": true
+        },
+        {
+            "code": "capillary_blood",
+            "label": "Capillary blood",
+            "manual": true
+        },
+        {
+            "code": "urine_msu",
+            "label": "Urine (mid-stream)",
+            "manual": true
+        },
+        {
+            "code": "urine_early",
+            "label": "Urine (early morning)",
+            "manual": true
+        },
+        {
+            "code": "stool",
+            "label": "Stool",
+            "manual": true
+        },
+        {
+            "code": "sputum",
+            "label": "Sputum",
+            "manual": true
+        },
+        {
+            "code": "swab",
+            "label": "Swab",
+            "manual": true
+        },
+        {
+            "code": "csf",
+            "label": "CSF",
+            "manual": true
+        },
+        {
+            "code": "blood_culture",
+            "label": "Blood culture bottles",
+            "manual": false
+        }
+    ],
+    "sites": [
+        {
+            "code": "urine",
+            "label": "Urine",
+            "specimen": "urine_msu"
+        },
+        {
+            "code": "blood",
+            "label": "Blood",
+            "specimen": "blood_culture"
+        },
+        {
+            "code": "stool",
+            "label": "Stool",
+            "specimen": "stool"
+        },
+        {
+            "code": "sputum",
+            "label": "Sputum",
+            "specimen": "sputum"
+        },
+        {
+            "code": "wound_swab",
+            "label": "Wound Swab",
+            "specimen": "swab"
+        },
+        {
+            "code": "csf",
+            "label": "CSF",
+            "specimen": "csf"
+        }
+    ],
+    "preparations": [
+        {
+            "code": "none",
+            "label": "None",
+            "patient_text": null
+        },
+        {
+            "code": "full_bladder",
+            "label": "Full bladder",
+            "patient_text": "Drink 4 to 6 glasses of water about an hour before your scan, and don't empty your bladder until the scan is done."
+        },
+        {
+            "code": "fasting",
+            "label": "Fasting",
+            "patient_text": "Don't eat for 6 hours before your scan. You can have small sips of water."
+        },
+        {
+            "code": "bowel_prep",
+            "label": "Bowel prep",
+            "patient_text": "Follow the bowel preparation the imaging centre gives you. Ask them about it when you book."
+        }
+    ],
+    "items": [
+        {
+            "code": "BMP",
+            "kind": "lab",
+            "category": "routine_panel",
+            "modality": null,
+            "site": null,
+            "label": "BMP - Basic Metabolic Panel",
+            "name": "Basic Metabolic Panel",
+            "short": "BMP",
+            "synonyms": [
+                "electrolytes",
+                "u&e",
+                "e/u/cr"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "CMP",
+            "kind": "lab",
+            "category": "routine_panel",
+            "modality": null,
+            "site": null,
+            "label": "CMP - Comprehensive Metabolic",
+            "name": "Comprehensive Metabolic Panel",
+            "short": "CMP",
+            "synonyms": [
+                "chemistry"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "LFT",
+            "kind": "lab",
+            "category": "routine_panel",
+            "modality": null,
+            "site": null,
+            "label": "LFT - Liver Function",
+            "name": "Liver Function Tests",
+            "short": "LFT",
+            "synonyms": [
+                "liver"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "RFT",
+            "kind": "lab",
+            "category": "routine_panel",
+            "modality": null,
+            "site": null,
+            "label": "RFT - Renal Function",
+            "name": "Renal Function Tests",
+            "short": "RFT",
+            "synonyms": [
+                "kidney",
+                "renal",
+                "urea",
+                "creatinine"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "LIPID",
+            "kind": "lab",
+            "category": "routine_panel",
+            "modality": null,
+            "site": null,
+            "label": "Lipid - Lipid Profile",
+            "name": "Lipid Profile",
+            "short": "Lipid profile",
+            "synonyms": [
+                "cholesterol",
+                "lipids"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": 10,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "FBC",
+            "kind": "lab",
+            "category": "routine_panel",
+            "modality": null,
+            "site": null,
+            "label": "FBC - Full Blood Count",
+            "name": "Full Blood Count",
+            "short": "FBC",
+            "synonyms": [
+                "full blood count",
+                "cbc",
+                "complete blood count",
+                "haemogram"
+            ],
+            "common": true,
+            "default_specimen": "whole_blood_edta",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MP",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Malaria MP",
+            "name": "Malaria MP",
+            "short": "Malaria MP",
+            "synonyms": [
+                "malaria",
+                "malaria parasite"
+            ],
+            "common": true,
+            "default_specimen": "whole_blood_edta",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "RBS",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "RBS",
+            "name": "RBS",
+            "short": "RBS",
+            "synonyms": [
+                "random blood sugar",
+                "glucose"
+            ],
+            "common": true,
+            "default_specimen": "plasma_fluoride",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "FBS",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "FBS",
+            "name": "FBS",
+            "short": "FBS",
+            "synonyms": [
+                "fasting blood sugar",
+                "glucose"
+            ],
+            "common": false,
+            "default_specimen": "plasma_fluoride",
+            "fasting_hours": 8,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "HIV",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "HIV screening",
+            "name": "HIV screening",
+            "short": "HIV screening",
+            "synonyms": [
+                "hiv",
+                "retroviral"
+            ],
+            "common": true,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "HBSAG",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "HBsAg",
+            "name": "HBsAg",
+            "short": "HBsAg",
+            "synonyms": [
+                "hepatitis b"
+            ],
+            "common": true,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "HCVAB",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "HCV Ab",
+            "name": "HCV Ab",
+            "short": "HCV Ab",
+            "synonyms": [
+                "hepatitis c"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "WIDAL",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Widal",
+            "name": "Widal",
+            "short": "Widal",
+            "synonyms": [
+                "typhoid"
+            ],
+            "common": true,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "UA",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Urinalysis",
+            "name": "Urinalysis",
+            "short": "Urinalysis",
+            "synonyms": [
+                "urine",
+                "dipstick"
+            ],
+            "common": true,
+            "default_specimen": "urine_msu",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "HBA1C",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "HbA1c",
+            "name": "HbA1c",
+            "short": "HbA1c",
+            "synonyms": [
+                "a1c",
+                "glycated haemoglobin"
+            ],
+            "common": false,
+            "default_specimen": "whole_blood_edta",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "TSH",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "TSH",
+            "name": "TSH",
+            "short": "TSH",
+            "synonyms": [
+                "thyroid"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "CRP",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "CRP",
+            "name": "CRP",
+            "short": "CRP",
+            "synonyms": [
+                "c-reactive protein"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "ESR",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "ESR",
+            "name": "ESR",
+            "short": "ESR",
+            "synonyms": [
+                "sed rate"
+            ],
+            "common": false,
+            "default_specimen": "whole_blood_edta",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PSA",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "PSA",
+            "name": "PSA",
+            "short": "PSA",
+            "synonyms": [
+                "prostate"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "TROPI",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Troponin I",
+            "name": "Troponin I",
+            "short": "Troponin I",
+            "synonyms": [
+                "troponin",
+                "cardiac"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "DDIMER",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "D-dimer",
+            "name": "D-dimer",
+            "short": "D-dimer",
+            "synonyms": [
+                "clot"
+            ],
+            "common": false,
+            "default_specimen": "plasma_citrate",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "FERRITIN",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Ferritin",
+            "name": "Ferritin",
+            "short": "Ferritin",
+            "synonyms": [
+                "iron"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "VITD",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Vitamin D",
+            "name": "Vitamin D",
+            "short": "Vitamin D",
+            "synonyms": [
+                "25-oh"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "URIC",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Uric acid",
+            "name": "Uric acid",
+            "short": "Uric acid",
+            "synonyms": [
+                "gout"
+            ],
+            "common": false,
+            "default_specimen": "serum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "BGRH",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Blood group & Rh",
+            "name": "Blood group & Rh",
+            "short": "Blood group & Rh",
+            "synonyms": [
+                "blood group",
+                "rhesus"
+            ],
+            "common": false,
+            "default_specimen": "whole_blood_edta",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "UPT",
+            "kind": "lab",
+            "category": "single_test",
+            "modality": null,
+            "site": null,
+            "label": "Pregnancy test (Urine)",
+            "name": "Pregnancy test (Urine)",
+            "short": "Pregnancy test (Urine)",
+            "synonyms": [
+                "pregnancy",
+                "hcg"
+            ],
+            "common": false,
+            "default_specimen": "urine_msu",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MCS-URINE",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "urine",
+            "label": "M/C/S - Urine",
+            "name": "Microscopy, culture and sensitivity - Urine",
+            "short": "M/C/S - Urine",
+            "synonyms": [
+                "culture",
+                "mcs",
+                "m/c/s"
+            ],
+            "common": false,
+            "default_specimen": "urine_msu",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "GRAM-URINE",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "urine",
+            "label": "Gram stain - Urine",
+            "name": "Gram stain - Urine",
+            "short": "Gram stain - Urine",
+            "synonyms": [
+                "gram"
+            ],
+            "common": false,
+            "default_specimen": "urine_msu",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "AFB-URINE",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "urine",
+            "label": "AFB smear / GeneXpert - Urine",
+            "name": "AFB smear / GeneXpert - Urine",
+            "short": "AFB smear / GeneXpert - Urine",
+            "synonyms": [
+                "tb",
+                "afb",
+                "genexpert"
+            ],
+            "common": false,
+            "default_specimen": "urine_msu",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PCR-URINE",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "urine",
+            "label": "PCR panel - Urine",
+            "name": "PCR panel - Urine",
+            "short": "PCR panel - Urine",
+            "synonyms": [
+                "pcr"
+            ],
+            "common": false,
+            "default_specimen": "urine_msu",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MCS-BLOOD",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "blood",
+            "label": "M/C/S - Blood",
+            "name": "Microscopy, culture and sensitivity - Blood",
+            "short": "M/C/S - Blood",
+            "synonyms": [
+                "culture",
+                "mcs",
+                "m/c/s"
+            ],
+            "common": false,
+            "default_specimen": "blood_culture",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "GRAM-BLOOD",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "blood",
+            "label": "Gram stain - Blood",
+            "name": "Gram stain - Blood",
+            "short": "Gram stain - Blood",
+            "synonyms": [
+                "gram"
+            ],
+            "common": false,
+            "default_specimen": "blood_culture",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "AFB-BLOOD",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "blood",
+            "label": "AFB smear / GeneXpert - Blood",
+            "name": "AFB smear / GeneXpert - Blood",
+            "short": "AFB smear / GeneXpert - Blood",
+            "synonyms": [
+                "tb",
+                "afb",
+                "genexpert"
+            ],
+            "common": false,
+            "default_specimen": "blood_culture",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PCR-BLOOD",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "blood",
+            "label": "PCR panel - Blood",
+            "name": "PCR panel - Blood",
+            "short": "PCR panel - Blood",
+            "synonyms": [
+                "pcr"
+            ],
+            "common": false,
+            "default_specimen": "blood_culture",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MCS-STOOL",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "stool",
+            "label": "M/C/S - Stool",
+            "name": "Microscopy, culture and sensitivity - Stool",
+            "short": "M/C/S - Stool",
+            "synonyms": [
+                "culture",
+                "mcs",
+                "m/c/s"
+            ],
+            "common": false,
+            "default_specimen": "stool",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "GRAM-STOOL",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "stool",
+            "label": "Gram stain - Stool",
+            "name": "Gram stain - Stool",
+            "short": "Gram stain - Stool",
+            "synonyms": [
+                "gram"
+            ],
+            "common": false,
+            "default_specimen": "stool",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "AFB-STOOL",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "stool",
+            "label": "AFB smear / GeneXpert - Stool",
+            "name": "AFB smear / GeneXpert - Stool",
+            "short": "AFB smear / GeneXpert - Stool",
+            "synonyms": [
+                "tb",
+                "afb",
+                "genexpert"
+            ],
+            "common": false,
+            "default_specimen": "stool",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PCR-STOOL",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "stool",
+            "label": "PCR panel - Stool",
+            "name": "PCR panel - Stool",
+            "short": "PCR panel - Stool",
+            "synonyms": [
+                "pcr"
+            ],
+            "common": false,
+            "default_specimen": "stool",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MCS-SPUTUM",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "sputum",
+            "label": "M/C/S - Sputum",
+            "name": "Microscopy, culture and sensitivity - Sputum",
+            "short": "M/C/S - Sputum",
+            "synonyms": [
+                "culture",
+                "mcs",
+                "m/c/s"
+            ],
+            "common": false,
+            "default_specimen": "sputum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "GRAM-SPUTUM",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "sputum",
+            "label": "Gram stain - Sputum",
+            "name": "Gram stain - Sputum",
+            "short": "Gram stain - Sputum",
+            "synonyms": [
+                "gram"
+            ],
+            "common": false,
+            "default_specimen": "sputum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "AFB-SPUTUM",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "sputum",
+            "label": "AFB smear / GeneXpert - Sputum",
+            "name": "AFB smear / GeneXpert - Sputum",
+            "short": "AFB smear / GeneXpert - Sputum",
+            "synonyms": [
+                "tb",
+                "afb",
+                "genexpert"
+            ],
+            "common": false,
+            "default_specimen": "sputum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PCR-SPUTUM",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "sputum",
+            "label": "PCR panel - Sputum",
+            "name": "PCR panel - Sputum",
+            "short": "PCR panel - Sputum",
+            "synonyms": [
+                "pcr"
+            ],
+            "common": false,
+            "default_specimen": "sputum",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MCS-WOUND",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "wound_swab",
+            "label": "M/C/S - Wound Swab",
+            "name": "Microscopy, culture and sensitivity - Wound Swab",
+            "short": "M/C/S - Wound Swab",
+            "synonyms": [
+                "culture",
+                "mcs",
+                "m/c/s"
+            ],
+            "common": false,
+            "default_specimen": "swab",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "GRAM-WOUND",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "wound_swab",
+            "label": "Gram stain - Wound Swab",
+            "name": "Gram stain - Wound Swab",
+            "short": "Gram stain - Wound Swab",
+            "synonyms": [
+                "gram"
+            ],
+            "common": false,
+            "default_specimen": "swab",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "AFB-WOUND",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "wound_swab",
+            "label": "AFB smear / GeneXpert - Wound Swab",
+            "name": "AFB smear / GeneXpert - Wound Swab",
+            "short": "AFB smear / GeneXpert - Wound Swab",
+            "synonyms": [
+                "tb",
+                "afb",
+                "genexpert"
+            ],
+            "common": false,
+            "default_specimen": "swab",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PCR-WOUND",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "wound_swab",
+            "label": "PCR panel - Wound Swab",
+            "name": "PCR panel - Wound Swab",
+            "short": "PCR panel - Wound Swab",
+            "synonyms": [
+                "pcr"
+            ],
+            "common": false,
+            "default_specimen": "swab",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MCS-CSF",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "csf",
+            "label": "M/C/S - CSF",
+            "name": "Microscopy, culture and sensitivity - CSF",
+            "short": "M/C/S - CSF",
+            "synonyms": [
+                "culture",
+                "mcs",
+                "m/c/s"
+            ],
+            "common": false,
+            "default_specimen": "csf",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "GRAM-CSF",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "csf",
+            "label": "Gram stain - CSF",
+            "name": "Gram stain - CSF",
+            "short": "Gram stain - CSF",
+            "synonyms": [
+                "gram"
+            ],
+            "common": false,
+            "default_specimen": "csf",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "AFB-CSF",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "csf",
+            "label": "AFB smear / GeneXpert - CSF",
+            "name": "AFB smear / GeneXpert - CSF",
+            "short": "AFB smear / GeneXpert - CSF",
+            "synonyms": [
+                "tb",
+                "afb",
+                "genexpert"
+            ],
+            "common": false,
+            "default_specimen": "csf",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "PCR-CSF",
+            "kind": "lab",
+            "category": "microbiology",
+            "modality": null,
+            "site": "csf",
+            "label": "PCR panel - CSF",
+            "name": "PCR panel - CSF",
+            "short": "PCR panel - CSF",
+            "synonyms": [
+                "pcr"
+            ],
+            "common": false,
+            "default_specimen": "csf",
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "XR-CHEST",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "x_ray",
+            "site": null,
+            "label": "X-Ray - Chest",
+            "name": "X-Ray - Chest",
+            "short": "X-Ray - Chest",
+            "synonyms": [
+                "chest x-ray",
+                "cxr"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "XR-ABDO",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "x_ray",
+            "site": null,
+            "label": "X-Ray - Abdomen",
+            "name": "X-Ray - Abdomen",
+            "short": "X-Ray - Abdomen",
+            "synonyms": [
+                "abdominal x-ray"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "XR-LSPINE",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "x_ray",
+            "site": null,
+            "label": "X-Ray - Lumbar spine",
+            "name": "X-Ray - Lumbar spine",
+            "short": "X-Ray - Lumbar spine",
+            "synonyms": [
+                "back",
+                "spine"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "XR-KNEE",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "x_ray",
+            "site": null,
+            "label": "X-Ray - Knee",
+            "name": "X-Ray - Knee",
+            "short": "X-Ray - Knee",
+            "synonyms": [
+                "knee"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "XR-HAND",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "x_ray",
+            "site": null,
+            "label": "X-Ray - Hand",
+            "name": "X-Ray - Hand",
+            "short": "X-Ray - Hand",
+            "synonyms": [
+                "hand",
+                "wrist"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "XR-PELVIS",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "x_ray",
+            "site": null,
+            "label": "X-Ray - Pelvis",
+            "name": "X-Ray - Pelvis",
+            "short": "X-Ray - Pelvis",
+            "synonyms": [
+                "hip",
+                "pelvis"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "US-ABDO",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ultrasound",
+            "site": null,
+            "label": "Ultrasound - Abdomen",
+            "name": "Ultrasound - Abdomen",
+            "short": "Ultrasound - Abdomen",
+            "synonyms": [
+                "abdominal scan",
+                "uss"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "fasting",
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "US-PELVIS",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ultrasound",
+            "site": null,
+            "label": "Ultrasound - Pelvis",
+            "name": "Ultrasound - Pelvis",
+            "short": "Ultrasound - Pelvis",
+            "synonyms": [
+                "pelvic scan",
+                "uss"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "full_bladder",
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "US-OBS",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ultrasound",
+            "site": null,
+            "label": "Ultrasound - Obstetric",
+            "name": "Ultrasound - Obstetric",
+            "short": "Ultrasound - Obstetric",
+            "synonyms": [
+                "pregnancy scan",
+                "obstetric"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "full_bladder",
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "US-THYROID",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ultrasound",
+            "site": null,
+            "label": "Ultrasound - Thyroid",
+            "name": "Ultrasound - Thyroid",
+            "short": "Ultrasound - Thyroid",
+            "synonyms": [
+                "thyroid",
+                "neck"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "US-BREAST",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ultrasound",
+            "site": null,
+            "label": "Ultrasound - Breast",
+            "name": "Ultrasound - Breast",
+            "short": "Ultrasound - Breast",
+            "synonyms": [
+                "breast"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "US-DOPPLER-LEGS",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ultrasound",
+            "site": null,
+            "label": "Ultrasound - Doppler - Legs",
+            "name": "Ultrasound - Doppler - Legs",
+            "short": "Ultrasound - Doppler - Legs",
+            "synonyms": [
+                "doppler",
+                "dvt"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "CT-HEAD",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ct",
+            "site": null,
+            "label": "CT - Head",
+            "name": "CT - Head",
+            "short": "CT - Head",
+            "synonyms": [
+                "brain",
+                "head"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "CT-CHEST",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ct",
+            "site": null,
+            "label": "CT - Chest",
+            "name": "CT - Chest",
+            "short": "CT - Chest",
+            "synonyms": [
+                "chest"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "CT-AP",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ct",
+            "site": null,
+            "label": "CT - Abdomen & Pelvis",
+            "name": "CT - Abdomen & Pelvis",
+            "short": "CT - Abdomen & Pelvis",
+            "synonyms": [
+                "abdomen",
+                "pelvis"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "CT-CTPA",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "ct",
+            "site": null,
+            "label": "CT - Pulmonary angiogram",
+            "name": "CT - Pulmonary angiogram",
+            "short": "CT - Pulmonary angiogram",
+            "synonyms": [
+                "ctpa",
+                "pulmonary embolism",
+                "pe"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "MRI-BRAIN",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "mri",
+            "site": null,
+            "label": "MRI - Brain",
+            "name": "MRI - Brain",
+            "short": "MRI - Brain",
+            "synonyms": [
+                "brain",
+                "head"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MRI-LSPINE",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "mri",
+            "site": null,
+            "label": "MRI - Lumbar spine",
+            "name": "MRI - Lumbar spine",
+            "short": "MRI - Lumbar spine",
+            "synonyms": [
+                "back",
+                "spine"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MRI-KNEE",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "mri",
+            "site": null,
+            "label": "MRI - Knee",
+            "name": "MRI - Knee",
+            "short": "MRI - Knee",
+            "synonyms": [
+                "knee"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "MRI-CARDIAC",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "mri",
+            "site": null,
+            "label": "MRI - Cardiac",
+            "name": "MRI - Cardiac",
+            "short": "MRI - Cardiac",
+            "synonyms": [
+                "heart",
+                "cardiac"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "OT-DEXA",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "other",
+            "site": null,
+            "label": "Other - DEXA scan",
+            "name": "Other - DEXA scan",
+            "short": "Other - DEXA scan",
+            "synonyms": [
+                "dexa",
+                "bone density"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "OT-MAMMO",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "other",
+            "site": null,
+            "label": "Other - Mammogram",
+            "name": "Other - Mammogram",
+            "short": "Other - Mammogram",
+            "synonyms": [
+                "mammogram",
+                "breast"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": false,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "OT-FLUORO",
+            "kind": "imaging",
+            "category": "imaging",
+            "modality": "other",
+            "site": null,
+            "label": "Other - Fluoroscopy",
+            "name": "Other - Fluoroscopy",
+            "short": "Other - Fluoroscopy",
+            "synonyms": [
+                "fluoroscopy",
+                "barium"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": "none",
+            "contrast_possible": true,
+            "ionising": true,
+            "active": true
+        },
+        {
+            "code": "ECG12",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "ECG (12-lead)",
+            "name": "ECG (12-lead)",
+            "short": "ECG (12-lead)",
+            "synonyms": [
+                "ecg",
+                "ekg",
+                "electrocardiogram"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "ECHO-TTE",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "Echo - TTE",
+            "name": "Echo - TTE",
+            "short": "Echo - TTE",
+            "synonyms": [
+                "echo",
+                "echocardiogram",
+                "tte"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "ECHO-TOE",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "Echo - TOE",
+            "name": "Echo - TOE",
+            "short": "Echo - TOE",
+            "synonyms": [
+                "echo",
+                "echocardiogram",
+                "toe",
+                "tee"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "STRESS",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "Stress test",
+            "name": "Stress test",
+            "short": "Stress test",
+            "synonyms": [
+                "exercise test",
+                "treadmill"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "HOLTER24",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "Holter (24 h)",
+            "name": "Holter (24 h)",
+            "short": "Holter (24 h)",
+            "synonyms": [
+                "holter",
+                "ambulatory ecg"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "SPIRO",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "Spirometry",
+            "name": "Spirometry",
+            "short": "Spirometry",
+            "synonyms": [
+                "lung function",
+                "pft"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        },
+        {
+            "code": "EEG",
+            "kind": "physiological",
+            "category": "physiological",
+            "modality": null,
+            "site": null,
+            "label": "EEG",
+            "name": "EEG",
+            "short": "EEG",
+            "synonyms": [
+                "electroencephalogram",
+                "seizure"
+            ],
+            "common": false,
+            "default_specimen": null,
+            "fasting_hours": null,
+            "default_preparation": null,
+            "contrast_possible": false,
+            "ionising": false,
+            "active": true
+        }
+    ]
+}

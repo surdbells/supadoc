@@ -975,6 +975,72 @@ final class DocumentSharingService
         }, $now);
     }
 
+    // =====================================================================
+    // Lab request results (lab spec §1.9)
+    // =====================================================================
+
+    /**
+     * Where the grant of one lab request's results stands for its doctor:
+     * `active` (a stored-active grant carries the request's key), `ended`
+     * (grants with that key existed for the doctor but none is active — Stop
+     * sharing and its Undo, which restores without the key; Remove access
+     * emptying it; a long pause ended it) or `none` (never shared).
+     */
+    public function resultShareState(Patient $p, string $specialistId, string $clientKey): string
+    {
+        $sid = strtolower(trim($specialistId));
+        $key = strtolower(trim($clientKey));
+        if ($this->grants->activeWithClientKey($p->getId(), $sid, $key) !== null) {
+            return 'active';
+        }
+        foreach ($this->grants->rowsWithClientKey($p->getId(), $key) as $row) {
+            if (strtolower((string) $row['specialist_id']) === $sid) {
+                return 'ended';
+            }
+        }
+
+        return 'none';
+    }
+
+    /**
+     * The share a lab result upload makes with the requesting doctor — the
+     * struct {@see validateUploadShare()} returns, for {@see shareUpload()}:
+     * that doctor only, no end, the request's key as the batch, surface
+     * `lab_request`. Called under the pair lock (inside the upload's
+     * transaction): the doctor must be booked and practising (422
+     * `doctor_not_eligible` / `doctor_unavailable`) and the key must not have
+     * been used with other choices (409 `idempotency_conflict`).
+     *
+     * @return array{specialist_ids: list<string>, duration: ShareDuration, until: null, appointment: null, batch_id: string, surface: string, hash: string}
+     */
+    public function labResultShare(Patient $p, string $specialistId, string $clientKey, DateTimeImmutable $now): array
+    {
+        $sid = strtolower(trim($specialistId));
+        $key = strtolower(trim($clientKey));
+        $this->assertEligible($p, $this->specialist($sid), 'share');
+        $hash = Rules::requestHash([
+            'specialist_ids' => [$sid],
+            'duration'       => ShareDuration::INDEFINITE->value,
+            'expires_at'     => null,
+            'appointment_id' => null,
+        ]);
+        foreach ($this->grants->rowsWithClientKey($p->getId(), $key) as $row) {
+            if (trim((string) $row['request_hash']) !== $hash) {
+                throw DomainRefusal::code(409, 'idempotency_conflict', 'These files were already sent with different sharing choices. Check your choices and try again.');
+            }
+        }
+
+        return [
+            'specialist_ids' => [$sid],
+            'duration'       => ShareDuration::INDEFINITE,
+            'until'          => null,
+            'appointment'    => null,
+            'batch_id'       => $key,
+            'surface'        => 'lab_request',
+            'hash'           => $hash,
+        ];
+    }
+
     /**
      * Validate `show_specialist_ids[]` (booking-attachment upload) or
      * `document_share.show_specialist_ids` (booking): ≤ 20 doctors the patient booked.

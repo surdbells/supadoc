@@ -76,6 +76,8 @@ return [
             . 'and for how long (24h, 7d, 30d, until a date, no end, or until after a consultation); they can change or stop sharing at any time (stopping does not recall copies already downloaded). '
             . 'Doctors see only what is shared now (one policy decides), every file view is recorded and visible to the patient, and doctors can ask for access. '
             . 'Background polls send `X-SD-Passive: 1`, which never extends the session idle clock.'],
+        ['name' => 'Lab requests', 'description' => 'Laboratory & diagnostics requests: doctors send a signed request (tests, imaging, physiological studies) to a patient they have consulted; the patient accepts (consent recorded with its version), reports Booked / In Lab, and adds result files (shared with the requesting doctor as one grant per request, surface `lab_request`); the doctor reviews each result they can open Normal / Abnormal with a note (the patient never sees the outcome). '
+            . 'Expiry is computed on read. The PDF is served through 15-minute signed links. Coded errors carry `errors.code` (`status_changed` with `errors.status`, `expired`, `consent_changed`, `catalogue_changed`, `idempotency_conflict`, `not_shared`, `not_viewable`, `not_consulted`, `lab_orders_retired`). Notices and emails never name a test, a condition or a review outcome.'],
         ['name' => 'Doctor applications', 'description' => 'Doctors apply without an account (apps/onboarding): drafts, uploads, submit, the status check, more-info responses and withdraw; '
             . 'reviewers (`specialists.manage`) list, review, interview, approve (creating the doctor) or reject. Coded errors carry `errors.code`.'],
         ['name' => 'System'],
@@ -969,7 +971,7 @@ return [
         ],
         '/api/doctor/appointments/{id}/lab-orders' => [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'List lab orders', 'responses' => ['200' => ['description' => 'OK']]],
-            'post' => ['tags' => ['Doctor'], 'summary' => 'Create a lab order', 'responses' => ['201' => ['description' => 'Created']]],
+            'post' => ['tags' => ['Doctor'], 'summary' => 'Retired: lab orders are created as lab requests now', 'description' => 'Always 410 `lab_orders_retired` "Lab orders have moved. Use New lab request." — send a signed lab request (POST /api/doctor/lab-requests). Earlier orders stay readable (GET).', 'responses' => ['410' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` lab_orders_retired']]],
         ],
         '/api/doctor/appointments/{id}/referrals' => [
             'get'  => ['tags' => ['Doctor'], 'summary' => 'List referrals', 'responses' => ['200' => ['description' => 'OK']]],
@@ -4033,6 +4035,7 @@ return [
                 ],
             ],
         ],
-    ] + (require __DIR__ . '/openapi-doctor-applications.php')($envelope, $json, $paginated),
+    ] + (require __DIR__ . '/openapi-doctor-applications.php')($envelope, $json, $paginated)
+      + (require __DIR__ . '/openapi-lab-requests.php')($envelope, $json, $paginated),
     'security' => [['bearerAuth' => []]],
 ];

@@ -89,6 +89,19 @@ final class AuditEventDescriber
         'prescription.sent'       => 'Prescription sent',
         'prescription.cancelled'  => 'Prescription cancelled',
         'lab_order.created'       => 'Lab order created',
+        // Lab requests (metadata never names a test, a condition or a review outcome)
+        'lab_request.sent'              => 'Lab request sent',
+        'lab_request.accepted'          => 'Lab request accepted',
+        'lab_request.declined'          => 'Lab request declined',
+        'lab_request.sample_given'      => 'Lab sample reported',
+        'lab_result.added'              => 'Lab result added',
+        'lab_result.reviewed'           => 'Lab result reviewed',
+        'lab_request.cancelled'         => 'Lab request cancelled',
+        'lab_request.expired'           => 'Lab request expired',
+        'lab_request.status_corrected'  => 'Lab request status corrected',
+        'lab_result.review_escalated'   => 'Lab result review escalated',
+        'lab_request.viewed'            => 'Lab request PDF viewed',
+        'lab_request.downloaded'        => 'Lab request PDF downloaded',
         'referral.created'        => 'Referral created',
         'certificate.issued'      => 'Medical certificate issued',
         'care_plan.updated'       => 'Care plan updated',
@@ -222,13 +235,23 @@ final class AuditEventDescriber
     /**
      * The back-office page the event concerns, with the permission that page
      * needs: a doctor (`specialist`), a consultation (`appointment` or an
-     * event tied to one), a patient (`patient`) — else null.
+     * event tied to one), a patient (`patient`; a lab request or result, by
+     * its metadata's `patient_id`) — else null.
      *
+     * @param array<string,mixed> $metadata
      * @return array{path:string, query:array<string,string>, permission:string}|null
      */
-    public static function link(?string $resourceType, ?string $resourceId, ?string $appointmentId): ?array
+    public static function link(?string $resourceType, ?string $resourceId, ?string $appointmentId, array $metadata = []): ?array
     {
         $id = is_string($resourceId) ? trim($resourceId) : '';
+        // A lab request / result opens its patient's page (the metadata carries patient_id).
+        if (in_array($resourceType, ['lab_request', 'lab_result'], true)) {
+            $patientId = $metadata['patient_id'] ?? null;
+
+            return is_string($patientId) && self::isUuid($patientId)
+                ? ['path' => '/patients/' . strtolower($patientId), 'query' => [], 'permission' => 'monitoring.view']
+                : null;
+        }
         if ($resourceType === 'specialist' && self::isUuid($id)) {
             return ['path' => '/specialists/' . $id, 'query' => [], 'permission' => 'specialists.manage'];
         }

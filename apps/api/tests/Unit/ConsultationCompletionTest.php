@@ -143,7 +143,7 @@ final class ConsultationCompletionTest extends TestCase
 
         $this->assertStringContainsString('deleted_at IS NULL', $sql);
         $this->assertStringContainsString('scheduled_at < ?', $sql);
-        foreach (['clinical_notes', 'prescriptions', 'medical_certificates', 'referrals', 'lab_orders', 'transcript_segments'] as $table) {
+        foreach (['clinical_notes', 'prescriptions', 'medical_certificates', 'referrals', 'lab_orders', 'lab_requests', 'transcript_segments'] as $table) {
             $this->assertMatchesRegularExpression(
                 "/EXISTS \\(SELECT \\w+\\.appointment_id FROM $table \\w+ WHERE \\w+\\.appointment_id = a0_\\.id/",
                 $sql,
@@ -185,7 +185,7 @@ final class ConsultationCompletionTest extends TestCase
     {
         $queries = $this->completer()->evidenceQueries(['00000000-0000-0000-0000-000000000001']);
 
-        $this->assertSame(['clinical_note', 'prescription', 'certificate', 'referral', 'lab_order', 'transcript', 'session'], array_keys($queries));
+        $this->assertSame(['clinical_note', 'prescription', 'certificate', 'referral', 'lab_order', 'lab_request', 'transcript', 'session'], array_keys($queries));
         foreach ($queries as $kind => $query) {
             $sql = $query->getSQL();
             $sql = is_array($sql) ? implode(';', $sql) : $sql;

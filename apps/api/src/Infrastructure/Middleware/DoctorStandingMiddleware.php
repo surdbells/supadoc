@@ -10,6 +10,7 @@ use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Prescription;
 use App\Domain\Entity\Specialist;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Repository\LabRequestRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
@@ -50,6 +51,7 @@ final class DoctorStandingMiddleware implements MiddlewareInterface
         private readonly SpecialistRepository $specialists,
         private readonly AppointmentRepository $appointments,
         private readonly PrescriptionRepository $prescriptions,
+        private readonly ?LabRequestRepository $labRequests = null,
     ) {
     }
 
@@ -109,22 +111,27 @@ final class DoctorStandingMiddleware implements MiddlewareInterface
 
     /**
      * Whether this request works on one of the doctor's own consultations that
-     * has already started: /doctor/appointments/{id}/…, or a prescription for
-     * one (POST /doctor/prescriptions with `appointment_id`, or
-     * /doctor/prescriptions/{rxId}/…).
+     * has already started: /doctor/appointments/{id}/…, or a prescription or
+     * lab request for one (POST /doctor/prescriptions or /doctor/lab-requests
+     * with `appointment_id`, /doctor/prescriptions/{rxId}/… or
+     * /doctor/lab-requests/{labId}/…).
      */
     private function underWayFor(ServerRequestInterface $request, string $path, Specialist $doctor): bool
     {
         $appointmentId = null;
         if (str_starts_with($path, '/doctor/appointments/{id}')) {
             $appointmentId = self::routeArgument($request, 'id');
-        } elseif ($path === '/doctor/prescriptions') {
+        } elseif ($path === '/doctor/prescriptions' || $path === '/doctor/lab-requests') {
             $body          = $request->getParsedBody();
             $appointmentId = is_array($body) && is_string($body['appointment_id'] ?? null) ? $body['appointment_id'] : null;
         } elseif (str_starts_with($path, '/doctor/prescriptions/{rxId}')) {
             $rxId = self::routeArgument($request, 'rxId');
             $rx   = $rxId !== null ? $this->prescriptions->find($rxId) : null;
             $appointmentId = $rx instanceof Prescription ? $rx->getAppointmentId() : null;
+        } elseif (str_starts_with($path, '/doctor/lab-requests/{labId}') && $this->labRequests !== null) {
+            $labId = self::routeArgument($request, 'labId');
+            $lab   = $labId !== null ? $this->labRequests->findForSpecialist($labId, $doctor->getId()) : null;
+            $appointmentId = $lab?->getAppointmentId();
         }
         if ($appointmentId === null || $appointmentId === '') {
             return false;

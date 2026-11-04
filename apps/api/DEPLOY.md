@@ -1272,6 +1272,57 @@ Then, in this order:
 6. **Rollback:** the columns are nullable and unused by the old code; rolling back the API code is safe.
    Roll the front ends back first (they cope with an old API), then the API.
 
+### One-time: Laboratory & Diagnostics (lab requests, 2026-11)
+
+1. **Order: the API goes live before the front ends** (same two-step push as the time-zone release).
+   1. From your machine: `git push origin <api-commit-sha>:main` — only the API commit.
+   2. On this box: the redeploy one-liner from "Redeploying" (it applies the schema).
+   3. Check: `curl -s -o /dev/null -w '%{http_code}\n' https://api.dosthq.com/api/doctor/lab-requests/options`
+      should print `401`. `404` means the old API is still served — reload PHP, and stop here if it persists.
+   4. From your machine: `git push origin main` (doctor portal, patient app, back office).
+   Why: the new doctor and patient pages call the new endpoints; against an old API they show
+   "Could not load your lab requests" and nothing can be sent.
+2. **Schema (the one-liner applies it):** new tables `lab_requests`, `lab_request_items`,
+   `lab_request_results`, `lab_request_events`, `lab_request_counters` and their indexes. No existing
+   column changes, so the DROP/retype guard lets it through. No prod-migrate step and nothing to backfill.
+   The test catalogue ships as a file (`resources/lab/catalogue-2026-11.1.json`) — no import step.
+3. **No new env vars.** The request PDF uses the existing `CLINIC_NAME`, `CLINIC_TAGLINE` and
+   `CLINIC_CONTACT` (set `CLINIC_CONTACT` so labs know whom to call). Request numbers use the clinic
+   calendar (`APP_TIMEZONE`). Run CLI checks with aaPanel's PHP (`/www/server/php/84/bin/php`).
+4. **Back office permission:** a new staff permission **"Manage lab requests (status, PDFs)"**
+   (`labs.manage`). Grant it in Back office › Staff to the support staff who need it; they must sign out and
+   in again. Without it staff see summary rows only (`monitoring.view`).
+5. **Cron:** `bin/send-reminders.php` gains the lab job. What needs the cron, and what doesn't:
+   - **Needs cron:** patient reminders for unanswered requests (2 h STAT / 12 h urgent / 48 h routine);
+     the doctor's "not accepted yet" notice (STAT 4 h / urgent 24 h); the doctor's review reminder
+     (in-app + email; 4 h STAT/urgent, 48 h routine); the **7-day escalation to `labs.manage` staff** for
+     results nobody has reviewed; the patient's "waiting for your result?" nudge; saving expiry and the
+     expiry notices.
+   - **Works without cron:** expiry shown on time everywhere (computed when read); the doctor email the
+     moment a STAT or urgent result is added; "Needs review" and the overview counts; the patient's
+     "don't wait for the review" help line.
+   Until the cron is installed, nobody is reminded about unreviewed routine results and nothing escalates —
+   check the back office's "overdue" count by hand.
+6. **What changes for doctors (tell them):**
+   - "Prescriptions" is now **Prescriptions & Lab**, with a **Laboratory & Diagnostics** tab: request
+     laboratory tests, imaging and physiological tests for any patient you've consulted, signed with your
+     saved signature (or one you draw).
+   - In a consultation, **Lab request** opens the new form in a new tab (the call stays connected); the old
+     free-text lab orders can no longer be created — earlier ones stay visible, read-only.
+   - Booked and In Lab are **reported by the patient**. Review each result as Normal or Abnormal with a
+     note; patients see your note, never the word "Abnormal". Only files you can open (PDF or photo) can
+     be reviewed. STAT and urgent results also arrive by email.
+   - **Reload any open VideoMed tab.** An old tab trying to create a lab order gets "Lab orders have moved.
+     Use New lab request."
+7. **Before go-live (product):** clinician sign-off of the catalogue (microbiology matrix, default
+   specimens, fasting hours, imaging preparations, which studies count as ionising / contrast-possible)
+   and of the patient preparation text; sign-off that MRI implant screening and kidney function before
+   contrast are left to the imaging centre (the PDF says so); legal/clinical sign-off of the STAT and
+   emergency wording and of the patient's "Worried about a result…" line; clear test lab requests
+   together with the other test data.
+8. **Rollback:** roll the front ends back first, then the API. The new tables are unused by old code and can
+   stay.
+
 ---
 
 ## Troubleshooting

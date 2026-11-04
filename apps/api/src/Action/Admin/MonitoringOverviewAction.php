@@ -11,13 +11,16 @@ use App\Domain\Repository\LabOrderRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Repository\ReferralRepository;
+use App\Infrastructure\Lab\LabRequestService;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * GET /api/admin/monitoring/overview — platform-wide consultation activity for the
- * back-office dashboard. All counts come from real tables (no synthetic metrics).
+ * back-office dashboard. All counts come from real tables (no synthetic metrics);
+ * `lab_requests` = {total, awaiting_consent, in_progress, result_ready,
+ * needs_review, review_overdue} (lab spec §2.5).
  * Behind RBAC `monitoring.view`.
  */
 final class MonitoringOverviewAction
@@ -32,6 +35,7 @@ final class MonitoringOverviewAction
         private readonly ReferralRepository $referrals,
         private readonly RecordingRepository $recordings,
         private readonly AuditEventRepository $audit,
+        private readonly LabRequestService $labRequests,
     ) {
     }
 
@@ -49,6 +53,8 @@ final class MonitoringOverviewAction
             'clinical_notes' => $this->notes->count(),
             'prescriptions'  => $this->prescriptions->count(),
             'lab_orders'     => $this->labOrders->count(),
+            // Lab requests: groups (clock-bound), results the requesting doctor can review now, and review-due ones older than 72 h.
+            'lab_requests'   => $this->labRequests->overview(),
             'referrals'      => $this->referrals->count(),
             'recordings'     => [
                 'total'  => $this->recordings->count(),

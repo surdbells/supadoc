@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Action\Doctor;
 
-use App\Action\Document\StreamsDocument;
-use App\Domain\Document\DocumentSharingRules as Rules;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\DocumentAccessGrantRepository;
 use App\Domain\Repository\DocumentAccessLogRepository;
@@ -15,7 +13,6 @@ use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AuditLogger;
 use App\Infrastructure\Service\MedicalDocumentStorage;
 use Doctrine\ORM\EntityManagerInterface;
-use Ramsey\Uuid\Uuid;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -43,17 +40,18 @@ use Psr\Http\Message\ServerRequestInterface;
  *     `view_unavailable` (reported to Sentry);
  *  5. the file is served inline only, with its extension's fixed type, no
  *     caching and a sandboxing CSP, plus `X-SD-View-Ref` / `X-SD-Viewed-At`.
+ *
+ * Steps 2–5 are {@see ViewsSharedDocument::viewForDoctor()}, shared with the
+ * lab result view.
  */
 final class DownloadPatientDocumentAction
 {
     use ApiResponse;
     use ResolvesDoctorAppointment;
-    use StreamsDocument;
+    use ViewsSharedDocument;
 
     /** The header only the doctor app's view-only viewer sends. */
     public const VIEWER_HEADER = 'X-SD-Viewer';
-
-    private const RELOAD = 'Reload VideoMed to open documents.';
 
     public function __construct(
         private readonly UserRepository $users,
@@ -72,102 +70,27 @@ final class DownloadPatientDocumentAction
         ResponseInterface $response,
         array $args,
     ): ResponseInterface {
-        if ($request->getHeaderLine(self::VIEWER_HEADER) !== '1') {
-            return $this->error($response, self::RELOAD, 409, ['code' => 'update_required', 'message' => self::RELOAD]);
+        if (($refused = $this->viewerHeaderProblem($request, $response)) !== null) {
+            return $refused;
         }
         $appointment = $this->doctorAppointment($request, $this->users, $this->appointments, strtolower(trim((string) $args['id'])));
         if ($appointment === null || $appointment->isDeleted()) {
             return $this->error($response, 'Consultation not found', 403);
         }
-        $doctor  = $appointment->getSpecialist();
-        $patient = $appointment->getPatient();
-        $now     = Rules::now();
 
-        try {
-            $visible = $this->policy->visibleDocument($doctor, $patient, (string) $args['docId'], $now);
-        } catch (\Throwable $e) {
-            return $this->unavailable($response, $e);
-        }
-        if ($visible === null) {
-            return $this->error($response, 'This document is no longer shared with you.', 404, ['code' => 'not_shared']);
-        }
-        // A type the viewer can't show is never sent to a doctor (nothing recorded).
-        if (!Rules::isViewable($visible->document->getExtension(), $visible->document->getMimeType())) {
-            return $this->error($response, "This file type can't be viewed in VideoMed.", 415, ['code' => 'not_viewable']);
-        }
-        // No bytes to hand over: record nothing, so the patient's Activity never
-        // says the doctor opened a file they did not receive.
-        if (!$this->storage->exists($visible->document)) {
-            error_log('[doc-access] file view: no stored file for document ' . $visible->documentId);
-
-            return $this->error($response, 'File not found', 404);
-        }
-
-        // The view reference is made before either row, so both carry it.
-        $logId   = Uuid::uuid4()->toString();
-        $viewRef = self::viewRef($logId);
-
-        $conn = $this->em->getConnection();
-        try {
-            $conn->beginTransaction();
-            $this->audit->record(
-                $doctor->getName(),
-                'doctor',
-                'document.viewed',
-                $appointment->getId(),
-                'medical_document',
-                $visible->documentId,
-                [
-                    'patient_id'    => strtolower($patient->getId()),
-                    'patient_name'  => $patient->getFullName(),
-                    'specialist_id' => strtolower($doctor->getId()),
-                    'doctor'        => $doctor->getName(),
-                    'grant_id'      => $visible->grantId,
-                    'via'           => $visible->via,
-                    'view_ref'      => $viewRef,
-                ],
-                (string) $request->getAttribute('user_id'),
-            );
-            $this->log->append([
-                'id'             => $logId,
-                'patient_id'     => $patient->getId(),
-                'specialist_id'  => $doctor->getId(),
-                'document_id'    => $visible->documentId,
-                'grant_id'       => $visible->grantId,
-                'appointment_id' => $appointment->getId(),
-                'event'          => 'viewed',
-                'actor_role'     => 'doctor',
-                'details'        => ['via' => $visible->via, 'view_ref' => $viewRef],
-            ], $now);
-            $this->grants->touchAccess($visible->grantId, $now);
-            $conn->commit();
-        } catch (\Throwable $e) {
-            if ($conn->isTransactionActive()) {
-                $conn->rollBack();
-            }
-
-            return $this->unavailable($response, $e);
-        }
-
-        return $this->streamDocument($response, $this->storage, $visible->document, viewOnly: true, extraHeaders: [
-            'X-SD-View-Ref'  => $viewRef,
-            'X-SD-Viewed-At' => (string) Rules::iso($now),
-        ]);
+        return $this->viewForDoctor(
+            $response,
+            $appointment->getSpecialist(),
+            $appointment->getPatient(),
+            (string) $args['docId'],
+            $appointment->getId(),
+            (string) $request->getAttribute('user_id'),
+        );
     }
 
     /** "VM-" + the first 8 hex digits of a ledger row id, upper-case. */
     public static function viewRef(string $logId): string
     {
         return 'VM-' . strtoupper(substr(str_replace('-', '', $logId), 0, 8));
-    }
-
-    private function unavailable(ResponseInterface $response, \Throwable $e): ResponseInterface
-    {
-        if (function_exists('\Sentry\captureException')) {
-            \Sentry\captureException($e);
-        }
-        error_log('[doc-access] file view failed: ' . $e::class . ': ' . $e->getMessage());
-
-        return $this->error($response, 'Could not open the document right now.', 503, ['code' => 'view_unavailable']);
     }
 }

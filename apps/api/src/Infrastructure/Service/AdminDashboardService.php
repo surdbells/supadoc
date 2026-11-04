@@ -47,7 +47,7 @@ final class AdminDashboardService
     /** Permissions only back-office staff hold (a doctor login has none of them). */
     public const BACK_OFFICE_PERMISSIONS = [
         'monitoring.view', 'specialists.manage', 'payouts.manage', 'support.manage',
-        'staff.manage', 'settings.manage', 'appointments.update', 'appointments.create',
+        'staff.manage', 'settings.manage', 'appointments.update', 'appointments.create', 'labs.manage',
     ];
 
     /** Dashboard part => the permissions that unlock it (ANY of them). */
@@ -601,7 +601,7 @@ final class AdminDashboardService
             'actor_name'  => $a['actor_name'],
             'actor_role'  => $a['actor_role'],
             'created_at'  => (new DateTimeImmutable((string) $a['created_at']))->setTimezone($zone)->format(DATE_ATOM),
-            'link'        => AuditEventDescriber::link($a['resource_type'], $a['resource_id'], $a['appointment_id']),
+            'link'        => AuditEventDescriber::link($a['resource_type'], $a['resource_id'], $a['appointment_id'], $metadata),
         ];
     }
 

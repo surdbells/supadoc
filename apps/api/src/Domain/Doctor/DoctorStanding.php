@@ -64,7 +64,7 @@ final class DoctorStanding
     ];
 
     /** Clinical work a doctor who hasn't accepted the current terms may not start (writes only). */
-    private const CLINICAL_PREFIXES = ['/doctor/appointments', '/doctor/prescriptions', '/doctor/patients'];
+    private const CLINICAL_PREFIXES = ['/doctor/appointments', '/doctor/prescriptions', '/doctor/patients', '/doctor/lab-requests'];
 
     /** PATCH /doctor/profile keys that are availability — refused to a suspended doctor (the rest of the profile stays theirs). */
     public const AVAILABILITY_FIELDS = ['weekly_hours', 'slot_minutes', 'available'];

@@ -8,8 +8,9 @@ declare(strict_types=1);
  * missed (PastAppointmentCloser) — expiring / nudging unanswered
  * follow-up proposals, doctors' licence reminders / expiry, and reconciling
  * card payments: re-checking unconfirmed ones with Paystack and crediting
- * unused ones to the patient's wallet, and document-sharing bookkeeping —
- * expired shares and doctors' requests). Meant to be
+ * unused ones to the patient's wallet, document-sharing bookkeeping —
+ * expired shares and doctors' requests — and the lab request jobs: expiry,
+ * reminders, the review safety net and its staff escalation). Meant to be
  * run by cron every few minutes
  * (more often than the ReminderService catch-up window, e.g. every 5 minutes):
  *
@@ -93,6 +94,43 @@ try {
     printf("[%s] prescriptions: expired=%d expiry_reminders=%d\n", gmdate('Y-m-d H:i:s'), $rx['expired'], $rx['reminded']);
 } catch (\Throwable $e) {
     fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] prescriptions: ' . $e->getMessage() . "\n");
+}
+
+// Lab requests (LabRequestSweeper; lab spec §2.6): store expiries (notices only
+// for ones that expired in the last 3 days), remind the patient of an
+// unanswered request (2 h STAT / 12 h urgent / 48 h routine), tell the doctor
+// a STAT / urgent one isn't accepted yet (4 h / 24 h), remind the doctor of a
+// result they can open but haven't reviewed (4 h STAT / urgent, 48 h routine;
+// in-app + email), escalate a result nobody reviewed for 7 days to the
+// `labs.manage` staff, and nudge a patient whose sample was given but no
+// result arrived (2 / 7 days). Each row is re-checked under its lock and
+// marked before its notice goes, so running every 5 minutes is safe.
+try {
+    if (!$container->get(EntityManagerInterface::class)->isOpen()) {
+        $container = $build();
+    }
+    $labs = $container->get(App\Infrastructure\Lab\LabRequestSweeper::class)->run();
+    printf(
+        "[%s] lab requests: expired=%d reminded=%d doctor_nudged=%d review_reminded=%d escalated=%d result_nudged=%d errors=%d\n",
+        gmdate('Y-m-d H:i:s'),
+        $labs['expired'],
+        $labs['reminded'],
+        $labs['doctor_nudged'],
+        $labs['review_reminded'],
+        $labs['escalated'],
+        $labs['result_nudged'],
+        $labs['errors'],
+    );
+} catch (\Throwable $e) {
+    if (function_exists('\Sentry\captureException')) {
+        \Sentry\captureException($e);
+    }
+    fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] lab requests: ' . $e::class . "\n");
+    try {
+        $container = $build();
+    } catch (\Throwable $e) {
+        fwrite(STDERR, '[' . gmdate('Y-m-d H:i:s') . '] container: ' . $e::class . "\n");
+    }
 }
 
 // Past consultations nobody closed (PastAppointmentCloser; the windows are
