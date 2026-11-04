@@ -26,6 +26,7 @@ class Specialist
 {
     use TimestampsTrait;
     use SoftDeleteTrait;
+    use TimeZoneTrait;
 
     /** Identity fields that, once approved, change only through a review ({@see stageChanges()}). */
     public const LOCKED_FIELDS = ['name', 'specialty', 'mdcn_number', 'qualifications', 'qualification_entries', 'certifications'];
@@ -71,8 +72,9 @@ class Specialist
 
     /**
      * Recurring weekly availability: map of weekday ("0"=Sun … "6"=Sat) to a
-     * list of [start, end] "HH:MM" windows. Null falls back to a default in
-     * {@see \App\Infrastructure\Service\AvailabilityService}.
+     * list of [start, end] "HH:MM" windows on the doctor's own clock
+     * ({@see timeZone()}); an end of "24:00" means midnight. Null falls back to
+     * a default in {@see \App\Infrastructure\Service\AvailabilityService}.
      */
     #[ORM\Column(name: 'weekly_hours', type: 'json', nullable: true)]
     private ?array $weeklyHours = null;
@@ -1069,6 +1071,8 @@ class Specialist
             'qualification_entries' => $this->getQualificationEntries(),
             'certifications'   => $this->getCertifications(),
             'slot_minutes'     => $this->getSlotMinutes(),
+            // The effective zone (patients need it for the doctor's-time label).
+            'timezone'         => $this->timeZone()->getName(),
         ];
     }
 
@@ -1088,6 +1092,7 @@ class Specialist
             'phone'           => $this->phone,
             'date_of_birth'   => $this->dateOfBirth?->format('Y-m-d'),
             'weekly_hours'    => $this->weeklyHours,
+            'timezone_source' => $this->timezoneSource,
             'mdcn_number'     => $this->mdcnNumber,
             'has_signature'   => $this->signatureKey !== null,
             'locked_fields'   => $this->identityLocked() ? self::LOCKED_FIELDS : [],

@@ -7,7 +7,9 @@ namespace App\Infrastructure\Service;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PayoutRepository;
+use App\Domain\Settings\ProcessClock;
 use DateTimeImmutable;
+use DateTimeZone;
 
 /**
  * Computes a doctor's earnings from their consultations. Gross is what they
@@ -48,11 +50,17 @@ final class EarningsService
         return bcsub($gross, $this->commission($gross), self::SCALE);
     }
 
-    /** @return array<string,mixed> */
-    public function summary(string $specialistId): array
+    /**
+     * "This month" starts on the doctor's own calendar (`$tz`; null: the
+     * process zone), then is put on the process clock for the query.
+     *
+     * @return array<string,mixed>
+     */
+    public function summary(string $specialistId, ?DateTimeZone $tz = null): array
     {
-        $now        = new DateTimeImmutable();
-        $startMonth = $now->modify('first day of this month')->setTime(0, 0, 0);
+        $now        = new DateTimeImmutable('now', $tz ?? ProcessClock::zone());
+        $startMonth = ProcessClock::normalize($now->modify('first day of this month')->setTime(0, 0, 0));
+        $now        = ProcessClock::normalize($now);
 
         $gross       = $this->appointments->sumEarnedForSpecialist($specialistId);
         $grossMonth  = $this->appointments->sumEarnedForSpecialist($specialistId, $startMonth, $now);

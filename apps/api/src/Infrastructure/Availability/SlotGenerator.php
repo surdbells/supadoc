@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Availability;
 
+use App\Domain\Settings\TimeZones;
+use DateTimeImmutable;
+use DateTimeZone;
+
 /**
  * The one place consultation times are made — pure, so the calendar, the
  * directory, the suggestions and the booking guard can't disagree.
  *
- * Per UTC day (the doctor editor's day): a day on which the doctor published
- * explicit open slots offers exactly those; any other day offers the weekly
- * grid for its weekday, stepped by the doctor's own consultation length (a
- * consult must end inside its window). Each candidate then gets a state:
+ * Per doctor-local date ({@see Schedule::$zone}): a date on which the doctor
+ * published explicit open slots offers exactly those; any other date offers
+ * the weekly grid for its weekday — wall clock in the doctor's zone, so
+ * "09:00" is 09:00 local on either side of a DST change — stepped by the
+ * doctor's own consultation length (a consult must end inside its window).
+ * Each candidate then gets a state:
  *
  *   early   — starts before the lead time (too soon to book)
  *   late    — starts at or after the booking horizon (when one is given)
@@ -27,8 +33,6 @@ final class SlotGenerator
     public const BLOCKED = 'blocked';
     public const EARLY   = 'early';
     public const LATE    = 'late';
-
-    private const DAY = 86400;
 
     /**
      * Every candidate start in [$from, $to) (unix seconds), soonest first.
@@ -46,39 +50,48 @@ final class SlotGenerator
             return [];
         }
         $step = max(1, $schedule->slotMinutes) * 60;
+        $zone = $schedule->zone;
 
-        // Explicit open slots by UTC day, and how long each one runs (for the
-        // length of an appointment booked on it).
+        // Explicit open slots by the doctor's local date, and how long each one
+        // runs (for the length of an appointment booked on it).
         $explicitByDay = [];
         $explicitLength = [];
         foreach ($schedule->openSlots as [$start, $end]) {
             if ($end <= $start) {
                 continue;
             }
-            $explicitByDay[intdiv($start, self::DAY)][] = [$start, $end];
+            $explicitByDay[self::localDate($start, $zone)][] = [$start, $end];
             $explicitLength[$start] = max($explicitLength[$start] ?? 0, $end - $start);
         }
 
         /** @var array<int, array{0:int,1:int}> $candidates keyed by start: one candidate per start */
         $candidates = [];
-        for ($day = intdiv($from, self::DAY); $day * self::DAY < $to; $day++) {
-            if (isset($explicitByDay[$day])) {
-                foreach ($explicitByDay[$day] as [$start, $end]) {
+        $firstDate  = self::localDate($from, $zone);
+        $dayCount   = BookingFrame::daysBetween($firstDate, self::localDate($to - 1, $zone));
+        for ($i = 0; $i <= $dayCount; $i++) {
+            $date = BookingFrame::addDays($firstDate, $i);
+            if (isset($explicitByDay[$date])) {
+                foreach ($explicitByDay[$date] as [$start, $end]) {
                     if ($start >= $from && $start < $to) {
                         $candidates[$start] ??= [$start, $end];
                     }
                 }
                 continue;
             }
-            $dayStart = $day * self::DAY;
-            foreach ($schedule->weeklyHours[gmdate('w', $dayStart)] ?? [] as $window) {
+            // The weekday of the LOCAL date string, never of an instant.
+            $weekday = (new DateTimeImmutable($date . ' 12:00', new DateTimeZone('UTC')))->format('w');
+            foreach ($schedule->weeklyHours[$weekday] ?? [] as $window) {
                 $open  = self::minutes($window[0] ?? null);
                 $close = self::minutes($window[1] ?? null);
                 if ($open === null || $close === null) {
                     continue;
                 }
-                $stop = $dayStart + $close * 60;
-                for ($at = $dayStart + $open * 60; $at + $step <= $stop; $at += $step) {
+                // Wall clock → instants on this date (a gap start rolls forward;
+                // "24:00" is the next local midnight), then elapsed stepping, so
+                // a DST change never duplicates or drops a time.
+                $openAt  = TimeZones::wallToInstant($date, $open, $zone);
+                $closeAt = TimeZones::wallToInstant($date, $close, $zone);
+                for ($at = $openAt; $at + $step <= $closeAt; $at += $step) {
                     if ($at >= $from && $at < $to) {
                         $candidates[$at] ??= [$at, $at + $step];
                     }
@@ -128,6 +141,12 @@ final class SlotGenerator
         }
 
         return false;
+    }
+
+    /** The zone's calendar date of an instant, Y-m-d. */
+    private static function localDate(int $at, DateTimeZone $zone): string
+    {
+        return TimeZones::localDate($at, $zone);
     }
 
     /** "HH:MM" (up to "24:00") as minutes since midnight, or null when malformed. */

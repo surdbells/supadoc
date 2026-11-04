@@ -216,4 +216,33 @@ final class ProcessZoneBookingTest extends CardIntegrationTestCase
         $this->assertSame(PaymentIntentService::ALREADY_USED, $moved['body']['errors']['payment'] ?? null, json_encode($moved));
         $this->assertSame(1, $this->countRows('SELECT COUNT(*) FROM appointments WHERE payment_reference = ?', [$ref]));
     }
+
+    public function testAChicagoDoctorsHoursAreTheirOwnWallClockUnderPrc(): void
+    {
+        [, $doctor] = $this->patientAndDoctor('10000.00');
+        $em    = $this->em();
+        $fresh = $em->find(Specialist::class, $doctor->getId());
+        $this->assertNotNull($fresh);
+        $fresh->setTimezone('America/Chicago', 'manual');
+        $fresh->setWeeklyHours(array_fill_keys(['0', '1', '2', '3', '4', '5', '6'], [['09:00', '17:00']]));
+        $em->flush();
+
+        $chicago = new DateTimeZone('America/Chicago');
+        $day     = (new DateTimeImmutable('now', $chicago))->modify('+3 days')->format('Y-m-d');
+        $app     = $this->app();
+        $service = $app->get(AvailabilityService::class);
+        $doc     = $app->get(\Doctrine\ORM\EntityManagerInterface::class)->find(Specialist::class, $doctor->getId());
+        $this->assertNotNull($doc);
+        $this->assertSame('America/Chicago', $doc->timeZone()->getName());
+
+        $this->assertTrue($service->isSlotAvailable($doc, new DateTimeImmutable($day . ' 09:00', $chicago), false), '09:00 Chicago opens the day');
+        $this->assertTrue($service->isSlotAvailable($doc, new DateTimeImmutable($day . ' 16:30', $chicago), false));
+        $this->assertFalse($service->isSlotAvailable($doc, new DateTimeImmutable($day . ' 08:00', $chicago), false), '08:00 Chicago is before the grid');
+        $this->assertFalse($service->isSlotAvailable($doc, new DateTimeImmutable($day . ' 17:00', $chicago), false), 'a consult must end inside the window');
+
+        // The calendar names the doctor's own zone beside the viewer's.
+        $range = $service->range($doc, $day, $day, $service->frame(new DateTimeZone('Africa/Lagos'), null, false));
+        $this->assertSame('America/Chicago', $range['doctor_tz']);
+        $this->assertSame('Africa/Lagos', $range['tz']);
+    }
 }

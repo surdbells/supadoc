@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Appointment\RecipientZones;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Notification;
 use App\Domain\Enum\NotificationType;
@@ -13,7 +14,6 @@ use App\Domain\Repository\NotificationRepository;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
-use App\Domain\Settings\WebUrls;
 
 /**
  * Sends "your consultation is coming up" reminders with each party's personal,
@@ -102,21 +102,22 @@ final class ReminderService
         $specialist  = $appointment->getSpecialist();
         $p           = $patient->toArray();
         $patientName = trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? ''));
-        // Each party's join link opens on their own site (see WebUrls).
-        $patientBase = WebUrls::forPatient($patient);
-        $doctorBase  = WebUrls::patientAppForSpecialist($specialist);
 
         $count = 0;
         // uid must be unique per party in the appointment's Agora channel (matches booking).
-        $send = function (string $email, string $name, string $joinUrl) use ($appt, $whenLabel, &$count): void {
+        // Each recipient's own clock: the patient's, the doctor's, and the inviting
+        // patient's for guests (theirs is unknown).
+        $send = function (string $email, string $name, string $joinUrl, array $zones) use ($appt, $whenLabel, &$count): void {
             if ($email === '') {
                 return;
             }
-            $mail = EmailTemplates::joinReminder($appt, $name, $whenLabel, $joinUrl);
+            [$zone, $otherZone, $whose] = $zones;
+            $mail = EmailTemplates::joinReminder($appt, $name, $whenLabel, $joinUrl, $zone, $otherZone, $whose);
             $this->mail->send($email, $name, $mail['subject'], $mail['html']);
             $count++;
         };
-        $link = fn (string $base, string $name, string $role, int $uid): string => $base . '/call/join/' . $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid);
+        // Each party's join link opens on their own site: the doctor's on the doctor portal's call page.
+        $link = fn (string $name, string $role, int $uid): string => AppointmentInvites::joinLink($appointment, $role, $this->jwt->issueCallAccess((string) $appt['id'], $name, $role, $uid));
 
         // A doctor who stopped practising (suspended) — or was never approved —
         // gets no join link: their bookings are being cancelled and the call
@@ -124,14 +125,14 @@ final class ReminderService
         $doctorPractises = $specialist->isApproved();
 
         try {
-            $send((string) ($p['email'] ?? ''), $patientName, $link($patientBase, $patientName, 'patient', Appointment::PATIENT_UID));
+            $send((string) ($p['email'] ?? ''), $patientName, $link($patientName, 'patient', Appointment::PATIENT_UID), RecipientZones::patient($appointment));
             if ($doctorPractises && $specialist->getEmail() !== null) {
-                $send($specialist->getEmail(), $specialist->getName(), $link($doctorBase, $specialist->getName(), 'doctor', Appointment::DOCTOR_UID));
+                $send($specialist->getEmail(), $specialist->getName(), $link($specialist->getName(), 'doctor', Appointment::DOCTOR_UID), RecipientZones::doctor($appointment));
             }
             // Each guest's own stable link (their guest id + uid); one removed is no longer listed.
             foreach ($appointment->getGuests() as $guest) {
                 if (isset($guest['id'], $guest['uid'])) {
-                    $send((string) $guest['email'], (string) $guest['name'], GuestInvitations::joinUrl($this->jwt, $appointment, $guest));
+                    $send((string) $guest['email'], (string) $guest['name'], GuestInvitations::joinUrl($this->jwt, $appointment, $guest), RecipientZones::guest($appointment));
                 }
             }
         } catch (\Throwable) {

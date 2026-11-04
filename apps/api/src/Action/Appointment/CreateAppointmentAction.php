@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Action\Appointment;
 
+use App\Domain\Appointment\RecipientZones;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\Patient;
 use App\Domain\Enum\ConsultationType;
@@ -11,6 +12,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Settings\ProcessClock;
+use App\Domain\Settings\TimeZones;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
@@ -142,7 +144,8 @@ final class CreateAppointmentAction
             $specialist->getId(),
             'appointment',
             'New booking',
-            'A ' . (string) $a['type_label'] . ' was booked for a patient.',
+            'A ' . (string) $a['type_label'] . ' was booked for a patient on '
+                . TimeZones::when($appointment->getScheduledAt(), $specialist->timeZone()) . '.',
             '/schedule',
         );
 
@@ -154,10 +157,14 @@ final class CreateAppointmentAction
     {
         try {
             $p    = $patient->toArray();
+            [$zone, $otherZone, $whose] = RecipientZones::patient($appointment);
             $mail = EmailTemplates::appointmentConfirmation(
                 $appointment->toArray(),
                 (string) $p['first_name'],
                 WebUrls::forPatient($patient),
+                tz: $zone,
+                otherTz: $otherZone,
+                otherWho: $whose,
             );
             $this->mail->send(
                 (string) $p['email'],

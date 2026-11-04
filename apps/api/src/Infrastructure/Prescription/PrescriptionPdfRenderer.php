@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Prescription;
 
 use App\Domain\Entity\Prescription;
+use App\Domain\Settings\TimeZones;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -31,6 +32,10 @@ final class PrescriptionPdfRenderer
     private const TINT  = [241, 249, 255];
     private const ALERT = [229, 57, 53];
 
+    /** The default zone (APP_TIMEZONE); each render prints in the prescribing doctor's zone. */
+    private DateTimeZone $defaultTz;
+
+    /** The zone of the render in progress. */
     private DateTimeZone $tz;
 
     public function __construct(
@@ -40,10 +45,11 @@ final class PrescriptionPdfRenderer
         string $timezone = 'Africa/Lagos',
     ) {
         try {
-            $this->tz = new DateTimeZone($timezone !== '' ? $timezone : 'Africa/Lagos');
+            $this->defaultTz = new DateTimeZone($timezone !== '' ? $timezone : 'Africa/Lagos');
         } catch (\Throwable) {
-            $this->tz = new DateTimeZone('Africa/Lagos');
+            $this->defaultTz = new DateTimeZone('Africa/Lagos');
         }
+        $this->tz = $this->defaultTz;
     }
 
     /**
@@ -51,6 +57,10 @@ final class PrescriptionPdfRenderer
      * @param array<string,string> $prescriber name, specialty, qualifications, mdcn_number
      * @param ?string $signaturePng flat PNG bytes, or null
      * @param ?string $watermark    DRAFT | EXPIRED | CANCELLED | null
+     * @param ?DateTimeZone $tz     the prescribing doctor's zone: "Date sent", vitals and
+     *                              "Signed electronically on" are stamped in it with its
+     *                              abbreviation (null: the default zone); policy dates
+     *                              (valid until, follow-up) stay calendar dates
      */
     public function render(
         Prescription $rx,
@@ -59,7 +69,9 @@ final class PrescriptionPdfRenderer
         ?string $signaturePng,
         string $verifyUrl,
         ?string $watermark = null,
+        ?DateTimeZone $tz = null,
     ): string {
+        $this->tz = $tz ?? $this->defaultTz;
         $pdf = new PrescriptionPdf('P', 'mm', 'A4');
         $pdf->SetAutoPageBreak(false);
         $pdf->SetMargins(self::M, self::M, self::M);
@@ -588,15 +600,16 @@ final class PrescriptionPdfRenderer
         return $d->format('j M Y');
     }
 
-    /** The date part of an instant (sent / signed), in the clinic's timezone. */
+    /** An instant (sent) in the doctor's zone, with the abbreviation: "4 Nov 2026, 09:12 CST". */
     private function date(DateTimeImmutable $d): string
     {
-        return $d->setTimezone($this->tz)->format('j M Y');
+        return TimeZones::stamp($d, $this->tz);
     }
 
+    /** An instant (vitals taken, signed) in the doctor's zone: "4 Nov 2026, 09:12 CST". */
     private function dateTime(DateTimeImmutable $d): string
     {
-        return $d->setTimezone($this->tz)->format('j M Y, H:i');
+        return TimeZones::stamp($d, $this->tz);
     }
 
     /** FPDF embeds images from files; write the signature to a private temp file. */

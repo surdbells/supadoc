@@ -26,7 +26,7 @@ use Doctrine\ORM\Mapping as ORM;
 class DocumentAccessLogEntry
 {
     public const EVENTS = [
-        'viewed', 'shared', 'changed', 'extended', 'revoked', 'restored',
+        'viewed', 'printed', 'shared', 'changed', 'extended', 'revoked', 'restored',
         'document_removed', 'document_shown', 'expired',
         'requested', 'request_approved', 'request_declined', 'request_cancelled', 'request_expired',
         'requests_blocked', 'requests_allowed',

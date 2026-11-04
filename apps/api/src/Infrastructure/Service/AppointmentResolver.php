@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Service;
 
 use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Appointment\RecipientZones;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Exception\ValidationException;
@@ -227,7 +228,7 @@ final class AppointmentResolver
             $appointment->getSpecialist()->getId(),
             'appointment',
             'Consultation marked held',
-            sprintf('The back office marked your consultation with %s on %s as held.', self::patientName($appointment, 'a patient'), FollowUpService::whenLabel($appointment->getScheduledAt())),
+            sprintf('The back office marked your consultation with %s on %s as held.', self::patientName($appointment, 'a patient'), FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getSpecialist()->timeZone())),
             '/appointments/' . $appointment->getId(),
         );
 
@@ -416,10 +417,14 @@ final class AppointmentResolver
         $this->patientNotifier->appointment($appointment, 'Appointment cancelled', 'Your appointment was cancelled by VideoMed support.' . $refundNote);
         try {
             $p    = $appointment->getPatient()->toArray();
+            [$zone, $otherZone, $whose] = RecipientZones::patient($appointment);
             $mail = EmailTemplates::appointmentStatusUpdate(
                 $appointment->toArray(),
                 (string) ($p['first_name'] ?? ''),
                 WebUrls::forPatient($appointment->getPatient()),
+                tz: $zone,
+                otherTz: $otherZone,
+                otherWho: $whose,
             );
             $this->mail->send(
                 (string) ($p['email'] ?? ''),
@@ -434,7 +439,7 @@ final class AppointmentResolver
             $appointment->getSpecialist()->getId(),
             'appointment',
             'Booking cancelled',
-            sprintf('The back office cancelled the consultation with %s on %s.', self::patientName($appointment, 'a patient'), FollowUpService::whenLabel($appointment->getScheduledAt())),
+            sprintf('The back office cancelled the consultation with %s on %s.', self::patientName($appointment, 'a patient'), FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getSpecialist()->timeZone())),
             '/appointments/' . $appointment->getId(),
         );
         // Guests are told while their link could still be used — not long after the fact.

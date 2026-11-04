@@ -393,7 +393,9 @@ final class PrescriptionService
             $signature  = $this->signatures->read($rx->getSignatureKey());
         }
 
-        $owner = $this->patients->find($rx->getPatientId());
+        $owner  = $this->patients->find($rx->getPatientId());
+        // Time stamps on the prescribing doctor's clock (policy dates stay calendar dates).
+        $issuer = $rx->getSpecialistId() !== null ? $this->specialists->find($rx->getSpecialistId()) : null;
 
         return [
             'filename' => $rx->getNumber() . '.pdf',
@@ -404,6 +406,7 @@ final class PrescriptionService
                 $signature,
                 $this->verifyUrl($owner instanceof Patient ? $owner : null),
                 $watermark,
+                $issuer instanceof Specialist ? $issuer->timeZone() : null,
             ),
         ];
     }

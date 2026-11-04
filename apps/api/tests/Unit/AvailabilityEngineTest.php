@@ -10,6 +10,7 @@ use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\AvailabilitySlotRepository;
 use App\Domain\Settings\BookingSettings;
+use App\Domain\Settings\TimeZones;
 use App\Infrastructure\Availability\BookingFrame;
 use App\Infrastructure\Availability\CalendarQuery;
 use App\Infrastructure\Availability\Schedule;
@@ -29,7 +30,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class AvailabilityEngineTest extends TestCase
 {
-    /** Weekdays 09:00–12:00 UTC. */
+    /** Weekdays 09:00–12:00 (a Schedule in UTC unless a case gives the doctor a zone). */
     private const WEEKDAY_MORNINGS = [
         '1' => [['09:00', '12:00']],
         '2' => [['09:00', '12:00']],
@@ -76,15 +77,15 @@ final class AvailabilityEngineTest extends TestCase
 
     public function testTheWeeklyGridStepsByTheDoctorsOwnConsultLength(): void
     {
-        $hourly = new Schedule(60, ['1' => [['09:00', '12:00']]]);
+        $hourly = new Schedule(60, ['1' => [['09:00', '12:00']]], zone: new DateTimeZone('UTC'));
         $this->assertSame(['2026-10-19 09:00', '2026-10-19 10:00', '2026-10-19 11:00'], $this->starts($this->day($hourly, '2026-10-19')));
 
         // A consult must end inside its window: 45-minute slots in 09:00–11:00.
         $long = new Schedule(45, ['1' => [['09:00', '11:00']]]);
         $this->assertSame(['2026-10-19 09:00', '2026-10-19 09:45'], $this->starts($this->day($long, '2026-10-19')));
 
-        // Windows are UTC wall-clock and "24:00" closes the day.
-        $late = new Schedule(30, ['1' => [['23:00', '24:00']]]);
+        // Windows are wall clock in the doctor's zone (here UTC) and "24:00" closes the day.
+        $late = new Schedule(30, ['1' => [['23:00', '24:00']]], zone: new DateTimeZone('UTC'));
         $this->assertSame(['2026-10-19 23:00', '2026-10-19 23:30'], $this->starts($this->day($late, '2026-10-19')));
         $this->assertSame([], $this->starts($this->day($late, '2026-10-20')), 'Tuesday has no hours');
     }
@@ -189,8 +190,8 @@ final class AvailabilityEngineTest extends TestCase
 
     public function testDaysAreTheViewersCalendarDaysAcrossMidnight(): void
     {
-        // 22:00–24:00 UTC on Mondays is 23:00–01:00 in Lagos (UTC+1).
-        $s     = new Schedule(30, ['1' => [['22:00', '24:00']]]);
+        // A UTC doctor's 22:00–24:00 on Mondays is 23:00–01:00 in Lagos (UTC+1).
+        $s     = new Schedule(30, ['1' => [['22:00', '24:00']]], zone: new DateTimeZone('UTC'));
         $lagos = $this->frame('2026-10-18 12:00', 'Africa/Lagos');
 
         $mon = AvailabilityService::firstOpeningIn($s, $lagos->days('2026-10-19', '2026-10-19'), $lagos);
@@ -231,7 +232,7 @@ final class AvailabilityEngineTest extends TestCase
         $this->assertSame('evening', BookingFrame::partOf($day, $local('23:30')));
 
         // A part-of-day search skips a day that only has other parts.
-        $s = new Schedule(30, ['2' => [['08:00', '09:00']], '3' => [['13:00', '14:00']]]); // 09:00 / 14:00 Lagos
+        $s = new Schedule(30, ['2' => [['08:00', '09:00']], '3' => [['13:00', '14:00']]], zone: new DateTimeZone('UTC')); // a UTC doctor: 09:00 / 14:00 Lagos
         $afternoon = AvailabilityService::firstOpeningIn($s, $lagos->days('2026-10-20', '2026-10-21'), $lagos, 'afternoon');
         $this->assertSame('2026-10-21', $afternoon['date'] ?? null);
     }
@@ -501,5 +502,141 @@ final class AvailabilityEngineTest extends TestCase
         $this->assertSame('2027-10-15', $range['bookable_until']);
         $this->assertNull($range['next_available']);
         $this->assertSame(['closed'], array_values(array_unique(array_column($range['days'], 'status'))));
+        $this->assertSame('Africa/Lagos', $range['doctor_tz'], "the doctor's zone (never set: the clinic's)");
+    }
+
+    // ----- The doctor's own zone (wall clock, DST-safe) -----
+
+    /**
+     * Open starts as "Y-m-d H:i" on $tz's clock.
+     *
+     * @param list<array{start:int, end:int, state:string}> $candidates
+     * @return list<string>
+     */
+    private function localStarts(array $candidates, string $tz): array
+    {
+        return array_map(
+            static fn (array $c): string => (new DateTimeImmutable('@' . $c['start']))->setTimezone(new DateTimeZone($tz))->format('Y-m-d H:i'),
+            array_values(array_filter($candidates, static fn (array $c): bool => $c['state'] === SlotGenerator::OPEN)),
+        );
+    }
+
+    /** One local day of $tz, nothing too soon or too late. */
+    private function localDay(Schedule $s, string $date, string $tz): array
+    {
+        [$from, $to] = TimeZones::localDayBounds($date, new DateTimeZone($tz));
+
+        return SlotGenerator::generate($s, $from, $to, 0);
+    }
+
+    public function testAUsDoctorKeepsTheirWallClockAcrossDaylightSaving(): void
+    {
+        $chicago = new Schedule(30, ['1' => [['09:00', '17:00']]], zone: new DateTimeZone('America/Chicago'));
+
+        // Spring forward (2027-03-14): Mon 8 Mar 09:00 CST is 15:00Z, Mon 15 Mar 09:00 CDT is 14:00Z.
+        $before = $this->localDay($chicago, '2027-03-08', 'America/Chicago');
+        $after  = $this->localDay($chicago, '2027-03-15', 'America/Chicago');
+        $this->assertCount(16, $before);
+        $this->assertCount(16, $after);
+        $this->assertSame($this->at('2027-03-08 15:00'), $before[0]['start']);
+        $this->assertSame($this->at('2027-03-15 14:00'), $after[0]['start']);
+        $this->assertSame('2027-03-15 16:30', $this->localStarts($after, 'America/Chicago')[15]);
+
+        // Fall back (2027-11-07): Mon 1 Nov 09:00 CDT is 14:00Z, Mon 8 Nov 09:00 CST is 15:00Z.
+        $this->assertSame($this->at('2027-11-01 14:00'), $this->localDay($chicago, '2027-11-01', 'America/Chicago')[0]['start']);
+        $this->assertSame($this->at('2027-11-08 15:00'), $this->localDay($chicago, '2027-11-08', 'America/Chicago')[0]['start']);
+
+        // The booking guard agrees with the listing on both sides.
+        $this->assertTrue(SlotGenerator::isOpenAt($chicago, $this->at('2027-03-15 14:00'), 0));
+        $this->assertFalse(SlotGenerator::isOpenAt($chicago, $this->at('2027-03-15 13:30'), 0), '08:30 CDT is before the grid');
+        $this->assertTrue(SlotGenerator::isOpenAt($chicago, $this->at('2027-03-08 15:00'), 0));
+        $this->assertFalse(SlotGenerator::isOpenAt($chicago, $this->at('2027-03-08 14:00'), 0), '08:00 CST is before the grid');
+    }
+
+    public function testALagosViewerSeesAChicagoMondayOnTheSameLagosDay(): void
+    {
+        // Winter: Chicago is UTC-6, so 09:00–17:00 CST is 15:00Z–23:00Z = 16:00–00:00 WAT.
+        $s     = new Schedule(30, ['1' => [['09:00', '17:00']]], zone: new DateTimeZone('America/Chicago'));
+        $lagos = $this->frame('2026-11-08 12:00', 'Africa/Lagos', 0, 60);
+        $mon   = AvailabilityService::firstOpeningIn($s, $lagos->days('2026-11-09', '2026-11-09'), $lagos);
+        $this->assertSame('2026-11-09', $mon['date'] ?? null);
+        $this->assertSame(16, $mon['open_slots'] ?? null);
+        $this->assertSame($this->at('2026-11-09 15:00'), $mon['first_at'], '16:00 WAT');
+        $this->assertSame($this->at('2026-11-09 22:30'), $mon['slots'][15], '23:30 WAT, still Monday in Lagos');
+    }
+
+    public function testExplicitSlotsReplaceTheGridOnTheirLocalDateOnly(): void
+    {
+        // A Chicago doctor's explicit 19:00 Tue (01:00Z Wed) suppresses Tuesday's grid only.
+        $weekdays = ['2' => [['09:00', '10:00']], '3' => [['09:00', '10:00']]];
+        $open     = [[$this->at('2026-11-11 01:00'), $this->at('2026-11-11 01:30')]];
+        $s        = new Schedule(30, $weekdays, $open, zone: new DateTimeZone('America/Chicago'));
+
+        $this->assertSame(['2026-11-10 19:00'], $this->localStarts($this->localDay($s, '2026-11-10', 'America/Chicago'), 'America/Chicago'));
+        $this->assertSame(['2026-11-11 09:00', '2026-11-11 09:30'], $this->localStarts($this->localDay($s, '2026-11-11', 'America/Chicago'), 'America/Chicago'), 'Wednesday keeps its grid');
+    }
+
+    public function testExtremeZonesKeepTheirWeekdays(): void
+    {
+        // Kiritimati (UTC+14): a Monday 09:00–10:00 is Sunday 19:00Z–20:00Z.
+        $kiri = new Schedule(60, ['1' => [['09:00', '10:00']]], zone: new DateTimeZone('Pacific/Kiritimati'));
+        $out  = SlotGenerator::generate($kiri, $this->at('2026-11-08 00:00'), $this->at('2026-11-10 00:00'), 0);
+        $this->assertSame([$this->at('2026-11-08 19:00')], array_column($out, 'start'), 'Monday there, Sunday in UTC');
+
+        // Pago Pago (UTC-11): a Monday 20:00–21:00 is Tuesday 07:00Z.
+        $pago = new Schedule(60, ['1' => [['20:00', '21:00']]], zone: new DateTimeZone('Pacific/Pago_Pago'));
+        $out  = SlotGenerator::generate($pago, $this->at('2026-11-09 00:00'), $this->at('2026-11-11 00:00'), 0);
+        $this->assertSame([$this->at('2026-11-10 07:00')], array_column($out, 'start'));
+
+        // A Lagos viewer's Monday holds the Kiritimati doctor's Tuesday 05:00 (Mon 15:00Z).
+        $kiriTue = new Schedule(60, ['2' => [['05:00', '06:00']]], zone: new DateTimeZone('Pacific/Kiritimati'));
+        $lagos   = $this->frame('2026-11-08 12:00', 'Africa/Lagos', 0, 60);
+        $this->assertSame('2026-11-09', AvailabilityService::firstOpeningIn($kiriTue, $lagos->days('2026-11-09', '2026-11-10'), $lagos)['date'] ?? null);
+    }
+
+    public function testA25HourDayAtTheEdgeOfAWindow(): void
+    {
+        // New York's 2027-11-07 is 25 hours long. A window starting in its last UTC
+        // hours still finds the 23:00–24:00 time on the local Sunday.
+        $ny  = new Schedule(60, ['0' => [['23:00', '24:00']]], zone: new DateTimeZone('America/New_York'));
+        $out = SlotGenerator::generate($ny, $this->at('2027-11-08 04:00'), $this->at('2027-11-08 06:00'), 0);
+        $this->assertSame([$this->at('2027-11-08 04:00')], array_column($out, 'start'), '23:00 EST Sunday');
+        $this->assertSame($this->at('2027-11-08 05:00'), $out[0]['end'], 'ends at the next local midnight');
+
+        // Kiritimati's local day starts 14 hours before UTC's: an explicit slot early
+        // on its local date (still the previous UTC day) decides that whole date.
+        $kiri = new Schedule(60, ['1' => [['09:00', '12:00']]], [[$this->at('2026-11-08 11:00'), $this->at('2026-11-08 12:00')]], zone: new DateTimeZone('Pacific/Kiritimati'));
+        $mon  = SlotGenerator::generate($kiri, $this->at('2026-11-08 20:00'), $this->at('2026-11-09 10:00'), 0);
+        $this->assertSame([], array_column($mon, 'start'), 'the 01:00 Monday explicit slot replaces the grid all Monday');
+    }
+
+    public function testASpringForwardWindowGivesFewerTimes(): void
+    {
+        // Chicago 2027-03-14 (a Sunday) 01:00–04:00 at 30 min: 01:00 01:30 03:00 03:30.
+        $s = new Schedule(30, ['0' => [['01:00', '04:00']]], zone: new DateTimeZone('America/Chicago'));
+        $this->assertSame(
+            ['2027-03-14 01:00', '2027-03-14 01:30', '2027-03-14 03:00', '2027-03-14 03:30'],
+            $this->localStarts($this->localDay($s, '2027-03-14', 'America/Chicago'), 'America/Chicago'),
+        );
+    }
+
+    public function testAMidnightEndInTheDoctorsZone(): void
+    {
+        // Lagos Mondays 21:00–24:00 at 30 min: 6 times, the last ending at the next local midnight.
+        $s   = new Schedule(30, ['1' => [['21:00', '24:00']]], zone: new DateTimeZone('Africa/Lagos'));
+        $day = $this->localDay($s, '2026-11-09', 'Africa/Lagos');
+        $this->assertCount(6, $day);
+        $this->assertSame($this->at('2026-11-09 23:00'), $day[5]['end']);
+    }
+
+    public function testRegularHoursInPlay(): void
+    {
+        $service = $this->service();
+        $own     = $this->approved();
+        $own->setWeeklyHours(['1' => [['09:00', '12:00']]]);
+        $this->assertSame(['hours' => ['1' => [['09:00', '12:00']]], 'source' => 'own'], $service->regularHours($own));
+
+        $onboarding = new Specialist('Dr. New', 'GP');
+        $this->assertSame(['hours' => null, 'source' => null], $service->regularHours($onboarding), 'no made-up hours while onboarding');
     }
 }

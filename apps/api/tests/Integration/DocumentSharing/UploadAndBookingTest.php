@@ -177,7 +177,149 @@ final class UploadAndBookingTest extends DocShareTestCase
         $this->assertSame(0, $this->countRows('SELECT COUNT(*) FROM appointments WHERE id NOT IN (?, ?, ?, ?, ?, ?)', [$this->apPast, $this->apNext, $this->aqNext, $this->bpNext, $this->gpPast, $this->dqNext]));
     }
 
+    // ----- In-call uploads (share_surface=call) -----
+
+    /** @return array<string,mixed> the call-share fields for A's upcoming consultation with P */
+    private function callShare(array $over = []): array
+    {
+        return $over + [
+            'share_specialist_ids' => [$this->A],
+            'share_duration'       => 'indefinite',
+            'share_batch_id'       => Uuid::uuid4()->toString(),
+            'share_appointment_id' => $this->apNext,
+            'share_surface'        => 'call',
+        ];
+    }
+
+    public function testAnInCallUploadIsSharedWithThatDoctorWithNoEndDate(): void
+    {
+        $up = $this->upload($this->callShare());
+        $this->assertSame(201, $up['status'], json_encode($up['body']));
+        $this->assertSame('shared', $up['body']['data']['share_outcome']);
+        $grant = $this->conn()->fetchAssociative("SELECT id, scope, source, duration, surface, appointment_id, expires_at FROM document_access_grants WHERE source = 'upload'");
+        $this->assertIsArray($grant);
+        $this->assertSame(['selected', 'upload', 'indefinite', 'call', strtolower($this->apNext)], [$grant['scope'], $grant['source'], $grant['duration'], $grant['surface'], strtolower((string) $grant['appointment_id'])]);
+        $this->assertNull($grant['expires_at']);
+        $this->assertSame(1, $this->countRows("SELECT COUNT(*) FROM document_access_log WHERE event = 'shared' AND CAST(details AS TEXT) LIKE '%\"surface\":\"call\"%'"));
+        $this->assertSame(1, $this->countRows("SELECT COUNT(*) FROM audit_events WHERE action = 'document_access.granted' AND CAST(metadata AS TEXT) LIKE '%\"surface\":\"call\"%'"));
+        $this->assertContains((string) $up['body']['data']['id'], $this->visible($this->A, $this->P, Rules::now()));
+
+        // Replaying the batch with the same choices is fine; other choices are a 409.
+        $batch = Uuid::uuid4()->toString();
+        $this->assertSame(201, $this->upload($this->callShare(['share_batch_id' => $batch]))['status']);
+        $this->assertSame(201, $this->upload($this->callShare(['share_batch_id' => $batch]))['status']);
+        $clash = $this->upload($this->callShare(['share_batch_id' => $batch, 'share_appointment_id' => $this->apPast]));
+        $this->assertSame(409, $clash['status'], json_encode($clash['body']));
+        $this->assertSame('idempotency_conflict', $clash['body']['errors']['code']);
+    }
+
+    public function testAnIphoneVideoIsAcceptedInACall(): void
+    {
+        $up = $this->upload($this->callShare(), $this->file('clip.mp4', "\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  " . str_repeat("\x00", 64), 'video/mp4'));
+        $this->assertSame(201, $up['status'], json_encode($up['body']));
+        $this->assertSame('video/quicktime', $up['body']['data']['mime_type'], 'stored as sniffed');
+        $this->assertSame('shared', $up['body']['data']['share_outcome']);
+    }
+
+    public function testCallRulesAreEnforced(): void
+    {
+        $files = $this->countRows('SELECT COUNT(*) FROM medical_documents');
+        $cases = [
+            'no consultation'    => [$this->callShare(['share_appointment_id' => null]), 'share_appointment_id', "Choose the consultation you're in."],
+            'another doctor'     => [$this->callShare(['share_specialist_ids' => [$this->B]]), 'share_specialist_ids', "In a call you can share only with the doctor you're seeing."],
+            'two doctors'        => [$this->callShare(['share_specialist_ids' => [$this->A, $this->B]]), 'share_specialist_ids', "In a call you can share only with the doctor you're seeing."],
+            'an end date'        => [$this->callShare(['share_duration' => '7d']), 'share_duration', 'Files shared in a call stay shared until you stop sharing.'],
+        ];
+        foreach ($cases as $why => [$fields, $field, $message]) {
+            $res = $this->upload(array_filter($fields, static fn ($v): bool => $v !== null));
+            $this->assertSame(422, $res['status'], $why . ' ' . json_encode($res['body']));
+            $this->assertSame($message, $res['body']['errors'][$field] ?? null, $why . ' ' . json_encode($res['body']));
+        }
+
+        $this->conn()->executeStatement("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [$this->apNext]);
+        $cancelled = $this->upload($this->callShare());
+        $this->assertSame(422, $cancelled['status']);
+        $this->assertSame('This consultation was cancelled.', $cancelled['body']['errors']['share_appointment_id']);
+        $this->assertSame($files, $this->countRows('SELECT COUNT(*) FROM medical_documents'), 'nothing stored');
+    }
+
+    public function testOnlyTypesTheDoctorCanViewAreSharedInACall(): void
+    {
+        $files  = $this->countRows('SELECT COUNT(*) FROM medical_documents');
+        $stored = fn (): int => count(glob(MedicalDocumentStorage::baseDir() . '/' . $this->P . '/*') ?: []);
+        $before = $stored();
+        $message = 'In a call you can share PDFs, photos (JPG, PNG, WEBP) and videos (MP4, WEBM).';
+        foreach ([['letter.docx', "PK\x03\x04" . str_repeat("\x00", 100), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], ['clip.mov', "\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  " . str_repeat("\x00", 64), 'video/quicktime']] as [$name, $bytes, $mime]) {
+            $res = $this->upload($this->callShare(), $this->file($name, $bytes, $mime));
+            $this->assertSame(422, $res['status'], $name);
+            $this->assertSame(['file' => $message], $res['body']['errors'], $name);
+        }
+        $this->assertSame($files, $this->countRows('SELECT COUNT(*) FROM medical_documents'));
+        $this->assertSame($before, $stored(), 'refused before a byte is stored');
+
+        // Outside a call the same Word file is still fine (private).
+        $this->assertSame(201, $this->upload([], $this->file('letter.docx', "PK\x03\x04" . str_repeat("\x00", 100), 'application/zip'))['status']);
+    }
+
+    public function testAStoredTypeTheDoctorCantViewIsRefusedAfterStoringAndTheBytesAreDeleted(): void
+    {
+        // The name check passes ("scan.pdf"), but what storage keeps isn't a
+        // type the viewer can show. Real storage only stores a type its sniffing
+        // agrees with, so stand in an upload whose name storage then reads as
+        // ".docx" (PK bytes, sniffed as a zip): the second check must catch it.
+        $path = tempnam(sys_get_temp_dir(), 'docshare-it-') ?: sys_get_temp_dir() . '/docshare-it-' . bin2hex(random_bytes(4));
+        file_put_contents($path, "PK\x03\x04" . str_repeat("\x00", 100));
+        $this->temp[] = $path;
+        $file = new class ($path, 'scan.pdf', 'application/pdf', (int) filesize($path), UPLOAD_ERR_OK) extends UploadedFile {
+            private int $reads = 0;
+
+            public function getClientFilename(): ?string
+            {
+                return $this->reads++ === 0 ? 'scan.pdf' : 'scan.docx';
+            }
+        };
+
+        $files  = $this->countRows('SELECT COUNT(*) FROM medical_documents');
+        $stored = fn (): int => count(glob(MedicalDocumentStorage::baseDir() . '/' . $this->P . '/*') ?: []);
+        $before = $stored();
+        $res    = $this->upload($this->callShare(), $file);
+        $this->assertSame(422, $res['status'], json_encode($res['body']));
+        $this->assertSame(['file' => 'In a call you can share PDFs, photos (JPG, PNG, WEBP) and videos (MP4, WEBM).'], $res['body']['errors']);
+        $this->assertSame($before, $stored(), 'the stored bytes are deleted');
+        $this->assertFalse(is_file($path), 'the upload was stored (moved) before the refusal');
+        $this->assertSame($files, $this->countRows('SELECT COUNT(*) FROM medical_documents'), 'no document row');
+        $this->assertSame(0, $this->countRows("SELECT COUNT(*) FROM document_access_grants WHERE source = 'upload'"), 'no share');
+    }
+
+    public function testADoctorWhoStoppedPractisingGetsNothingAndTheBytesAreDeleted(): void
+    {
+        $before = count(glob(MedicalDocumentStorage::baseDir() . '/' . $this->P . '/*') ?: []);
+        $this->suspend($this->A, $this->now->modify('-1 minute'));
+        $res = $this->upload($this->callShare());
+        $this->assertSame(422, $res['status'], json_encode($res['body']));
+        $this->assertSame('doctor_unavailable', $res['body']['errors']['code'] ?? null, json_encode($res['body']));
+        $this->assertSame($before, count(glob(MedicalDocumentStorage::baseDir() . '/' . $this->P . '/*') ?: []));
+    }
+
+    public function testWithSharingSwitchedOffACallUploadIsKeptPrivately(): void
+    {
+        $_ENV['DOC_SHARING_ENABLED'] = 'false';
+        $res = $this->upload($this->callShare());
+        $this->assertSame(201, $res['status'], json_encode($res['body']));
+        $this->assertSame('sharing_unavailable', $res['body']['data']['share_outcome']);
+        $this->assertSame(0, $this->countRows("SELECT COUNT(*) FROM document_access_grants WHERE source = 'upload'"));
+    }
+
     // ----- Helpers -----
+
+    private function file(string $name, string $bytes, string $mime): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'docshare-it-') ?: sys_get_temp_dir() . '/docshare-it-' . bin2hex(random_bytes(4));
+        file_put_contents($path, $bytes);
+        $this->temp[] = $path;
+
+        return new UploadedFile($path, $name, $mime, (int) filesize($path), UPLOAD_ERR_OK);
+    }
 
     private function pdf(): UploadedFile
     {
@@ -194,12 +336,12 @@ final class UploadAndBookingTest extends DocShareTestCase
      * @param array<string,mixed> $fields
      * @return array{status:int, body:array<string,mixed>}
      */
-    private function upload(array $fields): array
+    private function upload(array $fields, ?UploadedFile $file = null): array
     {
         $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/portal/documents')
             ->withAttribute('customer_id', $this->P)
             ->withParsedBody($fields + ['document_type' => 'laboratory_test_report'])
-            ->withUploadedFiles(['file' => $this->pdf()]);
+            ->withUploadedFiles(['file' => $file ?? $this->pdf()]);
 
         return $this->decode($this->container()->get(UploadMyDocumentAction::class)($request, new Response()));
     }

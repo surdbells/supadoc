@@ -24,6 +24,7 @@ final class RoutesClockGateTest extends TestCase
         ['post', '/doctor/availability', 'Action\Doctor\AddAvailabilityAction'],
         ['post', '/doctor/availability/block', 'Action\Doctor\BlockAvailabilityAction'],
         ['delete', '/doctor/availability/{id}', 'Action\Doctor\DeleteAvailabilityAction'],
+        ['put', '/doctor/timezone', 'Action\Doctor\SetDoctorTimeZoneAction'],
         ['post', '/appointments', 'Action\Appointment\CreateMyAppointmentAction'],
         ['post', '/appointments/pay-init', 'Action\Appointment\InitAppointmentPaymentAction'],
         ['post', '/appointments/{id}/reschedule', 'Action\Appointment\ReschedulePortalAppointmentAction'],
@@ -54,7 +55,7 @@ final class RoutesClockGateTest extends TestCase
         foreach (self::GATED as [$method, $path, $class]) {
             $this->assertStringContainsString(self::GATE, $this->statement($method, $path, $class), "{$method} {$path} ({$class})");
         }
-        $this->assertSame(10, substr_count($this->routes(), self::GATE), 'those 10 routes and no others');
+        $this->assertSame(11, substr_count($this->routes(), self::GATE), 'those 11 routes and no others');
     }
 
     public function testRbacRunsBeforeTheGateOnTheStaffBooking(): void

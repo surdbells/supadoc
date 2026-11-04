@@ -297,6 +297,8 @@ final class DocumentSharingPresenter
             'shared_until_label_at' => Rules::iso($v->untilLabelAt),
             'shared_indefinitely'   => $v->indefinite,
             'shared_at'             => Rules::iso($v->sharedAt),
+            // Whether the doctor app's viewer can show it (else the file route answers 415).
+            'viewable'              => Rules::isViewable($v->document->getExtension(), $v->document->getMimeType()),
         ];
     }
 

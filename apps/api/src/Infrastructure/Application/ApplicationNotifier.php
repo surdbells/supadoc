@@ -176,8 +176,11 @@ final class ApplicationNotifier
         if ($epoch === null) {
             return;
         }
-        $at = (new DateTimeImmutable('@' . $epoch))->setTimezone(ClinicTime::zone());
-        $this->queue[] = function () use ($app, $ref, $at, $minutes, $url, $note, $rescheduled): void {
+        // The applicant's own zone when they gave one (else the clinic's), with
+        // the clinic's time beside it when the offsets differ.
+        $zone = $app->applicantTimeZone() ?? ClinicTime::zone();
+        $at   = (new DateTimeImmutable('@' . $epoch))->setTimezone($zone);
+        $this->queue[] = function () use ($app, $ref, $at, $zone, $minutes, $url, $note, $rescheduled): void {
             $this->sendEmail($app, 'applicationInterview', EmailTemplates::applicationInterview(
                 (string) $app->getFirstName(),
                 $ref,
@@ -187,8 +190,9 @@ final class ApplicationNotifier
                 $note,
                 $rescheduled,
                 $this->supportEmail,
+                $zone,
             ));
-            $this->sendSms($app, 'interview', ['ref' => $ref, 'when' => ApplicationSms::when($at, ClinicTime::zone())]);
+            $this->sendSms($app, 'interview', ['ref' => $ref, 'when' => ApplicationSms::when($at, $zone, ClinicTime::zone())]);
         };
     }
 

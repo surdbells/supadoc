@@ -177,7 +177,9 @@ final class ApplicationReviewService
         $app = $this->transition($id, $body, SM::REQUEST_INFO, function (DoctorApplication $app, S $from, ?S $to, DateTimeImmutable $now) use ($actorId, $actorName, $message, $items): void {
             $cancelled = null;
             if (SM::cancelsInterview($from, SM::REQUEST_INFO) && $app->hasInterview()) {
-                $cancelled = ApplicationViews::interview($app)['starts_at_label'] ?? null;
+                // On the applicant's own clock when they gave a zone.
+                $view      = ApplicationViews::interview($app);
+                $cancelled = $view['applicant_label'] ?? $view['starts_at_label'] ?? null;
                 $this->em->persist(new DoctorApplicationEvent($app->getId(), 'interview_cancelled', 'staff', $from->value, null, $actorId, $actorName, false, metadata: [
                     'starts_epoch'     => $app->getInterviewEpoch(),
                     'duration_minutes' => $app->getInterviewDurationMinutes(),

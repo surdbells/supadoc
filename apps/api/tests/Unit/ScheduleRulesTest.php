@@ -59,6 +59,17 @@ final class ScheduleRulesTest extends TestCase
         $this->assertFalse(ScheduleRules::isPastUtcDay($this->utc('2026-10-15'), $now));
     }
 
+    public function testPastDaysAreJudgedOnTheDoctorsOwnCalendar(): void
+    {
+        // 23:30 in Chicago is 05:30Z the next day: "today" in Chicago is not past yet.
+        $now     = $this->utc('2026-11-05 05:30');
+        $chicago = new DateTimeZone('America/Chicago');
+        $this->assertFalse(ScheduleRules::isPastLocalDay('2026-11-04', $chicago, $now), 'Chicago is still on the 4th');
+        $this->assertTrue(ScheduleRules::isPastLocalDay('2026-11-03', $chicago, $now));
+        $this->assertTrue(ScheduleRules::isPastLocalDay('2026-11-04', new DateTimeZone('Africa/Lagos'), $now), 'Lagos is on the 5th');
+        $this->assertTrue(ScheduleRules::isPastUtcDay($this->utc('2026-11-04'), $now), 'the legacy UTC rule disagrees');
+    }
+
     public function testCertificatesMayBeBackdatedOneWeek(): void
     {
         $this->assertSame('2026-10-07', ScheduleRules::earliestCertificateStart('2026-10-14'));

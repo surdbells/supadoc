@@ -44,7 +44,12 @@ final class DoctorCalendarAction
         }
 
         $query = $request->getQueryParams();
-        $frame = $this->availability->frame(BookingFrame::zone($query['tz'] ?? null), null, false);
+        // Without `tz`, the doctor's own zone (not the clinic's).
+        $frame = $this->availability->frame(
+            is_string($query['tz'] ?? null) && trim($query['tz']) !== '' ? BookingFrame::zone($query['tz']) : $specialist->timeZone(),
+            null,
+            false,
+        );
         [$from, $to] = CalendarQuery::range($query, $frame);
 
         return $this->success($response, $this->availability->range($specialist, $from, $to, $frame));

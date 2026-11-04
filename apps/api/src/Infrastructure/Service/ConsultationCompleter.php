@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Service;
 
+use App\Domain\Appointment\RecipientZones;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\ClinicalNote;
 use App\Domain\Entity\LabOrder;
@@ -457,10 +458,11 @@ final class ConsultationCompleter
         $patient = $appointment->getPatient();
         $p       = $patient->toArray();
         $webUrl  = WebUrls::forPatient($patient);
+        [$zone, $otherZone, $whose] = RecipientZones::patient($appointment);
         // After the reply: the doctor's End waits on this request.
-        AfterResponse::defer(function () use ($appt, $p, $webUrl): void {
+        AfterResponse::defer(function () use ($appt, $p, $webUrl, $zone, $otherZone, $whose): void {
             try {
-                $mail = EmailTemplates::consultationCompleted($appt, (string) ($p['first_name'] ?? ''), $webUrl);
+                $mail = EmailTemplates::consultationCompleted($appt, (string) ($p['first_name'] ?? ''), $webUrl, $zone, $otherZone, $whose);
                 $this->mail->send(
                     (string) ($p['email'] ?? ''),
                     trim((string) ($p['first_name'] ?? '') . ' ' . (string) ($p['last_name'] ?? '')),

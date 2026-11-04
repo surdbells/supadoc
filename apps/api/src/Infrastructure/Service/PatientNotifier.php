@@ -10,7 +10,9 @@ use App\Domain\Entity\Patient;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\TimeZones;
 use DateTimeImmutable;
+use DateTimeZone;
 
 /**
  * Writes in-app notifications to a patient's feed. Best-effort — a notification
@@ -34,24 +36,27 @@ final class PatientNotifier
         }
     }
 
-    /** "Wed, 21 Oct 2026 · 10:00 AM WAT" — the clinic's clock. */
-    public static function timeLabel(DateTimeImmutable $at): string
+    /** "Wed, 21 Oct 2026 · 10:00 AM WAT" on $tz's clock (the patient's; null: the clinic's). */
+    public static function timeLabel(DateTimeImmutable $at, ?DateTimeZone $tz = null): string
     {
-        return $at->setTimezone(ClinicTime::zone())->format('D, j M Y · g:i A T');
+        $tz ??= ClinicTime::zone();
+
+        return TimeZones::date($at, $tz) . ' · ' . TimeZones::time($at, $tz);
     }
 
     /**
      * Convenience for the appointment lifecycle: writes an APPOINTMENT notification
      * whose body names the consultation type, specialist and the time on the
-     * clinic's clock (e.g. "Wed, 21 Oct 2026 · 10:00 AM WAT"), optionally
-     * prefixed with a status-specific sentence, and opens `$link` when tapped.
+     * patient's clock (`$tz`, default their saved zone — e.g. "Wed, 21 Oct 2026 ·
+     * 10:00 AM WAT"), optionally prefixed with a status-specific sentence, and
+     * opens `$link` when tapped.
      */
-    public function appointment(Appointment $appointment, string $title, string $detail = '', ?string $link = null): void
+    public function appointment(Appointment $appointment, string $title, string $detail = '', ?string $link = null, ?DateTimeZone $tz = null): void
     {
         $appt = $appointment->toArray();
         $when = '';
         try {
-            $when = self::timeLabel($appointment->getScheduledAt());
+            $when = self::timeLabel($appointment->getScheduledAt(), $tz ?? $appointment->getPatient()->timeZone());
         } catch (\Throwable) {
             // leave the time out if it can't be formatted
         }

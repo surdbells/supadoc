@@ -53,11 +53,52 @@ final class DocumentSharingRules
     /** Where the patient made the decision (`grants.surface`). */
     public const SURFACES = ['documents_page', 'manage_sharing', 'document_access', 'upload', 'booking', 'appointment_details', 'call', 'request'];
 
-    /** Upload surfaces (`share_surface`). */
-    public const UPLOAD_SURFACES = ['documents_page', 'appointment_details'];
+    /** Upload surfaces (`share_surface`); `call` is an upload made inside a consultation (its own rules, see DocumentSharingService). */
+    public const UPLOAD_SURFACES = ['documents_page', 'appointment_details', 'call'];
+
+    /** Extensions a doctor can view in the in-app viewer (and the only ones a call upload accepts). */
+    public const VIEWABLE_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm'];
 
     /** Every 503 of the kill switch says this (spec §2.10). */
     public const UNAVAILABLE_MESSAGE = 'Document sharing is unavailable right now. Your documents stay private.';
+
+    /**
+     * Whether a doctor may view this stored file in-app. Matches what
+     * MedicalDocumentStorage actually stores: pdf → 'application/pdf' or '';
+     * jpg/jpeg/png/webp → 'image/*'; mp4/webm → 'video/*' (an iPhone .mp4 is
+     * video/quicktime), 'application/mp4', 'application/octet-stream' or ''.
+     */
+    public static function isViewable(string $ext, string $mime): bool
+    {
+        $ext  = strtolower(trim($ext));
+        $mime = strtolower(trim($mime));
+
+        return match ($ext) {
+            'pdf'                          => $mime === 'application/pdf' || $mime === '',
+            'jpg', 'jpeg', 'png', 'webp'   => str_starts_with($mime, 'image/'),
+            'mp4', 'webm'                  => str_starts_with($mime, 'video/')
+                || in_array($mime, ['application/mp4', 'application/octet-stream', ''], true),
+            default                        => false,
+        };
+    }
+
+    /**
+     * The fixed Content-Type a viewable file is served with (never the sniffed
+     * value): pdf application/pdf, jpg/jpeg image/jpeg, png image/png, webp
+     * image/webp, mp4 video/mp4, webm video/webm.
+     */
+    public static function viewContentType(string $ext): string
+    {
+        return match (strtolower(trim($ext))) {
+            'pdf'         => 'application/pdf',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png'         => 'image/png',
+            'webp'        => 'image/webp',
+            'mp4'         => 'video/mp4',
+            'webm'        => 'video/webm',
+            default       => 'application/octet-stream',
+        };
+    }
 
     /** Is document sharing switched on (`DOC_SHARING_ENABLED` = true / 1)? Default off. */
     public static function enabled(): bool

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Infrastructure\Email;
 
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\TimeZones;
 use DateTimeImmutable;
+use DateTimeZone;
 
 /**
  * Branded, responsive VideoMed transactional emails. Table-based layout with
@@ -13,6 +15,13 @@ use DateTimeImmutable;
  * app's real palette — "Video" cerulean (#1565c0) / "Med" teal (#00897b).
  *
  * Each builder returns ['subject' => ..., 'html' => ...].
+ *
+ * Times are written in the RECIPIENT's zone (`$tz`: the patient's saved zone,
+ * the doctor's profile zone, an applicant's own) with its abbreviation, and —
+ * on appointment mails — the other party's time in brackets when their offset
+ * differs at that instant (`$otherTz`, `$otherWho`: "Dr Obi's time", "your
+ * patient's time"). A null `$tz` is the clinic's zone. There is no static
+ * "current zone": templates are often built in deferred closures.
  */
 final class EmailTemplates
 {
@@ -27,13 +36,13 @@ final class EmailTemplates
      * @param array<string, mixed> $appt Appointment::toArray() output.
      * @return array{subject: string, html: string}
      */
-    public static function appointmentConfirmation(array $appt, string $firstName, string $webUrl, string $currency = '₦'): array
+    public static function appointmentConfirmation(array $appt, string $firstName, string $webUrl, string $currency = '₦', ?DateTimeZone $tz = null, ?DateTimeZone $otherTz = null, string $otherWho = ''): array
     {
         $specialist = (array) ($appt['specialist'] ?? []);
         $details    = self::detailsCard([
             'Specialist'   => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
-            'Date'         => self::date((string) ($appt['scheduled_at'] ?? '')),
-            'Time'         => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Date'         => self::date((string) ($appt['scheduled_at'] ?? ''), $tz),
+            'Time'         => self::time((string) ($appt['scheduled_at'] ?? ''), $tz, $otherTz, $otherWho),
             'Consultation' => (string) ($appt['type_label'] ?? ''),
             'Amount'       => self::money($currency, (string) ($appt['amount'] ?? '0.00')),
         ], self::statusBadge((string) ($appt['status'] ?? ''), (string) ($appt['status_label'] ?? '')));
@@ -57,14 +66,14 @@ final class EmailTemplates
      * @param array<string, mixed> $appt Appointment::toArray() output.
      * @return array{subject: string, html: string}
      */
-    public static function appointmentStatusUpdate(array $appt, string $firstName, string $webUrl, ?string $note = null): array
+    public static function appointmentStatusUpdate(array $appt, string $firstName, string $webUrl, ?string $note = null, ?DateTimeZone $tz = null, ?DateTimeZone $otherTz = null, string $otherWho = ''): array
     {
         $statusLabel = (string) ($appt['status_label'] ?? '');
         $specialist  = (array) ($appt['specialist'] ?? []);
         $details     = self::detailsCard([
             'Specialist' => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
-            'Date'       => self::date((string) ($appt['scheduled_at'] ?? '')),
-            'Time'       => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Date'       => self::date((string) ($appt['scheduled_at'] ?? ''), $tz),
+            'Time'       => self::time((string) ($appt['scheduled_at'] ?? ''), $tz, $otherTz, $otherWho),
         ], self::statusBadge((string) ($appt['status'] ?? ''), $statusLabel));
 
         $note = $note !== null ? trim($note) : '';
@@ -89,13 +98,13 @@ final class EmailTemplates
      * @param array<string, mixed> $appt Appointment::toArray() output.
      * @return array{subject: string, html: string}
      */
-    public static function consultationCompleted(array $appt, string $firstName, string $webUrl): array
+    public static function consultationCompleted(array $appt, string $firstName, string $webUrl, ?DateTimeZone $tz = null, ?DateTimeZone $otherTz = null, string $otherWho = ''): array
     {
         $specialist = (array) ($appt['specialist'] ?? []);
         $details    = self::detailsCard([
             'Specialist' => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
-            'Date'       => self::date((string) ($appt['scheduled_at'] ?? '')),
-            'Time'       => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Date'       => self::date((string) ($appt['scheduled_at'] ?? ''), $tz),
+            'Time'       => self::time((string) ($appt['scheduled_at'] ?? ''), $tz, $otherTz, $otherWho),
         ], self::statusBadge((string) ($appt['status'] ?? ''), (string) ($appt['status_label'] ?? '')));
 
         $body = self::heading('Your consultation is complete')
@@ -266,12 +275,15 @@ final class EmailTemplates
         string $joinUrl,
         array $attendees = [],
         string $currency = '₦',
+        ?DateTimeZone $tz = null,
+        ?DateTimeZone $otherTz = null,
+        string $otherWho = '',
     ): array {
         $specialist = (array) ($appt['specialist'] ?? []);
         $rows       = [
             'Specialist'   => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
-            'Date'         => self::date((string) ($appt['scheduled_at'] ?? '')),
-            'Time'         => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Date'         => self::date((string) ($appt['scheduled_at'] ?? ''), $tz),
+            'Time'         => self::time((string) ($appt['scheduled_at'] ?? ''), $tz, $otherTz, $otherWho),
             'Consultation' => (string) ($appt['type_label'] ?? 'Video consultation'),
         ];
         if ($attendees !== []) {
@@ -462,7 +474,7 @@ final class EmailTemplates
      * @param array<string, mixed> $txn WalletTransaction::toArray() output.
      * @return array{subject: string, html: string}
      */
-    public static function walletReceipt(array $txn, string $firstName, string $symbol, string $webUrl): array
+    public static function walletReceipt(array $txn, string $firstName, string $symbol, string $webUrl, ?DateTimeZone $tz = null): array
     {
         $type      = (string) ($txn['type'] ?? '');
         $direction = (string) ($txn['direction'] ?? '');
@@ -482,7 +494,7 @@ final class EmailTemplates
             'Amount'      => $signed,
             'Transaction' => (string) ($txn['label'] ?? ucfirst($type)),
             'Reference'   => (string) ($txn['reference'] ?? ''),
-            'Date'        => self::dateTime((string) ($txn['created_at'] ?? '')),
+            'Date'        => self::dateTime((string) ($txn['created_at'] ?? ''), $tz),
         ];
         if (($txn['description'] ?? '') !== '') {
             $rows['Details'] = (string) $txn['description'];
@@ -515,12 +527,15 @@ final class EmailTemplates
         string $recipientName,
         string $whenLabel,
         string $joinUrl,
+        ?DateTimeZone $tz = null,
+        ?DateTimeZone $otherTz = null,
+        string $otherWho = '',
     ): array {
         $specialist = (array) ($appt['specialist'] ?? []);
         $rows       = [
             'Specialist'   => trim(((string) ($specialist['name'] ?? '')) . self::dot((string) ($specialist['specialty'] ?? ''))),
-            'Date'         => self::date((string) ($appt['scheduled_at'] ?? '')),
-            'Time'         => self::time((string) ($appt['scheduled_at'] ?? '')),
+            'Date'         => self::date((string) ($appt['scheduled_at'] ?? ''), $tz),
+            'Time'         => self::time((string) ($appt['scheduled_at'] ?? ''), $tz, $otherTz, $otherWho),
             'Consultation' => (string) ($appt['type_label'] ?? 'Video consultation'),
         ];
 
@@ -1129,19 +1144,26 @@ final class EmailTemplates
     }
 
     /** @return array{subject: string, html: string} */
-    public static function applicationInterview(string $first, string $ref, string $startsIso, int $minutes, string $meetingUrl, ?string $note, bool $rescheduled, string $support = 'support@videomed.app'): array
+    public static function applicationInterview(string $first, string $ref, string $startsIso, int $minutes, string $meetingUrl, ?string $note, bool $rescheduled, string $support = 'support@videomed.app', ?DateTimeZone $tz = null): array
     {
+        // The applicant's own zone, with the clinic's time (the team schedules in it) when it differs.
+        $zone     = $tz ?? ClinicTime::zone();
+        $at       = self::inZone($startsIso, $zone);
+        $when     = $at !== null ? TimeZones::dual($at, $zone, ClinicTime::zone(), 'VideoMed time', 'dateTime') : '';
+        $zoneNote = $at === null || !TimeZones::offsetsDiffer($at, $zone, ClinicTime::zone())
+            ? 'Times are West Africa Time (Lagos).'
+            : 'Times are in your time zone (' . TimeZones::abbr($at, $zone) . ').';
         $host = (string) (parse_url($meetingUrl, PHP_URL_HOST) ?? '');
         $body = self::heading($rescheduled ? 'Your interview has moved' : 'Interview scheduled')
             . self::lead('Hi ' . self::e($first !== '' ? $first : 'Doctor') . ', join your interview at the scheduled time and have your ID and licence to hand.')
             . self::infoCard([
-                'When'   => self::dateTime($startsIso),
+                'When'   => $when,
                 'Length' => $minutes . ' minutes',
                 'Where'  => 'Video call' . ($host !== '' ? ' (' . $host . ')' : ''),
             ])
             . ($note !== null && trim($note) !== '' ? self::message('Note from our team', $note) : '')
             . self::button('Join interview', $meetingUrl)
-            . self::note("Times are West Africa Time (Lagos). Can't make it? Email " . $support . '.');
+            . self::note($zoneNote . " Can't make it? Email " . $support . '.');
 
         return [
             'subject' => ($rescheduled ? 'Your interview has moved — ' : 'Interview scheduled — ') . $ref,
@@ -1346,8 +1368,11 @@ final class EmailTemplates
         return '<span style="display:inline-block;padding:4px 12px;border-radius:999px;background:' . $bg . ';color:' . $fg . ';font-size:12px;font-weight:600;">' . self::e($label !== '' ? $label : ucfirst($status)) . '</span>';
     }
 
-    /** An ISO instant on the clinic's clock (APP_TIMEZONE); a bare Y-m-d is a calendar day and never shifts. Null when empty or unreadable. */
-    private static function inClinic(string $iso): ?DateTimeImmutable
+    /**
+     * An ISO instant in $tz (null: the clinic's zone, APP_TIMEZONE); a bare Y-m-d
+     * is a calendar day and never shifts. Null when empty or unreadable.
+     */
+    private static function inZone(string $iso, ?DateTimeZone $tz = null): ?DateTimeImmutable
     {
         if ($iso === '') {
             return null;
@@ -1358,22 +1383,31 @@ final class EmailTemplates
             return null;
         }
 
-        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $iso) === 1 ? $at : $at->setTimezone(ClinicTime::zone());
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $iso) === 1 ? $at : $at->setTimezone($tz ?? ClinicTime::zone());
     }
 
-    private static function date(string $iso): string
+    /** "Wed, 4 Nov 2026" in $tz. */
+    private static function date(string $iso, ?DateTimeZone $tz = null): string
     {
-        return self::inClinic($iso)?->format('D, j M Y') ?? '';
+        $at = self::inZone($iso, $tz);
+
+        return $at !== null ? TimeZones::date($at, $at->getTimezone()) : '';
     }
 
-    private static function time(string $iso): string
+    /** "9:00 AM CST", plus " (4:00 PM WAT, Dr Obi's time)" when the other zone's offset differs then. */
+    private static function time(string $iso, ?DateTimeZone $tz = null, ?DateTimeZone $otherTz = null, string $otherWho = ''): string
     {
-        return self::inClinic($iso)?->format('g:i A T') ?? '';
+        $at = self::inZone($iso, $tz);
+
+        return $at !== null ? TimeZones::dual($at, $at->getTimezone(), $otherTz, $otherWho, 'time') : '';
     }
 
-    private static function dateTime(string $iso): string
+    /** "Wed, 4 Nov 2026 at 9:00 AM CST" in $tz. */
+    private static function dateTime(string $iso, ?DateTimeZone $tz = null): string
     {
-        return self::inClinic($iso)?->format('D, j M Y \a\t g:i A T') ?? '';
+        $at = self::inZone($iso, $tz);
+
+        return $at !== null ? TimeZones::dateTime($at, $at->getTimezone()) : '';
     }
 
     private static function dot(string $suffix): string

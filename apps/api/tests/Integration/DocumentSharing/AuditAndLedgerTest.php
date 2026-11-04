@@ -51,7 +51,7 @@ final class AuditAndLedgerTest extends DocShareTestCase
         $this->share($this->P, ['specialist_ids' => [$this->A]]);
         $this->storeBytes($this->P1);
         foreach ([1, 2] as $i) {
-            $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], method: 'GET');
+            $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], headers: ['X-SD-Viewer' => '1'], method: 'GET');
             $this->assertSame(200, $res['status'], "view $i is streamed");
             $this->assertSame('application/pdf', $res['response']->getHeaderLine('Content-Type'));
         }
@@ -67,7 +67,7 @@ final class AuditAndLedgerTest extends DocShareTestCase
         $audits = $this->countRows('SELECT COUNT(*) FROM audit_events');
 
         // P1 has no bytes in the vault.
-        $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], method: 'GET');
+        $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], headers: ['X-SD-Viewer' => '1'], method: 'GET');
         $this->assertSame(404, $res['status']);
         $this->assertSame('File not found', $res['body']['message']);
         $this->assertNotSame('not_shared', $res['body']['errors']['code'] ?? null);
@@ -83,7 +83,7 @@ final class AuditAndLedgerTest extends DocShareTestCase
         $this->storeBytes($this->P1);
         $this->conn()->executeStatement('ALTER TABLE audit_events RENAME TO audit_events_off');
         try {
-            $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], method: 'GET');
+            $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], headers: ['X-SD-Viewer' => '1'], method: 'GET');
         } finally {
             $this->conn()->executeStatement('ALTER TABLE audit_events_off RENAME TO audit_events');
         }
@@ -123,7 +123,7 @@ final class AuditAndLedgerTest extends DocShareTestCase
         ], $this->now);
         $this->share($this->P, ['specialist_ids' => [$this->A], 'scope' => 'selected', 'document_ids' => [$this->P1]]);
         $this->storeBytes($this->P1);
-        $this->assertSame(200, $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], method: 'GET')['status']);
+        $this->assertSame(200, $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], headers: ['X-SD-Viewer' => '1'], method: 'GET')['status']);
 
         $res = $this->patientAction(ListDocumentAccessHistoryAction::class, $this->P, [], [], ['per_page' => '50'], 'GET');
         $this->assertSame(200, $res['status']);

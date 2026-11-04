@@ -861,11 +861,16 @@ final class DocumentSharingService
                     $until = $parsed;
                 }
             }
-            [$appt, $apptError] = $this->appointmentChoice($p, $body['share_appointment_id'] ?? null, $sids, null);
-            if ($apptError !== null) {
-                $errors['share_appointment_id'] = $apptError;
-            } elseif (($problem = $this->durationProblem($duration, $appt, $sids, $p, $now)) !== null) {
-                $errors[$problem[0] === 'appointment_id' ? 'share_appointment_id' : 'share_duration'] = $problem[1];
+            if ($surface === 'call') {
+                [$appt, $callErrors] = $this->callShareChoice($p, $body['share_appointment_id'] ?? null, $sids, $duration);
+                $errors += $callErrors;
+            } else {
+                [$appt, $apptError] = $this->appointmentChoice($p, $body['share_appointment_id'] ?? null, $sids, null);
+                if ($apptError !== null) {
+                    $errors['share_appointment_id'] = $apptError;
+                } elseif (($problem = $this->durationProblem($duration, $appt, $sids, $p, $now)) !== null) {
+                    $errors[$problem[0] === 'appointment_id' ? 'share_appointment_id' : 'share_duration'] = $problem[1];
+                }
             }
         }
         $batch = Rules::lowerUuid($body['share_batch_id'] ?? null);
@@ -1683,6 +1688,44 @@ final class DocumentSharingService
         }
 
         return [$appt, null];
+    }
+
+    /**
+     * An upload shared from inside a consultation (`share_surface=call`): with
+     * exactly that consultation's doctor, with no end date, and never for a
+     * cancelled consultation. The live call window is not required, so an
+     * upload finishing just after hang-up still shares.
+     *
+     * @param list<string> $sids
+     * @return array{0: ?Appointment, 1: array<string,string>}
+     */
+    private function callShareChoice(Patient $p, mixed $raw, array $sids, ShareDuration $duration): array
+    {
+        $errors = [];
+        if ($duration !== ShareDuration::INDEFINITE) {
+            $errors['share_duration'] = 'Files shared in a call stay shared until you stop sharing.';
+        }
+        if ($raw === null || $raw === '') {
+            return [null, ['share_appointment_id' => "Choose the consultation you're in."] + $errors];
+        }
+        $id   = Rules::lowerUuid($raw);
+        $appt = $id !== null ? $this->em->find(Appointment::class, $id) : null;
+        if (
+            !$appt instanceof Appointment
+            || strtolower($appt->getPatient()->getId()) !== strtolower($p->getId())
+            || $appt->isDeleted()
+            || $appt->getStatus() === AppointmentStatus::PROPOSED
+        ) {
+            return [null, ['share_appointment_id' => 'This consultation could not be found.'] + $errors];
+        }
+        if (count($sids) !== 1 || $sids[0] !== strtolower($appt->getSpecialist()->getId())) {
+            $errors['share_specialist_ids'] = "In a call you can share only with the doctor you're seeing.";
+        }
+        if ($appt->getStatus() === AppointmentStatus::CANCELLED) {
+            $errors['share_appointment_id'] = 'This consultation was cancelled.';
+        }
+
+        return [$errors === [] ? $appt : null, $errors];
     }
 
     /**

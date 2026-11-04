@@ -25,6 +25,7 @@ use App\Domain\Repository\DoctorApplicationNoteRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\TimeZones;
 use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Service\DoctorOnboardingService;
 use App\Infrastructure\Service\ReferenceDataService;
@@ -202,8 +203,9 @@ final class ApplicationViews
         if ($epoch === null) {
             return null;
         }
-        $at  = (new DateTimeImmutable('@' . $epoch))->setTimezone(ClinicTime::zone());
-        $url = (string) $app->getInterviewMeetingUrl();
+        $at   = (new DateTimeImmutable('@' . $epoch))->setTimezone(ClinicTime::zone());
+        $url  = (string) $app->getInterviewMeetingUrl();
+        $zone = $app->applicantTimeZone();
 
         return [
             'starts_at'        => $at->format(DATE_ATOM),
@@ -212,6 +214,10 @@ final class ApplicationViews
             'meeting_url'      => $url,
             'meeting_host'     => (string) (parse_url($url, PHP_URL_HOST) ?? ''),
             'note'             => $app->getInterviewNote(),
+            // The applicant's own zone (personal.time_zone) and their time, with
+            // VideoMed's beside it when the offsets differ; null when unset.
+            'applicant_time_zone' => $zone?->getName(),
+            'applicant_label'     => $zone !== null ? TimeZones::dual($at, $zone, ClinicTime::zone(), 'VideoMed time') : null,
         ];
     }
 

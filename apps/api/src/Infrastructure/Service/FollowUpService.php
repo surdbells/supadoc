@@ -11,12 +11,13 @@ use App\Domain\Enum\NotificationType;
 use App\Domain\Exception\InsufficientFundsException;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Repository\AppointmentRepository;
-use App\Domain\Settings\ClinicTime;
 use App\Domain\Settings\ProcessClock;
+use App\Domain\Settings\TimeZones;
 use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 
 /**
@@ -164,10 +165,10 @@ final class FollowUpService
             && $proposal->getCreatedAt() <= $now->modify('-' . self::NUDGE_MIN_AGE_HOURS . ' hours');
     }
 
-    /** How notices name a time: "Tue 21 Oct, 3:00 PM WAT", on the clinic's clock. */
-    public static function whenLabel(DateTimeImmutable $at): string
+    /** How notices name a time: "Tue 21 Oct, 3:00 PM WAT", on the recipient's clock ($tz). */
+    public static function whenLabel(DateTimeImmutable $at, DateTimeZone $tz): string
     {
-        return $at->setTimezone(ClinicTime::zone())->format('D j M, g:i A T');
+        return TimeZones::when($at, $tz);
     }
 
     /**
@@ -531,7 +532,8 @@ final class FollowUpService
         if ($paidByCard) {
             $this->checkout->notifyCardPayment($proposal);
         }
-        $when = self::whenLabel($proposal->getScheduledAt());
+        $when       = self::whenLabel($proposal->getScheduledAt(), $proposal->getPatient()->timeZone());
+        $doctorWhen = self::whenLabel($proposal->getScheduledAt(), $proposal->getSpecialist()->timeZone());
         $this->patientNotifier->notify(
             $proposal->getPatient(),
             NotificationType::APPOINTMENT,
@@ -543,7 +545,7 @@ final class FollowUpService
             $proposal->getSpecialist()->getId(),
             'appointment',
             'Follow-up accepted',
-            sprintf('%s accepted the follow-up on %s.', self::patientName($proposal, 'The patient'), $when),
+            sprintf('%s accepted the follow-up on %s.', self::patientName($proposal, 'The patient'), $doctorWhen),
             '/appointments/' . $proposal->getId(),
         );
         $this->invites->send($proposal);
@@ -593,7 +595,7 @@ final class FollowUpService
             $proposal->getSpecialist()->getId(),
             'appointment',
             'Follow-up declined',
-            sprintf('%s declined the follow-up proposed for %s.', self::patientName($proposal, 'The patient'), self::whenLabel($proposal->getScheduledAt())),
+            sprintf('%s declined the follow-up proposed for %s.', self::patientName($proposal, 'The patient'), self::whenLabel($proposal->getScheduledAt(), $proposal->getSpecialist()->timeZone())),
             '/appointments/' . $proposal->getId(),
         );
 
@@ -665,7 +667,7 @@ final class FollowUpService
             $proposal->getSpecialist()->getId(),
             'appointment',
             'Follow-up cancelled',
-            sprintf('The follow-up proposed for %s was cancelled by VideoMed support, so the time is open again.', self::whenLabel($proposal->getScheduledAt())),
+            sprintf('The follow-up proposed for %s was cancelled by VideoMed support, so the time is open again.', self::whenLabel($proposal->getScheduledAt(), $proposal->getSpecialist()->timeZone())),
             '/appointments/' . $proposal->getId(),
         );
 
@@ -728,7 +730,7 @@ final class FollowUpService
                     sprintf(
                         "%s didn't reply to the follow-up proposed for %s, so it closed and the time is open again.",
                         self::patientName($proposal, 'The patient'),
-                        self::whenLabel($proposal->getScheduledAt()),
+                        self::whenLabel($proposal->getScheduledAt(), $proposal->getSpecialist()->timeZone()),
                     ),
                     '/appointments/' . $proposal->getId(),
                 );
@@ -900,8 +902,8 @@ final class FollowUpService
     {
         $patient = $proposal->getPatient();
         $doctor  = $proposal->getSpecialist()->getName();
-        $when    = self::whenLabel($proposal->getScheduledAt());
-        $replyBy = self::whenLabel($proposal->getExpiresAt() ?? $proposal->getScheduledAt());
+        $when    = self::whenLabel($proposal->getScheduledAt(), $patient->timeZone());
+        $replyBy = self::whenLabel($proposal->getExpiresAt() ?? $proposal->getScheduledAt(), $patient->timeZone());
         $link    = '/dashboard/appointments/' . $proposal->getId();
 
         $this->patientNotifier->notify(
@@ -936,7 +938,7 @@ final class FollowUpService
     {
         $patient = $proposal->getPatient();
         $doctor  = $proposal->getSpecialist()->getName();
-        $when    = self::whenLabel($proposal->getScheduledAt());
+        $when    = self::whenLabel($proposal->getScheduledAt(), $patient->timeZone());
         $link    = '/dashboard/appointments/' . $proposal->getId();
 
         $this->patientNotifier->notify(

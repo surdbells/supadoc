@@ -397,6 +397,24 @@ final class DoctorManagementTest extends TestCase
         $this->assertTrue(DoctorStanding::allows(null, 'POST', '/doctor/prescriptions'), 'in good standing: everything');
     }
 
+    public function testEveryStandingCanFixTheirTimeZone(): void
+    {
+        foreach ([DoctorStanding::SUSPENDED, DoctorStanding::TERMS, DoctorStanding::NOT_APPROVED] as $code) {
+            $this->assertTrue(DoctorStanding::allows($code, 'PUT', '/doctor/timezone'), $code);
+        }
+        // …but moving their times is an availability write, which a suspended doctor may not make.
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::SUSPENDED, 'POST', '/doctor/availability'));
+    }
+
+    public function testADoctorOwingTheTermsCanPrintWhatTheyCanView(): void
+    {
+        $this->assertTrue(DoctorStanding::allows(DoctorStanding::TERMS, 'GET', '/doctor/appointments/{id}/patient-documents/{docId}/file'));
+        $this->assertTrue(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/appointments/{id}/patient-documents/{docId}/printed'));
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/appointments/{id}/document-access/request'), 'other clinical writes stay refused');
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::TERMS, 'POST', '/doctor/appointments/{id}/complete'));
+        $this->assertFalse(DoctorStanding::allows(DoctorStanding::SUSPENDED, 'POST', '/doctor/appointments/{id}/patient-documents/{docId}/printed'), 'suspended: nothing clinical');
+    }
+
     public function testTheStandingMiddlewareCostsNothingForOtherStaff(): void
     {
         $em         = $this->em();

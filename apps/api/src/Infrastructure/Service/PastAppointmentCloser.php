@@ -696,7 +696,7 @@ final class PastAppointmentCloser
             'Request expired',
             self::doctorNotConfirmedText(
                 self::patientName($appointment, 'a patient'),
-                FollowUpService::whenLabel($appointment->getScheduledAt()),
+                FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getSpecialist()->timeZone()),
                 $refundLabel !== '',
             ),
             '/appointments/' . $appointment->getId(),
@@ -768,7 +768,7 @@ final class PastAppointmentCloser
             self::doctorMissedText(
                 $party,
                 self::patientName($appointment, 'The patient'),
-                FollowUpService::whenLabel($appointment->getScheduledAt()),
+                FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getSpecialist()->timeZone()),
                 $refundLabel !== '',
             ),
             '/appointments/' . $appointment->getId(),
@@ -782,7 +782,7 @@ final class PastAppointmentCloser
         $p       = $patient->toArray();
         $webUrl  = WebUrls::forPatient($patient);
         $doctor  = $appointment->getSpecialist()->getName();
-        $when    = FollowUpService::whenLabel($appointment->getScheduledAt());
+        $when    = FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getPatient()->timeZone());
         $id      = $appointment->getId();
         AfterResponse::defer(function () use ($p, $webUrl, $doctor, $when, $why, $noShow, $refundLabel, $id): void {
             try {

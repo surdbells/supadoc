@@ -204,6 +204,7 @@ return [
                     'gender'           => ['type' => 'string', 'nullable' => true, 'enum' => ['male', 'female']],
                     'offers_in_person' => ['type' => 'boolean'],
                     'photo_url'        => ['type' => 'string', 'nullable' => true],
+                    'timezone'         => ['type' => 'string', 'example' => 'America/Chicago', 'description' => "The doctor's effective IANA zone (never set: the clinic's, Africa/Lagos). The doctor's own profile adds `timezone_source` (auto | manual | null)."],
                     'availability'     => ['$ref' => '#/components/schemas/SpecialistAvailability'],
                 ],
             ],
@@ -222,6 +223,7 @@ return [
                 'type'       => 'object',
                 'properties' => [
                     'tz'             => ['type' => 'string', 'example' => 'Africa/Lagos'],
+                    'doctor_tz'      => ['type' => 'string', 'example' => 'America/Chicago', 'description' => "The doctor's own zone (their weekly hours are wall clock in it), for the doctor's-time label"],
                     'today'          => ['type' => 'string', 'format' => 'date'],
                     'bookable_from'  => ['type' => 'string', 'format' => 'date', 'description' => 'Date (in tz) of the earliest bookable time (now + lead)'],
                     'bookable_until' => ['type' => 'string', 'format' => 'date', 'description' => 'Date (in tz) of the last bookable time (now + horizon)'],
@@ -244,6 +246,7 @@ return [
                 'properties' => [
                     'date'  => ['type' => 'string', 'format' => 'date'],
                     'tz'    => ['type' => 'string'],
+                    'doctor_tz' => ['type' => 'string', 'example' => 'America/Chicago'],
                     'slots' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
                         'iso'    => ['type' => 'string', 'format' => 'date-time'],
                         'time'   => ['type' => 'string', 'example' => '09:30'],
@@ -394,6 +397,8 @@ return [
                     'address'        => ['type' => 'string', 'nullable' => true],
                     'avatar_url'     => ['type' => 'string', 'nullable' => true, 'description' => 'Relative URL of the uploaded avatar'],
                     'created_at'     => ['type' => 'string', 'format' => 'date-time'],
+                    'timezone'        => ['type' => 'string', 'example' => 'Africa/Lagos', 'description' => 'The zone emails, texts and notices are written in (effective: never set means Africa/Lagos)'],
+                    'timezone_source' => ['type' => 'string', 'nullable' => true, 'enum' => ['auto', 'manual']],
                 ],
             ],
             'PatientSettings' => [
@@ -698,14 +703,38 @@ return [
         '/api/doctor/appointments/{id}/patient-documents/{docId}/file' => [
             'get' => [
                 'tags'        => ['Doctor', 'Document sharing'],
-                'summary'     => 'Open one document the patient shares with you',
-                'description' => 'Bound to THIS consultation\'s patient. The view is recorded before a byte is streamed (audit `document.viewed`, the patient\'s ledger, the share\'s counter) — '
-                    . 'the patient can see every view.',
+                'summary'     => 'View one document the patient shares with you (view-only viewer)',
+                'description' => 'Only the doctor app\'s view-only viewer may ask (`X-SD-Viewer: 1`; without it 409 `update_required`, nothing recorded). Bound to THIS consultation\'s patient. '
+                    . 'A type the viewer can\'t show (Word, DICOM, .mov …) is 415 `not_viewable`, nothing recorded. The view is recorded before a byte is streamed (audit `document.viewed`, the patient\'s ledger, the share\'s counter), '
+                    . 'both carrying the view reference `VM-` + the first 8 hex digits of the ledger row id — the patient can see every view. Served inline only: the extension\'s fixed Content-Type, '
+                    . '`Content-Disposition: inline` (no file name), `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `X-Content-Type-Options: nosniff`, '
+                    . '`Content-Security-Policy: default-src \'none\'; sandbox`, `Referrer-Policy: no-referrer`, plus `X-SD-View-Ref` and `X-SD-Viewed-At` (exposed to the browser).',
+                'parameters'  => [['name' => 'X-SD-Viewer', 'in' => 'header', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['1']], 'description' => 'Sent only by the view-only viewer']],
                 'responses'   => [
-                    '200' => ['description' => 'File'],
+                    '200' => ['description' => 'File (inline)', 'headers' => [
+                        'X-SD-View-Ref'  => ['schema' => ['type' => 'string', 'example' => 'VM-7F3A2C1D'], 'description' => 'This view\'s reference (watermarked, cited by a print)'],
+                        'X-SD-Viewed-At' => ['schema' => ['type' => 'string', 'format' => 'date-time']],
+                    ]],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '409' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` update_required — no `X-SD-Viewer` header (an old tab): reload; nothing is recorded'],
+                    '415' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` not_viewable — this file type can\'t be viewed in VideoMed; nothing is streamed or recorded'],
                     '404' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` not_shared — not (or no longer) shared with you; nothing is recorded'],
                     '503' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` view_unavailable — the view could not be recorded, so nothing was streamed'],
+                ],
+            ],
+        ],
+        '/api/doctor/appointments/{id}/patient-documents/{docId}/printed' => [
+            'post' => [
+                'tags'        => ['Doctor', 'Document sharing'],
+                'summary'     => 'Record a print of a document you are viewing',
+                'description' => 'Sent by the viewer before it opens the print dialog (it prints a watermarked raster). Same checks as viewing (403; 404 `not_shared`). `view_ref` is kept only when it names a real `viewed` row of yours for this document, '
+                    . 'else stored as null — it never refuses the print. Writes the audit row `document.printed` and the patient\'s ledger row `printed` (shown in their Activity) in one transaction. Allowed while you owe new terms.',
+                'requestBody' => ['required' => false, ...$json(['type' => 'object', 'properties' => ['view_ref' => ['type' => 'string', 'example' => 'VM-7F3A2C1D']]])],
+                'responses'   => [
+                    '200' => ['description' => 'Recorded', ...$json($envelope(['type' => 'object', 'properties' => ['recorded' => ['type' => 'boolean']]]))],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '404' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` not_shared'],
+                    '503' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` view_unavailable — not recorded; the viewer does not print'],
                 ],
             ],
         ],
@@ -1016,7 +1045,8 @@ return [
                 'summary'     => 'Upload a medical document (multipart) and choose who can see it',
                 'description' => 'Fields `file`, `document_type`, `custom_type`; optional sharing: `share_specialist_ids[]` (≤ 5 booked, practising doctors) with `share_duration`, '
                     . '`share_expires_at`, `share_appointment_id`, `share_batch_id` (one uuid per upload batch), `exclude_specialist_ids[]` (whole-folder holders who must not see it) '
-                    . 'and `share_surface` (documents_page | appointment_details). Checked before the bytes are stored. Without them the file is private except to whole-folder holders. '
+                    . 'and `share_surface` (documents_page | appointment_details | call). A `call` upload shares with exactly `share_appointment_id`\'s doctor (required; not cancelled), `share_duration` indefinite, '
+                    . 'and only types the doctor can view in-app (PDF, JPG, PNG, WEBP, MP4, WEBM — by name before storing, by the stored type after; 422 `file`). Checked before the bytes are stored. Without them the file is private except to whole-folder holders. '
                     . 'Answer UploadedDocumentDto: `shared_with`, `share_outcome` (shared | partly_shared | share_ended | private | sharing_unavailable), `share_ended_for`.',
                 'responses'   => [
                     '201' => ['description' => 'Created'],
@@ -1726,14 +1756,44 @@ return [
                 ],
             ],
         ],
+        '/api/doctor/timezone' => [
+            'put' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Set my time zone (weekly hours, availability, schedule, emails and reminders use it)',
+                'description' => '`source: auto` (detected by the browser at sign-in) writes only while no zone was ever set, and only a detectable zone (never UTC, GMT, Etc/*, Zulu, Universal, Factory or Atlantic/Reykjavik) — '
+                    . 'otherwise a no-op 200 with the current state. `source: manual` always writes a valid zone; an actual change is audited (`doctor.timezone_changed`). '
+                    . '`shift_slots: true` (manual, zone actually changing) also moves future unbooked OPEN times and BLOCK spans to the same wall clock in the new zone, under the doctor\'s slot lock: '
+                    . 'booked times never move; a row is skipped when its new start has passed or (OPEN) another open time already starts there. Open to every standing, but a suspended doctor gets 422 `shift_slots`. '
+                    . 'Paused (503) until the clock repair has run.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
+                    'timezone' => ['type' => 'string', 'example' => 'America/Chicago', 'description' => 'IANA name (aliases such as Asia/Calcutta accepted; never a raw offset)'],
+                    'source'   => ['type' => 'string', 'enum' => ['auto', 'manual']],
+                    'shift_slots' => ['type' => 'boolean', 'default' => false],
+                ], 'required' => ['timezone', 'source']])],
+                'responses'   => [
+                    '200' => ['description' => 'Time zone saved', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'timezone'        => ['type' => 'string'],
+                        'timezone_source' => ['type' => 'string', 'nullable' => true, 'enum' => ['auto', 'manual']],
+                        'changed'         => ['type' => 'boolean'],
+                        'shifted'         => ['type' => 'object', 'nullable' => true, 'properties' => ['moved' => ['type' => 'integer'], 'skipped' => ['type' => 'integer']]],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
+        ],
         '/api/doctor/availability' => [
             'get' => [
                 'tags'        => ['Staff'],
                 'summary'     => "The doctor's date-specific availability slots",
-                'description' => 'Open/booked/blocked slots across [from, to] (YYYY-MM-DD query params; defaults to a 36-day window). "booked" is derived from live appointments.',
+                'description' => 'Open/booked/blocked slots across the local days [from, to] (YYYY-MM-DD; default a 36-day window, at most 62). "booked" is derived from live appointments (matched on the start instant). '
+                    . 'Each row carries `series_id` (a repeating request\'s rows share it) and `entire_day` (a block from local midnight to the next). With `tz`, the response echoes `tz` and the regular weekly hours in play '
+                    . '(`regular_hours`, `regular_hours_source`: own | default | null) — a new editor enables Add and Block only once it sees `tz`.',
                 'parameters'  => [
                     ['name' => 'from', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date']],
                     ['name' => 'to', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'date']],
+                    ['name' => 'tz', 'in' => 'query', 'required' => false, 'description' => 'The doctor\'s profile zone (dates are local days in it). Another zone is a 409 `timezone_changed`; absent = the legacy UTC contract.', 'schema' => ['type' => 'string', 'example' => 'America/Chicago']],
                 ],
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope([
@@ -1749,30 +1809,49 @@ return [
                                 'kind' => ['type' => 'string', 'enum' => ['open', 'block']],
                                 'status' => ['type' => 'string', 'enum' => ['open', 'booked', 'blocked']],
                                 'reason' => ['type' => 'string', 'nullable' => true],
+                                'series_id' => ['type' => 'string', 'format' => 'uuid', 'nullable' => true],
+                                'entire_day' => ['type' => 'boolean'],
                                 'patient_name' => ['type' => 'string'],
                             ]]],
+                            'tz' => ['type' => 'string', 'description' => 'Only on the zone contract (`tz` sent)'],
+                            'regular_hours' => ['type' => 'object', 'nullable' => true, 'description' => 'weekday "0"–"6" → [start, end] "HH:MM" windows on the doctor\'s clock'],
+                            'regular_hours_source' => ['type' => 'string', 'nullable' => true, 'enum' => ['own', 'default']],
                         ],
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '409' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` timezone_changed — `tz` is not the doctor\'s profile zone (changed in another window); `errors.timezone` is the current one. Nothing was read or written.'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
             'post' => [
                 'tags'        => ['Staff'],
-                'summary'     => 'Publish open availability slots for a date',
-                'description' => 'Splits [start, end) into `duration`-minute slots; `recurring` repeats weekly for `weeks` weeks. Existing slots at the same start are skipped. A past date, a start that has already passed (UTC), or a range too short for one slot is a 422.',
+                'summary'     => 'Publish open times: once, every day, weekly or on chosen days',
+                'description' => 'Splits [start, end) on `date` into `duration`-minute times — wall clock in `tz` (the doctor\'s profile zone; another zone is a 409 `timezone_changed`; without `tz` the legacy UTC contract, `recurring: true` = weekly). '
+                    . '`repeat`: none | daily (Mon–Sun) | weekly (the start date\'s weekday) | days (`days`, 0=Sun … 6=Sat), for `weeks` (1–26, default 8). `end` may be "24:00" (or "00:00") = the next local midnight; '
+                    . 'an overnight shift is two requests. DST-safe: 09:00 stays 09:00 local. A time whose start an open time already has is `existing`, one overlapping an open time is skipped (`overlapping`), '
+                    . 'one on a block is still made (`blocked`); a repeating request skips times already gone today (`past`). Rows of one request share `series_id`. Written under the doctor\'s slot lock. '
+                    . 'At most 4,000 times and nothing beyond 365 days ahead (422 `end` / `date`).',
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
                     'date' => ['type' => 'string', 'format' => 'date'],
                     'start' => ['type' => 'string', 'example' => '09:00'],
                     'end' => ['type' => 'string', 'example' => '12:00'],
                     'duration' => ['type' => 'integer', 'enum' => [15, 30, 45, 60]],
-                    'recurring' => ['type' => 'boolean'],
-                    'weeks' => ['type' => 'integer'],
+                    'tz' => ['type' => 'string', 'example' => 'America/Chicago'],
+                    'repeat' => ['type' => 'string', 'enum' => ['none', 'daily', 'weekly', 'days'], 'default' => 'none'],
+                    'days' => ['type' => 'array', 'items' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 6]],
+                    'recurring' => ['type' => 'boolean', 'deprecated' => true],
+                    'weeks' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 26],
                 ], 'required' => ['date', 'start', 'end', 'duration']])],
                 'responses'   => [
-                    '200' => ['description' => 'Created', ...$json($envelope(['type' => 'object']))],
+                    '200' => ['description' => 'Created', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'created' => ['type' => 'integer'], 'existing' => ['type' => 'integer'], 'overlapping' => ['type' => 'integer'], 'past' => ['type' => 'integer'], 'blocked' => ['type' => 'integer'],
+                        'series_id' => ['type' => 'string', 'nullable' => true], 'first_at' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true], 'last_at' => ['type' => 'string', 'format' => 'date-time', 'nullable' => true],
+                        'tz' => ['type' => 'string'], 'repeat' => ['type' => 'string', 'enum' => ['none', 'daily', 'weekly', 'days']],
+                    ]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '409' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` timezone_changed — `tz` is not the doctor\'s profile zone (changed in another window); `errors.timezone` is the current one. Nothing was read or written.'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
@@ -1781,18 +1860,21 @@ return [
             'post' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Block a date (or a span within it)',
-                'description' => '`entire_day` blocks the whole day; otherwise blocks [start, end). Blocks subtract from generated availability. A past date, or a specific span starting before now (UTC), is a 422.',
+                'description' => '`entire_day` blocks the whole local day (midnight to midnight in `tz`: 23 or 25 hours on a DST day); otherwise blocks [start, end), `end` may be "24:00". Blocks subtract from generated availability. '
+                    . 'A past date, one more than 12 months ahead, or a specific span starting before now is a 422. `tz` as for adding (409 `timezone_changed`; absent = legacy UTC). Written under the doctor\'s slot lock.',
                 'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
                     'date' => ['type' => 'string', 'format' => 'date'],
                     'entire_day' => ['type' => 'boolean'],
                     'start' => ['type' => 'string', 'example' => '09:00'],
                     'end' => ['type' => 'string', 'example' => '12:00'],
                     'reason' => ['type' => 'string'],
+                    'tz' => ['type' => 'string', 'example' => 'America/Chicago'],
                 ], 'required' => ['date']])],
                 'responses'   => [
                     '200' => ['description' => 'Blocked', ...$json($envelope(['type' => 'object']))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
+                    '409' => $json(['$ref' => '#/components/schemas/Error']) + ['description' => '`errors.code` timezone_changed — `tz` is not the doctor\'s profile zone (changed in another window); `errors.timezone` is the current one. Nothing was read or written.'],
                     '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
@@ -1801,14 +1883,20 @@ return [
             'delete' => [
                 'tags'        => ['Staff'],
                 'summary'     => 'Remove an availability slot or block',
-                'description' => 'Deletes one of the doctor\'s own slots. An open slot with a booking on it is refused (409).',
-                'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
+                'description' => 'Deletes one of the doctor\'s own slots (`scope=one`, default): an open slot with a booking on it is refused (409). `scope=following` on an OPEN row of a repeating series removes it and the series\' later open times, '
+                    . 'keeping every one a live appointment starts on (`kept_booked`); on any other row it behaves like `one`. Under the doctor\'s slot lock, taken before any appointment is read.',
+                'parameters'  => [
+                    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']],
+                    ['name' => 'scope', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['one', 'following'], 'default' => 'one']],
+                    ['name' => 'tz', 'in' => 'query', 'required' => false, 'description' => 'The doctor\'s profile zone (dates are local days in it). Another zone is a 409 `timezone_changed`; absent = the legacy UTC contract.', 'schema' => ['type' => 'string', 'example' => 'America/Chicago']],
+                ],
                 'responses'   => [
-                    '200' => ['description' => 'Removed', ...$json($envelope(['type' => 'object']))],
+                    '200' => ['description' => 'Removed', ...$json($envelope(['type' => 'object', 'properties' => ['deleted' => ['type' => 'integer'], 'kept_booked' => ['type' => 'integer']]]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
                     '403' => ['$ref' => '#/components/responses/Forbidden'],
                     '404' => ['description' => 'Slot not found'],
-                    '409' => ['description' => 'Slot is booked'],
+                    '409' => ['description' => 'Slot is booked — or `errors.code` timezone_changed (see GET)'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
                 ],
             ],
         ],
@@ -1820,7 +1908,7 @@ return [
                 'parameters'  => [
                     ['name' => 'from', 'in' => 'query', 'description' => 'Default today (in tz)', 'schema' => ['type' => 'string', 'format' => 'date']],
                     ['name' => 'to', 'in' => 'query', 'description' => 'Default from + 41 days', 'schema' => ['type' => 'string', 'format' => 'date']],
-                    ['name' => 'tz', 'in' => 'query', 'description' => 'IANA zone (an unknown one falls back to the clinic zone — use the response tz)', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
+                    ['name' => 'tz', 'in' => 'query', 'description' => 'IANA zone (absent: the doctor\'s own zone; an unknown one falls back to the clinic zone — use the response tz)', 'schema' => ['type' => 'string', 'example' => 'Africa/Lagos']],
                 ],
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope(['$ref' => '#/components/schemas/AvailabilityRange']))],
@@ -2014,6 +2102,27 @@ return [
         ],
         '/api/admin/payouts/{id}/reject' => [
             'post' => ['tags' => ['Monitoring'], 'summary' => 'Reject a payout', 'responses' => ['200' => ['description' => 'Rejected'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']]],
+        ],
+        '/api/portal/me/timezone' => [
+            'put' => [
+                'tags'        => ['Portal'],
+                'summary'     => 'Set the zone my emails, texts and notices use',
+                'description' => 'The apps always show times in the device zone; this zone only drives server-written text. `source: auto` (detected after sign-in) writes only while no zone was ever set, '
+                    . 'and only a detectable zone (never UTC, GMT, Etc/*, Zulu, Universal, Factory or Atlantic/Reykjavik) — otherwise a no-op 200 with the current state (`changed: false`). `source: manual` always writes a valid zone.',
+                'requestBody' => ['required' => true, ...$json(['type' => 'object', 'properties' => [
+                    'timezone' => ['type' => 'string', 'example' => 'America/Chicago', 'description' => 'IANA name (aliases such as Asia/Calcutta accepted; never a raw offset)'],
+                    'source'   => ['type' => 'string', 'enum' => ['auto', 'manual']],
+                ], 'required' => ['timezone', 'source']])],
+                'responses'   => [
+                    '200' => ['description' => 'Time zone saved', ...$json($envelope(['type' => 'object', 'properties' => [
+                        'timezone'        => ['type' => 'string'],
+                        'timezone_source' => ['type' => 'string', 'nullable' => true, 'enum' => ['auto', 'manual']],
+                        'changed'         => ['type' => 'boolean'],
+                    ]]))],
+                    '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '422' => ['$ref' => '#/components/responses/Validation'],
+                ],
+            ],
         ],
         '/api/portal/me' => [
             'get' => [
@@ -2707,6 +2816,7 @@ return [
                                     'channel'    => ['type' => 'string'],
                                     'token'      => ['type' => 'string', 'nullable' => true],
                                     'expires_in' => ['type' => 'integer', 'example' => 3600, 'nullable' => true, 'description' => 'Seconds the token lasts: 600 for a guest, 3600 otherwise; null without one'],
+                                    'doctor_portal_url' => ['type' => 'string', 'format' => 'uri', 'example' => 'https://doctor.dosthq.com/call/{token}', 'description' => 'Doctor-role tokens only: this call in the doctor portal (`{doctor app}/call/{token}`), where the patient app\'s join page sends the doctor'],
                                 ],
                             ],
                         ],
@@ -2724,17 +2834,22 @@ return [
             'get' => [
                 'tags'        => ['Public'],
                 'summary'     => 'The pre-join lobby for a join link (no Agora credentials)',
-                'description' => 'CallMeeting plus `server_time` and `can_join`; a guest\'s also `consent`. The same refusals as joining except too early: an early guest gets `can_join: false` and `opens_at` to count down to. Never health data or emails.',
+                'description' => 'CallMeeting plus `server_time` and `can_join`; a guest\'s also `consent`; a doctor\'s also `doctor_portal_url` (the same address the join gives, so the patient app\'s join page can send the doctor on without minting Agora credentials). The same refusals as joining except too early: an early guest gets `can_join: false` and `opens_at` to count down to. Never health data or emails.',
                 'security'    => [],
                 'parameters'  => [['name' => 'token', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]],
                 'responses'   => [
                     '200' => ['description' => 'OK', ...$json($envelope([
                         'allOf' => [
                             ['$ref' => '#/components/schemas/CallMeeting'],
-                            ['type' => 'object', 'properties' => ['server_time' => ['type' => 'string', 'format' => 'date-time'], 'can_join' => ['type' => 'boolean']]],
+                            ['type' => 'object', 'properties' => [
+                                'server_time'       => ['type' => 'string', 'format' => 'date-time'],
+                                'can_join'          => ['type' => 'boolean'],
+                                'doctor_portal_url' => ['type' => 'string', 'format' => 'uri', 'example' => 'https://doctor.dosthq.com/call/{token}', 'description' => 'Doctor-role tokens only: this call in the doctor portal (`{doctor app}/call/{token}`); absent for patient and guest tokens'],
+                            ]],
                         ],
                     ]))],
                     '401' => ['$ref' => '#/components/responses/Unauthorized'],
+                    '403' => ['description' => 'The doctor may not practise (`doctor_suspended` | `doctor_not_approved`, or `terms_required` before the consultation\'s start time)', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '404' => ['$ref' => '#/components/responses/NotFound'],
                     '409' => ['description' => 'Not confirmed yet', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],
                     '410' => ['description' => 'Cancelled, ended or withdrawn', ...$json(['$ref' => '#/components/schemas/CallRefusal'])],

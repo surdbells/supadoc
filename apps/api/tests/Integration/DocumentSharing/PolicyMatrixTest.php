@@ -265,7 +265,7 @@ final class PolicyMatrixTest extends DocShareTestCase
         $audits = $this->countRows('SELECT COUNT(*) FROM audit_events');
         $logs   = $this->countRows('SELECT COUNT(*) FROM document_access_log');
 
-        $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->Q1], method: 'GET');
+        $res = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->Q1], headers: ['X-SD-Viewer' => '1'], method: 'GET');
         $this->assertSame(404, $res['status']);
         $this->assertSame('not_shared', $res['body']['errors']['code']);
         $this->assertSame($audits, $this->countRows('SELECT COUNT(*) FROM audit_events'), 'no audit row');
@@ -275,7 +275,7 @@ final class PolicyMatrixTest extends DocShareTestCase
 
         // Through Q's own consultation it opens (and is recorded).
         $this->storeBytes($this->Q1);
-        $ok = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->aqNext, 'docId' => $this->Q1], method: 'GET');
+        $ok = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->aqNext, 'docId' => $this->Q1], headers: ['X-SD-Viewer' => '1'], method: 'GET');
         $this->assertSame(200, $ok['status']);
         $this->assertSame('application/pdf', $ok['response']->getHeaderLine('Content-Type'));
         $this->assertSame(1, $this->countRows("SELECT COUNT(*) FROM document_access_log WHERE patient_id = ? AND event = 'viewed'", [$this->Q]));
@@ -290,7 +290,7 @@ final class PolicyMatrixTest extends DocShareTestCase
         $this->assertSame([], $this->visible($this->A, $this->P));
         $legacy = $this->doctorAction(ListPatientDocumentsAction::class, $this->userA, ['id' => $this->apNext], method: 'GET');
         $this->assertSame([], $legacy['body']['data']);
-        $file = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], method: 'GET');
+        $file = $this->doctorAction(DownloadPatientDocumentAction::class, $this->userA, ['id' => $this->apNext, 'docId' => $this->P1], headers: ['X-SD-Viewer' => '1'], method: 'GET');
         $this->assertSame(404, $file['status']);
         $this->assertSame('not_shared', $file['body']['errors']['code']);
         $access = $this->doctorAction(DoctorDocumentAccessAction::class, $this->userA, ['id' => $this->apNext], method: 'GET');

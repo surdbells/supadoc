@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Action\Appointment;
 
 use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Appointment\RecipientZones;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Settings\BookingSettings;
+use App\Domain\Settings\TimeZones;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
 use App\Infrastructure\Service\ApiResponse;
@@ -125,7 +127,8 @@ final class CancelMyAppointmentAction
             $appointment->getSpecialist()->getId(),
             'appointment',
             'Booking cancelled',
-            ($patientName !== '' ? $patientName : 'A patient') . ' cancelled their ' . (string) $appt['type_label'] . '.',
+            ($patientName !== '' ? $patientName : 'A patient') . ' cancelled their ' . (string) $appt['type_label']
+                . ' on ' . TimeZones::when($appointment->getScheduledAt(), $appointment->getSpecialist()->timeZone()) . '.',
             '/schedule',
         );
     }
@@ -135,10 +138,14 @@ final class CancelMyAppointmentAction
     {
         try {
             $p    = $appointment->getPatient()->toArray();
+            [$zone, $otherZone, $whose] = RecipientZones::patient($appointment);
             $mail = EmailTemplates::appointmentStatusUpdate(
                 $appointment->toArray(),
                 (string) ($p['first_name'] ?? ''),
                 WebUrls::forPatient($appointment->getPatient()),
+                tz: $zone,
+                otherTz: $otherZone,
+                otherWho: $whose,
             );
             $this->mail->send(
                 (string) ($p['email'] ?? ''),

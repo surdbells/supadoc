@@ -38,7 +38,7 @@ final class WalletMailer
             $symbol = $txn->getCurrency() === 'NGN' ? '₦' : $txn->getCurrency() . ' ';
             $webUrl = WebUrls::forPatient($patient);
 
-            $mail = EmailTemplates::walletReceipt($txn->toArray(), (string) ($p['first_name'] ?? ''), $symbol, $webUrl);
+            $mail = EmailTemplates::walletReceipt($txn->toArray(), (string) ($p['first_name'] ?? ''), $symbol, $webUrl, $patient->timeZone());
             $this->mail->send($email, $name, $mail['subject'], $mail['html']);
         } catch (\Throwable) {
             // logged inside MailService; the posting already succeeded.

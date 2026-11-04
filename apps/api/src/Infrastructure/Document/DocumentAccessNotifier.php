@@ -8,6 +8,7 @@ use App\Domain\Document\ShareDuration;
 use App\Domain\Entity\Patient;
 use App\Domain\Enum\NotificationType;
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\TimeZones;
 use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Email\EmailTemplates;
 use App\Infrastructure\Email\MailService;
@@ -15,6 +16,7 @@ use App\Infrastructure\Service\AfterResponse;
 use App\Infrastructure\Service\PatientNotifier;
 use App\Infrastructure\Service\StaffNotifier;
 use DateTimeImmutable;
+use DateTimeZone;
 use Predis\ClientInterface as RedisClient;
 
 /**
@@ -110,11 +112,12 @@ final class DocumentAccessNotifier
      * The one sentence the doctor-reschedule patient notice gains when shares
      * anchored to that consultation moved ('' when none did): "… until 24
      * hours after the new time.", or — when a share was capped, or they
-     * differ — the latest end as a date in the clinic's time zone.
+     * differ — the latest end on the patient's clock (`$tz`; null: the clinic's),
+     * e.g. "4 Nov, 9:00 AM WAT".
      *
      * @param list<array{duration:string, expires_at:DateTimeImmutable, capped:bool}> $moved
      */
-    public static function rescheduleSuffix(array $moved): string
+    public static function rescheduleSuffix(array $moved, ?DateTimeZone $tz = null): string
     {
         if ($moved === []) {
             return '';
@@ -127,7 +130,10 @@ final class DocumentAccessNotifier
         }
         $latest = max(array_map(static fn (array $m): DateTimeImmutable => $m['expires_at'], $moved));
 
-        return sprintf(self::RESCHEDULE_SUFFIX_CAPPED, $latest->setTimezone(ClinicTime::zone())->format('j M, g:i A'));
+        $tz ??= ClinicTime::zone();
+        $local = $latest->setTimezone($tz);
+
+        return sprintf(self::RESCHEDULE_SUFFIX_CAPPED, $local->format('j') . ' ' . TimeZones::MONTHS[(int) $local->format('n') - 1] . ', ' . TimeZones::time($latest, $tz));
     }
 
     /** @return array{subject:string, html:string} */

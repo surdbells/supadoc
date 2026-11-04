@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Doctor\DoctorStanding;
+use App\Domain\Doctor\WeeklyHours;
 use App\Domain\Entity\ReferenceItem;
 use App\Domain\Entity\Specialist;
 use App\Domain\Reference\ReferenceCategory;
@@ -121,7 +122,8 @@ final class UpdateDoctorProfileAction
             } else {
                 $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $dob);
                 $valid  = $parsed !== false && $parsed->format('Y-m-d') === $dob;
-                if (!$valid || $parsed > new \DateTimeImmutable('today')) {
+                // "Not in the future" on the doctor's own calendar.
+                if (!$valid || $dob > (new \DateTimeImmutable('now', $specialist->timeZone()))->format('Y-m-d')) {
                     $errors['date_of_birth'] = 'Enter a valid past date (YYYY-MM-DD)';
                 } else {
                     $specialist->setDateOfBirth($parsed);
@@ -210,8 +212,13 @@ final class UpdateDoctorProfileAction
         }
 
         if (array_key_exists('weekly_hours', $body)) {
-            $hours = $body['weekly_hours'];
-            $specialist->setWeeklyHours(is_array($hours) && $hours !== [] ? $hours : null);
+            // Wall clock on the doctor's own zone; validated (keys 0–6, "HH:MM" pairs).
+            $hours = WeeklyHours::normalize($body['weekly_hours']);
+            if ($hours === false) {
+                $errors['weekly_hours'] = WeeklyHours::MESSAGE;
+            } else {
+                $specialist->setWeeklyHours($hours);
+            }
         }
 
         if (array_key_exists('bio', $body)) {

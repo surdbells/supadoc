@@ -1223,6 +1223,55 @@ Then, in this order:
    root). Ten minutes later `tail -n 20 var/log/reminders.log` shows two more
    runs.
 
+### One-time: time zones, call screens, view-only documents, daily availability (2026-11)
+
+1. **Order: the API goes live before any front end.** Pushing `main` deploys every Cloudflare Pages
+   front end at once, and this box can only pull `main`, so the release is pushed in two steps.
+   The API change is the first commit of the release.
+   1. From your machine: `git push origin <api-commit-sha>:main` — this pushes only the API commit.
+      (Cloudflare Pages rebuilds the front ends, but their sources haven't changed.)
+   2. On this box: the redeploy one-liner from "Redeploying" (it applies the schema).
+   3. Check the new API is serving: `curl -s -o /dev/null -w '%{http_code}\n' -X PUT https://<api host>/api/doctor/timezone`
+      should print `401` (sign-in required). `404` or `405` means the old API is still running — stop here.
+   4. From your machine: `git push origin main` (the front ends).
+   Why: an old API ignores the new `tz` and `repeat` fields, so a new doctor page would publish an
+   "Every day 09:00" series as one time at 09:00 UTC; it also lacks the document-viewer headers and
+   the print route. The new front ends refuse to add times and keep printing off until they see the
+   new API, but the order above means they never have to.
+2. **Schema (the redeploy one-liner applies it):** new nullable columns `specialists.timezone`,
+   `specialists.timezone_source`, `patients.timezone`, `patients.timezone_source`,
+   `availability_slots.series_id`, and the index `idx_slots_specialist_series`. No DROP or type change,
+   so the one-liner's guard lets it through. `prod-migrate` checks the columns itself; there is
+   **no new prod-migrate step** and nothing to backfill (an unset zone means `APP_TIMEZONE`,
+   Africa/Lagos — today's behaviour).
+3. **No new env vars.** Keep `APP_TIMEZONE=Africa/Lagos` (the default zone for people who haven't
+   set one, and the calendar for prescription validity/numbering and licence dates). Never change
+   PHP's `date.timezone` (PRC) — see "One-time: the clock fix". Run any CLI check with aaPanel's PHP
+   (`/www/server/php/84/bin/php`), not Debian's `php`.
+4. **What changes for doctors (tell them):**
+   - **Reload any open VideoMed tab.** Until they do, an old tab can't open patient documents
+     ("Reload VideoMed to open documents.").
+   - Availability, weekly hours, the schedule, emails and reminders now use each doctor's own
+     time zone, detected from their browser at sign-in and changeable in My Profile.
+   - Weekly hours (and the Mon–Fri 09:00–17:00 default) now mean the doctor's own clock. For Lagos
+     doctors they become 09:00–17:00 WAT (they were 10:00–18:00 WAT). Booked consultations don't move.
+   - Open times Lagos doctors published before this release now show one hour later than they typed
+     (e.g. typed 09:00 → shows 10:00 AM WAT): that is the time patients were actually offered. Remove
+     and re-add any that are wrong.
+   - Availability can repeat every day or on chosen days, up to 26 weeks and 12 months ahead, and can
+     run until midnight (overnight shifts are two times on two days).
+   - Patient documents open in a view-only viewer with Print. Downloads are gone; every view and
+     print is recorded and shown to the patient; prints carry a watermark. Word, DICOM and .mov files
+     can no longer be opened by doctors — ask the patient for a PDF or photo (patients are told this
+     when they share one).
+   - Join links in new invite and reminder emails open the doctor portal's call page.
+5. **After pushing the front ends,** check the doctor portal serves the PDF worker as JavaScript:
+   `curl -sI https://<doctor portal>/pdfjs/pdf.worker.min.mjs | grep -i content-type`
+   (expect `application/javascript` or `text/javascript`; Cloudflare Pages also has to have actually
+   built the commit — check the deployed JS, not just the check-run, as in step 6 of "One-time: private medical documents").
+6. **Rollback:** the columns are nullable and unused by the old code; rolling back the API code is safe.
+   Roll the front ends back first (they cope with an old API), then the API.
+
 ---
 
 ## Troubleshooting

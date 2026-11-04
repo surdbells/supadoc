@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Action\Doctor;
 
 use App\Domain\Appointment\AppointmentLifecycle;
+use App\Domain\Appointment\RecipientZones;
 use App\Domain\Document\DocumentSharingRules;
 use App\Domain\Entity\Appointment;
 use App\Infrastructure\Document\DocumentAccessNotifier;
@@ -152,7 +153,7 @@ final class RescheduleDoctorAppointmentAction
 
         $this->notify($appointment);
         // One extra, non-PHI sentence when shares anchored to it moved (and sharing is on).
-        $suffix = $sharesMoved !== [] && DocumentSharingRules::enabled() ? DocumentAccessNotifier::rescheduleSuffix($sharesMoved) : '';
+        $suffix = $sharesMoved !== [] && DocumentSharingRules::enabled() ? DocumentAccessNotifier::rescheduleSuffix($sharesMoved, $appointment->getPatient()->timeZone()) : '';
         $this->patientNotifier->appointment(
             $appointment,
             'Appointment moved by your doctor',
@@ -169,10 +170,14 @@ final class RescheduleDoctorAppointmentAction
     {
         try {
             $p    = $appointment->getPatient()->toArray();
+            [$zone, $otherZone, $whose] = RecipientZones::patient($appointment);
             $mail = EmailTemplates::appointmentStatusUpdate(
                 $appointment->toArray(),
                 (string) ($p['first_name'] ?? ''),
                 WebUrls::forPatient($appointment->getPatient()),
+                tz: $zone,
+                otherTz: $otherZone,
+                otherWho: $whose,
             );
             $this->mail->send(
                 (string) ($p['email'] ?? ''),

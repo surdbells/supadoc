@@ -8,6 +8,7 @@ use App\Domain\Call\CallAccess;
 use App\Domain\Entity\Appointment;
 use App\Domain\Exception\EntityNotFoundException;
 use App\Domain\Repository\AppointmentRepository;
+use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Agora\AgoraTokenService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\CallPresence;
@@ -112,7 +113,12 @@ final class JoinCallAction
                 'history'       => array_values($medical['history'] ?? []),
                 // Latest reading of each type, who recorded it, and whether it is out of date.
                 'vitals'        => VitalsService::latestList($patient->getLatestVitals(), new DateTimeImmutable()),
+                // Only when the patient ever set or was detected (never a guessed WAT).
+                'timezone'      => $patient->knownTimeZone()?->getName(),
             ];
+            // An emailed doctor link that landed on the patient app goes on to the
+            // doctor portal's call page (records panel, in-call documents).
+            $meeting['doctor_portal_url'] = self::doctorPortalUrl($appointment, (string) ($args['token'] ?? ''));
         }
 
         // The channel is the appointment id, so every party lands in the same room.
@@ -174,6 +180,17 @@ final class JoinCallAction
     }
 
     /**
+     * This call in the doctor portal (`{doctor app}/call/{token}`) — for a
+     * doctor-role token only. The join payload and the lobby both carry it, so
+     * the patient app's join page sends a doctor there before any camera turns
+     * on (records panel, in-call documents).
+     */
+    public static function doctorPortalUrl(Appointment $appointment, string $token): string
+    {
+        return WebUrls::forSpecialist($appointment->getSpecialist()) . '/call/' . $token;
+    }
+
+    /**
      * What every call screen shows, for any role: the consultation, who you
      * are (a guest: the name they chose, their uid and guest id) and everyone
      * who may be in the call by uid (names only). A guest's also say who
@@ -200,6 +217,7 @@ final class JoinCallAction
             'specialist'       => [
                 'name'      => $specialist->getName(),
                 'specialty' => $specialist->getSpecialty(),
+                'timezone'  => $specialist->timeZone()->getName(),
             ],
             'you'              => $you,
             'uid'              => $you['uid'],

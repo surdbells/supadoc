@@ -6,6 +6,7 @@ namespace App\Domain\Application;
 
 use App\Domain\Contact\Countries;
 use App\Domain\Contact\PhoneNumber;
+use App\Domain\Settings\TimeZones;
 
 /**
  * The application form's sections: their fields, rules and messages (spec
@@ -283,6 +284,16 @@ final class ApplicationSections
                 $e['city'] = self::M['city'];
             }
             $out['city'] = $s;
+        }
+
+        // Optional: the applicant's own time zone (pre-filled from their browser);
+        // their interview email and text are written in it.
+        if (!self::blank($v['time_zone'] ?? null)) {
+            $s = self::str($v['time_zone']);
+            if (!TimeZones::isValid($s)) {
+                $e['time_zone'] = 'Choose a time zone from the list';
+            }
+            $out['time_zone'] = $s;
         }
 
         return ['values' => $out, 'errors' => $e];

@@ -11,6 +11,7 @@ use App\Domain\Enum\AppointmentStatus;
 use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\SpecialistRepository;
 use App\Domain\Repository\UserRepository;
+use App\Domain\Settings\ProcessClock;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\JwtService;
 use DateTimeImmutable;
@@ -49,14 +50,20 @@ final class DoctorDashboardAction
             return $this->error($response, 'This account is not a doctor profile', 403);
         }
 
-        $now         = new DateTimeImmutable();
-        $startToday   = $now->setTime(0, 0, 0);
-        $endToday     = $startToday->modify('+1 day');
-        $startYesterday = $startToday->modify('-1 day');
-        $startMonth   = $now->modify('first day of this month')->setTime(0, 0, 0);
-        $startLastMonth = $now->modify('first day of last month')->setTime(0, 0, 0);
-        $startWeek    = $now->modify('monday this week')->setTime(0, 0, 0);
-        $startLastWeek = $startWeek->modify('-7 days');
+        // Today, the week and the month are the doctor's own calendar days (their
+        // zone, DST-length days included), then put on the process clock for the
+        // queries — never the process zone's days (PRC in production).
+        $local          = new DateTimeImmutable('now', $specialist->timeZone());
+        $todayLocal     = $local->setTime(0, 0, 0);
+        $weekLocal      = $local->modify('monday this week')->setTime(0, 0, 0);
+        $now            = ProcessClock::normalize($local);
+        $startToday     = ProcessClock::normalize($todayLocal);
+        $endToday       = ProcessClock::normalize($todayLocal->modify('+1 day'));
+        $startYesterday = ProcessClock::normalize($todayLocal->modify('-1 day'));
+        $startMonth     = ProcessClock::normalize($local->modify('first day of this month')->setTime(0, 0, 0));
+        $startLastMonth = ProcessClock::normalize($local->modify('first day of last month')->setTime(0, 0, 0));
+        $startWeek      = ProcessClock::normalize($weekLocal);
+        $startLastWeek  = ProcessClock::normalize($weekLocal->modify('-7 days'));
         $specialistId = $specialist->getId();
         $webUrl       = WebUrls::patientAppForStaffOrigin(WebUrls::requestStaffOrigin() ?? $specialist->getWebOrigin());
 

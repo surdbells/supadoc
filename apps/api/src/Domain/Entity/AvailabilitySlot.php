@@ -18,14 +18,16 @@ use Ramsey\Uuid\Uuid;
  * slots in a window, those become the source of truth for that window; blocks
  * always subtract from whatever availability exists.
  *
- * The doctor's editor works in UTC wall-clock (the client sends "HH:MM" on a
- * UTC date); the instants are stored like every timestamp, on the process
- * clock, and {@see toArray()} hands them back in UTC. "Booked" is not a stored
+ * The editor sends wall-clock times in the doctor's zone (`tz`; a request
+ * without one is read as UTC, the legacy contract); instants are stored on the
+ * process clock like every timestamp, and {@see toArray()} hands them back in
+ * UTC. Rows published together by a repeating request share a `series_id`. "Booked" is not a stored
  * state: it is derived by matching a live appointment to an OPEN slot's start.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'availability_slots')]
 #[ORM\Index(name: 'idx_slots_specialist_start', columns: ['specialist_id', 'starts_at'])]
+#[ORM\Index(name: 'idx_slots_specialist_series', columns: ['specialist_id', 'series_id'])]
 #[ORM\HasLifecycleCallbacks]
 class AvailabilitySlot
 {
@@ -60,12 +62,17 @@ class AvailabilitySlot
     #[ORM\Column(type: 'string', length: 200, nullable: true)]
     private ?string $reason = null;
 
+    /** The repeating request that published this OPEN row (null for a one-time row or a block). */
+    #[ORM\Column(name: 'series_id', type: 'uuid', nullable: true)]
+    private ?string $seriesId = null;
+
     public function __construct(
         Specialist $specialist,
         DateTimeImmutable $startsAt,
         DateTimeImmutable $endsAt,
         SlotKind $kind = SlotKind::OPEN,
         ?string $reason = null,
+        ?string $seriesId = null,
     ) {
         $this->id          = Uuid::uuid4()->toString();
         $this->specialist  = $specialist;
@@ -73,6 +80,7 @@ class AvailabilitySlot
         $this->endsAt      = ProcessClock::normalize($endsAt);
         $this->startsEpoch = $startsAt->getTimestamp();
         $this->kind        = $kind;
+        $this->seriesId    = $seriesId !== null && $seriesId !== '' ? strtolower($seriesId) : null;
         $this->setReason($reason);
     }
 
@@ -100,6 +108,22 @@ class AvailabilitySlot
     public function getStartsEpoch(): ?int
     {
         return $this->startsEpoch;
+    }
+
+    public function getSeriesId(): ?string
+    {
+        return $this->seriesId;
+    }
+
+    /**
+     * Move this row (a doctor's zone change, keeping its wall clock): both ends
+     * on the process clock, and the clock-repair marker re-set from the instant.
+     */
+    public function reschedule(DateTimeImmutable $startsAt, DateTimeImmutable $endsAt): void
+    {
+        $this->startsAt    = ProcessClock::normalize($startsAt);
+        $this->endsAt      = ProcessClock::normalize($endsAt);
+        $this->startsEpoch = $startsAt->getTimestamp();
     }
 
     public function getKind(): SlotKind
@@ -152,6 +176,7 @@ class AvailabilitySlot
             'ends_at'    => $this->endsAt->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM),
             'kind'       => $this->kind->value,
             'reason'     => $this->reason,
+            'series_id'  => $this->seriesId,
         ];
     }
 }

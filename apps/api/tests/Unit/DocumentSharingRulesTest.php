@@ -120,6 +120,45 @@ final class DocumentSharingRulesTest extends TestCase
         $this->assertNull(Rules::untilLabelAt(null, 'indefinite'));
     }
 
+    public function testUploadsCanBeSharedFromACall(): void
+    {
+        $this->assertContains('call', Rules::UPLOAD_SURFACES);
+        $this->assertContains('call', Rules::SURFACES);
+    }
+
+    public function testViewableMatchesWhatStorageActuallyStores(): void
+    {
+        $viewable = [
+            ['pdf', 'application/pdf'], ['pdf', ''], ['jpg', 'image/jpeg'], ['jpeg', 'image/jpeg'], ['png', 'image/png'], ['webp', 'image/webp'],
+            ['mp4', 'video/mp4'], ['mp4', 'video/quicktime'], ['mp4', 'application/mp4'], ['mp4', 'application/octet-stream'], ['mp4', ''],
+            ['webm', 'video/webm'], ['webm', ''], ['PDF', 'Application/PDF'],
+        ];
+        foreach ($viewable as [$ext, $mime]) {
+            $this->assertTrue(Rules::isViewable($ext, $mime), "{$ext} / {$mime}");
+        }
+        $not = [
+            ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], ['doc', 'application/msword'],
+            ['dcm', 'application/dicom'], ['mov', 'video/quicktime'], ['pdf', 'image/png'], ['png', 'application/pdf'], ['jpg', ''],
+            ['webm', 'text/html'], ['exe', 'application/octet-stream'],
+        ];
+        foreach ($not as [$ext, $mime]) {
+            $this->assertFalse(Rules::isViewable($ext, $mime), "{$ext} / {$mime}");
+        }
+        $this->assertSame(['pdf', 'jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm'], Rules::VIEWABLE_EXTENSIONS);
+    }
+
+    public function testTheViewContentTypeIsFixedPerExtension(): void
+    {
+        $this->assertSame('application/pdf', Rules::viewContentType('pdf'));
+        $this->assertSame('image/jpeg', Rules::viewContentType('jpg'));
+        $this->assertSame('image/jpeg', Rules::viewContentType('jpeg'));
+        $this->assertSame('image/png', Rules::viewContentType('png'));
+        $this->assertSame('image/webp', Rules::viewContentType('webp'));
+        $this->assertSame('video/mp4', Rules::viewContentType('mp4'), 'even when stored as video/quicktime');
+        $this->assertSame('video/webm', Rules::viewContentType('webm'));
+        $this->assertSame('application/octet-stream', Rules::viewContentType('docx'));
+    }
+
     public function testTheKillSwitchDefaultsOff(): void
     {
         $previous = $_ENV['DOC_SHARING_ENABLED'] ?? null;

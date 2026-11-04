@@ -567,7 +567,7 @@ final class SpecialistSuspensionService
     private function noticePatient(Appointment $appointment, ?string $refund, bool $proposal): void
     {
         $doctor   = $appointment->getSpecialist();
-        $when     = FollowUpService::whenLabel($appointment->getScheduledAt());
+        $when     = FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getPatient()->timeZone());
         $refunded = $this->refundLabel($refund);
 
         $this->patientNotifier->notify(
@@ -598,7 +598,7 @@ final class SpecialistSuspensionService
                 (string) ($p['first_name'] ?? ''),
                 $doctor->getName(),
                 $doctor->getSpecialty(),
-                FollowUpService::whenLabel($appointment->getScheduledAt()),
+                FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getPatient()->timeZone()),
                 $this->refundLabel($refund),
                 WebUrls::forPatient($patient) . self::rebookPath($appointment),
                 $proposal,

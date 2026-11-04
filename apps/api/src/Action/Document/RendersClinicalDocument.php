@@ -74,7 +74,12 @@ trait RendersClinicalDocument
         $ctx       = array_merge(
             $this->documentContext($appointment),
             $data,
-            ['document_no' => (string) ($data['id'] ?? ''), 'issued_at' => $issuedAt],
+            [
+                'document_no'     => (string) ($data['id'] ?? ''),
+                'issued_at'       => $issuedAt,
+                // The issuing doctor's zone: the issue time is stamped in it.
+                'doctor_timezone' => $appointment->getSpecialist()->timeZone()->getName(),
+            ],
         );
 
         $html = $renderer->render($kind, $ctx);

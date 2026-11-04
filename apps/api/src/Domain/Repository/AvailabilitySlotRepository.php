@@ -6,6 +6,7 @@ namespace App\Domain\Repository;
 
 use App\Domain\Entity\AvailabilitySlot;
 use App\Domain\Enum\SlotKind;
+use App\Domain\Settings\ProcessClock;
 use DateTimeImmutable;
 use Doctrine\ORM\Query;
 
@@ -37,6 +38,56 @@ final class AvailabilitySlotRepository extends BaseRepository
             ->orderBy('e.startsAt', 'ASC')
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * The doctor's OPEN rows of one repeating series that start at or after
+     * $from, soonest first ("this and later times").
+     *
+     * @return list<AvailabilitySlot>
+     */
+    public function openInSeriesFrom(string $specialistId, string $seriesId, DateTimeImmutable $from): array
+    {
+        return $this->openInSeriesFromQuery($specialistId, $seriesId, $from)->getResult();
+    }
+
+    /** The query behind {@see openInSeriesFrom()} (compiled by the offline tests). */
+    public function openInSeriesFromQuery(string $specialistId, string $seriesId, DateTimeImmutable $from): Query
+    {
+        return $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.seriesId = :series')
+            ->andWhere('e.kind = :open')
+            ->andWhere('e.startsAt >= :from')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('series', strtolower($seriesId))
+            ->setParameter('open', SlotKind::OPEN->value)
+            ->setParameter('from', ProcessClock::normalize($from))
+            ->orderBy('e.startsAt', 'ASC')
+            ->getQuery();
+    }
+
+    /**
+     * The doctor's OPEN and BLOCK rows starting at or after $from, soonest
+     * first — what a zone change may move.
+     *
+     * @return list<AvailabilitySlot>
+     */
+    public function fromForSpecialist(string $specialistId, DateTimeImmutable $from): array
+    {
+        return $this->fromForSpecialistQuery($specialistId, $from)->getResult();
+    }
+
+    /** The query behind {@see fromForSpecialist()} (compiled by the offline tests). */
+    public function fromForSpecialistQuery(string $specialistId, DateTimeImmutable $from): Query
+    {
+        return $this->qb()
+            ->andWhere('e.specialist = :specialist')
+            ->andWhere('e.startsAt >= :from')
+            ->setParameter('specialist', $specialistId)
+            ->setParameter('from', ProcessClock::normalize($from))
+            ->orderBy('e.startsAt', 'ASC')
+            ->getQuery();
     }
 
     /** A single slot, but only if it belongs to the given specialist. */

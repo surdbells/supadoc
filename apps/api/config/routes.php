@@ -407,6 +407,9 @@ return static function (App $app): void {
             $group->patch('/doctor/profile', Action\Doctor\UpdateDoctorProfileAction::class);
             // Withdraw a change request on the locked fields (still waiting for review).
             $group->delete('/doctor/profile/changes', Action\Doctor\WithdrawDoctorProfileChangesAction::class);
+            // Their time zone (detected at sign-in, or chosen); a manual change may move their open times.
+            $group->put('/doctor/timezone', Action\Doctor\SetDoctorTimeZoneAction::class)
+                ->add(\App\Infrastructure\Middleware\ClockRepairGateMiddleware::class);
             // Licensing documents (MDCN certificate, practising licence, specialist
             // certificates) — encrypted, owner-only — and the practitioner terms.
             $group->get('/doctor/credentials', Action\Doctor\ListDoctorCredentialsAction::class);
@@ -446,6 +449,8 @@ return static function (App $app): void {
             // recorded first. The patient may be asked to share (request / withdraw).
             $group->get('/doctor/appointments/{id}/patient-documents', Action\Doctor\ListPatientDocumentsAction::class);
             $group->get('/doctor/appointments/{id}/patient-documents/{docId}/file', Action\Doctor\DownloadPatientDocumentAction::class);
+            // A print of a viewed document (the viewer prints a watermarked raster) — recorded like a view.
+            $group->post('/doctor/appointments/{id}/patient-documents/{docId}/printed', Action\Doctor\RecordPatientDocumentPrintAction::class);
             $group->get('/doctor/appointments/{id}/document-access', Action\Doctor\DoctorDocumentAccessAction::class);
             $group->post('/doctor/appointments/{id}/document-access/request', Action\Doctor\RequestDocumentAccessAction::class);
             $group->post('/doctor/appointments/{id}/document-access/request/cancel', Action\Doctor\CancelDocumentAccessRequestAction::class);
@@ -584,6 +589,8 @@ return static function (App $app): void {
         $group->group('/portal', function (RouteCollectorProxy $group): void {
             $group->get('/me', Action\Patient\MyProfileAction::class);
             $group->patch('/me', Action\Patient\UpdateMyProfileAction::class);
+            // The zone their emails, texts and notices are written in (detected after sign-in, or chosen).
+            $group->put('/me/timezone', Action\Patient\SetMyTimeZoneAction::class);
             $group->post('/me/password', Action\Patient\ChangeMyPasswordAction::class);
             $group->post('/me/avatar', Action\Patient\UploadMyAvatarAction::class);
             $group->delete('/me/avatar', Action\Patient\DeleteMyAvatarAction::class);

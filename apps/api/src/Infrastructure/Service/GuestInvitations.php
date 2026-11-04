@@ -381,7 +381,7 @@ final class GuestInvitations
             $appointment->getSpecialist()->getId(),
             'appointment',
             'Guest invited',
-            sprintf('%s invited %s to join the consultation on %s.', self::patientName($appointment, 'The patient'), (string) $guest['name'], FollowUpService::whenLabel($appointment->getScheduledAt())),
+            sprintf('%s invited %s to join the consultation on %s.', self::patientName($appointment, 'The patient'), (string) $guest['name'], FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getSpecialist()->timeZone())),
             '/appointments/' . $appointment->getId(),
         );
         $this->sendInvite($appointment, $guest);
@@ -592,7 +592,7 @@ final class GuestInvitations
                 (string) $guest['name'],
                 self::inviterFirstName($appointment),
                 $appointment->getSpecialist()->getName(),
-                FollowUpService::whenLabel($appointment->getScheduledAt()),
+                FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getPatient()->timeZone()),
                 self::joinUrl($this->jwt, $appointment, $guest),
                 $resend,
             );
@@ -605,7 +605,7 @@ final class GuestInvitations
     /** Every guest of a moved consultation gets the new time and a fresh link (both reschedule paths). */
     public function notifyRescheduled(Appointment $appointment): void
     {
-        $when    = FollowUpService::whenLabel($appointment->getScheduledAt());
+        $when    = FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getPatient()->timeZone());
         $inviter = self::inviterFirstName($appointment);
         foreach ($appointment->getGuests() as $guest) {
             if (!isset($guest['id'], $guest['uid'])) {
@@ -683,7 +683,7 @@ final class GuestInvitations
                 (string) ($guest['name'] ?? ''),
                 self::inviterFirstName($appointment),
                 $appointment->getSpecialist()->getName(),
-                FollowUpService::whenLabel($appointment->getScheduledAt()),
+                FollowUpService::whenLabel($appointment->getScheduledAt(), $appointment->getPatient()->timeZone()),
                 $why,
             );
             $this->mail->send((string) ($guest['email'] ?? ''), (string) ($guest['name'] ?? ''), $mail['subject'], $mail['html']);

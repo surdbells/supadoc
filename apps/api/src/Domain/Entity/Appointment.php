@@ -890,6 +890,8 @@ class Appointment
                 'id'        => $this->specialist->getId(),
                 'name'      => $this->specialist->getName(),
                 'specialty' => $this->specialist->getSpecialty(),
+                // The doctor's effective zone, for the "doctor's time" label.
+                'timezone'  => $this->specialist->timeZone()->getName(),
             ],
             'scheduled_at' => $this->scheduledAt->format(DATE_ATOM),
             'type'         => $this->type->value,
@@ -933,6 +935,9 @@ class Appointment
         // shares (DocumentAccessPolicy), so it is never in their payloads.
         if ($audience !== 'patient') {
             unset($payload['document_url']);
+            // The patient's zone only when it was ever set (detected or chosen), so
+            // a patient never detected isn't mislabelled as WAT.
+            $payload['patient_timezone'] = $this->patient->knownTimeZone()?->getName();
         }
 
         return $payload;
@@ -958,6 +963,7 @@ class Appointment
                 'name'  => trim(((string) ($p['first_name'] ?? '')) . ' ' . ((string) ($p['last_name'] ?? ''))),
                 'email' => $p['email'] ?? null,
                 'phone' => $p['phone'] ?? null,
+                'timezone' => $this->patient->knownTimeZone()?->getName(),
             ],
             // Presence evidence, for resolving a missed or stale consultation.
             'doctor_first_joined_at'  => $this->doctorFirstJoinedAt?->format(DATE_ATOM),

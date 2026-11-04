@@ -43,6 +43,8 @@ final class DoctorStanding
         '* /doctor/terms/*',
         'GET /doctor/profile',
         'PATCH /doctor/profile',
+        // A suspended doctor can still fix their time zone (moving times is refused to them separately).
+        'PUT /doctor/timezone',
         'DELETE /doctor/profile/changes',
         'POST /doctor/avatar',
         'DELETE /doctor/avatar',
@@ -137,7 +139,8 @@ final class DoctorStanding
 
         return match ($code) {
             self::NOT_APPROVED => self::matches(self::SETUP, $method, $path),
-            self::TERMS        => $method === 'GET' || !self::isClinical($path),
+            // Printing a document they can view is recorded like viewing it.
+            self::TERMS        => $method === 'GET' || !self::isClinical($path) || str_ends_with($path, '/printed'),
             default            => false, // suspended: only the always-allowed routes
         };
     }

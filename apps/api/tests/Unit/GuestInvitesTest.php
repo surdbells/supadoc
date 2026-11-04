@@ -21,6 +21,7 @@ use App\Domain\Repository\AppointmentRepository;
 use App\Domain\Repository\ConsultationConsentRepository;
 use App\Domain\Repository\RecordingRepository;
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\WebUrls;
 use App\Infrastructure\Agora\AgoraKickingService;
 use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
@@ -105,6 +106,25 @@ final class GuestInvitesTest extends TestCase
      */
     private function joinAction(Appointment $appointment, JwtService $jwt, array $inCall = []): JoinCallAction
     {
+        [$appointments, $consent, $presence] = $this->offlineCall($appointment, $inCall);
+
+        return new JoinCallAction($jwt, $appointments, new AgoraTokenService('', ''), $consent, $presence);
+    }
+
+    /** The lobby ({@see CallLobbyAction}) over the same offline setup as {@see joinAction()}. */
+    private function lobbyAction(Appointment $appointment, JwtService $jwt): CallLobbyAction
+    {
+        [$appointments, $consent] = $this->offlineCall($appointment, []);
+
+        return new CallLobbyAction($jwt, $appointments, $consent);
+    }
+
+    /**
+     * @param list<string> $inCall
+     * @return array{0:AppointmentRepository, 1:GuestConsent, 2:CallPresence}
+     */
+    private function offlineCall(Appointment $appointment, array $inCall): array
+    {
         $em  = $this->em();
         $uow = $em->getUnitOfWork();
         foreach ([$appointment->getPatient(), $appointment->getSpecialist(), $appointment] as $entity) {
@@ -134,11 +154,11 @@ final class GuestInvitesTest extends TestCase
             $presence,
         );
 
-        return new JoinCallAction($jwt, new AppointmentRepository($em), new AgoraTokenService('', ''), $consent, $presence);
+        return [new AppointmentRepository($em), $consent, $presence];
     }
 
     /** @return array{0:int, 1:array<string,mixed>} */
-    private function join(JoinCallAction $action, string $token): array
+    private function join(JoinCallAction|CallLobbyAction $action, string $token): array
     {
         $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/public/call/' . $token);
         $res     = $action($request, (new ResponseFactory())->createResponse(), ['token' => $token]);
@@ -389,6 +409,39 @@ final class GuestInvitesTest extends TestCase
         $stayer = $longOver->addGuest('Bola Ade', 'bola@example.test', '0', 'free', null, new DateTimeImmutable());
         [$status, $body] = $this->join($this->joinAction($longOver, $jwt, [$stayer['id']]), GuestInvitations::token($jwt, $longOver, $stayer));
         $this->assertSame([410, 'ended'], [$status, $body['errors']['code']], 'renewing in the call has a limit too');
+    }
+
+    public function testOnlyADoctorsLobbyCarriesTheDoctorPortalsCallPage(): void
+    {
+        WebUrls::configureFromEnv([
+            'PATIENT_WEB_URLS' => 'https://patient.dosthq.com,https://patient.betacrest.com',
+            'STAFF_WEB_URLS'   => 'https://doctor.dosthq.com,https://doctor.betacrest.com',
+        ]);
+        WebUrls::setRequestOrigin('');
+        $jwt         = new JwtService(self::SECRET, 900, 1209600);
+        $appointment = $this->appointment('+2 days');
+        $appointment->getSpecialist()->setWebOrigin('https://doctor.betacrest.com');
+        $guest = $appointment->addGuest('Bola Ade', 'bola@example.test', '0', 'free', null, new DateTimeImmutable());
+        $lobby = $this->lobbyAction($appointment, $jwt);
+
+        $doctorToken     = $jwt->issueCallAccess($appointment->getId(), 'Dr. Grace Bell', 'doctor', Appointment::DOCTOR_UID);
+        [$status, $body] = $this->join($lobby, $doctorToken);
+        $this->assertSame(200, $status);
+        $this->assertSame('https://doctor.betacrest.com/call/' . $doctorToken, $body['data']['doctor_portal_url'], "the doctor's own portal");
+        [, $joined] = $this->join($this->joinAction($appointment, $jwt), $doctorToken);
+        $this->assertSame($joined['data']['doctor_portal_url'], $body['data']['doctor_portal_url'], 'the same address the join gives');
+        foreach (['patient', 'app_id', 'channel', 'token', 'configured'] as $key) {
+            $this->assertArrayNotHasKey($key, $body['data'], "the lobby never carries $key");
+        }
+
+        [$status, $body] = $this->join($lobby, $jwt->issueCallAccess($appointment->getId(), 'Ada Obi', 'patient', 1));
+        $this->assertSame(200, $status);
+        $this->assertArrayNotHasKey('doctor_portal_url', $body['data'], "not on the patient's link");
+
+        [$status, $body] = $this->join($lobby, GuestInvitations::token($jwt, $appointment, $guest));
+        $this->assertSame(200, $status, 'an early guest still gets the lobby');
+        $this->assertFalse($body['data']['can_join']);
+        $this->assertArrayNotHasKey('doctor_portal_url', $body['data'], "nor on a guest's");
     }
 
     public function testAGuestInTheCallRenewsWithoutTheNoticeOnlyWhileNothingIsRecorded(): void

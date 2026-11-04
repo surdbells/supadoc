@@ -42,12 +42,14 @@ final class CorsMiddleware implements MiddlewareInterface
         $response = $response
             ->withHeader('Access-Control-Allow-Origin', $allow)
             ->withHeader('Vary', 'Origin')
-            // X-SD-Passive marks a background poll (it never extends the session's idle clock).
-            ->withHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With, X-SD-Passive')
+            // X-SD-Passive marks a background poll (it never extends the session's idle clock);
+            // X-SD-Viewer marks the doctor's view-only document viewer.
+            ->withHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With, X-SD-Passive, X-SD-Viewer')
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
             ->withHeader('Access-Control-Max-Age', '86400')
-            // Readable by the portals, so a 429 can back off for exactly as long as asked.
-            ->withHeader('Access-Control-Expose-Headers', 'Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining');
+            // Readable by the portals, so a 429 can back off for exactly as long as asked,
+            // and the doctor's viewer can watermark a document with its view reference.
+            ->withHeader('Access-Control-Expose-Headers', 'Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-SD-View-Ref, X-SD-Viewed-At');
 
         // Credentials may only be combined with a specific, allow-listed origin —
         // never with a reflected/wildcard origin (that would defeat the same-origin

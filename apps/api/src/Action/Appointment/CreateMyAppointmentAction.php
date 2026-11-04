@@ -20,8 +20,8 @@ use App\Domain\Repository\MedicalDocumentRepository;
 use App\Domain\Repository\NotificationRepository;
 use App\Domain\Repository\PatientRepository;
 use App\Domain\Repository\SpecialistRepository;
-use App\Domain\Settings\ClinicTime;
 use App\Domain\Settings\ProcessClock;
+use App\Domain\Settings\TimeZones;
 use App\Infrastructure\Document\DocumentSharingService;
 use App\Infrastructure\Service\ApiResponse;
 use App\Infrastructure\Service\AppointmentCheckout;
@@ -384,7 +384,8 @@ final class CreateMyAppointmentAction
             'appointment',
             'New booking',
             trim(((string) $patient->toArray()['first_name']) . ' ' . ((string) $patient->toArray()['last_name']))
-                . ' booked a ' . ((string) $a['type_label']) . '.',
+                . ' booked a ' . ((string) $a['type_label'])
+                . ' on ' . TimeZones::when($appointment->getScheduledAt(), $specialist->timeZone()) . '.',
             '/schedule',
         );
 
@@ -573,7 +574,8 @@ final class CreateMyAppointmentAction
     {
         try {
             $a    = $appointment->toArray();
-            $when = $appointment->getScheduledAt()->setTimezone(ClinicTime::zone())->format('M j, Y \a\t g:i A T');
+            // On the patient's clock (their saved zone).
+            $when = TimeZones::when($appointment->getScheduledAt(), $patient->timeZone());
             $this->notifications->save(new Notification(
                 $patient,
                 NotificationType::APPOINTMENT,

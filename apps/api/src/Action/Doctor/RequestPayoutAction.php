@@ -66,7 +66,7 @@ final class RequestPayoutAction
             ]);
         }
 
-        $summary   = $this->earnings->summary($specialist->getId());
+        $summary   = $this->earnings->summary($specialist->getId(), $specialist->timeZone());
         $available = (string) $summary['available_balance'];
 
         $body   = (array) $request->getParsedBody();

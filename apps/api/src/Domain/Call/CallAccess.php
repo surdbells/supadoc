@@ -7,7 +7,7 @@ namespace App\Domain\Call;
 use App\Domain\Doctor\DoctorStanding;
 use App\Domain\Entity\Appointment;
 use App\Domain\Enum\AppointmentStatus;
-use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\TimeZones;
 use DateTimeImmutable;
 
 /**
@@ -195,7 +195,8 @@ final class CallAccess
         if ($early && $now < $opensAt) {
             $message = sprintf(
                 "This consultation hasn't started yet. You can join from %s.",
-                $opensAt->setTimezone(ClinicTime::zone())->format('D j M, g:i A T'),
+                // The inviting patient's clock (a guest's own zone is unknown; the page re-renders it).
+                TimeZones::when($opensAt, $appointment->getPatient()->timeZone()),
             );
 
             return self::refusal(425, $message, 'too_early', [

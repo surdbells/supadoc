@@ -11,10 +11,12 @@ use DateTimeZone;
  * "Calendars start from now" — the shared past-date rules behind the doctor's
  * availability editor and medical certificates.
  *
- * Availability dates and times are UTC wall-clock (the editor's convention), so
- * those checks compare instants, to the minute: a start typed as the current
- * "HH:MM" still counts as now. The certificate backdate is a date-only rule on
- * the clinic's calendar ({@see ClinicTime}).
+ * Availability dates and times are wall clock in the doctor's zone (the `tz`
+ * the editor sends; UTC on the legacy contract), so "today" is the zone's
+ * date ({@see isPastLocalDay()}, {@see isPastUtcDay()}) and starts compare as
+ * instants, to the minute: a start typed as the current "HH:MM" still counts
+ * as now. The certificate backdate is a date-only rule on the clinic's
+ * calendar ({@see ClinicTime}).
  */
 final class ScheduleRules
 {
@@ -37,6 +39,14 @@ final class ScheduleRules
         $now ??= new DateTimeImmutable('now', $utc);
 
         return $date->setTimezone($utc)->format('Y-m-d') < $now->setTimezone($utc)->format('Y-m-d');
+    }
+
+    /** Is the local date $ymd (Y-m-d in $z) before today in $z? */
+    public static function isPastLocalDay(string $ymd, DateTimeZone $z, ?DateTimeImmutable $now = null): bool
+    {
+        $now ??= new DateTimeImmutable('now', $z);
+
+        return $ymd < $now->setTimezone($z)->format('Y-m-d');
     }
 
     /** The earliest date a sick-leave certificate may start, Y-m-d on the clinic's calendar. */

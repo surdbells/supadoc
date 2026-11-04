@@ -21,10 +21,12 @@ use DateTimeZone;
  * booking calendar, the directory, the suggestions and the booking guard,
  * which all go through the same pure {@see SlotGenerator}:
  *
- *   1. Per UTC day, explicit date-specific slots the doctor published win: a
- *      day with any OPEN slot offers exactly those.
- *   2. Every other day offers the recurring weekly grid
- *      (`Specialist::weeklyHours`), stepped by the doctor's consultation length.
+ *   1. Per doctor-local date (the doctor's own zone, `Specialist::timeZone()`),
+ *      explicit date-specific slots the doctor published win: a date with any
+ *      OPEN slot offers exactly those.
+ *   2. Every other date offers the recurring weekly grid
+ *      (`Specialist::weeklyHours`, wall clock on the doctor's clock), stepped
+ *      by the doctor's consultation length.
  *      An approved doctor with no weekly hours who publishes nothing in the
  *      booking window gets weekdays 09:00–17:00; nobody else gets made-up hours.
  *
@@ -51,7 +53,7 @@ final class AvailabilityService
 
     private const DAY = 86400;
 
-    /** Fallback when an approved specialist has no schedule: weekdays 09:00–17:00. */
+    /** Fallback when an approved specialist has no schedule: weekdays 09:00–17:00 on the doctor's clock. */
     private const DEFAULT_HOURS = [
         '1' => [['09:00', '17:00']],
         '2' => [['09:00', '17:00']],
@@ -165,7 +167,7 @@ final class AvailabilityService
      * (`frame(…, enforceHorizon: false)`) reaches a year ahead and shows a
      * doctor switched off for bookings too.
      *
-     * @return array{tz:string, today:string, bookable_from:string, bookable_until:string, horizon_days:int, slot_minutes:int, next_available:?string, days:list<array{date:string, status:string, open:int, first:?string}>}
+     * @return array{tz:string, doctor_tz:string, today:string, bookable_from:string, bookable_until:string, horizon_days:int, slot_minutes:int, next_available:?string, days:list<array{date:string, status:string, open:int, first:?string}>}
      */
     public function range(Specialist $specialist, string $from, string $to, BookingFrame $frame): array
     {
@@ -190,6 +192,8 @@ final class AvailabilityService
 
         return [
             'tz'             => $frame->tz->getName(),
+            // The doctor's own zone, for the "doctor's time" secondary label.
+            'doctor_tz'      => $specialist->timeZone()->getName(),
             'today'          => $frame->today,
             'bookable_from'  => $frame->bookableFromDate,
             'bookable_until' => $frame->bookableUntilDate,
@@ -268,7 +272,7 @@ final class AvailabilityService
      * today … bookable_until, or for a doctor who can't be booked (a staff
      * frame: a year ahead, the bookings switch ignored).
      *
-     * @return array{date:string, tz:string, slots:list<array{iso:string, time:string, label:string, period:string}>}
+     * @return array{date:string, tz:string, doctor_tz:string, slots:list<array{iso:string, time:string, label:string, period:string}>}
      */
     public function daySlots(Specialist $specialist, string $date, BookingFrame $frame): array
     {
@@ -283,7 +287,7 @@ final class AvailabilityService
             }
         }
 
-        return ['date' => $date, 'tz' => $frame->tz->getName(), 'slots' => $slots];
+        return ['date' => $date, 'tz' => $frame->tz->getName(), 'doctor_tz' => $specialist->timeZone()->getName(), 'slots' => $slots];
     }
 
     // ----- Many doctors at once (directory, suggestions) -----
@@ -482,9 +486,11 @@ final class AvailabilityService
     /**
      * Each specialist's {@see Schedule} for generating times in [$from, $to):
      * two queries for any number of doctors (slots + blocks, taken times), plus
-     * one to see who publishes slots when a doctor has no weekly hours. The
-     * windows reach a day either side so a block or booking that overlaps an
-     * edge time still counts. `$ignoreAppointmentId`: an appointment being
+     * one to see who publishes slots when a doctor has no weekly hours. Slot
+     * rows reach two days either side — every row on each doctor-local date the
+     * window touches, even a 25-hour DST day at the extreme offsets — and
+     * bookings a day, so a block or booking that overlaps an edge time still
+     * counts. `$ignoreAppointmentId`: an appointment being
      * moved, whose current time doesn't count as taken.
      *
      * @param list<Specialist> $specialists
@@ -517,8 +523,8 @@ final class AvailabilityService
         $blocks = [];
         $rows   = $this->slots->rowsForSpecialistsBetween(
             $ids,
-            self::db(intdiv($from, self::DAY) * self::DAY - self::DAY),
-            self::db((intdiv($to - 1, self::DAY) + 2) * self::DAY),
+            self::db(intdiv($from, self::DAY) * self::DAY - 2 * self::DAY),
+            self::db((intdiv($to - 1, self::DAY) + 3) * self::DAY),
         );
         foreach ($rows as $row) {
             $span = [self::ts($row['starts_at']), self::ts($row['ends_at'])];
@@ -547,6 +553,7 @@ final class AvailabilityService
                 $open[$id] ?? [],
                 $blocks[$id] ?? [],
                 $booked[$id] ?? [],
+                $s->timeZone(),
             );
         }
 
@@ -575,6 +582,27 @@ final class AvailabilityService
         return $ask === []
             ? []
             : $this->slots->specialistIdsWithOpenSlots($ask, self::db($frame->now), self::db($frame->now + $this->horizonDays() * self::DAY));
+    }
+
+    /**
+     * The recurring grid in play now for the doctor's own calendar (wall clock
+     * in their zone): their own weekly hours ('own'), the weekday default
+     * ('default' — an approved doctor with no hours who publishes nothing in
+     * the booking window), or none.
+     *
+     * @return array{hours: array<string, list<array{0:string,1:string}>>|null, source: 'own'|'default'|null}
+     */
+    public function regularHours(Specialist $s): array
+    {
+        if ($s->getWeeklyHours() !== null) {
+            return ['hours' => $s->getWeeklyHours(), 'source' => 'own'];
+        }
+        if (!self::hasTimes($s)) {
+            return ['hours' => null, 'source' => null];
+        }
+        $hours = $this->weeklyHours($s, isset($this->publishing([$s], $this->frame())[$s->getId()]));
+
+        return $hours === [] ? ['hours' => null, 'source' => null] : ['hours' => $hours, 'source' => 'default'];
     }
 
     /**

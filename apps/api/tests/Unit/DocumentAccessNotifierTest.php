@@ -58,8 +58,14 @@ final class DocumentAccessNotifierTest extends TestCase
         );
         $capped = N::rescheduleSuffix([['duration' => 'after_30d', 'expires_at' => $end, 'capped' => true]]);
         $this->assertSame(
-            'Documents you shared for this consultation stay shared until ' . $end->setTimezone(ClinicTime::zone())->format('j M, g:i A') . '.',
+            'Documents you shared for this consultation stay shared until ' . $end->setTimezone(ClinicTime::zone())->format('j M, g:i A') . ' WAT.',
             $capped,
+            'no zone given: the clinic\x27s',
+        );
+        // On the patient's own clock, with its abbreviation.
+        $this->assertSame(
+            'Documents you shared for this consultation stay shared until ' . $end->setTimezone(new \DateTimeZone('America/Chicago'))->format('j M, g:i A') . ' ' . \App\Domain\Settings\TimeZones::abbr($end, new \DateTimeZone('America/Chicago')) . '.',
+            N::rescheduleSuffix([['duration' => 'after_30d', 'expires_at' => $end, 'capped' => true]], new \DateTimeZone('America/Chicago')),
         );
     }
 

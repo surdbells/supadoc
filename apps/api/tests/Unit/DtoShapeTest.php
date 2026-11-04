@@ -35,7 +35,7 @@ final class DtoShapeTest extends TestCase
     public const REQUEST          = ['id', 'specialist', 'appointment', 'kind', 'status', 'message', 'created_at', 'expires_at', 'decided_at', 'grant_id', 'suggestion'];
     public const DOCTOR_REQUEST   = ['id', 'kind', 'status', 'message', 'appointment_id', 'created_at', 'expires_at', 'decided_at'];
     public const EVENT            = ['id', 'event', 'actor', 'specialist', 'document', 'grant_id', 'request_id', 'details', 'created_at'];
-    public const DOCTOR_DOCUMENT  = [...self::MEDICAL_DOCUMENT, 'via', 'shared_until', 'shared_until_label_at', 'shared_indefinitely', 'shared_at'];
+    public const DOCTOR_DOCUMENT  = [...self::MEDICAL_DOCUMENT, 'via', 'shared_until', 'shared_until_label_at', 'shared_indefinitely', 'shared_at', 'viewable'];
     /** DoctorDocumentAccessDto.access (DocumentAccessPolicy::doctorSummary needs a database: checked in ContractShapeTest). */
     public const DOCTOR_ACCESS_STATE = ['state', 'scope', 'document_count', 'until', 'until_label_at', 'indefinite', 'folder_until_label_at', 'folder_indefinite', 'next_change_at', 'ends_soon', 'had_access_before'];
 
@@ -122,7 +122,7 @@ final class DtoShapeTest extends TestCase
     public const APP_DOCUMENT       = ['id', 'slot', 'slot_label', 'label', 'original_name', 'mime', 'size_bytes', 'state', 'uploaded_during', 'uploaded_at'];
     public const APP_SUBMITTED      = ['id', 'reference', 'status', 'submitted_at', 'email', 'phone'];
     public const APP_ROW            = ['id', 'reference', 'status', 'status_label', 'full_name', 'email', 'specialty', 'licence_route', 'licence_label', 'submitted_at', 'awaiting_staff', 'interview_starts_at', 'last_activity_at'];
-    public const APP_INTERVIEW      = ['starts_at', 'starts_at_label', 'duration_minutes', 'meeting_url', 'meeting_host', 'note'];
+    public const APP_INTERVIEW      = ['starts_at', 'starts_at_label', 'duration_minutes', 'meeting_url', 'meeting_host', 'note', 'applicant_time_zone', 'applicant_label'];
     public const APP_INFO_REQUEST   = ['id', 'message', 'items', 'requested_at', 'responded_at', 'response_note'];
     public const APP_EVENT          = ['id', 'kind', 'label', 'from_status', 'to_status', 'actor_type', 'actor_name', 'applicant_visible', 'public_message', 'channel', 'created_at'];
     public const APP_NOTE           = ['id', 'author_name', 'body', 'created_at'];

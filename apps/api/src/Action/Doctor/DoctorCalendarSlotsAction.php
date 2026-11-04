@@ -42,7 +42,12 @@ final class DoctorCalendarSlotsAction
 
         $query = $request->getQueryParams();
         $date  = CalendarQuery::date($query);
-        $frame = $this->availability->frame(BookingFrame::zone($query['tz'] ?? null), null, false);
+        // Without `tz`, the doctor's own zone (not the clinic's).
+        $frame = $this->availability->frame(
+            is_string($query['tz'] ?? null) && trim($query['tz']) !== '' ? BookingFrame::zone($query['tz']) : $specialist->timeZone(),
+            null,
+            false,
+        );
 
         return $this->success($response, $this->availability->daySlots($specialist, $date, $frame));
     }

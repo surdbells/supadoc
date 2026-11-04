@@ -106,12 +106,27 @@ final class ClinicalDocumentRendererTest extends TestCase
                 'days'         => 2,
             ] + $this->baseCtx());
 
-            self::assertStringContainsString('Issued: 21 Oct 2026, 10:00', $html, 'issued on the clinic clock');
+            self::assertStringContainsString('Issued: 21 Oct 2026, 10:00 WAT', $html, 'no doctor zone given: the clinic clock, with its abbreviation');
             // 23:30 WAT on the 21st — already the 22nd in the process zone.
             self::assertStringContainsString('Consultation: 21 Oct 2026', $html);
             self::assertStringContainsString('21 Oct 2026 to 22 Oct 2026', $html, 'calendar days are never shifted');
         } finally {
             date_default_timezone_set($zone);
         }
+    }
+
+    public function testTheIssueTimeIsStampedInTheIssuingDoctorsZone(): void
+    {
+        $html = $this->renderer()->render('certificate', [
+            'issued_at'       => '2026-11-04T15:12:00+00:00',
+            'doctor_timezone' => 'America/Chicago',
+            'type_label'      => 'Sick leave certificate',
+            'statement'       => 'Requires rest.',
+            'from_date'       => '2026-11-04',
+            'to_date'         => '2026-11-05',
+            'days'            => 2,
+        ] + $this->baseCtx());
+        self::assertStringContainsString('Issued: 4 Nov 2026, 09:12 CST', $html);
+        self::assertStringContainsString('4 Nov 2026 to 5 Nov 2026', $html, 'policy dates stay calendar dates');
     }
 }

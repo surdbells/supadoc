@@ -185,6 +185,11 @@ final class ApplicationApprovalService
         $s->setYearsExperience(is_int($professional['years_experience'] ?? null) ? $professional['years_experience'] : null);
         $s->setLanguages(implode(', ', is_array($professional['languages'] ?? null) ? $professional['languages'] : []));
         $s->setBio(is_string($professional['bio'] ?? null) ? $professional['bio'] : null);
+        // The zone the applicant gave (detected by their browser): their first
+        // sign-in needs no prompt, and it stays editable (source auto).
+        if (($zone = $app->applicantTimeZone()) !== null) {
+            $s->setTimezone($zone->getName(), 'auto');
+        }
 
         $entries = [];
         foreach (($app->section('qualifications')['entries'] ?? []) as $entry) {

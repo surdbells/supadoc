@@ -566,11 +566,13 @@ final class FollowUpTest extends TestCase
 
     // ----- What the patient is told -----
 
-    public function testNoticesAreGenericAndOnTheClinicClock(): void
+    public function testNoticesAreGenericAndOnTheRecipientsClock(): void
     {
         ClinicTime::configure('Africa/Lagos');
-        $when = FollowUpService::whenLabel(new DateTimeImmutable('2026-10-20T14:00:00+00:00'));
+        $when = FollowUpService::whenLabel(new DateTimeImmutable('2026-10-20T14:00:00+00:00'), new \DateTimeZone('Africa/Lagos'));
         $this->assertSame('Tue 20 Oct, 3:00 PM WAT', $when);
+        // A doctor in Chicago reads the same moment on their own clock.
+        $this->assertSame('Tue 20 Oct, 9:00 AM CDT', FollowUpService::whenLabel(new DateTimeImmutable('2026-10-20T14:00:00+00:00'), new \DateTimeZone('America/Chicago')));
 
         $mail = EmailTemplates::followUpProposed('Ada', 'Dr. Grace <Bell>', $when, 'Sun 18 Oct, 9:00 AM WAT', '₦10,000.00', 'https://app.example/dashboard/appointments/x');
         $this->assertStringContainsString('proposed a follow-up consultation on Tue 20 Oct, 3:00 PM WAT. Open VideoMed to accept or choose another time.', $mail['html']);

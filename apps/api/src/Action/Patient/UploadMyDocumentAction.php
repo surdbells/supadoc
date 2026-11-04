@@ -31,7 +31,12 @@ use Psr\Http\Message\UploadedFileInterface;
  *    upload batch: the batch's files go on one share);
  *  - `exclude_specialist_ids[]` (≤ 20 booked doctors): doctors with a
  *    whole-folder share who must NOT see this file (may come alone);
- *  - `share_surface`: documents_page (default) | appointment_details.
+ *  - `share_surface`: documents_page (default) | appointment_details | call.
+ *    A call upload (made inside a consultation) shares with exactly that
+ *    consultation's doctor (`share_appointment_id` required), with no end
+ *    date (`indefinite`), never for a cancelled consultation — and only types
+ *    the doctor can view in-app (PDF, JPG, PNG, WEBP, MP4, WEBM), judged by the
+ *    file name before storing and by the stored type after.
  * Without them the file is private — except to doctors holding a whole-folder
  * share (folder semantics, shown to the patient before they upload).
  *
@@ -49,6 +54,8 @@ final class UploadMyDocumentAction
 
     /** Length of medical_documents.custom_type. */
     public const CUSTOM_TYPE_MAX = 120;
+
+    private const CALL_TYPES = 'In a call you can share PDFs, photos (JPG, PNG, WEBP) and videos (MP4, WEBM).';
 
     public function __construct(
         private readonly PatientRepository $patients,
@@ -105,6 +112,13 @@ final class UploadMyDocumentAction
             return $this->error($response, $r->getMessage(), $r->status, $r->errors);
         }
 
+        // A call upload must be a type the doctor can view in the call — judged
+        // on the name first, so nothing is stored for a Word file.
+        $inCall = ($choice['share']['surface'] ?? null) === 'call';
+        if ($inCall && !in_array(strtolower(pathinfo((string) $file->getClientFilename(), PATHINFO_EXTENSION)), Rules::VIEWABLE_EXTENSIONS, true)) {
+            return $this->error($response, self::CALL_TYPES, 422, ['file' => self::CALL_TYPES]);
+        }
+
         try {
             $meta = $this->storage->store($file, $customerId);
         } catch (\RuntimeException $e) {
@@ -131,6 +145,12 @@ final class UploadMyDocumentAction
         );
         if ($type === 'other') {
             $document->setCustomType($customType);
+        }
+        // …and on what was actually stored (the sniffed type).
+        if ($inCall && !Rules::isViewable($meta['extension'], $meta['mime'])) {
+            $this->storage->delete($document);
+
+            return $this->error($response, self::CALL_TYPES, 422, ['file' => self::CALL_TYPES]);
         }
 
         try {

@@ -13,6 +13,7 @@ use App\Action\Doctor\ProposeFollowUpAction;
 use App\Action\Doctor\RescheduleDoctorAppointmentAction;
 use App\Domain\Exception\ValidationException;
 use App\Domain\Settings\ClinicTime;
+use App\Infrastructure\Availability\BookingFrame as BookingFrameAlias;
 use App\Infrastructure\Persistence\ClockRepair;
 use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use DateTimeImmutable;
@@ -143,7 +144,8 @@ final class ProcessZoneDoctorTest extends DocShareTestCase
         $tomorrow = $this->utcDay(1);
         $created  = $this->publish($tomorrow, '22:00', '23:00');
         $this->assertSame(2, $created['created']);
-        $ids = array_column($created['slots'], 'id');
+        $this->assertSame('UTC', $created['tz'], 'no tz: the legacy UTC contract');
+        $ids = array_column(array_values(array_filter($this->listing($tomorrow, $tomorrow), static fn (array $r): bool => !str_starts_with((string) $r['id'], 'appt-'))), 'id');
         // Stored as the Shanghai wall-clock of 22:00Z / 22:30Z (06:00 / 06:30 the next day), marked.
         $this->assertSame([$this->wall($tomorrow . 'T22:00:00Z'), (new DateTimeImmutable($tomorrow . 'T22:00:00Z'))->getTimestamp()], $this->stored('availability_slots', 'starts_at', 'starts_epoch', (string) $ids[0]));
         $this->assertSame([$this->wall($tomorrow . 'T22:30:00Z'), (new DateTimeImmutable($tomorrow . 'T22:30:00Z'))->getTimestamp()], $this->stored('availability_slots', 'starts_at', 'starts_epoch', (string) $ids[1]));
@@ -167,5 +169,95 @@ final class ProcessZoneDoctorTest extends DocShareTestCase
         $this->assertSame($blockDay . 'T00:00:00+00:00', $rows[0]['starts_at']);
         $this->assertSame($next->format('Y-m-d') . 'T00:00:00+00:00', $rows[0]['ends_at']);
         $this->assertSame('blocked', $rows[0]['status']);
+    }
+
+    // ----- A Chicago doctor under PRC -----
+
+    private function makeChicago(): void
+    {
+        $this->conn()->executeStatement("UPDATE specialists SET timezone = 'America/Chicago', timezone_source = 'manual' WHERE id = ?", [$this->A]);
+    }
+
+    private function chicagoDay(int $days): string
+    {
+        return (new DateTimeImmutable('now', new DateTimeZone('America/Chicago')))->modify('+' . $days . ' days')->format('Y-m-d');
+    }
+
+    /** @return array{status:int, body:array<string,mixed>} doctor A's listing on the zone contract */
+    private function zonedListing(string $from, string $to, string $tz = 'America/Chicago'): array
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/test')
+            ->withAttribute('user_id', $this->userA)
+            ->withAttribute('user_roles', ['doctor'])
+            ->withQueryParams(['from' => $from, 'to' => $to, 'tz' => $tz]);
+
+        return $this->decode($this->container()->get(ListAvailabilityAction::class)($request, new Response()));
+    }
+
+    public function testAChicagoDoctorsDailySeriesIsStoredAsTheInstantsOfTheirWallClock(): void
+    {
+        $this->makeChicago();
+        $first = $this->chicagoDay(2);
+        $res   = $this->doctorAction(AddAvailabilityAction::class, $this->userA, [], [
+            'date' => $first, 'start' => '09:00', 'end' => '10:00', 'duration' => 30, 'repeat' => 'daily', 'weeks' => 1, 'tz' => 'America/Chicago',
+        ]);
+        $this->assertSame(200, $res['status'], json_encode($res['body']));
+        $data = $res['body']['data'];
+        $this->assertSame(14, $data['created']);
+        $this->assertSame('America/Chicago', $data['tz']);
+        $this->assertSame('daily', $data['repeat']);
+        $this->assertNotNull($data['series_id']);
+        $firstAt = (new DateTimeImmutable($first . ' 09:00', new DateTimeZone('America/Chicago')))->format(DATE_ATOM);
+        $this->assertSame((new DateTimeImmutable($firstAt))->getTimestamp(), (new DateTimeImmutable((string) $data['first_at']))->getTimestamp());
+
+        $listed = $this->zonedListing($first, BookingFrameAlias::addDays($first, 6));
+        $this->assertSame(200, $listed['status'], json_encode($listed['body']));
+        $this->assertSame('America/Chicago', $listed['body']['data']['tz']);
+        $rows = array_values(array_filter($listed['body']['data']['slots'], static fn (array $r): bool => ($r['series_id'] ?? null) === $data['series_id']));
+        $this->assertCount(14, $rows);
+        foreach ($rows as $row) {
+            $local = (new DateTimeImmutable((string) $row['starts_at']))->setTimezone(new DateTimeZone('America/Chicago'))->format('H:i');
+            $this->assertContains($local, ['09:00', '09:30'], 'every day at 09:00 local, DST or not');
+            $this->assertFalse($row['entire_day']);
+            // Stored on the Shanghai clock, marked with the instant.
+            $this->assertSame([$this->wall((string) $row['starts_at']), (new DateTimeImmutable((string) $row['starts_at']))->getTimestamp()], $this->stored('availability_slots', 'starts_at', 'starts_epoch', (string) $row['id']));
+        }
+
+        // A whole local day blocked is listed as entire_day.
+        $block = $this->doctorAction(BlockAvailabilityAction::class, $this->userA, [], ['date' => $first, 'entire_day' => true, 'tz' => 'America/Chicago']);
+        $this->assertSame(200, $block['status'], json_encode($block['body']));
+        $this->assertTrue($block['body']['data']['entire_day']);
+        $blockRow = array_values(array_filter($this->zonedListing($first, $first)['body']['data']['slots'], static fn (array $r): bool => $r['id'] === $block['body']['data']['id']));
+        $this->assertTrue($blockRow[0]['entire_day']);
+        $this->assertSame((new DateTimeImmutable($first . ' 00:00', new DateTimeZone('America/Chicago')))->getTimestamp(), (new DateTimeImmutable((string) $blockRow[0]['starts_at']))->getTimestamp());
+    }
+
+    public function testTheDashboardTodayIsTheChicagoDay(): void
+    {
+        $this->makeChicago();
+        $chicago = new DateTimeZone('America/Chicago');
+        $today   = (new DateTimeImmutable('now', $chicago))->format('Y-m-d');
+        $em      = $this->em();
+        $p       = $this->patient($em, $this->P);
+        $a       = $this->doctor($em, $this->A);
+        foreach (['00:30', '23:30'] as $hm) {
+            $appt = new \App\Domain\Entity\Appointment($p, $a, new DateTimeImmutable($today . ' ' . $hm, $chicago), \App\Domain\Enum\ConsultationType::VIDEO);
+            $appt->transitionTo(\App\Domain\Enum\AppointmentStatus::CONFIRMED, true);
+            $em->persist($appt);
+        }
+        // Just outside the Chicago day on either side.
+        foreach ([BookingFrameAlias::addDays($today, -1) . ' 23:30', BookingFrameAlias::addDays($today, 1) . ' 00:30'] as $at) {
+            $appt = new \App\Domain\Entity\Appointment($p, $a, new DateTimeImmutable($at, $chicago), \App\Domain\Enum\ConsultationType::VIDEO);
+            $appt->transitionTo(\App\Domain\Enum\AppointmentStatus::CONFIRMED, true);
+            $em->persist($appt);
+        }
+        $em->flush();
+
+        $res = $this->doctorAction(\App\Action\Doctor\DoctorDashboardAction::class, $this->userA, [], [], [], 'GET');
+        $this->assertSame(200, $res['status'], json_encode($res['body']));
+        $this->assertSame(2, $res['body']['data']['today'], "today is the doctor's own calendar day, not the PRC one");
+        $starts = array_map(static fn (array $r): string => (new DateTimeImmutable((string) $r['scheduled_at']))->setTimezone(new DateTimeZone('America/Chicago'))->format('Y-m-d H:i'), $res['body']['data']['agenda']);
+        sort($starts);
+        $this->assertSame([$today . ' 00:30', $today . ' 23:30'], $starts);
     }
 }

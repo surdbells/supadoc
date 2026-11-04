@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Domain\Entity;
 
 use App\Domain\Enum\DoctorApplicationStatus;
+use App\Domain\Settings\TimeZones;
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\ORM\Mapping as ORM;
 use Ramsey\Uuid\Uuid;
 
@@ -381,6 +383,14 @@ class DoctorApplication
         $values = $this->sections[$key] ?? null;
 
         return is_array($values) ? $values : null;
+    }
+
+    /** The applicant's own time zone (`personal.time_zone`), when they gave a valid one. */
+    public function applicantTimeZone(): ?DateTimeZone
+    {
+        $tz = $this->section('personal')['time_zone'] ?? null;
+
+        return is_string($tz) && TimeZones::isValid($tz) ? TimeZones::zoneOr($tz) : null;
     }
 
     /** @return array<string,mixed> */

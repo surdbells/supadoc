@@ -18,9 +18,10 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /api/public/call/{token}/lobby — what the pre-join screen shows, without
  * joining: the consultation (doctor, time, who invited a guest), who may be in
- * the call, a guest's consent state, and whether joining is open now. It never
- * mints Agora credentials (GET /public/call/{token} does) and never carries
- * health data or emails.
+ * the call, a guest's consent state, whether joining is open now, and — for a
+ * doctor's link only — the doctor portal's call page (`doctor_portal_url`). It
+ * never mints Agora credentials (GET /public/call/{token} does) and never
+ * carries health data or emails.
  *
  * The same refusals as joining (410 cancelled / ended / withdrawn, 409 not
  * confirmed) except "too early": an early guest gets the lobby with
@@ -65,6 +66,12 @@ final class CallLobbyAction
         if ($guest !== null) {
             $lobby['consent']  = $this->consent->state($appointment, $guest);
             $lobby['can_join'] = $now >= CallAccess::guestOpensAt($appointment);
+        }
+        // A doctor's link opened on the patient app goes on to the doctor portal's
+        // call page from here, without first asking the join (which mints Agora
+        // credentials). Never on a patient's or a guest's link.
+        if (($claims['role'] ?? '') === 'doctor') {
+            $lobby['doctor_portal_url'] = JoinCallAction::doctorPortalUrl($appointment, (string) ($args['token'] ?? ''));
         }
 
         return $this->success($response, $lobby)->withHeader('Cache-Control', 'no-store');

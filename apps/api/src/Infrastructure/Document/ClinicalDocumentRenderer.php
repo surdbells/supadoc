@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Infrastructure\Document;
 
 use App\Domain\Settings\ClinicTime;
+use App\Domain\Settings\TimeZones;
+use DateTimeZone;
 
 /**
  * Renders clinical documents (prescription, referral letter, medical certificate)
@@ -154,7 +156,8 @@ final class ClinicalDocumentRenderer
         ]);
 
         $docNo   = strtoupper(substr((string) ($ctx['document_no'] ?? ''), 0, 8));
-        $issued  = $this->humanDateTime((string) ($ctx['issued_at'] ?? ''));
+        // Issued: a moment the doctor acted, on their clock with its abbreviation.
+        $issued  = $this->humanDateTime((string) ($ctx['issued_at'] ?? ''), TimeZones::zoneOr(is_string($ctx['doctor_timezone'] ?? null) ? $ctx['doctor_timezone'] : null));
         $consult = (string) ($ctx['consult_date'] ?? '') !== '' ? $this->humanDate((string) $ctx['consult_date']) : '';
 
         $header = '<tr><td style="padding:0 0 20px;border-bottom:3px solid ' . self::CERULEAN . ';">'
@@ -297,13 +300,14 @@ final class ClinicalDocumentRenderer
         }
     }
 
-    private function humanDateTime(string $iso): string
+    /** "4 Nov 2026, 09:12 CST" in $tz (the issuing doctor's zone; null: the clinic's). */
+    private function humanDateTime(string $iso, ?DateTimeZone $tz = null): string
     {
         if ($iso === '') {
             return '';
         }
         try {
-            return (new \DateTimeImmutable($iso))->setTimezone(ClinicTime::zone())->format('j M Y, H:i');
+            return TimeZones::stamp(new \DateTimeImmutable($iso), $tz ?? ClinicTime::zone());
         } catch (\Throwable) {
             return $iso;
         }

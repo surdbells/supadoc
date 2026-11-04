@@ -8,6 +8,8 @@ declare(strict_types=1);
  * really run at once. Usage: php docshare-worker.php <base64 json job>
  *   job: {schema, app, op: "share", patient_id, input}
  *     or {schema, app, op: "update", patient_id, grant_id, input}
+ *     or {schema, app, op: "doctor_action", class, user_id, method, body, query, args}
+ *        (a doctor-portal action, answered {result: {status, body}})
  * Prints one JSON line: {result} or {refusal: {status, code, errors}} or
  * {exception, message}.
  */
@@ -45,6 +47,16 @@ try {
             (array) $job['input'],
             DocumentSharingRules::now(),
         )],
+        'doctor_action' => ['result' => (static function () use ($container, $job): array {
+            $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest((string) ($job['method'] ?? 'POST'), '/api/test')
+                ->withAttribute('user_id', (string) $job['user_id'])
+                ->withAttribute('user_roles', ['doctor'])
+                ->withParsedBody((array) ($job['body'] ?? []))
+                ->withQueryParams((array) ($job['query'] ?? []));
+            $response = $container->get((string) $job['class'])($request, new \Slim\Psr7\Response(), (array) ($job['args'] ?? []));
+
+            return ['status' => $response->getStatusCode(), 'body' => json_decode((string) $response->getBody(), true)];
+        })()],
         default => throw new \InvalidArgumentException('unknown op'),
     };
 } catch (DomainRefusal $r) {

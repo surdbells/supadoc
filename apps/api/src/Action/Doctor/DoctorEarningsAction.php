@@ -33,6 +33,6 @@ final class DoctorEarningsAction
             return $this->error($response, 'This account is not a doctor profile', 403);
         }
 
-        return $this->success($response, $this->earnings->summary($specialist->getId()));
+        return $this->success($response, $this->earnings->summary($specialist->getId(), $specialist->timeZone()));
     }
 }

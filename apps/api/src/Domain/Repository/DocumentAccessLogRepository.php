@@ -22,7 +22,7 @@ final class DocumentAccessLogRepository extends BaseRepository
     /** Non-PHI detail keys a ledger row may carry (never a title or a type). */
     public const DETAIL_KEYS = [
         'scope', 'duration', 'expires_at', 'previous_expires_at', 'previous_scope', 'document_count',
-        'end_reason', 'capped', 'surface', 'consent_version', 'via',
+        'end_reason', 'capped', 'surface', 'consent_version', 'via', 'view_ref',
     ];
 
     protected function getEntityClass(): string
@@ -36,16 +36,20 @@ final class DocumentAccessLogRepository extends BaseRepository
     }
 
     /**
-     * Append one row; details are cut down to {@see DETAIL_KEYS}.
+     * Append one row; details are cut down to {@see DETAIL_KEYS}. `id`, when a
+     * valid UUID, is used (lower-cased) — a caller that must know the id before
+     * writing (a document view's reference) makes it; otherwise one is made.
+     * Returns the row's id.
      *
-     * @param array{patient_id:string, event:string, actor_role:string, specialist_id?:?string, document_id?:?string,
+     * @param array{id?:?string, patient_id:string, event:string, actor_role:string, specialist_id?:?string, document_id?:?string,
      *              grant_id?:?string, request_id?:?string, appointment_id?:?string, details?:array<string,mixed>} $e
      */
     public function append(array $e, DateTimeImmutable $now): string
     {
         $details = array_intersect_key($e['details'] ?? [], array_flip(self::DETAIL_KEYS));
         $details = array_filter($details, static fn ($v): bool => $v !== null);
-        $id      = Uuid::uuid4()->toString();
+        $given   = $e['id'] ?? null;
+        $id      = is_string($given) && Uuid::isValid($given) ? strtolower($given) : Uuid::uuid4()->toString();
         $this->conn()->insert('document_access_log', [
             'id'             => $id,
             'patient_id'     => strtolower($e['patient_id']),
@@ -94,6 +98,25 @@ final class DocumentAccessLogRepository extends BaseRepository
         );
 
         return ['items' => $items, 'total' => $total];
+    }
+
+    /**
+     * Is `$viewRef` ("VM-" + the first 8 hex digits of a ledger row id) a real
+     * `viewed` row of this doctor and this document? A print keeps only such a
+     * reference.
+     */
+    public function hasViewRef(string $specialistId, string $documentId, string $viewRef): bool
+    {
+        if (preg_match('/^VM-([0-9A-F]{8})$/', $viewRef, $m) !== 1) {
+            return false;
+        }
+
+        return (int) $this->conn()->fetchOne(
+            "SELECT COUNT(*) FROM document_access_log
+              WHERE event = 'viewed' AND specialist_id = :s AND document_id = :d
+                AND CAST(id AS text) LIKE :prefix",
+            ['s' => strtolower($specialistId), 'd' => strtolower($documentId), 'prefix' => strtolower($m[1]) . '%'],
+        ) > 0;
     }
 
     /**

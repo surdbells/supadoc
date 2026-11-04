@@ -161,7 +161,11 @@ foreach ($specialistSeeds as [$name, $specialty, $fee, $location, $rating, $revi
     $s->setVerified($verified);
     // Demo doctors are already through onboarding (listed + bookable).
     $s->setStatus(App\Domain\Enum\SpecialistStatus::APPROVED);
-    $s->setWeeklyHours($hours);
+    $s->setWeeklyHours($hours); // wall clock on the doctor's own zone
+    // The demo doctors work in Lagos (chosen, so a browser detection never moves them).
+    if ($s->getTimezoneSource() === null) {
+        $s->setTimezone('Africa/Lagos', 'manual');
+    }
     $s->setGender($gender);
     $s->setOffersInPerson($inPerson);
     $s->setEmail($email);

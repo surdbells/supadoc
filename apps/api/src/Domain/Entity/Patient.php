@@ -19,6 +19,7 @@ class Patient
 {
     use TimestampsTrait;
     use SoftDeleteTrait;
+    use TimeZoneTrait;
 
     #[ORM\Id]
     #[ORM\Column(type: 'uuid')]
@@ -401,6 +402,8 @@ class Patient
             'avatar_url'     => $this->avatarUrl,
             'two_factor_enabled' => $this->twoFactorEnabled,
             'created_at'     => $this->createdAt->format(DATE_ATOM),
+            'timezone'        => $this->timeZone()->getName(),
+            'timezone_source' => $this->timezoneSource,
         ];
     }
 }

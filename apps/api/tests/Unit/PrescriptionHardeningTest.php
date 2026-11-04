@@ -110,4 +110,21 @@ final class PrescriptionHardeningTest extends TestCase
         $rx2->send(['name' => 'Dr. A'], ['name' => 'B'], 'saved', null, new DateTimeImmutable());
         $this->assertSame('active', $rx2->effectiveStatus(), 'still valid on its valid-until day');
     }
+
+    public function testPdfTimeStampsAreOnThePrescribingDoctorsClock(): void
+    {
+        $renderer = new \App\Infrastructure\Prescription\PrescriptionPdfRenderer();
+        $stamp    = new \ReflectionMethod($renderer, 'dateTime');
+        $day      = new \ReflectionMethod($renderer, 'day');
+        $at       = new DateTimeImmutable('2026-11-04T15:12:00Z');
+        $this->assertSame('4 Nov 2026, 16:12 WAT', $stamp->invoke($renderer, $at), 'the default zone, with its abbreviation');
+
+        $rx = new Prescription('p-1', 's-1', 'a-1', 'GVM-RX-20261104-00001', new DateTimeImmutable('2026-11-06'));
+        $rx->setItems([['name' => 'amoxicillin 500 MG Oral Capsule', 'rxcui' => '308191', 'dose' => '1 capsule', 'frequency' => 'Three times daily', 'duration' => '5 days', 'quantity' => '15', 'route' => 'Oral']]);
+        $rx->send(['name' => 'Dr. Grace Bell'], ['name' => 'Amaka Okafor'], 'saved', null, $at);
+        $pdf = $renderer->render($rx, ['name' => 'Amaka Okafor'], ['name' => 'Dr. Grace Bell'], null, 'https://example.test/check', null, new DateTimeZone('America/Chicago'));
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $this->assertSame('4 Nov 2026, 09:12 CST', $stamp->invoke($renderer, $at), 'stamped in the doctor\'s zone');
+        $this->assertSame('6 Nov 2026', $day->invoke($renderer, new DateTimeImmutable('2026-11-06')), 'valid-until stays a calendar date');
+    }
 }
