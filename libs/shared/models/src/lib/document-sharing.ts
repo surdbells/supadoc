@@ -29,7 +29,7 @@ export type DocumentGrantEndReason =
   | 'revoked' | 'expired' | 'appointment_cancelled' | 'emptied' | 'merged' | 'account_closed' | 'doctor_unavailable';
 export type DocumentShareSurface =
   | 'documents_page' | 'manage_sharing' | 'document_access' | 'upload' | 'booking'
-  | 'appointment_details' | 'call' | 'request';
+  | 'appointment_details' | 'call' | 'request' | 'lab_request';
 export type DocumentAccessRequestStatus = 'pending' | 'approved' | 'declined' | 'cancelled' | 'expired';
 export type DocumentAccessRequestKind = 'access' | 'extend';
 /** `printed`: a doctor sent a document to print from the view-only viewer (a watermarked copy). */

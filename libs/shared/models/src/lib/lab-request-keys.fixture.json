@@ -1,0 +1,306 @@
+{
+  "doctor_summary": [
+    "id",
+    "number",
+    "status",
+    "priority",
+    "appointment_id",
+    "patient",
+    "clinical_question",
+    "tests_label",
+    "items_count",
+    "counts",
+    "results_count",
+    "unreviewed_count",
+    "abnormal",
+    "sent_at",
+    "valid_until",
+    "expires_at",
+    "last_activity_at"
+  ],
+  "doctor_detail": [
+    "id",
+    "number",
+    "status",
+    "priority",
+    "appointment_id",
+    "patient",
+    "clinical_question",
+    "tests_label",
+    "items_count",
+    "counts",
+    "results_count",
+    "unreviewed_count",
+    "abnormal",
+    "sent_at",
+    "valid_until",
+    "expires_at",
+    "last_activity_at",
+    "appointment_scheduled_at",
+    "purpose",
+    "history",
+    "medication",
+    "allergies",
+    "clinical",
+    "imaging_safety",
+    "catalogue_version",
+    "items",
+    "prescriber",
+    "patient_snapshot",
+    "consent",
+    "lab_name",
+    "lab_date",
+    "declined_at",
+    "decline_reason",
+    "sample_at",
+    "result_ready_at",
+    "reviewed_at",
+    "cancelled_at",
+    "cancel_reason",
+    "expired_at",
+    "duplicated_from",
+    "results",
+    "timeline",
+    "can"
+  ],
+  "doctor_result": [
+    "id",
+    "uploaded_at",
+    "item_ids",
+    "visible",
+    "reviewable",
+    "document",
+    "review"
+  ],
+  "patient_summary": [
+    "id",
+    "number",
+    "status",
+    "priority",
+    "doctor",
+    "items_count",
+    "results_count",
+    "reviewed",
+    "awaiting_review",
+    "appointment_id",
+    "sent_at",
+    "valid_until",
+    "expires_at",
+    "last_activity_at"
+  ],
+  "patient_detail": [
+    "id",
+    "number",
+    "status",
+    "priority",
+    "doctor",
+    "items_count",
+    "results_count",
+    "reviewed",
+    "awaiting_review",
+    "appointment_id",
+    "sent_at",
+    "valid_until",
+    "expires_at",
+    "last_activity_at",
+    "clinical_question",
+    "purpose",
+    "items",
+    "instructions",
+    "consent_version",
+    "consent_statements",
+    "consent",
+    "lab_name",
+    "lab_date",
+    "declined_at",
+    "decline_reason",
+    "sample_at",
+    "result_ready_at",
+    "cancelled_at",
+    "cancel_reason",
+    "expired_at",
+    "results_sharing",
+    "doctor_available",
+    "results",
+    "timeline",
+    "can",
+    "result_document_types",
+    "default_document_type"
+  ],
+  "patient_result": [
+    "id",
+    "uploaded_at",
+    "item_ids",
+    "document",
+    "share_outcome",
+    "shared_now",
+    "viewable",
+    "reviewable",
+    "review"
+  ],
+  "admin_row": [
+    "id",
+    "number",
+    "status",
+    "priority",
+    "doctor_name",
+    "items_count",
+    "results_count",
+    "sent_at",
+    "last_activity_at",
+    "corrections",
+    "consented_on",
+    "last_correction_note"
+  ],
+  "doctor_summary.patient": [
+    "id",
+    "name",
+    "age",
+    "sex"
+  ],
+  "doctor_summary.counts": [
+    "lab",
+    "imaging",
+    "physiological"
+  ],
+  "doctor_detail.clinical": [
+    "fasting",
+    "fasting_hours",
+    "pregnancy_asked",
+    "pregnant",
+    "weeks_pregnant",
+    "infection_alerts",
+    "transfusion_3m"
+  ],
+  "doctor_detail.imaging_safety": [
+    "contrast_allergy",
+    "mobility",
+    "pregnant"
+  ],
+  "doctor_detail.items": [
+    "id",
+    "position",
+    "code",
+    "kind",
+    "category",
+    "modality",
+    "site",
+    "label",
+    "short",
+    "specimen_mode",
+    "specimen_code",
+    "specimen_label",
+    "preparation_code",
+    "preparation_label",
+    "contrast_possible",
+    "ionising"
+  ],
+  "doctor_detail.prescriber": [
+    "id",
+    "name",
+    "specialty",
+    "qualifications",
+    "registration_label",
+    "registration_number"
+  ],
+  "doctor_detail.patient_snapshot": [
+    "name",
+    "reference",
+    "email",
+    "date_of_birth",
+    "age",
+    "sex"
+  ],
+  "doctor_detail.consent": [
+    "version",
+    "consented_at",
+    "share_results"
+  ],
+  "doctor_detail.timeline": [
+    "event",
+    "from_status",
+    "to_status",
+    "actor_role",
+    "actor_name",
+    "at",
+    "sample_date"
+  ],
+  "doctor_detail.can": [
+    "cancel",
+    "review",
+    "duplicate"
+  ],
+  "doctor_result.document": [
+    "title",
+    "type_label",
+    "extension",
+    "size_label",
+    "viewable"
+  ],
+  "doctor_result.review": [
+    "outcome",
+    "comment",
+    "reviewed_at"
+  ],
+  "patient_summary.doctor": [
+    "id",
+    "name",
+    "specialty"
+  ],
+  "patient_detail.items": [
+    "id",
+    "kind",
+    "label",
+    "short",
+    "specimen_label",
+    "preparation_code",
+    "preparation_label"
+  ],
+  "patient_detail.instructions": [
+    "key",
+    "title",
+    "text"
+  ],
+  "patient_detail.consent_statements": [
+    "key",
+    "text",
+    "required",
+    "default"
+  ],
+  "patient_detail.consent": [
+    "version",
+    "consented_at",
+    "share_results"
+  ],
+  "patient_detail.timeline": [
+    "event",
+    "from_status",
+    "to_status",
+    "actor_role",
+    "actor_name",
+    "at",
+    "sample_date"
+  ],
+  "patient_detail.can": [
+    "accept",
+    "decline",
+    "sample",
+    "upload",
+    "pdf"
+  ],
+  "patient_detail.result_document_types": [
+    "value",
+    "label"
+  ],
+  "patient_result.document": [
+    "id",
+    "title",
+    "type_label",
+    "extension",
+    "size_label"
+  ],
+  "patient_result.review": [
+    "comment",
+    "reviewed_at"
+  ]
+}

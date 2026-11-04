@@ -17,3 +17,4 @@ export * from './lib/admin-dashboard';
 export * from './lib/specialist-photo';
 export * from './lib/doctor-application';
 export * from './lib/time-zone';
+export * from './lib/lab-request';

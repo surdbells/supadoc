@@ -22,6 +22,7 @@ import type {
 } from './doctor-management';
 import type { LicenceRoute, SpecialistApplicationLinkDto } from './doctor-application';
 import type { TimeZoneSource } from './time-zone';
+import type { MonitoringLabRequestsDto } from './lab-request';
 
 /**
  * Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end]
@@ -525,6 +526,8 @@ export interface MonitoringOverviewDto {
   referrals: number;
   recordings: { total: number; active: number };
   audit_events: number;
+  /** Lab requests (2026-11); absent from an API before that release. */
+  lab_requests?: MonitoringLabRequestsDto;
 }
 
 /** One point in an analytics time-series (a day or a month). */

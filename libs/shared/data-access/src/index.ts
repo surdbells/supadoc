@@ -22,6 +22,7 @@ export * from './lib/specialists.api';
 export * from './lib/availability-calendar.store';
 export * from './lib/patient.api';
 export * from './lib/prescriptions.api';
+export * from './lib/lab-requests.api';
 export * from './lib/notifications.api';
 export * from './lib/wallet.api';
 export * from './lib/profile.api';

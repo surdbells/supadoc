@@ -23,6 +23,12 @@ describe('SUPADOC_ICONS', () => {
     }
   });
 
+  it('registers the Laboratory & Diagnostics icons', () => {
+    for (const name of ['microscope', 'flask-conical', 'stethoscope', 'circle-alert', 'circle-x', 'hourglass', 'file-text']) {
+      expect(names).toContain(name);
+    }
+  });
+
   it('registers each icon once', () => {
     expect(new Set(names).size).toBe(names.length);
   });

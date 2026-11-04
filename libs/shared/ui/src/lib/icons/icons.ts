@@ -165,6 +165,7 @@ import {
   LucideWifi,
   LucideCaptions,
   LucideCaptionsOff,
+  LucideMicroscope,
 } from '@lucide/angular';
 
 /**
@@ -352,6 +353,8 @@ export const SUPADOC_ICONS = [
   LucideWifi,
   LucideCaptions,
   LucideCaptionsOff,
+  // Laboratory & Diagnostics: list cards, the empty state, lab notifications.
+  LucideMicroscope,
 ];
 
 /**
