@@ -637,6 +637,24 @@ html[data-theme='dark'] .sd-call[data-theme='light'] .text-teal {
     color: var(--color-frost);
   }
 }
+/* (c) The new-prescription card in the page flow (a phone held sideways, where
+ * the bottom toast would cover the video) is a light card inside the cockpit:
+ * it keeps its light-surface tones (slate 5.26, cerulean 5.27, teal 5.18 on
+ * #fcfcfc), not the portal's dark ones (1.9–2.4 there). */
+html[data-theme='dark'] .sd-call .sd-rx-card .text-slate {
+  color: #546e7a;
+}
+html[data-theme='dark'] .sd-call .sd-rx-card .text-cerulean {
+  color: #0b62e4;
+}
+html[data-theme='dark'] .sd-call .sd-rx-card .text-teal {
+  color: #00796c;
+}
+@media (hover: hover) {
+  html[data-theme='dark'] .sd-call .sd-rx-card .hover\:text-ink:hover {
+    color: #1c2b3a;
+  }
+}
 
 /* ----- Document sharing in a LIGHT call cockpit -----
  * The sharing call theme (`sd-share`: the call's sharing dialogs and the
@@ -663,4 +681,43 @@ html .sd-call[data-theme='light'] .sd-share .text-alert {
   html .sd-call[data-theme='light'] .sd-share .hover\:text-white:hover {
     color: #1c2b3a; /* ink, as theme.css maps text-white */
   }
+}
+/* …and in the DARK cockpit (its default) with the portal light, `text-alert`
+ * (#e53935) is 4.3:1 on abyss and 3.9:1 on alert/15 over it (upload errors, the
+ * "can't be viewed in the call" note, "Could not load…"). The portal's dark
+ * tone: 7.9 on abyss, 7.1 on alert/15 over it. */
+html .sd-call[data-theme='dark'] .sd-share .text-alert {
+  color: #ff8a80;
+}
+
+/* ----- The call's video dock (the stage and its control bar) -----
+ * The dock (`.sd-dock`) and the stage (`.sd-stage`) are dark in both cockpit
+ * themes: theme.css re-asserts their dark utilities under
+ * `:is(.sd-stage, .sd-dock)`. Two gaps, kept dark here:
+ * (a) More's open state (`bg-white/20` on its circle) — the light cockpit maps
+ *     `.bg-white/20` to a pale grey, under a white icon (1.2:1);
+ * (b) with the portal dark, the light-cockpit guard above turns bright accents
+ *     back to their light-surface tones — inside the dark dock they must stay
+ *     bright (e.g. alert #e53935 on ink is 3.4:1, #ff8a80 is 7.3:1).
+ * Written as `html …` so they also win over the portal's dark rules. */
+html .sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-white\/20 {
+  background-color: rgb(255 255 255 / 0.2);
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-alert {
+  color: #ff8a80;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-sage {
+  color: #81c784;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-sky {
+  color: #6cc0ff;
+}
+html[data-theme='dark'] .sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-success {
+  color: #6fdc8c;
+}
+/* Filled buttons keep their white text in a LIGHT cockpit: theme.css turns
+   `.text-white` into ink for the chrome, which on cerulean is 2.7:1 (white is
+   5.4:1) — e.g. "Upload & share", the sharing dialogs' primary buttons. */
+html .sd-call[data-theme='light'] :is(.bg-cerulean, .bg-cerulean-dark, .bg-ocean, .bg-alert-ink).text-white {
+  color: #ffffff;
 }

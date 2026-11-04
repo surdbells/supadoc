@@ -84,6 +84,7 @@ import {
   SHARING_UNAVAILABLE,
   untilPhrase,
 } from './document-sharing';
+import { doctorTimeLabel, doctorTimeWho } from './doctor-time';
 import { DocumentUploadDialog } from './document-upload-dialog';
 import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './follow-up';
 import { GuestsPanel } from './guests-panel';
@@ -116,6 +117,8 @@ interface DetailsVm {
   readonly specialty: string;
   readonly date: string;
   readonly time: string;
+  /** "9:00 AM CST Dr Ade's time" when the doctor's clock differs (null otherwise). */
+  readonly doctorTime: string | null;
   readonly typeLabel: string;
   readonly typeIcon: string;
   /** The server's label, colours, icon and the line under it ("Awaiting doctor confirmation"). */
@@ -207,6 +210,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
       minute: '2-digit',
       hour12: true,
     }).format(when),
+    doctorTime: doctorTimeLabel(a.scheduled_at, a.specialist),
     typeLabel: a.type_label,
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
     badge,
@@ -354,7 +358,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                     <sd-icon name="calendar-days" [size]="16" />{{ v.date }}
                   </span>
                   <span class="flex items-center gap-2">
-                    <sd-icon name="clock" [size]="16" />{{ v.time }}
+                    <sd-icon name="clock" [size]="16" />{{ v.time }}@if (v.doctorTime) {<span>· {{ v.doctorTime }}</span>}
                   </span>
                   <span class="flex items-center gap-2">
                     <sd-icon [name]="v.typeIcon" [size]="16" />{{ v.typeLabel }}
@@ -468,6 +472,9 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                           <sd-icon name="calendar-clock" [size]="18" class="shrink-0 text-slate" />
                           {{ altIso() ? altWhen() : fp.when }}
                         </span>
+                        @if (proposalDoctorTime(); as dt) {
+                          <span class="pl-[26px] font-sans text-caption text-slate">· {{ dt }}</span>
+                        }
                       </div>
                       <button
                         type="button"
@@ -516,6 +523,8 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                               [max]="cal.max()"
                               [nextAvailable]="cal.nextAvailable()"
                               [timeZone]="cal.tz()"
+                              [secondaryTimeZone]="cal.doctorTz()"
+                              [secondaryWho]="doctorWho()"
                               [timeZoneLabel]="cal.timeZoneLabel()"
                               [weekStartsOn]="cal.weekStartsOn()"
                               [disabled]="accepting()"
@@ -1115,6 +1124,8 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
             [max]="cal.max()"
             [nextAvailable]="cal.nextAvailable()"
             [timeZone]="cal.tz()"
+            [secondaryTimeZone]="cal.doctorTz()"
+            [secondaryWho]="doctorWho()"
             [timeZoneLabel]="cal.timeZoneLabel()"
             [weekStartsOn]="cal.weekStartsOn()"
             [disabled]="rescheduling()"
@@ -1287,6 +1298,11 @@ export class AppointmentDetails {
   /** The slot the patient picked instead ('' = the proposed time). */
   protected readonly altIso = signal('');
   protected readonly altWhen = computed(() => whenLabel(this.altIso()));
+  /** The doctor's clock for the proposed (or newly picked) time, when it differs. */
+  protected readonly proposalDoctorTime = computed(() => {
+    const a = this.appt();
+    return a ? doctorTimeLabel(this.altIso() || a.scheduled_at, a.specialist) : null;
+  });
   /** The price quoted for the patient's other time, keyed by the slot it is for. */
   private readonly altQuote = signal<{ iso: string; quote: FollowUpQuoteDto } | null>(null);
   protected readonly quoteError = signal('');
@@ -2326,4 +2342,7 @@ export class AppointmentDetails {
     const appt = this.appt();
     return appt ? toDetails(appt, this.clock()) : null;
   });
+
+  /** "Dr Ade's time" — the calendars' second clock, when the doctor's zone differs. */
+  protected readonly doctorWho = computed(() => doctorTimeWho(this.appt()?.specialist?.name));
 }

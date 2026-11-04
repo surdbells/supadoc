@@ -39,6 +39,8 @@ import {
   untilLabel,
   uploadOutcomeLines,
   uploadShareOptions,
+  viewWarning,
+  drLast,
   type ShareFormState,
 } from './document-sharing';
 
@@ -365,6 +367,18 @@ describe('historyRows', () => {
     expect(rows[1].text).toBe('Dr Bayo Ade opened Chest X-ray');
   });
 
+  it('shows a print as its own row (never folded into the views)', () => {
+    const rows = historyRows([
+      event({ id: 'p1', event: 'printed', created_at: '2026-10-21T10:06:00Z' }),
+      event({ id: 'v1', created_at: '2026-10-21T10:04:00Z' }),
+    ]);
+    expect(rows.map((r) => [r.key, r.count, r.icon])).toEqual([
+      ['p1', 1, 'printer'],
+      ['v1', 1, 'eye'],
+    ]);
+    expect(rows[0].text).toBe('Dr Bayo Ade sent “Chest X-ray” to print');
+  });
+
   it('words every event without guessing a removed document', () => {
     const [sharedRow, removed, away, request] = historyRows(
       [
@@ -520,6 +534,28 @@ describe('upload sharing', () => {
     expect(opts.duration).toBe('7d');
   });
 
+  it('always sends the consultation from the call (that doctor, no end date)', () => {
+    const opts = uploadShareOptions({
+      mode: 'share',
+      doctorIds: ['sp-1'],
+      duration: 'indefinite',
+      untilDate: '',
+      appointmentId: 'ap-1',
+      batchId: 'batch-9',
+      folderDoctorIds: ['sp-2'],
+      folderTicks: { 'sp-2': false },
+      surface: 'call',
+    });
+    expect(opts).toEqual({
+      specialist_ids: ['sp-1'],
+      exclude_specialist_ids: ['sp-2'],
+      surface: 'call',
+      duration: 'indefinite',
+      batch_id: 'batch-9',
+      appointment_id: 'ap-1',
+    });
+  });
+
   it('maps unticked folder doctors to exclusions and keeps one batch key', () => {
     const opts = uploadShareOptions({
       mode: 'share',
@@ -619,5 +655,33 @@ describe('booking step 5', () => {
     );
     expect(bookedShareLine('Bayo Ade', null, TZ)).toBe('Booked. Your files are shared with Dr Bayo Ade with no end date.');
     expect(bookedShareLine(null, null, TZ)).toBe('Booked. Your files are shared with your doctor with no end date.');
+  });
+});
+
+describe('D32: files a doctor cannot open in VideoMed', () => {
+  it('names the doctor by surname and the type, for DOCX, DOC, DCM and MOV', () => {
+    for (const ext of ['docx', 'doc', 'dcm', 'mov']) {
+      expect(viewWarning(`report.${ext}`, ['Bayo Ade'])).toBe(
+        `Dr Ade can't open ${ext.toUpperCase()} files in VideoMed. Share a PDF or photo.`,
+      );
+    }
+  });
+
+  it('says "Your doctors" for several, and nothing for viewable files or nobody', () => {
+    expect(viewWarning('Notes.DOCX', ['Bayo Ade', 'Ada Obi'])).toBe(
+      "Your doctors can't open DOCX files in VideoMed. Share a PDF or photo.",
+    );
+    for (const ok of ['a.pdf', 'b.jpg', 'c.jpeg', 'd.png', 'e.webp', 'f.mp4', 'g.webm']) {
+      expect(viewWarning(ok, ['Bayo Ade'])).toBeNull();
+    }
+    expect(viewWarning('report.docx', [])).toBeNull();
+  });
+
+  it('shortens names to the title and surname', () => {
+    expect(drLast('Bayo Ade')).toBe('Dr Ade');
+    expect(drLast('Dr. Ada Obi')).toBe('Dr Obi');
+    expect(drLast('Prof Kemi Bello')).toBe('Prof Bello');
+    expect(drLast('  ')).toBe('');
+    expect(viewWarning('a.doc', [null])).toBe("Your doctor can't open DOC files in VideoMed. Share a PDF or photo.");
   });
 });

@@ -981,8 +981,11 @@ interface SectionCard {
                             formLabel(f.key)
                           }}
                         </span>
+                        <!-- One box split by a line in the box's own border colour (rest, error,
+                             focus, dark mode): both inputs and the line stay DIRECT children —
+                             the dark border rule (:has(> input)) and border-left-color:inherit need it. -->
                         <div
-                          class="flex items-center gap-1 rounded-field border bg-white px-4 transition-colors focus-within:border-cerulean focus-within:ring-2 focus-within:ring-cerulean/20"
+                          class="flex items-stretch rounded-field border bg-white transition-colors focus-within:border-cerulean focus-within:ring-2 focus-within:ring-cerulean/20"
                           [class]="bpError(f) ? 'border-alert' : 'border-ash'"
                         >
                           <input
@@ -999,7 +1002,11 @@ interface SectionCard {
                             step="1"
                             [class]="bpInput"
                           />
-                          <span class="font-sans text-body text-slate" aria-hidden="true">/</span>
+                          <span
+                            aria-hidden="true"
+                            data-testid="bp-divider"
+                            class="w-0 shrink-0 border-l transition-colors [border-left-color:inherit]"
+                          ></span>
                           <input
                             type="number"
                             inputmode="numeric"
@@ -1018,7 +1025,7 @@ interface SectionCard {
                         @if (bpError(f); as e) {
                           <span id="vt-hint-blood_pressure" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
                         } @else {
-                          <span id="vt-hint-blood_pressure" [class]="vitalHintClass">Format: Systolic/diastolic</span>
+                          <span id="vt-hint-blood_pressure" [class]="vitalHintClass">Systolic (top) | diastolic (bottom), in mmHg</span>
                         }
                       </div>
                     } @else if (f.derived) {
@@ -2493,7 +2500,7 @@ export class MyProfile implements HasUnsavedChanges {
     'w-full min-w-0 rounded-field border border-alert bg-white px-4 py-[13px] font-sans text-body text-ink placeholder:text-slate/60 focus:border-alert focus:outline-none focus:ring-2 focus:ring-alert/20';
   /** The two numbers inside the one blood-pressure box. */
   protected readonly bpInput =
-    'w-full min-w-0 bg-transparent py-[13px] font-sans text-body text-ink placeholder:text-slate/60 [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+    'w-full min-w-0 bg-transparent px-4 py-[13px] font-sans text-body text-ink placeholder:text-slate/60 [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
   protected readonly vitalHintClass = 'font-sans text-caption font-light text-slate';
 
   // Options for the searchable dropdowns (sd-search-select).

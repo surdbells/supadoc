@@ -4,7 +4,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
-import { API_CONFIG } from '@supadoc/data-access';
+import { API_CONFIG, DOCTOR_VIEWABLE_ACCEPT } from '@supadoc/data-access';
 import type {
   DoctorAccessSummaryDto,
   SharingAppointmentRefDto,
@@ -321,5 +321,209 @@ describe('DocumentUploadDialog', () => {
     expect(form(req).get('share_appointment_id')).toBeNull();
     req.flush({ status: 'success', message: 'OK', data: uploaded() });
     await render();
+  });
+
+  it('accepts WEBP photos (as the server does)', async () => {
+    host.show.set(true);
+    await render();
+    http.expectOne(`${BASE}/api/portal/document-types`).flush({ status: 'success', message: 'OK', data: [] });
+    http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: [] });
+    await render();
+    expect(el.querySelector('sd-file-drop')).toBeTruthy();
+    expect(dialog()['accept']()).toContain('.webp');
+    expect(dialog()['accept']()).toContain('image/webp');
+    dialog()['addFiles']([new File(['abc'], 'rash.webp', { type: 'image/webp' })]);
+    await render();
+    expect(text()).toContain('rash.webp');
+    expect(text()).not.toContain('wasn’t added');
+  });
+
+  it("warns (D32) when a file a doctor can't open is shared with them, and still shares it", async () => {
+    await toShareStep([doctor('sp-1', 'Bayo Ade')], ['notes.docx', 'scan.pdf']);
+    expect(el.querySelectorAll('[data-testid="view-warning"]').length).toBe(0); // private so far
+    await choose('Share with doctors');
+    await choose('Dr Bayo Ade');
+    const warnings = Array.from(el.querySelectorAll('[data-testid="view-warning"]')).map((w) => w.textContent?.replace(/\s+/g, ' ').trim());
+    expect(warnings).toEqual(["notes.docx: Dr Ade can't open DOCX files in VideoMed. Share a PDF or photo."]);
+    await click('Upload 2 files');
+    const req = nextUpload();
+    expect(form(req).getAll('share_specialist_ids[]')).toEqual(['sp-1']);
+    req.flush({ status: 'success', message: 'OK', data: uploaded() });
+    await render();
+    nextUpload().flush({ status: 'success', message: 'OK', data: uploaded({ id: 'd-2' }) });
+    await render();
+  });
+
+  it('flags the file under its row when the doctor is already chosen (appointment details)', async () => {
+    host.preset.set('sp-1');
+    host.appt.set(appointment);
+    host.show.set(true);
+    await render();
+    http.expectOne(`${BASE}/api/portal/document-types`).flush({ status: 'success', message: 'OK', data: [{ value: 'lab', label: 'Lab result' }] });
+    http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: [doctor('sp-1', 'Bayo Ade')] });
+    await render();
+    dialog()['addFiles']([new File(['abc'], 'clip.mov', { type: 'video/quicktime' }), new File(['abc'], 'x.png', { type: 'image/png' })]);
+    await render();
+    const warnings = Array.from(el.querySelectorAll('[data-testid="view-warning"]')).map((w) => w.textContent?.trim());
+    expect(warnings).toEqual(["Dr Ade can't open MOV files in VideoMed. Share a PDF or photo."]);
+  });
+});
+
+@Component({
+  imports: [DocumentUploadDialog],
+  template: `
+    @if (show()) {
+      <div class="sd-call" data-theme="dark">
+        <pat-document-upload-dialog
+          [presetDoctorId]="'sp-1'"
+          [appointment]="appt"
+          [lockDoctor]="true"
+          surface="call"
+          theme="call"
+          fixedDuration="indefinite"
+          acceptKinds="viewable"
+          [maxFiles]="5"
+          doneLabel="Done"
+          (uploaded)="docs.push($event)"
+          (closed)="show.set(false)"
+        />
+      </div>
+    }
+  `,
+})
+class CallHost {
+  readonly show = signal(false);
+  readonly appt = appointment;
+  readonly docs: UploadedDocumentDto[] = [];
+}
+
+describe('DocumentUploadDialog in a call', () => {
+  let fixture: ComponentFixture<CallHost>;
+  let host: CallHost;
+  let el: HTMLElement;
+  let http: HttpTestingController;
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve));
+  const render = async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  };
+  const text = () => el.textContent?.replace(/\s+/g, ' ') ?? '';
+  const button = (label: string): HTMLButtonElement => {
+    const b = Array.from(el.querySelectorAll('button')).find((x) => x.textContent?.trim().startsWith(label));
+    if (!b) throw new Error(`No "${label}" button`);
+    return b;
+  };
+  const click = async (label: string) => {
+    button(label).click();
+    await render();
+    await tick();
+    await render();
+  };
+  const dialog = (): DocumentUploadDialog =>
+    fixture.debugElement.query(By.directive(DocumentUploadDialog)).componentInstance as DocumentUploadDialog;
+  const open = async (doctors: SharingDoctorDto[] = [doctor('sp-1', 'Bayo Ade', true), doctor('sp-2', 'Ada Obi', true)]) => {
+    host.show.set(true);
+    await render();
+    http.expectOne(`${BASE}/api/portal/document-types`).flush({ status: 'success', message: 'OK', data: [{ value: 'lab', label: 'Lab result' }] });
+    http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: doctors });
+    await render();
+  };
+  const toShareStep = async (names = ['scan.pdf']) => {
+    await open();
+    dialog()['addFiles'](names.map((n) => new File(['abc'], n, { type: 'application/pdf' })));
+    await render();
+    for (const select of Array.from(el.querySelectorAll('select'))) {
+      select.value = 'lab';
+      select.dispatchEvent(new Event('change'));
+    }
+    await render();
+    await click('Continue');
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [CallHost],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        provideSupadocIcons(),
+        { provide: API_CONFIG, useValue: { baseUrl: BASE } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(CallHost);
+    host = fixture.componentInstance;
+    el = fixture.nativeElement;
+    document.body.appendChild(el);
+    http = TestBed.inject(HttpTestingController);
+    await render();
+  });
+
+  afterEach(() => {
+    http.verify();
+    el.remove();
+  });
+
+  it('only takes what the doctor can open in VideoMed, and says so', async () => {
+    await open();
+    expect(text()).toContain('Upload & share');
+    expect(text()).toContain('Your doctor can view PDFs, photos (JPG, PNG, WEBP) and videos (MP4, WEBM) during the call.');
+    // The cockpit's own picker (not the portal's light drop zone), limited to the viewable types.
+    expect(el.querySelector('sd-file-drop')).toBeNull();
+    const picker = el.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(picker?.accept).toBe(DOCTOR_VIEWABLE_ACCEPT);
+    dialog()['addFiles']([
+      new File(['abc'], 'letter.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+      new File(['abc'], 'rash.webp', { type: 'image/webp' }),
+    ]);
+    await render();
+    expect(text()).toContain("letter.docx: this file type can't be viewed by your doctor in the call. Share it as a PDF or photo.");
+    expect(text()).toContain('rash.webp');
+  });
+
+  it('has no "keep private" and no duration chips: that doctor, with no end date', async () => {
+    await toShareStep();
+    expect(text()).not.toContain('Keep private');
+    expect(text()).not.toContain("Don't share with anyone new");
+    expect(text()).not.toContain('For how long?');
+    expect(text()).toContain(
+      'Dr Bayo Ade can see these files during this consultation and afterwards, with no end date. You can stop sharing any time in Manage sharing.',
+    );
+    // Another folder holder keeps the opt-in tick (unticked from a consultation).
+    expect(text()).toContain('Also let Dr Ada Obi see these files');
+  });
+
+  it('sends the consultation with an indefinite share to that doctor (surface call)', async () => {
+    await toShareStep();
+    await click('Upload 1 file');
+    const req = http.expectOne((r) => r.method === 'POST' && r.url === UPLOAD);
+    const body = req.request.body as FormData;
+    expect(body.getAll('share_specialist_ids[]')).toEqual(['sp-1']);
+    expect(body.get('share_duration')).toBe('indefinite');
+    expect(body.get('share_appointment_id')).toBe('ap-1');
+    expect(body.get('share_surface')).toBe('call');
+    expect(body.getAll('exclude_specialist_ids[]')).toEqual(['sp-2']);
+    expect(body.get('share_batch_id')).toBeTruthy();
+    req.flush({
+      status: 'success',
+      message: 'OK',
+      data: uploaded({
+        share_outcome: 'shared',
+        shared_with: [{ specialist_id: 'sp-1', name: 'Bayo Ade', via: 'document', until: null, until_label_at: null, indefinite: true, paused: false }],
+      }),
+    });
+    await render();
+    expect(host.docs.length).toBe(1);
+    expect(text()).toContain('Shared with Dr Bayo Ade with no end date.');
+    expect(button('Done')).toBeTruthy();
+  });
+
+  it('keeps a batch to 5 files', async () => {
+    await open();
+    dialog()['addFiles'](['a', 'b', 'c', 'd', 'e', 'f'].map((n) => new File(['abc'], `${n}.pdf`, { type: 'application/pdf' })));
+    await render();
+    expect(text()).toContain('f.pdf: You can upload up to 5 files at a time.');
   });
 });

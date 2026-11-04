@@ -22,6 +22,7 @@ import {
   IconComponent,
 } from '@supadoc/ui';
 import { detailsLink, StatusBadge, statusBadge } from './appointment-status';
+import { doctorTimeLabel } from './doctor-time';
 import { isOpenProposal, priceLabel, whenLabel } from './follow-up';
 
 type Status = ApiAppointmentStatus;
@@ -34,6 +35,8 @@ interface Appointment {
   readonly specialty: string;
   readonly date: string;
   readonly time: string;
+  /** "9:00 AM CST Dr Ade's time" when the doctor's clock differs (null otherwise). */
+  readonly doctorTime: string | null;
   readonly typeIcon: string;
   readonly typeLabel: string;
   readonly status: Status;
@@ -53,6 +56,8 @@ interface ProposalCard {
   readonly specialty: string;
   /** "Tue 21 Oct, 3:00 PM", local time. */
   readonly when: string;
+  /** "9:00 AM CST Dr Ade's time" when the doctor's clock differs (null otherwise). */
+  readonly doctorTime: string | null;
   readonly price: string;
   readonly free: boolean;
   /** "Respond by Mon 20 Oct, 1:00 PM". */
@@ -110,6 +115,7 @@ export function toAppointmentRow(a: AppointmentDto): Appointment {
       minute: '2-digit',
       hour12: true,
     }).format(when),
+    doctorTime: doctorTimeLabel(a.scheduled_at, a.specialist),
     typeIcon: TYPE_ICON[a.type] ?? 'calendar-check',
     typeLabel: a.type_label,
     status: a.status,
@@ -126,6 +132,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
     name: a.specialist.name,
     specialty: a.specialist.specialty ?? '',
     when: whenLabel(a.scheduled_at),
+    doctorTime: doctorTimeLabel(a.scheduled_at, a.specialist),
     price: priceLabel(a.amount),
     free: !(Number(a.amount) > 0),
     respondBy: `Respond by ${whenLabel(a.expires_at)}`,
@@ -218,7 +225,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                   <dt class="flex shrink-0 text-slate">
                     <sd-icon name="calendar-clock" [size]="16" /><span class="sr-only">When</span>
                   </dt>
-                  <dd>{{ p.when }}</dd>
+                  <dd>{{ p.when }}@if (p.doctorTime) {<span class="text-slate"> · {{ p.doctorTime }}</span>}</dd>
                 </div>
                 <div class="flex items-center gap-2">
                   <dt class="flex shrink-0 text-slate">
@@ -363,6 +370,9 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                     >
                       <sd-icon name="calendar-days" [size]="14" />{{ a.date }}, {{ a.time }}
                     </span>
+                    @if (a.doctorTime) {
+                      <span class="font-sans text-caption text-slate sm:hidden">· {{ a.doctorTime }}</span>
+                    }
                     <span
                       class="inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-sans text-[10px] font-medium inset-ring inset-ring-current/20"
                       [class]="a.badge.class"
@@ -386,6 +396,9 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                   <span class="flex items-center gap-2">
                     <sd-icon name="clock" [size]="16" />{{ a.time }}
                   </span>
+                  @if (a.doctorTime) {
+                    <span class="pl-6">· {{ a.doctorTime }}</span>
+                  }
                 </div>
                 <div class="hidden flex-col items-start gap-2 md:flex">
                   <span

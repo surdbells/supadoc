@@ -4,6 +4,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
   inject,
@@ -13,6 +14,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import AgoraRTC, {
@@ -31,13 +33,20 @@ import {
   startCallPresence,
 } from '@supadoc/data-access';
 import type {
+  CallLobbyDto,
   CallMeetingDto,
   CallParticipantDto,
   CallParticipantRole,
   GuestConsentStateDto,
+  JoinInfoDto,
 } from '@supadoc/models';
 import {
   buildCallTiles,
+  type CallControl,
+  type CallControlId,
+  CallControlsComponent,
+  CallSelfTileComponent,
+  type CallSelfViewMode,
   CallTilesComponent,
   CallUid,
   CallVideoPlayConfig,
@@ -89,13 +98,16 @@ const MAX_NAME = 60;
  * before joining opens (ms) — not for the whole countdown, unless asked to.
  */
 const MEDIA_LEAD_MS = 10 * 60_000;
-/** This page's own 1:1 self view, as it has always been: top-right, larger than the consultation room's. */
-const SELF_VIEW_CLASS = 'right-5 top-5 h-40 w-28 rounded-2xl border border-white/15 bg-ink shadow-lg sm:h-44 sm:w-32';
-/** The grid's padding, its bottom row clear of this page's bigger controls (bottom-6, 48px buttons). */
-const GRID_CLASS = 'p-1.5 pb-[6.5rem] roomy:p-2 roomy:pb-[7rem]';
+/** From sm (640px) your own camera is a picture-in-picture on the stage; below, a tile in the control row (D18). */
+const WIDE_QUERY = '(min-width: 640px)';
+/** A phone held sideways: the controls become a rail beside the video. */
+const RAIL_QUERY = '(orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px)';
 
 /** Where the page is. */
 type Stage = 'checking' | 'lobby' | 'joining' | 'in-call' | 'left' | 'final' | 'not-configured' | 'error';
+
+/** The pre-join details: the lobby, or the join payload on an API without one. */
+type LobbyDetails = CallMeetingDto & Partial<Pick<CallLobbyDto, 'server_time' | 'can_join' | 'doctor_portal_url'>>;
 
 interface DeviceOption {
   readonly id: string;
@@ -149,7 +161,7 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
 @Component({
   selector: 'pat-call-join',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CallTilesComponent, IconComponent],
+  imports: [CallControlsComponent, CallSelfTileComponent, CallTilesComponent, IconComponent],
   host: { class: 'block min-h-dvh bg-abyss' },
   template: `
     <div class="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 p-4">
@@ -540,14 +552,17 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
         </p>
       }
 
-      <!-- The call stage — always in the page (hidden outside the call), so every
-           participant's video has a tile to play in. 1:1 looks as this page always
-           has: the other person full size, your own view top-right, big controls. -->
-      <div
-        class="sd-stage relative min-h-[24rem] flex-1 overflow-hidden rounded-card bg-abyss [container-name:stage] [container-type:size]"
-        [class.hidden]="!onStage()"
-      >
-        <sd-call-tiles [tiles]="tiles()" [showRole]="true" [selfViewClass]="selfViewClass" [gridClass]="gridClass" />
+      <!-- The dock — the stage and its control bar, one dark unit. Always in the page
+           (hidden outside the call), so every participant's video has a tile to play in.
+           Only the video, the name and (from sm) your picture-in-picture are on the stage;
+           the controls sit under it (a rail beside it on a phone held sideways), and below
+           sm your camera is the small tile at the start of the control row. -->
+      <section #dock [class]="dockClass()" [class.hidden]="!onStage()" aria-label="Video call" data-testid="join-dock">
+        <div
+          class="sd-stage relative overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size]"
+          [class]="stageClass()"
+        >
+          <sd-call-tiles [tiles]="tiles()" [showRole]="true" [selfView]="selfMode()" />
 
         @if (stage() === 'joining') {
           <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85" role="status">
@@ -559,7 +574,7 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
         <!-- Nobody else here (yet, or any more) -->
         @if (stage() === 'in-call' && !hasRemoteTile()) {
           <div
-            class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 pb-20 pt-12 text-center text-white/80"
+            class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 pb-6 pt-12 text-center text-white/80"
           >
             @if (remoteLeft()) {
               <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
@@ -567,7 +582,7 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
               </span>
               <p class="font-sans text-body-sm roomy:text-body">Everyone else has left the call.</p>
               <p class="hidden max-w-sm font-sans text-caption text-white/60 roomy:block">
-                If the consultation is finished, press the red button to leave.
+                If the consultation is finished, press Leave.
               </p>
             } @else {
               <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
@@ -606,43 +621,24 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
             </button>
           </div>
         }
+        </div>
 
+        <!-- The control bar: under the video, never over it -->
         @if (stage() === 'in-call') {
-          <!-- Controls (48px targets; the grid keeps its bottom row clear of them) -->
-          <div
-            class="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-4 rounded-pill bg-abyss/70 px-5 py-3 backdrop-blur"
-          >
-            <button
-              type="button"
-              class="flex size-12 items-center justify-center rounded-full text-white transition-colors disabled:opacity-60"
-              [class]="micLive() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
-              [attr.aria-label]="micLive() ? 'Mute microphone' : 'Unmute microphone'"
-              [disabled]="mediaBusy()"
-              (click)="toggleMic()"
-            >
-              <sd-icon [name]="micLive() ? 'mic' : 'mic-off'" [size]="22" />
-            </button>
-            <button
-              type="button"
-              class="flex size-12 items-center justify-center rounded-full text-white transition-colors disabled:opacity-60"
-              [class]="camLive() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
-              [attr.aria-label]="camLive() ? 'Turn camera off' : 'Turn camera on'"
-              [disabled]="mediaBusy()"
-              (click)="toggleCam()"
-            >
-              <sd-icon [name]="camLive() ? 'video' : 'video-off'" [size]="22" />
-            </button>
-            <button
-              type="button"
-              class="flex size-12 items-center justify-center rounded-full bg-alert text-white transition-colors hover:bg-alert/80"
-              aria-label="Leave call"
-              (click)="leave()"
-            >
-              <sd-icon name="phone-off" [size]="22" />
-            </button>
+          <div [class]="controlRowClass()" data-testid="join-control-row">
+            @if (!wide() && !rail() && selfTile(); as me) {
+              <sd-call-self-tile [tile]="me" [track]="selfVideo()?.track ?? null" [playConfig]="selfVideo()?.config" />
+            }
+            <div [class]="controlsBoxClass()">
+              <sd-call-controls
+                [controls]="controls()"
+                [layout]="rail() ? 'rail' : 'bar'"
+                (pressed)="onControl($event)"
+              />
+            </div>
           </div>
         }
-      </div>
+      </section>
     </div>
   `,
 })
@@ -658,9 +654,64 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   private readonly session = inject(SessionTimeoutService);
   /** "Leave the call?" before a live call is left. */
   private readonly dialogs = inject(DialogService);
+  private readonly document = inject(DOCUMENT);
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly preview = viewChild<ElementRef<HTMLDivElement>>('preview');
   private readonly stageTiles = viewChild(CallTilesComponent);
+
+  // ---- The dock ----
+  /** From sm up: your own camera is the stage's picture-in-picture (else the control-row tile). */
+  protected readonly wide = signal(this.mediaMatches(WIDE_QUERY));
+  /** A phone held sideways: the controls are a rail beside the video. */
+  protected readonly rail = signal(this.mediaMatches(RAIL_QUERY));
+  /**
+   * The picture-in-picture from sm up and on a phone held sideways (its stage is
+   * 16:9, so the corner is free, and the rail has no room for the 64px tile above
+   * the controls); the control-row tile only on a phone held upright.
+   */
+  protected readonly selfMode = computed<CallSelfViewMode>(() => (this.wide() || this.rail() ? 'pip' : 'external'));
+  /** Your own camera for the control-row tile (below sm). */
+  protected readonly selfVideo = signal<{ track: CallVideoTrack; config?: CallVideoPlayConfig } | null>(null);
+  protected readonly dockClass = computed(() =>
+    this.rail()
+      ? 'sd-dock flex flex-row items-stretch gap-2'
+      : 'sd-dock sticky top-0 z-20 flex flex-col gap-2 bg-abyss [@media(max-height:500px)]:static',
+  );
+  protected readonly stageClass = computed(() =>
+    this.rail()
+      ? 'mx-auto aspect-video h-[calc(100dvh-6rem)] max-w-[calc(100%-5rem)]'
+      : 'mx-auto aspect-[4/3] w-full max-h-[45dvh] max-w-[calc(45dvh*4/3)] sm:aspect-video sm:max-w-[calc(45dvh*16/9)] lg:max-h-[calc(100dvh-12rem)] lg:max-w-[calc((100dvh-12rem)*16/9)]',
+  );
+  protected readonly controlRowClass = computed(() =>
+    this.rail()
+      ? 'flex w-[4.5rem] shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2'
+      : 'mx-auto flex w-full items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2 lg:max-w-[calc((100dvh-12rem)*16/9)]',
+  );
+  protected readonly controlsBoxClass = computed(() =>
+    this.rail()
+      ? 'flex min-h-0 w-full flex-1 justify-center [container-name:callbar] [container-type:inline-size]'
+      : 'min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]',
+  );
+  /** Mute, Stop video and Leave (labels say what they do; Leave asks first). */
+  protected readonly controls = computed<CallControl[]>(() => {
+    const mic = this.micLive();
+    const cam = this.camLive();
+    const busy = this.mediaBusy();
+    const reason = busy ? 'Your camera or microphone is starting. Try again in a moment.' : null;
+    return [
+      { id: 'mic', label: mic ? 'Mute' : 'Unmute', icon: mic ? 'mic' : 'mic-off', tone: mic ? 'default' : 'off', disabled: busy, reason },
+      {
+        id: 'cam',
+        label: cam ? 'Stop video' : 'Start video',
+        icon: cam ? 'video' : 'video-off',
+        tone: cam ? 'default' : 'off',
+        disabled: busy,
+        reason,
+      },
+      { id: 'end', label: 'Leave', ariaLabel: 'Leave call', icon: 'phone-off', tone: 'danger' },
+    ];
+  });
   private readonly nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
   private readonly agreeBox = viewChild<ElementRef<HTMLInputElement>>('agreeBox');
   private readonly finalHeading = viewChild<ElementRef<HTMLElement>>('finalHeading');
@@ -668,8 +719,6 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   /** The signed join link — a bearer credential: never logged. */
   private readonly token = this.route.snapshot.paramMap.get('token') ?? '';
   protected readonly maxName = MAX_NAME;
-  protected readonly selfViewClass = SELF_VIEW_CLASS;
-  protected readonly gridClass = GRID_CLASS;
 
   protected readonly stage = signal<Stage>('checking');
   protected readonly meeting = signal<CallMeetingDto | null>(null);
@@ -816,19 +865,116 @@ export class CallJoin implements AfterViewInit, OnDestroy {
     });
   });
   protected readonly hasRemoteTile = computed(() => this.tiles().some((t) => !t.self));
+  /** Your own tile (the control-row preview below sm). */
+  protected readonly selfTile = computed(() => this.tiles().find((t) => t.self) ?? null);
 
   constructor() {
     // Closing or reloading the tab mid-call drops the guest from it: the browser asks first.
     warnBeforeUnload(() => this.stage() === 'in-call');
     // The stage's tiles exist from the first render; replay any video handed
-    // over before then (or if they are ever re-created).
+    // over before then (or if they are ever re-created). Your own only while it
+    // is their picture-in-picture (else the control-row tile plays it).
     effect(() => {
       const tiles = this.stageTiles();
       if (!tiles) return;
       untracked(() => {
-        for (const v of this.videos.values()) tiles.attach(v.uid, v.track, v.config);
+        const self = String(this.selfUid());
+        for (const v of this.videos.values()) {
+          if (String(v.uid) === self && this.selfMode() !== 'pip') continue;
+          tiles.attach(v.uid, v.track, v.config);
+        }
       });
     });
+    // A rotation (across 640px, or into the sideways rail) moves your own view;
+    // the track is handed over first.
+    this.watchMedia(WIDE_QUERY, (m) => this.moveSelfView(() => this.wide.set(m)));
+    this.watchMedia(RAIL_QUERY, (m) => this.moveSelfView(() => this.rail.set(m)));
+  }
+
+  private mediaMatches(query: string): boolean {
+    try {
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  }
+
+  private watchMedia(query: string, apply: (matches: boolean) => void): void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    let mql: MediaQueryList;
+    try {
+      mql = window.matchMedia(query);
+    } catch {
+      return;
+    }
+    const onChange = (e: MediaQueryListEvent): void => apply(e.matches);
+    mql.addEventListener?.('change', onChange);
+    this.destroyRef.onDestroy(() => mql.removeEventListener?.('change', onChange));
+  }
+
+  /**
+   * Move your own video between the stage's picture-in-picture and the
+   * control-row tile, handing the track over first: an Agora track plays in
+   * one element at a time, and stopping one playback stops the other.
+   */
+  private moveSelfView(change: () => void): void {
+    const before = this.selfMode();
+    change();
+    const after = this.selfMode();
+    if (before === after) return;
+    const self = this.videos.get(String(this.selfUid()));
+    const tiles = this.stageTiles();
+    if (after === 'pip') {
+      if (self && tiles) tiles.attach(self.uid, self.track, self.config);
+    } else {
+      tiles?.detach(this.selfUid());
+    }
+  }
+
+  /** A control of the dock was pressed. */
+  protected onControl(id: CallControlId): void {
+    if (id === 'mic') void this.toggleMic();
+    else if (id === 'cam') void this.toggleCam();
+    else if (id === 'end') void this.leave();
+  }
+
+  /**
+   * A doctor's link (an emailed invite or reminder) opened here goes on to the
+   * doctor portal's call page — its records panel shows what the patient shares
+   * in the call (D29). Only an http(s) address the API gave; true when leaving.
+   */
+  private redirectDoctor(m: Pick<JoinInfoDto, 'you' | 'doctor_portal_url'> | null | undefined): boolean {
+    const url = m?.doctor_portal_url?.trim();
+    if (m?.you?.role !== 'doctor' || !url || !/^https?:\/\//i.test(url)) return false;
+    this.stopEverything();
+    this.stage.set('checking');
+    this.announce('Opening the doctor portal…');
+    this.navigateAway(url);
+    return true;
+  }
+
+  /**
+   * The lobby carries the doctor portal's address for a doctor's link (as does
+   * the join payload standing in for it on an API without a lobby). Only an
+   * older API whose lobby lacks it costs a look at the join payload, which
+   * mints Agora credentials. Too early, offline…: the lobby as before (joining
+   * asks again).
+   */
+  private async doctorPortalFirst(lobby: LobbyDetails, fromJoin: boolean): Promise<boolean> {
+    if (this.redirectDoctor(lobby)) return true;
+    // The API answered (an address that isn't http(s) stays unfollowed), or the join already did.
+    if (fromJoin || lobby.doctor_portal_url !== undefined) return false;
+    try {
+      const { data } = await firstValueFrom(this.appointments.joinInfo(this.token));
+      return !this.destroyed && this.redirectDoctor(data);
+    } catch {
+      return false;
+    }
+  }
+
+  /** `location.replace` (the patient page leaves the history). Separate so tests can stub it. */
+  protected navigateAway(url: string): void {
+    this.document.defaultView?.location.replace(url);
   }
 
   ngAfterViewInit(): void {
@@ -850,15 +996,19 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   private async loadLobby(): Promise<void> {
     this.stage.set('checking');
     try {
-      let lobby: CallMeetingDto & { server_time?: string; can_join?: boolean };
+      let lobby: LobbyDetails;
+      let fromJoin = false;
       try {
         lobby = (await firstValueFrom(this.appointments.joinLobby(this.token))).data;
       } catch (err) {
         // An API without the lobby yet: the join payload carries the same details.
         if (httpStatus(err) !== 404 && httpStatus(err) !== 405) throw err;
         lobby = (await firstValueFrom(this.appointments.joinInfo(this.token))).data;
+        fromJoin = true;
       }
       if (this.destroyed) return;
+      // A doctor's link goes on to the doctor portal before any camera turns on.
+      if (lobby.you.role === 'doctor' && (await this.doctorPortalFirst(lobby, fromJoin))) return;
       this.applyMeeting(lobby);
       this.serverOffset = lobby.server_time ? Date.parse(lobby.server_time) - Date.now() : 0;
       if (!Number.isFinite(this.serverOffset)) this.serverOffset = 0;
@@ -1140,6 +1290,16 @@ export class CallJoin implements AfterViewInit, OnDestroy {
     if (!cam) return;
     if (this.stage() === 'in-call') {
       if (replay) this.hideVideo(this.selfUid());
+      if (replay && this.selfMode() !== 'pip') {
+        // The control-row tile replays only on a new track: none for one render, then this one.
+        afterNextRender(
+          () => {
+            if (this.camTrack === cam && this.stage() === 'in-call') this.showVideo(this.selfUid(), cam);
+          },
+          { injector: this.injector },
+        );
+        return;
+      }
       this.showVideo(this.selfUid(), cam);
       return;
     }
@@ -1299,6 +1459,8 @@ export class CallJoin implements AfterViewInit, OnDestroy {
     this.inCallNotice.set('');
     const { data } = await firstValueFrom(this.appointments.joinInfo(this.token));
     if (this.destroyed || this.stage() !== 'joining') return;
+    // A doctor's link: on to the doctor portal's call page, never into Agora here (D29).
+    if (this.redirectDoctor(data)) return;
     this.applyMeeting(data);
     // token may be null in App-ID-only mode — that's a valid token-less join.
     if (!data.configured || !data.app_id || !data.channel) {
@@ -1735,11 +1897,16 @@ export class CallJoin implements AfterViewInit, OnDestroy {
   /** Play a uid's video in its tile (now, or once the tile renders). */
   private showVideo(uid: CallUid, track: CallVideoTrack, config?: CallVideoPlayConfig): void {
     this.videos.set(String(uid), { uid, track, config });
-    this.stageTiles()?.attach(uid, track, config);
+    // Your own goes to the stage only as its picture-in-picture (else the control-row tile).
+    const self = String(uid) === String(this.selfUid());
+    if (self) this.selfVideo.set({ track, config });
+    if (!self || this.selfMode() === 'pip') this.stageTiles()?.attach(uid, track, config);
+    else this.stageTiles()?.detach(uid);
   }
 
   private hideVideo(uid: CallUid): void {
     this.videos.delete(String(uid));
+    if (String(uid) === String(this.selfUid())) this.selfVideo.set(null);
     this.stageTiles()?.detach(uid);
   }
 

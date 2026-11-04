@@ -27,6 +27,7 @@ import {
   IconComponent,
 } from '@supadoc/ui';
 import { isPast, OPEN_STATUSES, statusBadge } from './appointment-status';
+import { doctorTimeLabel } from './doctor-time';
 import { isOpenProposal, whenLabel } from './follow-up';
 
 interface QuickAction {
@@ -70,6 +71,8 @@ interface ProposalNotice {
   readonly doctor: string;
   /** "Tue 21 Oct, 3:00 PM", local time. */
   readonly when: string;
+  /** "9:00 AM CST Dr Ade's time" when the doctor's clock differs (null otherwise). */
+  readonly doctorTime: string | null;
   readonly respondBy: string;
 }
 
@@ -79,6 +82,8 @@ interface UpcomingVm {
   readonly specialty: string;
   readonly date: string;
   readonly time: string;
+  /** "9:00 AM CST Dr Ade's time" when the doctor's clock differs (null otherwise). */
+  readonly doctorTime: string | null;
   readonly typeLabel: string;
   readonly typeIcon: string;
   readonly statusLabel: string;
@@ -192,7 +197,7 @@ function greetingFor(now: Date): string {
                 <sd-icon name="calendar-plus" [size]="20" class="mt-0.5 shrink-0 text-teal" />
                 <span class="min-w-0">
                   <span class="font-semibold">{{ p.doctor }}</span> proposed a follow-up on
-                  <span class="font-semibold">{{ p.when }}</span>.
+                  <span class="font-semibold">{{ p.when }}</span>@if (p.doctorTime) {<span class="text-slate"> ({{ p.doctorTime }})</span>}.
                   <span class="block font-sans text-caption text-slate">{{ p.respondBy }}</span>
                 </span>
               </p>
@@ -361,7 +366,7 @@ function greetingFor(now: Date): string {
                 </div>
                 <span class="flex items-center gap-2 text-slate">
                   <sd-icon name="clock" [size]="16" />
-                  <span class="font-sans text-caption">{{ u.time }}</span>
+                  <span class="font-sans text-caption">{{ u.time }}@if (u.doctorTime) {<span> · {{ u.doctorTime }}</span>}</span>
                 </span>
                 @if (u.detail) {
                   <span class="font-sans text-caption text-slate">{{ u.detail }}</span>
@@ -825,6 +830,7 @@ export class DashboardHome {
                 id: a.id,
                 doctor: a.specialist.name,
                 when: whenLabel(a.scheduled_at),
+                doctorTime: doctorTimeLabel(a.scheduled_at, a.specialist),
                 respondBy: `Respond by ${whenLabel(a.expires_at)}`,
               })),
           ),
@@ -906,6 +912,7 @@ export class DashboardHome {
         minute: '2-digit',
         hour12: true,
       }).format(when),
+      doctorTime: doctorTimeLabel(next.scheduled_at, next.specialist),
       typeLabel: next.type_label,
       typeIcon: TYPE_ICON[next.type] ?? 'video',
       statusLabel: badge.label,

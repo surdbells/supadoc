@@ -30,6 +30,7 @@ import {
   SpecialistsApi,
   WalletApi,
   ymdInZone,
+  zoneAbbr,
   type SpecialistSuggestionParams,
 } from '@supadoc/data-access';
 import type {
@@ -69,6 +70,7 @@ import {
   drName,
   otherFolderHolders,
 } from './document-sharing';
+import { doctorClock, doctorTimeWho } from './doctor-time';
 import { dayLabel, priceNote, whenLabel } from './follow-up';
 import { loadPaystack } from './paystack';
 import { SimilarDoctors } from './similar-doctors';
@@ -475,6 +477,8 @@ function daysApart(a: string, b: string): number {
                 [nextOnEmptyDay]="false"
                 [timeZone]="cal.tz()"
                 [timeZoneLabel]="cal.timeZoneLabel()"
+                [secondaryTimeZone]="doctorTz()"
+                [secondaryWho]="doctorWho()"
                 [weekStartsOn]="cal.weekStartsOn()"
               >
                 <!-- The chosen day has no open times: this doctor's next opening (instead of the
@@ -517,7 +521,7 @@ function daysApart(a: string, b: string): number {
           <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
             <p class="font-sans text-body-sm text-slate" aria-live="polite">
               @if (selectedTime()) {
-                Selected: <span class="font-semibold text-ink">{{ selectedLabel() }}</span>
+                Selected: <span class="font-semibold text-ink">{{ selectedLabel() }}</span>@if (selectedDoctorTime(); as dt) { ({{ dt }})}
               }
             </p>
             <sd-button [disabled]="!selectedTime() || doctorGone()" (click)="next()">
@@ -964,7 +968,12 @@ function daysApart(a: string, b: string): number {
                 <dt class="flex items-center gap-2 text-slate">
                   <sd-icon name="clock" [size]="16" />Time
                 </dt>
-                <dd class="text-right text-ink">{{ summaryTime() }}</dd>
+                <dd class="text-right text-ink">
+                  {{ summaryTime() }}
+                  @if (selectedDoctorTime(); as dt) {
+                    <span class="block font-sans text-caption text-slate">({{ dt }})</span>
+                  }
+                </dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="flex items-center gap-2 text-slate">
@@ -2125,8 +2134,26 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
     }).format(d);
   });
 
-  /** The chosen time's local label, so the summary matches the picked time. */
-  protected readonly summaryTime = computed(() => slotLabel(this.selectedTime()) || '—');
+  /**
+   * The chosen time's local label, so the summary matches the picked time —
+   * with this device's zone ("4:00 PM WAT") when the doctor's clock differs.
+   */
+  protected readonly summaryTime = computed(() => {
+    const at = this.selectedTime();
+    const label = slotLabel(at);
+    if (!label) return '—';
+    return this.selectedDoctorTime() ? `${label} ${zoneAbbr(this.cal.tz(), at)}` : label;
+  });
+
+  /** The doctor's zone: from the availability answers (`doctor_tz`), else their profile. */
+  protected readonly doctorTz = computed(() => this.cal.doctorTz() ?? this.specialist()?.timezone ?? null);
+  /** "Dr Smith's time" — the calendar's second clock and the summary's. */
+  protected readonly doctorWho = computed(() => doctorTimeWho(this.specialist()?.name));
+  /** "9:00 AM CST, Dr Smith's time" for the chosen time, when the doctor's clock differs (else null). */
+  protected readonly selectedDoctorTime = computed(() => {
+    const clock = doctorClock(this.selectedTime(), this.doctorTz(), this.cal.tz());
+    return clock ? `${clock}, ${this.doctorWho()}` : null;
+  });
 
   // ----- Pricing -----
 

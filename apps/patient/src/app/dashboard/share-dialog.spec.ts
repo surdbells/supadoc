@@ -137,7 +137,26 @@ describe('ShareDialog', () => {
     await render();
   };
 
-  const open = async (doctors: SharingDoctorDto[], setup: (h: Host) => void = () => undefined) => {
+  const doc = (id: string, title: string, extension: string) => ({
+    id,
+    patient_id: 'p',
+    uploader_role: 'patient',
+    appointment_id: null,
+    document_type: 'lab',
+    custom_type: null,
+    type_label: 'Lab result',
+    title,
+    extension,
+    mime_type: 'application/octet-stream',
+    size_bytes: 10,
+    size_label: '10kb',
+    created_at: '2026-10-10T10:00:00Z',
+  });
+  const open = async (
+    doctors: SharingDoctorDto[],
+    setup: (h: Host) => void = () => undefined,
+    docs = [doc('d-1', 'Blood test', 'pdf')],
+  ) => {
     setup(host);
     host.show.set(true);
     await render();
@@ -147,8 +166,8 @@ describe('ShareDialog', () => {
       .flush({
         status: 'success',
         message: 'OK',
-        data: [{ id: 'd-1', patient_id: 'p', uploader_role: 'patient', appointment_id: null, document_type: 'lab', custom_type: null, type_label: 'Lab result', title: 'Blood test', extension: 'pdf', mime_type: 'application/pdf', size_bytes: 10, size_label: '10kb', created_at: '2026-10-10T10:00:00Z' }],
-        meta: { page: 1, per_page: 100, total: 1, total_pages: 1 },
+        data: docs,
+        meta: { page: 1, per_page: 100, total: docs.length, total_pages: 1 },
       });
     await render();
   };
@@ -366,5 +385,31 @@ describe('ShareDialog', () => {
     await render();
     expect(text()).toContain('Sharing is unavailable right now. Your documents stay private.');
     expect(Array.from(el.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Continue')).toBe(false);
+  });
+
+  it("warns (D32) under each ticked file the doctor can't open: DOC, DCM and MOV, never a PDF", async () => {
+    const docs = [doc('d-1', 'Blood test', 'pdf'), doc('d-2', 'Letter', 'doc'), doc('d-3', 'Scan', 'dcm'), doc('d-4', 'Clip', 'mov')];
+    await open([doctor()], (h) => {
+      h.doctorIds.set(['sp-1']);
+      h.lock.set(true);
+    }, docs);
+    await choose('Selected documents');
+    const warnings = () => Array.from(el.querySelectorAll('[data-testid="view-warning"]')).map((w) => w.textContent?.replace(/\s+/g, ' ').trim());
+    expect(warnings()).toEqual([]);
+    for (const title of ['Blood test', 'Letter', 'Scan', 'Clip']) await choose(title);
+    expect(warnings()).toEqual([
+      "Dr Ade can't open DOC files in VideoMed. Share a PDF or photo.",
+      "Dr Ade can't open DCM files in VideoMed. Share a PDF or photo.",
+      "Dr Ade can't open MOV files in VideoMed. Share a PDF or photo.",
+    ]);
+    // Still shareable: on to the review, which lists them again.
+    await click('Continue');
+    await click('Continue');
+    expect(warnings()).toEqual([
+      "Letter: Dr Ade can't open DOC files in VideoMed. Share a PDF or photo.",
+      "Scan: Dr Ade can't open DCM files in VideoMed. Share a PDF or photo.",
+      "Clip: Dr Ade can't open MOV files in VideoMed. Share a PDF or photo.",
+    ]);
+    expect(button('Share').disabled).toBe(false);
   });
 });

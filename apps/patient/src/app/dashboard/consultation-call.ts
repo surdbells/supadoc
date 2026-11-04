@@ -1,11 +1,15 @@
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import {
+  afterNextRender,
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
   inject,
+  Injector,
   OnDestroy,
   signal,
   untracked,
@@ -32,6 +36,7 @@ import {
   openPendingTab,
   PatientApi,
   PrescriptionsApi,
+  sendCallNudge,
   sendCallPresence,
   startCallPresence,
 } from '@supadoc/data-access';
@@ -58,11 +63,21 @@ import {
   type PrescriptionStatus,
   type ReferralDto,
   type TranscriptSegmentDto,
+  type UploadedDocumentDto,
   type VitalReadingDto,
 } from '@supadoc/models';
 import {
   buildCallTiles,
+  ButtonComponent,
+  type CallControl,
+  type CallControlId,
+  CallControlsComponent,
+  type CallMenuItem,
+  CallQualityComponent,
+  CallSelfTileComponent,
+  type CallSelfViewMode,
   CallTilesComponent,
+  type CallVideoFit,
   DialogService,
   callTilesMode,
   type CallUid,
@@ -76,7 +91,9 @@ import {
 import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call-helpers';
 import { openLocalMedia } from '../call/call-media';
 import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
+import { doctorTimeLabel } from './doctor-time';
 import { isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
+import { DocumentUploadDialog } from './document-upload-dialog';
 import { isOpenProposal, whenLabel } from './follow-up';
 import { InviteGuestDialog } from './invite-guest-dialog';
 import { ShareConfirmSheet } from './share-confirm-sheet';
@@ -140,11 +157,16 @@ interface SpeechRec {
 }
 type SpeechRecCtor = new () => SpeechRec;
 
-interface ChatMessage {
-  readonly mine: boolean;
-  readonly text: string;
-  readonly time: string;
-}
+/** From sm (640px) your own camera is a picture-in-picture on the stage; below, a tile in the control row (D18). */
+const WIDE_QUERY = '(min-width: 640px)';
+/** A phone held sideways: the controls become a rail beside the video (desktops keep the grid). */
+const RAIL_QUERY = '(orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px)';
+/** Per-device choices (best-effort). */
+const FIT_KEY = 'videomed.call.fit';
+const SELF_KEY = 'videomed.call.self';
+/** The lg stage leaves this much height for the rest of the column (captions add their strip). */
+const RESERVE = '20rem';
+const RESERVE_CAPTIONS = '24.5rem';
 
 /** A record shown in the right-hand Documents & Records panel. */
 interface RecordItem {
@@ -158,15 +180,25 @@ interface RecordItem {
 }
 
 /**
- * Live consultation cockpit (Agora RTC) — the patient's in-call view.
+ * Live consultation cockpit (Agora RTC) — the patient's in-call view, full
+ * screen (the route is immersive).
  *
- * Left: the video stage with the call controls, plus the consultation notes
- * tabs and an in-call chat. Everyone in the call has their own tile
- * (`<sd-call-tiles>`, named from the call's `participants`): with one other
- * person it is today's stage (the doctor big, the patient picture-in-picture),
- * with guests too an even grid. "Invite someone" adds a guest without leaving
- * the call. Right: the patient's own health summary, latest vitals and shared
- * records.
+ * A top bar (Leave, the doctor, the timer, real connection quality, the
+ * recording notice, Invite, the cockpit theme), then the video DOCK: the stage
+ * and its control bar (`sd-call-controls`) below it — never over the video.
+ * Only the video, the name tag and (from sm) your picture-in-picture are on the
+ * stage; below sm (a phone held upright) your camera is a small tile at the
+ * start of the control row (D18). The main video is contained (the whole picture; More › fill), and
+ * captions sit in a strip under it. Below lg the dock sticks to the top while
+ * the notes and the cards scroll; from lg the page doesn't scroll and each
+ * column scrolls inside.
+ *
+ * Everyone in the call has their own tile (`<sd-call-tiles>`, named from the
+ * call's `participants`): 1:1, or an even grid with guests. "Invite someone"
+ * adds a guest without leaving. Right: Documents & Records first — with
+ * "Upload & share" (that doctor, no end date, only what they can open; the
+ * doctor is nudged over Agora at once) — then the health summary, latest
+ * vitals and consent. There is no chat (D19): it reached nobody.
  *
  * The video credentials come from GET .../call-token (server-minted RTC token);
  * the health summary is the signed-in patient's real allergies / conditions /
@@ -177,9 +209,15 @@ interface RecordItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ApproveRequestDialog,
+    ButtonComponent,
+    CallControlsComponent,
+    CallQualityComponent,
+    CallSelfTileComponent,
     CallTilesComponent,
+    DocumentUploadDialog,
     IconComponent,
     InviteGuestDialog,
+    NgTemplateOutlet,
     ShareConfirmSheet,
     ShareDialog,
     SmoothHeightDirective,
@@ -199,48 +237,61 @@ interface RecordItem {
     `,
   ],
   template: `
-    <!-- New prescription notice (says who sent it and its number — never the medicines) -->
-    @if (rxToast(); as t) {
-      <div
-        class="sd-toast-in fixed inset-x-4 top-4 z-50 flex items-start gap-3 rounded-card border border-cerulean/30 bg-white px-4 py-3 shadow-lg sm:left-auto sm:right-6 sm:top-6 sm:w-full sm:max-w-sm"
-        role="status"
-      >
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal">
-          <sd-icon name="pill" [size]="18" />
-        </span>
-        <div class="flex min-w-0 flex-1 flex-col gap-2">
-          <p class="font-sans text-body-sm font-medium text-ink">{{ t.text }}</p>
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <button
-              type="button"
-              class="font-sans text-caption font-semibold text-cerulean hover:underline"
-              (click)="viewRxFromToast(t.rx)"
-            >
-              View prescription
-            </button>
-            <button
-              type="button"
-              class="font-sans text-caption font-semibold text-slate hover:text-ink"
-              (click)="showRxTab()"
-            >
-              Show in call notes
-            </button>
-          </div>
+    <!-- New prescription notice (says who sent it and its number — never the medicines).
+         Never over the stage: the bottom of the screen below lg, the top of the right
+         column (beside the video) from lg up. On a phone held sideways the stage fills
+         the screen's height, so there it sits in the page above the dock instead
+         (pushing the video down, never covering it). -->
+    <ng-template #rxNotice let-t>
+      <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal">
+        <sd-icon name="pill" [size]="18" />
+      </span>
+      <div class="flex min-w-0 flex-1 flex-col gap-2">
+        <p class="font-sans text-body-sm font-medium text-ink">{{ t.text }}</p>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <button
+            type="button"
+            class="font-sans text-caption font-semibold text-cerulean hover:underline"
+            (click)="viewRxFromToast(t.rx)"
+          >
+            View prescription
+          </button>
+          <button
+            type="button"
+            class="font-sans text-caption font-semibold text-slate hover:text-ink"
+            (click)="showRxTab()"
+          >
+            Show in call notes
+          </button>
         </div>
-        <button
-          type="button"
-          class="shrink-0 text-slate transition-colors hover:text-ink"
-          aria-label="Dismiss notice"
-          (click)="dismissRxToast()"
-        >
-          <sd-icon name="x" [size]="18" />
-        </button>
       </div>
+      <button
+        type="button"
+        class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:text-ink"
+        aria-label="Dismiss notice"
+        (click)="dismissRxToast()"
+      >
+        <sd-icon name="x" [size]="18" />
+      </button>
+    </ng-template>
+    @if (rxToast(); as t) {
+      @if (!rail()) {
+        <div
+          #rxToastEl
+          class="sd-toast-in fixed inset-x-3 bottom-3 z-40 flex items-start gap-3 rounded-card border border-cerulean/30 bg-white px-4 py-3 shadow-lg lg:inset-x-auto lg:bottom-auto lg:right-4 lg:top-[4.5rem] lg:w-[360px] 2xl:w-[400px]"
+          role="status"
+          data-testid="call-rx-toast"
+        >
+          <ng-container [ngTemplateOutlet]="rxNotice" [ngTemplateOutletContext]="{ $implicit: t }" />
+        </div>
+      }
     }
 
-    <div class="sd-call rounded-card bg-abyss p-3 text-white sm:p-4 lg:p-5" [attr.data-theme]="theme()">
+    <!-- Full screen (the route is immersive): a top bar, then the video dock and the panels. -->
+    <div class="sd-call flex min-h-dvh flex-col bg-abyss text-white" [class]="rootClass()" [attr.data-theme]="theme()">
       @if (phase() === 'waiting') {
         <!-- ============================ WAITING ROOM ============================ -->
+        <div class="px-3 py-4 sm:px-4 lg:py-6">
         <div class="mx-auto flex max-w-3xl flex-col items-center gap-5 py-4 text-center">
           <span class="font-heading text-h5 tracking-tight">
             <span class="text-frost">Video</span><span class="text-sage">Med</span>
@@ -254,9 +305,12 @@ interface RecordItem {
             @if (doctorSpecialty()) {
               <p class="font-sans text-body-sm text-white/60">{{ doctorSpecialty() }}</p>
             }
-            <p class="mt-1 flex items-center gap-1.5 font-sans text-caption text-white/50">
+            <p class="mt-1 flex items-center gap-1.5 font-sans text-caption text-white/60">
               <sd-icon name="calendar-clock" [size]="14" /> {{ scheduledLabel() }}
             </p>
+            @if (scheduledDoctorTime(); as dt) {
+              <p class="font-sans text-caption text-white/60">· {{ dt }}</p>
+            }
           </div>
 
           <!-- Device check -->
@@ -337,454 +391,350 @@ interface RecordItem {
           </button>
           <button
             type="button"
-            class="font-sans text-caption text-white/50 transition-colors hover:text-white/80"
+            class="min-h-11 px-3 font-sans text-caption text-white/60 transition-colors hover:text-white/80"
             (click)="leave()"
           >
             Back to appointments
           </button>
         </div>
+        </div>
       } @else {
-      <!-- One flex column below lg (the main column is display:contents there) so the
-           pinned video stays in view down the whole page, not just its own column. -->
-      <div class="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
-        <!-- ============================ MAIN ============================ -->
-        <div class="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
-          <!-- Action bar -->
-          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <button
-              type="button"
-              class="flex items-center gap-2 rounded-pill px-2 py-1.5 font-sans text-body-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-              (click)="leave()"
-            >
-              <sd-icon name="arrow-right" [size]="18" class="rotate-180" />
-              <span class="hidden sm:inline">Back to Appointments</span>
-            </button>
+      <!-- ============================ TOP BAR ============================ -->
+      <header
+        class="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 sm:gap-3 sm:px-4"
+        [class]="rail() ? 'h-12' : 'h-14'"
+      >
+        <button
+          type="button"
+          class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+          aria-label="Leave call"
+          (click)="leave()"
+        >
+          <sd-icon name="arrow-left" [size]="20" />
+        </button>
+        <div class="flex min-w-0 flex-1 flex-col">
+          <h1 class="truncate font-sans text-body-sm font-semibold text-white">{{ doctorName() }}</h1>
+          @if (doctorSpecialty() || doctorNow()) {
+            <p class="truncate font-sans text-caption text-white/70">
+              {{ doctorSpecialty() }}@if (doctorNow(); as dn) {<span class="hidden md:inline">{{ doctorSpecialty() ? ' · ' : '' }}{{ dn }} now</span>}
+            </p>
+          }
+        </div>
+        <span role="timer" aria-label="Call duration" class="shrink-0 font-label text-caption tabular-nums text-white/80">{{
+          elapsedLabel()
+        }}</span>
+        <!-- Real connection quality (Agora's network-quality), never a static graphic -->
+        <sd-call-quality [quality]="netQuality()" />
+        <!-- Agora encrypts media in transit; it is not end-to-end (D24). -->
+        <span class="hidden shrink-0 items-center gap-1 font-sans text-caption text-white/70 lg:inline-flex">
+          <sd-icon name="shield-check" [size]="14" class="text-frost" />Encrypted
+        </span>
+        <!-- The recording notice for screen readers: always in the page, so the words
+             are announced when recording starts (the visual chip below is hidden from them). -->
+        <span class="sr-only" role="status" data-testid="call-recording-status">{{
+          recordingActive() ? 'This consultation is being recorded.' : ''
+        }}</span>
+        @if (recordingActive()) {
+          <span
+            class="flex shrink-0 items-center gap-1.5 rounded-pill bg-alert-ink px-2.5 py-1 font-sans text-caption font-medium text-white"
+            aria-hidden="true"
+          >
+            <span class="size-2 shrink-0 animate-pulse rounded-full bg-white motion-reduce:animate-none" aria-hidden="true"></span>
+            <span class="sm:hidden" aria-hidden="true">Rec</span>
+            <span class="hidden sm:inline" aria-hidden="true">Recording</span>
+          </span>
+        }
+        <!-- In More below sm -->
+        <button
+          type="button"
+          class="hidden min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-pill border border-white/15 px-3 font-sans text-body-sm text-white/85 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost sm:inline-flex"
+          aria-haspopup="dialog"
+          aria-label="Invite someone to this call"
+          (click)="invite()"
+        >
+          <sd-icon name="user-plus" [size]="16" />
+          <span class="hidden xl:inline" aria-hidden="true">Invite someone</span>
+        </button>
+        <button
+          type="button"
+          class="hidden size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost sm:inline-flex"
+          [attr.aria-label]="theme() === 'dark' ? 'Switch to the light cockpit' : 'Switch to the dark cockpit'"
+          (click)="toggleTheme()"
+        >
+          <sd-icon name="lightbulb" [size]="18" />
+        </button>
+      </header>
 
-            <span
-              class="flex items-center gap-2 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70"
-            >
-              <sd-icon name="shield-check" [size]="15" class="text-success" />
-              <span class="hidden md:inline">Secure &amp; Encrypted</span>
-              <span class="flex items-end gap-0.5" aria-hidden="true">
-                <span class="w-0.5 rounded-full bg-success" style="height:6px"></span>
-                <span class="w-0.5 rounded-full bg-success" style="height:9px"></span>
-                <span class="w-0.5 rounded-full bg-success" style="height:12px"></span>
-              </span>
-            </span>
-
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-pill border border-white/15 px-3 py-1.5 font-sans text-body-sm text-white/85 transition-colors hover:bg-white/10"
-                aria-haspopup="dialog"
-                aria-label="Invite someone to this call"
-                (click)="invite()"
-              >
-                <sd-icon name="user-plus" [size]="16" />
-                <span class="hidden sm:inline" aria-hidden="true">Invite Someone</span>
-              </button>
-              <button
-                type="button"
-                class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-                [attr.aria-label]="theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-                (click)="toggleTheme()"
-              >
-                <sd-icon name="lightbulb" [size]="18" />
-              </button>
-              <button
-                type="button"
-                class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="More options"
-                (click)="moreOpen.set(!moreOpen())"
-              >
-                <span class="text-body-lg leading-none tracking-widest">⋯</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- A camera / microphone that isn't in the call (above the stage, never over a tile) -->
+      <!-- ============================ BODY ============================
+           Below lg one column: the dock (sticky), the notes, then the cards. From lg a
+           non-scrolling cockpit: the dock and notes left, the cards right, each column
+           scrolling inside. -->
+      <div
+        class="flex flex-col gap-3 px-3 pb-6 sm:px-4 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-4 lg:p-4 2xl:grid-cols-[minmax(0,1fr)_400px]"
+      >
+        <!-- ============================ LEFT ============================
+             display:contents below lg, so the sticky dock stays in view down the whole
+             page (its containing block is the body, not this column). -->
+        <div
+          class="contents lg:flex lg:min-h-0 lg:min-w-0 lg:flex-col lg:gap-3 lg:overflow-y-auto"
+          [style.--reserve]="reserve()"
+          data-testid="call-left"
+        >
+          <!-- A camera / microphone that isn't in the call (outside the dock, never over a tile) -->
           @if (status() === 'in-call' && deviceNotice()) {
-            <p class="flex items-start gap-2 rounded-card border border-white/10 bg-white/[0.03] px-3 py-2 font-sans text-caption text-white/80" role="status">
+            <p class="mt-3 flex items-start gap-2 rounded-card border border-white/10 bg-white/[0.03] px-3 py-2 font-sans text-caption text-white/80 lg:mt-0" role="status">
               <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ deviceNotice() }}
             </p>
           }
 
-          <!-- Video stage — pinned to the top while the notes below are read or
-               tabs are switched, so the consultation never scrolls out of view. -->
-          <div
-            class="sd-stage sticky top-2 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[50vh] w-full overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:aspect-video lg:aspect-[16/10]"
-          >
-            <!-- Everyone's video: the other person big and you picture-in-picture
-                 1:1, an even grid with guests. Always rendered, so a track can be
-                 handed over before its tile appears; each tile has its own name,
-                 camera-off placeholder and muted badge. -->
-            <sd-call-tiles [tiles]="tiles()" [spotlightLabel]="false" [showRole]="true" />
-
-            <!-- Nobody else here: not yet, or everyone has gone -->
-            @if (!hasRemoteTile() && status() === 'in-call') {
+          <!-- A new prescription on a phone held sideways: in the page above the dock (the
+               bottom toast would cover the video there). A light card in the cockpit:
+               styles.css keeps its light-surface tones when the portal is dark. -->
+          @if (rail()) {
+            @if (rxToast(); as t) {
               <div
-                class="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-16 pl-6 pr-[5.5rem] pt-12 text-center text-white/75 roomy:pt-24 roomy:pb-32 roomy:pr-36"
-              >
-                @if (remoteLeft()) {
-                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
-                    <sd-icon name="user-x" [size]="30" />
-                  </span>
-                  <p class="font-sans text-body-sm roomy:text-body">{{ leftText() }}</p>
-                  <p class="hidden max-w-sm font-sans text-caption text-white/50 roomy:block">
-                    If your consultation is finished, press End to leave.
-                  </p>
-                } @else {
-                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
-                    <sd-icon name="user-round" [size]="30" />
-                  </span>
-                  <p class="font-sans text-body-sm roomy:text-body">
-                    Waiting for {{ doctorName() }} to join…
-                  </p>
-                  <p class="hidden font-sans text-caption text-white/50 roomy:block">
-                    {{ doctorSpecialty() }}
-                  </p>
-                }
-              </div>
-            }
-
-            <!-- The call ended without the patient pressing End -->
-            @if (status() === 'ended') {
-              <div
-                class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center text-white/85"
+                class="sd-rx-card sd-toast-in mt-2 flex items-start gap-3 rounded-card border border-cerulean/30 bg-white px-4 py-3 shadow-lg"
                 role="status"
+                data-testid="call-rx-inline"
               >
-                <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
-                  <sd-icon [name]="endedReason() === 'completed' ? 'circle-check' : 'wifi-off'" [size]="28" />
-                </span>
-                @if (endedReason() === 'completed') {
-                  <p class="max-w-sm font-sans text-body">Your consultation has ended.</p>
-                  <p class="max-w-sm font-sans text-caption text-white/60">
-                    Your consultation summary, prescriptions and anything else your doctor shares
-                    appear in your consultation history.
-                  </p>
-                } @else {
-                  <p class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
-                  <p class="max-w-sm font-sans text-caption text-white/60">
-                    Check your internet connection, then rejoin. Anything your doctor has shared
-                    is in your consultation history.
-                  </p>
-                }
-                <div class="flex flex-wrap items-center justify-center gap-3">
-                  @if (endedReason() === 'dropped') {
-                    <button
-                      type="button"
-                      class="flex items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
-                      (click)="rejoin()"
-                    >
-                      <sd-icon name="refresh-cw" [size]="16" /> Rejoin call
-                    </button>
-                  }
-                  <button
-                    type="button"
-                    class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
-                    (click)="leave('history')"
-                  >
-                    View consultation summary
-                  </button>
-                </div>
+                <ng-container [ngTemplateOutlet]="rxNotice" [ngTemplateOutletContext]="{ $implicit: t }" />
               </div>
             }
-
-            <!-- Loading -->
-            @if (status() === 'loading') {
-              <div
-                class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85"
-              >
-                <span
-                  class="size-10 animate-spin rounded-full border-2 border-white/20 border-t-white"
-                ></span>
-                <p class="font-sans text-body">Connecting to your consultation…</p>
-              </div>
-            }
-
-            <!-- Error -->
-            @if (status() === 'error') {
-              <div
-                class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center text-white/85"
-              >
-                <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
-                  <sd-icon name="video-off" [size]="28" />
-                </span>
-                <p class="max-w-sm font-sans text-body">{{ errorMessage() }}</p>
-                @if (awaitingAcceptance()) {
-                  <button
-                    type="button"
-                    class="min-h-11 rounded-field bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-ink transition-colors hover:bg-white/90"
-                    (click)="leave('proposal')"
-                  >
-                    Review the follow-up
-                  </button>
-                }
-                <button
-                  type="button"
-                  class="rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
-                  (click)="leave()"
-                >
-                  Back to appointments
-                </button>
-              </div>
-            }
-
-            <!-- Name tag of whoever is on the main stage (1:1; the grid labels every tile) -->
-            @if (status() === 'in-call') {
-              <!-- …with the recording notice beside it (small stage) or under it -->
-              <div
-                class="absolute left-4 top-4 z-10 flex max-w-[calc(100%-7rem)] items-center gap-2 roomy:max-w-[calc(100%-8rem)] roomy:flex-col roomy:items-start"
-              >
-                @if (stageMode() === 'spotlight') {
-                  <div class="flex min-w-0 max-w-full items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur">
-                    @if (spotlight()?.muted) {
-                      <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-alert text-white" aria-hidden="true">
-                        <sd-icon name="mic-off" [size]="12" />
-                      </span>
-                    }
-                    <span class="truncate font-sans text-body-sm font-medium text-white">
-                      {{ spotlight()?.name ?? doctorName() }}
-                    </span>
-                  </div>
-                }
-                <!-- A guest is here but the doctor isn't yet (any stage size, 1:1 or grid) -->
-                @if (hasRemoteTile() && !doctorHere()) {
-                  <div class="flex min-w-0 max-w-full items-center rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur" role="status">
-                    <span class="truncate font-sans text-caption text-white/80">Waiting for {{ doctorName() }}…</span>
-                  </div>
-                }
-                @if (recordingActive()) {
-                  <div
-                    class="flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1.5 font-sans text-caption font-medium text-white shadow-lg roomy:max-w-full roomy:shrink"
-                    role="status"
-                    aria-label="This consultation is being recorded"
-                  >
-                    <span class="size-2 shrink-0 animate-pulse rounded-full bg-white"></span>
-                    <span class="roomy:hidden">Rec</span>
-                    <span class="hidden min-w-0 truncate roomy:inline">This consultation is being recorded</span>
-                  </div>
-                }
-              </div>
-
-              <!-- HD badge (small stage: the PiP has this corner; the grid has tiles there) -->
-              @if (stageMode() === 'spotlight') {
-                <div
-                  class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex"
-                >
-                  <span class="font-label text-caption font-semibold text-white">HD</span>
-                  <span class="size-2 rounded-full bg-success"></span>
-                </div>
-              }
-
-
-              <!-- Live captions, always clear of the controls and the PiP (on small
-                   stages just the newest line, right above the controls) -->
-              @if (captionsOn() && latestCaptions().length) {
-                <div class="absolute bottom-[4.5rem] left-6 right-[5.5rem] z-20 mx-auto flex max-h-8 max-w-xl flex-col justify-end overflow-hidden rounded-2xl bg-abyss/80 px-4 py-2 text-center backdrop-blur roomy:right-36 roomy:bottom-32 roomy:max-h-20">
-                  @for (seg of latestCaptions(); track seg.id) {
-                    <p class="font-sans text-caption text-white/90 roomy:text-body-sm">
-                      <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-sage'">{{ seg.role }}:</span>
-                      {{ seg.text }}
-                    </p>
-                  }
-                </div>
-              }
-
-              <!-- Controls (icon-only and a little smaller on a small stage, so all of them fit) -->
-              <div
-                class="absolute bottom-3 left-1/2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-pill bg-abyss/75 px-2 py-2 backdrop-blur roomy:bottom-5 roomy:gap-3 roomy:px-4 roomy:py-2.5"
-              >
-                <button
-                  type="button"
-                  class="flex flex-col items-center gap-1"
-                  [attr.aria-label]="micLive() ? 'Mute microphone' : 'Unmute microphone'"
-                  (click)="toggleMic()"
-                >
-                  <span
-                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
-                    [class]="micLive() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
-                  >
-                    <sd-icon [name]="micLive() ? 'mic' : 'mic-off'" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">
-                    {{ micLive() ? 'Mute' : 'Unmute' }}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  class="flex flex-col items-center gap-1"
-                  [attr.aria-label]="camLive() ? 'Turn camera off' : 'Turn camera on'"
-                  (click)="toggleCam()"
-                >
-                  <span
-                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
-                    [class]="camLive() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'"
-                  >
-                    <sd-icon [name]="camLive() ? 'video' : 'video-off'" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">
-                    {{ camLive() ? 'Stop Video' : 'Start Video' }}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  class="flex flex-col items-center gap-1"
-                  aria-label="Share screen"
-                  (click)="toggleScreen()"
-                >
-                  <span
-                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
-                    [class]="screenOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
-                  >
-                    <sd-icon name="monitor-smartphone" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Share</span>
-                </button>
-
-                <button
-                  type="button"
-                  class="flex flex-col items-center gap-1"
-                  aria-label="Toggle chat"
-                  (click)="chatOpen.set(!chatOpen())"
-                >
-                  <span
-                    class="relative flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors"
-                    [class]="chatOpen() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
-                  >
-                    <sd-icon name="message-square" [size]="20" />
-                    @if (unreadChat() > 0 && !chatOpen()) {
-                      <span class="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-alert"></span>
-                    }
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Chat</span>
-                </button>
-
-                <button
-                  type="button"
-                  class="flex flex-col items-center gap-1"
-                  aria-label="Toggle captions"
-                  [attr.title]="!aiConsentGranted() ? 'Turn on AI-transcription consent to use captions' : null"
-                  [disabled]="!aiConsentGranted()"
-                  (click)="toggleCaptions()"
-                >
-                  <span
-                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 font-label text-caption font-bold text-white transition-colors"
-                    [class]="captionsOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'"
-                    [class.opacity-40]="!aiConsentGranted()"
-                  >
-                    CC
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Captions</span>
-                </button>
-
-                <button
-                  type="button"
-                  class="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1"
-                  aria-label="Leave call and view the consultation summary"
-                  (click)="leave('history')"
-                >
-                  <span
-                    class="flex size-9 items-center justify-center rounded-full roomy:size-11 bg-alert transition-colors hover:bg-alert/80"
-                  >
-                    <sd-icon name="phone-off" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">End</span>
-                </button>
-              </div>
-
-              <!-- Elapsed timer -->
-              <div
-                class="absolute bottom-6 right-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur @min-[36rem]/stage:flex"
-              >
-                <span class="size-1.5 rounded-full bg-alert"></span>
-                <span class="font-label text-caption tabular-nums text-white/85">
-                  {{ elapsedLabel() }}
-                </span>
-              </div>
-            }
-          </div>
-
-          <!-- In-call chat (collapsible) -->
-          @if (chatOpen()) {
-            <div class="flex flex-col rounded-card border border-white/10 bg-white/[0.03]">
-              <div class="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                <span class="flex items-center gap-2 font-sans text-body-sm font-semibold text-white">
-                  <sd-icon name="message-square" [size]="16" class="text-sky" /> Chat
-                </span>
-                <button
-                  type="button"
-                  class="text-white/50 transition-colors hover:text-white"
-                  aria-label="Close chat"
-                  (click)="chatOpen.set(false)"
-                >
-                  <sd-icon name="x" [size]="16" />
-                </button>
-              </div>
-              <div class="flex max-h-52 min-h-24 flex-col gap-2 overflow-y-auto px-4 py-3">
-                @for (m of messages(); track $index) {
-                  <div class="flex flex-col" [class.items-end]="m.mine">
-                    <span
-                      class="max-w-[80%] rounded-2xl px-3 py-2 font-sans text-body-sm"
-                      [class]="m.mine ? 'bg-cerulean text-white' : 'bg-white/10 text-white/90'"
-                    >
-                      {{ m.text }}
-                    </span>
-                    <span class="mt-0.5 font-sans text-[10px] text-white/40">{{ m.time }}</span>
-                  </div>
-                } @empty {
-                  <p class="py-4 text-center font-sans text-caption text-white/40">
-                    No messages yet. Say hello 👋
-                  </p>
-                }
-              </div>
-              <div class="flex items-center gap-2 border-t border-white/10 px-3 py-2.5">
-                <input
-                  type="text"
-                  placeholder="Type a message…"
-                  class="min-w-0 flex-1 bg-transparent px-2 font-sans text-body-sm text-white placeholder:text-white/40 focus:outline-none"
-                  [value]="draft()"
-                  (input)="draft.set($any($event.target).value)"
-                  (keydown.enter)="sendMessage()"
-                />
-                <button
-                  type="button"
-                  class="flex size-9 items-center justify-center rounded-full bg-cerulean text-white transition-colors hover:bg-cerulean-dark disabled:opacity-40"
-                  aria-label="Send message"
-                  [disabled]="!draft().trim()"
-                  (click)="sendMessage()"
-                >
-                  <sd-icon name="arrow-right" [size]="16" />
-                </button>
-              </div>
-            </div>
           }
 
-          <!-- Consultation notes -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03]">
-            <div class="flex gap-1 overflow-x-auto border-b border-white/10 px-2">
+          <!-- ============================ DOCK ============================
+               The stage and its control bar: one dark unit (both cockpit themes). Only the
+               video, the name tag and (from sm) your picture-in-picture are on the stage. -->
+          <section #dock [class]="dockClass()" aria-label="Video call" data-testid="call-dock">
+            <div [class]="rail() ? 'flex min-w-0 flex-1 flex-col gap-2' : 'contents'">
+              <div
+                class="sd-stage relative overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size]"
+                [class]="stageClass()"
+                data-testid="call-stage"
+              >
+                <!-- Everyone's video: the other person big (contain: the whole picture, or
+                     More › fill) and, from sm, you picture-in-picture; an even grid with
+                     guests. Always rendered, so a track can be handed over before its tile
+                     appears. Below sm your camera is the tile in the control row instead. -->
+                <sd-call-tiles
+                  [tiles]="tiles()"
+                  [spotlightLabel]="false"
+                  [showRole]="true"
+                  [mainFit]="fit()"
+                  [selfView]="selfMode()"
+                />
+
+                <!-- Nobody else here: not yet, or everyone has gone -->
+                @if (!hasRemoteTile() && status() === 'in-call') {
+                  <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 pb-6 pt-12 text-center text-white/75">
+                    @if (remoteLeft()) {
+                      <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
+                        <sd-icon name="user-x" [size]="30" />
+                      </span>
+                      <p class="font-sans text-body-sm roomy:text-body">{{ leftText() }}</p>
+                      <p class="hidden max-w-sm font-sans text-caption text-white/60 roomy:block">
+                        If your consultation is finished, press End to leave.
+                      </p>
+                    } @else {
+                      <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 tall:flex">
+                        <sd-icon name="user-round" [size]="30" />
+                      </span>
+                      <p class="font-sans text-body-sm roomy:text-body">
+                        Waiting for {{ doctorName() }} to join…
+                      </p>
+                      <p class="hidden font-sans text-caption text-white/60 roomy:block">
+                        {{ doctorSpecialty() }}
+                      </p>
+                    }
+                  </div>
+                }
+
+                <!-- The call ended without the patient pressing End -->
+                @if (status() === 'ended') {
+                  <div
+                    class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85"
+                    role="status"
+                  >
+                    <span class="hidden size-16 shrink-0 items-center justify-center rounded-full bg-white/10 tall:flex">
+                      <sd-icon [name]="endedReason() === 'completed' ? 'circle-check' : 'wifi-off'" [size]="28" />
+                    </span>
+                    @if (endedReason() === 'completed') {
+                      <p class="max-w-sm font-sans text-body">Your consultation has ended.</p>
+                      <p class="hidden max-w-sm font-sans text-caption text-white/60 roomy:block">
+                        Your consultation summary, prescriptions and anything else your doctor shares
+                        appear in your consultation history.
+                      </p>
+                    } @else {
+                      <p class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
+                      <p class="hidden max-w-sm font-sans text-caption text-white/60 roomy:block">
+                        Check your internet connection, then rejoin. Anything your doctor has shared
+                        is in your consultation history.
+                      </p>
+                    }
+                    <div class="flex flex-wrap items-center justify-center gap-3">
+                      @if (endedReason() === 'dropped') {
+                        <button
+                          type="button"
+                          class="flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                          (click)="rejoin()"
+                        >
+                          <sd-icon name="refresh-cw" [size]="16" /> Rejoin call
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+                        (click)="leave('history')"
+                      >
+                        View consultation summary
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                <!-- Loading -->
+                @if (status() === 'loading') {
+                  <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85" role="status">
+                    <span class="size-10 animate-spin rounded-full border-2 border-white/20 border-t-white motion-reduce:animate-none" aria-hidden="true"></span>
+                    <p class="font-sans text-body">Connecting to your consultation…</p>
+                  </div>
+                }
+
+                <!-- Error -->
+                @if (status() === 'error') {
+                  <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85">
+                    <span class="hidden size-16 shrink-0 items-center justify-center rounded-full bg-white/10 tall:flex">
+                      <sd-icon name="video-off" [size]="28" />
+                    </span>
+                    <p class="max-w-sm font-sans text-body">{{ errorMessage() }}</p>
+                    <div class="flex flex-wrap items-center justify-center gap-3">
+                      @if (awaitingAcceptance()) {
+                        <button
+                          type="button"
+                          class="min-h-11 rounded-field bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-ink transition-colors hover:bg-white/90"
+                          (click)="leave('proposal')"
+                        >
+                          Review the follow-up
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+                        (click)="leave()"
+                      >
+                        Back to appointments
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                <!-- Name tag of whoever is on the main stage (1:1; the grid labels every tile),
+                     and "waiting for the doctor" while only a guest is here -->
+                @if (status() === 'in-call') {
+                  <div class="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2">
+                    @if (stageMode() === 'spotlight' && hasRemoteTile()) {
+                      <div class="flex min-w-0 max-w-full items-center gap-1.5 rounded-pill bg-abyss/70 px-3 py-1.5 backdrop-blur">
+                        @if (spotlight()?.muted) {
+                          <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-alert text-white" aria-hidden="true">
+                            <sd-icon name="mic-off" [size]="12" />
+                          </span>
+                        }
+                        <span class="truncate font-sans text-body-sm font-medium text-white">
+                          {{ spotlight()?.name ?? doctorName() }}
+                        </span>
+                      </div>
+                    }
+                    @if (hasRemoteTile() && !doctorHere()) {
+                      <div class="flex min-w-0 max-w-full items-center rounded-pill bg-abyss/70 px-3 py-1.5 backdrop-blur" role="status">
+                        <span class="truncate font-sans text-caption text-white/85">Waiting for {{ doctorName() }}…</span>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+
+              <!-- Captions: under the video, never over a face (not a live region — the audio carries them) -->
+              @if (status() === 'in-call' && captionsOn()) {
+                <div
+                  class="flex max-h-[4.5rem] min-h-12 flex-col justify-end overflow-hidden rounded-card bg-ink px-4 py-2 font-sans text-body text-white"
+                  data-testid="call-captions"
+                >
+                  @for (seg of latestCaptions(); track seg.id) {
+                    <p class="line-clamp-1">
+                      <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-white'">{{ seg.role }}:</span>
+                      {{ seg.text }}
+                    </p>
+                  } @empty {
+                    <p class="text-white/70">Captions will appear here.</p>
+                  }
+                </div>
+              }
+            </div>
+
+            <!-- The control bar (below the video; a rail beside it on a phone held sideways).
+                 Below sm your camera preview is the small tile at its start (D18). -->
+            @if (status() === 'in-call') {
+              <div [class]="controlRowClass()" data-testid="call-control-row">
+                @if (!wide() && !rail() && selfTile(); as me) {
+                  <sd-call-self-tile
+                    [tile]="me"
+                    [track]="selfVideo()?.track ?? null"
+                    [playConfig]="selfVideo()?.config"
+                    [hidden]="hidePreview()"
+                  />
+                }
+                <div [class]="controlsBoxClass()">
+                  <sd-call-controls
+                    [controls]="controls()"
+                    [menu]="menu()"
+                    [layout]="rail() ? 'rail' : 'bar'"
+                    (pressed)="onControl($event)"
+                    (menuSelect)="onMenu($event)"
+                  />
+                </div>
+              </div>
+            }
+          </section>
+
+          <!-- Consultation notes (APG tabs: arrows, Home / End; a "New" pill, not colour alone) -->
+          <section
+            class="rounded-card border border-white/10 bg-white/[0.03] lg:min-h-[8rem] lg:flex-1 lg:overflow-y-auto"
+            aria-label="Consultation notes"
+          >
+            <div class="flex gap-1 overflow-x-auto border-b border-white/10 px-2" role="tablist" aria-label="Consultation notes">
               @for (t of notesTabs; track t.key) {
                 <button
                   type="button"
-                  class="relative whitespace-nowrap px-3 py-3 font-sans text-body-sm transition-colors"
-                  [class]="notesTab() === t.key ? 'text-white' : 'text-white/50 hover:text-white/80'"
+                  role="tab"
+                  class="relative inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap px-3 py-3 font-sans text-body-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost"
+                  [class]="notesTab() === t.key ? 'text-white' : 'text-white/70 hover:text-white'"
+                  [id]="'call-notes-tab-' + t.key"
+                  [attr.aria-selected]="notesTab() === t.key"
+                  [attr.aria-controls]="'call-notes-panel'"
+                  [tabIndex]="notesTab() === t.key ? 0 : -1"
                   (click)="openNotesTab(t.key)"
+                  (keydown)="onNotesTabKey($event)"
                 >
                   {{ t.label }}
                   @if (t.key === 'prescriptions' && newRx()) {
-                    <span class="absolute right-0 top-2 size-2 rounded-full bg-cerulean" aria-label="New prescription"></span>
+                    <span class="rounded-pill bg-cerulean/15 px-1.5 py-0.5 font-sans text-caption font-semibold text-frost">New<span class="sr-only"> prescription</span></span>
                   }
                   @if (notesTab() === t.key) {
-                    <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
+                    <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean" aria-hidden="true"></span>
                   }
                 </button>
               }
             </div>
 
             <!-- Height changes ease and each tab fades in, instead of jumping. -->
-            <div class="p-4" sdSmoothHeight>
+            <div
+              id="call-notes-panel"
+              class="p-4"
+              role="tabpanel"
+              tabindex="0"
+              [attr.aria-labelledby]="'call-notes-tab-' + notesTab()"
+              sdSmoothHeight
+            >
               <div>
               @for (shown of [notesTab()]; track shown) {
               <div class="sd-tab-panel">
@@ -793,33 +743,33 @@ interface RecordItem {
                   <div class="grid gap-5 sm:grid-cols-2">
                     <div class="flex flex-col gap-4">
                       <div>
-                        <h4 class="font-sans text-body-sm font-semibold text-white">
+                        <h2 class="font-sans text-body-sm font-semibold text-white">
                           Today’s Visit Summary
-                        </h4>
+                        </h2>
                         <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
                           {{ visitSummary() }}
                         </p>
                         @if (summaryReady() && summary()?.author) {
-                          <p class="mt-1 font-sans text-caption text-white/40">
+                          <p class="mt-1 font-sans text-caption text-white/60">
                             Finalized by {{ summary()?.author }}
                           </p>
                         }
                       </div>
                       @if (assessmentText()) {
                         <div>
-                          <h4 class="font-sans text-body-sm font-semibold text-white">Assessment</h4>
+                          <h2 class="font-sans text-body-sm font-semibold text-white">Assessment</h2>
                           <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
                             {{ assessmentText() }}
                           </p>
                         </div>
                       } @else if (conditions().length) {
                         <div>
-                          <h4 class="font-sans text-body-sm font-semibold text-white">Assessment</h4>
+                          <h2 class="font-sans text-body-sm font-semibold text-white">Assessment</h2>
                           <ul class="mt-1.5 flex flex-col gap-1">
                             @for (c of conditions(); track c.condition) {
                               <li class="font-sans text-body-sm text-white/60">
                                 {{ c.condition }}
-                                <span class="text-white/40">– {{ c.status || 'noted' }}</span>
+                                <span class="text-white/60">– {{ c.status || 'noted' }}</span>
                               </li>
                             }
                           </ul>
@@ -829,7 +779,7 @@ interface RecordItem {
 
                     <div class="flex flex-col gap-4">
                       <div>
-                        <h4 class="font-sans text-body-sm font-semibold text-white">Next Steps</h4>
+                        <h2 class="font-sans text-body-sm font-semibold text-white">Next Steps</h2>
                         <ul class="mt-1.5 flex list-disc flex-col gap-1 pl-4">
                           @for (s of nextSteps(); track s) {
                             <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
@@ -881,7 +831,7 @@ interface RecordItem {
                               <span class="font-sans text-caption text-white/60">
                                 {{ doctorLabel(p) }}@if (p.valid_until) { · Valid until {{ shortDate(p.valid_until) }} }
                               </span>
-                              <span class="font-sans text-[11px] text-white/40">
+                              <span class="font-sans text-[11px] text-white/60">
                                 {{ itemsLabel(p) }}@if (p.sent_at) { · Sent {{ rxDate(p.sent_at) }} }
                               </span>
                             </div>
@@ -940,13 +890,13 @@ interface RecordItem {
                       <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxLoadError() }}
                     </p>
                   } @else {
-                    <p class="py-5 text-center font-sans text-body-sm text-white/40">
+                    <p class="py-5 text-center font-sans text-body-sm text-white/60">
                       No prescriptions yet. If your doctor sends one during this consultation, it will appear here.
                     </p>
                     @if (medications().length) {
-                      <h4 class="mt-1 font-sans text-caption font-semibold uppercase tracking-wide text-white/50">
+                      <h2 class="mt-1 font-sans text-caption font-semibold uppercase tracking-wide text-white/50">
                         Medicines you told us you take
-                      </h4>
+                      </h2>
                       <ul class="flex flex-col divide-y divide-white/10">
                         @for (m of medications(); track $index) {
                           <li class="flex items-center gap-3 py-3">
@@ -980,13 +930,13 @@ interface RecordItem {
                           </div>
                           <p class="mt-1 font-sans text-body-sm text-white/70">{{ o.tests.join(', ') }}</p>
                           @if (o.author) {
-                            <p class="mt-1 font-sans text-caption text-white/40">Ordered by {{ o.author }}</p>
+                            <p class="mt-1 font-sans text-caption text-white/60">Ordered by {{ o.author }}</p>
                           }
                         </li>
                       }
                     </ul>
                   } @else {
-                    <p class="py-6 text-center font-sans text-body-sm text-white/40">
+                    <p class="py-6 text-center font-sans text-body-sm text-white/60">
                       No lab orders for this consultation yet.
                     </p>
                   }
@@ -1006,7 +956,7 @@ interface RecordItem {
                   }
                   @if (carePlan()?.available && (carePlan()?.items?.length ?? 0) > 0) {
                     <div>
-                      <h4 class="font-sans text-body-sm font-semibold text-white">Your Care Plan</h4>
+                      <h2 class="font-sans text-body-sm font-semibold text-white">Your Care Plan</h2>
                       <ul class="mt-2 flex flex-col gap-1.5">
                         @for (item of carePlan()?.items ?? []; track $index) {
                           <li class="flex items-start gap-2 font-sans text-body-sm text-white/70">
@@ -1018,7 +968,7 @@ interface RecordItem {
                     </div>
                   } @else {
                     <div class="flex flex-col gap-3">
-                      <h4 class="font-sans text-body-sm font-semibold text-white">Follow-up Plan</h4>
+                      <h2 class="font-sans text-body-sm font-semibold text-white">Follow-up Plan</h2>
                       <ul class="flex list-disc flex-col gap-1 pl-4">
                         @for (s of nextSteps(); track s) {
                           <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
@@ -1028,7 +978,7 @@ interface RecordItem {
                   }
                   @if (referrals().length) {
                     <div class="mt-4 border-t border-white/10 pt-3">
-                      <h4 class="mb-2 font-sans text-body-sm font-semibold text-white">Referrals</h4>
+                      <h2 class="mb-2 font-sans text-body-sm font-semibold text-white">Referrals</h2>
                       <ul class="flex flex-col gap-2">
                         @for (r of referrals(); track r.id) {
                           <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
@@ -1047,82 +997,70 @@ interface RecordItem {
               }
               </div>
             </div>
-          </div>
+          </section>
         </div>
 
-        <!-- ============================ RIGHT ============================ -->
-        <div class="flex min-w-0 flex-col gap-4">
-          <!-- Health summary -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="font-sans text-body font-semibold text-white">Health Summary</h3>
-              <button
-                type="button"
-                class="flex items-center gap-1 font-sans text-caption text-sky transition-colors hover:text-frost"
-                (click)="goProfile()"
-              >
-                View Full Record <sd-icon name="chevron-right" [size]="14" />
-              </button>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2.5">
-              <div class="rounded-2xl bg-white/[0.04] p-3">
-                <span class="flex items-center gap-1.5 font-sans text-caption text-alert">
-                  <sd-icon name="triangle-alert" [size]="14" /> Allergies
-                </span>
-                <p class="mt-1 font-sans text-body-sm text-white/85">{{ allergiesLabel() }}</p>
-              </div>
-              <div class="rounded-2xl bg-white/[0.04] p-3">
-                <span class="flex items-center gap-1.5 font-sans text-caption text-sage">
-                  <sd-icon name="heart-pulse" [size]="14" /> Conditions
-                </span>
-                <p class="mt-1 font-sans text-body-sm text-white/85">{{ conditionsLabel() }}</p>
-              </div>
-              <div class="rounded-2xl bg-white/[0.04] p-3">
-                <span class="flex items-center gap-1.5 font-sans text-caption text-sky">
-                  <sd-icon name="pill" [size]="14" /> Medications
-                </span>
-                <p class="mt-1 font-sans text-body-sm text-white/85">{{ medicationsLabel() }}</p>
-              </div>
-              <div class="rounded-2xl bg-white/[0.04] p-3">
-                <span class="flex items-center gap-1.5 font-sans text-caption text-frost">
-                  <sd-icon name="calendar-check" [size]="14" /> Last Visit
-                </span>
-                <p class="mt-1 font-sans text-body-sm text-white/85">{{ lastVisitLabel() }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Latest vitals -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <h3 class="font-sans text-body font-semibold text-white">Latest Vitals</h3>
-              <span class="font-sans text-caption text-white/40">{{ vitalsAsOf() }}</span>
-            </div>
-            @if (vitals().length) {
-              <div class="grid grid-cols-2 gap-2.5">
-                @for (v of vitals(); track v.key) {
-                  <div class="rounded-2xl bg-white/[0.04] p-3 text-center">
-                    <p class="truncate font-sans text-caption text-white/50">{{ v.label }}</p>
-                    <p class="mt-0.5 font-heading text-h5 font-semibold text-white">{{ v.value }}</p>
-                    <p class="font-sans text-[10px] text-white/40">{{ v.unit }}</p>
-                    @if (v.stale) {
-                      <p class="mt-1 font-sans text-[10px] text-warning">May be out of date</p>
-                    }
-                  </div>
+        <!-- ============================ RIGHT ============================
+             The Figma card stack (D20): Documents & Records first (in-call Upload & share),
+             then Health Summary, Latest Vitals, Privacy & Consent. Feedback only once the
+             call has ended, at the top. -->
+        <aside class="flex min-w-0 flex-col gap-4 lg:min-h-0 lg:overflow-y-auto" aria-label="Your records and consent">
+          <!-- Feedback: a review needs a completed consultation, so it is only
+               offered once the doctor has ended it. -->
+          @if (status() === 'ended') {
+            <section class="rounded-card border border-white/10 bg-white/[0.03] p-4 text-center" aria-labelledby="call-feedback-title">
+              <h2 id="call-feedback-title" class="font-sans text-body-sm font-medium text-white">How was your consultation?</h2>
+              @if (canRate()) {
+                <div class="mt-2 flex items-center justify-center gap-0.5" role="group" aria-label="Rate your consultation">
+                  @for (n of stars; track n) {
+                    <button
+                      type="button"
+                      class="flex size-11 items-center justify-center transition-transform hover:scale-110 disabled:hover:scale-100 motion-reduce:transition-none"
+                      [attr.aria-label]="'Rate ' + n + ' star' + (n === 1 ? '' : 's')"
+                      [attr.aria-pressed]="n === rating()"
+                      [disabled]="reviewState() === 'sending' || reviewState() === 'done'"
+                      (click)="rate(n)"
+                    >
+                      <sd-icon
+                        name="star"
+                        [size]="24"
+                        [class]="n <= rating() ? 'text-warning' : 'text-white/25'"
+                      />
+                    </button>
+                  }
+                </div>
+                @switch (reviewState()) {
+                  @case ('sending') {
+                    <p class="mt-1.5 font-sans text-caption text-white/60" role="status">Sending your rating…</p>
+                  }
+                  @case ('done') {
+                    <p class="mt-1.5 font-sans text-caption text-success" role="status">{{ reviewNote() || 'Thanks for your feedback!' }}</p>
+                  }
+                  @case ('error') {
+                    <p class="mt-1.5 font-sans text-caption text-alert" role="alert">{{ reviewNote() }}</p>
+                  }
+                  @default {
+                    <p class="mt-1.5 font-sans text-caption text-white/60">Your feedback helps us improve</p>
+                  }
                 }
-              </div>
-            } @else {
-              <p class="font-sans text-caption text-white/50">
-                No readings yet. You can add them in My Profile › Medical Information
-                after your visit.
-              </p>
-            }
-          </div>
+              } @else {
+                <p class="mt-1.5 font-sans text-caption text-white/60">
+                  Once your doctor ends the consultation, you can rate it from your consultation history.
+                </p>
+              }
+            </section>
+          }
 
           <!-- Documents & records (sd-share: readable sharing accents in the light cockpit, styles.css) -->
-          <div class="sd-share rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-1 font-sans text-body font-semibold text-white">Documents &amp; Records</h3>
+          <section class="sd-share rounded-card border border-white/10 bg-white/[0.03] p-4" aria-labelledby="call-docs-title">
+            <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <h2 id="call-docs-title" tabindex="-1" class="font-sans text-body font-semibold text-white outline-none">Documents &amp; Records</h2>
+              @if (docAccess()?.can_share && !docAccessOff()) {
+                <sd-button size="sm" (click)="uploadOpen.set(true)">
+                  <sd-icon name="upload" [size]="16" />Upload &amp; share
+                </sd-button>
+              }
+            </div>
             <p class="sr-only" aria-live="polite" aria-atomic="true">{{ docShareLive() }}</p>
             <!-- What this doctor can see (they only see what the patient shares) -->
             @if (docAccess(); as da) {
@@ -1163,12 +1101,13 @@ interface RecordItem {
                 <sd-icon name="circle-check" [size]="14" class="mt-0.5 shrink-0" />{{ docShareNotice() }}
               </p>
             }
-            <div class="mb-3 flex gap-1 overflow-x-auto">
+            <div class="mb-3 flex gap-1 overflow-x-auto" role="group" aria-label="Show documents">
               @for (t of docsTabs; track t.key) {
                 <button
                   type="button"
-                  class="whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
-                  [class]="docsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/60 hover:bg-white/10'"
+                  class="min-h-9 whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
+                  [class]="docsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/70 hover:bg-white/10'"
+                  [attr.aria-pressed]="docsTab() === t.key"
                   (click)="docsTab.set(t.key)"
                 >
                   {{ t.label }}
@@ -1185,28 +1124,28 @@ interface RecordItem {
                       </span>
                       <span class="flex min-w-0 flex-1 flex-col">
                         <span class="truncate font-sans text-body-sm font-medium text-white">{{ r.title }}</span>
-                        <span class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-white/45">
+                        <span class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-white/60">
                           {{ r.date }}
                           @if (shareState(r); as st) {
                             @if (st === 'shared') {
                               <span class="inline-flex items-center gap-1 rounded-pill bg-white/[0.06] px-2 py-0.5 text-frost"><sd-icon name="share-2" [size]="12" />Shared</span>
                             } @else {
-                              <span class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-white/50"><sd-icon name="lock" [size]="12" />Private</span>
+                              <span class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-white/60"><sd-icon name="lock" [size]="12" />Private</span>
                             }
                           }
                         </span>
                       </span>
-                      <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-white/60">
+                      <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-white/70">
                         {{ r.badge }}
                       </span>
                       <button
                         type="button"
-                        class="flex size-11 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
+                        class="flex size-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
                         [attr.aria-label]="'Open ' + r.title"
                         [disabled]="!r.url && !r.docId"
                         (click)="download(r)"
                       >
-                        <sd-icon name="download" [size]="16" />
+                        <sd-icon name="eye" [size]="16" />
                       </button>
                     </div>
                     @if (shareState(r) === 'private' && canShareInCall()) {
@@ -1223,18 +1162,86 @@ interface RecordItem {
                 }
               </ul>
             } @else {
-              <p class="py-5 text-center font-sans text-body-sm text-white/40">
+              <p class="py-5 text-center font-sans text-body-sm text-white/60">
                 No documents in this category.
               </p>
             }
-          </div>
+          </section>
 
-          <!-- Privacy & consent -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-1 flex items-center gap-1.5 font-sans text-body font-semibold text-white">
+          <!-- Health summary -->
+          <section class="rounded-card border border-white/10 bg-white/[0.03] p-4" aria-labelledby="call-health-title">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 id="call-health-title" class="font-sans text-body font-semibold text-white">Health Summary</h2>
+              <button
+                type="button"
+                class="flex min-h-11 items-center gap-1 font-sans text-caption text-sky transition-colors hover:text-frost"
+                (click)="goProfile()"
+              >
+                View Full Record <sd-icon name="chevron-right" [size]="14" />
+              </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <div class="rounded-2xl bg-white/[0.04] p-3">
+                <span class="flex items-center gap-1.5 font-sans text-caption text-alert">
+                  <sd-icon name="triangle-alert" [size]="14" /> Allergies
+                </span>
+                <p class="mt-1 font-sans text-body-sm text-white/85">{{ allergiesLabel() }}</p>
+              </div>
+              <div class="rounded-2xl bg-white/[0.04] p-3">
+                <span class="flex items-center gap-1.5 font-sans text-caption text-sage">
+                  <sd-icon name="heart-pulse" [size]="14" /> Conditions
+                </span>
+                <p class="mt-1 font-sans text-body-sm text-white/85">{{ conditionsLabel() }}</p>
+              </div>
+              <div class="rounded-2xl bg-white/[0.04] p-3">
+                <span class="flex items-center gap-1.5 font-sans text-caption text-sky">
+                  <sd-icon name="pill" [size]="14" /> Medications
+                </span>
+                <p class="mt-1 font-sans text-body-sm text-white/85">{{ medicationsLabel() }}</p>
+              </div>
+              <div class="rounded-2xl bg-white/[0.04] p-3">
+                <span class="flex items-center gap-1.5 font-sans text-caption text-frost">
+                  <sd-icon name="calendar-check" [size]="14" /> Last Visit
+                </span>
+                <p class="mt-1 font-sans text-body-sm text-white/85">{{ lastVisitLabel() }}</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Latest vitals -->
+          <section class="rounded-card border border-white/10 bg-white/[0.03] p-4" aria-labelledby="call-vitals-title">
+            <div class="mb-3 flex items-center justify-between gap-2">
+              <h2 id="call-vitals-title" class="font-sans text-body font-semibold text-white">Latest Vitals</h2>
+              <span class="font-sans text-caption text-white/60">{{ vitalsAsOf() }}</span>
+            </div>
+            @if (vitals().length) {
+              <div class="grid grid-cols-2 gap-2.5">
+                @for (v of vitals(); track v.key) {
+                  <div class="rounded-2xl bg-white/[0.04] p-3 text-center">
+                    <p class="truncate font-sans text-caption text-white/60">{{ v.label }}</p>
+                    <p class="mt-0.5 font-heading text-h5 font-semibold text-white">{{ v.value }}</p>
+                    <p class="font-sans text-[10px] text-white/60">{{ v.unit }}</p>
+                    @if (v.stale) {
+                      <p class="mt-1 font-sans text-[10px] text-warning">May be out of date</p>
+                    }
+                  </div>
+                }
+              </div>
+            } @else {
+              <p class="font-sans text-caption text-white/60">
+                No readings yet. You can add them in My Profile › Medical Information
+                after your visit.
+              </p>
+            }
+          </section>
+
+          <!-- Privacy & consent (More › Privacy & consent brings focus here) -->
+          <section id="call-privacy" class="rounded-card border border-white/10 bg-white/[0.03] p-4" aria-labelledby="call-privacy-title">
+            <h2 id="call-privacy-title" tabindex="-1" class="mb-1 flex items-center gap-1.5 font-sans text-body font-semibold text-white outline-none">
               <sd-icon name="shield-check" [size]="16" class="text-frost" /> Privacy &amp; Consent
-            </h3>
-            <p class="mb-2 font-sans text-caption text-white/45">
+            </h2>
+            <p class="mb-2 font-sans text-caption text-white/60">
               You choose what happens in this consultation.
             </p>
             @for (c of consentRows; track c.type) {
@@ -1260,53 +1267,26 @@ interface RecordItem {
             @if (consentError()) {
               <p class="mt-1 font-sans text-caption text-alert" role="alert">{{ consentError() }}</p>
             }
-          </div>
-
-          <!-- Feedback: a review needs a completed consultation, so it is only
-               offered once the doctor has ended it. -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4 text-center">
-            <p class="font-sans text-body-sm font-medium text-white">How was your consultation?</p>
-            @if (canRate()) {
-              <div class="mt-2 flex items-center justify-center gap-0.5" role="group" aria-label="Rate your consultation">
-                @for (n of stars; track n) {
-                  <button
-                    type="button"
-                    class="flex size-11 items-center justify-center transition-transform hover:scale-110 disabled:hover:scale-100"
-                    [attr.aria-label]="'Rate ' + n + ' star' + (n === 1 ? '' : 's')"
-                    [attr.aria-pressed]="n === rating()"
-                    [disabled]="reviewState() === 'sending' || reviewState() === 'done'"
-                    (click)="rate(n)"
-                  >
-                    <sd-icon
-                      name="star"
-                      [size]="24"
-                      [class]="n <= rating() ? 'text-warning' : 'text-white/25'"
-                    />
-                  </button>
-                }
-              </div>
-              @switch (reviewState()) {
-                @case ('sending') {
-                  <p class="mt-1.5 font-sans text-caption text-white/60" role="status">Sending your rating…</p>
-                }
-                @case ('done') {
-                  <p class="mt-1.5 font-sans text-caption text-success" role="status">{{ reviewNote() || 'Thanks for your feedback!' }}</p>
-                }
-                @case ('error') {
-                  <p class="mt-1.5 font-sans text-caption text-alert" role="alert">{{ reviewNote() }}</p>
-                }
-                @default {
-                  <p class="mt-1.5 font-sans text-caption text-white/45">Your feedback helps us improve</p>
-                }
-              }
-            } @else {
-              <p class="mt-1.5 font-sans text-caption text-white/45">
-                Once your doctor ends the consultation, you can rate it from your consultation history.
-              </p>
-            }
-          </div>
-        </div>
+          </section>
+        </aside>
       </div>
+      }
+
+      <!-- In-call Upload & share: that doctor, no end date, only what they can open in VideoMed -->
+      @if (uploadOpen() && docAccess(); as da) {
+        <pat-document-upload-dialog
+          [presetDoctorId]="da.specialist.id"
+          [appointment]="da.appointment"
+          [lockDoctor]="true"
+          surface="call"
+          theme="call"
+          fixedDuration="indefinite"
+          acceptKinds="viewable"
+          [maxFiles]="5"
+          doneLabel="Done"
+          (uploaded)="onCallUpload($event)"
+          (closed)="uploadOpen.set(false)"
+        />
       }
 
       <!-- Invite someone, without leaving the call (inside .sd-call so it follows the cockpit theme) -->
@@ -1370,9 +1350,123 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** "Leave the consultation?" before a live call is left. */
   private readonly dialogs = inject(DialogService);
 
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+
   private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
   /** The stage's video tiles (rendered once the patient enters the call). */
   private readonly stageTiles = viewChild(CallTilesComponent);
+  /** The dock (sticky below lg) and the prescription toast: the page keeps focus clear of them (2.4.11). */
+  private readonly dockEl = viewChild<ElementRef<HTMLElement>>('dock');
+  private readonly toastEl = viewChild<ElementRef<HTMLElement>>('rxToastEl');
+
+  // ---- The dock: layout, your own view, the video fit ----
+  /** From sm up (the self view is a picture-in-picture on the stage). */
+  protected readonly wide = signal(this.mediaMatches(WIDE_QUERY));
+  /** A phone held sideways: the controls are a rail beside the video. */
+  protected readonly rail = signal(this.mediaMatches(RAIL_QUERY));
+  /** How the other person's video fills the stage (More › Video: fit / fill), per device. */
+  protected readonly fit = signal<CallVideoFit>(this.readFit());
+  /** "Hide my preview" (More), per device: your camera still goes to the doctor. */
+  protected readonly hidePreview = signal(this.readHidePreview());
+  /**
+   * Where your own camera shows: the stage's picture-in-picture, the control-row
+   * tile, or nowhere. A phone held sideways uses the picture-in-picture at any
+   * width: its stage is 16:9 (the corner is free, as from sm up), and the rail
+   * has no room for the 64px tile above Mute, Stop video, More and End.
+   */
+  protected readonly selfMode = computed<CallSelfViewMode>(() =>
+    this.hidePreview() ? 'hidden' : this.wide() || this.rail() ? 'pip' : 'external',
+  );
+  /** Your own local video (camera, or the screen you share) for the control-row tile. */
+  protected readonly selfVideo = signal<{ track: CallVideoTrack; config?: CallVideoPlayConfig } | null>(null);
+  /** Agora's network quality, the worse of up- and downlink (null before the first report). */
+  protected readonly netQuality = signal<number | null>(null);
+  /** The browser can share a screen (phones can't: the control is left out). */
+  private readonly canShareScreen =
+    typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
+  protected readonly rootClass = computed(() => (this.phase() === 'live' ? 'lg:h-dvh lg:overflow-hidden' : ''));
+  protected readonly reserve = computed(() => (this.captionsOn() ? RESERVE_CAPTIONS : RESERVE));
+  protected readonly dockClass = computed(() =>
+    this.rail()
+      ? 'sd-dock flex flex-row items-stretch gap-2 pt-2'
+      : 'sd-dock sticky top-0 z-20 flex flex-col gap-2 bg-abyss pt-2 [@media(max-height:500px)]:static lg:static lg:mx-auto lg:w-[min(100%,calc((100dvh_-_var(--reserve))*16/9))] lg:shrink-0 lg:pt-0',
+  );
+  protected readonly stageClass = computed(() =>
+    this.rail()
+      ? 'mx-auto aspect-video h-[calc(100dvh-4.5rem)] max-w-full'
+      : 'mx-auto aspect-[4/3] w-full max-h-[45dvh] max-w-[calc(45dvh*4/3)] sm:aspect-video sm:max-w-[calc(45dvh*16/9)] lg:max-h-none lg:max-w-none',
+  );
+  protected readonly controlRowClass = computed(() =>
+    this.rail()
+      ? 'flex w-[4.5rem] shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2'
+      : 'flex items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2',
+  );
+  protected readonly controlsBoxClass = computed(() =>
+    this.rail()
+      ? 'flex min-h-0 w-full flex-1 justify-center [container-name:callbar] [container-type:inline-size]'
+      : 'min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]',
+  );
+
+  /** The dock's controls (labels never change on the toggles; mic and camera say what they do). */
+  protected readonly controls = computed<CallControl[]>(() => {
+    const mic = this.micLive();
+    const cam = this.camLive();
+    const captions = this.captionsOn();
+    const noConsent = !this.aiConsentGranted() && !captions;
+    return [
+      { id: 'mic', label: mic ? 'Mute' : 'Unmute', icon: mic ? 'mic' : 'mic-off', tone: mic ? 'default' : 'off' },
+      { id: 'cam', label: cam ? 'Stop video' : 'Start video', icon: cam ? 'video' : 'video-off', tone: cam ? 'default' : 'off' },
+      {
+        id: 'share',
+        label: 'Share screen',
+        icon: 'monitor-smartphone',
+        pressed: this.screenOn(),
+        tone: this.screenOn() ? 'active' : 'default',
+        overflow: 'menu',
+        hidden: !this.canShareScreen,
+      },
+      {
+        id: 'captions',
+        label: 'Captions',
+        icon: 'captions',
+        pressed: captions,
+        tone: captions ? 'active' : 'default',
+        overflow: 'menu',
+        disabled: noConsent,
+        reason: noConsent ? 'Turn on captions consent in Privacy & consent first.' : null,
+      },
+      { id: 'more', label: 'More', icon: 'ellipsis' },
+      { id: 'end', label: 'End', ariaLabel: 'End call', icon: 'phone-off', tone: 'danger' },
+    ];
+  });
+
+  /** More: what doesn't fit the bar (Invite and the theme below sm), the video fit, your preview, consent. */
+  protected readonly menu = computed<CallMenuItem[]>(() => {
+    const items: CallMenuItem[] = [];
+    if (!this.wide()) items.push({ id: 'invite', label: 'Invite someone', icon: 'user-plus' });
+    items.push(
+      { id: 'fit-contain', label: 'Video: fit whole picture', checked: this.fit() === 'contain', group: 'fit' },
+      { id: 'fit-cover', label: 'Video: fill the frame', checked: this.fit() === 'cover', group: 'fit' },
+      { id: 'self', label: 'Hide my preview', checked: this.hidePreview() },
+    );
+    if (!this.wide()) {
+      items.push({ id: 'theme', label: this.theme() === 'dark' ? 'Light cockpit' : 'Dark cockpit', icon: 'lightbulb' });
+    }
+    items.push({ id: 'privacy', label: 'Privacy & consent', icon: 'shield-check' });
+    return items;
+  });
+
+  /** Your own tile (from the call's tiles): the control-row preview below sm. */
+  protected readonly selfTile = computed(() => this.tiles().find((t) => t.self) ?? null);
+
+  // ---- In-call Upload & share ----
+  protected readonly uploadOpen = signal(false);
+  /** Files just shared from this call: "Shared" before the next read says so. */
+  private readonly justShared = signal<ReadonlySet<string>>(new Set());
+  private lastCallShareAt = 0;
 
   // ---- Call state ----
   protected readonly status = signal<'loading' | 'in-call' | 'ended' | 'error'>('loading');
@@ -1394,7 +1488,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly remoteLeft = signal(false);
   /** Someone other than the doctor (a guest) has been in this connection. */
   private readonly guestSeen = signal(false);
-  protected readonly moreOpen = signal(false);
   protected readonly elapsed = signal(0);
 
   // ---- Who is on the stage ----
@@ -1479,11 +1572,183 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     }
   }
 
-  // ---- Chat ----
-  protected readonly chatOpen = signal(false);
-  protected readonly draft = signal('');
-  protected readonly messages = signal<ChatMessage[]>([]);
-  protected readonly unreadChat = signal(0);
+  private readFit(): CallVideoFit {
+    try {
+      return localStorage.getItem(FIT_KEY) === 'cover' ? 'cover' : 'contain';
+    } catch {
+      return 'contain';
+    }
+  }
+
+  private readHidePreview(): boolean {
+    try {
+      return localStorage.getItem(SELF_KEY) === 'hidden';
+    } catch {
+      return false;
+    }
+  }
+
+  private remember(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* preference is best-effort */
+    }
+  }
+
+  private mediaMatches(query: string): boolean {
+    try {
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Follows a media query for the page's life. */
+  private watchMedia(query: string, apply: (matches: boolean) => void): void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    let mql: MediaQueryList;
+    try {
+      mql = window.matchMedia(query);
+    } catch {
+      return;
+    }
+    const onChange = (e: MediaQueryListEvent): void => apply(e.matches);
+    mql.addEventListener?.('change', onChange);
+    this.destroyRef.onDestroy(() => mql.removeEventListener?.('change', onChange));
+  }
+
+  // ---- The dock's controls and More ----
+
+  /** A control of the dock was pressed (More opens its own menu). */
+  protected onControl(id: CallControlId): void {
+    switch (id) {
+      case 'mic':
+        void this.toggleMic();
+        break;
+      case 'cam':
+        void this.toggleCam();
+        break;
+      case 'share':
+        void this.toggleScreen();
+        break;
+      case 'captions':
+        this.toggleCaptions();
+        break;
+      case 'end':
+        void this.leave('history');
+        break;
+    }
+  }
+
+  /** A More item was chosen. */
+  protected onMenu(id: string): void {
+    switch (id) {
+      case 'invite':
+        this.invite();
+        break;
+      case 'fit-contain':
+      case 'fit-cover':
+        this.setFit(id === 'fit-cover' ? 'cover' : 'contain');
+        break;
+      case 'self':
+        this.moveSelfView(() => this.hidePreview.update((h) => !h));
+        this.remember(SELF_KEY, this.hidePreview() ? 'hidden' : 'shown');
+        break;
+      case 'theme':
+        this.toggleTheme();
+        break;
+      case 'privacy':
+        this.focusPrivacy();
+        break;
+    }
+  }
+
+  protected setFit(fit: CallVideoFit): void {
+    this.fit.set(fit);
+    this.remember(FIT_KEY, fit);
+  }
+
+  /** More › Privacy & consent: the card's heading, scrolled into view and focused. */
+  private focusPrivacy(): void {
+    afterNextRender(
+      () => {
+        const heading = this.document.getElementById('call-privacy-title');
+        heading?.scrollIntoView?.({ block: 'start' });
+        heading?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  /**
+   * Change where your own video plays (the stage's picture-in-picture, the
+   * control-row tile, or nowhere), handing the track over first: an Agora
+   * track plays in one element at a time, and stopping one playback stops the
+   * other. The tiles only hold your track while it plays as their
+   * picture-in-picture; the control-row tile takes it from `selfVideo`.
+   */
+  private moveSelfView(change: () => void): void {
+    const before = this.selfMode();
+    change();
+    const after = this.selfMode();
+    if (before === after) return;
+    const self = this.videos.get(String(this.selfUid()));
+    const tiles = this.stageTiles();
+    if (after === 'pip') {
+      if (self && tiles) tiles.attach(self.uid, self.track, self.config);
+    } else {
+      tiles?.detach(this.selfUid());
+    }
+  }
+
+  /** Notes tabs (APG): arrows move and select, Home / End the ends. */
+  protected onNotesTabKey(event: KeyboardEvent): void {
+    const keys = this.notesTabs.map((t) => t.key);
+    const at = keys.indexOf(this.notesTab());
+    let next: number;
+    switch (event.key) {
+      case 'ArrowRight':
+        next = (at + 1) % keys.length;
+        break;
+      case 'ArrowLeft':
+        next = (at - 1 + keys.length) % keys.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = keys.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    this.openNotesTab(keys[next]);
+    afterNextRender(() => this.document.getElementById(`call-notes-tab-${keys[next]}`)?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  /**
+   * Keeps the focused element clear of the sticky dock and the bottom toast
+   * (WCAG 2.4.11): `scroll-padding` on the page, from their sizes. Nothing
+   * when the dock isn't sticky (lg, a short screen, a phone held sideways).
+   */
+  private syncScrollPadding(dock: HTMLElement | null, toast: HTMLElement | null): void {
+    const win = this.document.defaultView;
+    const root = this.document.documentElement;
+    if (!win) return;
+    const sticky = !!dock && win.getComputedStyle(dock).position === 'sticky';
+    root.style.scrollPaddingTop = sticky && dock ? `${Math.ceil(dock.getBoundingClientRect().height)}px` : '';
+    let bottom = '';
+    if (toast) {
+      const r = toast.getBoundingClientRect();
+      // Only a toast along the bottom edge covers what scrolls under it.
+      if (r.height > 0 && r.bottom >= win.innerHeight - 24) bottom = `${Math.ceil(r.height) + 12}px`;
+    }
+    root.style.scrollPaddingBottom = bottom;
+  }
 
   // ---- Panels ----
   protected readonly notesTab = signal<NotesTab>('notes');
@@ -1658,6 +1923,21 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         }).format(d);
   });
 
+  /** "9:00 AM CST Dr Ade's time" for the booked time, when the doctor's clock differs (the lobby). */
+  protected readonly scheduledDoctorTime = computed(() => {
+    const a = this.appointment();
+    return a ? doctorTimeLabel(a.scheduled_at, a.specialist) : null;
+  });
+
+  /** Changes every 30 s of the call (a computed only notifies on a new value). */
+  private readonly halfMinute = computed(() => Math.floor(this.elapsed() / 30));
+  /** The doctor's clock now (top bar, from md), when it differs — refreshed every 30 s of the call. */
+  protected readonly doctorNow = computed(() => {
+    const tick = this.halfMinute();
+    const a = this.appointment();
+    return a && tick >= 0 ? doctorTimeLabel(Date.now(), a.specialist) : null;
+  });
+
   protected readonly elapsedLabel = computed(() => {
     const t = this.elapsed();
     const p = (n: number) => n.toString().padStart(2, '0');
@@ -1733,15 +2013,18 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** A library row's sharing chip relative to this doctor (null: not a library file, or unknown). */
   protected shareState(r: RecordItem): 'shared' | 'private' | null {
     if (!r.docId || !this.docAccess()) return null;
-    return this.visibleDocIds().has(r.docId) ? 'shared' : 'private';
+    return this.visibleDocIds().has(r.docId) || this.justShared().has(r.docId) ? 'shared' : 'private';
   }
 
   private async loadDocAccess(passive = false): Promise<void> {
     if (!this.appointmentId || !this.auth.isAuthenticated()) return;
     clearTimeout(this.docAccessTimer);
     try {
+      const started = Date.now();
       const res = await firstValueFrom(this.sharingApi.forAppointment(this.appointmentId, { passive }));
       this.docAccess.set(res.data);
+      // A read that started after the last in-call share is the truth now.
+      if (started >= this.lastCallShareAt) this.justShared.set(new Set());
       this.docAccessOff.set(false);
       this.docAccessError.set(false);
       const at = res.data.access.next_change_at ? Date.parse(res.data.access.next_change_at) : NaN;
@@ -1780,6 +2063,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.dismissedRequest.set(result.approved_request_ids[0]);
     }
     void this.loadDocAccess();
+    // The doctor re-reads at once (the nudge carries nothing but "docs").
+    sendCallNudge(this.client, 'docs');
   }
 
   protected docRequestAnswered(outcome: ApproveOutcome): void {
@@ -1787,6 +2072,37 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     const line = approveOutcomeLine(outcome);
     if (line) this.docSay(line);
     void this.loadDocAccess();
+    if (outcome.kind === 'approved') sendCallNudge(this.client, 'docs');
+  }
+
+  /**
+   * One file stored from the call's Upload & share: in the list at once (with
+   * "Shared"), what the doctor can see re-read, said out loud — and, when it
+   * reached the doctor, an Agora nudge so their call re-reads now rather than
+   * at its next 10 s poll.
+   */
+  protected onCallUpload(doc: UploadedDocumentDto): void {
+    this.libraryDocs.update((list) => [doc, ...list.filter((d) => d.id !== doc.id)]);
+    const shared = doc.share_outcome === 'shared' || doc.share_outcome === 'partly_shared';
+    if (shared) {
+      this.justShared.update((ids) => new Set([...ids, doc.id]));
+      this.lastCallShareAt = Date.now();
+    }
+    void this.loadDocAccess();
+    const who = this.docDoctor();
+    const Who = who.charAt(0).toUpperCase() + who.slice(1);
+    switch (doc.share_outcome) {
+      case 'shared':
+      case 'partly_shared':
+        this.docSay(`${Who} can now see “${doc.title}”.`);
+        break;
+      case 'sharing_unavailable':
+        this.docSay(`Saved to your records. Sharing is unavailable right now, so ${who} can't see it yet.`);
+        break;
+      default:
+        this.docSay(`Saved to your records. ${Who} can't see it.`);
+    }
+    if (shared) sendCallNudge(this.client, 'docs');
   }
 
   private readonly records = computed<RecordItem[]>(() => {
@@ -1887,12 +2203,46 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   constructor() {
     // The stage (and its tiles) appears once the patient enters the call: play
     // any video handed over before then — or again if the tiles are re-created.
+    // Your own only while it is their picture-in-picture (else the row tile has it).
     effect(() => {
       const tiles = this.stageTiles();
       if (!tiles) return;
       untracked(() => {
-        for (const v of this.videos.values()) tiles.attach(v.uid, v.track, v.config);
+        const self = String(this.selfUid());
+        for (const v of this.videos.values()) {
+          if (String(v.uid) === self && this.selfMode() !== 'pip') continue;
+          tiles.attach(v.uid, v.track, v.config);
+        }
       });
+    });
+
+    // Phone ↔ tablet width, or a phone turned sideways (the rail), moves your own
+    // view; the track is handed over before the page re-renders, so it never
+    // plays in two places.
+    this.watchMedia(WIDE_QUERY, (m) => this.moveSelfView(() => this.wide.set(m)));
+    this.watchMedia(RAIL_QUERY, (m) => this.moveSelfView(() => this.rail.set(m)));
+
+    // Focus never hides under the sticky dock or the bottom toast (2.4.11).
+    effect((onCleanup) => {
+      const dock = this.dockEl()?.nativeElement ?? null;
+      const toast = this.toastEl()?.nativeElement ?? null;
+      const win = this.document.defaultView;
+      if (!win) return;
+      const sync = (): void => this.syncScrollPadding(dock, toast);
+      sync();
+      const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null;
+      if (dock) observer?.observe(dock);
+      if (toast) observer?.observe(toast);
+      win.addEventListener('resize', sync);
+      onCleanup(() => {
+        observer?.disconnect();
+        win.removeEventListener('resize', sync);
+      });
+    });
+    this.destroyRef.onDestroy(() => {
+      const root = this.document.documentElement;
+      root.style.scrollPaddingTop = '';
+      root.style.scrollPaddingBottom = '';
     });
   }
 
@@ -1917,6 +2267,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     // A fresh connection (first join, or a rejoin after a drop).
     this.resetRemotes();
     this.deviceNotice.set('');
+    this.netQuality.set(null);
     let client: IAgoraRTCClient | undefined;
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
@@ -1962,6 +2313,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       self.on('network-quality', (s) => {
         this.netUplink = s.uplinkNetworkQuality ?? 0;
         this.netDownlink = s.downlinkNetworkQuality ?? 0;
+        if (self !== this.client) return;
+        // The worse of the two; 0 means "not known yet" (it never outranks a real value).
+        const known = [this.netUplink, this.netDownlink].filter((q) => q > 0);
+        this.netQuality.set(known.length ? Math.max(...known) : null);
       });
 
       // uid 0 from the backend means "wildcard token" → join with null so Agora
@@ -2158,6 +2513,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.resetRemotes();
     this.screenOn.set(false);
     this.recordingActive.set(false);
+    this.netQuality.set(null);
     this.inviteOpen.set(false);
     this.endedReason.set(reason);
     this.status.set('ended');
@@ -2253,15 +2609,42 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** Play a uid's video in its tile (now, or once the tile renders). */
+  /**
+   * Play a uid's video in its tile (now, or once the tile renders). Your own
+   * goes to the stage only as its picture-in-picture; the control-row tile
+   * plays it from `selfVideo` otherwise (never both at once).
+   */
   private showVideo(uid: CallUid, track: CallVideoTrack, config?: CallVideoPlayConfig): void {
     this.videos.set(String(uid), { uid, track, config });
-    this.stageTiles()?.attach(uid, track, config);
+    const self = String(uid) === String(this.selfUid());
+    if (self) this.selfVideo.set({ track, config });
+    if (!self || this.selfMode() === 'pip') this.stageTiles()?.attach(uid, track, config);
+    else this.stageTiles()?.detach(uid);
   }
 
   private hideVideo(uid: CallUid): void {
     this.videos.delete(String(uid));
+    if (String(uid) === String(this.selfUid())) this.selfVideo.set(null);
     this.stageTiles()?.detach(uid);
+  }
+
+  /**
+   * Your camera came back on: play it again where it shows. The row tile only
+   * replays on a new track, so it gets none for one render, then this one.
+   */
+  private replaySelf(track: CallVideoTrack): void {
+    const uid = this.selfUid();
+    this.hideVideo(uid);
+    if (this.selfMode() === 'pip') {
+      this.showVideo(uid, track);
+      return;
+    }
+    afterNextRender(
+      () => {
+        if (this.camTrack === track && !this.screenOn()) this.showVideo(uid, track);
+      },
+      { injector: this.injector },
+    );
   }
 
   /** Why the patient is in the call without their camera and/or microphone ('' when not). */
@@ -2761,8 +3144,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.camOn.set(on);
     if (!on || this.screenOn()) return;
     // Back on: play it in your tile again, and share it if it isn't (it was off when sharing stopped).
-    this.hideVideo(this.selfUid());
-    this.showVideo(this.selfUid(), cam);
+    this.replaySelf(cam);
     const client = this.client;
     if (client && !client.localTracks.includes(cam as ILocalTrack)) {
       try {
@@ -2809,17 +3191,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       // User dismissed the picker, or the browser blocked capture — stay as-is.
       this.screenOn.set(false);
     }
-  }
-
-  protected sendMessage(): void {
-    const text = this.draft().trim();
-    if (!text) return;
-    const time = new Intl.DateTimeFormat('en-GB', {
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(new Date());
-    this.messages.update((list) => [...list, { mine: true, text, time }]);
-    this.draft.set('');
   }
 
   /** Send the star rating as the consultation's review (once it is completed). */

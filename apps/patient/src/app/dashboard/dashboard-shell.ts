@@ -9,13 +9,16 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  NavigationEnd,
   Router,
   RouterLink,
   RouterLinkActive,
   RouterOutlet,
 } from '@angular/router';
+import { filter } from 'rxjs';
 import { AuthService } from '@supadoc/auth';
-import { NotificationsApi, PatientApi } from '@supadoc/data-access';
+import { NotificationsApi, PatientApi, syncDetectedTimeZone } from '@supadoc/data-access';
+import type { PatientProfileDto } from '@supadoc/models';
 import { DialogService, IconComponent, LogoComponent } from '@supadoc/ui';
 import { ThemeService } from '../theme.service';
 import { askSignOut } from './sign-out';
@@ -27,11 +30,24 @@ interface NavItem {
 }
 
 /**
+ * Patients whose device zone was offered to the API this page session (once
+ * each: the API only saves a detected zone while none is set, so this just
+ * saves a request on every shell re-creation).
+ */
+const zoneSynced = new Set<string>();
+
+/**
  * Signed-in patient shell — side nav + header, with the active page in the
  * outlet (Figma 666:9342). On desktop the nav is a fixed sidebar; below `lg` it
  * collapses behind a hamburger and opens as a slide-in drawer, so navigation
  * (and log out) stay reachable on mobile. The nav markup is shared between the
  * two via the `#nav` template.
+ *
+ * A route with `data: { immersive: true }` (the consultation call) is full
+ * screen: no sidebar, drawer, header or padding — a bigger video, and no
+ * navigation that would drop the call. Once the profile loads, a patient who
+ * never had a time zone gets this device's (D8; their emails and reminders use
+ * it — the app itself always shows this device's time).
  */
 @Component({
   selector: 'pat-dashboard-shell',
@@ -45,7 +61,8 @@ interface NavItem {
     LogoComponent,
   ],
   template: `
-    <div class="flex min-h-screen bg-glacier">
+    <div class="flex min-h-screen" [class]="immersive() ? 'bg-abyss' : 'bg-glacier'">
+      @if (!immersive()) {
       <!-- Desktop side nav (collapsible). Width is pinned via inline styles
            (width/min/max together) so the flex row can't clamp it to the
            content's min-content size. -->
@@ -82,9 +99,12 @@ interface NavItem {
           </aside>
         </div>
       }
+      }
 
       <!-- Content -->
       <div class="flex min-w-0 flex-1 flex-col">
+        <!-- A full-screen page (the consultation call) brings its own top bar. -->
+        @if (!immersive()) {
         <header
           class="flex h-16 items-center justify-between gap-4 px-5 lg:h-20 lg:justify-end lg:px-6"
         >
@@ -151,8 +171,10 @@ interface NavItem {
             </div>
           </div>
         </header>
+        }
 
-        <main class="px-5 pb-10 sm:px-6">
+        <!-- One outlet, never re-created (that would rebuild the page): only its padding follows the mode. -->
+        <main [class]="immersive() ? 'min-w-0' : 'px-5 pb-10 sm:px-6'">
           <div class="mx-auto w-full">
             <router-outlet />
           </div>
@@ -285,7 +307,20 @@ export class DashboardShell {
     }
   }
 
+  /** The page wants the whole screen (`data.immersive` on the deepest active route). */
+  protected readonly immersive = signal(this.readImmersive());
+
   constructor() {
+    this.router.events
+      .pipe(
+        filter((e) => e instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => {
+        this.immersive.set(this.readImmersive());
+        if (this.immersive()) this.menuOpen.set(false);
+      });
+
     this.patient
       .me()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -294,6 +329,7 @@ export class DashboardShell {
           const full = `${res.data.first_name} ${res.data.last_name}`.trim();
           if (full) this.userName.set(full);
           this.avatarPath.set(res.data.avatar_url ?? null);
+          this.syncTimeZone(res.data);
         },
         error: () => {
           /* keep the placeholder on failure */
@@ -309,6 +345,21 @@ export class DashboardShell {
           /* no badge on failure */
         },
       });
+  }
+
+  private readImmersive(): boolean {
+    let route = this.router.routerState.snapshot.root;
+    while (route.firstChild) route = route.firstChild;
+    return route.data['immersive'] === true;
+  }
+
+  /** Save this device's zone as `auto` while the patient has none (never overwrites a set one). */
+  private syncTimeZone(profile: { id: string; timezone_source?: PatientProfileDto['timezone_source'] }): void {
+    if (!profile.id || zoneSynced.has(profile.id)) return;
+    zoneSynced.add(profile.id);
+    syncDetectedTimeZone(profile, (body) => this.patient.setTimeZone(body))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe();
   }
 
   protected goNotifications(): void {

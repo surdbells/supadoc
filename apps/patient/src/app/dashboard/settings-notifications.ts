@@ -1,12 +1,20 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { apiErrorMessage, PatientApi } from '@supadoc/data-access';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  detectTimeZone,
+  PatientApi,
+  viewerTimeZone,
+  zoneAbbr,
+} from '@supadoc/data-access';
 import type {
   PatientSettingsDto,
   PatientSettingsPatch,
+  TimeZoneSource,
 } from '@supadoc/models';
-import { ButtonComponent, IconComponent, ToggleComponent } from '@supadoc/ui';
+import { ButtonComponent, IconComponent, TimeZonePickerComponent, ToggleComponent } from '@supadoc/ui';
 
 interface PrefRow {
   readonly key: string;
@@ -19,7 +27,7 @@ interface PrefRow {
 @Component({
   selector: 'pat-settings-notifications',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, ButtonComponent, IconComponent, ToggleComponent],
+  imports: [RouterLink, ButtonComponent, IconComponent, TimeZonePickerComponent, ToggleComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
@@ -58,6 +66,47 @@ interface PrefRow {
           <sd-button variant="outline" (click)="load()">Try again</sd-button>
         </div>
       } @else {
+        <!-- The zone the patient's emails, texts and notices are written in (D7):
+             the app itself always shows this device's time. -->
+        <section
+          class="flex flex-col gap-4 rounded-2xl border border-haze bg-white px-5 py-5 shadow-card"
+          aria-labelledby="tz-card-title"
+        >
+          <h2 id="tz-card-title" class="flex items-center gap-2 font-sans text-body font-semibold text-ink">
+            <sd-icon name="globe" [size]="18" class="shrink-0 text-cerulean" />Time zone
+          </h2>
+          <sd-time-zone-picker
+            id="patient-time-zone"
+            label="Time zone for emails and reminders"
+            [hint]="tzHint()"
+            [invalid]="tzInvalid()"
+            [(value)]="tzValue"
+          />
+          @if (tzUndetected()) {
+            <p class="flex items-start gap-2 font-sans text-caption text-slate" data-testid="tz-undetected">
+              <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+              We couldn't detect your time zone; we're using West Africa Time (WAT) for now.
+            </p>
+          }
+          <p class="sr-only" aria-live="polite" aria-atomic="true">{{ tzLive() }}</p>
+          @if (tzError()) {
+            <p class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert-ink" role="alert">
+              {{ tzError() }}
+            </p>
+          }
+          <div class="flex flex-wrap items-center justify-end gap-3">
+            @if (tzSaved()) {
+              <span class="flex items-center gap-1.5 font-sans text-body-sm text-success-ink">
+                <sd-icon name="check" [size]="18" />
+                Time zone saved.
+              </span>
+            }
+            <sd-button [disabled]="tzSaving() || !tzDirty()" (click)="saveTimeZone()">
+              {{ tzSaving() ? 'Saving…' : 'Save time zone' }}
+            </sd-button>
+          </div>
+        </section>
+
         <section class="flex flex-col gap-4">
           <h2 class="font-sans text-body font-semibold text-ink">
             Notification Types
@@ -116,7 +165,7 @@ interface PrefRow {
 
         @if (saveError()) {
           <p
-            class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert"
+            class="rounded-field bg-alert/10 px-4 py-3 font-label text-caption text-alert-ink"
           >
             {{ saveError() }}
           </p>
@@ -125,7 +174,7 @@ interface PrefRow {
         <div class="flex items-center justify-end gap-3">
           @if (saved()) {
             <span
-              class="flex items-center gap-1.5 font-sans text-body-sm text-sage"
+              class="flex items-center gap-1.5 font-sans text-body-sm text-success-ink"
             >
               <sd-icon name="check" [size]="18" />
               Saved
@@ -159,6 +208,32 @@ export class SettingsNotifications {
   protected readonly types = signal<PrefRow[]>([]);
   protected readonly delivery = signal<PrefRow[]>([]);
 
+  // ----- Time zone (emails, texts and notices; D7) -----
+  /** What the API has (the effective zone, and whether it was ever set). */
+  private readonly tzSavedValue = signal<string | null>(null);
+  private readonly tzSource = signal<TimeZoneSource | null | undefined>(undefined);
+  /** The picker's choice. */
+  protected readonly tzValue = signal<string | null>(null);
+  protected readonly tzSaving = signal(false);
+  protected readonly tzSaved = signal(false);
+  protected readonly tzError = signal('');
+  protected readonly tzInvalid = signal<string | null>(null);
+  protected readonly tzLive = signal('');
+  /**
+   * Something to save: a different zone, or — never set (`timezone_source` null) —
+   * confirming the one shown (Africa/Lagos, say) as the patient's own choice, so
+   * detection on another device can never replace it (D8).
+   */
+  protected readonly tzDirty = computed(
+    () => !!this.tzValue() && (this.tzValue() !== this.tzSavedValue() || this.tzSource() === null),
+  );
+  /** Never set, and this device's zone can't be detected (UTC behind a VPN, say). */
+  protected readonly tzUndetected = computed(() => this.tzSource() === null && detectTimeZone() === null);
+  protected readonly tzHint = computed(
+    () =>
+      `Used for the times in your emails, texts and notifications. The app always shows times in this device's time zone (${zoneAbbr(viewerTimeZone())}).`,
+  );
+
   private static readonly TYPE_LABELS: Record<string, string> = {
     appointment_reminder: 'Appointment reminder',
     consultation_updates: 'Consultation updates',
@@ -182,6 +257,9 @@ export class SettingsNotifications {
     this.saveError.set('');
     this.saved.set(false);
     this.dirty.set(false);
+    this.tzSaved.set(false);
+    this.tzError.set('');
+    this.tzInvalid.set(null);
     try {
       const [settingsRes, meRes] = await Promise.all([
         firstValueFrom(this.patients.settings()),
@@ -199,6 +277,7 @@ export class SettingsNotifications {
       const emailRow = delivery.find((r) => r.key === 'email');
       if (emailRow && meRes.data.email) emailRow.sub = meRes.data.email;
       this.delivery.set(delivery);
+      this.applyTimeZone(meRes.data.timezone ?? null, meRes.data.timezone_source);
     } catch (err) {
       this.loadError.set(apiErrorMessage(err, "We couldn't load your preferences."));
     } finally {
@@ -245,6 +324,35 @@ export class SettingsNotifications {
     } finally {
       this.saving.set(false);
     }
+  }
+
+  /** "Save time zone": the patient's own choice (`manual`), never overwritten by detection. */
+  protected async saveTimeZone(): Promise<void> {
+    const tz = this.tzValue();
+    if (this.tzSaving() || !tz) return;
+    this.tzSaving.set(true);
+    this.tzError.set('');
+    this.tzInvalid.set(null);
+    this.tzSaved.set(false);
+    this.tzLive.set('');
+    try {
+      const res = await firstValueFrom(this.patients.setTimeZone({ timezone: tz, source: 'manual' }));
+      this.applyTimeZone(res.data.timezone, res.data.timezone_source);
+      this.tzSaved.set(true);
+      this.tzLive.set('Time zone saved.');
+    } catch (err) {
+      const field = apiErrorFields(err)['timezone'];
+      if (field) this.tzInvalid.set(field);
+      else this.tzError.set(apiErrorMessage(err, 'Could not save your time zone.'));
+    } finally {
+      this.tzSaving.set(false);
+    }
+  }
+
+  private applyTimeZone(tz: string | null, source: TimeZoneSource | null | undefined): void {
+    this.tzSavedValue.set(tz);
+    this.tzSource.set(source);
+    this.tzValue.set(tz);
   }
 
   private toMap(rows: PrefRow[]): Record<string, boolean> {

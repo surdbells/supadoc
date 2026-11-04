@@ -50,6 +50,9 @@ export const dashboardRoutes: Route[] = [
         path: 'call/:id',
         loadComponent: () =>
           import('./consultation-call').then((m) => m.ConsultationCall),
+        // Full screen: the shell drops its sidebar, header and padding (a bigger
+        // video, and no navigation that would drop the call).
+        data: { immersive: true },
         canDeactivate: [unsavedChangesGuard],
       },
       {

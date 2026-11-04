@@ -18,7 +18,13 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { apiErrorMessage, DocumentsApi, DocumentSharingApi } from '@supadoc/data-access';
+import {
+  apiErrorMessage,
+  DOCTOR_VIEWABLE_ACCEPT,
+  DocumentsApi,
+  DocumentSharingApi,
+  isDoctorViewableName,
+} from '@supadoc/data-access';
 import type {
   DocumentShareDuration,
   DocumentTypeOption,
@@ -38,6 +44,7 @@ import {
   warnBeforeUnload,
 } from '@supadoc/ui';
 import {
+  cap,
   defaultDuration,
   defaultFolderTicks,
   drName,
@@ -50,13 +57,19 @@ import {
   isSharingUnavailable,
   MAX_SHARE_DOCTORS,
   newKey,
+  SHARING_CLASSES,
+  type SharingTheme,
   uploadOutcomeLines,
   uploadShareOptions,
   untilDateBounds,
+  viewWarning,
 } from './document-sharing';
 
 export type UploadStep = '' | 'source' | 'queue' | 'share' | 'uploading' | 'success';
 type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
+
+/** Where the dialog was opened from (sent as `share_surface`). */
+export type UploadSurface = 'documents_page' | 'appointment_details' | 'call';
 
 /** One file in an upload batch: its own type, progress and outcome. */
 interface QueueItem {
@@ -78,21 +91,59 @@ interface SkippedFile {
   readonly reason: string;
 }
 
+interface StatusLook {
+  readonly label: string;
+  readonly icon: string;
+  readonly cls: string;
+}
+
 /** Every upload status reads as an icon AND a word — never colour alone. */
-const UPLOAD_STATUS: Record<UploadStatus, { label: string; icon: string; cls: string }> = {
-  queued: { label: 'Waiting', icon: 'clock', cls: 'bg-cloud text-slate' },
-  uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean-dark' },
-  done: { label: 'Uploaded', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
-  failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
+const UPLOAD_STATUS: Record<SharingTheme, Record<UploadStatus, StatusLook>> = {
+  light: {
+    queued: { label: 'Waiting', icon: 'clock', cls: 'bg-cloud text-slate' },
+    uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-frost text-cerulean-dark' },
+    done: { label: 'Uploaded', icon: 'circle-check', cls: 'bg-sage/15 text-sage-ink' },
+    failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
+  },
+  // The cockpit: white text on tinted pills (ink on the light cockpit's pale ones).
+  call: {
+    queued: { label: 'Waiting', icon: 'clock', cls: 'bg-white/10 text-white/85' },
+    uploading: { label: 'Uploading', icon: 'loader-circle', cls: 'bg-cerulean/30 text-white' },
+    done: { label: 'Uploaded', icon: 'circle-check', cls: 'bg-success/20 text-white' },
+    failed: { label: 'Failed', icon: 'circle-x', cls: 'bg-alert/25 text-white' },
+  },
+};
+
+/** The parts the sharing palette (`SHARING_CLASSES`) has no slot for. */
+const EXTRA_CLASSES: Record<
+  SharingTheme,
+  { disc: string; track: string; drop: string; info: string; outcome: string }
+> = {
+  light: {
+    disc: 'bg-glacier text-slate',
+    track: 'bg-frost',
+    drop: 'border-cloud bg-white',
+    info: 'bg-frost/50 text-slate',
+    outcome: 'bg-glacier text-ink',
+  },
+  call: {
+    disc: 'bg-white/10 text-white/80',
+    track: 'bg-white/10',
+    drop: 'border-white/15 bg-white/[0.04]',
+    info: 'bg-white/[0.06] text-white/75',
+    outcome: 'bg-white/[0.06] text-white/85',
+  },
 };
 
 /** Accepted client-side (mirrors MedicalDocumentStorage on the server). */
 const ACCEPT =
-  '.pdf,.jpg,.jpeg,.png,.dcm,.docx,.doc,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,video/mp4,video/webm,video/quicktime';
-const ALLOWED_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'dcm', 'docx', 'doc', 'mp4', 'webm', 'mov'];
+  '.pdf,.jpg,.jpeg,.png,.webp,.dcm,.docx,.doc,.mp4,.webm,.mov,application/pdf,image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime';
+const ALLOWED_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'dcm', 'docx', 'doc', 'mp4', 'webm', 'mov'];
 const MAX_BYTES = 10 * 1024 * 1024;
 const TOO_BIG = 'File must be 10MB or smaller.';
-const UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, DOCX, DICOM or video.';
+const UNSUPPORTED = 'Unsupported file type. Use PDF, JPG, PNG, WEBP, DOCX, DICOM or video.';
+/** In a call only what the doctor can open in VideoMed goes (D27). */
+const NOT_VIEWABLE = "this file type can't be viewed by your doctor in the call. Share it as a PDF or photo.";
 /** Files per batch — each is its own request, so keep a batch reviewable. */
 const MAX_FILES = 20;
 /** Length of medical_documents.custom_type. */
@@ -101,11 +152,14 @@ const CUSTOM_TYPE_MAX = 120;
 /**
  * The medical-document upload flow (drop or pick files → a type per file →
  * **who can see them** → one request per file, in turn, with progress and
- * retry → what happened). Used by Medical Documents and by an appointment's
+ * retry → what happened). Used by Medical Documents, by an appointment's
  * "Upload and share" (doctor preset and locked, "after the consultation" ends
- * offered). Nothing is shared silently: the patient chooses on the "Who can
- * see these files?" step, and doctors who can see the whole folder are listed
- * with "Also let Dr X see these files".
+ * offered) and by the consultation call ("Upload & share": `surface="call"`,
+ * the cockpit's colours, that doctor with no end date, and only the types a
+ * doctor can open in VideoMed). Nothing is shared silently: the patient
+ * chooses on the "Who can see these files?" step, and doctors who can see the
+ * whole folder are listed with "Also let Dr X see these files". A file a
+ * doctor can't open (DOCX, DOC, DICOM, MOV) is flagged when a doctor is ticked.
  */
 @Component({
   selector: 'pat-document-upload-dialog',
@@ -115,20 +169,41 @@ const CUSTOM_TYPE_MAX = 120;
     <!-- Files a drop or pick turned away (accumulates until dismissed) -->
     <ng-template #skippedNote>
       @if (skipped().length > 0) {
-        <div class="flex flex-col gap-2 rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-alert-ink" role="alert">
+        <div class="flex flex-col gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().error" role="alert">
           <div class="flex items-start justify-between gap-3">
             <span class="flex items-start gap-2 font-semibold">
               <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ skipped().length === 1 ? '1 file wasn’t added' : skipped().length + ' files weren’t added' }}
             </span>
-            <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center transition-colors hover:text-ink" aria-label="Dismiss" (click)="dismissSkipped()"><sd-icon name="x" [size]="18" /></button>
+            <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full transition-colors" [class]="c().iconBtn" aria-label="Dismiss" (click)="dismissSkipped()"><sd-icon name="x" [size]="18" /></button>
           </div>
           <ul class="flex flex-col gap-1 pl-[26px] font-sans text-caption">
             @for (s of skipped(); track $index) {
-              <li class="wrap-anywhere"><span class="font-semibold">{{ s.name }}</span> — {{ s.reason }}</li>
+              <!-- In a call: "{name}: this file type can't be viewed…" (§3.2 copy) -->
+              <li class="wrap-anywhere"><span class="font-semibold">{{ s.name }}</span>{{ viewableOnly() ? ':' : ' —' }} {{ s.reason }}</li>
             }
           </ul>
         </div>
       }
+    </ng-template>
+
+    <!-- The cockpit's own picker (sd-file-drop is drawn for the portal's light surfaces) -->
+    <ng-template #callPicker let-compact="compact">
+      <div
+        class="flex flex-col items-center gap-3 rounded-card border-2 border-dashed text-center"
+        [class]="extra().drop + (compact ? ' px-4 py-3' : ' px-4 py-6')"
+        (dragover)="onDragOver($event)"
+        (drop)="onDrop($event)"
+      >
+        @if (!compact) {
+          <span class="flex size-12 items-center justify-center rounded-full" [class]="extra().disc"><sd-icon name="upload" [size]="22" /></span>
+        }
+        <button type="button" class="inline-flex min-h-11 items-center gap-2 rounded-field px-5 font-sans text-body-sm font-semibold transition-colors" [class]="compact ? c().secondary : c().primary" (click)="pickFiles()">
+          <sd-icon name="upload" [size]="18" />{{ compact ? 'Add more files' : 'Choose files' }}
+        </button>
+        @if (!compact) {
+          <span class="font-sans text-caption" [class]="c().muted">Up to {{ maxFiles() }} files at a time</span>
+        }
+      </div>
     </ng-template>
 
     <!-- The shared dialog: top layer, Esc, scroll lock, focus back to the opener -->
@@ -141,71 +216,84 @@ const CUSTOM_TYPE_MAX = 120;
       (closed)="requestClose()"
       (afterClose)="afterClosed()"
     >
-      <div #dialogBody class="flex flex-col gap-6 p-5 sm:p-6">
+      <div #dialogBody class="flex min-h-full flex-col gap-6 p-5 sm:p-6" [class]="c().body">
         <!-- Batch progress and outcome, announced to screen readers -->
         <p class="sr-only" aria-live="polite" aria-atomic="true">{{ liveStatus() }}</p>
+        @if (theme() === 'call') {
+          <!-- Inside the modal (outside it is inert): opened by the cockpit picker's button -->
+          <input #picker type="file" class="hidden" multiple [accept]="accept()" tabindex="-1" aria-hidden="true" (change)="onPicked($event)" />
+        }
 
         @switch (step()) {
           @case ('source') {
-            <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
+            <div class="flex items-start justify-between gap-3 border-b pb-4" [class]="c().divider">
               <div class="flex flex-col gap-1">
-                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">Upload Documents</h3>
-                <p class="font-sans text-body-sm text-slate">Add one or more files to your medical records</p>
+                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 outline-none" [class]="c().heading">{{ inCall() ? 'Upload & share' : 'Upload Documents' }}</h3>
+                <p class="font-sans text-body-sm" [class]="c().muted">{{ inCall() ? 'Saved to your medical records and shared with ' + presetDoctor() + '.' : 'Add one or more files to your medical records' }}</p>
               </div>
-              <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:text-ink" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
+              <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full transition-colors" [class]="c().iconBtn" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
             </div>
-            <sd-file-drop
-              [accept]="accept"
-              [multiple]="true"
-              [maxBytes]="maxBytes"
-              [hint]="'Up to ' + maxFiles + ' files at a time'"
-              (files)="addFiles($event)"
-              (rejected)="onRejected($event)"
-            />
-            <div class="rounded-card bg-frost/50 p-4 font-sans text-body-sm text-slate">
-              <p><span class="font-semibold text-ink">Supported Size:</span> Maximum of 10mb per file</p>
-              <p class="mt-1"><span class="font-semibold text-ink">Supported format:</span> DICOM (.dcm), PDF, JPG, PNG, DOCX, or video</p>
+            @if (theme() === 'call') {
+              <ng-container [ngTemplateOutlet]="callPicker" [ngTemplateOutletContext]="{ compact: false }" />
+            } @else {
+              <sd-file-drop
+                [accept]="accept()"
+                [multiple]="true"
+                [maxBytes]="maxBytes"
+                [hint]="'Up to ' + maxFiles() + ' files at a time'"
+                (files)="addFiles($event)"
+                (rejected)="onRejected($event)"
+              />
+            }
+            <div class="rounded-card p-4 font-sans text-body-sm" [class]="extra().info">
+              <p><span class="font-semibold" [class]="c().text">Supported Size:</span> Maximum of 10mb per file</p>
+              @if (viewableOnly()) {
+                <p class="mt-1">Your doctor can view PDFs, photos (JPG, PNG, WEBP) and videos (MP4, WEBM) during the call.</p>
+              } @else {
+                <p class="mt-1"><span class="font-semibold" [class]="c().text">Supported format:</span> DICOM (.dcm), PDF, JPG, PNG, WEBP, DOCX, or video</p>
+              }
             </div>
             <ng-container [ngTemplateOutlet]="skippedNote" />
             <div class="flex gap-3">
-              <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="requestClose()">Cancel</button>
+              <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors" [class]="c().secondary" (click)="requestClose()">Cancel</button>
             </div>
           }
 
           @case ('queue') {
-            <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
+            <div class="flex items-start justify-between gap-3 border-b pb-4" [class]="c().divider">
               <div class="flex flex-col gap-1">
-                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">Document Type</h3>
-                <p class="font-sans text-body-sm text-slate">Select the type of each document</p>
+                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 outline-none" [class]="c().heading">Document Type</h3>
+                <p class="font-sans text-body-sm" [class]="c().muted">Select the type of each document</p>
               </div>
-              <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:text-ink" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
+              <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full transition-colors" [class]="c().iconBtn" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
             </div>
             <ul class="flex flex-col gap-3" aria-label="Documents to upload">
               @for (item of queue(); track item.key) {
-                <li class="flex flex-col gap-3 rounded-card border border-cloud p-3 sm:p-4">
+                <li class="flex flex-col gap-3 rounded-card border p-3 sm:p-4" [class]="c().box">
                   <div class="flex items-center gap-3">
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="18" /></span>
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full" [class]="extra().disc"><sd-icon name="file-text" [size]="18" /></span>
                     <span class="flex min-w-0 flex-1 flex-col">
-                      <span class="truncate font-sans text-body-sm font-semibold text-ink" [title]="item.file.name">{{ item.file.name }}</span>
-                      <span class="font-sans text-caption text-slate">{{ sizeLabel(item.file.size) }}</span>
+                      <span class="truncate font-sans text-body-sm font-semibold" [class]="c().heading" [title]="item.file.name">{{ item.file.name }}</span>
+                      <span class="font-sans text-caption" [class]="c().muted">{{ sizeLabel(item.file.size) }}</span>
                     </span>
-                    <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-field text-slate transition-colors hover:text-alert" [attr.aria-label]="'Remove ' + item.file.name" (click)="removeItem(item.key)">
+                    <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-field transition-colors" [class]="c().iconBtn" [attr.aria-label]="'Remove ' + item.file.name" (click)="removeItem(item.key)">
                       <sd-icon name="trash-2" [size]="18" />
                     </button>
                   </div>
                   <label class="relative block">
                     <span class="sr-only">Document type for {{ item.file.name }}</span>
-                    <select class="w-full appearance-none rounded-field border border-cloud bg-white px-4 py-3 pr-10 font-sans text-body-sm text-ink outline-none focus:border-cerulean" (change)="setType(item.key, $any($event.target).value)">
+                    <select class="w-full appearance-none rounded-field border px-4 py-3 pr-10 font-sans text-body-sm outline-none" [class]="c().field" (change)="setType(item.key, $any($event.target).value)">
                       <option value="" [selected]="item.type === ''">Select document type</option>
                       @for (t of types(); track t.value) { <option [value]="t.value" [selected]="t.value === item.type">{{ t.label }}</option> }
                     </select>
-                    <sd-icon name="chevron-down" [size]="18" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate" />
+                    <sd-icon name="chevron-down" [size]="18" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" [class]="c().muted" />
                   </label>
                   @if (item.type === 'other') {
                     <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption text-slate">Others (Specify)<span class="sr-only"> for {{ item.file.name }}</span></span>
+                      <span class="font-sans text-caption" [class]="c().muted">Others (Specify)<span class="sr-only"> for {{ item.file.name }}</span></span>
                       <input
-                        class="rounded-field border border-cloud px-4 py-3 font-sans text-body-sm text-ink outline-none focus:border-cerulean"
+                        class="rounded-field border px-4 py-3 font-sans text-body-sm outline-none"
+                        [class]="c().field"
                         placeholder="Enter document type"
                         [attr.maxlength]="customMax"
                         [value]="item.custom"
@@ -214,167 +302,199 @@ const CUSTOM_TYPE_MAX = 120;
                     </label>
                   }
                   @if (canApplyToAll(item)) {
-                    <button type="button" class="flex w-fit items-center gap-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:text-ocean" (click)="applyToAll(item.key)">
+                    <button type="button" class="flex min-h-11 w-fit items-center gap-1.5 font-sans text-caption font-semibold transition-colors" [class]="c().link" (click)="applyToAll(item.key)">
                       <sd-icon name="copy" [size]="14" />Apply this type to all
                     </button>
+                  }
+                  @if (warningFor(item); as w) {
+                    <p class="flex items-start gap-1.5 font-sans text-caption" [class]="c().text" data-testid="view-warning">
+                      <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" [class]="c().accent" />{{ w }}
+                    </p>
                   }
                 </li>
               }
             </ul>
-            @if (queue().length < maxFiles) {
-              <sd-file-drop
-                [compact]="true"
-                label="Add more files"
-                [accept]="accept"
-                [multiple]="true"
-                [maxBytes]="maxBytes"
-                (files)="addFiles($event)"
-                (rejected)="onRejected($event)"
-              />
+            @if (queue().length < maxFiles()) {
+              @if (theme() === 'call') {
+                <ng-container [ngTemplateOutlet]="callPicker" [ngTemplateOutletContext]="{ compact: true }" />
+              } @else {
+                <sd-file-drop
+                  [compact]="true"
+                  label="Add more files"
+                  [accept]="accept()"
+                  [multiple]="true"
+                  [maxBytes]="maxBytes"
+                  (files)="addFiles($event)"
+                  (rejected)="onRejected($event)"
+                />
+              }
             }
-            @if (typesError()) { <p class="font-sans text-caption text-alert-ink">{{ typesError() }}</p> }
+            @if (typesError()) { <p class="font-sans text-caption" [class]="c().errText">{{ typesError() }}</p> }
             <ng-container [ngTemplateOutlet]="skippedNote" />
             @if (missingTypes() > 0) {
-              <p class="font-sans text-caption text-slate">
+              <p class="font-sans text-caption" [class]="c().muted">
                 {{ missingTypes() === 1 ? 'Choose a type for 1 more document to continue.' : 'Choose a type for ' + missingTypes() + ' more documents to continue.' }}
               </p>
             }
             <div class="flex gap-3">
-              <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="requestClose()">Cancel</button>
-              <button type="button" class="min-h-11 flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-50" [disabled]="!typesDone()" (click)="toShare()">
+              <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors" [class]="c().secondary" (click)="requestClose()">Cancel</button>
+              <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors disabled:opacity-50" [class]="c().primary" [disabled]="!typesDone()" (click)="toShare()">
                 Continue
               </button>
             </div>
           }
 
           @case ('share') {
-            <div class="flex items-start justify-between gap-3 border-b border-cloud pb-4">
+            <div class="flex items-start justify-between gap-3 border-b pb-4" [class]="c().divider">
               <div class="flex flex-col gap-1">
-                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">Who can see these files?</h3>
-                <p class="font-sans text-body-sm text-slate">Only doctors you choose can see them.</p>
+                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 outline-none" [class]="c().heading">Who can see these files?</h3>
+                <p class="font-sans text-body-sm" [class]="c().muted">Only doctors you choose can see them.</p>
               </div>
-              <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:text-ink" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
+              <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center rounded-full transition-colors" [class]="c().iconBtn" aria-label="Close" (click)="requestClose()"><sd-icon name="x" [size]="22" /></button>
             </div>
 
             @if (doctorsLoading()) {
               @for (i of [1, 2]; track i) { <div class="sd-shimmer h-16 rounded-card"></div> }
             } @else if (doctorsError()) {
-              <p class="flex items-start gap-2 rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-alert-ink" role="alert">
+              <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().error" role="alert">
                 <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />{{ doctorsError() }}
               </p>
-              <button type="button" class="min-h-11 w-fit rounded-field border border-haze bg-white px-5 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean" (click)="loadDoctors()">Try again</button>
+              <button type="button" class="min-h-11 w-fit rounded-field px-5 font-sans text-body-sm font-semibold transition" [class]="c().secondary" (click)="loadDoctors()">Try again</button>
             } @else if (sharingOff()) {
-              <p class="flex items-start gap-2 rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-slate" role="status">
+              <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note" role="status">
                 <sd-icon name="lock" [size]="18" class="mt-0.5 shrink-0" />Sharing is unavailable right now. Your documents stay private.
               </p>
             } @else if (doctors().length === 0) {
-              <p class="flex items-start gap-2 rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-slate">
-                <sd-icon name="lock" [size]="18" class="mt-0.5 shrink-0" />You haven't booked a doctor yet, so these files will be private.
+              <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note">
+                <sd-icon name="lock" [size]="18" class="mt-0.5 shrink-0" />{{ fixed() ? presetDoctorCap() + " can't receive documents right now, so these files will be private." : "You haven't booked a doctor yet, so these files will be private." }}
               </p>
+            } @else if (fixed()) {
+              <!-- The call: that doctor, no end date (no private option, no duration chips) -->
+              @if (chosen().length > 0) {
+                <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note" data-testid="fixed-share">
+                  <sd-icon name="share-2" [size]="18" class="mt-0.5 shrink-0" />{{ fixedText() }}
+                </p>
+              } @else {
+                <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note" role="status">
+                  <sd-icon name="lock" [size]="18" class="mt-0.5 shrink-0" />{{ presetDoctorCap() }} can't receive documents right now, so these files will be private.
+                </p>
+              }
             } @else {
               <fieldset class="flex flex-col gap-3">
                 <legend class="sr-only">Who can see these files?</legend>
-                <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 p-4 transition-colors" [class]="mode() === 'private' ? on : off">
+                <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 p-4 transition-colors" [class]="mode() === 'private' ? c().on : c().off">
                   <input type="radio" name="upload-share-mode" value="private" class="mt-1 size-5 shrink-0 accent-cerulean" [checked]="mode() === 'private'" (change)="mode.set('private')" />
                   <span class="flex flex-col gap-0.5">
-                    <span class="font-sans text-body-sm font-semibold text-ink">{{ anyFolder() ? "Don't share with anyone new" : 'Keep private' }}</span>
-                    <span class="font-sans text-caption text-slate">{{ anyFolder() ? 'Doctors who can see your whole folder are listed below.' : 'Only you can see them. You can share later.' }}</span>
+                    <span class="font-sans text-body-sm font-semibold" [class]="c().heading">{{ anyFolder() ? "Don't share with anyone new" : 'Keep private' }}</span>
+                    <span class="font-sans text-caption" [class]="c().muted">{{ anyFolder() ? 'Doctors who can see your whole folder are listed below.' : 'Only you can see them. You can share later.' }}</span>
                   </span>
                 </label>
-                <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 p-4 transition-colors" [class]="mode() === 'share' ? on : off">
+                <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 p-4 transition-colors" [class]="mode() === 'share' ? c().on : c().off">
                   <input type="radio" name="upload-share-mode" value="share" class="mt-1 size-5 shrink-0 accent-cerulean" [checked]="mode() === 'share'" (change)="mode.set('share')" />
                   <span class="flex flex-col gap-0.5">
-                    <span class="font-sans text-body-sm font-semibold text-ink">Share with doctors</span>
-                    <span class="font-sans text-caption text-slate">Choose who and for how long.</span>
+                    <span class="font-sans text-body-sm font-semibold" [class]="c().heading">Share with doctors</span>
+                    <span class="font-sans text-caption" [class]="c().muted">Choose who and for how long.</span>
                   </span>
                 </label>
               </fieldset>
 
               @if (mode() === 'share') {
                 <fieldset class="flex flex-col gap-2">
-                  <legend class="mb-2 font-sans text-body-sm font-semibold text-ink">Who can see them?</legend>
+                  <legend class="mb-2 font-sans text-body-sm font-semibold" [class]="c().heading">Who can see them?</legend>
                   @for (d of shareable(); track d.specialist.id) {
-                    <label class="flex min-h-11 items-center gap-3 rounded-card border-2 p-3 transition-colors has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-70" [class]="(chosen().includes(d.specialist.id) ? on : off) + (lockDoctor() || !d.can_share ? '' : ' cursor-pointer')">
+                    <label class="flex min-h-11 items-center gap-3 rounded-card border-2 p-3 transition-colors has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-70" [class]="(chosen().includes(d.specialist.id) ? c().on : c().off) + (lockDoctor() || !d.can_share ? '' : ' cursor-pointer')">
                       <input type="checkbox" class="size-5 shrink-0 accent-cerulean" [checked]="chosen().includes(d.specialist.id)" [disabled]="lockDoctor() || !d.can_share || (!chosen().includes(d.specialist.id) && chosen().length >= maxDoctors)" (change)="toggleDoctor(d.specialist.id, $any($event.target).checked)" />
                       <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-frost font-sans text-caption font-semibold text-cerulean-dark" aria-hidden="true">{{ initialsOf(d.specialist.name) }}</span>
                       <span class="flex min-w-0 flex-col">
-                        <span class="font-sans text-body-sm font-semibold text-ink">{{ dr(d.specialist.name) }}</span>
-                        @if (d.specialist.specialty) { <span class="font-sans text-caption text-slate">{{ d.specialist.specialty }}</span> }
-                        @if (!d.can_share) { <span class="font-sans text-caption text-slate">Not available — not practising on VideoMed right now</span> }
+                        <span class="font-sans text-body-sm font-semibold" [class]="c().heading">{{ dr(d.specialist.name) }}</span>
+                        @if (d.specialist.specialty) { <span class="font-sans text-caption" [class]="c().muted">{{ d.specialist.specialty }}</span> }
+                        @if (!d.can_share) { <span class="font-sans text-caption" [class]="c().muted">Not available — not practising on VideoMed right now</span> }
                       </span>
                     </label>
                   }
                   @if (chosen().length >= maxDoctors) {
-                    <p class="font-sans text-caption text-slate">You can share with up to 5 doctors at a time.</p>
+                    <p class="font-sans text-caption" [class]="c().muted">You can share with up to 5 doctors at a time.</p>
                   }
                 </fieldset>
                 <fieldset class="flex flex-col gap-2">
-                  <legend class="mb-2 font-sans text-body-sm font-semibold text-ink">For how long?</legend>
-                  @for (c of choices(); track c.value) {
-                    <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 px-4 py-3 transition-colors" [class]="duration() === c.value ? on : off">
-                      <input type="radio" name="upload-share-duration" class="mt-1 size-5 shrink-0 accent-cerulean" [checked]="duration() === c.value" (change)="duration.set(c.value)" />
+                  <legend class="mb-2 font-sans text-body-sm font-semibold" [class]="c().heading">For how long?</legend>
+                  @for (ch of choices(); track ch.value) {
+                    <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border-2 px-4 py-3 transition-colors" [class]="duration() === ch.value ? c().on : c().off">
+                      <input type="radio" name="upload-share-duration" class="mt-1 size-5 shrink-0 accent-cerulean" [checked]="duration() === ch.value" (change)="duration.set(ch.value)" />
                       <span class="flex flex-col gap-0.5">
-                        <span class="font-sans text-body-sm font-semibold text-ink">{{ c.label }}</span>
-                        @if (c.hint) { <span class="font-sans text-caption text-slate">{{ c.hint }}</span> }
+                        <span class="font-sans text-body-sm font-semibold" [class]="c().heading">{{ ch.label }}</span>
+                        @if (ch.hint) { <span class="font-sans text-caption" [class]="c().muted">{{ ch.hint }}</span> }
                       </span>
                     </label>
                   }
                   @if (duration() === 'until') {
                     <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption font-semibold text-ink">End date</span>
-                      <input type="date" class="min-h-11 rounded-field border border-cloud bg-white px-4 font-sans text-body-sm text-ink outline-none focus:border-cerulean" [min]="bounds.min" [max]="bounds.max" [value]="untilDate()" (input)="untilDate.set($any($event.target).value)" />
+                      <span class="font-sans text-caption font-semibold" [class]="c().heading">End date</span>
+                      <input type="date" class="min-h-11 rounded-field border px-4 font-sans text-body-sm outline-none" [class]="c().field" [min]="bounds.min" [max]="bounds.max" [value]="untilDate()" (input)="untilDate.set($any($event.target).value)" />
                     </label>
                   }
                 </fieldset>
-              }
-
-              @if (folderDoctors().length > 0) {
-                <fieldset class="flex flex-col gap-2">
-                  <legend class="mb-2 font-sans text-body-sm font-semibold text-ink">Doctors who can see your whole folder</legend>
-                  @for (d of folderDoctors(); track d.specialist.id) {
-                    <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border border-cloud p-3">
-                      <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-cerulean" [checked]="!!ticks()[d.specialist.id]" (change)="tick(d.specialist.id, $any($event.target).checked)" />
-                      <span class="flex flex-col gap-0.5">
-                        <span class="font-sans text-body-sm font-semibold text-ink">Also let {{ dr(d.specialist.name) }} see these files</span>
-                        <span class="font-sans text-caption text-slate">Whole folder {{ folderUntilOf(d) }}</span>
-                        @if (paused(d)) {
-                          <!-- Paused shares resume (new files too) if the doctor is back within 30 days: opt in only. -->
-                          <span class="inline-flex w-fit items-center gap-1 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-medium text-warning-ink inset-ring inset-ring-current/20">
-                            <sd-icon name="hourglass" [size]="12" />Paused — not practising on VideoMed right now
-                          </span>
-                        }
-                      </span>
-                    </label>
-                  }
-                </fieldset>
-              }
-
-              @if (shareProblem() && triedUpload()) {
-                <p class="font-sans text-caption text-alert-ink" role="alert">{{ shareProblem() }}</p>
               }
             }
 
+            @if (!doctorsLoading() && !doctorsError() && !sharingOff() && folderDoctors().length > 0) {
+              <fieldset class="flex flex-col gap-2">
+                <legend class="mb-2 font-sans text-body-sm font-semibold" [class]="c().heading">Doctors who can see your whole folder</legend>
+                @for (d of folderDoctors(); track d.specialist.id) {
+                  <label class="flex min-h-11 cursor-pointer items-start gap-3 rounded-card border p-3" [class]="c().box">
+                    <input type="checkbox" class="mt-0.5 size-5 shrink-0 accent-cerulean" [checked]="!!ticks()[d.specialist.id]" (change)="tick(d.specialist.id, $any($event.target).checked)" />
+                    <span class="flex flex-col gap-0.5">
+                      <span class="font-sans text-body-sm font-semibold" [class]="c().heading">Also let {{ dr(d.specialist.name) }} see these files</span>
+                      <span class="font-sans text-caption" [class]="c().muted">Whole folder {{ folderUntilOf(d) }}</span>
+                      @if (paused(d)) {
+                        <!-- Paused shares resume (new files too) if the doctor is back within 30 days: opt in only. -->
+                        <span class="inline-flex w-fit items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="c().warn">
+                          <sd-icon name="hourglass" [size]="12" />Paused — not practising on VideoMed right now
+                        </span>
+                      }
+                    </span>
+                  </label>
+                }
+              </fieldset>
+            }
+
+            <!-- D32: files a ticked doctor can't open in VideoMed (the share still goes ahead) -->
+            @if (shareWarnings().length > 0) {
+              <ul class="flex flex-col gap-2 rounded-field px-4 py-3 font-sans text-caption" [class]="c().warn" aria-label="Files your doctors can't open">
+                @for (w of shareWarnings(); track w.key) {
+                  <li class="flex items-start gap-1.5" data-testid="view-warning">
+                    <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                    <span class="min-w-0 wrap-anywhere"><span class="font-semibold">{{ w.name }}:</span> {{ w.text }}</span>
+                  </li>
+                }
+              </ul>
+            }
+
+            @if (shareProblem() && triedUpload()) {
+              <p class="font-sans text-caption" [class]="c().errText" role="alert">{{ shareProblem() }}</p>
+            }
+
             <div class="flex gap-3">
-              <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="backToQueue()">Back</button>
-              <button type="button" class="min-h-11 flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-50" [disabled]="doctorsLoading() || !!doctorsError()" (click)="startBatch()">
+              <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors" [class]="c().secondary" (click)="backToQueue()">Back</button>
+              <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors disabled:opacity-50" [class]="c().primary" [disabled]="doctorsLoading() || !!doctorsError()" (click)="startBatch()">
                 Upload {{ queue().length }} {{ queue().length === 1 ? 'file' : 'files' }}
               </button>
             </div>
           }
 
           @case ('uploading') {
-            <div class="flex flex-col gap-1 border-b border-cloud pb-4">
-              <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 text-ink outline-none">{{ running() ? 'Uploading' : 'Some uploads failed' }}</h3>
-              <p class="font-sans text-body-sm text-slate">{{ doneItems().length }} of {{ queue().length }} uploaded</p>
+            <div class="flex flex-col gap-1 border-b pb-4" [class]="c().divider">
+              <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h5 outline-none" [class]="c().heading">{{ running() ? 'Uploading' : 'Some uploads failed' }}</h3>
+              <p class="font-sans text-body-sm" [class]="c().muted">{{ doneItems().length }} of {{ queue().length }} uploaded</p>
             </div>
             <ul class="flex flex-col gap-3" aria-label="Upload progress">
               @for (item of queue(); track item.key) {
-                <li class="flex flex-col gap-2 rounded-card border border-cloud p-3 sm:p-4">
+                <li class="flex flex-col gap-2 rounded-card border p-3 sm:p-4" [class]="c().box">
                   <div class="flex items-center gap-3">
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="18" /></span>
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-full" [class]="extra().disc"><sd-icon name="file-text" [size]="18" /></span>
                     <span class="flex min-w-0 flex-1 flex-col">
-                      <span class="truncate font-sans text-body-sm font-semibold text-ink" [title]="item.file.name">{{ item.file.name }}</span>
-                      <span class="truncate font-sans text-caption text-slate">{{ sizeLabel(item.file.size) }} · {{ typeLabel(item) }}</span>
+                      <span class="truncate font-sans text-body-sm font-semibold" [class]="c().heading" [title]="item.file.name">{{ item.file.name }}</span>
+                      <span class="truncate font-sans text-caption" [class]="c().muted">{{ sizeLabel(item.file.size) }} · {{ typeLabel(item) }}</span>
                     </span>
                     <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="uploadStatus(item.status).cls">
                       <sd-icon [name]="uploadStatus(item.status).icon" [size]="12" [class.animate-spin]="item.status === 'uploading'" />{{ item.status === 'uploading' ? item.progress + '%' : uploadStatus(item.status).label }}
@@ -382,22 +502,23 @@ const CUSTOM_TYPE_MAX = 120;
                   </div>
                   @if (item.status === 'uploading') {
                     <div
-                      class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
+                      class="h-1.5 w-full overflow-hidden rounded-full"
+                      [class]="extra().track"
                       role="progressbar"
                       aria-valuemin="0"
                       aria-valuemax="100"
                       [attr.aria-valuenow]="item.progress"
                       [attr.aria-label]="'Uploading ' + item.file.name"
                     >
-                      <div class="h-full rounded-full bg-cerulean transition-[width] duration-200" [style.width.%]="item.progress"></div>
+                      <div class="h-full rounded-full bg-cerulean transition-[width] duration-200 motion-reduce:transition-none" [style.width.%]="item.progress"></div>
                     </div>
                   }
                   @if (item.status === 'failed') {
                     <div class="flex items-start justify-between gap-3">
-                      <p class="flex min-w-0 items-start gap-1.5 font-sans text-caption text-alert-ink">
+                      <p class="flex min-w-0 items-start gap-1.5 font-sans text-caption" [class]="c().errText">
                         <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" /><span class="min-w-0 wrap-anywhere">{{ item.error }}</span>
                       </p>
-                      <button type="button" class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-cloud px-3 font-sans text-caption font-semibold text-cerulean transition-colors hover:border-cerulean" [attr.aria-label]="'Retry ' + item.file.name" (click)="retry(item.key)">
+                      <button type="button" class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field px-3 font-sans text-caption font-semibold transition-colors" [class]="c().secondary" [attr.aria-label]="'Retry ' + item.file.name" (click)="retry(item.key)">
                         <sd-icon name="refresh-cw" [size]="14" />Retry
                       </button>
                     </div>
@@ -407,10 +528,10 @@ const CUSTOM_TYPE_MAX = 120;
             </ul>
             @if (!running()) {
               <div class="flex gap-3">
-                <button type="button" class="min-h-11 flex-1 rounded-field border border-cloud py-3 font-sans text-body font-semibold text-slate transition-colors hover:bg-glacier" (click)="finishWithFailures()">
+                <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors" [class]="c().secondary" (click)="finishWithFailures()">
                   {{ doneItems().length > 0 ? 'Done' : 'Close' }}
                 </button>
-                <button type="button" class="min-h-11 flex-1 rounded-field bg-cerulean py-3 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean" (click)="retryFailed()">
+                <button type="button" class="min-h-11 flex-1 rounded-field py-3 font-sans text-body font-semibold transition-colors" [class]="c().primary" (click)="retryFailed()">
                   {{ failedCount() === 1 ? 'Retry' : 'Retry all' }}
                 </button>
               </div>
@@ -421,38 +542,38 @@ const CUSTOM_TYPE_MAX = 120;
             <div class="flex flex-col items-center gap-4 py-4 text-center">
               <span class="flex size-16 items-center justify-center rounded-full bg-sage text-white"><sd-icon name="check" [size]="34" /></span>
               <div class="flex flex-col gap-1">
-                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h4 text-ink outline-none">{{ uploadedSummary() }}</h3>
-                <p class="font-sans text-body text-slate">{{ doneItems().length === 1 ? 'Your document has' : 'Your documents have' }} been successfully added to your medical records.</p>
+                <h3 #stepTitle id="doc-upload-title" tabindex="-1" data-autofocus class="font-heading text-h4 outline-none" [class]="c().heading">{{ uploadedSummary() }}</h3>
+                <p class="font-sans text-body" [class]="c().muted">{{ doneItems().length === 1 ? 'Your document has' : 'Your documents have' }} been successfully added to your medical records.</p>
               </div>
               <ul class="flex w-full flex-col gap-2 text-left" aria-label="Who can see them">
                 @for (line of outcomeLines(); track $index) {
-                  <li class="flex items-start gap-2 rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-ink">
-                    <sd-icon [name]="line.startsWith('Kept private') || line.startsWith('Saved') ? 'lock' : 'share-2'" [size]="18" class="mt-0.5 shrink-0 text-slate" />{{ line }}
+                  <li class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="extra().outcome">
+                    <sd-icon [name]="line.startsWith('Kept private') || line.startsWith('Saved') ? 'lock' : 'share-2'" [size]="18" class="mt-0.5 shrink-0" [class]="c().muted" />{{ line }}
                   </li>
                 }
               </ul>
               @if (failedCount() > 0) {
-                <p class="flex w-full items-start gap-2 rounded-field bg-warning/15 px-4 py-3 text-left font-sans text-body-sm text-warning-ink">
+                <p class="flex w-full items-start gap-2 rounded-field px-4 py-3 text-left font-sans text-body-sm" [class]="c().warn">
                   <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" />
-                  <span>{{ failedCount() === 1 ? '1 document wasn’t uploaded.' : failedCount() + ' documents weren’t uploaded.' }} You can try again with Upload Document.</span>
+                  <span>{{ failedCount() === 1 ? '1 document wasn’t uploaded.' : failedCount() + ' documents weren’t uploaded.' }} {{ inCall() ? 'You can try again with Upload & share.' : 'You can try again with Upload Document.' }}</span>
                 </p>
               }
               <ul class="flex w-full flex-col gap-2 text-left">
                 @for (item of doneItems(); track item.key) {
-                  <li class="flex items-center gap-4 rounded-card border border-cloud p-4">
-                    <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-glacier text-slate"><sd-icon name="file-text" [size]="20" /></span>
+                  <li class="flex items-center gap-4 rounded-card border p-4" [class]="c().box">
+                    <span class="flex size-11 shrink-0 items-center justify-center rounded-full" [class]="extra().disc"><sd-icon name="file-text" [size]="20" /></span>
                     <span class="flex min-w-0 flex-col">
-                      <span class="truncate font-sans text-body-sm font-semibold text-ink">
+                      <span class="truncate font-sans text-body-sm font-semibold" [class]="c().heading">
                         {{ item.result?.title || item.file.name }}
-                        <span class="font-normal text-slate">({{ item.result ? item.result.extension + '. ' + item.result.size_label : sizeLabel(item.file.size) }})</span>
+                        <span class="font-normal" [class]="c().muted">({{ item.result ? item.result.extension + '. ' + item.result.size_label : sizeLabel(item.file.size) }})</span>
                       </span>
-                      <span class="font-sans text-body-sm text-slate">{{ item.result?.type_label || typeLabel(item) }}</span>
+                      <span class="font-sans text-body-sm" [class]="c().muted">{{ item.result?.type_label || typeLabel(item) }}</span>
                     </span>
                   </li>
                 }
               </ul>
-              <button type="button" class="min-h-11 w-full rounded-field bg-cerulean py-3.5 font-sans text-body font-semibold text-white transition-colors hover:bg-ocean" (click)="close()">{{ doneLabel() }}</button>
-              <button type="button" class="min-h-11 font-sans text-body font-semibold text-cerulean transition-colors hover:text-ocean" (click)="restart()">Upload more</button>
+              <button type="button" class="min-h-11 w-full rounded-field py-3.5 font-sans text-body font-semibold transition-colors" [class]="c().primary" (click)="close()">{{ doneLabel() }}</button>
+              <button type="button" class="min-h-11 font-sans text-body font-semibold transition-colors" [class]="c().link" (click)="restart()">Upload more</button>
             </div>
           }
         }
@@ -469,14 +590,27 @@ export class DocumentUploadDialog implements OnInit {
   private readonly dialogs = inject(DialogService);
   private readonly dialogBody = viewChild<ElementRef<HTMLElement>>('dialogBody');
   private readonly stepTitle = viewChild<ElementRef<HTMLElement>>('stepTitle');
+  private readonly picker = viewChild<ElementRef<HTMLInputElement>>('picker');
 
   /** Share with this doctor by default (an appointment's doctor). */
   readonly presetDoctorId = input<string | null>(null);
-  /** Offers "after the consultation" ends, anchored to it. */
+  /** Offers "after the consultation" ends, anchored to it (and is the call's consultation). */
   readonly appointment = input<SharingAppointmentRefDto | null>(null);
   /** The preset doctor is the only one to share with. */
   readonly lockDoctor = input(false);
-  readonly surface = input<'documents_page' | 'appointment_details'>('documents_page');
+  /** Where this is (`share_surface`); `call` sends the consultation with every share. */
+  readonly surface = input<UploadSurface>('documents_page');
+  /** `call`: the cockpit's palette (its dark and light themes). */
+  readonly theme = input<SharingTheme>('light');
+  /**
+   * A fixed "for how long" (the call: `indefinite`): no duration chips and no
+   * "Keep private" — a sentence says who will see the files, until when.
+   */
+  readonly fixedDuration = input<DocumentShareDuration | null>(null);
+  /** `viewable`: only files a doctor can open in VideoMed (PDF, JPG, PNG, WEBP, MP4, WEBM). */
+  readonly acceptKinds = input<'all' | 'viewable'>('all');
+  /** Files per batch. */
+  readonly maxFiles = input<number>(MAX_FILES);
   /** The success step's main button. */
   readonly doneLabel = input('View Medical records');
 
@@ -485,14 +619,16 @@ export class DocumentUploadDialog implements OnInit {
   /** The dialog has closed; `uploaded` = how many files were stored. */
   readonly closed = output<{ uploaded: number }>();
 
-  protected readonly accept = ACCEPT;
+  protected readonly c = computed(() => SHARING_CLASSES[this.theme()]);
+  protected readonly extra = computed(() => EXTRA_CLASSES[this.theme()]);
+  protected readonly viewableOnly = computed(() => this.acceptKinds() === 'viewable');
+  protected readonly accept = computed(() => (this.viewableOnly() ? DOCTOR_VIEWABLE_ACCEPT : ACCEPT));
+  protected readonly inCall = computed(() => this.surface() === 'call');
+  protected readonly fixed = computed(() => this.fixedDuration() !== null);
   protected readonly maxBytes = MAX_BYTES;
-  protected readonly maxFiles = MAX_FILES;
   protected readonly customMax = CUSTOM_TYPE_MAX;
   protected readonly maxDoctors = MAX_SHARE_DOCTORS;
   protected readonly bounds = untilDateBounds();
-  protected readonly on = 'border-cerulean bg-frost/30';
-  protected readonly off = 'border-cloud hover:border-cerulean/40';
 
   protected readonly open = signal(true);
   protected readonly step = signal<UploadStep>('source');
@@ -528,13 +664,50 @@ export class DocumentUploadDialog implements OnInit {
     const list = this.doctors();
     return this.lockDoctor() && preset ? list.filter((d) => d.specialist.id === preset) : list;
   });
+  /** "Dr Bayo Ade" — the preset doctor's name (from the list once loaded). */
+  protected readonly presetDoctor = computed(() => {
+    const preset = this.presetDoctorId();
+    const d = this.doctors().find((x) => x.specialist.id === preset);
+    return d ? drName(d.specialist.name) : 'your doctor';
+  });
+  /** The same, starting a sentence. */
+  protected readonly presetDoctorCap = computed(() => cap(this.presetDoctor()));
+  /** The fixed-share sentence (the call's "that doctor, no end date"). */
+  protected readonly fixedText = computed(() => {
+    const Who = this.presetDoctorCap();
+    return this.fixedDuration() === 'indefinite'
+      ? `${Who} can see these files during this consultation and afterwards, with no end date. You can stop sharing any time in Manage sharing.`
+      : `${Who} can see these files. You can stop sharing any time in Manage sharing.`;
+  });
   /** Whole-folder holders, paused ones too (they see new files if they come back within 30 days). */
   private readonly folderHolders = computed(() => this.doctors().filter((d) => holdsFolder(d) || holdsPausedFolder(d)));
   protected readonly anyFolder = computed(() => this.folderHolders().length > 0);
+  /** Sharing with the chosen doctors (a fixed share always does, while its doctor can receive it). */
+  private readonly sharingNow = computed(() => (this.fixed() ? this.chosen().length > 0 : this.mode() === 'share'));
   /** Folder holders not already chosen to share with. */
   protected readonly folderDoctors = computed(() => {
-    const share = this.mode() === 'share' ? this.chosen() : [];
+    const share = this.sharingNow() ? this.chosen() : [];
     return this.folderHolders().filter((d) => !share.includes(d.specialist.id));
+  });
+  /** The names of every doctor these files would reach (chosen, plus ticked folder holders). */
+  private readonly reachedNames = computed(() => {
+    if (this.sharingOff()) return [];
+    const byId = new Map(this.doctors().map((d) => [d.specialist.id, d.specialist.name]));
+    const ids = [
+      ...(this.sharingNow() ? this.chosen() : []),
+      ...this.folderDoctors()
+        .filter((d) => this.ticks()[d.specialist.id])
+        .map((d) => d.specialist.id),
+    ];
+    return [...new Set(ids)].map((id) => byId.get(id) ?? '');
+  });
+  /** D32, on the share step: each picked file a ticked doctor can't open. */
+  protected readonly shareWarnings = computed(() => {
+    const names = this.reachedNames();
+    return this.queue().flatMap((i) => {
+      const text = viewWarning(i.file.name, names);
+      return text ? [{ key: String(i.key), name: i.file.name, text }] : [];
+    });
   });
   private readonly anchorApplies = computed(() => {
     const ids = this.chosen();
@@ -543,7 +716,7 @@ export class DocumentUploadDialog implements OnInit {
   });
   protected readonly choices = computed(() => durationChoices(this.anchorApplies() ? this.appointment() : null));
   protected readonly shareProblem = computed(() => {
-    if (this.mode() !== 'share' || this.sharingOff() || this.doctors().length === 0) return '';
+    if (this.fixed() || this.mode() !== 'share' || this.sharingOff() || this.doctors().length === 0) return '';
     if (this.chosen().length === 0) return 'Choose at least one doctor, or keep the files private.';
     return durationError(
       { duration: this.duration(), untilDate: this.untilDate(), appointment: this.anchorApplies() ? this.appointment() : null },
@@ -620,6 +793,7 @@ export class DocumentUploadDialog implements OnInit {
     effect(() => {
       const offered = this.choices();
       const d = this.duration();
+      if (this.fixed()) return;
       if (!offered.some((c) => c.value === d)) untracked(() => this.duration.set(defaultDuration(offered)));
     });
   }
@@ -637,7 +811,9 @@ export class DocumentUploadDialog implements OnInit {
       this.mode.set('share');
       this.chosen.set([preset]);
     }
-    this.duration.set(defaultDuration(durationChoices(this.appointment() && preset ? this.appointment() : null)));
+    this.duration.set(
+      this.fixedDuration() ?? defaultDuration(durationChoices(this.appointment() && preset ? this.appointment() : null)),
+    );
     this.loadDoctors();
   }
 
@@ -656,6 +832,11 @@ export class DocumentUploadDialog implements OnInit {
           // A doctor who isn't practising now can't be shared with (their row is disabled).
           const off = list.filter((d) => !d.can_share).map((d) => d.specialist.id);
           if (off.length > 0) this.chosen.update((ids) => ids.filter((id) => !off.includes(id)));
+          // A fixed share's doctor must be one of theirs (booked) to receive it.
+          if (this.fixed()) {
+            const known = new Set(list.map((d) => d.specialist.id));
+            this.chosen.update((ids) => ids.filter((id) => known.has(id)));
+          }
           if (!this.doctorsLoaded) {
             this.doctorsLoaded = true;
             const folder = list.filter((d) => holdsFolder(d) || holdsPausedFolder(d)).map((d) => d.specialist.id);
@@ -762,8 +943,34 @@ export class DocumentUploadDialog implements OnInit {
 
   // ----- Files -----
 
+  /** The cockpit picker's button: the hidden file input. */
+  protected pickFiles(): void {
+    this.picker()?.nativeElement.click();
+  }
+
+  protected onPicked(event: Event): void {
+    const el = event.target as HTMLInputElement;
+    const files = Array.from(el.files ?? []);
+    el.value = ''; // the same file can be picked again after a removal
+    if (files.length) this.addFiles(files);
+  }
+
+  protected onDragOver(event: DragEvent): void {
+    if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  }
+
+  protected onDrop(event: DragEvent): void {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (!files.length) return;
+    event.preventDefault();
+    this.addFiles(files);
+  }
+
   /** Queue what a drop or pick produced, turning away what we can't take. */
   protected addFiles(files: File[]): void {
+    const max = this.maxFiles();
     const current = this.queue();
     const added: QueueItem[] = [];
     const skipped: SkippedFile[] = [];
@@ -774,8 +981,8 @@ export class DocumentUploadDialog implements OnInit {
       );
       if (err) skipped.push({ name: file.name, reason: err });
       else if (dup) skipped.push({ name: file.name, reason: 'Already in the list.' });
-      else if (current.length + added.length >= MAX_FILES) {
-        skipped.push({ name: file.name, reason: `You can upload up to ${MAX_FILES} files at a time.` });
+      else if (current.length + added.length >= max) {
+        skipped.push({ name: file.name, reason: `You can upload up to ${max} files at a time.` });
       } else {
         added.push({ key: this.nextKey++, file, type: '', custom: '', status: 'queued', progress: 0, error: '', result: null });
       }
@@ -784,12 +991,13 @@ export class DocumentUploadDialog implements OnInit {
     this.skip(skipped);
     if (this.step() === 'source' && this.queue().length > 0) this.step.set('queue');
     // A full batch hides the "Add more files" zone that was just used.
-    else if (this.queue().length >= MAX_FILES) this.keepFocusInDialog();
+    else if (this.queue().length >= max) this.keepFocusInDialog();
   }
 
   /** Files the drop zone already turned away on type or size. */
   protected onRejected(rejections: FileDropRejection[]): void {
-    this.skip(rejections.map((r) => ({ name: r.file.name, reason: r.reason === 'size' ? TOO_BIG : UNSUPPORTED })));
+    const typeReason = this.viewableOnly() ? NOT_VIEWABLE : UNSUPPORTED;
+    this.skip(rejections.map((r) => ({ name: r.file.name, reason: r.reason === 'size' ? TOO_BIG : typeReason })));
   }
 
   private skip(list: SkippedFile[]): void {
@@ -803,6 +1011,7 @@ export class DocumentUploadDialog implements OnInit {
   private validate(f: File): string | null {
     if (f.size > MAX_BYTES) return TOO_BIG;
     const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+    if (this.viewableOnly() && !isDoctorViewableName(f.name)) return NOT_VIEWABLE;
     if (!ALLOWED_EXT.includes(ext)) return UNSUPPORTED;
     if (f.size === 0) return 'This file is empty.';
     return null;
@@ -840,6 +1049,11 @@ export class DocumentUploadDialog implements OnInit {
     );
   }
 
+  /** D32 under a file row, while the doctor is already chosen (an appointment's "Upload and share"). */
+  protected warningFor(item: QueueItem): string | null {
+    return this.presetDoctorId() ? viewWarning(item.file.name, this.reachedNames()) : null;
+  }
+
   private typeReady(i: QueueItem): boolean {
     return i.type !== '' && (i.type !== 'other' || i.custom.trim() !== '');
   }
@@ -873,14 +1087,20 @@ export class DocumentUploadDialog implements OnInit {
   protected startBatch(): void {
     this.triedUpload.set(true);
     if (this.doctorsLoading() || this.doctorsError() || this.shareProblem()) return;
+    const fixed = this.fixedDuration();
+    const appointmentId = this.inCall()
+      ? (this.appointment()?.id ?? null)
+      : this.anchorApplies()
+        ? (this.appointment()?.id ?? null)
+        : null;
     this.batchShare = this.sharingOff()
       ? null
       : uploadShareOptions({
-          mode: this.mode(),
+          mode: this.sharingNow() ? 'share' : 'private',
           doctorIds: this.chosen(),
-          duration: this.duration(),
+          duration: fixed ?? this.duration(),
           untilDate: this.untilDate(),
-          appointmentId: this.anchorApplies() ? (this.appointment()?.id ?? null) : null,
+          appointmentId,
           batchId: this.batchId,
           folderDoctorIds: this.folderDoctors().map((d) => d.specialist.id),
           folderTicks: this.ticks(),
@@ -972,8 +1192,8 @@ export class DocumentUploadDialog implements OnInit {
     if (item.type === 'other') return item.custom.trim() || 'Other';
     return this.types().find((t) => t.value === item.type)?.label ?? '';
   }
-  protected uploadStatus(status: UploadStatus): { label: string; icon: string; cls: string } {
-    return UPLOAD_STATUS[status];
+  protected uploadStatus(status: UploadStatus): StatusLook {
+    return UPLOAD_STATUS[this.theme()][status];
   }
   protected dr(name: string): string {
     return drName(name);

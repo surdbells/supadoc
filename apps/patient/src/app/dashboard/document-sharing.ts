@@ -13,7 +13,7 @@
  *  - Copy never names a document type or anything medical beyond the title the
  *    patient gave their own file.
  */
-import { apiErrorCode, todayLocal } from '@supadoc/data-access';
+import { apiErrorCode, fileExtension, isDoctorViewableName, todayLocal, zoneOffsetMinutes } from '@supadoc/data-access';
 import type {
   AfterDuration,
   BookingShareDuration,
@@ -64,6 +64,40 @@ export function isSharingUnavailable(err: unknown): boolean {
 /** "Dr Ade" — a doctor's display name (adds "Dr" unless it is already a title). */
 export function drName(name: string | null | undefined): string {
   return doctorTitle(name);
+}
+
+/**
+ * "Dr Ade" — a doctor's short name for tight labels ("Dr Ade's time", "Dr Ade
+ * can't open …"): the title (Dr unless they already have one) and the last
+ * word of the name. '' when there is no name.
+ */
+export function drLast(name: string | null | undefined): string {
+  const raw = (name ?? '').trim();
+  if (!raw) return '';
+  const title = /^(prof)\.?\s+/i.test(raw) ? 'Prof' : 'Dr';
+  const words = raw.replace(/^(dr|prof)\.?\s+/i, '').split(/\s+/).filter(Boolean);
+  return words.length ? `${title} ${words[words.length - 1]}` : doctorTitle(raw);
+}
+
+/** One D32 warning: a file a doctor can't open in VideoMed (not a viewable PDF, photo or video). */
+export interface ViewWarning {
+  readonly key: string;
+  readonly text: string;
+}
+
+/**
+ * Why a doctor won't be able to read a file being shared with them (D32):
+ * DOCX, DOC, DCM and MOV (anything outside the viewable PDF / JPG / PNG / WEBP
+ * / MP4 / WEBM) — "Dr Ade can't open DOCX files in VideoMed. Share a PDF or
+ * photo." With several doctors: "Your doctors can't …". Null when the file is
+ * viewable or nobody is being shared with. The share is still allowed.
+ */
+export function viewWarning(fileName: string, doctorNames: readonly (string | null | undefined)[]): string | null {
+  if (doctorNames.length === 0 || !fileName || isDoctorViewableName(fileName)) return null;
+  const ext = fileExtension(fileName).toUpperCase();
+  if (!ext) return null;
+  const who = doctorNames.length === 1 ? drLast(doctorNames[0]) || 'Your doctor' : 'Your doctors';
+  return `${who} can't open ${ext} files in VideoMed. Share a PDF or photo.`;
 }
 
 /** "Dr Ade's" */
@@ -283,23 +317,6 @@ export function dateTimeLabel(iso: string | null | undefined, tz?: string): stri
 export function consultationDay(iso: string | null | undefined, tz?: string): string {
   const ms = toMs(iso);
   return isNaN(ms) ? '' : dateOnly(new Date(ms), tz, false);
-}
-
-/** Minutes a zone is ahead of UTC at an instant (+60 for Africa/Lagos). */
-function zoneOffsetMinutes(ms: number, tz: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(new Date(ms));
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
-  return Math.round((asUtc - ms) / 60_000);
 }
 
 function addDays(ymd: string, n: number): string {
@@ -716,6 +733,9 @@ function eventText(e: DocumentAccessEventDto, count: number, tz?: string): { ico
   switch (e.event) {
     case 'viewed':
       return { icon: 'eye', text: cap(`${doctor} opened ${title}${count > 1 ? ` (${count} times)` : ''}`) };
+    case 'printed':
+      // The doctor's viewer printed it (every print is recorded, like every view).
+      return { icon: 'printer', text: cap(`${doctor} sent “${title}” to print`) };
     case 'shared': {
       const what =
         e.details?.scope === 'all'
@@ -1051,7 +1071,8 @@ export interface UploadShareState {
   readonly folderDoctorIds: readonly string[];
   /** Ticked "Also let Dr X see these files". */
   readonly folderTicks: Readonly<Record<string, boolean>>;
-  readonly surface: 'documents_page' | 'appointment_details';
+  /** `call`: an upload during the consultation (that doctor, no end date, the consultation sent). */
+  readonly surface: 'documents_page' | 'appointment_details' | 'call';
   readonly tz?: string;
 }
 
@@ -1081,8 +1102,9 @@ export function uploadShareOptions(s: UploadShareState): UploadShareOptions {
     out.duration = s.duration;
     out.batch_id = s.batchId;
     if (s.duration === 'until') out.expires_at = untilDateToExpiresAt(s.untilDate, s.tz);
-    // Only an `after_*` end needs (and may carry) the consultation — see `shareInput`.
-    if (s.appointmentId && isAfterDuration(s.duration)) out.appointment_id = s.appointmentId;
+    // An `after_*` end needs the consultation (see `shareInput`); an in-call
+    // upload always names it (the server checks it is that doctor's, not cancelled).
+    if (s.appointmentId && (isAfterDuration(s.duration) || s.surface === 'call')) out.appointment_id = s.appointmentId;
   }
   return out;
 }

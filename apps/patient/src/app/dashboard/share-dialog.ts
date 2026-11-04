@@ -65,6 +65,7 @@ import {
   type SharingTheme,
   untilDateBounds,
   untilDateToExpiresAt,
+  viewWarning,
   whatError,
   ymdOf,
 } from './document-sharing';
@@ -77,6 +78,9 @@ const STEP_TITLE: Record<Step, string> = {
   how: 'For how long?',
   review: 'Check and share',
 };
+
+/** Unique ids for the pickers' warning lines. */
+let pickerIds = 0;
 
 /** Documents per page when filling a picker (two pages = the most one share can hold). */
 const PICKER_PAGE = MAX_SHARE_DOCUMENTS / 2;
@@ -136,12 +140,18 @@ export function loadPickerDocuments(api: DocumentsApi): Observable<{ list: Medic
           @for (doc of filtered(); track doc.id) {
             <li>
               <label class="flex min-h-11 cursor-pointer items-center gap-3 rounded-field px-2 py-1.5">
-                <input type="checkbox" class="size-5 shrink-0 accent-cerulean" [checked]="selected().includes(doc.id)" (change)="toggle(doc.id, $any($event.target).checked)" />
+                <input type="checkbox" class="size-5 shrink-0 accent-cerulean" [checked]="selected().includes(doc.id)" [attr.aria-describedby]="warningOf(doc) ? warnId(doc) : null" (change)="toggle(doc.id, $any($event.target).checked)" />
                 <span class="flex min-w-0 flex-1 flex-col">
                   <span class="truncate font-sans text-body-sm font-medium" [class]="c().text" [title]="doc.title">{{ doc.title }}</span>
                   <span class="truncate font-sans text-caption" [class]="c().muted">{{ doc.type_label }} · {{ dateOf(doc.created_at) }}</span>
                 </span>
               </label>
+              <!-- D32: a ticked file the doctor(s) can't open in VideoMed (still shareable) -->
+              @if (warningOf(doc); as w) {
+                <p [id]="warnId(doc)" class="ml-10 flex items-start gap-1.5 pb-1 font-sans text-caption" [class]="c().text" data-testid="view-warning">
+                  <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" [class]="c().accent" />{{ w }}
+                </p>
+              }
             </li>
           } @empty {
             <li class="px-2 py-3 font-sans text-caption" [class]="c().muted">
@@ -161,8 +171,15 @@ export class DocumentPicker {
   readonly loading = input(false);
   readonly error = input('');
   readonly theme = input<SharingTheme>('light');
+  /**
+   * The doctors these documents are being shared with: a ticked file they
+   * can't open in VideoMed (DOCX, DOC, DICOM, MOV) gets a warning under it
+   * (D32). Empty: no warnings.
+   */
+  readonly shareWith = input<readonly string[]>([]);
   /** The chosen document ids. */
   readonly selected = model<string[]>([]);
+  private readonly uid = `pat-picker-${++pickerIds}`;
   /** "Try again" after a failed load. */
   readonly retry = output<void>();
 
@@ -189,6 +206,23 @@ export class DocumentPicker {
   protected dateOf(iso: string): string {
     return dateLabel(iso);
   }
+
+  /** The D32 warning for a ticked document (null when unticked or viewable). */
+  protected warningOf(doc: MedicalDocumentDto): string | null {
+    return this.selected().includes(doc.id) ? documentViewWarning(doc, this.shareWith()) : null;
+  }
+
+  protected warnId(doc: MedicalDocumentDto): string {
+    return `${this.uid}-warn-${doc.id}`;
+  }
+}
+
+/** D32 for a stored document (its extension, not its title, says the type). */
+export function documentViewWarning(
+  doc: Pick<MedicalDocumentDto, 'extension'>,
+  doctorNames: readonly (string | null | undefined)[],
+): string | null {
+  return doc.extension ? viewWarning(`file.${doc.extension}`, doctorNames) : null;
 }
 
 /**
@@ -324,6 +358,7 @@ export class DocumentPicker {
                     [loading]="docsLoading()"
                     [error]="docsError()"
                     [theme]="theme()"
+                    [shareWith]="chosenNameList()"
                     [(selected)]="documentIds"
                     (retry)="loadDocuments()"
                   />
@@ -410,6 +445,18 @@ export class DocumentPicker {
                     <dd class="font-semibold sm:text-right" [class]="c().text">{{ endText() }}</dd>
                   </div>
                 </dl>
+
+                <!-- D32: chosen files the doctor(s) can't open in VideoMed (the share still goes ahead) -->
+                @if (reviewWarnings().length > 0) {
+                  <ul class="flex flex-col gap-2 rounded-field px-4 py-3 font-sans text-caption" [class]="c().warn" aria-label="Files your doctors can't open">
+                    @for (w of reviewWarnings(); track w.id) {
+                      <li class="flex items-start gap-1.5" data-testid="view-warning">
+                        <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                        <span class="min-w-0 wrap-anywhere"><span class="font-semibold">{{ w.title }}:</span> {{ w.text }}</span>
+                      </li>
+                    }
+                  </ul>
+                }
 
                 @for (n of folderNotices(); track n.id) {
                   <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note">
@@ -601,12 +648,25 @@ export class ShareDialog implements OnInit {
     const ids = this.doctorIds();
     return (this.doctors() ?? []).filter((d) => ids.includes(d.specialist.id));
   });
-  protected readonly chosenNames = computed(() => {
+  /** The chosen doctors' names (the share's doctor in edit mode). */
+  protected readonly chosenNameList = computed(() => {
     const ids = this.doctorIds();
     const byId = new Map((this.doctors() ?? []).map((d) => [d.specialist.id, d.specialist.name]));
     const grantDoctor = this.grant()?.specialist;
     if (grantDoctor) byId.set(grantDoctor.id, grantDoctor.name);
-    return ids.map((id) => this.dr(byId.get(id))).join(', ');
+    return ids.map((id) => byId.get(id) ?? '');
+  });
+  protected readonly chosenNames = computed(() => this.chosenNameList().map((n) => this.dr(n)).join(', '));
+  /** D32 on the review: each chosen document the doctor(s) can't open in VideoMed. */
+  protected readonly reviewWarnings = computed(() => {
+    if (this.scope() !== 'selected') return [];
+    const names = this.chosenNameList();
+    const byId = new Map((this.docs() ?? []).map((d) => [d.id, d]));
+    return this.documentIds().flatMap((id) => {
+      const doc = byId.get(id);
+      const text = doc ? documentViewWarning(doc, names) : null;
+      return doc && text ? [{ id, title: doc.title, text }] : [];
+    });
   });
 
   private readonly form = computed(() => ({
