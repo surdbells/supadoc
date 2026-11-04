@@ -235,4 +235,20 @@ describe('AvailabilityCalendarStore', () => {
     expect(specialists.availability).not.toHaveBeenCalled();
     expect(specialists.daySlots).not.toHaveBeenCalled();
   });
+
+  it("keeps the doctor's own zone from the responses, and forgets it for another doctor", () => {
+    const { store, availability } = setup({ '2026-10-16': 'available' });
+    store.load('doc-1', TZ);
+    expect(store.doctorTz()).toBeNull(); // an older API sends no doctor_tz
+
+    availability.mockImplementation((_id, p) =>
+      of({ status: 'success', message: 'OK', data: { ...range(p.from, p.to), doctor_tz: 'America/Chicago' } }),
+    );
+    store.refresh();
+    expect(store.doctorTz()).toBe('America/Chicago');
+
+    availability.mockImplementation((_id, p) => of({ status: 'success', message: 'OK', data: range(p.from, p.to) }));
+    store.load('doc-2', TZ);
+    expect(store.doctorTz()).toBeNull();
+  });
 });

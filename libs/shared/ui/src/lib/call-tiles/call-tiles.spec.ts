@@ -1,5 +1,11 @@
 import { TestBed } from '@angular/core/testing';
-import { CallTilesComponent, CallVideoTrack } from './call-tiles';
+import {
+  CALL_GRID_CLASS,
+  CALL_SELF_VIEW_CLASS,
+  CallSelfTileComponent,
+  CallTilesComponent,
+  CallVideoTrack,
+} from './call-tiles';
 import {
   buildCallTiles,
   CALL_RECORDER_UID,
@@ -182,5 +188,118 @@ describe('CallTilesComponent', () => {
     expect(screen.played.length).toBe(1);
     fixture.componentInstance.detach(100);
     expect(screen.stops).toBe(1);
+  });
+
+  it('marks only the 1:1 main video with its fit (contain by default)', async () => {
+    const fixture = await render([doctor, self]);
+    const root: HTMLElement = fixture.nativeElement;
+    const main = () => fixture.componentInstance.elementFor(2) as HTMLElement;
+    expect(main().getAttribute('data-sd-fit')).toBe('contain');
+    expect(fixture.componentInstance.elementFor(1)?.hasAttribute('data-sd-fit')).toBe(false);
+
+    fixture.componentRef.setInput('mainFit', 'cover');
+    fixture.detectChanges();
+    expect(main().getAttribute('data-sd-fit')).toBe('cover');
+
+    // Grid tiles always cover: no attribute.
+    fixture.componentRef.setInput('tiles', [doctor, guest, self]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(root.querySelectorAll('[data-sd-fit]').length).toBe(0);
+  });
+
+  it('keeps the self view off the stage when hidden or external, its track waiting to play again', async () => {
+    const fixture = await render([doctor, self]);
+    const root: HTMLElement = fixture.nativeElement;
+    const cam = fakeTrack();
+    fixture.componentInstance.attach(1, cam);
+    expect(cam.played.length).toBe(1);
+    expect(root.querySelectorAll('.sd-tile').length).toBe(2);
+
+    for (const mode of ['hidden', 'external'] as const) {
+      fixture.componentRef.setInput('selfView', mode);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(root.querySelectorAll('.sd-tile').length).toBe(1);
+      expect(fixture.componentInstance.elementFor(1)).toBeNull();
+      expect(root.textContent).not.toContain('You');
+    }
+    expect(cam.stops).toBe(1); // stopped once when the picture-in-picture went
+
+    fixture.componentRef.setInput('selfView', 'pip');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(cam.played.length).toBe(2);
+    expect(cam.played[1]).toBe(fixture.componentInstance.elementFor(1));
+
+    // On the grid too, with the count of tiles actually shown.
+    fixture.componentRef.setInput('tiles', [doctor, guest, self]);
+    fixture.componentRef.setInput('selfView', 'external');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(root.querySelector('[data-count="2"]')).toBeTruthy();
+  });
+
+  it('places the picture-in-picture bottom-right with no control-bar offset', () => {
+    expect(CALL_SELF_VIEW_CLASS).toContain('bottom-2');
+    expect(CALL_SELF_VIEW_CLASS).not.toMatch(/bottom-(28|32)|top-3/);
+    expect(CALL_GRID_CLASS).toBe('p-1.5 roomy:p-2');
+  });
+});
+
+describe('CallSelfTileComponent', () => {
+  async function render(tile: CallTile) {
+    await TestBed.configureTestingModule({
+      imports: [CallSelfTileComponent],
+      providers: [provideSupadocIcons()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CallSelfTileComponent);
+    fixture.componentRef.setInput('tile', tile);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    return fixture;
+  }
+
+  it('is a labelled 48×64 preview that plays the local track and stops it', async () => {
+    const fixture = await render(self);
+    const root: HTMLElement = fixture.nativeElement;
+    const box = root.querySelector('[role="img"]') as HTMLElement;
+    expect(box.getAttribute('aria-label')).toBe('Your camera preview');
+    expect(box.className).toContain('h-16');
+    expect(box.className).toContain('w-12');
+
+    const cam = fakeTrack();
+    fixture.componentRef.setInput('track', cam);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(cam.played).toEqual([root.querySelector('[data-sd-self-video]')]);
+
+    // Hidden: nothing shows and playback stops; shown again: it plays again.
+    fixture.componentRef.setInput('hidden', true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(root.querySelector('[role="img"]')).toBeNull();
+    expect(cam.stops).toBe(1);
+    fixture.componentRef.setInput('hidden', false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(cam.played.length).toBe(2);
+
+    // A new track replaces (and stops) the old one; destroy stops it.
+    const other = fakeTrack();
+    fixture.componentInstance.attach(other);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(cam.stops).toBe(2);
+    expect(other.played.length).toBe(1);
+    fixture.destroy();
+    expect(other.stops).toBe(1);
+  });
+
+  it('shows the initials and the muted badge when the camera is off', async () => {
+    const fixture = await render({ ...self, hasVideo: false, muted: true });
+    const root: HTMLElement = fixture.nativeElement;
+    expect(root.textContent).toContain('TA');
+    expect(root.querySelector('.bg-alert')).toBeTruthy();
   });
 });

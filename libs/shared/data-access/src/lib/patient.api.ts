@@ -10,7 +10,9 @@ import type {
   ReadingKey,
   RecordVitalsInput,
   SessionDto,
+  SetTimeZoneInput,
   SuccessResponse,
+  TimeZoneStateDto,
   TwoFactorEnableDto,
   TwoFactorSetupDto,
   VitalHistoryDto,
@@ -84,6 +86,18 @@ export class PatientApi {
       'api/portal/me',
       params,
     );
+  }
+
+  /**
+   * PUT /api/portal/me/timezone — the zone for my emails, texts and notices
+   * (the app itself always shows this device's zone). `auto` (detected) only
+   * writes while none was ever set; `manual` always writes.
+   */
+  setTimeZone(body: Omit<SetTimeZoneInput, 'shift_slots'>): Observable<SuccessResponse<TimeZoneStateDto>> {
+    return this.api.put<SuccessResponse<TimeZoneStateDto>>('api/portal/me/timezone', {
+      timezone: body.timezone,
+      source: body.source,
+    });
   }
 
   /** POST /api/portal/me/password — change the password. */

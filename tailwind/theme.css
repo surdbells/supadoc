@@ -30,6 +30,9 @@
 @custom-variant roomy (@container stage (min-width: 30rem) and (min-height: 21rem));
 /* …and `tall:` when it also has the height for decorative extras. */
 @custom-variant tall (@container stage (min-width: 30rem) and (min-height: 23rem));
+/* The call control bar sits in an inline-size container named `callbar`;
+   `callbar:` shows the controls' visible labels once it is 34rem wide. */
+@custom-variant callbar (@container callbar (min-width: 34rem));
 
 @theme {
   /* ===== Brand =====
@@ -245,12 +248,22 @@
   }
 }
 
+/* ===== Call video fit =====
+ * `sd-call-tiles` marks the 1:1 main tile `data-sd-fit="contain"` (the default:
+ * the whole picture, never cropped, on a dark backdrop) or "cover". Agora
+ * writes `object-fit` inline on its <video>, hence !important. */
+[data-sd-fit='contain'] video {
+  object-fit: contain !important;
+  background: #0a1628;
+}
+
 /* ===== Consultation cockpit — light theme =====
  * The call cockpits (`.sd-call`) are dark by default. In light mode we flip only
- * the surrounding CHROME (panels, notes, top bar, chat); the video stage
- * (`.sd-stage`) stays dark in both themes because video reads best on black, so
- * its dark utilities are re-asserted below. Higher specificity than the base
- * Tailwind utilities, so no template class changes are needed. */
+ * the surrounding CHROME (panels, notes, top bar); the video DOCK — the stage
+ * (`.sd-stage`) and its control bar (`.sd-dock`) — stays dark in both themes
+ * because video reads best on black, so its dark utilities are re-asserted
+ * below. Higher specificity than the base Tailwind utilities, so no template
+ * class changes are needed. */
 .sd-call[data-theme='light'] {
   background-color: #eef4f8;
   color: #1c2b3a;
@@ -300,10 +313,12 @@
 .sd-call[data-theme='light'] .text-white\/60 {
   color: #546e7a;
 }
+/* Muted text stays AA on white (slate ≈ 5.4:1). New call markup uses /60 at
+   least for anything people need to read. */
 .sd-call[data-theme='light'] .text-white\/50,
 .sd-call[data-theme='light'] .text-white\/45,
 .sd-call[data-theme='light'] .text-white\/40 {
-  color: #7c909a;
+  color: #546e7a;
 }
 .sd-call[data-theme='light'] .text-white\/30,
 .sd-call[data-theme='light'] .text-white\/25 {
@@ -318,36 +333,56 @@
   color: #0b62e4;
 }
 
-/* Re-assert dark inside the video stage (always dark, both themes) */
-.sd-call[data-theme='light'] .sd-stage .bg-abyss {
+/* Re-assert dark inside the video dock — the stage and its control bar
+   (always dark, both themes) */
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-abyss {
   background-color: #0a1628;
 }
-.sd-call[data-theme='light'] .sd-stage .bg-white\/10 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-ink {
+  background-color: #1c2b3a;
+}
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-white\/\[0\.04\] {
+  background-color: rgb(255 255 255 / 0.04);
+}
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-white\/10 {
   background-color: rgb(255 255 255 / 0.1);
 }
-.sd-call[data-theme='light'] .sd-stage .bg-white\/15 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-white\/15 {
   background-color: rgb(255 255 255 / 0.15);
 }
-.sd-call[data-theme='light'] .sd-stage .bg-white\/25 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-white\/25 {
   background-color: rgb(255 255 255 / 0.25);
 }
-.sd-call[data-theme='light'] .sd-stage .border-white\/15 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .border-white\/10 {
+  border-color: rgb(255 255 255 / 0.1);
+}
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .border-white\/15 {
   border-color: rgb(255 255 255 / 0.15);
 }
-.sd-call[data-theme='light'] .sd-stage .text-white {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white {
   color: #ffffff;
 }
-.sd-call[data-theme='light'] .sd-stage .text-white\/90 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white\/90 {
   color: rgb(255 255 255 / 0.9);
 }
-.sd-call[data-theme='light'] .sd-stage .text-white\/80 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white\/85 {
+  color: rgb(255 255 255 / 0.85);
+}
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white\/80 {
   color: rgb(255 255 255 / 0.8);
 }
-.sd-call[data-theme='light'] .sd-stage .text-white\/70 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white\/75 {
+  color: rgb(255 255 255 / 0.75);
+}
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white\/70 {
   color: rgb(255 255 255 / 0.7);
 }
-.sd-call[data-theme='light'] .sd-stage .text-white\/60 {
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-white\/60 {
   color: rgb(255 255 255 / 0.6);
+}
+/* Frost (focus rings, "New" pills) reads fine on the dark dock: keep it. */
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .text-frost {
+  color: #bbdefb;
 }
 
 /* ===== No visible scrollbars =====

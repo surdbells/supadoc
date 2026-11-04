@@ -1,4 +1,4 @@
-import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { API_CONFIG } from './api-config';
@@ -68,6 +68,26 @@ export class ApiService {
   }
 
   /**
+   * GET a binary Blob with the whole response (status and headers), e.g. the
+   * doctor's view-only document with its `X-SD-View-Ref`. Through the
+   * interceptors like every request (bearer token, session refresh); `headers`
+   * adds request headers such as `X-SD-Viewer: 1`. Only headers the API's CORS
+   * exposes can be read cross-origin.
+   */
+  getBlobResponse(
+    path: string,
+    params?: QueryParams,
+    headers?: Record<string, string>,
+  ): Observable<HttpResponse<Blob>> {
+    return this.http.get(this.url(path), {
+      params: this.toParams(params),
+      ...(headers ? { headers: new HttpHeaders(headers) } : {}),
+      observe: 'response',
+      responseType: 'blob',
+    });
+  }
+
+  /**
    * POST a JSON body. `{ passive: true }` marks it as started by a background
    * poll (e.g. the token refresh a poll needed), so it is no activity either.
    */
@@ -86,8 +106,11 @@ export class ApiService {
     return this.http.patch<T>(this.url(path), body);
   }
 
-  delete<T>(path: string): Observable<T> {
-    return this.http.delete<T>(this.url(path));
+  /** DELETE, with optional query parameters (e.g. `?scope=following&tz=…`). */
+  delete<T>(path: string, params?: QueryParams): Observable<T> {
+    return params
+      ? this.http.delete<T>(this.url(path), { params: this.toParams(params) })
+      : this.http.delete<T>(this.url(path));
   }
 
   /**

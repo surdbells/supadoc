@@ -12,6 +12,7 @@ import {
   output,
   signal,
   untracked,
+  viewChild,
   viewChildren,
 } from '@angular/core';
 import { IconComponent } from '../icon/icon';
@@ -43,18 +44,31 @@ export interface CallTileReadyEvent {
 }
 
 /**
- * Today's patient self view: top-right on a small stage, above the controls on
- * a roomy one. Must set a width and height (the tile is a size container).
+ * The self-view picture-in-picture, bottom-right of the stage (the controls
+ * sit below the stage now, so no offset for a control bar). Must set a width
+ * and height (the tile is a size container).
  */
 export const CALL_SELF_VIEW_CLASS =
-  'right-3 top-3 h-24 w-[4.5rem] rounded-2xl border border-white/15 bg-abyss shadow-lg roomy:top-auto roomy:right-4 roomy:bottom-32 roomy:h-32 roomy:w-24';
+  'right-2 bottom-2 h-20 w-[3.75rem] rounded-xl border border-white/15 bg-abyss shadow-lg roomy:right-3 roomy:bottom-3 roomy:h-[6.75rem] roomy:w-36';
 
-/** Today's doctor self view (a little larger, lower controls). */
+/** The doctor's self view (a little larger on a roomy stage). */
 export const CALL_SELF_VIEW_CLASS_DOCTOR =
-  'right-3 top-3 h-24 w-[4.5rem] rounded-2xl border border-white/15 bg-abyss shadow-lg roomy:top-auto roomy:right-4 roomy:bottom-28 roomy:h-40 roomy:w-28';
+  'right-2 bottom-2 h-20 w-[3.75rem] rounded-xl border border-white/15 bg-abyss shadow-lg roomy:right-3 roomy:bottom-3 roomy:h-[7.5rem] roomy:w-40';
 
-/** Grid insets that keep the tiles clear of the stage's bottom control bar. */
-export const CALL_GRID_CLASS = 'p-1.5 pb-[4.5rem] roomy:p-2 roomy:pb-[7rem]';
+/** Grid insets (the controls sit below the stage, so no bottom allowance). */
+export const CALL_GRID_CLASS = 'p-1.5 roomy:p-2';
+
+/**
+ * Where the viewer's own camera shows in 1:1 (and on the grid):
+ * `pip` — the picture-in-picture on the stage; `external` — not on the stage,
+ * the host shows `<sd-call-self-tile>` elsewhere (a phone's control row);
+ * `hidden` — not shown ("Hide my preview"). With `external` / `hidden` the
+ * self track stays attached here (`attach()`), it just isn't played.
+ */
+export type CallSelfViewMode = 'pip' | 'hidden' | 'external';
+
+/** How the 1:1 main video fills its tile: `contain` (whole picture, never cropped) or `cover`. */
+export type CallVideoFit = 'contain' | 'cover';
 
 const ROLE_TEXT: Record<CallTileRole, string> = {
   patient: 'Patient',
@@ -131,9 +145,12 @@ interface TileView {
  * ```html
  * <!-- Always rendered (not inside an @if) so attach() has somewhere to go. -->
  * <div class="sd-stage relative [container-name:stage] [container-type:size] …">
- *   <sd-call-tiles [tiles]="tiles()" [selfViewClass]="selfView" />  <!-- doctor: CALL_SELF_VIEW_CLASS_DOCTOR -->
- *   @if (waiting()) { …overlay… }  <!-- controls etc. stay as they are -->
+ *   <sd-call-tiles [tiles]="tiles()" [selfViewClass]="selfView" [mainFit]="fit()"
+ *     [selfView]="hidePreview() ? 'hidden' : wide() ? 'pip' : 'external'" />  <!-- doctor: CALL_SELF_VIEW_CLASS_DOCTOR -->
+ *   @if (waiting()) { …overlay… }
  * </div>
+ * <!-- the control row, below the stage; below 640px the self view lives here -->
+ * @if (!wide() && selfTile(); as me) { <sd-call-self-tile [tile]="me" [track]="camTrack()" [hidden]="hidePreview()" /> }
  * ```
  * The host's own overlays can follow the layout with `callTilesMode(tiles())`
  * (e.g. drop its name tag on the grid, or pass `[spotlightLabel]="false"` to
@@ -215,7 +232,12 @@ interface TileView {
           [attr.aria-label]="v.a11y"
         >
           <!-- The uid's video plays in here (track.play) -->
-          <div #video class="absolute inset-0" [attr.data-key]="v.key"></div>
+          <div
+            #video
+            class="absolute inset-0"
+            [attr.data-key]="v.key"
+            [attr.data-sd-fit]="v.kind === 'main' ? mainFit() : null"
+          ></div>
 
           @if (!v.tile.hasVideo) {
             @switch (v.kind) {
@@ -226,8 +248,7 @@ interface TileView {
               }
               @case ('main') {
                 <div
-                  class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-ink pb-16 pl-6 pt-12 text-center text-white/75 roomy:pb-32 roomy:pt-24"
-                  [class]="hasPip() ? 'pr-[5.5rem] roomy:pr-36' : 'pr-6'"
+                  class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-ink p-6 text-center text-white/75"
                   aria-hidden="true"
                 >
                   <span
@@ -320,6 +341,20 @@ export class CallTilesComponent {
   readonly showRole = input(false);
   /** Announce people joining and leaving to screen readers. */
   readonly announce = input(true);
+  /**
+   * How the 1:1 main video fills the stage: `contain` (default — the whole
+   * picture on a dark backdrop, never cropped; a portrait phone camera shows
+   * the whole face) or `cover`. Grid tiles always cover.
+   */
+  readonly mainFit = input<CallVideoFit>('contain');
+  /**
+   * Where the viewer's own camera shows: `pip` (default), `external` (the host
+   * renders `<sd-call-self-tile>` instead — pick one with a single
+   * `matchMedia` signal so the camera never plays in two places) or `hidden`.
+   * With `external` / `hidden` there is no self tile on the stage at all (1:1
+   * or grid); its track stays attached and plays again once it is back.
+   */
+  readonly selfView = input<CallSelfViewMode>('pip');
 
   /** A uid's tile was rendered: its video element is ready for `track.play()`. */
   readonly tileReady = output<CallTileReadyEvent>();
@@ -332,10 +367,9 @@ export class CallTilesComponent {
   readonly ready = this.readyKeys.asReadonly();
 
   protected readonly isGrid = computed(() => this.mode() === 'grid');
-  protected readonly hasPip = computed(() => !this.isGrid() && this.tiles().some((t) => t.self));
   protected readonly countAttr = computed(() => {
     if (!this.isGrid()) return null;
-    const n = this.domOrder().length;
+    const n = this.view().length;
     return n > 6 ? 'many' : String(n);
   });
   protected readonly announcement = signal('');
@@ -356,12 +390,13 @@ export class CallTilesComponent {
   protected readonly view = computed<readonly TileView[]>(() => {
     const tiles = this.tiles();
     const grid = this.isGrid();
+    const showSelf = this.selfView() === 'pip';
     const main = grid ? undefined : tiles.find((t) => !t.self);
     const byKey = new Map<string, { tile: CallTile; order: number }>();
     tiles.forEach((tile, order) => byKey.set(String(tile.uid), { tile, order }));
     return this.domOrder().flatMap((key) => {
       const hit = byKey.get(key);
-      if (!hit) return [];
+      if (!hit || (hit.tile.self && !showSelf)) return [];
       const { tile, order } = hit;
       const kind: TileView['kind'] = grid ? 'grid' : tile.self ? 'pip' : tile === main ? 'main' : 'grid';
       return [
@@ -477,9 +512,7 @@ export class CallTilesComponent {
   }
 
   private play(a: Attachment, el: HTMLElement): void {
-    if (a.el === el) return;
-    a.track.play(el, a.config);
-    a.el = el;
+    playAttachment(a, el);
   }
 
   private syncElements(hosts: readonly ElementRef<HTMLElement>[]): void {
@@ -520,4 +553,114 @@ export class CallTilesComponent {
 
 function sameConfig(a?: CallVideoPlayConfig, b?: CallVideoPlayConfig): boolean {
   return a?.mirror === b?.mirror && a?.fit === b?.fit;
+}
+
+/** Plays an attachment's track in `el` (once: a no-op when it already plays there). */
+function playAttachment(a: Attachment, el: HTMLElement): void {
+  if (a.el === el) return;
+  a.track.play(el, a.config);
+  a.el = el;
+}
+
+/**
+ * The viewer's own camera as a small 48×64 tile OUTSIDE the stage — at the
+ * start of a phone's control row, where a picture-in-picture would cover the
+ * other person's face. Plays the local video track given as `[track]` (or
+ * `attach()`), with the initials when the camera is off.
+ *
+ * Render either this (with `<sd-call-tiles selfView="external">`) or the
+ * tiles' own picture-in-picture (`selfView="pip"`), switched by one
+ * `matchMedia('(min-width: 640px)')` signal, never both: an Agora track plays
+ * in one element at a time, and stopping one playback stops the other.
+ */
+@Component({
+  selector: 'sd-call-self-tile',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [IconComponent],
+  host: { class: 'block shrink-0', '[class.hidden]': 'hidden()' },
+  template: `
+    @if (!hidden()) {
+      <div
+        role="img"
+        aria-label="Your camera preview"
+        class="relative h-16 w-12 shrink-0 overflow-hidden rounded-xl border border-white/15 bg-abyss"
+      >
+        <div #video class="absolute inset-0" data-sd-self-video></div>
+        @if (!tile().hasVideo) {
+          <div class="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-abyss" aria-hidden="true">
+            <span
+              class="flex size-8 items-center justify-center rounded-full font-heading text-caption font-semibold text-white"
+              [class]="tone()"
+            >
+              {{ initials() }}
+            </span>
+            <sd-icon name="video-off" [size]="12" class="text-white/70" />
+          </div>
+        }
+        @if (tile().muted) {
+          <span
+            class="absolute bottom-1 left-1 flex size-4 items-center justify-center rounded-full bg-alert text-white"
+            aria-hidden="true"
+          >
+            <sd-icon name="mic-off" [size]="10" />
+          </span>
+        }
+      </div>
+    }
+  `,
+})
+export class CallSelfTileComponent {
+  /** The viewer's own tile (from `buildCallTiles`: the one with `self`). */
+  readonly tile = input.required<CallTile>();
+  /** "Hide my preview": nothing shows and the track stops playing here. */
+  readonly hidden = input(false);
+  /** The local camera track to play (null: none yet). `attach()` does the same imperatively. */
+  readonly track = input<CallVideoTrack | null>(null);
+  /** Agora play options for it (local video mirrors by default). */
+  readonly playConfig = input<CallVideoPlayConfig | undefined>(undefined);
+
+  protected readonly initials = computed(() => callTileInitials(this.tile().name));
+  protected readonly tone = computed(() => AVATAR_TONE[this.tile().role] ?? AVATAR_TONE.guest);
+
+  /** What should play: the input, unless `attach()` / `detach()` said otherwise since. */
+  private readonly wanted = linkedSignal<{ track: CallVideoTrack; config?: CallVideoPlayConfig } | null>(() => {
+    const track = this.track();
+    return track ? { track, config: this.playConfig() } : null;
+  });
+  private readonly videoHost = viewChild<ElementRef<HTMLElement>>('video');
+  private playing: Attachment | null = null;
+
+  constructor() {
+    afterRenderEffect(() => {
+      const el = this.videoHost()?.nativeElement ?? null;
+      const wanted = this.wanted();
+      untracked(() => this.sync(wanted, el));
+    });
+    inject(DestroyRef).onDestroy(() => this.stopPlaying());
+  }
+
+  /** Plays `track` here (replacing, and stopping, a different one). */
+  attach(track: CallVideoTrack, config?: CallVideoPlayConfig): void {
+    this.wanted.set({ track, config });
+  }
+
+  /** Stops playing here and forgets the track. */
+  detach(): void {
+    this.wanted.set(null);
+  }
+
+  private sync(wanted: { track: CallVideoTrack; config?: CallVideoPlayConfig } | null, el: HTMLElement | null): void {
+    const p = this.playing;
+    if (wanted && el && p && p.track === wanted.track && sameConfig(p.config, wanted.config) && p.el === el) return;
+    this.stopPlaying();
+    if (!wanted || !el) return;
+    const next: Attachment = { track: wanted.track, config: wanted.config, el: null };
+    playAttachment(next, el);
+    this.playing = next;
+  }
+
+  private stopPlaying(): void {
+    if (this.playing?.el) this.playing.track.stop();
+    this.playing = null;
+  }
 }

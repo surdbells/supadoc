@@ -158,6 +158,13 @@ import {
   LucideChevronsUpDown,
   LucideFile,
   LucideTarget,
+  LucideEllipsis,
+  LucideZoomIn,
+  LucideZoomOut,
+  LucideRepeat,
+  LucideWifi,
+  LucideCaptions,
+  LucideCaptionsOff,
 } from '@lucide/angular';
 
 /**
@@ -336,6 +343,15 @@ export const SUPADOC_ICONS = [
   LucideChevronsUpDown,
   LucideFile,
   LucideTarget,
+  // Call screens and the document viewer: the More menu, zoom, a repeating
+  // availability series, connection quality, captions on / off.
+  LucideEllipsis,
+  LucideZoomIn,
+  LucideZoomOut,
+  LucideRepeat,
+  LucideWifi,
+  LucideCaptions,
+  LucideCaptionsOff,
 ];
 
 /**

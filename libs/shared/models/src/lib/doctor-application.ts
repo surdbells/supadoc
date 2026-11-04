@@ -90,6 +90,11 @@ export interface ApplicationPersonal {
   /** ISO 3166-1 alpha-2. */
   country_of_residence: string;
   city: string;
+  /**
+   * Optional IANA zone (pre-filled from the browser): the interview time is
+   * shown to the applicant in it, and an approved doctor starts with it.
+   */
+  time_zone?: string | null;
 }
 
 export interface ApplicationProfessional {
@@ -374,6 +379,14 @@ export interface ApplicationInterviewDto {
   /** e.g. "meet.google.com". */
   meeting_host: string;
   note: string | null;
+  /** The applicant's zone (`personal.time_zone`), or null when they gave none. */
+  applicant_time_zone: string | null;
+  /**
+   * The time in the applicant's zone with the clinic time when it differs,
+   * e.g. "Wed 14 Oct, 4:00 AM CDT (10:00 AM WAT, VideoMed time)"; null when no
+   * zone is set.
+   */
+  applicant_label: string | null;
 }
 
 export interface ApplicationInfoRequestItem {

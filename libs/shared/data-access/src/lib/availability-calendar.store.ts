@@ -40,7 +40,8 @@ export interface AvailabilityCalendarOptions {
  * `sd-booking-calendar` on every screen that picks a consultation time.
  * Provide it per component (`providers: [AvailabilityCalendarStore]`), then
  * `load(id)` and bind: `days`, `month`, `selectedDate`, `slots`, `loading`,
- * `slotsLoading`, `min`, `max`, `nextAvailable`, `timeZoneLabel`; wire the
+ * `slotsLoading`, `min`, `max`, `nextAvailable`, `timeZoneLabel` (and
+ * `doctorTz` as the calendar's `secondaryTimeZone`); wire the
  * calendar's `monthChange` to `setMonth` and `selectedDateChange` to
  * `selectDate`. Its `jumpToNext` needs no wiring (the calendar has already
  * selected the day) — if wired, pass the day: `cal.jumpToNext($event)`.
@@ -70,6 +71,12 @@ export class AvailabilityCalendarStore {
    * actually used when it didn't know that one (it falls back to the clinic's).
    */
   readonly tz = signal<string>(viewerTimeZone());
+  /**
+   * The doctor's own zone (the responses' `doctor_tz`), for "the doctor's
+   * time" labels — `sd-booking-calendar`'s `[secondaryTimeZone]`. Null until a
+   * response carries it (an older API never does).
+   */
+  readonly doctorTz = signal<string | null>(null);
   /** The visible month, 'YYYY-MM'. */
   readonly month = signal<string>(ymdInZone(new Date()).slice(0, 7));
   /** The visible grid's availability (null while it loads, or after an error). */
@@ -153,6 +160,7 @@ export class AvailabilityCalendarStore {
     }
     this.clearCaches();
     this.lastRange.set(null);
+    if (specialistId !== this.specialistId()) this.doctorTz.set(null);
     this.specialistId.set(specialistId);
     this.scope.set(scope);
     this.requestedZone = zone;
@@ -245,6 +253,7 @@ export class AvailabilityCalendarStore {
       .subscribe({
         next: (res) => {
           this.adoptZone(res.data.tz);
+          this.adoptDoctorZone(res.data.doctor_tz);
           this.months.set(this.monthKey(ym), res.data);
           this.cacheVersion.update((v) => v + 1);
           if (this.month() !== ym) return; // moved on meanwhile
@@ -305,6 +314,7 @@ export class AvailabilityCalendarStore {
       .subscribe({
         next: (res) => {
           this.adoptZone(res.data.tz);
+          this.adoptDoctorZone(res.data.doctor_tz);
           this.daySlotsCache.set(`${id}|${this.tz()}|${date}`, res.data.slots);
           this.slotsLoading.set(false);
           if (this.range()) this.error.set(null);
@@ -352,6 +362,11 @@ export class AvailabilityCalendarStore {
    */
   private adoptZone(tz: string | undefined): void {
     if (tz && tz !== this.tz()) this.tz.set(tz);
+  }
+
+  /** The doctor's zone, when the response says (an older API leaves it as it was). */
+  private adoptDoctorZone(tz: string | undefined): void {
+    if (tz && tz !== this.doctorTz()) this.doctorTz.set(tz);
   }
 
   private clearCaches(): void {

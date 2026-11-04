@@ -1,8 +1,13 @@
 import { inject, Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { map, Observable } from 'rxjs';
 import type {
   CallPresenceMap,
   AddAvailabilityInput,
+  AddAvailabilityResultDto,
+  DeleteAvailabilityResultDto,
+  DeleteAvailabilityScope,
+  DoctorTimeZoneResultDto,
+  SetTimeZoneInput,
   AppointmentDto,
   AppointmentWhen,
   AvailabilityRangeDto,
@@ -74,6 +79,28 @@ import { apiErrorFields } from './api-error.util';
 import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 
 const STANDING_CODES: readonly DoctorStandingCode[] = ['doctor_suspended', 'doctor_not_approved', 'terms_required'];
+
+/**
+ * Request header the doctor's view-only document viewer sends (`X-SD-Viewer:
+ * 1`). The API refuses the document route without it (409 `update_required`),
+ * so a tab from before the viewer can't open a file in the browser's own PDF
+ * viewer (which has a download button).
+ */
+export const DOCUMENT_VIEWER_HEADER = 'X-SD-Viewer';
+
+/** A view reference the API issues per view: "VM-" + 8 upper-case hex digits. */
+const VIEW_REF_PATTERN = /^VM-[0-9A-F]{8}$/;
+
+/** A patient document fetched for the view-only viewer. */
+export interface PatientDocumentView {
+  readonly blob: Blob;
+  /** The type the API served it as (fixed per extension, e.g. application/pdf). */
+  readonly mime: string;
+  /** The view's reference for the watermark and the print record; null from an older API. */
+  readonly viewRef: string | null;
+  /** When the view was recorded, ISO (the API's clock; this device's when not sent). */
+  readonly viewedAt: string;
+}
 
 /** Whether `code` (e.g. an API `errors.code`) is a doctor-standing refusal. */
 export function isDoctorStandingCode(code: unknown): code is DoctorStandingCode {
@@ -292,14 +319,66 @@ export class DoctorApi {
   }
 
   /**
-   * GET a patient document's bytes (authenticated) for preview/download. Every
-   * open is recorded and shown to the patient. 404 `errors.code = 'not_shared'`
-   * when it is no longer shared with you; 503 `view_unavailable` when the
-   * open could not be recorded (nothing is streamed then).
+   * GET a patient document's bytes (authenticated). Every open is recorded and
+   * shown to the patient. 404 `errors.code = 'not_shared'` when it is no longer
+   * shared with you; 503 `view_unavailable` when the open could not be
+   * recorded (nothing is streamed then).
+   *
+   * @deprecated Doctors may only view or print patient documents: use
+   * {@link patientDocumentView} in the view-only viewer. The API now refuses
+   * this request (409 `update_required`: it lacks `X-SD-Viewer`).
    */
   patientDocumentBlob(id: string, docId: string): Observable<Blob> {
     return this.api.getBlob(
       `${this.base(id)}/patient-documents/${encodeURIComponent(docId)}/file`,
+    );
+  }
+
+  /**
+   * GET a patient document for the view-only viewer (sends `X-SD-Viewer: 1`).
+   * Every view is recorded and shown to the patient. `viewRef` is the API's
+   * `X-SD-View-Ref` when well-formed, else null (an older API sends none);
+   * `viewedAt` is `X-SD-Viewed-At`, else now. Errors: 404 `not_shared`, 415
+   * `not_viewable` (a type the viewer can't show — nothing is recorded), 409
+   * `update_required`, 503 `view_unavailable`.
+   */
+  patientDocumentView(id: string, docId: string): Observable<PatientDocumentView> {
+    return this.api
+      .getBlobResponse(
+        `${this.base(id)}/patient-documents/${encodeURIComponent(docId)}/file`,
+        undefined,
+        { [DOCUMENT_VIEWER_HEADER]: '1' },
+      )
+      .pipe(
+        map((res) => {
+          const blob = res.body ?? new Blob([]);
+          const type = (res.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
+          const ref = (res.headers.get('X-SD-View-Ref') ?? '').trim();
+          const at = res.headers.get('X-SD-Viewed-At');
+          const atMs = at ? Date.parse(at) : NaN;
+          return {
+            blob,
+            mime: type || blob.type,
+            viewRef: VIEW_REF_PATTERN.test(ref) ? ref : null,
+            viewedAt: Number.isFinite(atMs) && at ? at : new Date().toISOString(),
+          };
+        }),
+      );
+  }
+
+  /**
+   * POST .../patient-documents/{docId}/printed — record a print before
+   * printing (the patient sees it). Sends `{ view_ref }` only with a view
+   * reference, else `{}`. Print only after this succeeds.
+   */
+  patientDocumentPrinted(
+    id: string,
+    docId: string,
+    viewRef: string | null,
+  ): Observable<SuccessResponse<{ recorded: boolean }>> {
+    return this.api.post<SuccessResponse<{ recorded: boolean }>>(
+      `${this.base(id)}/patient-documents/${encodeURIComponent(docId)}/printed`,
+      viewRef !== null ? { view_ref: viewRef } : {},
     );
   }
 
@@ -480,6 +559,17 @@ export class DoctorApi {
     );
   }
 
+  /**
+   * PUT /api/doctor/timezone — save my time zone. `auto` (detected) only
+   * writes while none was ever set; `manual` always writes, and with
+   * `shift_slots: true` also moves my future unbooked open times and blocks so
+   * they keep the same clock times (`shifted` counts them). Allowed whatever my
+   * standing, but a suspended doctor can't shift (422 `shift_slots`).
+   */
+  setTimeZone(body: SetTimeZoneInput): Observable<SuccessResponse<DoctorTimeZoneResultDto>> {
+    return this.api.put<SuccessResponse<DoctorTimeZoneResultDto>>('api/doctor/timezone', body);
+  }
+
   /** POST /api/doctor/avatar — upload the doctor's headshot (multipart). */
   uploadAvatar(file: File): Observable<SuccessResponse<DoctorProfileDto>> {
     const form = new FormData();
@@ -499,28 +589,38 @@ export class DoctorApi {
 
   // ----- Availability (date-specific slots) -----
 
-  /** GET /api/doctor/availability — open/booked/blocked slots for a window. */
+  /**
+   * GET /api/doctor/availability — open/booked/blocked slots for a window.
+   * With `tz` (always the loaded profile zone) the dates are local days there
+   * and the answer echoes `tz`, `regular_hours` and `entire_day`; a stale `tz`
+   * is refused with 409 `timezone_changed`. Without it an older UTC answer.
+   */
   availability(
     from?: string,
     to?: string,
+    tz?: string,
   ): Observable<SuccessResponse<DoctorAvailabilityDto>> {
     return this.api.get<SuccessResponse<DoctorAvailabilityDto>>(
       'api/doctor/availability',
-      { from, to },
+      { from, to, tz },
     );
   }
 
-  /** POST /api/doctor/availability — publish open slots for a date. */
+  /**
+   * POST /api/doctor/availability — publish open slots: one date, or repeating
+   * (`repeat` daily / weekly / days, for `weeks`). 409 `timezone_changed` when
+   * `tz` is no longer my profile zone; 422 per field.
+   */
   addAvailability(
     input: AddAvailabilityInput,
-  ): Observable<SuccessResponse<{ created: number }>> {
-    return this.api.post<SuccessResponse<{ created: number }>>(
+  ): Observable<SuccessResponse<AddAvailabilityResultDto>> {
+    return this.api.post<SuccessResponse<AddAvailabilityResultDto>>(
       'api/doctor/availability',
       input,
     );
   }
 
-  /** POST /api/doctor/availability/block — block a day or time span. */
+  /** POST /api/doctor/availability/block — block a day or time span (409 `timezone_changed` when `tz` is stale). */
   blockAvailability(
     input: BlockAvailabilityInput,
   ): Observable<SuccessResponse<unknown>> {
@@ -530,10 +630,19 @@ export class DoctorApi {
     );
   }
 
-  /** DELETE /api/doctor/availability/{id} — remove a slot or block. */
-  deleteAvailability(id: string): Observable<SuccessResponse<unknown>> {
-    return this.api.delete<SuccessResponse<unknown>>(
+  /**
+   * DELETE /api/doctor/availability/{id}?scope=&tz= — remove a slot or block;
+   * `following` also removes the later times of its series. Booked times are
+   * never removed (`kept_booked`); `one` on a booked time is a 409.
+   */
+  deleteAvailability(
+    id: string,
+    scope: DeleteAvailabilityScope = 'one',
+    tz?: string,
+  ): Observable<SuccessResponse<DeleteAvailabilityResultDto>> {
+    return this.api.delete<SuccessResponse<DeleteAvailabilityResultDto>>(
       `api/doctor/availability/${encodeURIComponent(id)}`,
+      { scope, tz },
     );
   }
 

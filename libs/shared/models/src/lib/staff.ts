@@ -21,8 +21,13 @@ import type {
   TermsStateDto,
 } from './doctor-management';
 import type { LicenceRoute, SpecialistApplicationLinkDto } from './doctor-application';
+import type { TimeZoneSource } from './time-zone';
 
-/** Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end] "HH:MM". */
+/**
+ * Weekly availability: weekday ("0"=Sun … "6"=Sat) → list of [start, end]
+ * "HH:MM" windows on the doctor's own clock (their profile zone); an end of
+ * "24:00" means midnight.
+ */
 export type WeeklyHours = Record<string, [string, string][]>;
 
 /** A staff/admin/doctor account (mirrors the API `User::toArray()`). */
@@ -190,6 +195,11 @@ export interface DoctorAppointmentDto
    * the dashboard's `next` / `agenda` (other lists leave it out).
    */
   join_blocked?: DoctorStandingDto | null;
+  /**
+   * The patient's saved zone, for a "patient's time" label; null when they
+   * never set or detected one (absent from older APIs).
+   */
+  patient_timezone?: string | null;
 }
 
 /**
@@ -229,8 +239,16 @@ export interface DoctorDashboardDto {
   agenda: DoctorAppointmentDto[];
 }
 
-/** The doctor's own profile (specialist + contact email/phone + weekly availability). */
-export interface DoctorProfileDto extends SpecialistAdminDto {
+/**
+ * The doctor's own profile (specialist + contact email/phone + weekly
+ * availability). `timezone` is optional here (unlike {@link SpecialistDto}):
+ * an older API leaves it out, and the doctor app then uses the clinic zone.
+ */
+export interface DoctorProfileDto extends Omit<SpecialistAdminDto, 'timezone'> {
+  /** The doctor's effective IANA zone (absent from older APIs). */
+  timezone?: string;
+  /** `auto` (detected), `manual` (chosen) or null (never set); absent from older APIs. */
+  timezone_source?: TimeZoneSource | null;
   phone?: string | null;
   date_of_birth?: string | null;
   weekly_hours?: WeeklyHours | null;
@@ -261,6 +279,10 @@ export interface AvailabilitySlotDto {
   status: SlotStatus;
   reason: string | null;
   patient_name?: string;
+  /** Set on every time a repeating publish created (remove offers "This and later times"). */
+  series_id?: string | null;
+  /** A block covering the whole local day in the request's `tz` (absent from older APIs). */
+  entire_day?: boolean;
 }
 
 /** `GET /api/doctor/availability` payload. */
@@ -269,25 +291,93 @@ export interface DoctorAvailabilityDto {
   to: string;
   slot_minutes: number;
   slots: AvailabilitySlotDto[];
+  /**
+   * The zone the dates and times were read in (echoes the request's `tz`).
+   * Absent from an older API, which works in UTC: then adding and blocking
+   * times must stay off.
+   */
+  tz?: string;
+  /** The recurring weekly grid in play on days with no published times (absent from older APIs). */
+  regular_hours?: WeeklyHours | null;
+  /** `own` (the doctor's weekly hours) or `default` (the weekday default); null when none. */
+  regular_hours_source?: 'own' | 'default' | null;
 }
 
-/** Body for `POST /api/doctor/availability` (publish open slots). */
+/**
+ * How a publish repeats: `none` (that date only), `daily` (Mon–Sun),
+ * `weekly` (the start date's weekday) or `days` (the chosen weekdays).
+ */
+export type AvailabilityRepeat = 'none' | 'daily' | 'weekly' | 'days';
+
+/**
+ * Body for `POST /api/doctor/availability` (publish open slots). Dates and
+ * "HH:MM" are wall clock in `tz`.
+ */
 export interface AddAvailabilityInput {
+  /** 'YYYY-MM-DD' — the date, or the first day of a repeating publish. */
   date: string;
+  /** "HH:MM". */
   start: string;
+  /** "HH:MM", or "24:00" for midnight (the next local midnight). */
   end: string;
+  /** Slot length in minutes. */
   duration: number;
-  recurring?: boolean;
+  /**
+   * The doctor's loaded profile zone (`DoctorClock.profileZone()`), never the
+   * device's. A zone that is no longer the profile's is refused with 409
+   * `timezone_changed` (errors: `TimeZoneChangedError`).
+   */
+  tz: string;
+  /** Default 'none'. */
+  repeat?: AvailabilityRepeat;
+  /** `repeat: 'days'` only: weekdays, 0 = Sunday … 6 = Saturday. */
+  days?: number[];
+  /** 1–26, default 8 (ignored for 'none'). */
   weeks?: number;
+  /** @deprecated legacy: true ≡ repeat 'weekly' when `repeat` is absent. */
+  recurring?: boolean;
 }
 
-/** Body for `POST /api/doctor/availability/block`. */
+/** `POST /api/doctor/availability` result. */
+export interface AddAvailabilityResultDto {
+  created: number;
+  /** Already published at that start (skipped). */
+  existing: number;
+  /** Overlapped another open time (skipped). */
+  overlapping: number;
+  /** Earlier times today (a repeating publish skips them). */
+  past: number;
+  /** Created, but under a block (they open if the block is removed). */
+  blocked: number;
+  /** The new series' id; null for a one-time publish. */
+  series_id: string | null;
+  /** First / last created start, ISO UTC; null when none were created. */
+  first_at: string | null;
+  last_at: string | null;
+  /** The zone the request was read in (absent from an older API). */
+  tz: string;
+  repeat: AvailabilityRepeat;
+}
+
+/** Body for `POST /api/doctor/availability/block` — date and times are wall clock in `tz`. */
 export interface BlockAvailabilityInput {
   date: string;
   entire_day?: boolean;
   start?: string;
+  /** "HH:MM", or "24:00" for midnight. */
   end?: string;
   reason?: string;
+  /** The doctor's loaded profile zone (409 `timezone_changed` when stale). */
+  tz: string;
+}
+
+/** `DELETE /api/doctor/availability/{id}?scope=`: just this time, or it and the later times of its series. */
+export type DeleteAvailabilityScope = 'one' | 'following';
+
+/** `DELETE /api/doctor/availability/{id}` result; booked times are never removed. */
+export interface DeleteAvailabilityResultDto {
+  deleted: number;
+  kept_booked: number;
 }
 
 // ----- Staff notifications -----

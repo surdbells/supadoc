@@ -151,6 +151,8 @@ describe('booking calendar rules', () => {
       [disabled]="disabled()"
       timeZone="Africa/Lagos"
       timeZoneLabel="WAT"
+      [secondaryTimeZone]="otherTz()"
+      [secondaryWho]="otherWho()"
       (jumpToNext)="jumps.push($event)"
     >
       <p calendarEmpty class="alt">Other doctors are free that day</p>
@@ -170,6 +172,8 @@ class HostComponent {
   readonly next = signal<string | null>(null);
   readonly nextOnEmpty = signal(true);
   readonly disabled = signal(false);
+  readonly otherTz = signal<string | null>(null);
+  readonly otherWho = signal("Dr Smith's time");
   readonly jumps: string[] = [];
 }
 
@@ -486,6 +490,60 @@ describe('BookingCalendarComponent', () => {
     expect(cell('2026-10-15').getAttribute('aria-current')).toBeNull();
     // Yesterday is past now, though the range (and min) still say otherwise.
     expect(cell('2026-10-15').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  describe("the doctor's time", () => {
+    const d = '2026-10-20';
+    const caption = () => el.querySelector('[data-testid="cal-zone-caption"]');
+    const secondaries = () => [...el.querySelectorAll('[data-testid="cal-slot-secondary"]')].map((s) => s.textContent?.trim());
+
+    it('adds a second line per time, a caption and a spoken name only when the offsets differ', async () => {
+      host.selected.set(d);
+      host.slots.set([slot(d, '16:00'), slot(d, '17:30')]); // 4:00 PM WAT = 10:00 AM CDT (Chicago is on CDT in October)
+      host.otherTz.set('America/Chicago');
+      await render();
+
+      expect(secondaries()).toEqual(['10:00 AM CDT', '11:30 AM CDT']);
+      expect(caption()?.textContent?.trim()).toBe(
+        "Times are in your time zone (WAT). Dr Smith's time is Central Time (CDT).",
+      );
+      const radio = el.querySelector<HTMLInputElement>('input[type="radio"]');
+      expect(radio?.getAttribute('aria-label')).toBe("4:00 PM your time, 10:00 AM Dr Smith's time");
+
+      // Same offset (Douala is on WAT too): nothing extra, the default name.
+      host.otherTz.set('Africa/Douala');
+      await render();
+      expect(secondaries()).toEqual([]);
+      expect(caption()).toBeNull();
+      expect(el.querySelector('input[type="radio"]')?.hasAttribute('aria-label')).toBe(false);
+
+      // None at all, or an unknown zone.
+      host.otherTz.set('Not/AZone');
+      await render();
+      expect(secondaries()).toEqual([]);
+      expect(caption()).toBeNull();
+    });
+
+    it('names the other weekday across midnight, and capitalises the default "who"', async () => {
+      host.selected.set(d);
+      host.slots.set([slot(d, '09:00')]); // Tue 09:00 WAT = 08:00Z
+      host.otherTz.set('Pacific/Honolulu'); // UTC−10: 22:00 on Monday
+      host.otherWho.set("the doctor's time");
+      await render();
+      expect(secondaries()).toEqual(['Mon 10:00 PM HST']);
+      expect(caption()?.textContent).toContain("The doctor's time is Hawaii");
+      expect(el.querySelector('input[type="radio"]')?.getAttribute('aria-label')).toBe(
+        "9:00 AM your time, Mon 10:00 PM the doctor's time",
+      );
+    });
+
+    it('shows the caption before a day is chosen, judged at the next opening', async () => {
+      host.next.set('2026-10-16T15:00:00Z');
+      host.otherTz.set('America/Chicago');
+      await render();
+      expect(caption()?.textContent).toContain('(WAT)');
+      expect(caption()?.textContent).toContain('Central Time (CDT)');
+    });
   });
 
   it('holds paging forward while a range with no known end loads', async () => {

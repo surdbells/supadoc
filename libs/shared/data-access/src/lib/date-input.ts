@@ -1,4 +1,8 @@
 import type { DayAvailability, PartOfDay } from '@supadoc/models';
+import { addDaysYmd, zoneAbbr } from './time-zone';
+
+// Calendar-day arithmetic lives with the zone helpers; still exported from here.
+export { addDaysYmd };
 
 /**
  * Local-time values for native date / time pickers and slot labels.
@@ -97,19 +101,13 @@ export function viewerTimeZone(): string {
 }
 
 /**
- * A zone's short name as the viewer would write it right now, e.g. "WAT",
- * "GMT+1" or "EDT" (in the viewer's locale, so it follows DST). Defaults to the
- * viewer's own zone; an unknown zone comes back as given.
+ * A zone's abbreviation at an instant (default now), e.g. "WAT", "EDT" or
+ * "GMT+4" — the shared table the API uses too (`zoneAbbr`), so it follows DST
+ * and matches the emails. Defaults to the viewer's own zone; an unknown zone
+ * comes back as given.
  */
 export function timeZoneShortLabel(tz?: string, at: Date = new Date()): string {
-  try {
-    const part = new Intl.DateTimeFormat(undefined, { timeZone: tz || undefined, timeZoneName: 'short' })
-      .formatToParts(at)
-      .find((p) => p.type === 'timeZoneName');
-    return part?.value ?? tz ?? '';
-  } catch {
-    return tz ?? '';
-  }
+  return zoneAbbr(tz || viewerTimeZone(), at);
 }
 
 /** Formatters are costly to build — one per zone (and kind) is plenty. */
@@ -177,13 +175,6 @@ function ymdUtc(ymd: string): Date {
 
 function utcYmd(d: Date): string {
   return `${String(d.getUTCFullYear()).padStart(4, '0')}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-}
-
-/** A 'YYYY-MM-DD' moved by `n` calendar days (negative goes back). */
-export function addDaysYmd(ymd: string, n: number): string {
-  const d = ymdUtc(ymd);
-  d.setUTCDate(d.getUTCDate() + n);
-  return utcYmd(d);
 }
 
 /** A 'YYYY-MM' moved by `n` months (negative goes back), e.g. ('2026-12', 1) → '2027-01'. */

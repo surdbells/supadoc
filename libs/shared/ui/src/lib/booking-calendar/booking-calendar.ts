@@ -15,7 +15,19 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import type { AvailabilityDayDto, DaySlotDto } from '@supadoc/models';
-import { addMonths, monthGrid, timeZoneShortLabel, viewerTimeZone, ymdInZone } from '@supadoc/data-access';
+import {
+  addMonths,
+  dualTime,
+  formatInZone,
+  isValidTimeZone,
+  monthGrid,
+  offsetsDiffer,
+  timeZoneShortLabel,
+  viewerTimeZone,
+  ymdInZone,
+  zoneAbbr,
+  zoneLongName,
+} from '@supadoc/data-access';
 import { IconComponent } from '../icon/icon';
 import {
   BookingCalendarCell,
@@ -61,7 +73,8 @@ let nextId = 0;
  * Usage:
  * `<sd-booking-calendar [days]="cal.days()" [month]="cal.month()" (monthChange)="cal.setMonth($event)"
  *    [selectedDate]="cal.selectedDate()" (selectedDateChange)="cal.selectDate($event)"
- *    [slots]="cal.slots()" [(value)]="slotIso" … >
+ *    [slots]="cal.slots()" [(value)]="slotIso"
+ *    [secondaryTimeZone]="cal.doctorTz()" secondaryWho="Dr Smith's time" … >
  *    @if (cal.slots()?.length === 0) {
  *      <app-similar-doctors calendarEmpty … />
  *    }
@@ -249,6 +262,12 @@ let nextId = 0;
           <span class="sd-cal-few font-semibold">few left</span>
           <span class="sd-cal-full font-semibold">full</span>
         </p>
+        @if (secondaryCaption(); as caption) {
+          <p class="flex items-start gap-1.5 font-sans text-caption text-slate" data-testid="cal-zone-caption">
+            <sd-icon name="globe" [size]="14" class="mt-0.5 shrink-0" />
+            <span>{{ caption }}</span>
+          </p>
+        }
       </div>
 
       <!-- Times for the chosen day -->
@@ -299,8 +318,9 @@ let nextId = 0;
               </legend>
               <div class="grid grid-cols-3 gap-2 @sm:grid-cols-4 @lg:grid-cols-5">
                 @for (s of g.slots; track s.iso) {
+                  @let second = slotSecondary().get(s.iso);
                   <label
-                    class="sd-cal-time flex min-h-11 items-center justify-center gap-1 rounded-field border px-2 font-sans text-body-sm font-medium"
+                    class="sd-cal-time flex min-h-11 items-center justify-center gap-1 rounded-field border px-2 py-1 font-sans text-body-sm font-medium"
                     [class]="valueState() === s.iso ? 'border-cerulean bg-cerulean text-white' : 'border-cloud bg-white text-ink hover:border-cerulean/50'"
                     [class.cursor-pointer]="!disabled()"
                     [class.opacity-60]="disabled()"
@@ -311,12 +331,25 @@ let nextId = 0;
                       [name]="radioName"
                       [value]="s.iso"
                       [checked]="valueState() === s.iso"
+                      [attr.aria-label]="second ? second.name : null"
                       (change)="pickSlot(s.iso)"
                     />
                     @if (valueState() === s.iso) {
                       <sd-icon name="check" [size]="14" />
                     }
-                    <span class="whitespace-nowrap">{{ s.label }}</span>
+                    @if (second) {
+                      <span class="flex flex-col items-center leading-tight">
+                        <span class="whitespace-nowrap">{{ s.label }}</span>
+                        <span
+                          class="whitespace-nowrap text-caption font-normal"
+                          [class]="valueState() === s.iso ? 'text-white' : 'text-slate'"
+                          data-testid="cal-slot-secondary"
+                          >{{ second.line }}</span
+                        >
+                      </span>
+                    } @else {
+                      <span class="whitespace-nowrap">{{ s.label }}</span>
+                    }
                   </label>
                 }
               </div>
@@ -381,6 +414,14 @@ export class BookingCalendarComponent {
   /** First column of the week, 0 = Sunday … 6 = Saturday. */
   readonly weekStartsOn = input<number>(1);
   readonly disabled = input(false);
+  /**
+   * The other party's zone (the doctor's: `AvailabilityCalendarStore.doctorTz()`).
+   * Where its UTC offset differs from `timeZone`'s at a time, that time chip
+   * gets a second muted line in it ("9:00 AM CST") and the month a caption.
+   */
+  readonly secondaryTimeZone = input<string | null>(null);
+  /** Whose time the secondary is, e.g. "Dr Smith's time". */
+  readonly secondaryWho = input<string>("the doctor's time");
 
   readonly monthChange = output<string>();
   readonly selectedDateChange = output<string>();
@@ -538,6 +579,59 @@ export class BookingCalendarComponent {
   protected readonly emptyDayTarget = computed(() => (this.nextOnEmptyDay() ? this.nextTarget() : null));
 
   protected readonly groups = computed(() => groupSlots(this.slots() ?? [], this.tz()));
+
+  /** The secondary zone, when it is a real one. */
+  private readonly otherTz = computed(() => {
+    const z = this.secondaryTimeZone();
+    return z && isValidTimeZone(z) ? z : null;
+  });
+
+  /**
+   * Per shown time whose offsets differ: the chip's second line ("9:00 AM CST",
+   * "Thu 4:00 AM WAT" across midnight) and its accessible name ("4:00 PM your
+   * time, 9:00 AM Dr Smith's time").
+   */
+  protected readonly slotSecondary = computed(() => {
+    const out = new Map<string, { line: string; name: string }>();
+    const other = this.otherTz();
+    if (!other) return out;
+    const tz = this.tz();
+    const who = this.secondaryWho();
+    for (const s of this.slots() ?? []) {
+      const line = dualTime(s.iso, tz, other).secondary;
+      if (!line) continue;
+      const abbr = zoneAbbr(other, s.iso);
+      const spoken = line.endsWith(` ${abbr}`) ? line.slice(0, -(abbr.length + 1)) : line;
+      const mine = s.label || formatInZone(s.iso, tz, 'time');
+      out.set(s.iso, { line, name: `${mine} your time, ${spoken} ${who}` });
+    }
+    return out;
+  });
+
+  /**
+   * "Times are in your time zone (WAT). Dr Smith's time is Central Time (CST)."
+   * — when the offsets differ at a shown time (or, before a day's times show,
+   * at the next opening / now); null otherwise.
+   */
+  protected readonly secondaryCaption = computed<string | null>(() => {
+    const other = this.otherTz();
+    if (!other) return null;
+    const tz = this.tz();
+    const slots = this.slots() ?? [];
+    let at: string | number;
+    if (slots.length) {
+      const hit = slots.find((s) => offsetsDiffer(s.iso, tz, other));
+      if (!hit) return null;
+      at = hit.iso;
+    } else {
+      this.clock();
+      at = this.nextAvailable() ?? Date.now();
+      if (!offsetsDiffer(at, tz, other)) return null;
+    }
+    const who = this.secondaryWho().trim() || "the doctor's time";
+    const sentence = who.charAt(0).toUpperCase() + who.slice(1);
+    return `Times are in your time zone (${zoneAbbr(tz, at)}). ${sentence} is ${zoneLongName(other, new Date(at))} (${zoneAbbr(other, at)}).`;
+  });
 
   private readonly selectedStatus = computed(() => {
     const sel = this.selectedDateState();

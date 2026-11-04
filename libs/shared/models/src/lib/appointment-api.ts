@@ -12,6 +12,7 @@ import type {
 } from './document-sharing';
 import type { LicenceRoute } from './doctor-application';
 import type { MedicalDocumentDto } from './message';
+import type { TimeZoneSource } from './time-zone';
 import type { VitalReadingDto } from './vitals';
 
 /**
@@ -152,6 +153,11 @@ export interface ApiSpecialistRef {
   id: string;
   name: string;
   specialty?: string | null;
+  /**
+   * The doctor's effective IANA zone (every audience; absent from older APIs).
+   * Patients show the doctor's time as a secondary label when it differs.
+   */
+  timezone?: string;
 }
 
 /** An invited third party on a consultation (adds the guest fee) — what the patient enters. */
@@ -177,6 +183,8 @@ export interface AppointmentPatientRef {
   name: string;
   email?: string | null;
   phone?: string | null;
+  /** The patient's saved zone; null when never set or detected (never guessed as the clinic's). */
+  timezone?: string | null;
 }
 
 /** One appointment as serialised by `Appointment::toArray()`. */
@@ -410,6 +418,11 @@ export interface SpecialistDto {
   slot_minutes?: number;
   /** On directory listings and suggestions: when this doctor is free (no extra request needed). */
   availability?: SpecialistAvailabilitySummary;
+  /**
+   * The doctor's effective IANA zone (the saved one, else the clinic's,
+   * Africa/Lagos). Their weekly hours, slots and emails are on this clock.
+   */
+  timezone: string;
 }
 
 /**
@@ -668,6 +681,8 @@ export interface AvailabilityRangeDto {
   /** The next open time anywhere in the booking window, ISO UTC, or null. */
   next_available: string | null;
   days: AvailabilityDayDto[];
+  /** The doctor's own zone, for "the doctor's time" labels (absent from older APIs). */
+  doctor_tz?: string;
 }
 
 /** Part of the day on the viewer's clock: morning 05–12, afternoon 12–17, evening 17–05. */
@@ -689,6 +704,8 @@ export interface DaySlotsDto {
   date: string;
   tz: string;
   slots: DaySlotDto[];
+  /** The doctor's own zone (absent from older APIs). */
+  doctor_tz?: string;
 }
 
 /**
@@ -867,6 +884,8 @@ export interface JoinPatientSummary {
   history: MedicalHistoryRow[];
   /** Latest reading of each type (who recorded it, whether it is out of date). */
   vitals?: VitalReadingDto[];
+  /** The patient's saved zone; null when never set or detected (absent from older APIs). */
+  timezone?: string | null;
 }
 
 /** Who you are in the call (join link / lobby). */
@@ -893,7 +912,8 @@ export interface CallMeetingDto {
   ends_at?: string;
   duration_minutes?: number;
   status?: ApiAppointmentStatus;
-  specialist: { name: string; specialty?: string };
+  /** `timezone`: the doctor's effective IANA zone (absent from older APIs). */
+  specialist: { name: string; specialty?: string; timezone?: string };
   you: CallYouDto;
   /** The uid to join Agora as (= you.uid). */
   uid?: number;
@@ -918,6 +938,12 @@ export interface CallMeetingDto {
 export interface JoinInfoDto extends CallMeetingDto {
   /** Present for the doctor role only — the patient's clinical summary. */
   patient?: JoinPatientSummary;
+  /**
+   * Doctor-role tokens only: this call in the doctor portal
+   * (`{doctor app}/call/{token}`). The patient app's join page sends a doctor
+   * there instead of joining (records panel, in-call documents).
+   */
+  doctor_portal_url?: string;
   configured: boolean;
   app_id?: string;
   channel?: string;
@@ -933,6 +959,13 @@ export interface JoinInfoDto extends CallMeetingDto {
 export interface CallLobbyDto extends CallMeetingDto {
   server_time: string;
   can_join: boolean;
+  /**
+   * Doctor-role tokens only — the same address as {@link JoinInfoDto.doctor_portal_url}
+   * (`{doctor app}/call/{token}`), so the patient app's join page can send a
+   * doctor on without asking the join (which mints Agora credentials). Absent
+   * from older APIs and for patient / guest tokens.
+   */
+  doctor_portal_url?: string;
 }
 
 /**
@@ -1081,6 +1114,14 @@ export interface PatientProfileDto {
   avatar_url: string | null;
   two_factor_enabled?: boolean;
   created_at: string;
+  /**
+   * The zone used for the patient's emails, texts and notices: the saved one,
+   * else the clinic's (Africa/Lagos). The apps always show times in the
+   * device's zone.
+   */
+  timezone: string;
+  /** `auto` (detected), `manual` (chosen) or null (never set: `timezone` is the clinic's). */
+  timezone_source: TimeZoneSource | null;
 }
 
 /** Patient app preferences, from `PatientSettings` (boolean toggles by area). */

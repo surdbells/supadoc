@@ -32,8 +32,9 @@ export type DocumentShareSurface =
   | 'appointment_details' | 'call' | 'request';
 export type DocumentAccessRequestStatus = 'pending' | 'approved' | 'declined' | 'cancelled' | 'expired';
 export type DocumentAccessRequestKind = 'access' | 'extend';
+/** `printed`: a doctor sent a document to print from the view-only viewer (a watermarked copy). */
 export type DocumentAccessEventType =
-  | 'viewed' | 'shared' | 'changed' | 'extended' | 'revoked' | 'restored'
+  | 'viewed' | 'printed' | 'shared' | 'changed' | 'extended' | 'revoked' | 'restored'
   | 'document_removed' | 'document_shown' | 'expired'
   | 'requested' | 'request_approved' | 'request_declined' | 'request_cancelled' | 'request_expired'
   | 'requests_blocked' | 'requests_allowed';
@@ -293,7 +294,12 @@ export interface UploadShareOptions {
   appointment_id?: string | null;
   /** Folder-share holders who must not see this file. */
   exclude_specialist_ids?: string[];
-  surface?: 'documents_page' | 'appointment_details';
+  /**
+   * `call`: an upload during a consultation — shared with exactly that
+   * appointment's doctor, `indefinite`, with `appointment_id` set, and only
+   * types a doctor can view in-app (PDF, JPG, PNG, WEBP, MP4, WEBM).
+   */
+  surface?: 'documents_page' | 'appointment_details' | 'call';
 }
 
 export interface DocumentShareOutcomeDto {
@@ -361,6 +367,12 @@ export interface DoctorSharedDocumentDto {
   readonly shared_until_label_at: string | null;
   readonly shared_indefinitely: boolean;
   readonly shared_at: string;
+  /**
+   * Whether the doctor can open it in the view-only viewer (PDF, images,
+   * MP4/WEBM). Treat `undefined` (an older API) as viewable and let a 415
+   * `not_viewable` decide.
+   */
+  readonly viewable?: boolean;
 }
 
 /** GET /doctor/appointments/{id}/document-access */

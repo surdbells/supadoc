@@ -17,6 +17,12 @@ describe('SUPADOC_ICONS', () => {
     }
   });
 
+  it('registers the call-screen, viewer and availability icons', () => {
+    for (const name of ['ellipsis', 'zoom-in', 'zoom-out', 'repeat', 'wifi', 'captions', 'captions-off']) {
+      expect(names).toContain(name);
+    }
+  });
+
   it('registers each icon once', () => {
     expect(new Set(names).size).toBe(names.length);
   });
