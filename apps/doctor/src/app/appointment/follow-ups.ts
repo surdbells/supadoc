@@ -1,4 +1,4 @@
-import { slotLabel } from '@supadoc/data-access';
+import { formatInZone, slotLabel } from '@supadoc/data-access';
 import type { AppointmentDto, FollowUpOutcome, FollowUpPriceDto } from '@supadoc/models';
 import type { ClinicalTone } from './clinical/clinical-ui';
 
@@ -29,18 +29,23 @@ const HOUR = 3_600_000;
 const DAY_FMT = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 const DATE_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-/** "Tue 21 Oct, 3:00 PM" in the viewer's local time (the slot pills' clock). */
-export function whenLabel(iso: string | null | undefined): string {
+/**
+ * "Tue 21 Oct, 3:00 PM" on `timeZone`'s clock — the doctor app passes the
+ * doctor's profile zone (`DoctorClock.zone()`); without one, the viewer's.
+ */
+export function whenLabel(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return '';
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '' : `${DAY_FMT.format(d)}, ${slotLabel(iso)}`;
+  if (isNaN(d.getTime())) return '';
+  return timeZone ? formatInZone(d, timeZone, 'dayTime') : `${DAY_FMT.format(d)}, ${slotLabel(iso)}`;
 }
 
-/** "14 Oct 2026" (local). */
-export function dateLabel(iso: string | null | undefined): string {
+/** "14 Oct 2026" on `timeZone`'s calendar (the viewer's without one). */
+export function dateLabel(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return '';
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '' : DATE_FMT.format(d);
+  if (isNaN(d.getTime())) return '';
+  return timeZone ? formatInZone(d, timeZone, 'date').replace(/^[A-Z][a-z]{2} /, '') : DATE_FMT.format(d);
 }
 
 /** "Tue 21 Oct" for a local `YYYY-MM-DD` (formatted as that calendar day). */

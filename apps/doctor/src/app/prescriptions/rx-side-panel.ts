@@ -14,6 +14,7 @@ import type { AllergySeverity, ClinicalSummaryDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { Subscription } from 'rxjs';
 import { rxShortDateTime, withUnit } from './rx-shared';
+import { DoctorClock } from '../doctor-clock';
 
 interface SeverityMeta {
   readonly label: string;
@@ -223,6 +224,8 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
   `,
 })
 export class RxSidePanel {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -287,7 +290,7 @@ export class RxSidePanel {
   }
 
   protected when(iso: string): string {
-    return rxShortDateTime(iso);
+    return rxShortDateTime(iso, this.clock.zone());
   }
 
   protected medicineLine(m: { name: string; amount: string; frequency: string }): string {

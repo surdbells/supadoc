@@ -21,7 +21,6 @@ import {
   apiErrorMessage,
   AvailabilityCalendarStore,
   DoctorApi,
-  todayLocal,
   ymdInZone,
 } from '@supadoc/data-access';
 import type {
@@ -31,7 +30,8 @@ import type {
   FollowUpQuoteDto,
 } from '@supadoc/models';
 import { AlertComponent, BookingCalendarComponent, ButtonComponent, IconComponent, shortDayLabel } from '@supadoc/ui';
-import { isoToLocalInput } from '../prescriptions/rx-shared';
+import { DoctorClock } from '../doctor-clock';
+import { isoToLocalInput, localInputToIso } from '../prescriptions/rx-shared';
 import {
   CLINICAL_CARD,
   CLINICAL_COUNT,
@@ -76,13 +76,14 @@ export function proposableTimes(slots: readonly DaySlotDto[] | null, now: number
   return slots.filter((s) => new Date(s.iso).getTime() >= earliest);
 }
 
-/** The typed time's earliest value: 2½ hours from now, on the half hour (local datetime-local). */
-function earliestManualInput(): string {
-  const d = new Date(Date.now() + PROPOSAL_MIN_LEAD_MINUTES * MINUTE);
-  d.setSeconds(0, 0);
-  const over = d.getMinutes() % 30;
-  if (over !== 0) d.setMinutes(d.getMinutes() + 30 - over);
-  return isoToLocalInput(d.toISOString());
+/**
+ * The typed time's earliest value: 2½ hours from now, on the half hour, as a
+ * datetime-local value on `timeZone`'s clock (the doctor's profile zone).
+ */
+function earliestManualInput(timeZone: string): string {
+  const half = 30 * MINUTE;
+  const at = Math.ceil((Date.now() + PROPOSAL_MIN_LEAD_MINUTES * MINUTE) / half) * half;
+  return isoToLocalInput(new Date(at).toISOString(), timeZone);
 }
 
 const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
@@ -163,7 +164,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
               [min]="cal.min()"
               [max]="cal.max()"
               [nextAvailable]="cal.nextAvailable()"
-              [timeZone]="cal.tz()"
+              [timeZone]="clock.zone()"
               [timeZoneLabel]="cal.timeZoneLabel()"
               [weekStartsOn]="cal.weekStartsOn()"
               [disabled]="busy()"
@@ -180,7 +181,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
               <p class="${CLINICAL_HINT}">You have no open times{{ cal.max() ? ' up to ' + day(cal.max()) : '' }}.</p>
             }
             <label class="flex flex-col gap-1.5" [for]="uid + '-manual'">
-              <span class="font-sans text-caption font-semibold text-slate">Date &amp; time</span>
+              <span class="font-sans text-caption font-semibold text-slate">Date &amp; time ({{ clock.abbr() }})</span>
               <input
                 type="datetime-local"
                 step="1800"
@@ -411,6 +412,8 @@ export class FollowUpPlanner {
   private readonly api = inject(DoctorApi);
   /** The doctor's own booking calendar (the times a patient could book). */
   protected readonly cal = inject(AvailabilityCalendarStore);
+  /** The doctor's clock (their profile zone): the calendar, the typed time and every label. */
+  protected readonly clock = inject(DoctorClock);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -460,8 +463,10 @@ export class FollowUpPlanner {
   /** The chosen start as ISO ('' = none yet). */
   protected readonly chosenIso = computed(() => {
     if (!this.useManual()) return this.slot();
+    // Typed on the doctor's clock (profile zone), not the device's.
     const raw = this.manualAt().trim();
-    const d = raw ? new Date(raw) : null;
+    const iso = raw ? localInputToIso(raw, this.clock.zone()) : '';
+    const d = iso ? new Date(iso) : null;
     return d && !isNaN(d.getTime()) ? d.toISOString() : '';
   });
 
@@ -474,7 +479,7 @@ export class FollowUpPlanner {
   private suggestionApplied = '';
   protected readonly suggestionHint = computed(() => {
     const date = this.suggestedDate();
-    if (!date || this.cal.range() === null || date < todayLocal()) return '';
+    if (!date || this.cal.range() === null || date < this.clock.today()) return '';
     const asks = `This consultation's prescription asks for a follow-up on ${dayLabel(date)}`;
     const last = this.cal.max();
     if (last && date > last) {
@@ -523,7 +528,7 @@ export class FollowUpPlanner {
     if (status === 'confirmed') {
       const start = new Date(this.parentScheduledAt()).getTime();
       return !isNaN(start) && start > this.now() + IN_CALL_LEAD_MINUTES * MINUTE
-        ? `This consultation starts ${whenLabel(this.parentScheduledAt())}. You can propose a follow-up from two hours before then, or once it's over.`
+        ? `This consultation starts ${whenLabel(this.parentScheduledAt(), this.clock.zone())}. You can propose a follow-up from two hours before then, or once it's over.`
         : '';
     }
     if (status === 'missed') return "This consultation was missed, so a follow-up can't be proposed from it.";
@@ -540,7 +545,7 @@ export class FollowUpPlanner {
     const iso = this.chosenIso();
     const start = iso ? new Date(iso).getTime() : NaN;
     if (isNaN(start)) return 'Pick a time. The patient is notified and has up to 72 hours to accept.';
-    return `The patient is notified in the app and by email, and has until ${whenLabel(new Date(proposalExpiry(start, this.now())).toISOString())} to accept.`;
+    return `The patient is notified in the app and by email, and has until ${whenLabel(new Date(proposalExpiry(start, this.now())).toISOString(), this.clock.zone())} to accept.`;
   });
 
   constructor() {
@@ -638,7 +643,7 @@ export class FollowUpPlanner {
    * is applied on top, in `proposableSlots`). Shown again, it is re-read.
    */
   private loadCalendar(): void {
-    this.manualMin.set(earliestManualInput());
+    this.manualMin.set(earliestManualInput(this.clock.zone()));
     const known = this.specialistId() || this.profileSpecialistId();
     if (known) {
       this.showCalendar(known);
@@ -658,8 +663,10 @@ export class FollowUpPlanner {
   }
 
   private showCalendar(specialistId: string): void {
-    if (this.cal.specialistId() === specialistId) this.cal.refresh();
-    else this.cal.load(specialistId, undefined, { scope: 'doctor' });
+    // The doctor's own calendar, on their clock (profile zone).
+    const tz = this.clock.zone();
+    if (this.cal.specialistId() === specialistId && this.cal.tz() === tz) this.cal.refresh();
+    else this.cal.load(specialistId, tz, { scope: 'doctor' });
   }
 
   /** The follow-up date on this consultation's prescription (video first, newest first). */
@@ -688,11 +695,11 @@ export class FollowUpPlanner {
   private applySuggestion(date: string): void {
     if (!date || this.suggestionApplied === date) return;
     this.suggestionApplied = date;
-    if (this.chosenIso() || this.manual() || date < todayLocal()) return;
+    if (this.chosenIso() || this.manual() || date < this.clock.today()) return;
     const last = this.cal.max();
     if (last && date > last) {
       this.manual.set(true);
-      this.manualMin.set(earliestManualInput());
+      this.manualMin.set(earliestManualInput(this.clock.zone()));
       return;
     }
     if (!this.cal.selectedDate()) this.cal.selectDate(date);
@@ -731,7 +738,7 @@ export class FollowUpPlanner {
 
   protected toggleManual(): void {
     this.manual.update((v) => !v);
-    this.manualMin.set(earliestManualInput());
+    this.manualMin.set(earliestManualInput(this.clock.zone()));
     this.clearField('scheduled_at');
   }
 
@@ -779,7 +786,7 @@ export class FollowUpPlanner {
           this.busy.set(false);
           // The form gives way to "waiting for the patient" — say what happened, and focus it.
           this.announce(
-            `Follow-up proposed for ${whenLabel(f.scheduled_at)}. ${f.patient_name || 'The patient'} has been told and has until ${whenLabel(f.expires_at)} to accept.`,
+            `Follow-up proposed for ${whenLabel(f.scheduled_at, this.clock.zone())}. ${f.patient_name || 'The patient'} has been told and has until ${whenLabel(f.expires_at, this.clock.zone())} to accept.`,
           );
           this.cal.refresh(); // that time is now held
         },
@@ -833,7 +840,7 @@ export class FollowUpPlanner {
           this.withdrawingId.set(null);
           if (withdrewProposal(r)) {
             this.withdrawn.update((ids) => new Set(ids).add(f.id));
-            this.announce(`Proposal withdrawn. The patient has been told, and ${whenLabel(f.scheduled_at)} is open again.`);
+            this.announce(`Proposal withdrawn. The patient has been told, and ${whenLabel(f.scheduled_at, this.clock.zone())} is open again.`);
           } else {
             // The patient declined it, or it expired, a moment before — nobody was told anything new.
             this.announce('This proposal had already closed — the patient declined it or it expired.', 'info');
@@ -863,10 +870,10 @@ export class FollowUpPlanner {
     return followUpState(f, this.now(), this.withdrawn());
   }
   protected when(iso: string | null | undefined): string {
-    return whenLabel(iso);
+    return whenLabel(iso, this.clock.zone());
   }
   protected date(iso: string): string {
-    return dateLabel(iso);
+    return dateLabel(iso, this.clock.zone());
   }
   /** A calendar date ('YYYY-MM-DD', no zone shift), e.g. "Thu 16 Oct". */
   protected day(ymd: string | null): string {

@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   afterNextRender,
   AfterViewInit,
@@ -10,9 +11,11 @@ import {
   inject,
   Injector,
   OnDestroy,
+  type Signal,
   signal,
   untracked,
   viewChild,
+  viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -32,10 +35,15 @@ import {
   type CallPresenceState,
   DoctorApi,
   doctorStandingCode,
+  dualTime,
+  formatInZone,
   isDoctorStandingCode,
+  isValidTimeZone,
+  onCallNudge,
   participantByUid,
   sendCallPresence,
   startCallPresence,
+  timeLabel,
   todayLocal,
 } from '@supadoc/data-access';
 import {
@@ -59,9 +67,17 @@ import {
 } from '@supadoc/models';
 import {
   buildCallTiles,
+  type CallControl,
+  type CallControlId,
+  CallControlsComponent,
+  type CallMenuItem,
+  CallQualityComponent,
+  CallSelfTileComponent,
+  type CallSelfViewMode,
   CALL_SELF_VIEW_CLASS_DOCTOR,
   type CallTilesMode,
   CallTilesComponent,
+  type CallVideoFit,
   type CallUid,
   callTilesMode,
   DialogComponent,
@@ -77,17 +93,30 @@ import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import {
   accessBanner,
-  CALL_POLL_MS,
+  byNewestShare,
+  CALL_HIDDEN_POLL_MS,
+  CALL_LIVE_POLL_MS,
   CALL_SIGNED_OUT,
   callEmptyCopy,
   callHeaderLine,
+  diffNewDocs,
+  type DocAlert,
+  docAlertLines,
+  EMPTY_NEW_DOCS,
   isStaleRequestCode,
+  isViewableDoc,
   LOAD_FAILED,
+  type NewDocsState,
   nextRefreshDelay,
+  NOT_SHARED,
+  NUDGE_DEBOUNCE_MS,
+  NUDGE_MIN_INTERVAL_MS,
   openErrorCopy,
+  POLL_SLACK_MS,
   REQUEST_SENT,
   REQUEST_WITHDRAWN,
   requestErrorCopy,
+  sharedAgoText,
   unavailableBanner,
   WITHDRAW_FAILED,
   WITHDRAW_PROMPT,
@@ -96,6 +125,7 @@ import { FollowUpPlanner } from './appointment/follow-up-planner';
 import { RequestAccessDialog } from './appointment/request-access-dialog';
 import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointment/note-draft';
 import { callHoldWanted, FIRST_WAIT_HOLD_MS } from './call-hold';
+import { DoctorClock } from './doctor-clock';
 import { focusAfterDialogs } from './focus-after-dialog';
 import { RxPanel } from './prescriptions/rx-panel';
 import { UNSAVED_RX_LEAVE } from './prescriptions/rx-shared';
@@ -107,11 +137,85 @@ import {
   referralPrompt,
   STOP_RECORDING_PROMPT,
 } from './appointment/clinical/clinical-prompts';
+import {
+  ProtectedDocumentViewer,
+  type ProtectedDocumentFile,
+  type ProtectedViewerState,
+} from './viewer/protected-document-viewer';
 
 /** Load state of something the editor must not overwrite before it has loaded. */
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot';
+/** 'document': the viewer's temporary tab (wide and mid). */
+type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot' | 'document';
+/** Narrow screens: the section under the video. */
+type CallSection = 'notes' | 'patient' | 'documents' | 'people';
+/** Mid screens: the side panel's tab. */
+type SideTab = 'patient' | 'documents' | 'people';
+/** Video size (More › Small / Medium / Large). */
+type VideoSize = 's' | 'm' | 'l';
+
+/** The new-document alert hides after this long (the badge stays). */
+const DOC_ALERT_MS = 15_000;
+const VIDEO_SIZE_KEY = 'videomed.call.video-size';
+/** The old "More room" switch: on means a small video. */
+const OLD_MORE_ROOM_KEY = 'videomed.call.more-room';
+const FIT_KEY = 'videomed.call.fit';
+const SELF_KEY = 'videomed.call.self';
+const CHART_OPEN_KEY = 'videomed.call.chart-open';
+const CHART_SECTIONS: readonly string[] = ['vitals', 'conditions', 'medications', 'history'];
+/** The stage's height at wide and mid, per video size. */
+const STAGE_HEIGHT: Record<VideoSize, string> = {
+  l: 'clamp(320px, calc(100dvh - 16rem), 900px)',
+  m: 'clamp(260px, calc(52dvh - 3rem), 640px)',
+  s: 'clamp(200px, 32dvh, 360px)',
+};
+
+/** A remembered choice (best effort: storage may be blocked). */
+function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v !== null && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* preference is best-effort */
+  }
+}
+
+/** The video size, migrating the old "More room" switch (on = small). */
+function readVideoSize(): VideoSize {
+  const size = readStored<VideoSize | ''>(VIDEO_SIZE_KEY, ['s', 'm', 'l'], '');
+  if (size) return size;
+  return readStored(OLD_MORE_ROOM_KEY, ['1', '0'], '0') === '1' ? 's' : 'm';
+}
+
+/** The chart sections left open (all, the first time). */
+function readChartOpen(): ReadonlySet<string> {
+  try {
+    const raw = localStorage.getItem(CHART_OPEN_KEY);
+    if (raw) {
+      const list: unknown = JSON.parse(raw);
+      if (Array.isArray(list)) return new Set(list.filter((x): x is string => typeof x === 'string' && CHART_SECTIONS.includes(x)));
+    }
+  } catch {
+    /* storage blocked or garbled: the default */
+  }
+  return new Set(CHART_SECTIONS);
+}
+
+/** A chart disclosure's button (the whole card header). */
+const CHART_TOGGLE =
+  'flex min-h-11 w-full items-center gap-2 rounded-card px-4 py-3 text-left font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost';
+/** A button in the new-document alert. */
+const ALERT_BUTTON =
+  'inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost';
 
 /** Minimal Web Speech API surface (not in lib.dom types). */
 interface SpeechRec {
@@ -216,19 +320,26 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
   selector: 'doc-call',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    NgTemplateOutlet,
+    CallControlsComponent,
+    CallQualityComponent,
+    CallSelfTileComponent,
     CallTilesComponent,
     DialogComponent,
     FollowUpPlanner,
     IconComponent,
+    ProtectedDocumentViewer,
     RequestAccessDialog,
     RxPanel,
     SmoothHeightDirective,
   ],
   host: {
-    class: 'sd-call block min-h-screen bg-abyss text-white',
+    class: 'sd-call block min-h-dvh bg-abyss text-white',
     '[attr.data-theme]': 'theme()',
     // Signing in to the portal happens in another tab — re-check on return.
     '(window:focus)': 'recheckPortalSignIn()',
+    '(document:pointerdown)': 'onDocPointer($event)',
+    '(document:visibilitychange)': 'onVisibility()',
   },
   styles: [
     `
@@ -248,96 +359,107 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          turn its white-on-colour button text dark — keep it white there. */
       :host([data-theme='light']) ::ng-deep .sd-rx-zone .text-white { color: #ffffff; }
 
-      /* The video stage stays dark in the light theme too (tailwind/theme.css
-         re-asserts most white text there): the tiles' camera-off line and the
-         stage's waiting / connecting text use these two shades as well. */
-      :host([data-theme='light']) ::ng-deep .sd-stage .text-white\\/85 { color: rgb(255 255 255 / 0.85); }
-      :host([data-theme='light']) ::ng-deep .sd-stage .text-white\\/75 { color: rgb(255 255 255 / 0.75); }
+      /* The light cockpit's "New" pill: cerulean-dark on its pale tint (AA). */
+      :host([data-theme='light']) .sd-new-pill { color: var(--color-cerulean-dark); }
+
+      /* White on cerulean (about 4.8:1) for the new-document badges and every solid
+         cerulean button outside the dock: the light theme's global .text-white rule
+         would make that text dark (about 2.6:1). */
+      :host([data-theme='light']) .sd-badge,
+      :host([data-theme='light']) .bg-cerulean.text-white { color: #ffffff; }
     `,
   ],
   template: `
     <!-- relative: contains absolutely positioned bits (e.g. screen-reader-only labels deep in
-         the tools panel) so they can never make the desktop cockpit scroll as a page. -->
-    <div class="relative flex min-h-screen flex-col xl:h-screen xl:overflow-hidden">
-      <!-- Top bar -->
-      <header
-        class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 px-4 py-3"
-      >
-        <div class="flex min-w-0 items-center gap-3">
-          <!-- Leaves without ending: the visit stays open and the doctor can rejoin. -->
+         the tools panel) so they can never make the desktop cockpit scroll as a page.
+         Inert while the narrow viewer sheet covers it (Tab can't wander under the sheet;
+         the sheet's own bar keeps Back to call, Mute and End). -->
+    <div class="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden" [attr.inert]="sheetOpen() ? '' : null">
+      <!-- Top bar: who, their allergies, how the call is going. Nothing here covers the video. -->
+      <header class="relative z-30 flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-white/10 px-2 py-1.5 sm:px-4">
+        <!-- Leaves without ending: the visit stays open and the doctor can rejoin. -->
+        <button
+          type="button"
+          class="flex size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+          aria-label="Leave the call without ending it (you can rejoin)"
+          (click)="leave()"
+        >
+          <sd-icon name="arrow-left" [size]="20" />
+        </button>
+        <span class="hidden shrink-0 font-heading text-h5 tracking-tight sm:inline">
+          <span class="text-frost">Video</span><span class="text-sage">Med</span>
+        </span>
+        <p class="min-w-0 flex-1 basis-28 truncate font-sans text-body-sm font-semibold text-white">
+          {{ headerPatient() }}
+          @if (headerPatientTime(); as pt) {
+            <span class="hidden font-normal text-white/70 2xl:inline"> · {{ pt }}</span>
+          }
+        </p>
+        <!-- Allergies: always in view (the full list for screen readers, truncated on screen). -->
+        @if (allergyNames().length) {
+          <span
+            class="inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-pill border border-alert/60 bg-alert/15 px-2.5 py-1 font-sans text-caption font-semibold sm:max-w-[18rem]"
+            [class.text-white]="theme() !== 'light'"
+            [class.text-alert-ink]="theme() === 'light'"
+          >
+            <sd-icon name="triangle-alert" [size]="14" class="shrink-0 text-alert" />
+            <span class="truncate" aria-hidden="true">Allergies: {{ allergyNames().join(', ') }}</span>
+            <span class="sr-only">Allergies: {{ allergyNames().join(', ') }}</span>
+          </span>
+        } @else if (info()?.patient) {
+          <span class="shrink-0 font-sans text-caption text-white/70">No known allergies</span>
+        }
+        <span role="timer" class="flex shrink-0 items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/80">
+          <span class="size-1.5 rounded-full bg-alert" aria-hidden="true"></span>
+          <span class="hidden sm:inline">Secure call ·</span>
+          <span class="font-label tabular-nums">{{ elapsedLabel() }}</span>
+        </span>
+        <sd-call-quality class="shrink-0" [quality]="quality()" />
+        <span class="hidden shrink-0 items-center gap-1 font-sans text-caption text-white/70 md:inline-flex">
+          <sd-icon name="lock" [size]="14" />Encrypted
+        </span>
+        <div class="relative shrink-0">
           <button
+            #peopleButton
             type="button"
-            class="flex size-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-            aria-label="Leave the call without ending it (you can rejoin)"
-            title="Leave without ending — you can rejoin"
-            (click)="leave()"
+            class="flex min-h-11 items-center gap-1.5 rounded-pill bg-white/5 px-3 font-sans text-caption text-white/80 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+            [attr.aria-expanded]="layout() === 'wide' ? peopleShown() : peopleOpen()"
+            [attr.aria-controls]="layout() === 'wide' ? 'call-people-list' : (peopleOpen() ? 'call-people-popover' : null)"
+            (click)="onPeopleButton()"
           >
-            <sd-icon name="arrow-right" [size]="18" class="rotate-180" />
+            <sd-icon name="users" [size]="14" />{{ participantCount() }}<span class="sr-only"> in the call: participants</span>
           </button>
-          <span class="font-heading text-h5 tracking-tight">
-            <span class="text-frost">Video</span><span class="text-sage">Med</span>
-            <span class="ml-1.5 align-middle font-sans text-caption text-white/50">Doctor</span>
-          </span>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <span
-            class="flex items-center gap-2 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70"
-          >
-            <span class="size-1.5 rounded-full bg-alert"></span>
-            <span class="hidden sm:inline">Secure Call</span>
-            <span class="font-label tabular-nums text-white/85">{{ elapsedLabel() }}</span>
-          </span>
-          <span
-            class="hidden items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70 md:flex"
-          >
-            <sd-icon name="shield-check" [size]="14" class="text-success" />
-            End-to-end Encrypted
-          </span>
-          <!-- Desktop: the strip under the video is hidden for room, so this says it. -->
-          <span
-            class="hidden items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70 xl:flex"
-          >
-            <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-success">HD</span>
-            Noise Cancellation
-          </span>
-          <span
-            class="flex items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/70"
-          >
-            <sd-icon name="users" [size]="14" /> {{ participantCount() }}
-          </span>
-
-          <button
-            type="button"
-            class="flex size-9 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-            [attr.aria-label]="theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-            (click)="toggleTheme()"
-          >
-            <sd-icon name="lightbulb" [size]="18" />
-          </button>
-
-          @if (recordingConfigured()) {
-            <!-- Off until the patient AND every guest in the call have agreed (the
-                 whole channel is recorded); the reason is the title and, for screen
-                 readers, the description. -->
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-pill px-3 py-1.5 font-sans text-caption transition-colors disabled:opacity-50"
-              [class]="recordingActive() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-white/5 text-white/70 hover:bg-white/10'"
-              [disabled]="recordingBusy() || recordingBlocked() !== ''"
-              [attr.title]="recordingBlocked() || null"
-              [attr.aria-describedby]="recordingBlocked() ? 'call-recording-blocked' : null"
-              (click)="toggleRecording()"
+          @if (peopleOpen() && layout() !== 'wide') {
+            <div
+              id="call-people-popover"
+              role="dialog"
+              aria-label="Participants"
+              class="absolute right-0 top-full z-40 mt-2 w-80 max-w-[calc(100vw-1rem)] rounded-card border border-white/10 bg-abyss p-4 shadow-raised"
+              (keydown.escape)="closePeople(true)"
             >
-              <span class="size-2 rounded-full" [class]="recordingActive() ? 'animate-pulse bg-alert' : 'bg-white/40'"></span>
-              {{ recordingActive() ? 'Recording' : (recordingBusy() ? '…' : 'Record') }}
-            </button>
-            <span id="call-recording-blocked" class="sr-only">{{ recordingBlocked() }}</span>
+              <ng-container [ngTemplateOutlet]="participantsTpl" />
+            </div>
           }
         </div>
+        <!-- The recording state in words (the dock's Record keeps its label). -->
+        <span role="status" class="shrink-0">
+          @if (recordingActive()) {
+            <span class="flex items-center gap-1.5 rounded-pill bg-alert/20 px-3 py-1.5 font-sans text-caption font-semibold text-white">
+              <span class="size-2 rounded-full bg-alert motion-safe:animate-pulse"></span>Recording
+            </span>
+          }
+        </span>
+        <button
+          type="button"
+          class="hidden size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost sm:flex"
+          [attr.aria-label]="theme() === 'dark' ? 'Switch to light cockpit' : 'Switch to dark cockpit'"
+          (click)="toggleTheme()"
+        >
+          <sd-icon [name]="theme() === 'dark' ? 'sun' : 'moon'" [size]="18" />
+        </button>
       </header>
       @if (recordingError()) {
-        <p class="border-b border-alert/20 bg-alert/10 px-4 py-2 text-center font-sans text-caption text-alert">
+        <p class="border-b border-alert/20 bg-alert/10 px-4 py-2 text-center font-sans text-caption text-white" role="alert">
           {{ recordingError() }}
         </p>
       }
@@ -389,190 +511,29 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </div>
       }
 
-      <!-- Cockpit -->
-      <div
-        class="flex flex-1 flex-col gap-4 p-4 xl:grid xl:min-h-0 xl:grid-cols-[300px_minmax(0,1fr)_320px] xl:overflow-hidden"
-      >
-        <!-- ===================== PATIENT CHART ===================== -->
-        <aside class="relative order-4 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <div class="flex items-center gap-3">
-              <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-cerulean/20 font-heading text-body font-semibold text-frost">
-                {{ patientInitials() }}
-              </span>
-              <div class="min-w-0">
-                <p class="truncate font-heading text-body font-semibold text-white">
-                  {{ patientName() }}
-                </p>
-                <p class="font-sans text-caption text-white/50">
-                  {{ patientMeta() }}
-                </p>
-              </div>
-            </div>
-
-            <!-- Allergies -->
-            <div class="mt-4 rounded-2xl bg-alert/10 p-3">
-              <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-alert">
-                <sd-icon name="triangle-alert" [size]="14" /> Allergies
-              </span>
-              <p class="mt-1 font-sans text-body-sm text-white/85">{{ allergiesLabel() }}</p>
-            </div>
-          </div>
-
-          <!-- Vitals (latest reading of each type, from the join payload) -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <h3 class="font-sans text-body-sm font-semibold text-white">Vitals</h3>
-              @if (vitalsAsOf()) {
-                <span class="font-sans text-[10px] text-white/40">{{ vitalsAsOf() }}</span>
-              }
-            </div>
-            @if (vitals().length) {
-              <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2">
-                @for (v of vitals(); track v.key) {
-                  <div
-                    class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-white/[0.04] p-2"
-                    [attr.title]="vitalTitle(v)"
-                  >
-                    <p class="truncate font-sans text-[10px] text-white/45">{{ v.label }}</p>
-                    <p class="font-heading text-body font-semibold text-white">
-                      {{ v.value }}
-                      <span class="font-sans text-[10px] font-normal text-white/50">{{ v.unit }}</span>
-                    </p>
-                    @if ((v.flag && v.flag.level !== 'normal') || v.recorded_by === 'patient' || v.stale) {
-                      <p class="flex flex-wrap gap-1">
-                        <!-- Out of the typical adult range only; normal readings stay quiet. -->
-                        @if (v.flag && v.flag.level !== 'normal') {
-                          <span
-                            class="rounded-pill px-1.5 font-sans text-[9px] font-semibold"
-                            [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'bg-alert/20 text-alert' : 'bg-warning/15 text-warning'"
-                          >{{ v.flag.label }}</span>
-                        }
-                        @if (v.recorded_by === 'patient') {
-                          <span class="rounded-pill bg-sky/15 px-1.5 font-sans text-[9px] text-sky">Self-reported</span>
-                        }
-                        @if (v.stale) {
-                          <span class="rounded-pill bg-warning/15 px-1.5 font-sans text-[9px] text-warning">Out of date</span>
-                        }
-                      </p>
-                    }
-                  </div>
-                }
-              </div>
-              @if (vitalAlerts().length) {
-                <ul class="mt-2 flex flex-col gap-1">
-                  @for (v of vitalAlerts(); track v.key) {
-                    <li class="flex items-start gap-1.5 font-sans text-[11px] text-alert">
-                      <sd-icon [name]="v.flag?.level === 'critical' ? 'triangle-alert' : 'circle-alert'" [size]="12" class="mt-0.5 shrink-0" />
-                      <span>{{ v.label }} is {{ v.flag?.label }} <span class="text-white/55">({{ v.flag?.advice }})</span></span>
-                    </li>
-                  }
-                </ul>
-              }
-              <p class="mt-1.5 font-sans text-[9px] text-white/35">Flags use typical adult ranges.</p>
-            } @else {
-              <p class="font-sans text-[10px] text-white/40">
-                No readings on file yet. Readings the patient adds, or that you record on a
-                prescription, appear here.
-              </p>
-            }
-          </div>
-
-          <!-- Conditions -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-2 flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
-              <sd-icon name="heart-pulse" [size]="15" class="text-sage" /> Current Conditions
-            </h3>
-            @if (conditions().length) {
-              <ul class="flex flex-col gap-1.5">
-                @for (c of conditions(); track c.condition) {
-                  <li class="flex items-center justify-between gap-2 font-sans text-body-sm text-white/80">
-                    <span>{{ c.condition }}</span>
-                    <span class="size-2 shrink-0 rounded-full bg-sage"></span>
-                  </li>
-                }
-              </ul>
-            } @else {
-              <p class="font-sans text-body-sm text-white/40">None recorded.</p>
-            }
-          </div>
-
-          <!-- Medications -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-2 flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
-              <sd-icon name="pill" [size]="15" class="text-sky" /> Medications
-            </h3>
-            @if (medications().length) {
-              <ul class="flex flex-col gap-2">
-                @for (m of medications(); track m.name) {
-                  <li class="flex items-center justify-between gap-2">
-                    <span class="font-sans text-body-sm text-white/85">{{ m.name }}</span>
-                    <span class="font-sans text-caption text-white/45">{{ m.dosage }}</span>
-                  </li>
-                }
-              </ul>
-            } @else {
-              <p class="font-sans text-body-sm text-white/40">None recorded.</p>
-            }
-          </div>
-
-          <!-- Medical History -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-2 flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
-              <sd-icon name="clipboard-list" [size]="15" class="text-frost" /> Medical History
-            </h3>
-            @if (history().length) {
-              <ul class="flex flex-col gap-2">
-                @for (h of history(); track $index) {
-                  <li class="flex flex-col">
-                    <span class="font-sans text-body-sm text-white/85">
-                      {{ h.condition }}@if (h.year) { <span class="text-white/45"> · {{ h.year }}</span> }
-                    </span>
-                    @if (h.note) {
-                      <span class="font-sans text-caption text-white/45">{{ h.note }}</span>
-                    }
-                  </li>
-                }
-              </ul>
-            } @else {
-              <p class="font-sans text-body-sm text-white/40">None recorded.</p>
-            }
-          </div>
-
-          @if (info()?.patient?.id) {
-            <button
-              type="button"
-              class="flex items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
-              (click)="openRecord()"
-            >
-              <sd-icon name="file-text" [size]="16" /> View Full EMR
-            </button>
-          }
-        </aside>
-
-        <!-- ===================== STAGE ===================== -->
-        <!-- The consultation stays in view while notes, prescriptions and tools are used:
-             on desktop the video has a steady height and the tools scroll in their own
-             panel below it; on smaller screens the video is first and pinned to the top.
-             The stage must stay positioned (sticky, or relative on desktop): the video,
-             name tag, self-view and call controls are placed absolutely inside it. -->
-        <section class="contents xl:flex xl:min-h-0 xl:min-w-0 xl:flex-col xl:gap-4">
-          <div class="sd-stage order-1 sticky top-0 z-20 [container-name:stage] [container-type:size] aspect-[4/3] max-h-[var(--stage-max)] w-full shrink-0 overflow-hidden rounded-card bg-ink shadow-[0_12px_32px_rgba(0,0,0,0.35)] transition-[height,max-height] duration-300 ease-out motion-reduce:transition-none sm:aspect-video xl:relative xl:order-none xl:aspect-auto xl:h-[var(--stage-h)] xl:max-h-none xl:shadow-none"
-            [style.--stage-max]="moreRoom() ? '28vh' : '45vh'"
-            [style.--stage-h]="moreRoom() ? 'clamp(200px,30vh,340px)' : 'clamp(220px,calc(55.5vh - 150px),560px)'">
-            <!-- One tile per person, keyed by Agora uid: 1:1 the patient (or whoever
-                 is there) fills the stage with its name tag and the doctor is the
-                 PiP (top-right on a small stage, where the bottom corner would cover
-                 the controls); from a third person an even grid, patient first.
-                 Always rendered: tracks are handed to it by uid (stage().attach). -->
+      <!-- Cockpit. DOM order = reading order: the video, the tools, then the chart,
+           records and participants (grid areas place them; never order-*). -->
+      <main [class]="gridClass()" [style.--stage-h]="stageHeight()" [style.--stage-max]="stageMax()">
+        <!-- ===================== DOCK: the video and its controls ===================== -->
+        <section #dock class="sd-dock flex min-w-0 flex-col gap-2" [class]="dockClass()" aria-label="Video call">
+          <div
+            class="sd-stage relative shrink-0 overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size] motion-reduce:transition-none"
+            [class]="stageClass()"
+          >
+            <!-- One tile per person, keyed by Agora uid: 1:1 the patient (or whoever is
+                 there) fills the stage, whole (contain) unless "fill the frame" is chosen;
+                 from a third person an even grid. The doctor's own camera is the PiP from
+                 640px up; on a phone it is a small tile at the start of the control row. -->
             <sd-call-tiles
               [tiles]="tiles()"
-              [selfViewClass]="selfView"
+              [selfViewClass]="selfViewClass"
               [showRole]="showRoles()"
+              [mainFit]="fit()"
+              [selfView]="selfMode()"
             />
 
             @if (people().length === 0 && status() === 'in-call') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 pb-16 pl-6 pr-[5.5rem] pt-12 text-center text-white/75 roomy:pb-28 roomy:pr-36">
+              <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white/85">
                 <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 roomy:flex">
                   <sd-icon name="user-round" [size]="30" />
                 </span>
@@ -581,18 +542,18 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             }
 
             @if (status() === 'loading') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85">
-                <span class="size-10 animate-spin rounded-full border-2 border-white/20 border-t-white"></span>
+              <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85" role="status">
+                <span class="size-10 rounded-full border-2 border-white/20 border-t-white motion-safe:animate-spin"></span>
                 <p class="font-sans text-body">Connecting to the consultation…</p>
               </div>
             }
 
             @if (status() === 'error') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center text-white/85">
-                <span class="flex size-16 items-center justify-center rounded-full bg-white/10">
+              <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85">
+                <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-white/10">
                   <sd-icon name="video-off" [size]="28" />
                 </span>
-                <p class="max-w-sm font-sans text-body">{{ errorMessage() }}</p>
+                <p class="max-w-sm font-sans text-body" role="alert">{{ errorMessage() }}</p>
                 @if (joinStanding(); as code) {
                   <!-- Refused for the doctor's standing: where to put it right. -->
                   <button
@@ -605,73 +566,89 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 }
                 <button
                   type="button"
-                  class="rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+                  class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
                   (click)="leave('schedule')"
                 >
                   Back to schedule
                 </button>
               </div>
             }
+          </div>
 
-            @if (status() === 'in-call') {
-              <!-- (The main tile's name tag is the tiles' own.) Connection quality, 1:1 only —
-                   on the grid it would cover a tile (small stage: the PiP has this corner;
-                   the strip under the video, or the header on desktop, says HD) -->
-              @if (stageMode() === 'spotlight') {
-                <div class="absolute right-4 top-4 hidden items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:flex" title="HD video · Adaptive · Noise cancellation">
-                  <span class="font-label text-caption font-semibold text-white">HD</span>
-                  <span class="size-2 rounded-full bg-success"></span>
-                </div>
+          @if (status() === 'in-call') {
+            <!-- The controls sit under the video, never on it. -->
+            <div class="flex items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2">
+              @if (selfMode() === 'external' && selfTile(); as st) {
+                <sd-call-self-tile [tile]="st" [track]="selfTrack()" [playConfig]="selfPlayConfig()" />
               }
-
-              <!-- Controls (icon-only and a little smaller on a small stage, so they always fit) -->
-              <div class="absolute bottom-3 left-1/2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 rounded-pill bg-abyss/75 px-2 py-2 backdrop-blur roomy:bottom-5 roomy:gap-3 roomy:px-4 roomy:py-2.5">
-                <button type="button" class="flex flex-col items-center gap-1" [attr.aria-label]="micOn() ? 'Mute' : 'Unmute'" (click)="toggleMic()">
-                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors" [class]="micOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'">
-                    <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">{{ micOn() ? 'Mute' : 'Unmute' }}</span>
-                </button>
-                <button type="button" class="flex flex-col items-center gap-1" [attr.aria-label]="camOn() ? 'Stop video' : 'Start video'" (click)="toggleCam()">
-                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors" [class]="camOn() ? 'bg-white/15 hover:bg-white/25' : 'bg-alert hover:bg-alert/80'">
-                    <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">{{ camOn() ? 'Stop Video' : 'Start' }}</span>
-                </button>
-                <button type="button" class="flex flex-col items-center gap-1" aria-label="Share screen" (click)="toggleScreen()">
-                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 transition-colors" [class]="screenOn() ? 'bg-sky hover:bg-sky/80' : 'bg-white/15 hover:bg-white/25'">
-                    <sd-icon name="monitor-smartphone" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">Share</span>
-                </button>
-                <button type="button" class="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1" aria-label="End consultation" aria-haspopup="dialog" (click)="askEnd()">
-                  <span class="flex size-9 items-center justify-center rounded-full roomy:size-11 bg-alert transition-colors hover:bg-alert/80">
-                    <sd-icon name="phone-off" [size]="20" />
-                  </span>
-                  <span class="hidden font-sans text-[10px] text-white/70 roomy:block">End</span>
-                </button>
+              <div class="min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]">
+                <sd-call-controls
+                  [controls]="controls()"
+                  [menu]="menu()"
+                  ariaLabel="Call controls"
+                  (pressed)="onControl($event)"
+                  (menuSelect)="onMenu($event)"
+                />
               </div>
+            </div>
+          }
+          @if (layout() !== 'narrow') {
+            <ng-container [ngTemplateOutlet]="docAlertTpl" />
+          }
+        </section>
+
+        <!-- Narrow screens: one section at a time under the video. -->
+        @if (layout() === 'narrow') {
+          <div role="tablist" aria-label="Sections" class="flex shrink-0 gap-1 overflow-x-auto border-b border-white/10">
+            @for (s of sectionTabs; track s.key) {
+              <button
+                type="button"
+                role="tab"
+                [id]="'call-section-' + s.key"
+                class="relative flex min-h-11 items-center gap-1.5 whitespace-nowrap px-3 font-sans text-body-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost"
+                [class]="section() === s.key ? 'text-white' : 'text-white/70 hover:text-white'"
+                [attr.aria-selected]="section() === s.key"
+                [attr.aria-controls]="s.panel"
+                [attr.tabindex]="section() === s.key ? 0 : -1"
+                (click)="section.set(s.key)"
+                (keydown)="onTabKey($event, 'section')"
+              >
+                {{ s.label }}
+                @if (s.key === 'documents' && newDocCount()) {
+                  <span class="sd-badge min-w-5 rounded-pill bg-cerulean px-1.5 text-center font-sans text-caption font-semibold text-white">{{ newDocCount() }}<span class="sr-only"> new</span></span>
+                }
+                @if (section() === s.key) {
+                  <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
+                }
+              </button>
             }
           </div>
+        }
 
-          <!-- Agora status bar (desktop: hidden — the stage's HD badge says it, and the
-               tools panel needs the height) -->
-          <div class="order-2 flex shrink-0 items-center gap-3 rounded-pill bg-white/[0.03] px-4 py-2 font-sans text-caption text-white/50 xl:hidden">
-            <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-success">HD</span>
-            <span>Adaptive</span>
-            <span class="flex items-center gap-1"><span class="size-1.5 rounded-full bg-success"></span> Noise Cancellation</span>
-          </div>
-
-          <!-- Notes -->
-          <div class="order-3 flex flex-col rounded-card border border-white/10 bg-white/[0.03] xl:order-none xl:min-h-0 xl:flex-1">
-            <div class="flex shrink-0 items-center gap-1 border-b border-white/10 px-2">
-              <div class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-              @for (t of notesTabs; track t.key) {
+        <!-- ===================== CONSULTATION TOOLS ===================== -->
+        <section
+          id="call-tools"
+          aria-label="Consultation tools"
+          class="flex min-w-0 flex-col rounded-card border border-white/10 bg-white/[0.03]"
+          [class]="toolsClass()"
+          [hidden]="layout() === 'narrow' && section() !== 'notes'"
+          [attr.role]="layout() === 'narrow' ? 'tabpanel' : null"
+          [attr.aria-labelledby]="layout() === 'narrow' ? 'call-section-notes' : null"
+        >
+          <div class="flex shrink-0 items-center gap-1 border-b border-white/10 px-2">
+            <div role="tablist" aria-label="Consultation tools" class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+              @for (t of toolTabs(); track t.key) {
                 <button
                   type="button"
-                  class="relative whitespace-nowrap px-3 py-3 font-sans text-body-sm transition-colors"
-                  [class]="notesTab() === t.key ? 'text-white' : 'text-white/50 hover:text-white/80'"
+                  role="tab"
+                  [id]="'call-tab-' + t.key"
+                  class="relative min-h-11 max-w-[14rem] shrink-0 truncate whitespace-nowrap px-3 font-sans text-body-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost"
+                  [class]="notesTab() === t.key ? 'text-white' : 'text-white/70 hover:text-white'"
+                  [attr.aria-selected]="notesTab() === t.key"
+                  aria-controls="call-tools-panel"
+                  [attr.tabindex]="notesTab() === t.key ? 0 : -1"
                   (click)="notesTab.set(t.key)"
+                  (keydown)="onTabKey($event, 'tools')"
                 >
                   {{ t.label }}
                   @if (notesTab() === t.key) {
@@ -679,28 +656,23 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   }
                 </button>
               }
-              </div>
-              <!-- Make the video smaller (it stays in view) so long forms such as a
-                   prescription have room; remembered for next time. Outside the
-                   scrolling tabs so it is always reachable. -->
+            </div>
+            @if (viewerDoc() && layout() !== 'narrow') {
               <button
                 type="button"
-                class="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
-                [class]="moreRoom() ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white'"
-                aria-label="More room"
-                [attr.aria-pressed]="moreRoom()"
-                [attr.title]="moreRoom() ? 'On: the video is smaller to give these tools more room' : 'Make the video smaller to give these tools more room'"
-                (click)="toggleMoreRoom()"
+                class="flex size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+                aria-label="Close document"
+                (click)="closeViewer()"
               >
-                <sd-icon [name]="moreRoom() ? 'minimize-2' : 'maximize-2'" [size]="14" />
-                <span class="hidden sm:inline" aria-hidden="true">More room</span>
+                <sd-icon name="x" [size]="16" />
               </button>
-            </div>
+            }
+          </div>
 
             <!-- Desktop: scrolls inside the panel. Everywhere: height changes ease
                  (sdSmoothHeight) and each tab fades in, instead of jumping. -->
-            <div class="relative p-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
-              <div sdSmoothHeight>
+            <div id="call-tools-panel" role="tabpanel" class="relative" [class]="toolsBodyClass()" [attr.aria-labelledby]="'call-tab-' + notesTab()">
+              <div sdSmoothHeight [hidden]="docTabShown()">
               <div>
               <!-- Schedule follow-up (Follow-ups tab, above the care plan). Once opened
                    it stays mounted for the rest of the call — hidden on the other
@@ -863,16 +835,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
 
                   <div class="mt-4">
-                    <p class="mb-2 font-sans text-caption font-semibold text-white/60">Tools</p>
-                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <p id="call-tools-label" class="mb-2 font-sans text-caption font-semibold text-white/70">Tools</p>
+                    <div class="flex flex-wrap gap-2" role="group" aria-labelledby="call-tools-label">
                       @for (tool of tools; track tool.label) {
                         <button
                           type="button"
-                          class="flex flex-col items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.04] px-2 py-3 text-center transition-colors hover:bg-white/[0.08]"
+                          class="inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-white/10 bg-white/[0.04] px-3 font-sans text-caption text-white/85 transition-colors hover:bg-white/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
                           (click)="useTool(tool.label)"
                         >
-                          <sd-icon [name]="tool.icon" [size]="18" class="text-frost" />
-                          <span class="font-sans text-caption text-white/80">{{ tool.label }}</span>
+                          <sd-icon [name]="tool.icon" [size]="16" class="text-frost" />{{ tool.label }}
                         </button>
                       }
                     </div>
@@ -1355,228 +1326,621 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               }
               </div>
               </div>
+
+              <!-- The shared document, view-only, in its own tab (wide / mid): the video stays
+                   in view. It fills the tools panel (its toolbar stays in sight; the pages
+                   scroll inside it), and stays mounted behind the other tabs. -->
+              @if (viewerFile(); as vf) {
+                @if (viewerDoc() && layout() !== 'narrow') {
+                  <div class="flex min-h-[20rem] flex-1 flex-col" [hidden]="notesTab() !== 'document'">
+                    <doc-protected-document-viewer
+                      class="flex-1 overflow-hidden rounded-b-card"
+                      mode="docked"
+                      [tone]="theme()"
+                      [file]="vf"
+                      [state]="viewerState()"
+                      [errorText]="viewerError()"
+                      [watermark]="viewerWatermark()"
+                      [inCall]="inLiveCall()"
+                      (closed)="closeViewer()"
+                      (printRequested)="onViewerPrint()"
+                    />
+                  </div>
+                }
+              }
             </div>
-          </div>
         </section>
 
-        <!-- ===================== RECORDS + PARTICIPANTS ===================== -->
-        <aside class="relative order-5 flex flex-col gap-4 xl:order-none xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4" [attr.aria-busy]="docsLoading() || null">
-            <!-- Focus lands here when a request's Send / Withdraw button gives way to its result. -->
-            <h3 #docsHeading tabindex="-1" class="font-sans text-body font-semibold text-white outline-none">Medical Records</h3>
-            @if (!portalSignedIn()) {
-              <!-- Joined by an emailed link (or the portal session ended): nothing is fetched. -->
-              <div class="mt-3 flex flex-col items-start gap-2 rounded-2xl bg-white/[0.04] px-3 py-2.5">
-                <p class="flex items-start gap-1.5 font-sans text-caption text-white/70">
-                  <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />{{ docsSignedOut }}
-                </p>
+        <!-- ===================== SIDE: chart, records, participants =====================
+             One wrapper, so several asides never share a grid area: at wide it is
+             display:contents (chart left, records right); at mid it is the one "side"
+             item with its own tabs; at narrow the section switcher above picks one. -->
+        <div [class]="sideClass()">
+          @if (layout() === 'mid') {
+            <div role="tablist" aria-label="Side panel" class="flex shrink-0 gap-1 border-b border-white/10">
+              @for (s of sideTabs; track s.key) {
                 <button
                   type="button"
-                  class="inline-flex min-h-11 items-center gap-1.5 rounded-field px-1 font-sans text-caption font-semibold text-frost underline underline-offset-2"
-                  (click)="openPortalSignIn()"
+                  role="tab"
+                  [id]="'call-side-' + s.key"
+                  class="relative flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap px-2 font-sans text-body-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost"
+                  [class]="sideTab() === s.key ? 'text-white' : 'text-white/70 hover:text-white'"
+                  [attr.aria-selected]="sideTab() === s.key"
+                  [attr.aria-controls]="s.panel"
+                  [attr.tabindex]="sideTab() === s.key ? 0 : -1"
+                  (click)="sideTab.set(s.key)"
+                  (keydown)="onTabKey($event, 'side')"
                 >
-                  <sd-icon name="external-link" [size]="14" /> Sign in (opens a new tab)
+                  {{ s.label }}
+                  @if (s.key === 'documents' && newDocCount()) {
+                    <span class="sd-badge min-w-5 rounded-pill bg-cerulean px-1.5 text-center font-sans text-caption font-semibold text-white">{{ newDocCount() }}<span class="sr-only"> new</span></span>
+                  }
+                  @if (sideTab() === s.key) {
+                    <span class="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
+                  }
                 </button>
+              }
+            </div>
+          }
+
+          <!-- ===================== PATIENT CHART ===================== -->
+          <aside
+            #chartCol
+            id="call-chart"
+            aria-label="Patient chart"
+            class="flex min-w-0 flex-col gap-4"
+            [class]="chartClass()"
+            [hidden]="panelHidden('patient')"
+            [attr.role]="layout() === 'wide' ? null : 'tabpanel'"
+            [attr.aria-labelledby]="layout() === 'mid' ? 'call-side-patient' : layout() === 'narrow' ? 'call-section-patient' : null"
+          >
+            <!-- Who, and their allergies: first, and pinned while the chart scrolls. -->
+            <div #allergyCard class="z-10 rounded-card border border-white/10 bg-abyss p-4" [class.sticky]="layout() !== 'narrow'" [class.top-0]="layout() !== 'narrow'">
+              <div class="flex items-center gap-3">
+                <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-cerulean/20 font-heading text-body font-semibold text-frost" aria-hidden="true">
+                  {{ patientInitials() }}
+                </span>
+                <div class="min-w-0">
+                  <p class="truncate font-heading text-body font-semibold text-white">{{ patientName() }}</p>
+                  @if (patientMeta()) {
+                    <p class="font-sans text-caption text-white/70">{{ patientMeta() }}</p>
+                  }
+                  @if (headerPatientTime(); as pt) {
+                    <p class="font-sans text-caption text-white/70">{{ pt }}</p>
+                  }
+                </div>
               </div>
-            } @else {
-              @if (docsHeaderLine(); as line) {
-                <p class="mt-0.5 flex items-center gap-1.5 font-sans text-caption text-white/60">
-                  <sd-icon [name]="docAccess()?.access?.state === 'active' ? 'shield-check' : 'lock'" [size]="13" class="shrink-0" />{{ line }}
-                </p>
-              }
-              <!-- Where your request stands, and asking to extend / for more (compact). -->
-              @if (callDocBanner(); as b) {
-                @if (b.access.state === 'ends_soon' || b.access.action?.kind === 'more') {
-                  <div class="mt-3 flex flex-col items-start gap-1.5 rounded-2xl bg-white/[0.04] px-3 py-2.5">
-                    @if (b.access.state === 'ends_soon' && b.access.detail) {
-                      <p class="flex items-start gap-1.5 font-sans text-caption text-white/70"><sd-icon name="hourglass" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ b.access.detail }}</p>
+              <div class="mt-4 rounded-2xl bg-alert/10 p-3">
+                <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-alert">
+                  <sd-icon name="triangle-alert" [size]="14" /> Allergies
+                </span>
+                <p class="mt-1 font-sans text-body-sm text-white/85">{{ allergiesLabel() }}</p>
+              </div>
+            </div>
+
+            <!-- Vitals (latest reading of each type, from the join payload) -->
+            <div class="rounded-card border border-white/10 bg-white/[0.03]">
+              <h3>
+                <button type="button" class="${CHART_TOGGLE}" [attr.aria-expanded]="isChartOpen('vitals')" aria-controls="call-chart-vitals" (click)="toggleChart('vitals')">
+                  <sd-icon name="activity" [size]="15" class="shrink-0 text-frost" />
+                  <span class="flex-1">Vitals ({{ vitals().length }})</span>
+                  <sd-icon name="chevron-down" [size]="16" class="shrink-0 text-white/70 transition-transform motion-reduce:transition-none" [class.rotate-180]="isChartOpen('vitals')" />
+                </button>
+              </h3>
+              @if (isChartOpen('vitals')) {
+                <div id="call-chart-vitals" class="px-4 pb-4">
+                  @if (vitalsAsOf()) {
+                    <p class="mb-2 font-sans text-caption text-white/70">{{ vitalsAsOf() }}</p>
+                  }
+                  @if (vitals().length) {
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
+                      @for (v of vitals(); track v.key) {
+                        <div class="flex min-w-0 flex-col gap-0.5 rounded-xl bg-white/[0.04] p-2" [attr.title]="vitalTitle(v)">
+                          <p class="truncate font-sans text-caption text-white/70">{{ v.label }}</p>
+                          <p class="font-heading text-body font-semibold text-white">
+                            {{ v.value }}
+                            <span class="font-sans text-caption font-normal text-white/70">{{ v.unit }}</span>
+                          </p>
+                          @if ((v.flag && v.flag.level !== 'normal') || v.recorded_by === 'patient' || v.stale) {
+                            <p class="flex flex-wrap gap-1">
+                              <!-- Out of the typical adult range only; normal readings stay quiet. -->
+                              @if (v.flag && v.flag.level !== 'normal') {
+                                <span
+                                  class="rounded-pill px-1.5 font-sans text-caption font-semibold"
+                                  [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'bg-alert/20 text-alert' : 'bg-warning/15 text-warning'"
+                                >{{ v.flag.label }}</span>
+                              }
+                              @if (v.recorded_by === 'patient') {
+                                <span class="rounded-pill bg-sky/15 px-1.5 font-sans text-caption text-sky">Self-reported</span>
+                              }
+                              @if (v.stale) {
+                                <span class="rounded-pill bg-warning/15 px-1.5 font-sans text-caption text-warning">Out of date</span>
+                              }
+                            </p>
+                          }
+                        </div>
+                      }
+                    </div>
+                    @if (vitalAlerts().length) {
+                      <ul class="mt-2 flex flex-col gap-1">
+                        @for (v of vitalAlerts(); track v.key) {
+                          <li class="flex items-start gap-1.5 font-sans text-caption text-alert">
+                            <sd-icon [name]="v.flag?.level === 'critical' ? 'triangle-alert' : 'circle-alert'" [size]="12" class="mt-0.5 shrink-0" />
+                            <span>{{ v.label }} is {{ v.flag?.label }} <span class="text-white/70">({{ v.flag?.advice }})</span></span>
+                          </li>
+                        }
+                      </ul>
                     }
-                    @if (b.access.action; as act) {
-                      <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15" (click)="openDocRequest()">
-                        <sd-icon [name]="act.icon" [size]="14" />{{ act.label }}
-                      </button>
-                    }
-                  </div>
-                }
-                @if (b.request; as r) {
-                  <div class="mt-3 flex flex-col items-start gap-1.5 rounded-2xl bg-white/[0.04] px-3 py-2.5">
-                    <p class="flex items-start gap-1.5 font-sans text-caption text-white/70">
-                      <sd-icon [name]="r.icon" [size]="14" class="mt-0.5 shrink-0" [class]="r.tone === 'warning' ? 'text-warning' : 'text-frost'" />{{ r.text }}
+                    <p class="mt-1.5 font-sans text-caption text-white/60">Flags use typical adult ranges.</p>
+                  } @else {
+                    <p class="font-sans text-caption text-white/70">
+                      No readings on file yet. Readings the patient adds, or that you record on a
+                      prescription, appear here.
                     </p>
-                    @if (r.action; as act) {
-                      <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60" [disabled]="withdrawingRequest()" (click)="withdrawDocRequest()">
-                        <sd-icon [name]="act.icon" [size]="14" />{{ withdrawingRequest() ? 'Withdrawing…' : act.label }}
-                      </button>
-                    }
-                  </div>
-                }
+                  }
+                </div>
               }
-              <div class="mb-3 mt-3 flex gap-1 overflow-x-auto">
-                @for (t of recordsTabs; track t.key) {
+            </div>
+
+            <!-- Conditions -->
+            <div class="rounded-card border border-white/10 bg-white/[0.03]">
+              <h3>
+                <button type="button" class="${CHART_TOGGLE}" [attr.aria-expanded]="isChartOpen('conditions')" aria-controls="call-chart-conditions" (click)="toggleChart('conditions')">
+                  <sd-icon name="heart-pulse" [size]="15" class="shrink-0 text-sage" />
+                  <span class="flex-1">Current Conditions ({{ conditions().length }})</span>
+                  <sd-icon name="chevron-down" [size]="16" class="shrink-0 text-white/70 transition-transform motion-reduce:transition-none" [class.rotate-180]="isChartOpen('conditions')" />
+                </button>
+              </h3>
+              @if (isChartOpen('conditions')) {
+                <div id="call-chart-conditions" class="px-4 pb-4">
+                  @if (conditions().length) {
+                    <ul class="flex flex-col gap-1.5">
+                      @for (c of conditions(); track c.condition) {
+                        <li class="flex items-center justify-between gap-2 font-sans text-body-sm text-white/85">
+                          <span>{{ c.condition }}</span>
+                          <span class="size-2 shrink-0 rounded-full bg-sage" aria-hidden="true"></span>
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <p class="font-sans text-body-sm text-white/70">None recorded.</p>
+                  }
+                </div>
+              }
+            </div>
+
+            <!-- Medications -->
+            <div class="rounded-card border border-white/10 bg-white/[0.03]">
+              <h3>
+                <button type="button" class="${CHART_TOGGLE}" [attr.aria-expanded]="isChartOpen('medications')" aria-controls="call-chart-medications" (click)="toggleChart('medications')">
+                  <sd-icon name="pill" [size]="15" class="shrink-0 text-sky" />
+                  <span class="flex-1">Medications ({{ medications().length }})</span>
+                  <sd-icon name="chevron-down" [size]="16" class="shrink-0 text-white/70 transition-transform motion-reduce:transition-none" [class.rotate-180]="isChartOpen('medications')" />
+                </button>
+              </h3>
+              @if (isChartOpen('medications')) {
+                <div id="call-chart-medications" class="px-4 pb-4">
+                  @if (medications().length) {
+                    <ul class="flex flex-col gap-2">
+                      @for (m of medications(); track m.name) {
+                        <li class="flex items-center justify-between gap-2">
+                          <span class="font-sans text-body-sm text-white/85">{{ m.name }}</span>
+                          <span class="font-sans text-caption text-white/70">{{ m.dosage }}</span>
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <p class="font-sans text-body-sm text-white/70">None recorded.</p>
+                  }
+                </div>
+              }
+            </div>
+
+            <!-- Medical History -->
+            <div class="rounded-card border border-white/10 bg-white/[0.03]">
+              <h3>
+                <button type="button" class="${CHART_TOGGLE}" [attr.aria-expanded]="isChartOpen('history')" aria-controls="call-chart-history" (click)="toggleChart('history')">
+                  <sd-icon name="clipboard-list" [size]="15" class="shrink-0 text-frost" />
+                  <span class="flex-1">Medical History ({{ history().length }})</span>
+                  <sd-icon name="chevron-down" [size]="16" class="shrink-0 text-white/70 transition-transform motion-reduce:transition-none" [class.rotate-180]="isChartOpen('history')" />
+                </button>
+              </h3>
+              @if (isChartOpen('history')) {
+                <div id="call-chart-history" class="px-4 pb-4">
+                  @if (history().length) {
+                    <ul class="flex flex-col gap-2">
+                      @for (h of history(); track $index) {
+                        <li class="flex flex-col">
+                          <span class="font-sans text-body-sm text-white/85">
+                            {{ h.condition }}@if (h.year) { <span class="text-white/70"> · {{ h.year }}</span> }
+                          </span>
+                          @if (h.note) {
+                            <span class="font-sans text-caption text-white/70">{{ h.note }}</span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <p class="font-sans text-body-sm text-white/70">None recorded.</p>
+                  }
+                </div>
+              }
+            </div>
+
+            @if (info()?.patient?.id) {
+              <button
+                type="button"
+                class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
+                (click)="openRecord()"
+              >
+                <sd-icon name="file-text" [size]="16" /> View Full EMR
+              </button>
+            }
+          </aside>
+
+          <!-- ===================== SHARED DOCUMENTS (Medical Records) ===================== -->
+          <aside
+            id="call-records"
+            aria-label="Shared documents"
+            class="flex min-w-0 flex-col gap-4"
+            [class]="recordsClass()"
+            [hidden]="panelHidden('documents')"
+            [attr.role]="layout() === 'wide' ? null : 'tabpanel'"
+            [attr.aria-labelledby]="layout() === 'mid' ? 'call-side-documents' : layout() === 'narrow' ? 'call-section-documents' : null"
+          >
+            <div class="rounded-card border border-white/10 bg-white/[0.03] p-4" [attr.aria-busy]="docsLoading() || null">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <!-- Focus lands here when a request's Send / Withdraw button gives way to its
+                     result, and when the viewer closes after its opener has gone. -->
+                <h3 #docsHeading id="call-records-heading" tabindex="-1" class="font-sans text-body font-semibold text-white outline-none">Medical Records</h3>
+                @if (newDocCount()) {
+                  <span class="sd-new-pill rounded-pill bg-cerulean/15 px-2 py-0.5 font-sans text-caption font-semibold text-frost">{{ newDocCount() }} new</span>
+                  <button type="button" class="ml-auto min-h-11 rounded-field px-1 font-sans text-caption font-semibold text-frost underline-offset-2 hover:underline" (click)="markAllSeen()">Mark all seen</button>
+                }
+              </div>
+              @if (!portalSignedIn()) {
+                <!-- Joined by an emailed link (or the portal session ended): nothing is fetched. -->
+                <div class="mt-3 flex flex-col items-start gap-2 rounded-2xl bg-white/[0.04] px-3 py-2.5">
+                  <p class="flex items-start gap-1.5 font-sans text-caption text-white/80">
+                    <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />{{ docsSignedOut }}
+                  </p>
                   <button
                     type="button"
-                    class="whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
-                    [class]="recordsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/60 hover:bg-white/10'"
-                    [attr.aria-pressed]="recordsTab() === t.key"
-                    (click)="recordsTab.set(t.key)"
+                    class="inline-flex min-h-11 items-center gap-1.5 rounded-field px-1 font-sans text-caption font-semibold text-frost underline underline-offset-2"
+                    (click)="openPortalSignIn()"
                   >
-                    {{ t.label }}
+                    <sd-icon name="external-link" [size]="14" /> Sign in (opens a new tab)
                   </button>
+                </div>
+              } @else {
+                @if (docsHeaderLine(); as line) {
+                  <p class="mt-0.5 flex items-center gap-1.5 font-sans text-caption text-white/70">
+                    <sd-icon [name]="docAccess()?.access?.state === 'active' ? 'shield-check' : 'lock'" [size]="13" class="shrink-0" />{{ line }}
+                  </p>
                 }
-              </div>
-              @if (docsLoading() && !docAccess()) {
-                <div class="flex flex-col gap-2" aria-hidden="true">
-                  @for (i of [1, 2]; track i) { <div class="sd-shimmer h-12 rounded-2xl bg-white/[0.04]"></div> }
-                </div>
-              } @else if (docsFailed() || callDocBanner()?.access?.state === 'unavailable') {
-                <div class="flex flex-col items-center gap-2 py-6 text-center">
-                  <sd-icon name="triangle-alert" [size]="26" class="text-alert" />
-                  <p class="font-sans text-caption text-alert" role="alert">{{ docsLoadFailed }}</p>
-                  <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60" [disabled]="docsLoading()" (click)="retryDocumentAccess()">
-                    <sd-icon name="refresh-cw" [size]="14" />Try again
-                  </button>
-                </div>
-              } @else if (visibleDocs().length) {
-                <ul class="flex flex-col gap-2">
-                  @for (d of visibleDocs(); track d.id) {
-                    <li>
-                      <button
-                        type="button"
-                        class="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 text-left transition-colors hover:bg-white/[0.07]"
-                        (click)="openPatientDoc(d)"
-                        [attr.title]="'Open ' + d.title"
-                      >
-                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/70">
-                          <sd-icon [name]="docIcon(d)" [size]="16" />
-                        </span>
-                        <span class="flex min-w-0 flex-1 flex-col">
-                          <span class="truncate font-sans text-body-sm text-white">{{ d.title }}</span>
-                          <span class="truncate font-sans text-[10px] uppercase text-white/45">{{ d.type_label }} · {{ d.extension }} · {{ d.size_label }}</span>
-                        </span>
-                        <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px]" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-frost/15 text-frost'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
-                      </button>
-                    </li>
+                <!-- Where your request stands, and asking to extend / for more (compact). -->
+                @if (callDocBanner(); as b) {
+                  @if (b.access.state === 'ends_soon' || b.access.action?.kind === 'more') {
+                    <div class="mt-3 flex flex-col items-start gap-1.5 rounded-2xl bg-white/[0.04] px-3 py-2.5">
+                      @if (b.access.state === 'ends_soon' && b.access.detail) {
+                        <p class="flex items-start gap-1.5 font-sans text-caption text-white/80"><sd-icon name="hourglass" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ b.access.detail }}</p>
+                      }
+                      @if (b.access.action; as act) {
+                        <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15" (click)="openDocRequest()">
+                          <sd-icon [name]="act.icon" [size]="14" />{{ act.label }}
+                        </button>
+                      }
+                    </div>
                   }
-                </ul>
-              } @else if (docAccess(); as acc) {
-                @let empty = docsEmpty(acc.access.state);
-                <div class="flex flex-col items-center gap-2 py-6 text-center">
-                  <sd-icon [name]="acc.access.state === 'active' ? 'folder-open' : 'lock'" [size]="26" class="text-white/30" />
-                  <p class="font-sans text-caption font-semibold text-white/60">{{ empty.title }}</p>
-                  @if (empty.body) {
-                    <p class="font-sans text-caption text-white/60">{{ empty.body }}</p>
+                  @if (b.request; as r) {
+                    <div class="mt-3 flex flex-col items-start gap-1.5 rounded-2xl bg-white/[0.04] px-3 py-2.5">
+                      <p class="flex items-start gap-1.5 font-sans text-caption text-white/80">
+                        <sd-icon [name]="r.icon" [size]="14" class="mt-0.5 shrink-0" [class]="r.tone === 'warning' ? 'text-warning' : 'text-frost'" />{{ r.text }}
+                      </p>
+                      @if (r.action; as act) {
+                        <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60" [disabled]="withdrawingRequest()" (click)="withdrawDocRequest()">
+                          <sd-icon [name]="act.icon" [size]="14" />{{ withdrawingRequest() ? 'Withdrawing…' : act.label }}
+                        </button>
+                      }
+                    </div>
                   }
-                  @if (recordsTab() === 'documents' && callDocBanner()?.access?.action?.kind === 'request') {
-                    <button type="button" class="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15" (click)="openDocRequest()">
-                      <sd-icon name="key-round" [size]="14" />Request access
+                }
+                <div class="mb-3 mt-3 flex gap-1 overflow-x-auto" role="group" aria-label="Show">
+                  @for (t of recordsTabs; track t.key) {
+                    <button
+                      type="button"
+                      class="min-h-11 whitespace-nowrap rounded-pill px-3 font-sans text-caption transition-colors"
+                      [class]="recordsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/80 hover:bg-white/10'"
+                      [attr.aria-pressed]="recordsTab() === t.key"
+                      (click)="recordsTab.set(t.key)"
+                    >
+                      {{ t.label }}
                     </button>
                   }
                 </div>
-              }
-            }
-            <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
-            @if (docOpenError()) {
-              <p class="mt-3 flex items-start gap-1.5 font-sans text-caption text-alert" role="alert">
-                <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" /> {{ docOpenError() }}
-              </p>
-            }
-            @if (docLink(); as l) {
-              <!-- The browser blocked the new tab; never open it here (that would end the call). -->
-              <p class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl bg-white/[0.04] px-3 py-2 font-sans text-caption text-white/70" role="status">
-                <span>Your browser blocked the new tab.</span>
-                <a
-                  class="inline-flex items-center gap-1 font-semibold text-frost underline"
-                  [href]="l.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  (click)="clearDocLinkSoon()"
-                >Open {{ l.title }} <sd-icon name="external-link" [size]="12" /></a>
-              </p>
-            }
-          </div>
-
-          <!-- Participants -->
-          <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <h3 class="mb-3 font-sans text-body-sm font-semibold text-white">
-              Participants ({{ participantCount() }})
-            </h3>
-            <ul class="flex flex-col gap-3">
-              <li class="flex items-center gap-3">
-                <span class="flex size-9 items-center justify-center rounded-full bg-cerulean/20 font-heading text-caption font-semibold text-frost">
-                  {{ doctorInitials() }}
-                </span>
-                <span class="flex min-w-0 flex-1 flex-col">
-                  <span class="truncate font-sans text-body-sm text-white">{{ doctorName() }} (You)</span>
-                  <span class="font-sans text-caption text-white/45">Host</span>
-                </span>
-                <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="15" [class]="micOn() ? 'text-white/60' : 'text-alert'" />
-                <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="15" [class]="camOn() ? 'text-white/60' : 'text-alert'" />
-              </li>
-              <!-- The patient, then their guests (names only), live from the call itself. -->
-              @for (p of others(); track p.key) {
-                <li class="flex items-center gap-3">
-                  <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 font-heading text-caption font-semibold text-white/80">
-                    {{ p.initials }}
-                  </span>
-                  <span class="flex min-w-0 flex-1 flex-col">
-                    <span class="truncate font-sans text-body-sm text-white">{{ p.name }}</span>
-                    <span class="truncate font-sans text-caption text-white/45">
-                      {{ p.role === 'patient' ? 'Patient' : 'Guest' }} ·
-                      <span [class]="p.inCall ? 'text-success' : ''">{{ p.inCall ? 'In the call' : 'Not joined yet' }}</span>
-                    </span>
-                    @if (p.role === 'guest' && recordingConfigured() && !legacyRoster()) {
-                      <span class="flex items-center gap-1 font-sans text-[11px]" [class]="p.consented ? 'text-success' : 'text-warning'">
-                        <sd-icon [name]="p.consented ? 'shield-check' : 'shield-alert'" [size]="12" class="shrink-0" />
-                        {{ p.consented ? 'Agreed to recording' : (p.consented === null ? 'Recording consent not known yet' : 'Hasn’t agreed to recording') }}
-                      </span>
+                @if (docsLoading() && !docAccess()) {
+                  <div class="flex flex-col gap-2" aria-hidden="true">
+                    @for (i of [1, 2]; track i) { <div class="sd-shimmer h-12 rounded-2xl bg-white/[0.04]"></div> }
+                  </div>
+                } @else if (docsFailed() || callDocBanner()?.access?.state === 'unavailable') {
+                  <div class="flex flex-col items-center gap-2 py-6 text-center">
+                    <sd-icon name="triangle-alert" [size]="26" class="text-alert" />
+                    <p class="font-sans text-caption text-white" role="alert">{{ docsLoadFailed }}</p>
+                    <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60" [disabled]="docsLoading()" (click)="retryDocumentAccess()">
+                      <sd-icon name="refresh-cw" [size]="14" />Try again
+                    </button>
+                  </div>
+                } @else if (sortedDocs().length) {
+                  <ul class="flex flex-col gap-2">
+                    @for (d of sortedDocs(); track d.id) {
+                      @let unseen = newDocIds().has(d.id);
+                      <li>
+                        <button
+                          type="button"
+                          class="flex w-full items-center gap-3 rounded-2xl border p-2.5 text-left transition-colors hover:bg-white/[0.07] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+                          [class]="unseen ? 'border-white/10 border-l-2 border-l-cerulean bg-cerulean/10' : 'border-white/10 bg-white/[0.03]'"
+                          [attr.data-doc-id]="d.id"
+                          (click)="openPatientDoc(d, $event.currentTarget)"
+                        >
+                          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-white/80" aria-hidden="true">
+                            <sd-icon [name]="docIcon(d)" [size]="16" />
+                          </span>
+                          <span class="flex min-w-0 flex-1 flex-col">
+                            <span class="flex min-w-0 items-center gap-1.5">
+                              <span class="truncate font-sans text-body-sm text-white">{{ d.title }}</span>
+                              @if (unseen) {
+                                <span class="sd-new-pill shrink-0 rounded-pill bg-cerulean/15 px-1.5 font-sans text-caption font-semibold text-frost">New</span>
+                              }
+                            </span>
+                            <span class="truncate font-sans text-caption text-white/70">{{ d.type_label }} · {{ d.extension.toUpperCase() }} · {{ d.size_label }}</span>
+                            <span class="truncate font-sans text-caption text-white/70">{{ sharedAgo(d) }}</span>
+                            @if (d.viewable === false) {
+                              <span class="font-sans text-caption text-white/70">Preview not available</span>
+                            }
+                          </span>
+                          <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-caption" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-frost/15 text-frost'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
+                          <sd-icon name="eye" [size]="16" class="shrink-0 text-white/70" />
+                        </button>
+                      </li>
                     }
-                  </span>
-                  @if (p.inCall && p.muted) {
-                    <sd-icon name="mic-off" [size]="15" class="shrink-0 text-alert" aria-hidden="true" />
-                    <span class="sr-only">Microphone off</span>
-                  }
-                  @if (p.inCall && p.cameraOff) {
-                    <sd-icon name="video-off" [size]="15" class="shrink-0 text-alert" aria-hidden="true" />
-                    <span class="sr-only">Camera off</span>
-                  }
-                  <span
-                    class="size-2 shrink-0 rounded-full"
-                    [class]="p.inCall ? 'bg-success' : 'bg-white/25'"
-                    aria-hidden="true"
-                  ></span>
-                </li>
+                  </ul>
+                } @else if (docAccess(); as acc) {
+                  @let empty = docsEmpty(acc.access.state);
+                  <div class="flex flex-col items-center gap-2 py-6 text-center">
+                    <sd-icon [name]="acc.access.state === 'active' ? 'folder-open' : 'lock'" [size]="26" class="text-white/50" />
+                    <p class="font-sans text-caption font-semibold text-white/80">{{ empty.title }}</p>
+                    @if (empty.body) {
+                      <p class="font-sans text-caption text-white/70">{{ empty.body }}</p>
+                    }
+                    @if (recordsTab() === 'documents' && callDocBanner()?.access?.action?.kind === 'request') {
+                      <button type="button" class="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/15" (click)="openDocRequest()">
+                        <sd-icon name="key-round" [size]="14" />Request access
+                      </button>
+                    }
+                  </div>
+                }
               }
-            </ul>
-            <div class="mt-3 flex flex-col gap-2 border-t border-white/10 pt-3">
-              <div class="flex items-center gap-2">
-                @if (consentsError()) {
-                  <sd-icon name="shield-check" [size]="15" class="shrink-0 text-alert" />
-                  <span class="font-sans text-caption text-alert">{{ consentsError() }}</span>
-                } @else {
-                  <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/40'" />
-                  <span class="font-sans text-caption text-white/60">
-                    Recording consent:
-                    <span [class]="recordingConsent() ? 'text-success' : 'text-white/50'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
-                  </span>
+              @if (docOpenError()) {
+                <p class="mt-3 flex items-start gap-1.5 font-sans text-caption text-white" role="alert">
+                  <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0 text-alert" /> {{ docOpenError() }}
+                </p>
+              }
+            </div>
+
+            @if (layout() === 'wide') {
+              <!-- Participants: a disclosure under the records at wide. -->
+              <div class="rounded-card border border-white/10 bg-white/[0.03]">
+                <h3>
+                  <button type="button" class="${CHART_TOGGLE}" [attr.aria-expanded]="peopleShown()" aria-controls="call-people-list" (click)="peopleShown.set(!peopleShown())">
+                    <sd-icon name="users" [size]="15" class="shrink-0 text-frost" />
+                    <span class="flex-1">Participants ({{ participantCount() }})</span>
+                    <sd-icon name="chevron-down" [size]="16" class="shrink-0 text-white/70 transition-transform motion-reduce:transition-none" [class.rotate-180]="peopleShown()" />
+                  </button>
+                </h3>
+                @if (peopleShown()) {
+                  <div id="call-people-list" class="px-4 pb-4">
+                    <ng-container [ngTemplateOutlet]="participantsTpl" />
+                  </div>
                 }
               </div>
-              <!-- Guests agree in their lobby; the whole channel is recorded, so each one in the call must have. -->
-              @if (recordingConfigured() && hasGuests() && !legacyRoster()) {
-                <div class="flex items-start gap-2">
-                  <sd-icon
-                    [name]="guestsWithoutConsent() ? 'shield-alert' : 'shield-check'"
-                    [size]="15"
-                    class="mt-px shrink-0"
-                    [class]="guestsWithoutConsent() ? 'text-warning' : 'text-white/40'"
-                  />
-                  <span class="font-sans text-caption" [class]="guestsWithoutConsent() ? 'text-warning' : 'text-white/60'">{{ guestConsentLabel() }}</span>
-                </div>
+            }
+          </aside>
+
+          @if (layout() !== 'wide') {
+            <aside
+              id="call-people"
+              aria-label="Participants"
+              class="flex min-w-0 flex-col"
+              [class]="layout() === 'mid' ? 'min-h-0 flex-1 overflow-y-auto' : ''"
+              [hidden]="panelHidden('people')"
+              role="tabpanel"
+              [attr.aria-labelledby]="layout() === 'mid' ? 'call-side-people' : 'call-section-people'"
+            >
+              <div class="rounded-card border border-white/10 bg-white/[0.03] p-4">
+                <h3 class="mb-3 font-sans text-body-sm font-semibold text-white">Participants ({{ participantCount() }})</h3>
+                <ng-container [ngTemplateOutlet]="participantsTpl" />
+              </div>
+            </aside>
+          }
+        </div>
+      </main>
+    </div>
+
+    <!-- The one live region for documents ("Request sent.", "Ada shared a new document…").
+         Outside every panel that can be hidden (the records aside at mid and narrow) and
+         outside the cockpit that goes inert under the narrow viewer, so it is always read out. -->
+    <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
+
+    <!-- Narrow screens: the new-document alert floats at the bottom (never over the video). -->
+    @if (layout() === 'narrow') {
+      <!-- Dark in both cockpit themes, like the dock it belongs to. Inert under the viewer sheet. -->
+      <div class="sd-dock" [attr.inert]="sheetOpen() ? '' : null">
+        <ng-container [ngTemplateOutlet]="docAlertTpl" />
+      </div>
+    }
+
+    <!-- Narrow screens: the document fills the screen; the call keeps going under it. -->
+    @if (viewerFile(); as vf) {
+      @if (viewerDoc() && layout() === 'narrow') {
+      <div class="fixed inset-0 z-50 flex flex-col bg-abyss">
+        <doc-protected-document-viewer
+          class="min-h-0 flex-1"
+          mode="sheet"
+          [tone]="theme()"
+          [file]="vf"
+          [state]="viewerState()"
+          [errorText]="viewerError()"
+          [watermark]="viewerWatermark()"
+          [inCall]="inLiveCall()"
+          (closed)="closeViewer()"
+          (printRequested)="onViewerPrint()"
+        >
+          <div viewerBar class="sd-dock flex shrink-0 items-center gap-2 border-b border-white/10 bg-ink px-2 py-1.5">
+            <button type="button" class="flex min-h-11 items-center gap-1.5 rounded-field px-2 font-sans text-body-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-frost" (click)="closeViewer()">
+              <sd-icon name="arrow-left" [size]="18" />Back to call
+            </button>
+            <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ patientName() }} · {{ elapsedLabel() }}</span>
+            @if (status() === 'in-call') {
+              <button type="button" class="flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-frost" [class]="micOn() ? 'bg-white/10 hover:bg-white/20' : 'bg-alert hover:bg-alert/85'" [attr.aria-label]="micOn() ? 'Mute' : 'Unmute'" (click)="toggleMic()">
+                <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="18" />
+              </button>
+              <button type="button" class="flex size-11 items-center justify-center rounded-full bg-alert transition-colors hover:bg-alert/85 focus-visible:outline-2 focus-visible:outline-frost" aria-label="End consultation" (click)="askEnd()">
+                <sd-icon name="phone-off" [size]="18" />
+              </button>
+            }
+          </div>
+        </doc-protected-document-viewer>
+      </div>
+      }
+    }
+
+    <!-- The participants list (wide: a disclosure in the records; mid: the People tab;
+         narrow: the People section; below xl also the header's popover). -->
+    <ng-template #participantsTpl>
+      <ul class="flex flex-col gap-3">
+        <li class="flex items-center gap-3">
+          <span class="flex size-9 items-center justify-center rounded-full bg-cerulean/20 font-heading text-caption font-semibold text-frost" aria-hidden="true">
+            {{ doctorInitials() }}
+          </span>
+          <span class="flex min-w-0 flex-1 flex-col">
+            <span class="truncate font-sans text-body-sm text-white">{{ doctorName() }} (You)</span>
+            <span class="font-sans text-caption text-white/70">Host</span>
+          </span>
+          <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="15" [class]="micOn() ? 'text-white/70' : 'text-alert'" aria-hidden="true" />
+          @if (!micOn()) { <span class="sr-only">Microphone off</span> }
+          <sd-icon [name]="camOn() ? 'video' : 'video-off'" [size]="15" [class]="camOn() ? 'text-white/70' : 'text-alert'" aria-hidden="true" />
+          @if (!camOn()) { <span class="sr-only">Camera off</span> }
+        </li>
+        <!-- The patient, then their guests (names only), live from the call itself. -->
+        @for (p of others(); track p.key) {
+          <li class="flex items-center gap-3">
+            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 font-heading text-caption font-semibold text-white/85" aria-hidden="true">
+              {{ p.initials }}
+            </span>
+            <span class="flex min-w-0 flex-1 flex-col">
+              <span class="truncate font-sans text-body-sm text-white">{{ p.name }}</span>
+              <span class="truncate font-sans text-caption text-white/70">
+                {{ p.role === 'patient' ? 'Patient' : 'Guest' }} ·
+                <span [class]="p.inCall ? 'text-success' : ''">{{ p.inCall ? 'In the call' : 'Not joined yet' }}</span>
+              </span>
+              @if (p.role === 'guest' && recordingConfigured() && !legacyRoster()) {
+                <span class="flex items-center gap-1 font-sans text-caption" [class]="p.consented ? 'text-success' : 'text-warning'">
+                  <sd-icon [name]="p.consented ? 'shield-check' : 'shield-alert'" [size]="12" class="shrink-0" />
+                  {{ p.consented ? 'Agreed to recording' : (p.consented === null ? 'Recording consent not known yet' : 'Hasn’t agreed to recording') }}
+                </span>
+              }
+            </span>
+            @if (p.inCall && p.muted) {
+              <sd-icon name="mic-off" [size]="15" class="shrink-0 text-alert" aria-hidden="true" />
+              <span class="sr-only">Microphone off</span>
+            }
+            @if (p.inCall && p.cameraOff) {
+              <sd-icon name="video-off" [size]="15" class="shrink-0 text-alert" aria-hidden="true" />
+              <span class="sr-only">Camera off</span>
+            }
+            <span class="size-2 shrink-0 rounded-full" [class]="p.inCall ? 'bg-success' : 'bg-white/25'" aria-hidden="true"></span>
+          </li>
+        }
+      </ul>
+      <div class="mt-3 flex flex-col gap-2 border-t border-white/10 pt-3">
+        <div class="flex items-center gap-2">
+          @if (consentsError()) {
+            <sd-icon name="shield-check" [size]="15" class="shrink-0 text-alert" />
+            <span class="font-sans text-caption text-white">{{ consentsError() }}</span>
+          } @else {
+            <sd-icon name="shield-check" [size]="15" [class]="recordingConsent() ? 'text-success' : 'text-white/50'" />
+            <span class="font-sans text-caption text-white/80">
+              Recording consent:
+              <span [class]="recordingConsent() ? 'text-success' : 'text-white/70'">{{ recordingConsent() ? 'granted' : 'not granted' }}</span>
+            </span>
+          }
+        </div>
+        <!-- Guests agree in their lobby; the whole channel is recorded, so each one in the call must have. -->
+        @if (recordingConfigured() && hasGuests() && !legacyRoster()) {
+          <div class="flex items-start gap-2">
+            <sd-icon
+              [name]="guestsWithoutConsent() ? 'shield-alert' : 'shield-check'"
+              [size]="15"
+              class="mt-px shrink-0"
+              [class]="guestsWithoutConsent() ? 'text-warning' : 'text-white/50'"
+            />
+            <span class="font-sans text-caption" [class]="guestsWithoutConsent() ? 'text-warning' : 'text-white/80'">{{ guestConsentLabel() }}</span>
+          </div>
+        }
+      </div>
+    </ng-template>
+
+    <!-- The new-document alert: below the controls (wide / mid), floating at the bottom
+         (narrow). Not a live region (announceDocs says it); focus never moves to it. -->
+    <ng-template #docAlertTpl>
+      @if (docAlertView(); as al) {
+        <div
+          #docAlertEl
+          role="group"
+          aria-label="New document"
+          tabindex="-1"
+          class="flex items-start gap-3 outline-none rounded-card border border-cerulean/40 bg-ink px-4 py-3 shadow-raised"
+          [class]="layout() === 'narrow' ? 'fixed inset-x-3 bottom-3 z-40' : ''"
+          (mouseenter)="holdAlert(true)"
+          (mouseleave)="holdAlert(false)"
+          (focusin)="holdAlert(true)"
+          (focusout)="onAlertFocusOut($event)"
+          (keydown.escape)="dismissAlert()"
+        >
+          <sd-icon name="bell" [size]="18" class="mt-0.5 shrink-0 text-frost" />
+          <div class="min-w-0 flex-1">
+            <p class="font-sans text-body-sm font-semibold text-white">{{ al.title }}</p>
+            @if (al.detail) {
+              <p class="truncate font-sans text-caption text-white/80">{{ al.detail }}</p>
+            }
+            <div class="mt-2 flex flex-wrap gap-2">
+              @if (al.signedOut) {
+                <button type="button" class="${ALERT_BUTTON}" (click)="openPortalSignIn()">
+                  <sd-icon name="external-link" [size]="14" />Sign in
+                </button>
+              } @else {
+                @if (al.doc; as doc) {
+                  @if (doc.viewable !== false) {
+                    <button type="button" class="${ALERT_BUTTON}" (click)="openPatientDoc(doc, $event.currentTarget)">
+                      <sd-icon name="eye" [size]="14" />View
+                    </button>
+                  }
+                }
+                <button type="button" class="${ALERT_BUTTON}" (click)="showInRecords()">Show in records</button>
               }
             </div>
           </div>
-        </aside>
-      </div>
-    </div>
+          <button
+            type="button"
+            class="-mr-2 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-frost"
+            aria-label="Dismiss new document alert"
+            (click)="dismissAlert()"
+          >
+            <sd-icon name="x" [size]="16" />
+          </button>
+        </div>
+      }
+    </ng-template>
 
     <!-- End consultation: close the visit for everyone, or just leave (can rejoin).
          The design-system dialog (top layer, focus kept inside, Esc / scrim = Cancel,
@@ -1685,9 +2049,648 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
+  // ---- Layout (per breakpoint) ----
+  /** At least 1280px: chart | dock + tools | records. */
+  private readonly wideMq = this.media('(min-width: 1280px)');
+  /** At least 1024px: dock + tools | one tabbed side panel. */
+  private readonly midMq = this.media('(min-width: 1024px)');
+  /** Below 640px: the doctor's own camera is a small tile in the control row, not on the video. */
+  protected readonly phone = this.media('(max-width: 639.98px)');
+  protected readonly layout = computed<'wide' | 'mid' | 'narrow'>(() =>
+    this.wideMq() ? 'wide' : this.midMq() ? 'mid' : 'narrow',
+  );
+  /** Narrow: which section shows under the video. */
+  protected readonly section = signal<CallSection>('notes');
+  /** Mid: which side panel shows. */
+  protected readonly sideTab = signal<SideTab>('patient');
+  protected readonly sectionTabs: ReadonlyArray<{ key: CallSection; label: string; panel: string }> = [
+    { key: 'notes', label: 'Notes', panel: 'call-tools' },
+    { key: 'patient', label: 'Patient', panel: 'call-chart' },
+    { key: 'documents', label: 'Documents', panel: 'call-records' },
+    { key: 'people', label: 'People', panel: 'call-people' },
+  ];
+  protected readonly sideTabs: ReadonlyArray<{ key: SideTab; label: string; panel: string }> = [
+    { key: 'patient', label: 'Patient', panel: 'call-chart' },
+    { key: 'documents', label: 'Documents', panel: 'call-records' },
+    { key: 'people', label: 'People', panel: 'call-people' },
+  ];
+  /** The header's participants popover (below xl). */
+  protected readonly peopleOpen = signal(false);
+  /** The participants disclosure in the records column (wide). */
+  protected readonly peopleShown = signal(true);
+  private readonly peopleButton = viewChild<ElementRef<HTMLElement>>('peopleButton');
+
+  protected readonly gridClass = computed(() => {
+    switch (this.layout()) {
+      case 'wide':
+        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[272px_minmax(0,1fr)_336px] 2xl:grid-cols-[300px_minmax(0,1fr)_380px] grid-rows-[auto_minmax(0,1fr)] [grid-template-areas:'chart_dock_records''chart_tools_records']";
+      case 'mid':
+        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[minmax(0,1fr)_340px] grid-rows-[auto_minmax(0,1fr)] [grid-template-areas:'dock_side''tools_side']";
+      default:
+        return 'flex flex-col gap-3 p-3';
+    }
+  });
+  protected readonly dockClass = computed(() =>
+    this.layout() === 'narrow' ? 'sticky top-0 z-20 bg-abyss pt-1 [@media(max-height:500px)]:static' : '[grid-area:dock]',
+  );
+  protected readonly stageClass = computed(() =>
+    this.layout() === 'narrow'
+      ? 'mx-auto w-full aspect-[4/3] max-w-[calc(var(--stage-max)*4/3)] sm:aspect-video sm:max-w-[calc(var(--stage-max)*16/9)]'
+      : 'w-full h-[var(--stage-h)] transition-[height] duration-300 ease-out',
+  );
+  protected readonly toolsClass = computed(() => (this.layout() === 'narrow' ? '' : 'min-h-0 [grid-area:tools]'));
+  /** Wide / mid with the Document tab chosen: the viewer fills the tools panel. */
+  protected readonly docTabShown = computed(() => this.layout() !== 'narrow' && this.notesTab() === 'document' && !!this.viewerDoc());
+  protected readonly toolsBodyClass = computed(() => {
+    if (this.layout() === 'narrow') return 'p-4';
+    return this.docTabShown() ? 'flex min-h-0 flex-1 flex-col overflow-y-auto p-0' : 'min-h-0 flex-1 overflow-y-auto p-4';
+  });
+  protected readonly sideClass = computed(() =>
+    this.layout() === 'mid' ? 'flex min-h-0 min-w-0 flex-col gap-3 [grid-area:side]' : 'contents',
+  );
+  protected readonly chartClass = computed(() => {
+    switch (this.layout()) {
+      case 'wide':
+        return 'min-h-0 overflow-y-auto pr-1 [grid-area:chart]';
+      case 'mid':
+        return 'min-h-0 flex-1 overflow-y-auto';
+      default:
+        return '';
+    }
+  });
+  protected readonly recordsClass = computed(() => {
+    switch (this.layout()) {
+      case 'wide':
+        return 'min-h-0 overflow-y-auto pr-1 [grid-area:records]';
+      case 'mid':
+        return 'min-h-0 flex-1 overflow-y-auto';
+      default:
+        return '';
+    }
+  });
+  /** A side panel that isn't the chosen one (mid: the side tab; narrow: the section). */
+  protected panelHidden(panel: SideTab): boolean {
+    const layout = this.layout();
+    if (layout === 'wide') return false;
+    return layout === 'mid' ? this.sideTab() !== panel : this.section() !== panel;
+  }
+
+  // ---- The video: size, fit and my own preview (remembered per device) ----
+  protected readonly videoSize = signal<VideoSize>(readVideoSize());
+  protected readonly fit = signal<CallVideoFit>(readStored(FIT_KEY, ['contain', 'cover'], 'contain'));
+  protected readonly selfHidden = signal(readStored(SELF_KEY, ['hidden', 'shown'], 'shown') === 'hidden');
+  protected readonly selfMode = computed<CallSelfViewMode>(() =>
+    this.selfHidden() ? 'hidden' : this.phone() ? 'external' : 'pip',
+  );
+  protected readonly selfTile = computed(() => this.tiles().find((t) => t.self) ?? null);
+  /** My camera (or the shared screen) for the phone's control-row tile. */
+  protected readonly selfTrack = signal<ICameraVideoTrack | ILocalVideoTrack | null>(null);
+  protected readonly selfPlayConfig = computed(() => (this.screenOn() ? { fit: 'contain' as const } : undefined));
+  protected readonly stageHeight = computed(() => STAGE_HEIGHT[this.videoSize()]);
+  protected readonly stageMax = computed(() => (this.videoSize() === 's' ? '28dvh' : '45dvh'));
+  /** Connection quality from Agora (the worse of up- and downlink; 0 or null: not known yet). */
+  protected readonly quality = signal<number | null>(null);
+  private readonly canShareScreen = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+
+  protected readonly controls = computed<CallControl[]>(() => {
+    const blocked = this.recordingBlocked();
+    return [
+      { id: 'mic', label: this.micOn() ? 'Mute' : 'Unmute', icon: this.micOn() ? 'mic' : 'mic-off', tone: this.micOn() ? 'default' : 'off' },
+      { id: 'cam', label: this.camOn() ? 'Stop video' : 'Start video', icon: this.camOn() ? 'video' : 'video-off', tone: this.camOn() ? 'default' : 'off' },
+      {
+        id: 'share',
+        label: 'Share screen',
+        icon: 'monitor-smartphone',
+        pressed: this.screenOn(),
+        tone: this.screenOn() ? 'active' : 'default',
+        overflow: 'menu',
+        hidden: !this.canShareScreen,
+      },
+      {
+        id: 'record',
+        label: 'Record',
+        icon: this.recordingActive() ? 'circle-stop' : 'circle',
+        pressed: this.recordingActive(),
+        tone: this.recordingActive() ? 'active' : 'default',
+        overflow: 'menu',
+        hidden: !this.recordingConfigured(),
+        disabled: this.recordingBusy() || blocked !== '',
+        reason: blocked || null,
+      },
+      {
+        id: 'documents',
+        label: 'Documents',
+        icon: 'file-text',
+        badge: this.newDocCount() || null,
+        hidden: this.layout() !== 'mid',
+      },
+      { id: 'more', label: 'More', icon: 'ellipsis' },
+      { id: 'end', label: 'End', ariaLabel: 'End consultation', icon: 'phone-off', tone: 'danger' },
+    ];
+  });
+
+  protected readonly menu = computed<CallMenuItem[]>(() => {
+    const size = this.videoSize();
+    const items: CallMenuItem[] = [
+      { id: 'size-s', label: 'Small video', icon: 'minimize-2', checked: size === 's', group: 'size' },
+      { id: 'size-m', label: 'Medium video', icon: 'video', checked: size === 'm', group: 'size' },
+      { id: 'size-l', label: 'Large video', icon: 'maximize-2', checked: size === 'l', group: 'size' },
+      { id: 'fit-contain', label: 'Video: fit whole picture', checked: this.fit() === 'contain', group: 'fit' },
+      { id: 'fit-cover', label: 'Video: fill the frame', checked: this.fit() === 'cover', group: 'fit' },
+      { id: 'self', label: 'Hide my preview', icon: 'eye-off', checked: this.selfHidden() },
+    ];
+    if (this.layout() === 'narrow') {
+      items.push({ id: 'theme', label: this.theme() === 'dark' ? 'Light cockpit' : 'Dark cockpit', icon: this.theme() === 'dark' ? 'sun' : 'moon' });
+    }
+    return items;
+  });
+
+  // ---- New documents in the call ----
+  private newDocsState: NewDocsState = EMPTY_NEW_DOCS;
+  /** Shared since the call's first read and not opened yet (the pills and badges). */
+  protected readonly newDocIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly newDocCount = computed(() => this.newDocIds().size);
+  /** The alert under the controls (or floating, narrow); the badge outlives it. */
+  protected readonly docAlert = signal<DocAlert | null>(null);
+  /** A nudge arrived while signed out of the portal: say so instead. */
+  protected readonly docAlertSignedOut = signal(false);
+  protected readonly docAlertView = computed(() => {
+    if (this.docAlertSignedOut()) {
+      return {
+        title: 'The patient shared a new document.',
+        detail: 'Sign in to the doctor portal to see it (opens a new tab).',
+        doc: null,
+        signedOut: true,
+      };
+    }
+    const alert = this.docAlert();
+    if (!alert) return null;
+    const lines = docAlertLines(alert, this.patientFirstName(), this.screenOn());
+    return { ...lines, doc: alert.count === 1 ? alert.doc : null, signedOut: false };
+  });
+  private readonly docAlertEl = viewChild<ElementRef<HTMLElement>>('docAlertEl');
+  private alertTimer?: ReturnType<typeof setTimeout>;
+  private alertHeld = false;
+  /** When the last load / refresh / poll read STARTED (a nudge's doesn't count). */
+  private lastPollStartAt = Number.NEGATIVE_INFINITY;
+  private lastNudgeReadAt = Number.NEGATIVE_INFINITY;
+  private nudgeTimer?: ReturnType<typeof setTimeout>;
+  /** A read was asked for while one ran: one more (passive) read follows it. */
+  private docsFollowUp = false;
+  private unbindNudge?: () => void;
+  private baseTitle: string | null = null;
+  /** Records newest share first. */
+  protected readonly sortedDocs = computed(() => [...this.visibleDocs()].sort(byNewestShare));
+
+  // ---- The view-only document viewer ----
+  protected readonly viewerDoc = signal<DoctorSharedDocumentDto | null>(null);
+  protected readonly viewerFile = signal<ProtectedDocumentFile | null>(null);
+  protected readonly viewerState = signal<ProtectedViewerState>('loading');
+  protected readonly viewerError = signal('');
+  private viewerSub: Subscription | null = null;
+  private viewerOpener: HTMLElement | null = null;
+  private readonly viewers = viewChildren(ProtectedDocumentViewer);
+  /** Narrow: the viewer fills the screen (the cockpit under it is inert). */
+  protected readonly sheetOpen = computed(() => this.layout() === 'narrow' && !!this.viewerDoc() && !!this.viewerFile());
+  protected readonly viewerWatermark = computed(() => ({
+    viewerName: this.clock.profile()?.name || this.doctorName(),
+    timeZone: this.callZone(),
+  }));
+  protected readonly toolTabs = computed<ReadonlyArray<{ key: NotesTab; label: string }>>(() => {
+    const doc = this.viewerDoc();
+    if (!doc || this.layout() === 'narrow') return this.notesTabs;
+    const title = doc.title.length > 28 ? `${doc.title.slice(0, 27)}…` : doc.title;
+    return [...this.notesTabs, { key: 'document', label: title }];
+  });
+
+  // ---- The patient chart's disclosures (remembered per device) ----
+  protected readonly chartOpen = signal<ReadonlySet<string>>(readChartOpen());
+  private readonly chartCol = viewChild<ElementRef<HTMLElement>>('chartCol');
+  private readonly allergyCard = viewChild<ElementRef<HTMLElement>>('allergyCard');
+  private readonly dockEl = viewChild<ElementRef<HTMLElement>>('dock');
+
+  // ---- Time: the doctor's clock (profile zone) ----
+  private readonly clock = inject(DoctorClock);
+  /** The doctor's zone: the profile's once loaded (signed in), else the join's, else the device's. */
+  protected readonly callZone = computed(() => {
+    if (this.clock.status() === 'ready') return this.clock.zone();
+    const tz = this.info()?.specialist?.timezone;
+    return isValidTimeZone(tz) ? tz : this.clock.zone();
+  });
+  /** "{Name} · {sex} · {age}" for the top bar. */
+  protected readonly headerPatient = computed(() => [this.patientName(), this.patientMeta()].filter(Boolean).join(' · '));
+  /** "Booked 9:00 AM CST · 4:00 PM WAT patient's time" (the patient's only when it differs). */
+  protected readonly headerPatientTime = computed(() => {
+    const at = this.info()?.scheduled_at;
+    if (!at) return '';
+    const zone = this.callZone();
+    const mine = timeLabel(at, zone);
+    const theirs = dualTime(at, zone, this.info()?.patient?.timezone ?? null).secondary;
+    return theirs ? `Booked ${mine} · ${theirs} patient's time` : `Booked ${mine}`;
+  });
+  protected readonly allergyNames = computed(() => (this.info()?.patient?.allergies ?? []).map((a) => a.allergen).filter(Boolean));
+  private readonly patientFirstName = computed(() => this.patientName().split(/\s+/)[0] ?? '');
+
+  /** A media query as a signal (its listener goes with the page). */
+  private media(query: string): Signal<boolean> {
+    const mql = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query) : null;
+    const state = signal(mql?.matches ?? false);
+    if (mql) {
+      const onChange = (e: MediaQueryListEvent) => state.set(e.matches);
+      mql.addEventListener?.('change', onChange);
+      this.destroyRef.onDestroy(() => mql.removeEventListener?.('change', onChange));
+    }
+    return state.asReadonly();
+  }
+
+  // ---- Controls ----
+  protected onControl(id: CallControlId): void {
+    switch (id) {
+      case 'mic':
+        void this.toggleMic();
+        return;
+      case 'cam':
+        void this.toggleCam();
+        return;
+      case 'share':
+        void this.toggleScreen();
+        return;
+      case 'record':
+        void this.toggleRecording();
+        return;
+      case 'documents':
+        this.sideTab.set('documents');
+        return;
+      case 'end':
+        void this.askEnd();
+        return;
+      default:
+        return;
+    }
+  }
+
+  protected onMenu(id: string): void {
+    if (id.startsWith('size-')) {
+      const size = id.slice(5) as VideoSize;
+      this.videoSize.set(size);
+      writeStored(VIDEO_SIZE_KEY, size);
+    } else if (id === 'fit-contain' || id === 'fit-cover') {
+      const fit = id === 'fit-cover' ? 'cover' : 'contain';
+      this.fit.set(fit);
+      writeStored(FIT_KEY, fit);
+    } else if (id === 'self') {
+      const hidden = !this.selfHidden();
+      this.selfHidden.set(hidden);
+      writeStored(SELF_KEY, hidden ? 'hidden' : 'shown');
+    } else if (id === 'theme') {
+      this.toggleTheme();
+    }
+  }
+
+  // ---- Tabs (APG: arrows, Home, End move and select) ----
+  protected onTabKey(e: KeyboardEvent, list: 'section' | 'side' | 'tools'): void {
+    const keys: readonly string[] =
+      list === 'section' ? this.sectionTabs.map((t) => t.key) : list === 'side' ? this.sideTabs.map((t) => t.key) : this.toolTabs().map((t) => t.key);
+    const current = list === 'section' ? this.section() : list === 'side' ? this.sideTab() : this.notesTab();
+    let i = keys.indexOf(current);
+    if (e.key === 'ArrowRight') i = (i + 1) % keys.length;
+    else if (e.key === 'ArrowLeft') i = (i - 1 + keys.length) % keys.length;
+    else if (e.key === 'Home') i = 0;
+    else if (e.key === 'End') i = keys.length - 1;
+    else return;
+    e.preventDefault();
+    const next = keys[i];
+    if (list === 'section') this.section.set(next as CallSection);
+    else if (list === 'side') this.sideTab.set(next as SideTab);
+    else this.notesTab.set(next as NotesTab);
+    const prefix = list === 'section' ? 'call-section-' : list === 'side' ? 'call-side-' : 'call-tab-';
+    afterNextRender(() => document.getElementById(prefix + next)?.focus(), { injector: this.injector });
+  }
+
+  // ---- Participants (header button / popover) ----
+  protected onPeopleButton(): void {
+    if (this.layout() === 'wide') {
+      this.peopleShown.set(true);
+      afterNextRender(() => document.getElementById('call-people-list')?.scrollIntoView({ block: 'nearest' }), { injector: this.injector });
+      return;
+    }
+    this.peopleOpen.update((v) => !v);
+  }
+
+  protected closePeople(refocus = false): void {
+    if (!this.peopleOpen()) return;
+    this.peopleOpen.set(false);
+    if (refocus) this.peopleButton()?.nativeElement.focus();
+  }
+
+  /** A press outside the participants popover closes it. */
+  protected onDocPointer(e: Event): void {
+    if (!this.peopleOpen()) return;
+    const t = e.target as Node | null;
+    const pop = document.getElementById('call-people-popover');
+    if (t && (pop?.contains(t) || this.peopleButton()?.nativeElement.contains(t))) return;
+    this.peopleOpen.set(false);
+  }
+
+  // ---- Chart disclosures ----
+  protected isChartOpen(key: string): boolean {
+    return this.chartOpen().has(key);
+  }
+
+  protected toggleChart(key: string): void {
+    const next = new Set(this.chartOpen());
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this.chartOpen.set(next);
+    writeStored(CHART_OPEN_KEY, JSON.stringify([...next]));
+  }
+
+  // ---- New documents: the alert, the badge, the hidden-tab title ----
+
+  /** "Shared 4 min ago" / "Shared Wed 4 Nov, 9:00 AM" on the doctor's clock. */
+  protected sharedAgo(d: DoctorSharedDocumentDto): string {
+    const zone = this.callZone();
+    return sharedAgoText(d.shared_at, this.docsClock(), (iso) => formatInZone(iso, zone, 'dayTime'));
+  }
+
+  /** A fresh read: which documents are new (after the first), and which went away. */
+  private trackNewDocs(dto: DoctorDocumentAccessDto): void {
+    const docs = dto.documents ?? [];
+    const { state, added } = diffNewDocs(this.newDocsState, docs);
+    this.newDocsState = state;
+    const present = new Set(docs.map((d) => d.id));
+    const next = new Set([...this.newDocIds()].filter((id) => present.has(id)));
+    for (const d of added) next.add(d.id);
+    this.newDocIds.set(next);
+    // A document open in the viewer that is no longer shared: close it and say so.
+    const open = this.viewerDoc();
+    if (open && !present.has(open.id)) {
+      // On screen (the narrow sheet, the Document tab) or holding focus: the message
+      // and focus go to the Medical Records (its tab or section chosen first), so focus
+      // isn't dropped to the page and the reason is in view. A viewer left behind
+      // another tab while the doctor works elsewhere doesn't pull focus away.
+      const active = typeof document === 'undefined' ? null : document.activeElement;
+      const shown = this.layout() === 'narrow' || this.notesTab() === 'document' || !active || active === document.body;
+      this.closeViewer(false);
+      this.docOpenError.set(NOT_SHARED);
+      if (shown) this.focusRecordsHeading();
+    }
+    if (!added.length) return;
+    const prev = this.docAlert();
+    const count = (prev?.count ?? 0) + added.length;
+    const alert: DocAlert = { count, doc: count === 1 ? added[0] : null };
+    this.docAlertSignedOut.set(false);
+    this.docAlert.set(alert);
+    const lines = docAlertLines(alert, this.patientFirstName(), this.screenOn());
+    this.announceDocs(lines.detail ? `${lines.title}. ${lines.detail}` : `${lines.title}.`);
+    this.armAlertTimer();
+    this.updateTitle();
+  }
+
+  protected holdAlert(on: boolean): void {
+    this.alertHeld = on;
+    if (on) clearTimeout(this.alertTimer);
+    else this.armAlertTimer();
+  }
+
+  protected onAlertFocusOut(e: FocusEvent): void {
+    const next = e.relatedTarget as Node | null;
+    if (next && this.docAlertEl()?.nativeElement.contains(next)) return;
+    this.holdAlert(false);
+  }
+
+  /** The alert hides after 15 s (paused while hovered or focused); the badge stays. */
+  private armAlertTimer(): void {
+    clearTimeout(this.alertTimer);
+    if (this.alertHeld) return;
+    this.alertTimer = setTimeout(() => this.dismissAlert(false), DOC_ALERT_MS);
+  }
+
+  protected dismissAlert(fromUser = true): void {
+    clearTimeout(this.alertTimer);
+    this.alertTimer = undefined;
+    this.alertHeld = false;
+    const hadFocus = fromUser && !!this.docAlertEl()?.nativeElement.contains(document.activeElement);
+    this.docAlert.set(null);
+    this.docAlertSignedOut.set(false);
+    if (hadFocus) this.focusRecordsHeading();
+  }
+
+  /** "Show in records": the Documents panel, its heading focused. */
+  protected showInRecords(): void {
+    this.dismissAlert(false);
+    this.recordsTab.set('documents');
+    this.focusRecordsHeading();
+  }
+
+  protected markAllSeen(): void {
+    this.newDocIds.set(new Set());
+    this.updateTitle();
+  }
+
+  private markSeen(id: string): void {
+    if (!this.newDocIds().has(id)) return;
+    const next = new Set(this.newDocIds());
+    next.delete(id);
+    this.newDocIds.set(next);
+    this.updateTitle();
+  }
+
+  /** "(2) New document · …" while the tab is hidden and documents are new; restored on return. */
+  private updateTitle(): void {
+    if (typeof document === 'undefined') return;
+    const n = this.newDocCount();
+    if (document.visibilityState === 'hidden' && n > 0) {
+      this.baseTitle ??= document.title;
+      document.title = `(${n}) New document · ${this.baseTitle}`;
+    } else {
+      this.restoreTitle();
+    }
+  }
+
+  private restoreTitle(): void {
+    if (this.baseTitle === null) return;
+    document.title = this.baseTitle;
+    this.baseTitle = null;
+  }
+
+  protected onVisibility(): void {
+    if (document.visibilityState === 'visible') this.restoreTitle();
+  }
+
+  /** The Medical Records heading (choosing the Documents tab or section first). */
+  private focusRecordsHeading(): void {
+    if (this.layout() === 'mid') this.sideTab.set('documents');
+    else if (this.layout() === 'narrow') this.section.set('documents');
+    afterNextRender(() => this.docsHeading()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  // ---- Live delivery: the poll and the patient's nudge ----
+
+  /** A "new document" nudge over the call's data stream (only the patient's counts). */
+  private onNudge(uid: number | string): void {
+    if (this.left || String(uid) !== String(this.patientUid())) return;
+    if (!this.portalSignedIn()) {
+      // Nothing can be read: say so (no request).
+      this.docAlert.set(null);
+      this.docAlertSignedOut.set(true);
+      this.armAlertTimer();
+      this.announceDocs('The patient shared a new document. Sign in to the doctor portal to see it (opens a new tab).');
+      return;
+    }
+    // Delayed, never dropped: several files finishing together give reads at most every 3 s.
+    clearTimeout(this.nudgeTimer);
+    const now = Date.now();
+    const at = Math.max(now + NUDGE_DEBOUNCE_MS, this.lastNudgeReadAt + NUDGE_MIN_INTERVAL_MS);
+    this.nudgeTimer = setTimeout(() => {
+      this.nudgeTimer = undefined;
+      this.lastNudgeReadAt = Date.now();
+      this.loadDocumentAccess('nudge');
+    }, at - now);
+  }
+
+  /** The patient's uid in the call (the roster's, else the emailed link's). */
+  private patientUid(): CallUid {
+    return this.roster().find((p) => p.role === 'patient')?.uid ?? PATIENT_CALL_UID;
+  }
+
+  // ---- The viewer ----
+
+  /**
+   * Open a shared document in the view-only viewer: a "Document" tab in the
+   * tools (wide / mid; the video stays in view) or a full-screen sheet
+   * (narrow; the call goes on). Fetched with `X-SD-Viewer` and recorded.
+   */
+  protected openPatientDoc(doc: DoctorSharedDocumentDto, opener?: EventTarget | null): void {
+    this.docOpenError.set('');
+    this.markSeen(doc.id);
+    if (this.docAlert()?.doc?.id === doc.id) this.dismissAlert(false);
+    this.viewerSub?.unsubscribe();
+    this.viewerOpener = opener instanceof HTMLElement ? opener : null;
+    this.viewerDoc.set(doc);
+    this.viewerError.set('');
+    this.viewerFile.set(this.placeholderFile(doc));
+    if (this.layout() !== 'narrow') this.notesTab.set('document');
+    if (!isViewableDoc(doc)) {
+      this.viewerState.set('not_viewable');
+      return;
+    }
+    this.viewerState.set('loading');
+    // Over the portal session (fresh token, refreshed if need be) — never a raw token from storage.
+    this.viewerSub = this.doctorApi
+      .patientDocumentView(this.appointmentId, doc.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (v) => {
+          if (this.viewerDoc()?.id !== doc.id) return;
+          this.viewerFile.set({ ...this.placeholderFile(doc), blob: v.blob, mime: v.mime, viewRef: v.viewRef, viewedAt: v.viewedAt });
+          this.viewerState.set('ready');
+        },
+        error: (err: unknown) => {
+          if (this.viewerDoc()?.id !== doc.id) return;
+          const code = apiErrorCode(err);
+          const status = errorStatus(err);
+          if (status === 415 || code === 'not_viewable') {
+            this.viewerState.set('not_viewable');
+            return;
+          }
+          this.viewerError.set(openErrorCopy(status, code));
+          this.viewerState.set('error');
+          if (code === 'not_shared') this.loadDocumentAccess('refresh');
+        },
+      });
+  }
+
+  private placeholderFile(doc: DoctorSharedDocumentDto): ProtectedDocumentFile {
+    return {
+      blob: null,
+      mime: '',
+      title: doc.title,
+      typeLabel: doc.type_label,
+      extension: doc.extension,
+      viewRef: null,
+      viewedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Close the viewer; focus goes back to the row or alert button that opened
+   * it, or (when that is gone) to the Medical Records heading.
+   */
+  protected closeViewer(refocus = true): void {
+    const opener = this.viewerOpener;
+    this.viewerOpener = null;
+    this.viewerSub?.unsubscribe();
+    this.viewerSub = null;
+    this.viewerDoc.set(null);
+    this.viewerFile.set(null);
+    if (this.notesTab() === 'document') this.notesTab.set('notes');
+    if (!refocus) return;
+    // The opener may still be in the document but hidden (a Documents row after the
+    // mid side tab changed): focus would silently go nowhere, so use the heading then.
+    if (opener?.isConnected && opener.getClientRects().length) afterNextRender(() => opener.focus(), { injector: this.injector });
+    else this.focusRecordsHeading();
+  }
+
+  /** The viewer's pages are prepared: record the print (the patient sees it), then print — or don't. */
+  protected onViewerPrint(): void {
+    const doc = this.viewerDoc();
+    const file = this.viewerFile();
+    const viewer = this.viewers()[0];
+    if (!doc || !file || !viewer) return;
+    this.doctorApi
+      .patientDocumentPrinted(this.appointmentId, doc.id, file.viewRef)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => void viewer.print(),
+        error: () => viewer.cancelPrint(),
+      });
+  }
+
+  // ---- Focus not obscured (WCAG 2.4.11): scroll padding for the sticky dock and the alert ----
+  private observeObscurers(): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    const root = document.documentElement;
+    const dock = this.dockEl()?.nativeElement;
+    if (dock) {
+      const sync = () => {
+        const sticky = this.layout() === 'narrow' && getComputedStyle(dock).position === 'sticky';
+        root.style.scrollPaddingTop = sticky ? `${Math.ceil(dock.getBoundingClientRect().height)}px` : '';
+      };
+      const ro = new ResizeObserver(sync);
+      ro.observe(dock);
+      this.destroyRef.onDestroy(() => ro.disconnect());
+    }
+    const chart = this.chartCol()?.nativeElement;
+    const card = this.allergyCard()?.nativeElement;
+    if (chart && card) {
+      const ro = new ResizeObserver(() => {
+        chart.style.scrollPaddingTop = this.layout() === 'narrow' ? '' : `${Math.ceil(card.getBoundingClientRect().height)}px`;
+      });
+      ro.observe(card);
+      this.destroyRef.onDestroy(() => ro.disconnect());
+    }
+    this.destroyRef.onDestroy(() => {
+      root.style.scrollPaddingTop = '';
+      root.style.scrollPaddingBottom = '';
+    });
+  }
+
+  /** The floating alert (narrow) must never hide the focused element: pad the bottom while it shows. */
+  private syncAlertPadding(): void {
+    const el = this.docAlertEl()?.nativeElement;
+    const root = document.documentElement;
+    if (!el || this.layout() !== 'narrow') {
+      root.style.scrollPaddingBottom = '';
+      return;
+    }
+    root.style.scrollPaddingBottom = `${Math.ceil(el.getBoundingClientRect().height) + 12}px`;
+  }
+
+
   /** The video stage: every uid's track is handed to it (attach / detach). */
   private readonly stage = viewChild.required(CallTilesComponent);
-  protected readonly selfView = CALL_SELF_VIEW_CLASS_DOCTOR;
+  protected readonly selfViewClass = CALL_SELF_VIEW_CLASS_DOCTOR;
 
   protected readonly status = signal<'loading' | 'in-call' | 'error'>('loading');
   protected readonly errorMessage = signal('');
@@ -2008,14 +3011,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly callDocBanner = computed(() => {
     if (this.docsFailed()) return unavailableBanner();
     const dto = this.docAccess();
-    return dto ? accessBanner(dto, this.patientName()) : null;
+    return dto ? accessBanner(dto, this.patientName(), this.callZone()) : null;
   });
   /** "Shared by the patient · until 4:30 PM" — left out when the empty Documents tab says "No documents shared". */
   protected readonly docsHeaderLine = computed(() => {
     const dto = this.docAccess();
     if (!dto || this.callDocBanner()?.access.state === 'unavailable') return '';
     if (dto.access.state !== 'active' && this.recordsTab() === 'documents' && this.patientDocs().length === 0) return '';
-    return callHeaderLine(dto, this.docsClock());
+    return callHeaderLine(dto, this.docsClock(), this.callZone());
   });
   /** Ticks with each read, so "until 4:30 PM" (today) / a date stays right across midnight. */
   private readonly docsClock = signal(Date.now());
@@ -2023,11 +3026,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private docsRead: Subscription | null = null;
   private docsPoll?: ReturnType<typeof setInterval>;
   private docsChangeTimer?: ReturnType<typeof setTimeout>;
-  /** Why the last document could not be opened (when there is no tab to say it in). */
+  /** Why the last document could not be opened (e.g. no longer shared). */
   protected readonly docOpenError = signal('');
-  /** A document whose new tab was blocked — offered as a link, never opened in this tab. */
-  protected readonly docLink = signal<{ url: string; title: string } | null>(null);
-  private docLinkTimer?: ReturnType<typeof setTimeout>;
 
   // Patient consent decisions (read-only for the doctor).
   protected readonly consents = signal<ConsentDto[]>([]);
@@ -2054,27 +3054,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       return localStorage.getItem('videomed.call.theme') === 'light' ? 'light' : 'dark';
     } catch {
       return 'dark';
-    }
-  }
-
-  /** Smaller video, more room for the tools panel (notes, prescriptions…); remembered. */
-  protected readonly moreRoom = signal(this.readMoreRoom());
-
-  protected toggleMoreRoom(): void {
-    const next = !this.moreRoom();
-    this.moreRoom.set(next);
-    try {
-      localStorage.setItem('videomed.call.more-room', next ? '1' : '0');
-    } catch {
-      /* preference is best-effort */
-    }
-  }
-
-  private readMoreRoom(): boolean {
-    try {
-      return localStorage.getItem('videomed.call.more-room') === '1';
-    } catch {
-      return false;
     }
   }
 
@@ -2137,8 +3116,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       .sort((a, b) => Number(b.flag?.level === 'critical') - Number(a.flag?.level === 'critical')),
   );
   protected vitalTitle(v: VitalReadingDto): string {
+    // On the doctor's clock (profile zone), e.g. "Wed 4 Nov 2026, 9:00 AM CST".
     const when = v.taken_at
-      ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(v.taken_at))
+      ? `${formatInZone(v.taken_at, this.callZone(), 'date')}, ${timeLabel(v.taken_at, this.callZone())}`
       : 'time not recorded';
     return `${v.label}: ${v.value} ${v.unit} · ${v.source_label ?? (v.recorded_by === 'patient' ? 'Self-reported' : 'Recorded by a doctor')} · ${when}`;
   }
@@ -2177,7 +3157,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected docIcon(d: Pick<DoctorSharedDocumentDto, 'extension'>): string {
     const ext = d.extension.toLowerCase();
     if (['mp4', 'webm', 'mov'].includes(ext)) return 'video';
-    if (['jpg', 'jpeg', 'png'].includes(ext)) return 'camera';
+    if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) return 'camera';
     return 'file-text';
   }
 
@@ -2244,7 +3224,19 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.destroyRef.onDestroy(() => {
       this.releaseHold();
       clearTimeout(this.firstWaitTimer);
-      this.clearDocLink();
+      clearTimeout(this.alertTimer);
+      clearTimeout(this.nudgeTimer);
+      this.unbindNudge?.();
+      this.unbindNudge = undefined;
+      this.restoreTitle();
+      this.viewerSub?.unsubscribe();
+    });
+
+    // The floating alert (narrow) pads the page's bottom while it shows.
+    effect(() => {
+      this.docAlertView();
+      this.layout();
+      untracked(() => afterNextRender(() => this.syncAlertPadding(), { injector: this.injector }));
     });
 
     // Hold the portal idle timeout only while a consultation is going on:
@@ -2301,6 +3293,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   ngAfterViewInit(): void {
     window.addEventListener('beforeunload', this.onBeforeUnload);
+    this.observeObscurers();
     void this.start();
   }
 
@@ -2327,6 +3320,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private loadClinical(): void {
     if (this.clinicalLoaded || !this.appointmentId || !this.auth.isAuthenticated()) return;
     this.clinicalLoaded = true;
+    // The doctor's zone for every time shown here (shared with the portal's pages).
+    void this.clock.ensureLoaded();
     void this.loadNote();
     void this.loadLabOrders();
     void this.loadCarePlan();
@@ -2411,6 +3406,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       this.client = client;
+      // The patient's "new document" nudge (no PHI: it only triggers a re-read); kept across rejoins.
+      this.unbindNudge = onCallNudge(client, (_kind, uid) => this.onNudge(uid));
 
       // Per-uid state (joined, camera / mic on, talking) for the tiles and the
       // participants panel; the tracks themselves are played below.
@@ -2436,6 +3433,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       client.on('network-quality', (s) => {
         this.netUplink = s.uplinkNetworkQuality ?? 0;
         this.netDownlink = s.downlinkNetworkQuality ?? 0;
+        const known = [this.netUplink, this.netDownlink].filter((q) => q > 0);
+        this.quality.set(known.length ? Math.max(...known) : 0);
       });
       // Who is talking (the grid's green ring).
       client.enableAudioVolumeIndicator();
@@ -2452,8 +3451,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
       this.micTrack = mic;
       this.camTrack = cam;
-      // Plays as soon as the doctor's own tile renders (status flips below).
+      // Plays as soon as the doctor's own tile renders (status flips below): the
+      // stage's PiP, or the phone's control-row tile (selfTrack).
       this.stage().attach(this.selfUid, cam);
+      this.selfTrack.set(cam);
       await client.publish([mic, cam]);
 
       this.status.set('in-call');
@@ -2722,6 +3723,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
           await this.client.publish(this.camTrack);
           this.stage().attach(this.selfUid, this.camTrack);
         }
+        this.selfTrack.set(this.camTrack ?? null);
         this.screenOn.set(false);
       } else {
         const track = (await AgoraRTC.createScreenVideoTrack({}, 'disable')) as ILocalVideoTrack;
@@ -2730,6 +3732,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         await this.client.publish(track);
         // The doctor's own tile previews the shared screen (whole, not cropped).
         this.stage().attach(this.selfUid, track, { fit: 'contain' });
+        this.selfTrack.set(track);
         track.on('track-ended', () => void this.toggleScreen());
         this.screenOn.set(true);
       }
@@ -2777,18 +3780,28 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * the portal session: fresh token, refreshed if need be). `load`: at join,
    * on sign-in, Try again — a failure with nothing on screen shows the error;
    * `refresh`: after a request or a refused open — a failure keeps the list;
-   * `poll`: the 30-second / next-change re-read, passive (never extends the
-   * idle clock) and skipped while another read runs. Nothing without a session.
+   * `poll`: the live call's 10 s (30 s hidden) re-read and the next-change
+   * re-read; `nudge`: the patient said a document is on its way. Poll and
+   * nudge are passive (never extend the idle clock); one asked for while a
+   * read runs becomes ONE more read after it (never skipped). Nothing
+   * without a session.
    */
-  protected loadDocumentAccess(mode: 'load' | 'refresh' | 'poll'): void {
+  protected loadDocumentAccess(mode: 'load' | 'refresh' | 'poll' | 'nudge'): void {
     if (!this.appointmentId || !this.portalSignedIn() || this.left) return;
-    if (mode === 'poll' && this.docsRead && !this.docsRead.closed) return;
+    const passive = mode === 'poll' || mode === 'nudge';
+    if (passive && this.docsRead && !this.docsRead.closed) {
+      this.docsFollowUp = true;
+      return;
+    }
     this.docsRead?.unsubscribe();
+    // The poll's clock starts when a read STARTS (latency never stretches the
+    // cadence); a nudge read doesn't move it, so the 10 s guarantee never shifts.
+    if (mode !== 'nudge') this.lastPollStartAt = Date.now();
     const seq = ++this.docsSeq;
     this.docsLoading.set(true);
     if (mode === 'load') this.docsFailed.set(false);
     this.docsRead = this.doctorApi
-      .documentAccess(this.appointmentId, mode === 'poll' ? { passive: true } : undefined)
+      .documentAccess(this.appointmentId, passive ? { passive: true } : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -2799,18 +3812,28 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
           this.docAccess.set(res.data);
           this.docsFailed.set(false);
           this.docsClock.set(Date.now());
+          this.trackNewDocs(res.data);
           this.scheduleDocsChange(res.data);
+          this.runFollowUp(seq);
         },
         error: (err: unknown) => {
           if (seq !== this.docsSeq) return;
           this.docsLoading.set(false);
           if (isSessionEndError(err)) return;
-          // A re-read that fails keeps what is on screen (each file is still checked when opened).
+          this.runFollowUp(seq);
+          // A re-read that fails keeps what is on screen (each file is still checked when opened); no alert.
           if (mode !== 'load' && this.docAccess()) return;
           this.docAccess.set(null);
           this.docsFailed.set(true);
         },
       });
+  }
+
+  /** A read asked for while this one ran: run it now (once). */
+  private runFollowUp(seq: number): void {
+    if (!this.docsFollowUp || seq !== this.docsSeq) return;
+    this.docsFollowUp = false;
+    queueMicrotask(() => this.loadDocumentAccess('nudge'));
   }
 
   protected retryDocumentAccess(): void {
@@ -2822,21 +3845,36 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.docsSeq++;
     this.docsRead?.unsubscribe();
     this.docsRead = null;
+    this.docsFollowUp = false;
     clearTimeout(this.docsChangeTimer);
     this.docsChangeTimer = undefined;
+    clearTimeout(this.nudgeTimer);
+    this.nudgeTimer = undefined;
     this.docAccess.set(null);
     this.docsFailed.set(false);
     this.docsLoading.set(false);
     this.docRequestOpen.set(false);
+    // Signing in again starts a fresh baseline: what is shared then is not "new".
+    this.newDocsState = EMPTY_NEW_DOCS;
+    this.newDocIds.set(new Set());
+    this.docAlert.set(null);
+    this.restoreTitle();
+    if (this.viewerDoc()) this.closeViewer(false);
   }
 
-  /** Every 30 s while connected and on screen (the call holds the session; this never extends it). */
+  /**
+   * The guaranteed delivery of a new document: in the live call, a passive
+   * read every 10 s with the tab visible, every 30 s hidden. One timer ticks
+   * every 10 s; a tick reads when the last read STARTED a cadence ago (less a
+   * second of timer jitter). The call holds the session; this never extends it.
+   */
   private startDocsPoll(): void {
     if (this.docsPoll) return;
     this.docsPoll = setInterval(() => {
-      if (!this.inLiveCall() || document.visibilityState !== 'visible') return;
-      this.loadDocumentAccess('poll');
-    }, CALL_POLL_MS);
+      if (!this.inLiveCall()) return;
+      const cadence = document.visibilityState === 'visible' ? CALL_LIVE_POLL_MS : CALL_HIDDEN_POLL_MS;
+      if (Date.now() - this.lastPollStartAt >= cadence - POLL_SLACK_MS) this.loadDocumentAccess('poll');
+    }, CALL_LIVE_POLL_MS);
   }
 
   /** Re-read when the next share starts or ends (`next_change_at`, by the server's clock). */
@@ -2912,90 +3950,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     // Cleared first, so the same words twice are announced twice.
     this.docAnnounce.set('');
     setTimeout(() => this.docAnnounce.set(text), 50);
-  }
-
-  /**
-   * Open a patient document in a new tab (authenticated blob — no public URL).
-   * Never opens it in THIS tab: leaving the cockpit would end the call. If the
-   * browser blocks (or the doctor closes) the new tab, a link is offered here.
-   * No longer shared: the tab closes, this panel says so and re-reads the list.
-   */
-  protected openPatientDoc(doc: DoctorSharedDocumentDto): void {
-    this.docOpenError.set('');
-    this.clearDocLink();
-    let tab: Window | null = null;
-    try {
-      tab = window.open('', '_blank');
-    } catch {
-      tab = null;
-    }
-    if (tab) {
-      tab.opener = null;
-      tab.document.write(
-        '<!doctype html><meta charset="utf-8"><title>Opening…</title>' +
-          '<body style="margin:0;font-family:sans-serif;color:#546e7a;display:flex;align-items:center;justify-content:center;height:100vh">Opening document…</body>',
-      );
-    }
-    // Over the portal session (fresh token, refreshed if need be) — never a raw token from storage.
-    firstValueFrom(this.doctorApi.patientDocumentBlob(this.appointmentId, doc.id))
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        if (tab && !tab.closed) {
-          tab.location.href = url;
-          setTimeout(() => URL.revokeObjectURL(url), 120_000);
-        } else {
-          this.showDocLink(url, doc.title);
-        }
-      })
-      .catch((err: unknown) => {
-        const code = apiErrorCode(err);
-        if (code === 'not_shared' || code === 'view_unavailable') {
-          // Said here, beside the list, and the placeholder tab goes away.
-          try {
-            tab?.close();
-          } catch {
-            /* a tab we can no longer reach */
-          }
-          this.docOpenError.set(openErrorCopy(errorStatus(err), code));
-          if (code === 'not_shared') this.loadDocumentAccess('refresh');
-          return;
-        }
-        const msg = apiErrorMessage(err, 'Could not open the document.');
-        if (!tab || tab.closed) {
-          this.docOpenError.set(msg);
-          return;
-        }
-        // textContent (never innerHTML): the message comes from the API response.
-        const box = tab.document.createElement('div');
-        box.setAttribute('style', 'padding:24px;font-family:sans-serif;color:#c62828');
-        box.textContent = msg;
-        tab.document.body.replaceChildren(box);
-      });
-  }
-
-  /** Offer a blocked document as a link for two minutes (then the blob URL is freed). */
-  private showDocLink(url: string, title: string): void {
-    this.clearDocLink();
-    this.docLink.set({ url, title });
-    this.docLinkTimer = setTimeout(() => this.clearDocLink(), 120_000);
-  }
-
-  /** The doctor opened the link: free it shortly after the new tab has loaded it. */
-  protected clearDocLinkSoon(): void {
-    const link = this.docLink();
-    if (!link) return;
-    if (this.docLinkTimer) clearTimeout(this.docLinkTimer);
-    this.docLinkTimer = setTimeout(() => this.clearDocLink(), 30_000);
-  }
-
-  private clearDocLink(): void {
-    if (this.docLinkTimer) clearTimeout(this.docLinkTimer);
-    this.docLinkTimer = undefined;
-    const link = this.docLink();
-    if (link) {
-      URL.revokeObjectURL(link.url);
-      this.docLink.set(null);
-    }
   }
 
   // ---- Medical certificate ----
@@ -3564,7 +4518,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   /** In the live call (connected, and the API still takes it). */
-  private inLiveCall(): boolean {
+  protected inLiveCall(): boolean {
     return this.status() === 'in-call' && !this.left && !this.callClosed();
   }
 
@@ -3810,6 +4764,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     clearTimeout(this.docsChangeTimer);
     this.docsChangeTimer = undefined;
     this.docsRead?.unsubscribe();
+    clearTimeout(this.nudgeTimer);
+    this.nudgeTimer = undefined;
+    clearTimeout(this.alertTimer);
+    this.unbindNudge?.();
+    this.unbindNudge = undefined;
+    this.restoreTitle();
     if (this.renewRetry) clearTimeout(this.renewRetry);
     if (this.rosterRefreshTimer) clearTimeout(this.rosterRefreshTimer);
     this.heldBack.clear();

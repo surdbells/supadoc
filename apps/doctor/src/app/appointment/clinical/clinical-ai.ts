@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -16,6 +17,7 @@ import {
   ClinicalEmpty,
   ClinicalHeader,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 type DraftTextKey = 'summary' | 'subjective' | 'objective' | 'assessment' | 'plan' | 'follow_up';
 type DraftListKey = 'symptoms' | 'diagnoses' | 'medications';
@@ -156,6 +158,8 @@ const DRAFT_LISTS: ReadonlyArray<{ readonly key: DraftListKey; readonly label: s
   `,
 })
 export class ClinicalAi {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly transcript = input.required<TranscriptSegmentDto[]>();
   readonly draft = input<CopilotDraftDto | null>(null);
   readonly busy = input(false);
@@ -176,10 +180,10 @@ export class ClinicalAi {
   }
 
   protected when(iso: string): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 
   protected short(iso: string): string {
-    return rxShortDateTime(iso);
+    return rxShortDateTime(iso, this.clock.zone());
   }
 }

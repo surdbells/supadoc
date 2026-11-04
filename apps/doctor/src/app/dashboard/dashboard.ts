@@ -28,6 +28,7 @@ import { isOpenBooking, isPast, statusLook } from '../appointment/appointment-st
 import { doctorStatusLabel } from '../appointment/follow-ups';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import { type StandingNotice, standingNotices } from '../standing/standing-rules';
+import { DoctorClock } from '../doctor-clock';
 
 interface Stat {
   readonly label: string;
@@ -198,6 +199,9 @@ const NOTE_ICON: Record<string, string> = {
                     <div class="flex flex-col items-end gap-0.5">
                       <span class="font-sans text-caption font-semibold" [class]="statusText(a)">{{ statusLabel(a) }}</span>
                       <span class="font-sans text-caption text-slate">{{ time(a.scheduled_at) }}</span>
+                      @if (clock.patientTime(a.scheduled_at, a.patient_timezone); as pt) {
+                        <span class="font-sans text-caption text-slate">· {{ pt }} patient's time</span>
+                      }
                     </div>
                     <!-- Join the first consultation, and any whose patient is already waiting in the call
                          (never a follow-up proposal: no call until the patient accepts it). -->
@@ -300,6 +304,8 @@ const NOTE_ICON: Record<string, string> = {
   `,
 })
 export class DoctorDashboard implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly notificationsApi = inject(StaffNotificationsApi);
   private readonly auth = inject(StaffAuthService);
@@ -331,7 +337,8 @@ export class DoctorDashboard implements OnInit {
   ];
 
   protected readonly greeting = computed(() => {
-    const h = new Date().getHours();
+    // The hour on the doctor's clock (their profile zone), not the device's.
+    const h = Number(this.clock.nowHm().slice(0, 2));
     const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
     const first = this.auth.displayName().split(/\s+/).filter(Boolean)[0] ?? '';
     return first ? `${part}, Dr ${first}` : part;
@@ -486,7 +493,7 @@ export class DoctorDashboard implements OnInit {
       .toUpperCase();
   }
   protected time(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+    return this.clock.timeTz(iso);
   }
   protected ago(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();

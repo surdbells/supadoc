@@ -13,6 +13,7 @@ import type { DoctorAppointmentDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { statusDetail, statusLook, type StatusLook } from './appointment-status';
 import { doctorStatusLabel } from './follow-ups';
+import { DoctorClock } from '../doctor-clock';
 
 interface Filter {
   readonly key: string;
@@ -122,6 +123,8 @@ const FILTERS: Filter[] = [
   `,
 })
 export class DoctorAppointmentHistory implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -198,9 +201,9 @@ export class DoctorAppointmentHistory implements OnInit {
     return statusDetail(a, label);
   }
   protected dateLabel(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.date(iso);
   }
   protected time(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+    return this.clock.timeTz(iso);
   }
 }

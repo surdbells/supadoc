@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -24,6 +25,7 @@ import {
   timeOf,
   VisitStatusBadge,
 } from './patient-record-ui';
+import { DoctorClock } from '../doctor-clock';
 
 /** Which record tab a "View all" footer opens. */
 export type PatientRecordTab = 'overview' | 'history' | 'prescriptions' | 'visits';
@@ -171,6 +173,8 @@ const FOOTER_LINK =
   `,
 })
 export class PatientOverview {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly medical = input.required<MedicalDto>();
   /** The patient's visits with this doctor, newest first. */
   readonly visits = input.required<AppointmentDto[]>();
@@ -214,9 +218,9 @@ export class PatientOverview {
     return statusKey(v);
   }
   protected day(iso: string): string {
-    return formatDay(iso);
+    return formatDay(iso, this.clock.zone());
   }
   protected time(iso: string): string {
-    return formatTime(iso);
+    return formatTime(iso, this.clock.zone());
   }
 }

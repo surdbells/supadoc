@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -27,6 +28,7 @@ import {
   ClinicalHeader,
   PRIORITY_META,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 type Priority = 'routine' | 'urgent';
 
@@ -168,6 +170,8 @@ let nextUid = 0;
   `,
 })
 export class ClinicalLabs {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly orders = input.required<LabOrderDto[]>();
   readonly busy = input(false);
   /** The section's error (validation or real API message). */
@@ -191,6 +195,6 @@ export class ClinicalLabs {
   }
 
   protected when(iso: string): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 }

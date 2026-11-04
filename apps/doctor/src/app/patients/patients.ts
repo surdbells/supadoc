@@ -13,6 +13,7 @@ import { debounceTime, Subject, type Subscription } from 'rxjs';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { DoctorPatientListItemDto } from '@supadoc/models';
 import { ButtonComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { DoctorClock } from '../doctor-clock';
 
 const PER_PAGE = 20;
 
@@ -231,6 +232,8 @@ const ROW =
   `,
 })
 export class DoctorPatients implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -349,7 +352,6 @@ export class DoctorPatients implements OnInit {
   }
 
   protected date(iso: string): string {
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+    return this.clock.shortDate(iso) || '—';
   }
 }

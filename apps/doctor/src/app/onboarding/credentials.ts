@@ -36,6 +36,7 @@ import {
   ymdLabel,
 } from '../standing/standing-rules';
 import { CredentialStatusChip } from './credential-status';
+import { DoctorClock } from '../doctor-clock';
 
 const FIELD =
   'min-h-11 w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-2.5 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 aria-[invalid=true]:border-alert';
@@ -398,6 +399,8 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
   `,
 })
 export class DoctorCredentials implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly standing = inject(DoctorStandingStore);
   private readonly route = inject(ActivatedRoute);
@@ -705,7 +708,7 @@ export class DoctorCredentials implements OnInit {
   }
 
   protected uploaded(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.shortDate(iso);
   }
 
   protected size(bytes: number): string {

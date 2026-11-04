@@ -58,6 +58,7 @@ import {
 } from './rx-shared';
 import { RxSidePanel } from './rx-side-panel';
 import { SignaturePad } from './signature-pad';
+import { DoctorClock } from '../doctor-clock';
 
 /** One medicine row in the composer (field names match the API's error keys). */
 interface RowState {
@@ -349,7 +350,7 @@ function nullIfBlank(v: string): string | null {
                   }
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="${LABEL}" [for]="id('r-taken')">Time taken</label>
+                  <label class="${LABEL}" [for]="id('r-taken')">Time taken ({{ clock.abbr() }})</label>
                   <input
                     type="datetime-local"
                     class="${RX_FIELD}"
@@ -1106,7 +1107,9 @@ export class RxComposer {
   protected readonly icdUrl = ICD_URL;
   protected readonly dobMissingText = DOB_MISSING;
   protected readonly today = todayYmd();
-  protected readonly nowLocal = nowLocalInput();
+  /** The doctor's clock (profile zone): the typed reading time is on it. */
+  protected readonly clock = inject(DoctorClock);
+  protected readonly nowLocal = nowLocalInput(this.clock.zone());
 
   // ----- load state -----
   protected readonly loading = signal(true);
@@ -1342,7 +1345,7 @@ export class RxComposer {
       !readings.bmi || readings.bmi === this.computeBmi(readings.weight, readings.height),
     );
     this.readingSource.set(r.source ?? '');
-    this.takenAt.set(isoToLocalInput(r.taken_at));
+    this.takenAt.set(isoToLocalInput(r.taken_at, this.clock.zone()));
     this.reason.set(rx?.reason ?? '');
     this.icd.set(rx?.icd_code ?? '');
     this.currentMeds.set(rx?.current_medications ?? '');
@@ -1801,7 +1804,7 @@ export class RxComposer {
     const source = this.readingSource();
     if (source) readings.source = source;
     const taken = this.takenAt();
-    if (taken) readings.taken_at = localInputToIso(taken);
+    if (taken) readings.taken_at = localInputToIso(taken, this.clock.zone());
 
     const filled = this.rows().filter(isFilled);
     const followUpDate = this.followUpDate();

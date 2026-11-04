@@ -35,6 +35,7 @@ import {
   UNSAVED_RX_LEAVE,
 } from './rx-shared';
 import type { CanLeave } from '@supadoc/auth';
+import { DoctorClock } from '../doctor-clock';
 
 /**
  * A consultation's prescriptions (or, without an appointment, this doctor's
@@ -237,6 +238,8 @@ import type { CanLeave } from '@supadoc/auth';
   `,
 })
 export class RxPanel implements CanLeave {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly files = inject(RxFiles);
   private readonly destroyRef = inject(DestroyRef);
@@ -333,7 +336,7 @@ export class RxPanel implements CanLeave {
   }
 
   protected date(value: string | null): string {
-    return rxDate(value);
+    return rxDate(value, this.clock.zone());
   }
 
   protected medicines(n: number): string {

@@ -36,6 +36,7 @@ import {
 } from './rx-shared';
 import type { CanLeave } from '@supadoc/auth';
 import { UNSAVED_RX_LEAVE } from './rx-shared';
+import { DoctorClock } from '../doctor-clock';
 
 interface ReadingLine {
   readonly key: string;
@@ -339,6 +340,8 @@ const DD = 'font-sans text-body-sm text-ink break-words';
   `,
 })
 export class PrescriptionPage implements CanLeave {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly auth = inject(StaffAuthService);
   private readonly files = inject(RxFiles);
@@ -477,11 +480,11 @@ export class PrescriptionPage implements CanLeave {
   // ----- display helpers -----
 
   protected date(value: string | null): string {
-    return rxDate(value);
+    return rxDate(value, this.clock.zone());
   }
 
   protected dateTime(value: string | null | undefined): string {
-    return rxDateTime(value);
+    return rxDateTime(value, this.clock.zone());
   }
 
   protected patientName(r: PrescriptionDto): string {

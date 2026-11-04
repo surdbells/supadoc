@@ -3,8 +3,12 @@ import type { DoctorAccessRequestDto, DoctorDocumentAccessDto, DoctorSharedDocum
 import {
   ACTIVE_WINDOW_MS,
   accessBanner,
+  byNewestShare,
   callEmptyCopy,
   callHeaderLine,
+  diffNewDocs,
+  docAlertLines,
+  EMPTY_NEW_DOCS,
   isStaleRequestCode,
   LOAD_FAILED,
   MAX_REFRESH_MS,
@@ -14,6 +18,7 @@ import {
   openErrorCopy,
   requestDialogTitle,
   requestErrorCopy,
+  sharedAgoText,
   sharedUntilText,
   shouldBackgroundPoll,
   unavailableBanner,
@@ -471,5 +476,86 @@ describe('call screen', () => {
     expect(callEmptyCopy('documents', 'active').title).toBe('No documents yet');
     expect(callEmptyCopy('imaging', 'none')).toEqual({ title: 'No shared imaging.', body: null });
     expect(callEmptyCopy('labs', 'active')).toEqual({ title: 'No shared lab reports.', body: null });
+  });
+});
+
+describe('new documents in the call', () => {
+  function doc(id: string, over: Partial<DoctorSharedDocumentDto> = {}): DoctorSharedDocumentDto {
+    return {
+      id,
+      patient_id: 'p1',
+      uploader_role: 'patient',
+      uploader_name: 'Ada Obi',
+      appointment_id: 'ap-1',
+      document_type: 'laboratory_test_report',
+      custom_type: null,
+      type_label: 'Lab report',
+      title: `Doc ${id}`,
+      extension: 'pdf',
+      mime_type: 'application/pdf',
+      size_bytes: 1200,
+      size_label: '1.2 KB',
+      created_at: '2026-11-04T14:00:00Z',
+      via: 'document',
+      shared_until: null,
+      shared_until_label_at: null,
+      shared_indefinitely: true,
+      shared_at: '2026-11-04T14:00:00Z',
+      ...over,
+    };
+  }
+
+  it('diffNewDocs: the first read is the baseline, later reads add unseen ids in list order', () => {
+    const first = diffNewDocs(EMPTY_NEW_DOCS, [doc('a'), doc('b')]);
+    expect(first.added).toEqual([]);
+    expect(first.state.baseline).toBe(true);
+    expect([...first.state.known]).toEqual(['a', 'b']);
+
+    const second = diffNewDocs(first.state, [doc('c'), doc('a'), doc('d'), doc('b')]);
+    expect(second.added.map((d) => d.id)).toEqual(['c', 'd']);
+  });
+
+  it('diffNewDocs forgets removed ids (shared again later counts as new)', () => {
+    let s = diffNewDocs(EMPTY_NEW_DOCS, [doc('a'), doc('b')]).state;
+    const gone = diffNewDocs(s, [doc('a')]);
+    expect(gone.added).toEqual([]);
+    expect(gone.state.known.has('b')).toBe(false);
+    s = gone.state;
+    expect(diffNewDocs(s, [doc('a'), doc('b')]).added.map((d) => d.id)).toEqual(['b']);
+  });
+
+  it('an empty first read is still the baseline', () => {
+    const first = diffNewDocs(EMPTY_NEW_DOCS, []);
+    expect(first.state.baseline).toBe(true);
+    expect(diffNewDocs(first.state, [doc('a')]).added.map((d) => d.id)).toEqual(['a']);
+  });
+
+  it('sharedAgoText: just now, minutes, hours, then the day and time', () => {
+    const now = Date.parse('2026-11-04T15:00:00Z');
+    const dayTime = (iso: string) => `DAY(${iso})`;
+    expect(sharedAgoText('2026-11-04T14:59:40Z', now, dayTime)).toBe('Shared just now');
+    expect(sharedAgoText('2026-11-04T14:56:00Z', now, dayTime)).toBe('Shared 4 min ago');
+    expect(sharedAgoText('2026-11-04T12:30:00Z', now, dayTime)).toBe('Shared 2 h ago');
+    expect(sharedAgoText('2026-11-02T12:30:00Z', now, dayTime)).toBe('Shared DAY(2026-11-02T12:30:00Z)');
+    expect(sharedAgoText(null, now, dayTime)).toBe('');
+  });
+
+  it('byNewestShare sorts by share time, then upload time', () => {
+    const list = [
+      doc('old', { shared_at: '2026-11-01T10:00:00Z' }),
+      doc('new', { shared_at: '2026-11-04T10:00:00Z', created_at: '2026-11-01T00:00:00Z' }),
+      doc('new2', { shared_at: '2026-11-04T10:00:00Z', created_at: '2026-11-03T00:00:00Z' }),
+    ];
+    expect([...list].sort(byNewestShare).map((d) => d.id)).toEqual(['new2', 'new', 'old']);
+  });
+
+  it('docAlertLines hides the file details while screen sharing', () => {
+    const d = doc('a', { title: 'Lab report', type_label: 'Lab report', size_label: '1.2 MB' });
+    expect(docAlertLines({ count: 1, doc: d }, 'Ada', false)).toEqual({
+      title: 'Ada shared a new document',
+      detail: '“Lab report” · Lab report · 1.2 MB',
+    });
+    expect(docAlertLines({ count: 1, doc: d }, 'Ada', true).detail).toBeNull();
+    expect(docAlertLines({ count: 3, doc: null }, 'Ada', false)).toEqual({ title: 'Ada shared 3 new documents', detail: null });
   });
 });

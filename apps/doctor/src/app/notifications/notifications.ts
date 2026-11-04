@@ -11,6 +11,7 @@ import { Router } from '@angular/router';
 import { apiErrorMessage, StaffNotificationsApi } from '@supadoc/data-access';
 import type { StaffNotificationDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { DoctorClock } from '../doctor-clock';
 
 const ICON: Record<string, string> = {
   appointment: 'calendar-days',
@@ -77,6 +78,8 @@ const ICON: Record<string, string> = {
   `,
 })
 export class DoctorNotifications implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(StaffNotificationsApi);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -133,6 +136,6 @@ export class DoctorNotifications implements OnInit {
     return ICON[type] ?? 'bell';
   }
   protected when(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+    return this.clock.when(iso);
   }
 }

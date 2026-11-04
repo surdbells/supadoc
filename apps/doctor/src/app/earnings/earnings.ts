@@ -12,6 +12,7 @@ import { RouterLink } from '@angular/router';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { EarningsSummaryDto, EarningsTxnDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { DoctorClock } from '../doctor-clock';
 
 /** Doctor earnings (route `/earnings`) — summary + per-consultation ledger. */
 @Component({
@@ -128,6 +129,8 @@ import { IconComponent } from '@supadoc/ui';
   `,
 })
 export class DoctorEarnings implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -189,6 +192,6 @@ export class DoctorEarnings implements OnInit {
     return this.currency() + (isNaN(n) ? '0.00' : n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   }
   protected date(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.shortDate(iso);
   }
 }

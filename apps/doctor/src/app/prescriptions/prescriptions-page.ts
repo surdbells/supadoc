@@ -13,6 +13,7 @@ import type { PrescriptionStatus, PrescriptionSummaryDto } from '@supadoc/models
 import { IconComponent } from '@supadoc/ui';
 import { Subscription } from 'rxjs';
 import { medicinesLabel, rxDate, RxStatusBadge } from './rx-shared';
+import { DoctorClock } from '../doctor-clock';
 
 interface Filter {
   readonly key: string;
@@ -153,6 +154,8 @@ const PER_PAGE = 20;
   `,
 })
 export class PrescriptionsPage implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -213,7 +216,7 @@ export class PrescriptionsPage implements OnInit {
   }
 
   protected date(value: string | null): string {
-    return rxDate(value);
+    return rxDate(value, this.clock.zone());
   }
 
   protected medicines(n: number): string {

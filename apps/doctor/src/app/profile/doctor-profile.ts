@@ -4,6 +4,7 @@ import {
   computed,
   DestroyRef,
   inject,
+  NgZone,
   OnInit,
   signal,
 } from '@angular/core';
@@ -50,7 +51,9 @@ import {
   type PublicDoctorProfileData,
   SearchSelectComponent,
 } from '@supadoc/ui';
+import { DoctorClock } from '../doctor-clock';
 import { type CredentialChipState, CredentialStatusChip } from '../onboarding/credential-status';
+import { DoctorTimeZoneDialog } from '../time-zone/time-zone-dialog';
 import { SignaturePad } from '../prescriptions/signature-pad';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import {
@@ -141,6 +144,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
     InputComponent,
     SearchSelectComponent,
     SignaturePad,
+    DoctorTimeZoneDialog,
   ],
   host: { class: 'block' },
   template: `
@@ -273,6 +277,22 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Date of birth</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.date_of_birth || '—' }}</dd></div>
                     <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Gender</dt><dd class="text-right font-sans text-body-sm capitalize text-ink">{{ profile()?.gender || '—' }}</dd></div>
                     <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Country / Location</dt><dd class="text-right font-sans text-body-sm text-ink">{{ locationText() || '—' }}</dd></div>
+                    @if (clock.supported()) {
+                      <!-- The doctor's own time zone: weekly hours, availability, emails and reminders use it. -->
+                      <!-- One dt + dd pair per row (valid <dl>); the hint belongs to the value. -->
+                      <div class="flex items-start justify-between gap-4 py-3">
+                        <dt class="flex min-h-11 shrink-0 items-center font-sans text-caption text-slate">Time zone</dt>
+                        <dd class="flex min-w-0 flex-col items-end gap-1 text-right font-sans text-body-sm text-ink">
+                          <span class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                            <span>{{ clock.longName() }} ({{ clock.abbr() }})</span>
+                            <button type="button" class="min-h-11 rounded-field px-1 font-sans text-body-sm font-semibold text-cerulean underline-offset-2 transition-colors hover:text-ocean hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" aria-label="Change time zone" (click)="tzOpen.set(true)">Change</button>
+                          </span>
+                          <p class="font-sans text-caption text-slate">
+                            Your schedule, availability, weekly hours, emails and reminders use this time zone. Patients see your times in their own.
+                          </p>
+                        </dd>
+                      </div>
+                    }
                   </dl>
                 </section>
               </div>
@@ -814,6 +834,8 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
     >
       <sd-doctor-profile-card [data]="publicData()" [photoUrl]="photoSrc()" />
     </sd-dialog>
+
+    <doc-time-zone-dialog [open]="tzOpen()" (closed)="tzOpen.set(false)" />
   `,
 })
 export class DoctorProfile implements OnInit {
@@ -824,6 +846,7 @@ export class DoctorProfile implements OnInit {
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly dialogs = inject(DialogService);
+  private readonly zone = inject(NgZone);
   /** The edit form as it was when editing started (to tell real changes from none). */
   private editSnapshot: string | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -954,7 +977,14 @@ export class DoctorProfile implements OnInit {
   protected readonly languages = signal<string[]>([]);
   protected readonly languageDraft = signal('');
 
-  protected readonly today = new Date().toISOString().slice(0, 10);
+  /** The doctor's clock (their profile time zone): "today" and the time-zone row. */
+  protected readonly clock = inject(DoctorClock);
+  /** Today on the doctor's own calendar (the date-of-birth picker's max). */
+  protected get today(): string {
+    return this.clock.today();
+  }
+  /** "Change" on the Time zone row. */
+  protected readonly tzOpen = signal(false);
   protected readonly genderOptions = ['Male', 'Female'];
 
   protected readonly initials = computed(() =>
@@ -1686,9 +1716,9 @@ export class DoctorProfile implements OnInit {
     return doc?.status ?? 'missing';
   }
 
+  /** "4 Nov 2026" on the doctor's clock. */
   protected date(iso: string | null | undefined): string {
-    if (!iso) return '';
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.shortDate(iso);
   }
 
   // ----- Signature for prescriptions -----
@@ -1813,6 +1843,8 @@ export class DoctorProfile implements OnInit {
   private showToast(message: string): void {
     this.toast.set(message);
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.toast.set(''), 3500);
+    // Outside the zone, so a showing note never holds the page "unstable" (the
+    // signal change still schedules change detection to hide it).
+    this.toastTimer = this.zone.runOutsideAngular(() => setTimeout(() => this.toast.set(''), 3500));
   }
 }

@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { inject, ChangeDetectionStrategy, Component, input } from '@angular/core';
 import type { ConsentDto } from '@supadoc/models';
 import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import { rxDateTime } from '../../prescriptions/rx-shared';
 import { CLINICAL_META, ClinicalBadge, ClinicalHeader } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 const CONSENT_META: Record<ConsentDto['type'], { readonly label: string; readonly icon: string }> = {
   recording: { label: 'Recording', icon: 'video' },
@@ -69,6 +70,8 @@ const CONSENT_META: Record<ConsentDto['type'], { readonly label: string; readonl
   `,
 })
 export class ClinicalConsents {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly consents = input.required<ConsentDto[]>();
 
   protected readonly emptyTitle = 'No consent decisions yet';
@@ -78,6 +81,6 @@ export class ClinicalConsents {
   }
 
   protected when(iso: string): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 }

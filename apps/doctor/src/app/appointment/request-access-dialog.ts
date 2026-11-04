@@ -24,6 +24,7 @@ import {
   requestDialogTitle,
   requestErrorCopy,
 } from './document-access';
+import { DoctorClock } from '../doctor-clock';
 
 let nextId = 0;
 
@@ -130,6 +131,8 @@ const BUTTON =
 export class RequestAccessDialog {
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
+  /** The doctor's clock: "You can ask again after …" on their zone. */
+  private readonly clock = inject(DoctorClock);
 
   /** Whether the dialog is showing (the host owns it). */
   readonly open = input(false);
@@ -204,7 +207,7 @@ export class RequestAccessDialog {
           this.sending.set(false);
           const code = apiErrorCode(err);
           this.error.set(
-            requestErrorCopy(code, apiErrorFields(err)['available_at'] ?? null) ?? apiErrorMessage(err, REQUEST_FAILED),
+            requestErrorCopy(code, apiErrorFields(err)['available_at'] ?? null, this.clock.zone()) ?? apiErrorMessage(err, REQUEST_FAILED),
           );
           if (code && isStaleRequestCode(code)) this.refused.emit(code);
         },

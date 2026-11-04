@@ -11,6 +11,7 @@ import type {
   ReadingKey,
   ReadingSource,
 } from '@supadoc/models';
+import { formatInZone, isoToZonedLocal, nowHmInZone, todayInZone, zonedLocalToIso } from '@supadoc/data-access';
 import { IconComponent, type LeaveCopy } from '@supadoc/ui';
 
 /**
@@ -109,23 +110,44 @@ function parseDate(value: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** "3 Oct 2026" (or "—"). */
-export function rxDate(value: string | null | undefined): string {
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+/** An instant's "3 Oct 2026" / "3 Oct" / "09:15" on `tz`'s clock ('' when invalid). */
+function zoned(value: string, tz: string, part: 'date' | 'short' | 'hm'): string {
+  if (part === 'hm') return formatInZone(value, tz, 'hm');
+  const date = formatInZone(value, tz, 'date').replace(/^[A-Z][a-z]{2} /, '');
+  return part === 'short' ? date.replace(/ \d{4}$/, '') : date;
+}
+
+/**
+ * "3 Oct 2026" (or "—"). A calendar date ('YYYY-MM-DD') is shown as that day;
+ * an instant on `timeZone`'s calendar (the doctor app passes the profile zone).
+ */
+export function rxDate(value: string | null | undefined, timeZone?: string): string {
   if (!value) return '—';
+  if (timeZone && !YMD.test(value)) return zoned(value, timeZone, 'date') || '—';
   const d = parseDate(value);
   return d ? DATE_FMT.format(d) : '—';
 }
 
-/** "3 Oct 2026, 09:15" (or "—"). */
-export function rxDateTime(value: string | null | undefined): string {
+/** "3 Oct 2026, 09:15" (or "—"), on `timeZone`'s clock when given. */
+export function rxDateTime(value: string | null | undefined, timeZone?: string): string {
   if (!value) return '—';
+  if (timeZone && !YMD.test(value)) {
+    const date = zoned(value, timeZone, 'date');
+    return date ? `${date}, ${zoned(value, timeZone, 'hm')}` : '—';
+  }
   const d = parseDate(value);
   return d ? `${DATE_FMT.format(d)}, ${TIME_FMT.format(d)}` : '—';
 }
 
-/** "3 Oct, 09:15" (or ""). */
-export function rxShortDateTime(value: string | null | undefined): string {
+/** "3 Oct, 09:15" (or ""), on `timeZone`'s clock when given. */
+export function rxShortDateTime(value: string | null | undefined, timeZone?: string): string {
   if (!value) return '';
+  if (timeZone && !YMD.test(value)) {
+    const date = zoned(value, timeZone, 'short');
+    return date ? `${date}, ${zoned(value, timeZone, 'hm')}` : '';
+  }
   const d = parseDate(value);
   return d ? `${SHORT_FMT.format(d)}, ${TIME_FMT.format(d)}` : '';
 }
@@ -140,22 +162,28 @@ export function todayYmd(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Now as a local `YYYY-MM-DDTHH:mm` (for `max` on datetime-local inputs). */
-export function nowLocalInput(): string {
+/**
+ * Now as `YYYY-MM-DDTHH:mm` (for `max` on datetime-local inputs) — on
+ * `timeZone`'s clock when given (the doctor's profile zone), else the device's.
+ */
+export function nowLocalInput(timeZone?: string): string {
+  if (timeZone) return `${todayInZone(timeZone)}T${nowHmInZone(timeZone)}`;
   const d = new Date();
   return `${todayYmd()}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** ISO date-time → local `YYYY-MM-DDTHH:mm` for a datetime-local input. */
-export function isoToLocalInput(iso: string | null | undefined): string {
+/** ISO date-time → `YYYY-MM-DDTHH:mm` for a datetime-local input, on `timeZone`'s clock when given. */
+export function isoToLocalInput(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return '';
+  if (timeZone) return isoToZonedLocal(iso, timeZone);
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Local datetime-local value → ISO 8601 (UTC). */
-export function localInputToIso(local: string): string {
+/** A datetime-local value → ISO 8601, read on `timeZone`'s clock when given (else the device's). */
+export function localInputToIso(local: string, timeZone?: string): string {
+  if (timeZone) return zonedLocalToIso(local, timeZone) ?? local;
   const d = new Date(local);
   return isNaN(d.getTime()) ? local : d.toISOString();
 }

@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -24,6 +25,7 @@ import {
   ClinicalBadge,
   ClinicalHeader,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 export type NoteLoadState = 'idle' | 'loading' | 'ready' | 'error';
 export type NoteSaveMode = 'draft' | 'finalize';
@@ -210,6 +212,8 @@ let nextUid = 0;
   `,
 })
 export class ClinicalNote {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly state = input.required<NoteLoadState>();
   readonly note = input<ClinicalNoteDto | null>(null);
   /** The editable SOAP draft, keyed by field. */
@@ -237,7 +241,7 @@ export class ClinicalNote {
   }
 
   protected when(iso: string | null | undefined): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 
   protected previous(amendment: ClinicalNoteAmendment, key: SoapKey): string {

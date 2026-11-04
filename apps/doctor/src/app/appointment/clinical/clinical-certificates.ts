@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   input,
@@ -24,6 +25,7 @@ import {
   ClinicalEmpty,
   ClinicalHeader,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 type CertificateType = MedicalCertificateDto['type'];
 
@@ -190,6 +192,8 @@ let nextUid = 0;
   `,
 })
 export class ClinicalCertificates {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly certificates = input.required<MedicalCertificateDto[]>();
   /** The earliest leave start (YYYY-MM-DD) — the API's clinic-calendar floor; the API still decides. */
   readonly earliestFrom = input.required<string>();
@@ -217,6 +221,6 @@ export class ClinicalCertificates {
   }
 
   protected when(iso: string): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 }

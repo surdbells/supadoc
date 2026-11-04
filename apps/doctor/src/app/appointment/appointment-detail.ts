@@ -26,10 +26,10 @@ import {
   AvailabilityCalendarStore,
   DoctorApi,
   injectCallPresence,
-  nowLocalInput,
-  openBlobDocument,
+  isoToZonedLocal,
   openClinicalDocument,
   todayLocal,
+  zonedLocalToIso,
 } from '@supadoc/data-access';
 import type {
   AppointmentDto,
@@ -56,12 +56,19 @@ import {
   AlertComponent,
   BookingCalendarComponent,
   CallPresenceComponent,
+  DialogComponent,
   DialogService,
   IconComponent,
   MessageThreadComponent,
   shortDayLabel,
 } from '@supadoc/ui';
+import { DoctorClock } from '../doctor-clock';
 import { focusAfterDialogs } from '../focus-after-dialog';
+import {
+  ProtectedDocumentViewer,
+  type ProtectedDocumentFile,
+  type ProtectedViewerState,
+} from '../viewer/protected-document-viewer';
 import { MedicationItem, VisitStatusBadge } from '../patients/patient-record-ui';
 import { RxPanel } from '../prescriptions/rx-panel';
 import {
@@ -97,7 +104,9 @@ import {
   type AccessTone,
   FINE_PRINT,
   isStaleRequestCode,
+  isViewableDoc,
   nextRefreshDelay,
+  NOT_SHARED,
   openErrorCopy,
   PAGE_POLL_MS,
   REQUEST_SENT,
@@ -260,6 +269,8 @@ function timeLeft(ms: number): TimeLeft | null {
     FollowUpPlanner,
     MedicationItem,
     RequestAccessDialog,
+    DialogComponent,
+    ProtectedDocumentViewer,
     VisitStatusBadge,
   ],
   host: { class: 'block' },
@@ -301,7 +312,11 @@ function timeLeft(ms: number): TimeLeft | null {
             <div class="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2">
               <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(a.scheduled_at) }}</span>
               <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />{{ a.type_label }}</span>
-              <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(a.scheduled_at) }}</span>
+              <span class="flex flex-wrap items-center gap-x-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(a.scheduled_at) }}
+                @if (clock.patientTime(a.scheduled_at, a.patient_timezone); as pt) {
+                  <span class="font-sans text-caption text-slate">· {{ pt }} patient's time</span>
+                }
+              </span>
               @if (patientRecord()?.patient?.phone) {
                 <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="phone" [size]="16" class="text-slate" />{{ patientRecord()?.patient?.phone }}</span>
               }
@@ -561,7 +576,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   <p class="font-sans text-caption text-slate">You have no open times{{ cal.max() ? ' up to ' + dayLabel(cal.max()) : '' }}.</p>
                 }
                 <label class="flex max-w-sm flex-col gap-1.5">
-                  <span class="font-sans text-caption font-semibold text-slate">New date &amp; time</span>
+                  <span class="font-sans text-caption font-semibold text-slate">New date &amp; time ({{ clock.abbr() }})</span>
                   <input type="datetime-local" step="1800" class="min-h-11 w-full min-w-0 rounded-field border border-[#b8c6d4] bg-white px-3 py-2 font-sans text-body-sm text-ink shadow-control focus:border-cerulean focus:outline-none" [min]="rescheduleMin()" [value]="rescheduleAt()" (input)="rescheduleAt.set($any($event.target).value)" />
                   <span class="font-sans text-caption text-slate">Must be on your availability, no sooner than patients can book (usually an hour ahead).</span>
                 </label>
@@ -740,13 +755,16 @@ function timeLeft(ms: number): TimeLeft | null {
                       <ul class="flex flex-col gap-3">
                         @for (d of filteredDocs(); track d.id) {
                           <li>
-                            <button type="button" class="flex w-full items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover" (click)="openPatientDoc(d)">
+                            <button type="button" class="flex w-full items-center gap-4 rounded-card border border-haze bg-white p-4 text-left shadow-card transition hover:border-cerulean/40 hover:shadow-card-hover" (click)="openPatientDoc(d, $event.currentTarget)">
                               <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-cloud/60 text-slate"><sd-icon name="file-text" [size]="20" /></span>
                               <div class="flex min-w-0 flex-1 flex-col">
                                 <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
                                 <span class="font-sans text-caption text-slate">{{ d.extension || d.mime_type }} · {{ d.size_label }}</span>
                                 @if (sharedUntil(d); as until) {
                                   <span class="font-sans text-caption text-slate">{{ until }}</span>
+                                }
+                                @if (d.viewable === false) {
+                                  <span class="font-sans text-caption text-slate">Preview not available</span>
                                 }
                               </div>
                               <span class="hidden font-sans text-body-sm text-slate sm:block">{{ d.type_label }}</span>
@@ -975,6 +993,29 @@ function timeLeft(ms: number): TimeLeft | null {
         <p class="font-sans text-body-sm text-slate">{{ recordError() }}</p>
       </div>
     </ng-template>
+
+    <!-- A shared document, view-only (watermarked; Print is recorded for the patient). -->
+    <sd-dialog
+      [open]="!!viewerDoc()"
+      size="xl"
+      layout="plain"
+      labelledBy="doc-viewer-title"
+      (closed)="closeViewer()"
+      (afterClose)="afterViewerClosed()"
+    >
+      @if (viewerFile(); as f) {
+        <doc-protected-document-viewer
+          class="h-[min(85dvh,56rem)]"
+          mode="dialog"
+          [file]="f"
+          [state]="viewerState()"
+          [errorText]="viewerError()"
+          [watermark]="viewerWatermark()"
+          (closed)="closeViewer()"
+          (printRequested)="onViewerPrint()"
+        />
+      }
+    </sd-dialog>
   `,
 })
 export class DoctorAppointmentDetail implements OnInit {
@@ -1022,6 +1063,21 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly docSearch = signal('');
   /** Why a shared document did not open (e.g. no longer shared). */
   protected readonly docOpenError = signal('');
+  /** The doctor's clock (profile zone): every time on this page. */
+  protected readonly clock = inject(DoctorClock);
+  // The view-only viewer (a dialog over this page).
+  protected readonly viewerDoc = signal<DoctorSharedDocumentDto | null>(null);
+  protected readonly viewerFile = signal<ProtectedDocumentFile | null>(null);
+  protected readonly viewerState = signal<ProtectedViewerState>('loading');
+  protected readonly viewerError = signal('');
+  private readonly viewer = viewChild(ProtectedDocumentViewer);
+  private viewerSub: Subscription | null = null;
+  private viewerOpener: HTMLElement | null = null;
+  /** The viewer's watermark: the doctor's name and zone. */
+  protected readonly viewerWatermark = computed(() => ({
+    viewerName: this.clock.profile()?.name || this.auth.displayName() || 'Doctor',
+    timeZone: this.clock.zone(),
+  }));
   /** Sharing results for screen readers ("Request sent."). */
   protected readonly docAnnounce = signal('');
   /** The request dialog is showing. */
@@ -1034,7 +1090,7 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly docBanner = computed(() => {
     if (this.docsError()) return unavailableBanner();
     const dto = this.docAccess();
-    return dto ? accessBanner(dto, this.appt()?.patient_name) : null;
+    return dto ? accessBanner(dto, this.appt()?.patient_name, this.clock.zone()) : null;
   });
   private readonly docBannerEl = viewChild<ElementRef<HTMLElement>>('docBannerEl');
   /** Orders reads: a slower, older answer never replaces a newer one. */
@@ -1185,11 +1241,8 @@ export class DoctorAppointmentDetail implements OnInit {
   );
   /** The new time as the doctor will read it, e.g. "Thu 16 Oct, 9:30 AM" ('' until one is chosen). */
   protected readonly rescheduleChosenLabel = computed(() => {
-    const raw = this.rescheduleUseManual() ? this.rescheduleAt() : this.rescheduleSlot();
-    const d = raw ? new Date(raw) : null;
-    return d && !isNaN(d.getTime())
-      ? new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(d)
-      : '';
+    const raw = this.rescheduleUseManual() ? zonedLocalToIso(this.rescheduleAt(), this.clock.zone()) : this.rescheduleSlot();
+    return raw ? this.clock.when(raw) : '';
   });
   private readonly rescheduleTitle = viewChild<ElementRef<HTMLElement>>('rescheduleTitle');
   private readonly rescheduleButton = viewChild<ElementRef<HTMLButtonElement>>('rescheduleButton');
@@ -1417,7 +1470,7 @@ export class DoctorAppointmentDetail implements OnInit {
     return kind === 'request' || kind === 'extend' ? DOC_BUTTON_PRIMARY : DOC_BUTTON_OUTLINE;
   }
   protected sharedUntil(d: DoctorSharedDocumentDto): string {
-    return sharedUntilText(d);
+    return sharedUntilText(d, this.clock.zone());
   }
 
   protected onDocAction(kind: AccessActionKind): void {
@@ -1537,18 +1590,87 @@ export class DoctorAppointmentDetail implements OnInit {
       });
   }
 
-  protected openPatientDoc(doc: DoctorSharedDocumentDto): void {
+  /**
+   * Open a shared document in the view-only viewer (a dialog over this page):
+   * fetched with `X-SD-Viewer` and recorded for the patient. A type the viewer
+   * can't show is said without fetching; no longer shared re-reads the list.
+   */
+  protected openPatientDoc(doc: DoctorSharedDocumentDto, opener?: EventTarget | null): void {
     this.docOpenError.set('');
-    // Popup-safe: open the tab synchronously on the click, then swap in the blob
-    // once the bytes arrive (a post-await window.open is blocked by Safari etc.).
-    // A refusal closes that tab and is said here: no longer shared (the list is
-    // re-read), or the open could not be recorded (nothing was sent).
-    openBlobDocument(this.api.patientDocumentBlob(this.id, doc.id), {
-      onError: (status, code) => {
-        this.docOpenError.set(openErrorCopy(status, code));
-        if (code === 'not_shared') this.loadDocs('refresh');
-      },
-    });
+    this.viewerSub?.unsubscribe();
+    this.viewerOpener = opener instanceof HTMLElement ? opener : null;
+    this.viewerDoc.set(doc);
+    this.viewerError.set('');
+    this.viewerFile.set(this.placeholderFile(doc));
+    if (!isViewableDoc(doc)) {
+      this.viewerState.set('not_viewable');
+      return;
+    }
+    this.viewerState.set('loading');
+    this.viewerSub = this.api
+      .patientDocumentView(this.id, doc.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (v) => {
+          if (this.viewerDoc()?.id !== doc.id) return;
+          this.viewerFile.set({ ...this.placeholderFile(doc), blob: v.blob, mime: v.mime, viewRef: v.viewRef, viewedAt: v.viewedAt });
+          this.viewerState.set('ready');
+        },
+        error: (err: unknown) => {
+          if (this.viewerDoc()?.id !== doc.id) return;
+          const code = apiErrorCode(err);
+          const status = (err as { statusCode?: number; status?: number })?.statusCode ?? (err as { status?: number })?.status ?? 0;
+          if (status === 415 || code === 'not_viewable') {
+            this.viewerState.set('not_viewable');
+            return;
+          }
+          this.viewerError.set(code === 'not_shared' ? NOT_SHARED : openErrorCopy(status, code));
+          this.viewerState.set('error');
+          if (code === 'not_shared') this.loadDocs('refresh');
+        },
+      });
+  }
+
+  private placeholderFile(doc: DoctorSharedDocumentDto): ProtectedDocumentFile {
+    return {
+      blob: null,
+      mime: '',
+      title: doc.title,
+      typeLabel: doc.type_label,
+      extension: doc.extension,
+      viewRef: null,
+      viewedAt: new Date().toISOString(),
+    };
+  }
+
+  /** The viewer's pages are prepared: record the print (the patient sees it), then print — or don't. */
+  protected onViewerPrint(): void {
+    const doc = this.viewerDoc();
+    const file = this.viewerFile();
+    const viewer = this.viewer();
+    if (!doc || !file || !viewer) return;
+    this.api
+      .patientDocumentPrinted(this.id, doc.id, file.viewRef)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => void viewer.print(),
+        error: () => viewer.cancelPrint(),
+      });
+  }
+
+  protected closeViewer(): void {
+    this.viewerSub?.unsubscribe();
+    this.viewerSub = null;
+    this.viewerDoc.set(null);
+  }
+
+  /** After the viewer dialog closed: back to the row that opened it, else the documents heading. */
+  protected afterViewerClosed(): void {
+    const opener = this.viewerOpener;
+    this.viewerOpener = null;
+    this.viewerFile.set(null);
+    if (opener?.isConnected) opener.focus();
+    else this.docBannerEl()?.nativeElement.focus();
   }
 
   /** Route guard hook: never drop an unsaved prescription when leaving the page. */
@@ -1886,13 +2008,15 @@ export class DoctorAppointmentDetail implements OnInit {
     this.rescheduleSlot.set(null);
     this.rescheduleAt.set('');
     this.rescheduleManual.set(false);
-    this.rescheduleMin.set(nowLocalInput(30));
-    if (this.cal.specialistId() === a.specialist.id) this.cal.refresh();
-    else this.cal.load(a.specialist.id, undefined, { scope: 'doctor' });
+    this.rescheduleMin.set(this.zonedNowInput(30));
+    // The doctor's own calendar, on their clock (profile zone).
+    const tz = this.clock.zone();
+    if (this.cal.specialistId() === a.specialist.id && this.cal.tz() === tz) this.cal.refresh();
+    else this.cal.load(a.specialist.id, tz, { scope: 'doctor' });
   }
   protected setRescheduleManual(manual: boolean): void {
     this.rescheduleManual.set(manual);
-    this.rescheduleMin.set(nowLocalInput(30));
+    this.rescheduleMin.set(this.zonedNowInput(30));
     this.actionError.set('');
   }
   /** Back from the typed time to the calendar, reloaded (so one that failed to load gets another go). */
@@ -2050,7 +2174,9 @@ export class DoctorAppointmentDetail implements OnInit {
     const manual = this.rescheduleUseManual();
     if (manual) {
       if (this.rescheduleAt().trim() === '') { this.actionError.set('Choose a new date and time.'); return; }
-      const at = new Date(this.rescheduleAt());
+      // Typed on the doctor's clock (profile zone), not the device's.
+      const typed = zonedLocalToIso(this.rescheduleAt(), this.clock.zone());
+      const at = new Date(typed ?? NaN);
       if (isNaN(at.getTime())) { this.actionError.set('Enter a valid date and time.'); return; }
       if (at.getTime() <= Date.now()) { this.actionError.set('Choose a time in the future.'); return; }
       iso = at.toISOString();
@@ -2138,12 +2264,19 @@ export class DoctorAppointmentDetail implements OnInit {
   }
   protected followUpPrice(a: DoctorAppointmentDto): string { return followUpPriceLabel(a); }
   protected isFree(amount: string): boolean { return Number(amount) <= 0; }
-  protected when(iso: string | null | undefined): string { return whenLabel(iso); }
+  protected when(iso: string | null | undefined): string { return whenLabel(iso, this.clock.zone()); }
   protected initialsFor(name: string): string { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase(); }
   protected money(amount: string): string { const n = Number(amount); return '₦' + (isNaN(n) ? '0' : n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }
-  protected dateLabel(iso: string): string { return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)); }
-  protected time(iso: string): string { return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso)); }
-  protected shortDate(iso: string): string { return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)); }
+  /** "Wed 4 Nov 2026" on the doctor's clock. */
+  protected dateLabel(iso: string): string { return this.clock.date(iso); }
+  /** "9:00 AM CST" on the doctor's clock. */
+  protected time(iso: string): string { return this.clock.timeTz(iso); }
+  /** "4 Nov 2026" on the doctor's clock. */
+  protected shortDate(iso: string): string { return this.clock.shortDate(iso); }
+  /** Now + `minutes` as a datetime-local value on the doctor's clock (rounded up to the minute). */
+  private zonedNowInput(minutes: number): string {
+    return isoToZonedLocal(new Date(Math.ceil((Date.now() + minutes * 60_000) / 60_000) * 60_000).toISOString(), this.clock.zone());
+  }
   /** A calendar date ('YYYY-MM-DD', no zone shift), e.g. "Thu 16 Oct". */
   protected dayLabel(ymd: string | null): string { return ymd ? shortDayLabel(ymd) : ''; }
   private ageFrom(dob: string | null | undefined): number | null {

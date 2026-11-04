@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -18,6 +19,7 @@ import {
   ClinicalEmpty,
   ClinicalHeader,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 /**
  * Clinical tools → Recording: cloud-recording start / stop and the recorded
@@ -157,6 +159,8 @@ import {
   `,
 })
 export class ClinicalRecording {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   /** Null while loading. */
   readonly state = input<DoctorRecordingStateDto | null>(null);
   readonly files = input.required<RecordingFileDto[]>();
@@ -176,6 +180,6 @@ export class ClinicalRecording {
   });
 
   protected when(iso: string): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 }

@@ -11,6 +11,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { ReviewDto, ReviewSummaryDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { DoctorClock } from '../doctor-clock';
 
 /** Doctor reviews (route `/reviews`) — summary, list, and responses. */
 @Component({
@@ -103,6 +104,8 @@ import { IconComponent } from '@supadoc/ui';
   `,
 })
 export class DoctorReviews implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -185,6 +188,6 @@ export class DoctorReviews implements OnInit {
     return Math.round(((s.distribution[star] || 0) / s.count) * 100);
   }
   protected date(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.shortDate(iso);
   }
 }

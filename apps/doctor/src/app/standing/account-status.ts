@@ -15,6 +15,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { AlertComponent, ButtonComponent, IconComponent } from '@supadoc/ui';
 import { DoctorStandingStore } from './doctor-standing.store';
 import { SECTION_LABELS, ymdLabel } from './standing-rules';
+import { DoctorClock } from '../doctor-clock';
 
 const LINK_PRIMARY =
   'inline-flex min-h-11 items-center justify-center gap-2 rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2';
@@ -187,6 +188,8 @@ const LINK_OUTLINE =
   `,
 })
 export class DoctorAccountStatus implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly store = inject(DoctorStandingStore);
   private readonly route = inject(ActivatedRoute);
   private readonly injector = inject(Injector);
@@ -258,6 +261,6 @@ export class DoctorAccountStatus implements OnInit {
     if (!iso) return '';
     return iso.length === 10
       ? ymdLabel(iso)
-      : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+      : this.clock.shortDate(iso);
   }
 }

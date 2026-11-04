@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   input,
@@ -26,6 +27,7 @@ import {
   ClinicalHeader,
   PRIORITY_META,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 type ReferralType = ReferralDto['referral_type'];
 type Priority = 'routine' | 'urgent';
@@ -204,6 +206,8 @@ let nextUid = 0;
   `,
 })
 export class ClinicalReferrals {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly referrals = input.required<ReferralDto[]>();
   readonly busy = input(false);
   readonly error = input('');
@@ -231,6 +235,6 @@ export class ClinicalReferrals {
   }
 
   protected when(iso: string): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 }

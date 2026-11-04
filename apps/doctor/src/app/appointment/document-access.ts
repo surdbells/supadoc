@@ -18,8 +18,18 @@ import type {
 
 /** Background refresh of the appointment page's Documents tab (passive, while the doctor is active). */
 export const PAGE_POLL_MS = 60_000;
-/** Background refresh in the call (passive, while connected and the screen is visible). */
+/** Background refresh in the call outside a live call (passive). */
 export const CALL_POLL_MS = 30_000;
+/** In a live call with the tab visible: the guaranteed delivery of a new document (passive). */
+export const CALL_LIVE_POLL_MS = 10_000;
+/** In a live call with the tab hidden. */
+export const CALL_HIDDEN_POLL_MS = 30_000;
+/** A poll tick may run this much early (timer jitter), so a 10 s cadence never slips to 20 s. */
+export const POLL_SLACK_MS = 1_000;
+/** A patient's "new document" nudge waits this long (several uploads finishing together become one read)… */
+export const NUDGE_DEBOUNCE_MS = 750;
+/** …and nudge reads run at most this often (later nudges are delayed, never dropped). */
+export const NUDGE_MIN_INTERVAL_MS = 3_000;
 /** Background refresh stops once nobody has touched the portal for this long. */
 export const ACTIVE_WINDOW_MS = 5 * 60_000;
 /** Bounds for the one-off refresh at `next_change_at`. */
@@ -368,10 +378,25 @@ export function isStaleRequestCode(code: string | null): boolean {
   );
 }
 
-/** Why a shared document did not open (`openBlobDocument`'s onError). */
+/** An old tab (without the viewer's `X-SD-Viewer` header) was refused: 409 `update_required`. */
+export const UPDATE_REQUIRED = 'Reload VideoMed to open documents.';
+
+/** The viewer's card for a type it can't show (`viewable: false`, or a 415 `not_viewable`). */
+export function notViewableText(extension: string | null | undefined): string {
+  const ext = (extension ?? '').replace(/^\./, '').toUpperCase();
+  return `Preview isn't available for this file type${ext ? ` (${ext})` : ''}. Ask the patient to share it as a PDF or photo.`;
+}
+
+/** A document the doctor may try to open: `viewable` false only when the API says so (undefined: an older API, let a 415 decide). */
+export function isViewableDoc(doc: Pick<DoctorSharedDocumentDto, 'viewable'>): boolean {
+  return doc.viewable !== false;
+}
+
+/** Why a shared document did not open in the viewer. */
 export function openErrorCopy(status: number, code: string | null): string {
   if (code === 'not_shared') return NOT_SHARED;
   if (code === 'view_unavailable') return VIEW_UNAVAILABLE;
+  if (code === 'update_required') return UPDATE_REQUIRED;
   if (status === 0) return NETWORK_ERROR_MESSAGE;
   return OPEN_FAILED;
 }
@@ -421,6 +446,76 @@ export function callHeaderLine(dto: DoctorDocumentAccessDto, now: number, timeZo
 }
 
 export type CallRecordsTab = 'documents' | 'imaging' | 'labs';
+
+// ----- New documents in the call -----
+
+/** The document ids seen so far; `baseline` once the first list was read (it never alerts). */
+export interface NewDocsState {
+  readonly known: ReadonlySet<string>;
+  readonly baseline: boolean;
+}
+
+export const EMPTY_NEW_DOCS: NewDocsState = { known: new Set(), baseline: false };
+
+/**
+ * Which documents in a fresh read are new. The first read is the baseline
+ * (nothing is "new": what was shared before the call isn't news); later, ids
+ * not seen before are added, in list order. Ids that left the list are
+ * forgotten, so a document shared again later counts as new again.
+ */
+export function diffNewDocs(
+  state: NewDocsState,
+  docs: readonly DoctorSharedDocumentDto[],
+): { state: NewDocsState; added: DoctorSharedDocumentDto[] } {
+  const known = new Set(docs.map((d) => d.id));
+  if (!state.baseline) return { state: { known, baseline: true }, added: [] };
+  const added = docs.filter((d) => !state.known.has(d.id));
+  return { state: { known, baseline: true }, added };
+}
+
+/**
+ * "Shared just now" / "Shared 4 min ago" / "Shared 2 h ago", else the day and
+ * time on the doctor's clock (`dayTime`, e.g. "Wed 4 Nov, 9:00 AM"). '' when
+ * there is no share time.
+ */
+export function sharedAgoText(sharedAt: string | null | undefined, now: number, dayTime: (iso: string) => string): string {
+  const at = parse(sharedAt);
+  if (!at || !sharedAt) return '';
+  const mins = Math.floor((now - at.getTime()) / 60_000);
+  if (mins < 1) return 'Shared just now';
+  if (mins < 60) return `Shared ${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Shared ${hours} h ago`;
+  return `Shared ${dayTime(sharedAt)}`;
+}
+
+/** Newest share first, then newest upload (the call's Medical Records order). */
+export function byNewestShare(a: DoctorSharedDocumentDto, b: DoctorSharedDocumentDto): number {
+  const s = (Date.parse(b.shared_at) || 0) - (Date.parse(a.shared_at) || 0);
+  return s !== 0 ? s : (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
+}
+
+/** The call's new-document alert: one file (with its details) or several. */
+export interface DocAlert {
+  readonly count: number;
+  readonly doc: DoctorSharedDocumentDto | null;
+}
+
+/**
+ * The new-document alert's text (also announced): "Ada shared a new document"
+ * with "“Lab report” · Lab report · 1.2 MB" — the second line left out while
+ * screen sharing (guests may be watching); several: "Ada shared 3 new
+ * documents".
+ */
+export function docAlertLines(alert: DocAlert, firstName: string, screenSharing: boolean): { title: string; detail: string | null } {
+  const who = firstName.trim() || 'The patient';
+  if (alert.count > 1 || !alert.doc) return { title: `${who} shared ${alert.count} new documents`, detail: null };
+  const d = alert.doc;
+  return {
+    title: `${who} shared a new document`,
+    detail: screenSharing ? null : `“${d.title}” · ${d.type_label} · ${d.size_label}`,
+  };
+}
 
 /** The call's empty Records tab: nothing shared at all, or nothing of that kind. */
 export function callEmptyCopy(tab: CallRecordsTab, state: 'none' | 'active'): { title: string; body: string | null } {

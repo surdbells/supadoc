@@ -14,6 +14,7 @@ import type { DoctorAppointmentDto } from '@supadoc/models';
 import { CallPresenceComponent, IconComponent } from '@supadoc/ui';
 import { canConfirm, isPast, statusDetail, statusLook, type StatusLook } from '../appointment/appointment-status';
 import { doctorStatusLabel, isOpenProposal, whenLabel } from '../appointment/follow-ups';
+import { DoctorClock } from '../doctor-clock';
 
 type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
 
@@ -113,6 +114,9 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
                 <div class="flex flex-col gap-1 lg:w-44">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="calendar-days" [size]="16" class="text-slate" />{{ dateLabel(a.scheduled_at) }}</span>
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="clock" [size]="16" class="text-slate" />{{ time(a.scheduled_at) }}</span>
+                  @if (clock.patientTime(a.scheduled_at, a.patient_timezone); as pt) {
+                    <span class="pl-6 font-sans text-caption text-slate">· {{ pt }} patient's time</span>
+                  }
                 </div>
                 <div class="flex flex-col gap-1.5 lg:w-52">
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
@@ -156,6 +160,8 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
   `,
 })
 export class DoctorSchedule implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -186,8 +192,8 @@ export class DoctorSchedule implements OnInit {
 
   private readonly buckets = computed(() => {
     const now = Date.now();
-    const start = new Date(); start.setHours(0, 0, 0, 0);
-    const end = new Date(); end.setHours(23, 59, 59, 999);
+    // "Today" is the doctor's calendar day (their profile zone), not the device's.
+    const todayYmd = this.clock.today();
     const today: DoctorAppointmentDto[] = [];
     const upcoming: DoctorAppointmentDto[] = [];
     const pending: DoctorAppointmentDto[] = [];
@@ -200,8 +206,7 @@ export class DoctorSchedule implements OnInit {
       // (The list is still-to-come or live only — nothing here is over.)
       if (isPast(a, now)) continue;
       if (a.status === 'pending' || a.status === 'rescheduled') pending.push(a);
-      const t = new Date(a.scheduled_at).getTime();
-      if (t >= start.getTime() && t <= end.getTime()) today.push(a);
+      if (this.clock.ymd(a.scheduled_at) === todayYmd) today.push(a);
       else upcoming.push(a);
     }
     return { today, upcoming, pending, attention: this.attention() };
@@ -314,12 +319,12 @@ export class DoctorSchedule implements OnInit {
     return isPast(a);
   }
   protected when(iso: string): string {
-    return whenLabel(iso);
+    return whenLabel(iso, this.clock.zone());
   }
   protected dateLabel(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.date(iso);
   }
   protected time(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+    return this.clock.timeTz(iso);
   }
 }

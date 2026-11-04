@@ -1,4 +1,5 @@
 import {
+  inject,
   ChangeDetectionStrategy,
   Component,
   input,
@@ -17,6 +18,7 @@ import {
   ClinicalEmpty,
   ClinicalHeader,
 } from './clinical-ui';
+import { DoctorClock } from '../../doctor-clock';
 
 /**
  * Clinical tools → Care plan: an editable, ordered list of steps the patient
@@ -110,6 +112,8 @@ import {
   `,
 })
 export class ClinicalCarePlan {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   readonly items = input.required<string[]>();
   /** The saved plan's status (published / updated) — null until loaded. */
   readonly plan = input<CarePlanDto | null>(null);
@@ -122,6 +126,6 @@ export class ClinicalCarePlan {
   readonly publish = output<void>();
 
   protected when(iso: string | null | undefined): string {
-    return rxDateTime(iso);
+    return rxDateTime(iso, this.clock.zone());
   }
 }

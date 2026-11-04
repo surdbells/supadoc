@@ -18,6 +18,7 @@ import { RxComposer } from './rx-composer';
 import { rxDate } from './rx-shared';
 import type { CanLeave } from '@supadoc/auth';
 import { UNSAVED_RX_LEAVE } from './rx-shared';
+import { DoctorClock } from '../doctor-clock';
 
 const PER_PAGE = 20;
 
@@ -161,6 +162,8 @@ const PER_PAGE = 20;
   `,
 })
 export class NewPrescriptionPage implements CanLeave {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly auth = inject(StaffAuthService);
   private readonly route = inject(ActivatedRoute);
@@ -335,6 +338,6 @@ export class NewPrescriptionPage implements CanLeave {
   }
 
   protected date(value: string | null): string {
-    return rxDate(value);
+    return rxDate(value, this.clock.zone());
   }
 }

@@ -18,6 +18,7 @@ import type { PractitionerTermsDto, TermsBlock } from '@supadoc/models';
 import { AlertComponent, ButtonComponent, IconComponent } from '@supadoc/ui';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import { licenceWording } from '../standing/standing-rules';
+import { DoctorClock } from '../doctor-clock';
 
 /**
  * The terms text as render-ready parts: a heading or paragraph (`text`), or
@@ -168,6 +169,8 @@ export function termsParts(blocks: readonly TermsBlock[]): TermsPart[] {
   `,
 })
 export class DoctorPractitionerTerms implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
@@ -268,12 +271,7 @@ export class DoctorPractitionerTerms implements OnInit {
   }
 
   protected when(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(new Date(iso));
+    // "4 Nov 2026, 9:00 AM CST" on the doctor's clock.
+    return `${this.clock.shortDate(iso)}, ${this.clock.timeTz(iso)}`;
   }
 }

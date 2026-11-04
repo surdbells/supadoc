@@ -30,6 +30,7 @@ import {
   ymdLabel,
 } from '../standing/standing-rules';
 import { CredentialStatusChip } from './credential-status';
+import { DoctorClock } from '../doctor-clock';
 
 export interface ChecklistItem {
   readonly key: OnboardingItemKey;
@@ -365,6 +366,8 @@ const FROM_APPLICATION: ReadonlySet<OnboardingItemKey> = new Set(['bio', 'qualif
   `,
 })
 export class DoctorOnboarding implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly standing = inject(DoctorStandingStore);
   private readonly destroyRef = inject(DestroyRef);
@@ -551,6 +554,6 @@ export class DoctorOnboarding implements OnInit {
 
   protected date(iso: string | null | undefined): string {
     if (!iso) return '';
-    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    return this.clock.shortDate(iso);
   }
 }

@@ -1,10 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { inject, ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { AppointmentDto } from '@supadoc/models';
 import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import { statusDetail, statusKey } from '../appointment/appointment-status';
 import { doctorStatusLabel } from '../appointment/follow-ups';
 import { formatDay, formatTime, isUpcomingVisit, VisitStatusBadge } from './patient-record-ui';
+import { DoctorClock } from '../doctor-clock';
 
 /**
  * The patient record's Visits tab: every consultation with this doctor, newest
@@ -63,6 +64,8 @@ import { formatDay, formatTime, isUpcomingVisit, VisitStatusBadge } from './pati
   `,
 })
 export class PatientVisits {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   /** The patient's visits with this doctor, newest first. */
   readonly visits = input.required<AppointmentDto[]>();
 
@@ -78,8 +81,8 @@ export class PatientVisits {
         label,
         // "Patient didn't join", "You didn't confirm in time"…
         detail: statusDetail(visit, label),
-        day: formatDay(visit.scheduled_at),
-        time: formatTime(visit.scheduled_at),
+        day: formatDay(visit.scheduled_at, this.clock.zone()),
+        time: formatTime(visit.scheduled_at, this.clock.zone()),
       };
     });
   });

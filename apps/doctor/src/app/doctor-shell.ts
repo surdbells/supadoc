@@ -14,12 +14,14 @@ import {
   RouterLinkActive,
   RouterOutlet,
 } from '@angular/router';
-import { filter, map } from 'rxjs';
+import { filter, map, tap } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
-import { DoctorApi, StaffNotificationsApi } from '@supadoc/data-access';
+import { DoctorApi, StaffNotificationsApi, syncDetectedTimeZone } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
+import { DoctorClock } from './doctor-clock';
 import { DoctorSignOut } from './sign-out';
 import { DoctorStandingStore } from './standing/doctor-standing.store';
+import { DoctorTimeZoneBanner } from './time-zone/time-zone-banner';
 
 interface NavItem {
   readonly label: string;
@@ -50,7 +52,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
 @Component({
   selector: 'doc-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent, DoctorTimeZoneBanner],
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
@@ -140,6 +142,8 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
                 </span>
               </a>
             }
+            <!-- Time zone: never set and undetectable, or this device differs (travelling). -->
+            <doc-time-zone-banner />
             <router-outlet />
           </div>
         </main>
@@ -201,6 +205,7 @@ export class DoctorShell {
   private readonly doctorApi = inject(DoctorApi);
   private readonly router = inject(Router);
   private readonly standing = inject(DoctorStandingStore);
+  private readonly clock = inject(DoctorClock);
 
   /** The current URL, as a signal (the banner depends on the page). */
   private readonly url = toSignal(
@@ -285,13 +290,17 @@ export class DoctorShell {
       next: (res) => this.unread.set(res.data.count),
       error: () => undefined,
     });
-    // The header shows the doctor's real specialty + headshot.
-    this.doctorApi.getProfile().subscribe({
-      next: (res) => {
-        this.specialty.set(res.data.specialty ?? '');
-        this.photoSrc.set(this.doctorApi.assetUrl(res.data.photo_url));
-      },
-      error: () => undefined,
+    // The profile (one load, shared with the pages through DoctorClock): the
+    // header's specialty + headshot, and the doctor's time zone — saved from
+    // this device once if it was never set (never over a set one).
+    void this.clock.retry().then(() => {
+      const profile = this.clock.profile();
+      if (!profile) return;
+      this.specialty.set(profile.specialty ?? '');
+      this.photoSrc.set(this.doctorApi.assetUrl(profile.photo_url));
+      syncDetectedTimeZone(profile, (body) =>
+        this.doctorApi.setTimeZone(body).pipe(tap((res) => this.clock.apply(res.data))),
+      ).subscribe();
     });
   }
 

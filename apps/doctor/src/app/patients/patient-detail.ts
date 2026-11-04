@@ -27,6 +27,7 @@ import {
   sortVisits,
 } from './patient-record-ui';
 import { PatientVisits } from './patient-visits';
+import { DoctorClock } from '../doctor-clock';
 
 interface RecordTab {
   readonly key: PatientRecordTab;
@@ -199,6 +200,8 @@ const CHIP =
   `,
 })
 export class DoctorPatientDetail implements OnInit {
+  /** The doctor's clock (their profile time zone): every time shown here. */
+  protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
@@ -281,7 +284,7 @@ export class DoctorPatientDetail implements OnInit {
     return `pd-panel-${key}`;
   }
   protected day(iso: string): string {
-    return formatDay(iso);
+    return formatDay(iso, this.clock.zone());
   }
 
   private focusTab(index: number): void {

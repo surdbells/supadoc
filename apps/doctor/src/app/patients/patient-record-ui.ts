@@ -11,6 +11,7 @@ import type {
   ConditionRow,
   MedicationRow,
 } from '@supadoc/models';
+import { formatInZone, timeLabel } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
 import { isPast } from '../appointment/appointment-status';
 
@@ -167,14 +168,18 @@ export function formatDate(value: string | null | undefined): string {
   return d ? DATE_FMT.format(d) : '';
 }
 
-/** "Tue, 3 Oct 2026" (or ""). */
-export function formatDay(value: string | null | undefined): string {
+/** "Tue, 3 Oct 2026" (or ""); an instant on `timeZone`'s calendar when given (the doctor's profile zone). */
+export function formatDay(value: string | null | undefined, timeZone?: string): string {
+  if (value && timeZone && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return formatInZone(value, timeZone, 'date').replace(/^([A-Z][a-z]{2}) /, '$1, ');
+  }
   const d = value ? parseDate(value) : null;
   return d ? DAY_FMT.format(d) : '';
 }
 
-/** "09:15" (or ""). */
-export function formatTime(value: string | null | undefined): string {
+/** "09:15" (or ""); "9:15 AM CST" on `timeZone`'s clock when given. */
+export function formatTime(value: string | null | undefined, timeZone?: string): string {
+  if (value && timeZone) return timeLabel(value, timeZone);
   const d = value ? parseDate(value) : null;
   return d ? TIME_FMT.format(d) : '';
 }
