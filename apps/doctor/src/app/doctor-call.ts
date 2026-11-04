@@ -170,6 +170,23 @@ const STAGE_HEIGHT: Record<VideoSize, string> = {
   m: 'clamp(260px, calc(52dvh - 3rem), 640px)',
   s: 'clamp(200px, 32dvh, 360px)',
 };
+/** A phone held sideways: the controls become a rail beside the video (as in the patient's call). */
+const RAIL_QUERY = '(orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px)';
+/**
+ * The height of the rail's stage column (the video, and under it the
+ * new-document alert while it shows), per video size. Fixed, so an alert takes
+ * its room from the video: the dock and the rail never move and nothing below
+ * shifts. Medium and Large fill the screen under the 48px top bar and any banner
+ * (--rail-above, measured); they are alike below 1024px, as at narrow. Small
+ * leaves the section switcher and the top of the notes in view. Never shorter
+ * than the compact rail beside it, so their bottoms line up: four 44px controls
+ * (Mute, Stop video, More, End), three 8px gaps, py-2 and the border = 218px.
+ */
+const RAIL_COLUMN: Record<VideoSize, string> = {
+  l: 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]',
+  m: 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]',
+  s: 'h-[max(13.625rem,calc(100dvh_-_10rem_-_var(--rail-above,0px)))]',
+};
 
 /** A remembered choice (best effort: storage may be blocked). */
 function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
@@ -376,7 +393,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          the sheet's own bar keeps Back to call, Mute and End). -->
     <div class="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden" [attr.inert]="sheetOpen() ? '' : null">
       <!-- Top bar: who, their allergies, how the call is going. Nothing here covers the video. -->
-      <header class="relative z-30 flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-white/10 px-2 py-1.5 sm:px-4">
+      <!-- A phone held sideways: one 48px row (the logo, "Encrypted" and "Secure call" give way). -->
+      <header
+        class="relative z-30 flex shrink-0 items-center gap-x-2 gap-y-1 border-b border-white/10 px-2 sm:px-4"
+        [class]="rail() ? 'h-12 flex-nowrap' : 'min-h-14 flex-wrap py-1.5'"
+      >
         <!-- Leaves without ending: the visit stays open and the doctor can rejoin. -->
         <button
           type="button"
@@ -386,9 +407,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         >
           <sd-icon name="arrow-left" [size]="20" />
         </button>
-        <span class="hidden shrink-0 font-heading text-h5 tracking-tight sm:inline">
-          <span class="text-frost">Video</span><span class="text-sage">Med</span>
-        </span>
+        @if (!rail()) {
+          <span class="hidden shrink-0 font-heading text-h5 tracking-tight sm:inline">
+            <span class="text-frost">Video</span><span class="text-sage">Med</span>
+          </span>
+        }
         <p class="min-w-0 flex-1 basis-28 truncate font-sans text-body-sm font-semibold text-white">
           {{ headerPatient() }}
           @if (headerPatientTime(); as pt) {
@@ -411,13 +434,17 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         }
         <span role="timer" class="flex shrink-0 items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/80">
           <span class="size-1.5 rounded-full bg-alert" aria-hidden="true"></span>
-          <span class="hidden sm:inline">Secure call ·</span>
+          @if (!rail()) {
+            <span class="hidden sm:inline">Secure call ·</span>
+          }
           <span class="font-label tabular-nums">{{ elapsedLabel() }}</span>
         </span>
         <sd-call-quality class="shrink-0" [quality]="quality()" />
-        <span class="hidden shrink-0 items-center gap-1 font-sans text-caption text-white/70 md:inline-flex">
-          <sd-icon name="lock" [size]="14" />Encrypted
-        </span>
+        @if (!rail()) {
+          <span class="hidden shrink-0 items-center gap-1 font-sans text-caption text-white/70 md:inline-flex">
+            <sd-icon name="lock" [size]="14" />Encrypted
+          </span>
+        }
         <div class="relative shrink-0">
           <button
             #peopleButton
@@ -458,133 +485,155 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           <sd-icon [name]="theme() === 'dark' ? 'sun' : 'moon'" [size]="18" />
         </button>
       </header>
-      @if (recordingError()) {
-        <p class="border-b border-alert/20 bg-alert/10 px-4 py-2 text-center font-sans text-caption text-white" role="alert">
-          {{ recordingError() }}
-        </p>
-      }
-      <!-- The API stopped taking this call (cancelled, or ended elsewhere): say so,
-           and leave when the doctor is ready (notes and prescriptions stay open). -->
-      @if (callClosed()) {
-        <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-center" role="alert">
-          <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
-            <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ callClosed() }}
-          </span>
-          @if (joinStanding(); as code) {
-            <!-- Refused mid-call for the doctor's standing: where to put it right. -->
+      <!-- The banners under the top bar, measured: a phone held sideways takes their
+           height (--rail-above) from the rail's stage column, so the dock still fits. -->
+      <div #banners class="shrink-0">
+        @if (recordingError()) {
+          <p class="border-b border-alert/20 bg-alert/10 px-4 py-2 text-center font-sans text-caption text-white" role="alert">
+            {{ recordingError() }}
+          </p>
+        }
+        <!-- The API stopped taking this call (cancelled, or ended elsewhere): say so,
+             and leave when the doctor is ready (notes and prescriptions stay open). -->
+        @if (callClosed()) {
+          <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-center" role="alert">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+              <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ callClosed() }}
+            </span>
+            @if (joinStanding(); as code) {
+              <!-- Refused mid-call for the doctor's standing: where to put it right. -->
+              <button
+                type="button"
+                class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+                (click)="openStanding()"
+              >
+                {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+              </button>
+            }
             <button
               type="button"
               class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
-              (click)="openStanding()"
+              (click)="leave()"
             >
-              {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+              Leave the call
             </button>
-          }
-          <button
-            type="button"
-            class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
-            (click)="leave()"
-          >
-            Leave the call
-          </button>
-        </div>
-      } @else if (rejoining() || connectionLost()) {
-        <!-- Dropped from the video (the call's token ran out and couldn't be renewed):
-             rejoining by itself, else Rejoin. Notes and prescriptions stay as they are. -->
-        <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-center" role="alert">
-          <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
-            <sd-icon
-              [name]="rejoining() ? 'loader-circle' : 'circle-alert'"
-              [size]="14"
-              [class]="rejoining() ? 'shrink-0 motion-safe:animate-spin' : 'shrink-0'"
-            />{{ rejoining() ? 'Reconnecting to the call…' : 'You were disconnected from the call.' }}
-          </span>
-          @if (connectionLost()) {
-            <button
-              type="button"
-              class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
-              (click)="rejoin()"
-            >
-              Rejoin
-            </button>
-          }
-        </div>
-      }
+          </div>
+        } @else if (rejoining() || connectionLost()) {
+          <!-- Dropped from the video (the call's token ran out and couldn't be renewed):
+               rejoining by itself, else Rejoin. Notes and prescriptions stay as they are. -->
+          <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-center" role="alert">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+              <sd-icon
+                [name]="rejoining() ? 'loader-circle' : 'circle-alert'"
+                [size]="14"
+                [class]="rejoining() ? 'shrink-0 motion-safe:animate-spin' : 'shrink-0'"
+              />{{ rejoining() ? 'Reconnecting to the call…' : 'You were disconnected from the call.' }}
+            </span>
+            @if (connectionLost()) {
+              <button
+                type="button"
+                class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+                (click)="rejoin()"
+              >
+                Rejoin
+              </button>
+            }
+          </div>
+        }
+      </div>
 
       <!-- Cockpit. DOM order = reading order: the video, the tools, then the chart,
            records and participants (grid areas place them; never order-*). -->
       <main [class]="gridClass()" [style.--stage-h]="stageHeight()" [style.--stage-max]="stageMax()">
-        <!-- ===================== DOCK: the video and its controls ===================== -->
-        <section #dock class="sd-dock flex min-w-0 flex-col gap-2" [class]="dockClass()" aria-label="Video call">
-          <div
-            class="sd-stage relative shrink-0 overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size] motion-reduce:transition-none"
-            [class]="stageClass()"
-          >
-            <!-- One tile per person, keyed by Agora uid: 1:1 the patient (or whoever is
-                 there) fills the stage, whole (contain) unless "fill the frame" is chosen;
-                 from a third person an even grid. The doctor's own camera is the PiP from
-                 640px up; on a phone it is a small tile at the start of the control row. -->
-            <sd-call-tiles
-              [tiles]="tiles()"
-              [selfViewClass]="selfViewClass"
-              [showRole]="showRoles()"
-              [mainFit]="fit()"
-              [selfView]="selfMode()"
-            />
+        <!-- ===================== DOCK: the video and its controls =====================
+             A column (the controls under the video); on a phone held sideways a row,
+             not sticky: the video, then the controls as a rail beside it. -->
+        <section #dock class="sd-dock flex min-w-0 gap-2" [class]="dockClass()" aria-label="Video call">
+          <!-- The stage's column beside the rail (display: contents otherwise): a fixed
+               height, the video filling what the new-document alert under it leaves.
+               Never inside an @if: the tiles keep the tracks handed to them. -->
+          <div [class]="stageColumnClass()">
+            <div
+              class="sd-stage relative shrink-0 overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size] motion-reduce:transition-none"
+              [class]="stageClass()"
+            >
+              <!-- One tile per person, keyed by Agora uid: 1:1 the patient (or whoever is
+                   there) fills the stage, whole (contain) unless "fill the frame" is chosen;
+                   from a third person an even grid. The doctor's own camera is the PiP from
+                   640px up and on a phone held sideways; on a phone held upright it is a
+                   small tile at the start of the control row. -->
+              <sd-call-tiles
+                [tiles]="tiles()"
+                [selfViewClass]="selfViewClass"
+                [showRole]="showRoles()"
+                [mainFit]="fit()"
+                [selfView]="selfMode()"
+              />
 
-            @if (people().length === 0 && status() === 'in-call') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white/85">
-                <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 roomy:flex">
-                  <sd-icon name="user-round" [size]="30" />
-                </span>
-                <p class="font-sans text-body-sm roomy:text-body">Waiting for {{ patientName() }} to join…</p>
-              </div>
-            }
+              @if (people().length === 0 && status() === 'in-call') {
+                <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white/85">
+                  <span class="hidden size-16 items-center justify-center rounded-full bg-white/10 roomy:flex">
+                    <sd-icon name="user-round" [size]="30" />
+                  </span>
+                  <p class="font-sans text-body-sm roomy:text-body">Waiting for {{ patientName() }} to join…</p>
+                </div>
+              }
 
-            @if (status() === 'loading') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85" role="status">
-                <span class="size-10 rounded-full border-2 border-white/20 border-t-white motion-safe:animate-spin"></span>
-                <p class="font-sans text-body">Connecting to the consultation…</p>
-              </div>
-            }
+              @if (status() === 'loading') {
+                <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/85" role="status">
+                  <span class="size-10 rounded-full border-2 border-white/20 border-t-white motion-safe:animate-spin"></span>
+                  <p class="font-sans text-body">Connecting to the consultation…</p>
+                </div>
+              }
 
-            @if (status() === 'error') {
-              <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85">
-                <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-white/10">
-                  <sd-icon name="video-off" [size]="28" />
-                </span>
-                <p class="max-w-sm font-sans text-body" role="alert">{{ errorMessage() }}</p>
-                @if (joinStanding(); as code) {
-                  <!-- Refused for the doctor's standing: where to put it right. -->
+              @if (status() === 'error') {
+                <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85">
+                  <span class="flex size-16 shrink-0 items-center justify-center rounded-full bg-white/10">
+                    <sd-icon name="video-off" [size]="28" />
+                  </span>
+                  <p class="max-w-sm font-sans text-body" role="alert">{{ errorMessage() }}</p>
+                  @if (joinStanding(); as code) {
+                    <!-- Refused for the doctor's standing: where to put it right. -->
+                    <button
+                      type="button"
+                      class="min-h-11 rounded-field bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-abyss transition-colors hover:bg-white/90"
+                      (click)="openStanding()"
+                    >
+                      {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+                    </button>
+                  }
                   <button
                     type="button"
-                    class="min-h-11 rounded-field bg-white px-5 py-2.5 font-sans text-body-sm font-semibold text-abyss transition-colors hover:bg-white/90"
-                    (click)="openStanding()"
+                    class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
+                    (click)="leave('schedule')"
                   >
-                    {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+                    Back to schedule
                   </button>
-                }
-                <button
-                  type="button"
-                  class="min-h-11 rounded-field bg-white/10 px-5 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-white/20"
-                  (click)="leave('schedule')"
-                >
-                  Back to schedule
-                </button>
+                </div>
+              }
+            </div>
+            <!-- A phone held sideways: the new-document alert under the video, beside the
+                 rail. Floating at the bottom it would cover the video and the rail's End;
+                 above the dock it would push the rail off the screen. -->
+            @if (rail() && docAlertView()) {
+              <div class="mt-2 min-w-0">
+                <ng-container [ngTemplateOutlet]="docAlertTpl" />
               </div>
             }
           </div>
 
           @if (status() === 'in-call') {
-            <!-- The controls sit under the video, never on it. -->
-            <div class="flex items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2">
+            <!-- The controls sit under the video (a rail beside it on a phone held
+                 sideways), never on it. The self tile only on a phone held upright. -->
+            <div [class]="controlRowClass()">
               @if (selfMode() === 'external' && selfTile(); as st) {
                 <sd-call-self-tile [tile]="st" [track]="selfTrack()" [playConfig]="selfPlayConfig()" />
               }
-              <div class="min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]">
+              <div [class]="controlsBoxClass()">
                 <sd-call-controls
                   [controls]="controls()"
                   [menu]="menu()"
+                  [layout]="rail() ? 'rail' : 'bar'"
                   ariaLabel="Call controls"
                   (pressed)="onControl($event)"
                   (menuSelect)="onMenu($event)"
@@ -1771,8 +1820,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          outside the cockpit that goes inert under the narrow viewer, so it is always read out. -->
     <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
 
-    <!-- Narrow screens: the new-document alert floats at the bottom (never over the video). -->
-    @if (layout() === 'narrow') {
+    <!-- Narrow screens: the new-document alert floats at the bottom (never over the video:
+         the dock is above it). Held sideways it is under the video, beside the rail, instead. -->
+    @if (floatAlert()) {
       <!-- Dark in both cockpit themes, like the dock it belongs to. Inert under the viewer sheet. -->
       <div class="sd-dock" [attr.inert]="sheetOpen() ? '' : null">
         <ng-container [ngTemplateOutlet]="docAlertTpl" />
@@ -1891,7 +1941,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     </ng-template>
 
     <!-- The new-document alert: below the controls (wide / mid), floating at the bottom
-         (narrow). Not a live region (announceDocs says it); focus never moves to it. -->
+         (narrow), under the video beside the rail (a phone held sideways). Not a live region (announceDocs
+         says it); focus never moves to it. -->
     <ng-template #docAlertTpl>
       @if (docAlertView(); as al) {
         <div
@@ -1900,7 +1951,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           aria-label="New document"
           tabindex="-1"
           class="flex items-start gap-3 outline-none rounded-card border border-cerulean/40 bg-ink px-4 py-3 shadow-raised"
-          [class]="layout() === 'narrow' ? 'fixed inset-x-3 bottom-3 z-40' : ''"
+          [class]="floatAlert() ? 'fixed inset-x-3 bottom-3 z-40' : ''"
           (mouseenter)="holdAlert(true)"
           (mouseleave)="holdAlert(false)"
           (focusin)="holdAlert(true)"
@@ -2054,11 +2105,24 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly wideMq = this.media('(min-width: 1280px)');
   /** At least 1024px: dock + tools | one tabbed side panel. */
   private readonly midMq = this.media('(min-width: 1024px)');
-  /** Below 640px: the doctor's own camera is a small tile in the control row, not on the video. */
-  protected readonly phone = this.media('(max-width: 639.98px)');
+  /**
+   * Below 640px: the doctor's own camera is a small tile in the control row, not
+   * on the video (held upright). A change moves the self view: see moveSelfView.
+   */
+  protected readonly phone = this.media('(max-width: 639.98px)', (change) => this.moveSelfView(change));
+  /** A phone held sideways (the query; `rail` is what the template uses). */
+  private readonly railMq = this.media(RAIL_QUERY, (change) => this.moveSelfView(change));
   protected readonly layout = computed<'wide' | 'mid' | 'narrow'>(() =>
     this.wideMq() ? 'wide' : this.midMq() ? 'mid' : 'narrow',
   );
+  /**
+   * A phone held sideways (narrow only): the dock is a row, not sticky — the video,
+   * with the controls as a rail beside it — under a 48px top bar; the section
+   * switcher and the panels follow below (page scroll). The self view is the
+   * picture-in-picture at any width: the 16:9 stage has a free corner and the rail
+   * has no room for the 64px tile above Mute, Stop video, More and End.
+   */
+  protected readonly rail = computed(() => this.railMq() && this.layout() === 'narrow');
   /** Narrow: which section shows under the video. */
   protected readonly section = signal<CallSection>('notes');
   /** Mid: which side panel shows. */
@@ -2090,14 +2154,42 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         return 'flex flex-col gap-3 p-3';
     }
   });
-  protected readonly dockClass = computed(() =>
-    this.layout() === 'narrow' ? 'sticky top-0 z-20 bg-abyss pt-1 [@media(max-height:500px)]:static' : '[grid-area:dock]',
+  protected readonly dockClass = computed(() => {
+    if (this.rail()) return 'flex-row items-stretch';
+    return this.layout() === 'narrow'
+      ? 'flex-col sticky top-0 z-20 bg-abyss pt-1 [@media(max-height:500px)]:static'
+      : 'flex-col [grid-area:dock]';
+  });
+  /**
+   * A phone held sideways: the stage's column beside the rail, a fixed height
+   * (RAIL_COLUMN). The video takes the first row, the new-document alert (when
+   * it shows) the second, so the alert shrinks the video, not the page.
+   */
+  protected readonly stageColumnClass = computed(() =>
+    this.rail()
+      ? `grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] ${RAIL_COLUMN[this.videoSize()]}`
+      : 'contents',
   );
-  protected readonly stageClass = computed(() =>
-    this.layout() === 'narrow'
+  protected readonly stageClass = computed(() => {
+    // h-full: the grid row's height (what the alert leaves); 16:9 from it, never wider than the column.
+    if (this.rail()) return 'mx-auto aspect-video h-full max-w-full';
+    return this.layout() === 'narrow'
       ? 'mx-auto w-full aspect-[4/3] max-w-[calc(var(--stage-max)*4/3)] sm:aspect-video sm:max-w-[calc(var(--stage-max)*16/9)]'
-      : 'w-full h-[var(--stage-h)] transition-[height] duration-300 ease-out',
+      : 'w-full h-[var(--stage-h)] transition-[height] duration-300 ease-out';
+  });
+  /** The control bar under the video, or (a phone held sideways) the rail beside it. */
+  protected readonly controlRowClass = computed(() =>
+    this.rail()
+      ? 'flex w-[4.5rem] shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2'
+      : 'flex items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2',
   );
+  protected readonly controlsBoxClass = computed(() =>
+    this.rail()
+      ? 'flex min-h-0 w-full flex-1 justify-center [container-name:callbar] [container-type:inline-size]'
+      : 'min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]',
+  );
+  /** The new-document alert floats at the bottom (narrow, held upright). */
+  protected readonly floatAlert = computed(() => this.layout() === 'narrow' && !this.rail());
   protected readonly toolsClass = computed(() => (this.layout() === 'narrow' ? '' : 'min-h-0 [grid-area:tools]'));
   /** Wide / mid with the Document tab chosen: the viewer fills the tools panel. */
   protected readonly docTabShown = computed(() => this.layout() !== 'narrow' && this.notesTab() === 'document' && !!this.viewerDoc());
@@ -2139,8 +2231,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly videoSize = signal<VideoSize>(readVideoSize());
   protected readonly fit = signal<CallVideoFit>(readStored(FIT_KEY, ['contain', 'cover'], 'contain'));
   protected readonly selfHidden = signal(readStored(SELF_KEY, ['hidden', 'shown'], 'shown') === 'hidden');
+  /** The control-row tile only on a phone held upright; else the stage's picture-in-picture. */
   protected readonly selfMode = computed<CallSelfViewMode>(() =>
-    this.selfHidden() ? 'hidden' : this.phone() ? 'external' : 'pip',
+    this.selfHidden() ? 'hidden' : this.phone() && !this.rail() ? 'external' : 'pip',
   );
   protected readonly selfTile = computed(() => this.tiles().find((t) => t.self) ?? null);
   /** My camera (or the shared screen) for the phone's control-row tile. */
@@ -2268,6 +2361,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly chartCol = viewChild<ElementRef<HTMLElement>>('chartCol');
   private readonly allergyCard = viewChild<ElementRef<HTMLElement>>('allergyCard');
   private readonly dockEl = viewChild<ElementRef<HTMLElement>>('dock');
+  private readonly bannersEl = viewChild<ElementRef<HTMLElement>>('banners');
 
   // ---- Time: the doctor's clock (profile zone) ----
   private readonly clock = inject(DoctorClock);
@@ -2291,16 +2385,42 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly allergyNames = computed(() => (this.info()?.patient?.allergies ?? []).map((a) => a.allergen).filter(Boolean));
   private readonly patientFirstName = computed(() => this.patientName().split(/\s+/)[0] ?? '');
 
-  /** A media query as a signal (its listener goes with the page). */
-  private media(query: string): Signal<boolean> {
+  /**
+   * A media query as a signal (its listener goes with the page). `wrap` runs
+   * around each change (moveSelfView hands the camera over around it).
+   */
+  private media(query: string, wrap?: (change: () => void) => void): Signal<boolean> {
     const mql = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query) : null;
     const state = signal(mql?.matches ?? false);
     if (mql) {
-      const onChange = (e: MediaQueryListEvent) => state.set(e.matches);
+      const onChange = (e: MediaQueryListEvent) => {
+        const change = () => state.set(e.matches);
+        if (wrap) wrap(change);
+        else change();
+      };
       mql.addEventListener?.('change', onChange);
       this.destroyRef.onDestroy(() => mql.removeEventListener?.('change', onChange));
     }
     return state.asReadonly();
+  }
+
+  /**
+   * Change where the doctor's own video plays (the stage's picture-in-picture,
+   * the control-row tile, or nowhere), handing the track over first: an Agora
+   * track plays in one element at a time, and stopping one playback stops the
+   * other. Leaving the picture-in-picture, the stage lets go of the track now
+   * (before the row tile starts it); coming back, the stage gets it again and
+   * plays it once its tile renders (after the row tile has stopped).
+   */
+  private moveSelfView(change: () => void): void {
+    const before = this.selfMode();
+    change();
+    const after = this.selfMode();
+    const track = this.selfTrack();
+    // Nothing to hand over before the doctor's camera is in the call.
+    if (before === after || !track) return;
+    if (after === 'pip') this.stage().attach(this.selfUid, track, this.selfPlayConfig());
+    else if (before === 'pip') this.stage().detach(this.selfUid);
   }
 
   // ---- Controls ----
@@ -2340,7 +2460,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       writeStored(FIT_KEY, fit);
     } else if (id === 'self') {
       const hidden = !this.selfHidden();
-      this.selfHidden.set(hidden);
+      this.moveSelfView(() => this.selfHidden.set(hidden));
       writeStored(SELF_KEY, hidden ? 'hidden' : 'shown');
     } else if (id === 'theme') {
       this.toggleTheme();
@@ -2676,11 +2796,29 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     });
   }
 
-  /** The floating alert (narrow) must never hide the focused element: pad the bottom while it shows. */
+  /**
+   * The banners under the top bar (recording error, call closed, reconnecting)
+   * as --rail-above: a phone held sideways takes their height from the rail's
+   * stage column (RAIL_COLUMN), so the dock still ends on the first screen. Set
+   * here, not bound, so the column follows in the same frame.
+   */
+  private observeBanners(): void {
+    const banners = this.bannersEl()?.nativeElement;
+    const page = banners?.parentElement;
+    if (!banners || !page || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[entries.length - 1]?.contentRect.height ?? 0;
+      page.style.setProperty('--rail-above', `${Math.ceil(h)}px`);
+    });
+    ro.observe(banners);
+    this.destroyRef.onDestroy(() => ro.disconnect());
+  }
+
+  /** The floating alert (narrow, held upright) must never hide the focused element: pad the bottom while it shows. */
   private syncAlertPadding(): void {
     const el = this.docAlertEl()?.nativeElement;
     const root = document.documentElement;
-    if (!el || this.layout() !== 'narrow') {
+    if (!el || !this.floatAlert()) {
       root.style.scrollPaddingBottom = '';
       return;
     }
@@ -3232,10 +3370,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.viewerSub?.unsubscribe();
     });
 
-    // The floating alert (narrow) pads the page's bottom while it shows.
+    // The floating alert (narrow, held upright) pads the page's bottom while it shows.
     effect(() => {
       this.docAlertView();
-      this.layout();
+      this.floatAlert();
       untracked(() => afterNextRender(() => this.syncAlertPadding(), { injector: this.injector }));
     });
 
@@ -3294,6 +3432,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   ngAfterViewInit(): void {
     window.addEventListener('beforeunload', this.onBeforeUnload);
     this.observeObscurers();
+    this.observeBanners();
     void this.start();
   }
 
