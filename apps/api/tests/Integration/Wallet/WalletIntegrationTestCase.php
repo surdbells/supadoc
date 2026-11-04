@@ -171,7 +171,8 @@ abstract class WalletIntegrationTestCase extends TestCase
     {
         $pipes   = [];
         $process = proc_open(
-            [PHP_BINARY, '-d', 'variables_order=EGPCS', $script, ...$args],
+            // On this process's clock: a `-d date.timezone=…` run must not leave the command on php.ini's.
+            [PHP_BINARY, '-d', 'variables_order=EGPCS', '-d', 'date.timezone=' . date_default_timezone_get(), $script, ...$args],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             WalletHarness::apiDir(),

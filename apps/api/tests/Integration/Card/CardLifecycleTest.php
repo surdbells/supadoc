@@ -8,9 +8,11 @@ use App\Action\Appointment\InitAppointmentPaymentAction;
 use App\Domain\Entity\PaymentIntent;
 use App\Domain\Entity\Specialist;
 use App\Domain\Repository\PaymentIntentRepository;
+use App\Domain\Settings\ProcessClock;
 use App\Infrastructure\Service\PaymentIntentService;
 use App\Tests\Integration\Card\Support\FakeCardGateway;
 use DateTimeImmutable;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManagerInterface;
 use Slim\Psr7\Factory\ResponseFactory;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -50,16 +52,15 @@ final class CardLifecycleTest extends CardIntegrationTestCase
         [$patientId, $doctor] = $this->patientAndDoctor();
         $ref     = $this->checkout($patientId, PaymentIntent::PURPOSE_BOOKING, ['specialist_id' => $doctor->getId()], '10000.00', '10000.00')->getReference();
         $service = fn (): PaymentIntentService => $this->app()->get(PaymentIntentService::class);
-        $sql     = $this->em()->getConnection();
 
         // Started 20 minutes ago, no webhook: the sweep asks Paystack and finds it paid…
-        $sql->executeStatement("UPDATE payment_intents SET created_at = NOW() - INTERVAL '20 minutes' WHERE reference = ?", [$ref]);
+        $this->backdate($ref, ['created_at' => '20 minutes']);
         $first = $service()->sweep();
         $this->assertSame(PaymentIntent::STATUS_PAID, $this->intentRow($ref)['status'], json_encode($first));
         $this->assertSame(0, $this->postings(PaymentIntentService::walletCreditKey($ref)), '…but leaves the patient time to use it');
 
         // …and once it has gone unused for CARD_INTENT_CREDIT_AFTER_MINUTES, credits it to the wallet.
-        $sql->executeStatement("UPDATE payment_intents SET paid_at = NOW() - INTERVAL '31 minutes' WHERE reference = ?", [$ref]);
+        $this->backdate($ref, ['paid_at' => '31 minutes']);
         $second = $service()->sweep();
         $this->assertGreaterThanOrEqual(1, $second['credited'], json_encode($second));
         $this->assertSame(PaymentIntent::STATUS_CREDITED, $this->intentRow($ref)['status']);
@@ -76,7 +77,7 @@ final class CardLifecycleTest extends CardIntegrationTestCase
         [$patientId, $doctor] = $this->patientAndDoctor();
         $ref = $this->checkout($patientId, PaymentIntent::PURPOSE_BOOKING, ['specialist_id' => $doctor->getId()], '10000.00')->getReference();
         FakeCardGateway::answer($this->gatewayFile, $ref, ['status' => 'abandoned', 'amount_minor' => 1000000, 'currency' => 'NGN']);
-        $this->em()->getConnection()->executeStatement("UPDATE payment_intents SET created_at = NOW() - INTERVAL '25 hours' WHERE reference = ?", [$ref]);
+        $this->backdate($ref, ['created_at' => '25 hours']);
 
         $this->app()->get(PaymentIntentService::class)->sweep();
         $this->assertSame(PaymentIntent::STATUS_EXPIRED, $this->intentRow($ref)['status']);
@@ -97,15 +98,10 @@ final class CardLifecycleTest extends CardIntegrationTestCase
             'oldStale'  => ['3 hours', '150 minutes'],    // …and now
         ];
         $refs = [];
-        $sql  = $this->em()->getConnection();
         foreach ($ages as $name => [$started, $asked]) {
             $refs[$name] = $this->checkout($patientId, PaymentIntent::PURPOSE_BOOKING, ['specialist_id' => $doctor->getId()], '10000.00')->getReference();
             FakeCardGateway::answer($this->gatewayFile, $refs[$name], ['status' => 'abandoned', 'amount_minor' => 0, 'currency' => 'NGN']);
-            $sql->executeStatement(
-                'UPDATE payment_intents SET created_at = NOW() - CAST(? AS INTERVAL), last_checked_at = '
-                    . ($asked === null ? 'NULL' : 'NOW() - CAST(? AS INTERVAL)') . ' WHERE reference = ?',
-                $asked === null ? [$started, $refs[$name]] : [$started, $asked, $refs[$name]],
-            );
+            $this->backdate($refs[$name], ['created_at' => $started, 'last_checked_at' => $asked]);
         }
 
         // Never asked first, then the least recently asked; the recently asked old one waits.
@@ -176,6 +172,30 @@ final class CardLifecycleTest extends CardIntegrationTestCase
         $this->assertSame(['status' => 'confirmed', 'payment_reference' => $ref, 'payment_status' => 'paid'], $row);
         $this->assertSame(PaymentIntent::STATUS_CONSUMED, $this->intentRow($ref)['status']);
         $this->assertSame('0.00', $this->balanceOf($patientId), 'nothing credited, nothing charged twice');
+    }
+
+    /**
+     * Back-date one checkout's timestamp columns (column => how long ago, or null
+     * for NULL). Worked out in PHP on the process clock and bound typed, never
+     * with SQL NOW(): the columns are naive process wall-clock, and NOW() would
+     * write the database session's clock (8 h behind on a PRC process).
+     *
+     * @param array<string, ?string> $columns e.g. ['created_at' => '20 minutes']
+     */
+    private function backdate(string $reference, array $columns): void
+    {
+        $now    = ProcessClock::normalize(new DateTimeImmutable());
+        $sets   = [];
+        $params = [];
+        $types  = [];
+        foreach ($columns as $column => $ago) {
+            $sets[]   = $column . ' = ?';
+            $params[] = $ago === null ? null : $now->modify('-' . $ago);
+            $types[]  = Types::DATETIME_IMMUTABLE;
+        }
+        $params[] = $reference;
+        $types[]  = Types::STRING;
+        $this->em()->getConnection()->executeStatement('UPDATE payment_intents SET ' . implode(', ', $sets) . ' WHERE reference = ?', $params, $types);
     }
 
     /** @return callable(EntityManagerInterface): void */

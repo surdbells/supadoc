@@ -13,6 +13,7 @@ declare(strict_types=1);
  *        webhook  {raw, signature}                  → POST /api/webhooks/paystack
  *        reschedule {customer_id, appointment_id, body} → POST .../reschedule
  *        settle   {reference}                       → PaymentIntentService::settleUnused()
+ *        zone     {}                                → the PHP zone this worker runs on
  * Prints one JSON line: {status, body} for a request, {result} for a call,
  * {exception, message} when it threw — each with `receipts`, the wallet
  * receipt e-mails it sent.
@@ -84,6 +85,7 @@ try {
             ['id' => (string) $job['appointment_id']],
         )),
         'settle' => ['result' => $container->get(PaymentIntentService::class)->settleUnused((string) $job['reference'])],
+        'zone'   => ['result' => date_default_timezone_get()],
         default  => throw new \InvalidArgumentException('unknown op ' . $job['op']),
     };
 } catch (ValidationException $e) {

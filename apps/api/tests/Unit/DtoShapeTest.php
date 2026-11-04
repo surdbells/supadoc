@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit;
 
+use App\Domain\Document\DocumentSharingRules as Rules;
 use App\Domain\Entity\Appointment;
 use App\Domain\Entity\MedicalDocument;
 use App\Domain\Entity\Patient;
@@ -77,16 +78,18 @@ final class DtoShapeTest extends TestCase
 
     public function testGrantRequestEventShapes(): void
     {
-        $now   = new DateTimeImmutable('2026-10-21 10:00:00');
+        // Every instant is explicit (UTC) and the rows hold it as a timestamp column
+        // would (self::stored()), so this reads the same on any process zone.
+        $now   = new DateTimeImmutable('2026-10-21T10:00:00Z');
         $grant = Presenter::grant($this->grantRow(), Presenter::doctorRef($this->doctor('s-1')), null, ['d-1'], 1, true, true, $now);
         $this->assertKeys(self::GRANT, $grant);
         $this->assertSame('active', $grant['status']);
 
         $revoked = Presenter::grant($this->grantRow([
-            'status' => 'revoked', 'end_reason' => 'revoked', 'ended_by' => 'patient', 'ended_at' => '2026-10-21 09:55:00', 'revoke_batch_id' => 'b-1',
+            'status' => 'revoked', 'end_reason' => 'revoked', 'ended_by' => 'patient', 'ended_at' => self::stored('2026-10-21T09:55:00Z'), 'revoke_batch_id' => 'b-1',
         ]), Presenter::doctorRef($this->doctor('s-1')), null, [], 0, false, true, $now);
-        $this->assertSame('2026-10-21T10:05:00+00:00', (new DateTimeImmutable((string) $revoked['restorable_until']))->setTimezone(new \DateTimeZone('UTC'))->format(DATE_ATOM));
-        $past = Presenter::grant($this->grantRow(['expires_at' => '2026-10-21 09:00:00']), Presenter::doctorRef($this->doctor('s-1')), null, [], 0, false, true, $now);
+        $this->assertSame('2026-10-21T10:05:00+00:00', (new DateTimeImmutable((string) $revoked['restorable_until']))->setTimezone(new \DateTimeZone('UTC'))->format(DATE_ATOM), 'restorable for ten minutes after the revoke');
+        $past = Presenter::grant($this->grantRow(['expires_at' => self::stored('2026-10-21T09:00:00Z')]), Presenter::doctorRef($this->doctor('s-1')), null, [], 0, false, true, $now);
         $this->assertSame(['expired', 'expired', 'system'], [$past['status'], $past['end_reason'], $past['ended_by']], 'past its end before the sweeper recorded it');
 
         $suggestion = Presenter::suggestion('access', null, []);
@@ -95,14 +98,14 @@ final class DtoShapeTest extends TestCase
         $this->assertSame('all', Presenter::suggestion('extend', null, [])['scope']);
         $this->assertSame(['selected', ['d-1']], array_values(array_slice(Presenter::suggestion('access', null, ['d-1']), 0, 2)));
 
-        $requestRow = ['id' => 'r-1', 'kind' => 'access', 'status' => 'pending', 'message' => null, 'appointment_id' => 'a-1', 'created_at' => '2026-10-20 10:00:00', 'expires_at' => '2026-10-21 09:00:00', 'decided_at' => null];
+        $requestRow = ['id' => 'r-1', 'kind' => 'access', 'status' => 'pending', 'message' => null, 'appointment_id' => 'a-1', 'created_at' => self::stored('2026-10-20T10:00:00Z'), 'expires_at' => self::stored('2026-10-21T09:00:00Z'), 'decided_at' => null];
         $this->assertKeys(self::REQUEST, Presenter::request($requestRow, Presenter::doctorRef($this->doctor('s-1')), null, null, $suggestion, $now));
         $doctorRequest = Presenter::doctorRequest($requestRow, $now);
         $this->assertKeys(self::DOCTOR_REQUEST, $doctorRequest);
         $this->assertSame('expired', $doctorRequest['status'], 'a pending request past its close reads as expired');
 
         $event = Presenter::event(['id' => 'l-1', 'event' => 'shared', 'actor_role' => 'patient', 'document_id' => 'd-1', 'title' => null, 'grant_id' => 'g-1', 'request_id' => null,
-            'details' => json_encode(['scope' => 'all', 'duration' => 'until', 'expires_at' => '2026-10-31T00:00:00+00:00', 'surface' => 'call', 'consent_version' => 'x']), 'created_at' => '2026-10-21 10:00:00'], null);
+            'details' => json_encode(['scope' => 'all', 'duration' => 'until', 'expires_at' => '2026-10-31T00:00:00+00:00', 'surface' => 'call', 'consent_version' => 'x']), 'created_at' => self::stored('2026-10-21T10:00:00Z')], null);
         $this->assertKeys(self::EVENT, $event);
         $this->assertSame(['scope', 'duration', 'expires_at', 'until_label_at'], array_keys($event['details']), 'only the contract detail keys');
         $this->assertSame(['id' => 'd-1', 'title' => null], $event['document']);
@@ -140,7 +143,8 @@ final class DtoShapeTest extends TestCase
     {
         $ts = (string) file_get_contents(__DIR__ . '/../../../../libs/shared/models/src/lib/doctor-application.ts');
         $keys = static function (string $name) use ($ts): array {
-            if (preg_match('/export interface ' . $name . '\b[^{]*\{\n(.*?)\n\}/s', $ts, $m) !== 1) {
+            // \R: the checkout may carry CRLF line endings (core.autocrlf on Windows).
+            if (preg_match('/export interface ' . $name . '\b[^{]*\{\R(.*?)\R\}/s', $ts, $m) !== 1) {
                 throw new \RuntimeException('interface not found: ' . $name);
             }
             preg_match_all('/^  ([a-z_0-9]+)\??:/m', $m[1], $k);
@@ -249,10 +253,16 @@ final class DtoShapeTest extends TestCase
     {
         return $over + [
             'id' => 'g-1', 'patient_id' => 'p-1', 'specialist_id' => 's-1', 'scope' => 'selected', 'status' => 'active', 'source' => 'share', 'surface' => 'manage_sharing',
-            'consent_version' => '2026-10.1', 'duration' => '7d', 'starts_at' => '2026-10-21 09:00:00', 'expires_at' => '2026-10-28 09:00:00', 'original_expires_at' => null,
+            'consent_version' => '2026-10.1', 'duration' => '7d', 'starts_at' => self::stored('2026-10-21T09:00:00Z'), 'expires_at' => self::stored('2026-10-28T09:00:00Z'), 'original_expires_at' => null,
             'appointment_id' => null, 'request_id' => null, 'client_key' => null, 'request_hash' => null, 'revoke_batch_id' => null, 'restored_at' => null,
             'restored_from_grant_id' => null, 'ended_at' => null, 'end_reason' => null, 'ended_by' => null, 'last_accessed_at' => null, 'access_count' => 0,
-            'created_at' => '2026-10-21 09:00:00', 'updated_at' => '2026-10-21 09:00:00',
+            'created_at' => self::stored('2026-10-21T09:00:00Z'), 'updated_at' => self::stored('2026-10-21T09:00:00Z'),
         ];
+    }
+
+    /** What a timestamp column holds for `$instant`: its naive wall-clock on the process clock. */
+    private static function stored(string $instant): string
+    {
+        return Rules::sql(new DateTimeImmutable($instant));
     }
 }

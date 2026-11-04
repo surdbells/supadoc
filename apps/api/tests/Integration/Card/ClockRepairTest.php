@@ -222,10 +222,15 @@ final class ClockRepairTest extends CardIntegrationTestCase
         return ClockRepair::isPending($this->db());
     }
 
-    /** @param array<string,string> $decisions @return array<string,mixed> */
-    private function repair(?string $fixZone, array $decisions = [], bool $dryRun = false, string $lockTimeout = ClockRepair::LOCK_TIMEOUT, ?\Closure $beforeWrite = null): array
+    /**
+     * `$now` pins the repair's clock (default: the real time).
+     *
+     * @param array<string,string> $decisions
+     * @return array<string,mixed>
+     */
+    private function repair(?string $fixZone, array $decisions = [], bool $dryRun = false, string $lockTimeout = ClockRepair::LOCK_TIMEOUT, ?\Closure $beforeWrite = null, ?DateTimeImmutable $now = null): array
     {
-        return ClockRepair::run($this->em('clock_it_run'), $fixZone, $decisions, $dryRun, null, $lockTimeout, $beforeWrite);
+        return ClockRepair::run($this->em('clock_it_run'), $fixZone, $decisions, $dryRun, $now, $lockTimeout, $beforeWrite);
     }
 
     /** @param array<string,mixed> $report @return list<string> */
@@ -635,9 +640,16 @@ final class ClockRepairTest extends CardIntegrationTestCase
     {
         date_default_timezone_set('Europe/London');
         ClockRepair::resetCache();
+        // A pinned clock, so the span always straddles a change whatever today is
+        // (the repair only looks ±2 days around the stored rows and now): London
+        // springs forward at 01:00 UTC on 28 March 2027, between now and the booking.
+        $this->now  = new DateTimeImmutable('2027-03-25T09:00:00Z');
+        $this->base = $this->now->modify('+5 days');
+        $london     = new DateTimeZone('Europe/London');
+        $this->assertSame([0, 3600], ClockRepair::offsets($london, $this->now->getTimestamp(), $this->base->getTimestamp()), 'the fixture straddles a clock change');
         $booking = $this->legacyBooking($this->patient(), $this->doctor(), $this->base);
 
-        $fix = $this->repair('Europe/London');
+        $fix = $this->repair('Europe/London', now: $this->now);
         $this->assertSame('refused', $fix['status'], json_encode($fix));
         $this->assertContains('zone_has_transitions', $this->codes($fix));
         $this->assertSame([$this->utcWall($this->base), null], $this->at($booking), 'nothing changed');

@@ -17,6 +17,7 @@ use App\Infrastructure\Persistence\DoctrineEntityManagerFactory;
 use App\Infrastructure\Service\AvailabilityService;
 use App\Infrastructure\Service\PaymentIntentService;
 use App\Infrastructure\Service\SlotLock;
+use App\Tests\Integration\Card\Support\CardHarness;
 use DateTimeImmutable;
 use DateTimeZone;
 use Slim\Psr7\Factory\ResponseFactory;
@@ -27,7 +28,9 @@ use Slim\Psr7\Factory\ServerRequestFactory;
  * Shanghai, like production's PRC): a booking's instant is stored on the
  * process clock and marked, reads back as the same instant, takes its slot
  * out of the calendar, and the patient's notices name it on the clinic's
- * clock. The actions run in-process (worker processes run on php.ini's zone).
+ * clock. The actions run in-process; a worker process started through
+ * CardHarness inherits this process's zone (the harness passes it on as
+ * `-d date.timezone`), so a race here runs on Asia/Shanghai too.
  */
 final class ProcessZoneBookingTest extends CardIntegrationTestCase
 {
@@ -111,6 +114,20 @@ final class ProcessZoneBookingTest extends CardIntegrationTestCase
         }
 
         return array_map(static fn (int $ts): string => (string) $ts, $times);
+    }
+
+    public function testAWorkerProcessRunsOnThisProcessZone(): void
+    {
+        // setUp moved only this process to Asia/Shanghai: a worker that did not
+        // inherit it would answer php.ini's zone (UTC on the dev and CI boxes).
+        $result = CardHarness::finishWorker(CardHarness::startWorker([
+            'schema'       => static::$schema,
+            'gateway_file' => $this->gatewayFile,
+            'app'          => 'card_it_zone',
+            'op'           => 'zone',
+        ]));
+
+        $this->assertSame('Asia/Shanghai', $result['result'] ?? null, (string) json_encode($result));
     }
 
     public function testAPatientBookingIsStoredOnTheProcessClockAndReadsBackAsTheSameInstant(): void

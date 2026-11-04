@@ -221,7 +221,8 @@ final class ApplicationsHarness
             'DOCAPP_IT_REDIS_PREFIX' => (string) $_ENV['REDIS_PREFIX'],
         ];
         $process = proc_open(
-            [PHP_BINARY, __DIR__ . '/../bin/' . $script, base64_encode((string) json_encode($job))],
+            // On this process's clock: a `-d date.timezone=…` run must not leave the workers on php.ini's.
+            [PHP_BINARY, '-d', 'date.timezone=' . date_default_timezone_get(), __DIR__ . '/../bin/' . $script, base64_encode((string) json_encode($job))],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             self::apiDir(),

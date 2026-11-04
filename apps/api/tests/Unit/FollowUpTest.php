@@ -225,8 +225,9 @@ final class FollowUpTest extends TestCase
 
     public function testFollowUpPricingRules(): void
     {
-        $parent = new DateTimeImmutable('2026-10-01 10:00:00');
-        $inside = new DateTimeImmutable('2026-10-10 10:00:00');
+        // Explicit instants (UTC): the window is worked out from the parent's start, whatever the process zone.
+        $parent = new DateTimeImmutable('2026-10-01T10:00:00Z');
+        $inside = new DateTimeImmutable('2026-10-10T10:00:00Z');
         $price  = static fn (string $mode, DateTimeImmutable $start, bool $waived = false, string $fee = '20000.00', int $pct = 50): array
             => PricingService::followUpPrice($fee, $mode, $pct, 14, $parent, $start, $waived);
 
@@ -238,13 +239,13 @@ final class FollowUpTest extends TestCase
         $this->assertSame('0.00', $price('percent', $inside, false, '20000.00', 100)['amount'], '100% off');
         $this->assertSame('166.66', $price('percent', $inside, false, '333.33')['amount'], 'rounds down to the kobo, in the patient\'s favour');
 
-        $edge = new DateTimeImmutable('2026-10-15 10:00:00');
+        $edge = new DateTimeImmutable('2026-10-15T10:00:00Z');
         $this->assertSame('percent', $price('percent', $edge)['rule'], 'the last moment of the window still counts');
-        $late = $price('free', new DateTimeImmutable('2026-10-15 10:01:00'));
+        $late = $price('free', new DateTimeImmutable('2026-10-15T10:01:00Z'));
         $this->assertSame(['20000.00', 'outside_window', 0], [$late['amount'], $late['rule'], $late['discount_percent']], 'outside the window it is the full fee');
         $this->assertSame('2026-10-15T10:00:00+00:00', (new DateTimeImmutable($late['window_ends_at']))->setTimezone(new \DateTimeZone('UTC'))->format(DATE_ATOM));
 
-        $waived = $price('full', new DateTimeImmutable('2026-12-01 10:00:00'), true);
+        $waived = $price('full', new DateTimeImmutable('2026-12-01T10:00:00Z'), true);
         $this->assertSame(['0.00', 'waived', true], [$waived['amount'], $waived['rule'], $waived['waived']], 'a waiver wins, even outside the window');
     }
 
