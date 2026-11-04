@@ -1,5 +1,6 @@
 import {
   afterNextRender,
+  afterRenderEffect,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -60,8 +61,23 @@ export interface CallMenuItem {
 export const CALL_BAR_COMPACT_PX = 352;
 /** How long a disabled control's reason stays on screen. */
 export const CALL_CONTROL_REASON_MS = 6_000;
+/** A rail's More menu keeps this far from the viewport's top and bottom (half the 1rem its max height leaves). */
+const RAIL_MENU_EDGE_PX = 8;
+/**
+ * The space between a 44px control and what opens beside a rail (More's menu,
+ * a reason bubble): a call screen's rail is 4.5rem wide (1px border, px-1) with
+ * the controls centred, so 14px from a control to the rail's edge, then 8px.
+ */
+const RAIL_SIDE_GAP = 'mr-[1.375rem]';
 
 type MenuRole = 'menuitem' | 'menuitemcheckbox' | 'menuitemradio';
+
+/**
+ * Where a rail's More menu sits beside More: its bottom on More's bottom, its
+ * top on More's top, or (when neither keeps it on screen) its bottom this many
+ * px above More's bottom (negative: below).
+ */
+type RailMenuPlace = 'bottom' | 'top' | number;
 
 interface ControlView {
   readonly c: CallControl;
@@ -125,9 +141,12 @@ function nextFrame(cb: () => void): () => void {
  * Under 22rem the bar is compact: controls marked `overflow: 'menu'` leave it
  * and become the first More-menu items (a `menuitemcheckbox` when they have
  * `pressed`), their badges added to More's. Choosing one emits `pressed` with
- * its id, as the button would. More opens a `role="menu"` above the bar (below
- * in a rail): arrow keys, Home / End, Esc closes and returns focus to More, a
- * click outside closes it; plain items emit `menuSelect`.
+ * its id, as the button would. More opens a `role="menu"` above the bar; in a
+ * rail (which already fills the screen's height) beside it, toward the video,
+ * its bottom on More's (else its top, else as near as the screen allows), never
+ * taller than the screen and scrolling inside when it would be. Arrow keys,
+ * Home / End, Esc closes and returns focus to More, a click outside closes it;
+ * plain items emit `menuSelect`.
  *
  * A disabled control stays focusable (`aria-disabled`) with its `reason` as
  * its description; pressing it shows the reason for 6 s in a `role="status"`
@@ -142,6 +161,7 @@ function nextFrame(cb: () => void): () => void {
     class: 'relative block',
     '[class.h-full]': "layout() === 'rail'",
     '(document:click)': 'onDocumentClick($event)',
+    '(window:resize)': 'onViewportResize()',
   },
   template: `
     <div
@@ -204,15 +224,18 @@ function nextFrame(cb: () => void): () => void {
               tabindex="-1"
               [id]="menuId"
               [attr.aria-labelledby]="buttonId('more')"
-              class="absolute right-0 z-40 flex w-max min-w-56 max-w-[min(20rem,calc(100vw-1.5rem))] flex-col rounded-card border border-white/10 bg-ink p-1 text-left shadow-overlay focus:outline-none"
-              [class]="layout() === 'rail' ? 'top-full mt-2' : 'bottom-full mb-2'"
+              class="absolute z-40 flex w-max min-w-56 max-w-[min(20rem,calc(100vw-1.5rem))] flex-col rounded-card border border-white/10 bg-ink p-1 text-left shadow-overlay focus:outline-none"
+              [class]="menuPlaceClass()"
+              [style.bottom.px]="menuBottomPx()"
               (keydown)="onMenuKeydown($event)"
             >
               @for (s of sections(); track s.key; let first = $first) {
+                <!-- shrink-0: a rail's menu scrolls at the screen's height; the (empty)
+                     separators would otherwise shrink to nothing and the groups run together. -->
                 @if (!first) {
-                  <div role="separator" class="mx-2 my-1 h-px bg-white/10"></div>
+                  <div role="separator" class="mx-2 my-1 h-px shrink-0 bg-white/10"></div>
                 }
-                <div [attr.role]="s.group ? 'group' : 'none'" class="flex flex-col">
+                <div [attr.role]="s.group ? 'group' : 'none'" class="flex shrink-0 flex-col">
                   @for (e of s.entries; track e.key) {
                     <button
                       type="button"
@@ -292,6 +315,30 @@ export class CallControlsComponent {
   protected readonly activeId = signal<CallControlId | null>(null);
   private readonly reason = signal<{ anchor: CallControlId; text: string } | null>(null);
   private reasonTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Where the open menu sits beside a rail (fitted to the screen after each render that can move it). */
+  private readonly railMenuPlace = signal<RailMenuPlace>('bottom');
+  /**
+   * Bumped when More can move without a render: the window resizes, or the
+   * rail does (banners above the dock shrink it, and its centred controls move),
+   * so an open rail menu is fitted again.
+   */
+  private readonly fitTick = signal(0);
+
+  /**
+   * The bar's menu opens above it, right-aligned to More. A rail's
+   * opens beside it toward the video (clear of the rail), at most the screen's
+   * height less 1rem, scrolling inside, its bottom (or top) on More's.
+   */
+  protected readonly menuPlaceClass = computed(() => {
+    if (this.layout() !== 'rail') return 'right-0 bottom-full mb-2';
+    const edge = this.railMenuPlace() === 'top' ? 'top-0' : 'bottom-0';
+    return `right-full ${RAIL_SIDE_GAP} max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain ${edge}`;
+  });
+  /** A rail's menu nudged to stay on screen when neither edge of More keeps it there. */
+  protected readonly menuBottomPx = computed(() => {
+    const place = this.railMenuPlace();
+    return this.layout() === 'rail' && typeof place === 'number' ? place : null;
+  });
 
   private readonly visible = computed(() => this.controls().filter((c) => !c.hidden));
   private readonly hasMore = computed(() => this.visible().some((c) => c.id === 'more'));
@@ -391,6 +438,9 @@ export class CallControlsComponent {
         cancel = nextFrame(() => {
           cancel = null;
           if (size > 0) this.compactState.set(size < CALL_BAR_COMPACT_PX);
+          // A rail fills its column: when that shrinks or grows (a banner above
+          // the dock), its centred controls move, and an open menu with them.
+          if (this.menuOpen() && this.layout() === 'rail') this.fitTick.update((n) => n + 1);
         });
       });
       observer.observe(this.host.nativeElement);
@@ -401,6 +451,14 @@ export class CallControlsComponent {
     });
     destroyRef.onDestroy(() => {
       if (this.reasonTimer) clearTimeout(this.reasonTimer);
+    });
+    // A rail's menu is fitted to the screen once it is laid out: when it opens,
+    // its items change, the layout becomes a rail, or the window or rail resizes.
+    afterRenderEffect(() => {
+      if (!this.menuOpen() || this.layout() !== 'rail') return;
+      this.sections();
+      this.fitTick();
+      this.fitRailMenu();
     });
   }
 
@@ -430,7 +488,7 @@ export class CallControlsComponent {
     if (!this.reasonText(v.c.id)) return 'sr-only';
     const place =
       this.layout() === 'rail'
-        ? 'right-full top-1/2 mr-2 -translate-y-1/2'
+        ? `right-full top-1/2 ${RAIL_SIDE_GAP} -translate-y-1/2`
         : v.align === 'start'
           ? 'bottom-full left-0 mb-2'
           : v.align === 'end'
@@ -539,15 +597,59 @@ export class CallControlsComponent {
     this.closeMenu(false);
   }
 
+  protected onViewportResize(): void {
+    if (this.menuOpen()) this.fitTick.update((n) => n + 1);
+  }
+
   private openMenu(focus: 'first' | 'last'): void {
+    this.railMenuPlace.set('bottom');
     this.menuOpen.set(true);
     afterNextRender(
       () => {
         const items = this.menuItems();
-        (focus === 'first' ? items[0] : items[items.length - 1])?.focus();
+        const item = focus === 'first' ? items[0] : items[items.length - 1];
+        if (this.layout() !== 'rail') {
+          item?.focus();
+          return;
+        }
+        // A rail's menu is being fitted to the screen in this render: scrolling
+        // the page to where it is now would undo that. Its own list scrolls.
+        item?.focus({ preventScroll: true });
+        const menu = this.menuEl();
+        if (menu && focus === 'last') menu.scrollTop = menu.scrollHeight;
       },
       { injector: this.injector },
     );
+  }
+
+  /**
+   * Fits an open rail menu to the screen: its bottom on More's when that keeps
+   * it 8px inside the viewport, else its top on More's, else as near More as
+   * the viewport allows. Unmeasurable (not laid out): left on More's bottom.
+   */
+  private fitRailMenu(): void {
+    const menu = this.menuEl();
+    const anchor = menu?.parentElement;
+    const height = menu?.getBoundingClientRect().height ?? 0;
+    const viewport = this.host.nativeElement.ownerDocument.defaultView?.innerHeight ?? 0;
+    if (!menu || !anchor || !(height > 0) || !(viewport > 0)) return;
+    const { top, bottom } = anchor.getBoundingClientRect();
+    const edge = RAIL_MENU_EDGE_PX;
+    const fits = (menuTop: number) => menuTop >= edge && menuTop + height <= viewport - edge;
+    let place: RailMenuPlace;
+    if (fits(bottom - height)) {
+      place = 'bottom';
+    } else if (fits(top)) {
+      place = 'top';
+    } else {
+      const menuTop = Math.min(Math.max(bottom - height, edge), Math.max(edge, viewport - edge - height));
+      place = Math.round(bottom - menuTop - height);
+    }
+    this.railMenuPlace.set(place);
+  }
+
+  private menuEl(): HTMLElement | null {
+    return this.host.nativeElement.querySelector<HTMLElement>(`#${this.menuId}`);
   }
 
   private closeMenu(returnFocus: boolean): void {
@@ -557,7 +659,7 @@ export class CallControlsComponent {
   }
 
   private menuItems(): HTMLElement[] {
-    return [...this.host.nativeElement.querySelectorAll<HTMLElement>(`#${this.menuId} [data-entry]`)];
+    return [...(this.menuEl()?.querySelectorAll<HTMLElement>('[data-entry]') ?? [])];
   }
 
   private focusControl(id: CallControlId): void {

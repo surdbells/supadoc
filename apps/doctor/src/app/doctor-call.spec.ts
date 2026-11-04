@@ -658,6 +658,38 @@ describe('DoctorCall — documents in the call', () => {
       expect(page?.style.getPropertyValue('--rail-above')).toBe('0px');
     });
 
+    it('sideways the dock is not watched (the banners resize it: no ResizeObserver loop); upright it is again', async () => {
+      const live = new Set<{ el: Element }>();
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          private readonly mine: Array<{ el: Element }> = [];
+          observe(target: Element) {
+            const o = { el: target };
+            this.mine.push(o);
+            live.add(o);
+          }
+          unobserve() {
+            /* not needed */
+          }
+          disconnect() {
+            for (const o of this.mine) live.delete(o);
+          }
+        },
+      );
+      const dockWatched = () => [...live].some((o) => o.el === dock());
+      viewport(375, 812);
+      await setup([doc('a')]);
+      expect(dockWatched()).toBe(true);
+      turn(812, 375);
+      await tick();
+      expect(dockWatched()).toBe(false);
+      expect(document.documentElement.style.scrollPaddingTop).toBe('');
+      turn(375, 812);
+      await tick();
+      expect(dockWatched()).toBe(true);
+    });
+
     it('More › Hide my preview, then show it: the picture-in-picture lets go of the camera, then plays it again', async () => {
       viewport(812, 375);
       await setup([doc('a')]);

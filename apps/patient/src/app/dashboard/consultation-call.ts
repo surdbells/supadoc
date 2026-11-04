@@ -161,6 +161,17 @@ type SpeechRecCtor = new () => SpeechRec;
 const WIDE_QUERY = '(min-width: 640px)';
 /** A phone held sideways: the controls become a rail beside the video (desktops keep the grid). */
 const RAIL_QUERY = '(orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px)';
+/**
+ * A phone held sideways: the height of the stage's column beside the rail (the
+ * video, and under it the captions and the new-prescription card while they
+ * show). Fixed, so those take their room from the video: the dock and the rail
+ * never move and nothing below shifts. The screen under the 48px top bar (as the
+ * stage was), less the banners above the dock (--rail-above, measured). Never
+ * shorter than the compact rail beside it, so their bottoms line up: four 44px
+ * controls (Mute, Stop video, More, End), three 8px gaps, py-2 and the border =
+ * 218px (as in the doctor's call).
+ */
+const RAIL_COLUMN = 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]';
 /** Per-device choices (best-effort). */
 const FIT_KEY = 'videomed.call.fit';
 const SELF_KEY = 'videomed.call.self';
@@ -239,9 +250,10 @@ interface RecordItem {
   template: `
     <!-- New prescription notice (says who sent it and its number — never the medicines).
          Never over the stage: the bottom of the screen below lg, the top of the right
-         column (beside the video) from lg up. On a phone held sideways the stage fills
-         the screen's height, so there it sits in the page above the dock instead
-         (pushing the video down, never covering it). -->
+         column (beside the video) from lg up. On a phone held sideways the toast would
+         cover the video and the rail's End, so there it is a card under the video, in
+         the stage's fixed-height column beside the rail: it takes its room from the
+         video, and the dock, the rail and End stay where they are. -->
     <ng-template #rxNotice let-t>
       <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-teal/10 text-teal">
         <sd-icon name="pill" [size]="18" />
@@ -480,33 +492,29 @@ interface RecordItem {
           [style.--reserve]="reserve()"
           data-testid="call-left"
         >
-          <!-- A camera / microphone that isn't in the call (outside the dock, never over a tile) -->
-          @if (status() === 'in-call' && deviceNotice()) {
-            <p class="mt-3 flex items-start gap-2 rounded-card border border-white/10 bg-white/[0.03] px-3 py-2 font-sans text-caption text-white/80 lg:mt-0" role="status">
-              <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ deviceNotice() }}
-            </p>
-          }
-
-          <!-- A new prescription on a phone held sideways: in the page above the dock (the
-               bottom toast would cover the video there). A light card in the cockpit:
-               styles.css keeps its light-surface tones when the portal is dark. -->
-          @if (rail()) {
-            @if (rxToast(); as t) {
-              <div
-                class="sd-rx-card sd-toast-in mt-2 flex items-start gap-3 rounded-card border border-cerulean/30 bg-white px-4 py-3 shadow-lg"
-                role="status"
-                data-testid="call-rx-inline"
-              >
-                <ng-container [ngTemplateOutlet]="rxNotice" [ngTemplateOutletContext]="{ $implicit: t }" />
-              </div>
+          <!-- The banners above the dock, measured: a phone held sideways takes their
+               height (--rail-above, with the gap after them) from the stage's column, so
+               the dock still ends on the first screen. Box-less otherwise (display:
+               contents), and on a phone held sideways only while something shows. -->
+          <div #banners [class]="bannersClass()" data-testid="call-banners">
+            <!-- A camera / microphone that isn't in the call (outside the dock, never over a tile) -->
+            @if (status() === 'in-call' && deviceNotice()) {
+              <p class="mt-3 flex items-start gap-2 rounded-card border border-white/10 bg-white/[0.03] px-3 py-2 font-sans text-caption text-white/80 lg:mt-0" role="status">
+                <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0 text-warning" />{{ deviceNotice() }}
+              </p>
             }
-          }
+          </div>
 
           <!-- ============================ DOCK ============================
                The stage and its control bar: one dark unit (both cockpit themes). Only the
-               video, the name tag and (from sm) your picture-in-picture are on the stage. -->
+               video, the name tag and (from sm) your picture-in-picture are on the stage.
+               A column (the controls under the video); on a phone held sideways a row:
+               the stage's column, then the controls as a rail beside it. -->
           <section #dock [class]="dockClass()" aria-label="Video call" data-testid="call-dock">
-            <div [class]="rail() ? 'flex min-w-0 flex-1 flex-col gap-2' : 'contents'">
+            <!-- The stage's column beside the rail (display: contents otherwise): a fixed
+                 height, the video filling what the captions and the new-prescription card
+                 under it leave. Never inside an @if: the tiles keep the tracks handed to them. -->
+            <div [class]="stageColumnClass()" data-testid="call-stage-column">
               <div
                 class="sd-stage relative overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size]"
                 [class]="stageClass()"
@@ -668,6 +676,22 @@ interface RecordItem {
                     <p class="text-white/70">Captions will appear here.</p>
                   }
                 </div>
+              }
+
+              <!-- A new prescription on a phone held sideways: under the video, beside the
+                   rail. The bottom toast would cover the video and the rail's End there;
+                   above the dock it would push the rail off the screen. A light card in the
+                   cockpit: styles.css keeps its light-surface tones when the portal is dark. -->
+              @if (rail()) {
+                @if (rxToast(); as t) {
+                  <div
+                    class="sd-rx-card sd-toast-in flex min-w-0 items-start gap-3 rounded-card border border-cerulean/30 bg-white px-4 py-3 shadow-lg"
+                    role="status"
+                    data-testid="call-rx-inline"
+                  >
+                    <ng-container [ngTemplateOutlet]="rxNotice" [ngTemplateOutletContext]="{ $implicit: t }" />
+                  </div>
+                }
               }
             </div>
 
@@ -1360,6 +1384,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** The dock (sticky below lg) and the prescription toast: the page keeps focus clear of them (2.4.11). */
   private readonly dockEl = viewChild<ElementRef<HTMLElement>>('dock');
   private readonly toastEl = viewChild<ElementRef<HTMLElement>>('rxToastEl');
+  /** The banners above the dock: their height is taken from the rail's stage column. */
+  private readonly bannersEl = viewChild<ElementRef<HTMLElement>>('banners');
 
   // ---- The dock: layout, your own view, the video fit ----
   /** From sm up (the self view is a picture-in-picture on the stage). */
@@ -1394,9 +1420,27 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       ? 'sd-dock flex flex-row items-stretch gap-2 pt-2'
       : 'sd-dock sticky top-0 z-20 flex flex-col gap-2 bg-abyss pt-2 [@media(max-height:500px)]:static lg:static lg:mx-auto lg:w-[min(100%,calc((100dvh_-_var(--reserve))*16/9))] lg:shrink-0 lg:pt-0',
   );
+  /**
+   * The banners above the dock (the device notice): box-less (display: contents)
+   * except on a phone held sideways, where they are one measured box, gone while
+   * empty so no gap is added above the dock (see observeBanners).
+   */
+  protected readonly bannersClass = computed(() => (this.rail() ? 'shrink-0 empty:hidden' : 'contents'));
+  /**
+   * A phone held sideways: the stage's column beside the rail, a fixed height
+   * (RAIL_COLUMN). The video takes the first row; the captions and the
+   * new-prescription card (when they show) take rows under it, so they shrink
+   * the video, not the page. Box-less otherwise.
+   */
+  protected readonly stageColumnClass = computed(() =>
+    this.rail()
+      ? `grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-2 ${RAIL_COLUMN}`
+      : 'contents',
+  );
   protected readonly stageClass = computed(() =>
     this.rail()
-      ? 'mx-auto aspect-video h-[calc(100dvh-4.5rem)] max-w-full'
+      ? // h-full: the first row's height (what the captions and the card leave); 16:9 from it, never wider than the column.
+        'mx-auto aspect-video h-full max-w-full'
       : 'mx-auto aspect-[4/3] w-full max-h-[45dvh] max-w-[calc(45dvh*4/3)] sm:aspect-video sm:max-w-[calc(45dvh*16/9)] lg:max-h-none lg:max-w-none',
   );
   protected readonly controlRowClass = computed(() =>
@@ -1733,7 +1777,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /**
    * Keeps the focused element clear of the sticky dock and the bottom toast
    * (WCAG 2.4.11): `scroll-padding` on the page, from their sizes. Nothing
-   * when the dock isn't sticky (lg, a short screen, a phone held sideways).
+   * when the dock isn't sticky (lg, a short screen) or isn't given (a phone
+   * held sideways).
    */
   private syncScrollPadding(dock: HTMLElement | null, toast: HTMLElement | null): void {
     const win = this.document.defaultView;
@@ -1748,6 +1793,34 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       if (r.height > 0 && r.bottom >= win.innerHeight - 24) bottom = `${Math.ceil(r.height) + 12}px`;
     }
     root.style.scrollPaddingBottom = bottom;
+  }
+
+  /**
+   * The banners above the dock as --rail-above (their height and, while they
+   * show, the page's gap after them): a phone held sideways takes it from the
+   * stage's column (RAIL_COLUMN), so the dock still ends on the first screen.
+   * Set on their parent, which holds the dock, here rather than bound, so the
+   * column follows in the same frame. Returns the disconnect.
+   */
+  private observeBanners(banners: HTMLElement): () => void {
+    const page = banners.parentElement;
+    if (!page || typeof ResizeObserver !== 'function') return () => undefined;
+    const observer = new ResizeObserver((entries) => {
+      const h = entries[entries.length - 1]?.contentRect.height ?? 0;
+      const above = h > 0 ? Math.ceil(h + this.gapAfter(banners)) : 0;
+      page.style.setProperty('--rail-above', `${above}px`);
+    });
+    observer.observe(banners);
+    return () => observer.disconnect();
+  }
+
+  /** The row gap of the flex box `el` sits in (its display: contents parents skipped). */
+  private gapAfter(el: HTMLElement): number {
+    const win = this.document.defaultView;
+    let box = el.parentElement;
+    while (box && win?.getComputedStyle(box).display === 'contents') box = box.parentElement;
+    const gap = box && win ? parseFloat(win.getComputedStyle(box).rowGap) : 0;
+    return Number.isFinite(gap) ? gap : 0;
   }
 
   // ---- Panels ----
@@ -2222,9 +2295,14 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.watchMedia(WIDE_QUERY, (m) => this.moveSelfView(() => this.wide.set(m)));
     this.watchMedia(RAIL_QUERY, (m) => this.moveSelfView(() => this.rail.set(m)));
 
-    // Focus never hides under the sticky dock or the bottom toast (2.4.11).
+    // Focus never hides under the sticky dock or the bottom toast (2.4.11). On a
+    // phone held sideways there is neither (the dock is a row in the page, a new
+    // prescription a card under the video): nothing is padded and the dock isn't
+    // watched. The banners' observer resizes it there (--rail-above), and a
+    // second observer on it, at the banners' depth (siblings), would be a
+    // ResizeObserver loop ("completed with undelivered notifications").
     effect((onCleanup) => {
-      const dock = this.dockEl()?.nativeElement ?? null;
+      const dock = this.rail() ? null : (this.dockEl()?.nativeElement ?? null);
       const toast = this.toastEl()?.nativeElement ?? null;
       const win = this.document.defaultView;
       if (!win) return;
@@ -2243,6 +2321,14 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       const root = this.document.documentElement;
       root.style.scrollPaddingTop = '';
       root.style.scrollPaddingBottom = '';
+    });
+
+    // A phone held sideways: the banners above the dock come off the stage's
+    // column (--rail-above). They render once the patient enters the call; the
+    // observer goes with them (and with the page).
+    effect((onCleanup) => {
+      const banners = this.bannersEl()?.nativeElement;
+      if (banners) onCleanup(this.observeBanners(banners));
     });
   }
 

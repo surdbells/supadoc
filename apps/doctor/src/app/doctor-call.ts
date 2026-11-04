@@ -2771,16 +2771,28 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private observeObscurers(): void {
     if (typeof ResizeObserver === 'undefined') return;
     const root = document.documentElement;
-    const dock = this.dockEl()?.nativeElement;
-    if (dock) {
-      const sync = () => {
-        const sticky = this.layout() === 'narrow' && getComputedStyle(dock).position === 'sticky';
-        root.style.scrollPaddingTop = sticky ? `${Math.ceil(dock.getBoundingClientRect().height)}px` : '';
-      };
-      const ro = new ResizeObserver(sync);
-      ro.observe(dock);
-      this.destroyRef.onDestroy(() => ro.disconnect());
-    }
+    // On a phone held sideways the dock is a row in the page (never sticky, so
+    // nothing to pad) and the banners' observer resizes it (--rail-above). A
+    // second observer on it there, at the banners' depth (siblings), would be a
+    // ResizeObserver loop ("completed with undelivered notifications"), so the
+    // dock is only watched off the rail; turning the phone re-runs this.
+    effect(
+      (onCleanup) => {
+        const dock = this.rail() ? null : this.dockEl()?.nativeElement;
+        if (!dock) {
+          root.style.scrollPaddingTop = '';
+          return;
+        }
+        const sync = () => {
+          const sticky = this.layout() === 'narrow' && getComputedStyle(dock).position === 'sticky';
+          root.style.scrollPaddingTop = sticky ? `${Math.ceil(dock.getBoundingClientRect().height)}px` : '';
+        };
+        const ro = new ResizeObserver(sync);
+        ro.observe(dock);
+        onCleanup(() => ro.disconnect());
+      },
+      { injector: this.injector },
+    );
     const chart = this.chartCol()?.nativeElement;
     const card = this.allergyCard()?.nativeElement;
     if (chart && card) {

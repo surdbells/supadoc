@@ -138,6 +138,12 @@ describe('ConsultationCall (the dock)', () => {
     await settle();
   };
   const left = () => el.querySelector<HTMLElement>('[data-testid="call-left"]');
+  /** The banners above the dock (measured on a phone held sideways). */
+  const banners = () => el.querySelector<HTMLElement>('[data-testid="call-banners"]');
+  /** The stage's column: beside the rail on a phone held sideways (display: contents otherwise). */
+  const stageColumn = () => el.querySelector<HTMLElement>('[data-testid="call-stage-column"]');
+  /** The rail's column height (RAIL_COLUMN): the screen under the top bar, less the banners. */
+  const RAIL_COLUMN = 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]';
   const controlLabels = () =>
     Array.from(el.querySelectorAll<HTMLButtonElement>('sd-call-controls [data-control]')).map((b) => b.getAttribute('aria-label'));
 
@@ -250,7 +256,7 @@ describe('ConsultationCall (the dock)', () => {
     expect(controls.layout()).toBe('rail');
   });
 
-  it('a new prescription never covers the video: a bottom toast, but in the page above the dock when held sideways', async () => {
+  it('a new prescription never covers the video: a bottom toast, but under the video beside the rail when held sideways', async () => {
     await create();
     await enter();
     const rx = { text: 'Dr Bayo Ade sent you a prescription (RX-1).', rx: { id: 'rx-1' } };
@@ -264,6 +270,8 @@ describe('ConsultationCall (the dock)', () => {
     rail = true;
     await create();
     await enter();
+    const dock = el.querySelector<HTMLElement>('[data-testid="call-dock"]');
+    const above = dock?.previousElementSibling ?? null;
     (cmp()['rxToast'] as unknown as { set: (v: unknown) => void }).set(rx);
     await settle();
     expect(el.querySelector('[data-testid="call-rx-toast"]')).toBeNull();
@@ -271,9 +279,176 @@ describe('ConsultationCall (the dock)', () => {
     expect(inline?.getAttribute('role')).toBe('status');
     expect(inline?.className).not.toContain('fixed');
     expect(inline?.textContent).toContain('Dr Bayo Ade sent you a prescription (RX-1).');
-    // In the page flow, before the dock (it pushes the video down).
-    const dock = el.querySelector('[data-testid="call-dock"]');
-    expect(inline && dock ? inline.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING : 0).toBeTruthy();
+    // In the stage's fixed-height column, after the video: it takes its room from the
+    // video, so the column doesn't grow and the rail (and its End) stays put.
+    const column = stageColumn();
+    const stage = el.querySelector<HTMLElement>('[data-testid="call-stage"]');
+    expect(column?.contains(inline)).toBe(true);
+    expect(column?.className).toContain(RAIL_COLUMN);
+    expect(stage?.parentElement).toBe(column);
+    expect(stage && inline ? stage.compareDocumentPosition(inline) & Node.DOCUMENT_POSITION_FOLLOWING : 0).toBeTruthy();
+    expect(inline?.closest('[data-testid="call-stage"]')).toBeNull(); // never on the video
+    expect(inline?.closest('[data-testid="call-control-row"]')).toBeNull();
+    // Nothing is added above the dock (the banners stay empty).
+    expect(el.querySelector('[data-testid="call-dock"]')).toBe(dock);
+    expect(dock?.previousElementSibling ?? null).toBe(above);
+    expect(banners()?.childElementCount).toBe(0);
+    expect(dock?.contains(inline)).toBe(true);
+    // Still the light card styles.css guards when the portal is dark.
+    expect(inline?.classList.contains('sd-rx-card')).toBe(true);
+    expect(inline?.closest('.sd-call')).not.toBeNull();
+    // In the page flow, never along the bottom edge: no scroll padding for it.
+    expect(document.documentElement.style.scrollPaddingBottom).toBe('');
+  });
+
+  describe('a phone held sideways (the control rail)', () => {
+    /** A ResizeObserver that reports the sizes a test gives it. */
+    const observers: Array<{ el: Element; report: (height: number) => void; disconnect: ReturnType<typeof vi.fn> }> = [];
+
+    beforeEach(() => {
+      observers.length = 0;
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          readonly disconnect = vi.fn();
+          constructor(private readonly cb: ResizeObserverCallback) {}
+          observe(target: Element) {
+            observers.push({
+              el: target,
+              report: (height) =>
+                this.cb([{ target, contentRect: { height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver),
+              disconnect: this.disconnect,
+            });
+          }
+          unobserve() {
+            /* not needed */
+          }
+        },
+      );
+    });
+
+    /** The observers still watching `target` (not disconnected). */
+    const watching = (target: Element | null | undefined) =>
+      observers.filter((o) => o.el === target && o.disconnect.mock.calls.length === 0);
+    /** Turns the phone: the change the page listens for on the rail's media query. */
+    const turn = async (sideways: boolean) => {
+      rail = sideways;
+      for (const { value } of vi.mocked(window.matchMedia).mock.results) {
+        const mql = value as { media: string; addEventListener: ReturnType<typeof vi.fn> };
+        if (!mql.media.includes('(orientation: landscape)')) continue;
+        for (const [, onChange] of mql.addEventListener.mock.calls) (onChange as (e: { matches: boolean }) => void)({ matches: sideways });
+      }
+      await settle();
+    };
+
+    it('812×375: the video is in a fixed-height column with the rail beside it, captions under the video', async () => {
+      rail = true;
+      wide = true;
+      await create();
+      await enter();
+      const dock = el.querySelector<HTMLElement>('[data-testid="call-dock"]');
+      const column = stageColumn();
+      const stage = el.querySelector<HTMLElement>('[data-testid="call-stage"]');
+      const row = el.querySelector<HTMLElement>('[data-testid="call-control-row"]');
+      // A row, not sticky: the stage's column, then the rail.
+      expect(dock?.className).toContain('flex-row');
+      expect(dock?.className).not.toContain('sticky');
+      expect(column?.parentElement).toBe(dock);
+      expect(column?.nextElementSibling).toBe(row);
+      // A fixed height (the screen under the top bar, less any banner); the video fills its first row.
+      expect(column?.className).toContain('grid');
+      expect(column?.className).toContain('grid-rows-[minmax(0,1fr)]');
+      expect(column?.className).toContain(RAIL_COLUMN);
+      expect(stage?.parentElement).toBe(column);
+      expect(stage?.className).toContain('h-full');
+      expect(stage?.className).toContain('aspect-video');
+      expect(stage?.className).not.toContain('100dvh');
+      expect(column?.querySelector('sd-call-controls')).toBeNull();
+      expect(row?.querySelector('sd-call-controls')).not.toBeNull();
+      // Nothing above the dock but the (empty, hidden) banners.
+      expect(dock?.previousElementSibling).toBe(banners());
+      expect(banners()?.className).toContain('empty:hidden');
+      expect(banners()?.childElementCount).toBe(0);
+      // Captions take a row under the video, in the same column (the column doesn't grow).
+      cmp()['onControl']('captions');
+      await settle();
+      const captions = el.querySelector<HTMLElement>('[data-testid="call-captions"]');
+      expect(captions?.parentElement).toBe(column);
+      expect(stage && captions ? stage.compareDocumentPosition(captions) & Node.DOCUMENT_POSITION_FOLLOWING : 0).toBeTruthy();
+      expect(column?.className).toContain(RAIL_COLUMN);
+    });
+
+    it('a banner above the dock (the device notice) is measured as --rail-above, which the column takes off its height', async () => {
+      rail = true;
+      wide = true;
+      await create();
+      await enter();
+      const box = banners();
+      const watch = observers.find((o) => o.el === box);
+      expect(watch).toBeTruthy();
+      // As the stylesheet lays it out (jsdom loads none): the left column is box-less
+      // below lg, so the banners sit in the page's flex column, 12px (gap-3) apart.
+      const column = left();
+      const page = column?.parentElement;
+      if (column) column.style.display = 'contents';
+      if (page) page.style.rowGap = '12px';
+      const notice = 'Your camera is blocked. Allow it in your browser to be seen.';
+      (cmp()['deviceNotice'] as unknown as { set: (v: string) => void }).set(notice);
+      await settle();
+      // Above the dock, outside it (never over a tile).
+      expect(box?.textContent).toContain(notice);
+      expect(box?.nextElementSibling).toBe(el.querySelector('[data-testid="call-dock"]'));
+      // Their height and the gap after them (the box-less left column skipped), rounded up.
+      watch?.report(32.4);
+      expect(left()?.style.getPropertyValue('--rail-above')).toBe('45px');
+      expect(stageColumn()?.className).toContain('var(--rail-above,0px)');
+      expect(left()?.contains(stageColumn())).toBe(true);
+      (cmp()['deviceNotice'] as unknown as { set: (v: string) => void }).set('');
+      await settle();
+      expect(box?.childElementCount).toBe(0);
+      watch?.report(0);
+      expect(left()?.style.getPropertyValue('--rail-above')).toBe('0px');
+      // The observer goes with the page.
+      expect(watch?.disconnect).not.toHaveBeenCalled();
+      fixture.destroy();
+      expect(watch?.disconnect).toHaveBeenCalled();
+    });
+
+    it('sideways the dock is not watched, as the banners resize it (no ResizeObserver loop); upright it is again', async () => {
+      await create();
+      await enter();
+      const dock = el.querySelector<HTMLElement>('[data-testid="call-dock"]');
+      // Upright: the sticky dock's height is the page's scroll padding (2.4.11).
+      expect(watching(dock)).toHaveLength(1);
+      document.documentElement.style.scrollPaddingTop = '99px';
+      await turn(true);
+      expect(el.querySelector('[data-testid="call-dock"]')).toBe(dock);
+      expect(dock?.className).toContain('flex-row');
+      // Sideways: --rail-above (from the banners) resizes the dock, their sibling, so
+      // a second observer on it would be skipped at that depth: a loop error on every
+      // banner. It isn't sticky there, so there is nothing to pad.
+      expect(watching(dock)).toHaveLength(0);
+      expect(watching(banners())).toHaveLength(1);
+      expect(document.documentElement.style.scrollPaddingTop).toBe('');
+      await turn(false);
+      expect(dock?.className).toContain('sticky');
+      expect(watching(dock)).toHaveLength(1);
+    });
+
+    it('held upright: the banners and the stage column have no box (the layout is as before)', async () => {
+      await create();
+      await enter();
+      (cmp()['deviceNotice'] as unknown as { set: (v: string) => void }).set('Your microphone is blocked.');
+      await settle();
+      expect(banners()?.className).toBe('contents');
+      expect(stageColumn()?.className).toBe('contents');
+      const dock = el.querySelector<HTMLElement>('[data-testid="call-dock"]');
+      expect(dock?.className).toContain('sticky');
+      expect(el.querySelector('[data-testid="call-stage"]')?.className).toContain('aspect-[4/3]');
+      const notice = banners()?.querySelector('p[role="status"]');
+      expect(notice?.textContent).toContain('Your microphone is blocked.');
+      expect(notice && dock ? notice.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING : 0).toBeTruthy();
+    });
   });
 
   it('announces recording in words from a status region that is always there', async () => {
