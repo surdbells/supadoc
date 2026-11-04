@@ -17,10 +17,19 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { tap, type Subscription } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
-import { apiErrorFields, apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  CLINIC_TIME_ZONE,
+  isValidTimeZone,
+  SpecialistsApi,
+  zoneAbbr,
+  zoneLongName,
+} from '@supadoc/data-access';
 import type {
   AdminSpecialistUpdate,
   DoctorInviteResultDto,
+  DoctorProfileDto,
   SpecialistDetailDto,
 } from '@supadoc/models';
 import { AlertComponent, DialogService, IconComponent, SearchSelectComponent, type LeaveCopy } from '@supadoc/ui';
@@ -75,6 +84,54 @@ function same(k: FormKey, a: Form, b: Form): boolean {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** Monday first, the way a working week is read. */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+/** The doctor's effective zone: the profile's, else the clinic's (an older API, or never set). */
+function doctorZone(p: Pick<DoctorProfileDto, 'timezone'>): string {
+  return isValidTimeZone(p.timezone) ? p.timezone : CLINIC_TIME_ZONE;
+}
+
+/**
+ * The doctor's weekly hours on their own clock, consecutive days with the same
+ * windows run together, then the zone they are in: "Mon–Fri 09:00–17:00; Sat
+ * 10:00–14:00 · Central Time (America/Chicago)". Null when no day has hours.
+ */
+export function weeklyHoursLine(p: Pick<DoctorProfileDto, 'weekly_hours' | 'timezone'>, at: Date = new Date()): string | null {
+  const hours = p.weekly_hours ?? {};
+  const windows = (day: number) =>
+    (hours[String(day)] ?? []).filter((w) => Array.isArray(w) && w.length === 2).map(([a, b]) => `${a}–${b}`).join(', ');
+  const runs: { from: number; to: number; text: string }[] = [];
+  for (const day of WEEK_ORDER) {
+    const text = windows(day);
+    if (!text) continue;
+    const last = runs[runs.length - 1];
+    // Joined only when the days are next to each other in the week (Mon→Sun).
+    if (last && last.text === text && WEEK_ORDER.indexOf(day) === WEEK_ORDER.indexOf(last.to) + 1) last.to = day;
+    else runs.push({ from: day, to: day, text });
+  }
+  if (!runs.length) return null;
+  const days = runs
+    .map((r) => `${WEEKDAYS[r.from]}${r.to !== r.from ? `–${WEEKDAYS[r.to]}` : ''} ${r.text}`)
+    .join('; ');
+  const tz = doctorZone(p);
+  return `${days} · ${zoneLongName(tz, at)} (${tz})`;
+}
+
+/**
+ * The doctor's time zone as staff see it (they can't change it — only the
+ * doctor can, D13): "Central Time (CST) · detected", "… · chosen by the
+ * doctor", or "Not set (West Africa Time used)".
+ */
+export function doctorZoneLabel(p: Pick<DoctorProfileDto, 'timezone' | 'timezone_source'>, at: Date = new Date()): string {
+  const tz = doctorZone(p);
+  const base = `${zoneLongName(tz, at)} (${zoneAbbr(tz, at)})`;
+  if (p.timezone_source === 'auto') return `${base} · detected`;
+  if (p.timezone_source === 'manual') return `${base} · chosen by the doctor`;
+  // Never set (null), or an older API that says nothing: the clinic's zone is in use.
+  if (p.timezone_source === null || tz === CLINIC_TIME_ZONE) return `Not set (${zoneLongName(CLINIC_TIME_ZONE, at)} used)`;
+  return base;
+}
 
 /** "Leave without saving?" for unsaved profile edits (the doctor page's guard and tab switch). */
 export const PROFILE_LEAVE_COPY: LeaveCopy = {
@@ -341,6 +398,11 @@ function toForm(d: SpecialistDetailDto): Form {
             <dt class="text-slate">Signature</dt><dd class="text-ink">{{ detail().profile.has_signature ? 'Saved' : 'Not saved' }}</dd>
             <dt class="text-slate">Consult length</dt><dd class="text-ink">{{ detail().profile.slot_minutes ? detail().profile.slot_minutes + ' minutes' : '—' }}</dd>
             <dt class="text-slate">Weekly hours</dt><dd class="break-words text-ink">{{ hours() }}</dd>
+            <dt class="text-slate">Time zone</dt>
+            <dd class="break-words text-ink" data-testid="bo-ov-zone">
+              {{ zone() }}
+              <span class="block text-caption text-slate">Only the doctor can change it, from their profile.</span>
+            </dd>
           </dl>
           @if (detail().pending_changes) {
             <p class="flex items-center gap-1.5 font-sans text-caption text-ink"><sd-icon name="square-pen" [size]="14" class="text-warning" />A change request is waiting on the Review tab.</p>
@@ -422,15 +484,13 @@ export class SpecialistOverviewTab {
     return (Object.keys(saved) as FormKey[]).some((k) => !same(k, now, saved));
   });
 
-  protected readonly hours = computed(() => {
-    const hours = this.detail().profile.weekly_hours ?? {};
-    const parts = Object.keys(hours)
-      .sort()
-      .filter((d) => (hours[d] ?? []).length > 0)
-      .map((d) => `${WEEKDAYS[Number(d)] ?? d} ${hours[d].map(([a, b]) => `${a}–${b}`).join(', ')}`);
-    if (parts.length) return parts.join(' · ');
-    return this.detail().checklist.availability ? 'No weekly hours — uses published open slots.' : 'Not set yet.';
-  });
+  /** On the doctor's own clock, with their zone (staff keep their browser zone everywhere else). */
+  protected readonly hours = computed(
+    () =>
+      weeklyHoursLine(this.detail().profile) ??
+      (this.detail().checklist.availability ? 'No weekly hours — uses published open slots.' : 'Not set yet.'),
+  );
+  protected readonly zone = computed(() => doctorZoneLabel(this.detail().profile));
 
   constructor() {
     // Re-seed the form from the page's data — unless the reviewer has unsaved edits.

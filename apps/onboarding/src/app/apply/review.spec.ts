@@ -20,7 +20,18 @@ import { ApplicantSession } from '../core/applicant-session';
 import { ApplicationDraftStore } from '../core/application-draft.store';
 import { NOTICE, Notices } from '../core/notices';
 import { DEFAULT_CONFIG } from '../core/onboarding-config.store';
-import { OnbReview, reviewSections } from './review';
+import { OnbReview, reviewSections, TIME_ZONE_NOT_SET, timeZoneReviewLabel } from './review';
+
+/** 15 Jan / 15 Jul 2026: Chicago on standard and on daylight time. */
+const JAN = new Date('2026-01-15T12:00:00Z');
+const JUL = new Date('2026-07-15T12:00:00Z');
+
+/** A full draft whose personal step saved `time_zone` (a missing key when undefined). */
+function draftWithZone(tz: unknown) {
+  const d = fullDraft();
+  d.sections.personal = { ...d.sections.personal, ...(tz === undefined ? {} : { time_zone: tz as string | null }) };
+  return d;
+}
 
 describe('OnbReview', () => {
   let http: HttpTestingController;
@@ -60,6 +71,49 @@ describe('OnbReview', () => {
     expect(rows['MDCN full registration certificate']).toBe('mdcn_certificate.pdf');
     expect(rows['Signature']).toBe('Ada Obi');
     expect(sections.map((s) => s.title)).toContain('Licence · Nigeria');
+  });
+
+  it('lists the chosen time zone last in Personal Details, from the shared zone names', () => {
+    const personal = (tz: unknown, at?: Date) => reviewSections(draftWithZone(tz), at).find((s) => s.key === 'personal');
+    const zoneRow = (tz: unknown, at?: Date) => personal(tz, at)?.rows.find((r) => r.label === 'Time zone')?.value;
+    expect(personal('America/Chicago')?.rows.map((r) => r.label).slice(-2)).toEqual(['Country / City', 'Time zone']);
+    expect(zoneRow('America/Chicago', JAN)).toBe('Central Time (CST) · America/Chicago');
+    // The abbreviation follows daylight saving at the time of the review.
+    expect(zoneRow('America/Chicago', JUL)).toBe('Central Time (CDT) · America/Chicago');
+    expect(zoneRow('Asia/Dubai', JAN)).toMatch(/ \(GMT\+4\) · Asia\/Dubai$/);
+  });
+
+  it('says "Not set" when no time zone was chosen (it is optional) or one this browser cannot read', () => {
+    for (const tz of [undefined, null, '', 'Not/AZone', '+01:00', 42]) {
+      expect(timeZoneReviewLabel(tz)).toBe(TIME_ZONE_NOT_SET);
+      const rows = reviewSections(draftWithZone(tz)).find((s) => s.key === 'personal')?.rows ?? [];
+      expect(rows.find((r) => r.label === 'Time zone')?.value).toBe('Not set');
+    }
+  });
+
+  it('renders the Time zone row like the other personal rows', async () => {
+    const { fixture, el } = await create();
+    const rowOf = (label: string) =>
+      Array.from(el.querySelectorAll<HTMLElement>('[aria-labelledby="review-personal-heading"] dl > div')).find(
+        (r) => r.querySelector('dt')?.textContent?.trim() === label,
+      );
+    const zone = rowOf('Time zone') as HTMLElement;
+    const place = rowOf('Country / City') as HTMLElement;
+    // "Not set" is a placeholder, so it is muted (Slate), not drawn as an answer.
+    expect(zone.querySelector('dd')?.textContent?.trim()).toBe('Not set');
+    expect(zone.querySelector('dd')?.classList.contains('text-slate')).toBe(true);
+    expect(zone.querySelector('dd')?.classList.contains('text-ink')).toBe(false);
+    expect(zone.querySelector('dt')?.className).toBe(place.querySelector('dt')?.className);
+    expect(zone.previousElementSibling).toBe(place);
+
+    TestBed.inject(ApplicationDraftStore).draft.set(draftWithZone('America/Chicago'));
+    await settle(fixture);
+    const chosen = rowOf('Time zone') as HTMLElement;
+    expect(chosen.querySelector('dd')?.textContent?.trim()).toMatch(/^Central Time \(C[DS]T\) · America\/Chicago$/);
+    // A chosen zone reads exactly like the other answers.
+    expect(chosen.querySelector('dd')?.className).toBe((rowOf('Country / City') as HTMLElement).querySelector('dd')?.className);
+    fixture.destroy();
+    el.remove();
   });
 
   it('reads the abroad licence as "Regulator (Country)"', () => {

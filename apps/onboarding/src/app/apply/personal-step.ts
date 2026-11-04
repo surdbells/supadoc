@@ -1,8 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { detectTimeZone, isValidTimeZone } from '@supadoc/data-access';
 import type { ApplicationPersonal } from '@supadoc/models';
-import { AlertComponent, PhoneInputComponent, SearchSelectComponent, WORLD_COUNTRIES } from '@supadoc/ui';
+import {
+  AlertComponent,
+  PhoneInputComponent,
+  SearchSelectComponent,
+  TimeZonePickerComponent,
+  WORLD_COUNTRIES,
+} from '@supadoc/ui';
 import { minusYears } from '../core/format';
 import { MESSAGES, validateSection } from '../core/validators';
 import { CancelDialogComponent } from '../shared/cancel-dialog';
@@ -25,9 +32,28 @@ export const GENDER_OPTIONS: SelectOption[] = [
 
 export const COUNTRY_OPTIONS = WORLD_COUNTRIES.map((c) => ({ value: c.iso, label: c.name }));
 
-const FIELDS = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'gender', 'country_of_residence', 'city'];
+const FIELDS = [
+  'first_name',
+  'last_name',
+  'email',
+  'phone',
+  'date_of_birth',
+  'gender',
+  'country_of_residence',
+  'city',
+  'time_zone',
+];
 
-/** Step 1 of 7, Personal Details (Figma App 4/5): a 2×4 grid. */
+/** The saved zone, else this device's (when it can be trusted — never UTC behind a VPN); null when neither. */
+export function initialTimeZone(saved: unknown): string | null {
+  return isValidTimeZone(saved) ? saved : detectTimeZone();
+}
+
+/**
+ * Step 1 of 7, Personal Details (Figma App 4/5): a 2×4 grid, then the
+ * optional time zone (pre-filled from this device) that the interview time is
+ * shown in.
+ */
 @Component({
   selector: 'onb-personal-step',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,6 +69,7 @@ const FIELDS = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'g
     SelectComponent,
     StepFooterComponent,
     StepShellComponent,
+    TimeZonePickerComponent,
   ],
   template: `
     <onb-step-shell
@@ -95,6 +122,16 @@ const FIELDS = ['first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'g
         <onb-field #fCity label="City" forId="onb-city" [required]="true" [error]="form.shown('city')" (left)="form.touch('city')">
           <input id="onb-city" formControlName="city" autocomplete="address-level2" maxlength="100" [class]="control('city')" [attr.aria-describedby]="fCity.describedBy()" [attr.aria-invalid]="!!form.shown('city') || null" />
         </onb-field>
+        <!-- Optional (no *): pre-filled from this device; its own label, hint and error, set in the onb-field look. -->
+        <sd-time-zone-picker
+          class="min-w-0 [&>label]:mb-1 [&>label]:font-normal [&>p]:mt-1 [&>p]:font-label"
+          id="onb-time_zone"
+          label="Your time zone"
+          hint="We'll show your interview time in this time zone."
+          [value]="values().time_zone ?? null"
+          (valueChange)="fg.controls.time_zone.setValue($event)"
+          [invalid]="form.shown('time_zone')"
+        />
       </form>
 
       @if (wizard()) {
@@ -138,6 +175,8 @@ export class OnbPersonalStep extends StepBase {
     gender: new FormControl(str(this.start.gender), { nonNullable: true }),
     country_of_residence: new FormControl(str(this.start.country_of_residence) || 'NG', { nonNullable: true }),
     city: new FormControl(str(this.start.city), { nonNullable: true }),
+    /** Optional; sent as given (null when none could be detected and none was chosen). */
+    time_zone: new FormControl<string | null>(initialTimeZone(this.start.time_zone)),
   });
   protected readonly values = toSignal(this.fg.valueChanges, { initialValue: this.fg.getRawValue() });
   protected readonly form = new FormState(computed(() => this.validate(false)));

@@ -20,6 +20,7 @@ import { AlertComponent, DialogComponent, IconComponent } from '@supadoc/ui';
 import { DIALOG_FOOTER, FIELD, FIELD_ERROR, FIELD_INVALID, HINT, LABEL } from '../../shared/layout';
 import { BTN_GHOST, BTN_PRIMARY } from '../../specialists/specialist-ui';
 import {
+  applicantDateTime,
   clinicDateTime,
   clinicLocalToIso,
   isoToClinicLocal,
@@ -71,7 +72,7 @@ const MAX_AHEAD_MS = 90 * 86_400_000;
             [attr.aria-describedby]="err('starts_at') ? 'bo-iv-when-hint bo-iv-when-err' : 'bo-iv-when-hint'"
             data-autofocus
           />
-          <span id="bo-iv-when-hint" class="${HINT}">West Africa Time (WAT), as the applicant sees it.</span>
+          <span id="bo-iv-when-hint" class="${HINT}">Times are in West Africa Time (WAT).</span>
           @if (err('starts_at'); as e) { <span id="bo-iv-when-err" class="${FIELD_ERROR}">{{ e }}</span> }
         </label>
 
@@ -126,6 +127,9 @@ const MAX_AHEAD_MS = 90 * 86_400_000;
         @if (preview(); as p) {
           <div class="flex flex-col gap-1 rounded-field bg-glacier px-4 py-3 font-sans text-body-sm text-ink" aria-live="polite">
             <span><span class="font-semibold">Applicant sees:</span> {{ p.applicant }}</span>
+            @if (p.applicantTime) {
+              <span data-testid="bo-iv-applicant-time"><span class="font-semibold">Applicant's time:</span> {{ p.applicantTime }}</span>
+            }
             @if (p.viewer) {
               <span class="text-caption text-slate">Your time: {{ p.viewer }}</span>
             }
@@ -179,13 +183,18 @@ export class ScheduleInterviewDialog {
 
   protected readonly reschedule = computed(() => this.detail().status === 'interview_scheduled' && !!this.detail().interview);
 
-  /** What the applicant is told, and the reviewer's own time when it reads differently. */
+  /**
+   * What the applicant is told; their own time when they gave a zone that
+   * differs from WAT (their email and text lead with it); and the reviewer's
+   * own time when it reads differently.
+   */
   protected readonly preview = computed(() => {
     const iso = clinicLocalToIso(this.local());
     if (!iso) return null;
     const host = meetingHost(this.url());
     return {
       applicant: `${clinicDateTime(iso)} · video call${host ? ` (${host})` : ''}`,
+      applicantTime: applicantDateTime(iso, this.detail().sections.personal?.time_zone),
       viewer: viewerTimeDiffers(iso) ? viewerDateTime(iso) : null,
     };
   });

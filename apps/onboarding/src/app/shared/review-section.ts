@@ -4,6 +4,8 @@ import { IconComponent } from '@supadoc/ui';
 export interface ReviewRow {
   readonly label: string;
   readonly value: string | null | undefined;
+  /** Draw the value in Slate: a placeholder like "Not set", not an answer. */
+  readonly muted?: boolean;
 }
 
 /**
@@ -49,7 +51,13 @@ export interface ReviewRow {
               [class]="last ? '' : 'border-b-[0.5px] border-ash'"
             >
               <dt class="font-sans text-caption text-slate">{{ row.label }}</dt>
-              <dd class="break-words font-sans text-body-sm text-ink sm:max-w-[60%] sm:text-right">{{ row.value || '—' }}</dd>
+              <dd
+                class="break-words font-sans text-body-sm sm:max-w-[60%] sm:text-right"
+                [class.text-ink]="!row.muted"
+                [class.text-slate]="row.muted"
+              >
+                {{ row.value || '—' }}
+              </dd>
             </div>
           }
         </dl>

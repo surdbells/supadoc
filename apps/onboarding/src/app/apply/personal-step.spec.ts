@@ -115,6 +115,107 @@ describe('OnbPersonalStep', () => {
     el.remove();
   });
 
+  describe('time zone (optional)', () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    /** Makes this device report `tz` as its zone. */
+    const deviceZone = (tz: string) =>
+      vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...real.call(this), timeZone: tz };
+      });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('is pre-filled from this device, labelled with its hint, and sent with the step', async () => {
+      deviceZone('America/Chicago');
+      vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      const { fixture, el } = await create();
+      const trigger = el.querySelector('#onb-time_zone') as HTMLButtonElement;
+      expect(trigger.tagName).toBe('BUTTON');
+      expect(el.querySelector('label[for="onb-time_zone"]')?.textContent?.trim()).toBe('Your time zone');
+      expect(trigger.textContent).toContain('America/Chicago');
+      expect(textOf(el)).toContain("We'll show your interview time in this time zone.");
+      await fillValid(el, fixture);
+      buttonByText(el, 'Continue').click();
+      const req = http.expectOne(`${P}/drafts`);
+      expect(req.request.body.personal.time_zone).toBe('America/Chicago');
+      req.flush(ok({ draft_token: 'tok', expires_in: 14400, draft: draft({ next_step: 'professional' }), resume_email_sent_to: 'ada***@example.com' }));
+      await flushAndSettle(fixture);
+      el.remove();
+    });
+
+    it("keeps a resumed draft's saved zone over this device's", async () => {
+      deviceZone('America/Chicago');
+      TestBed.inject(ApplicantSession).setDraftToken('tok');
+      const saved = draft({ next_step: 'professional' });
+      TestBed.inject(ApplicationDraftStore).draft.set({
+        ...saved,
+        sections: {
+          ...saved.sections,
+          personal: {
+            first_name: 'Ada',
+            last_name: 'Obi',
+            email: 'ada.obi@example.com',
+            phone: '+2348031234567',
+            date_of_birth: '1985-03-12',
+            gender: 'female',
+            country_of_residence: 'GB',
+            city: 'London',
+            time_zone: 'Europe/London',
+          },
+        },
+      });
+      vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      const { fixture, el } = await create();
+      expect(el.querySelector('#onb-time_zone')?.textContent).toContain('Europe/London');
+      buttonByText(el, 'Continue').click();
+      const req = http.expectOne(`${D}/sections/personal`);
+      expect(req.request.body.values.time_zone).toBe('Europe/London');
+      req.flush(ok(draft({ next_step: 'professional' })));
+      await flushAndSettle(fixture);
+      el.remove();
+    });
+
+    it('stays empty when the device zone is untrustworthy (UTC), and sends the one chosen', async () => {
+      deviceZone('UTC');
+      vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      const { fixture, el } = await create();
+      const trigger = el.querySelector('#onb-time_zone') as HTMLButtonElement;
+      expect(trigger.textContent).toContain('Choose a time zone');
+      trigger.click();
+      await settle(fixture);
+      const option = Array.from(el.querySelectorAll<HTMLElement>('[role="option"]')).find((o) => o.textContent?.includes('America/New_York'));
+      option?.click();
+      await settle(fixture);
+      expect(trigger.textContent).toContain('America/New_York');
+      await fillValid(el, fixture);
+      buttonByText(el, 'Continue').click();
+      const req = http.expectOne(`${P}/drafts`);
+      expect(req.request.body.personal.time_zone).toBe('America/New_York');
+      req.flush(ok({ draft_token: 'tok', expires_in: 14400, draft: draft({ next_step: 'professional' }), resume_email_sent_to: 'ada***@example.com' }));
+      await flushAndSettle(fixture);
+      el.remove();
+    });
+
+    it('sends null when none was detected or chosen, and shows a server error on the picker', async () => {
+      deviceZone('Etc/UTC');
+      TestBed.inject(ApplicantSession).setDraftToken('tok');
+      TestBed.inject(ApplicationDraftStore).draft.set(draft({ next_step: 'personal' }));
+      const { fixture, el } = await create();
+      await fillValid(el, fixture);
+      buttonByText(el, 'Continue').click();
+      const req = http.expectOne(`${D}/sections/personal`);
+      expect(req.request.body.values.time_zone).toBeNull();
+      const f = fail(422, 'Validation failed', { time_zone: 'Choose a time zone from the list' });
+      req.flush(f.body, f.opts);
+      await flushAndSettle(fixture);
+      const trigger = el.querySelector('#onb-time_zone') as HTMLButtonElement;
+      expect(trigger.getAttribute('aria-invalid')).toBe('true');
+      expect(textOf(el)).toContain('Choose a time zone from the list');
+      expect(document.activeElement).toBe(trigger);
+      el.remove();
+    });
+  });
+
   it('maps the server 422 onto the fields', async () => {
     TestBed.inject(ApplicantSession).setDraftToken('tok');
     TestBed.inject(ApplicationDraftStore).draft.set(draft({ next_step: 'personal' }));

@@ -14,6 +14,7 @@ import {
   AdminPatientsApi,
   apiErrorMessage,
   AvailabilityCalendarStore,
+  dualTime,
   nowLocalInput,
   SpecialistsApi,
 } from '@supadoc/data-access';
@@ -177,6 +178,8 @@ const CHOSEN = new Intl.DateTimeFormat('en-GB', {
                   [timeZone]="cal.tz()"
                   [timeZoneLabel]="cal.timeZoneLabel()"
                   [weekStartsOn]="cal.weekStartsOn()"
+                  [secondaryTimeZone]="doctorTz()"
+                  [secondaryWho]="doctorWho()"
                 >
                   <p calendarEmpty class="font-sans text-caption text-slate">
                     Pick another day, or use “Enter another time” for a time that isn't shown.
@@ -261,6 +264,17 @@ export class AdminAppointmentNew implements OnInit {
   protected readonly specialistsError = signal('');
   protected readonly specialistTerm = signal('');
   protected readonly specialist = signal<SpecialistAdminDto | null>(null);
+  /**
+   * The doctor's own zone, for the calendar's second line ("9:00 AM CST"):
+   * the calendar's `doctor_tz`, else the profile's (absent from older APIs).
+   */
+  protected readonly doctorTz = computed(() => this.cal.doctorTz() ?? this.specialist()?.timezone ?? null);
+  /** "Dr Ada Obi's time" — whose clock that second line is. */
+  protected readonly doctorWho = computed(() => {
+    const name = this.specialist()?.name?.trim();
+    if (!name) return "the doctor's time";
+    return `${name}${/s$/i.test(name) ? "'" : "'s"} time`;
+  });
   protected readonly filteredSpecialists = computed(() => {
     const t = this.specialistTerm().trim().toLowerCase();
     if (t === '') return [];
@@ -433,10 +447,17 @@ export class AdminAppointmentNew implements OnInit {
       });
   }
 
-  /** "Monday 20 October, 9:30" in the viewer's zone. */
+  /**
+   * "Monday 20 October, 16:00 (WAT)" in the viewer's zone, plus the doctor's
+   * own time when their clock differs: "· 9:00 AM CST, Dr Ada Obi's time".
+   */
   protected chosenLabel(iso: string): string {
     const d = new Date(iso);
-    return isNaN(d.getTime()) ? '' : `${CHOSEN.format(d)} (${this.cal.timeZoneLabel()})`;
+    if (isNaN(d.getTime())) return '';
+    const mine = `${CHOSEN.format(d)} (${this.cal.timeZoneLabel()})`;
+    const tz = this.doctorTz();
+    const theirs = tz ? dualTime(iso, this.cal.tz(), tz).secondary : null;
+    return theirs ? `${mine} · ${theirs}, ${this.doctorWho()}` : mine;
   }
 
   protected money(amount: string): string {

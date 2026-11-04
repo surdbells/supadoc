@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import type { ApplicationInfoRequestDto, DoctorApplicationDetailDto } from '@supadoc/models';
+import { CLINIC_TIME_ZONE, isValidTimeZone, offsetsDiffer, zoneAbbr, zoneLongName } from '@supadoc/data-access';
+import type { ApplicationInfoRequestDto, ApplicationInterviewDto, DoctorApplicationDetailDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { BTN_SECONDARY, LABEL, SECTION, SECTION_GRID, SECTION_TITLE, TAG } from '../../shared/layout';
 import { calendarDay, dateTime } from '../../specialists/specialist-ui';
@@ -12,6 +13,29 @@ import {
 } from '../application-ui';
 
 const DD = 'break-words text-ink';
+
+/**
+ * The applicant's chosen zone (`personal.time_zone`), as the onboarding
+ * review lists it: "Central Time (CST) · America/Chicago" (the abbreviation
+ * at `at`); null when they gave none (or one this browser doesn't know).
+ */
+export function applicantZoneLabel(tz: string | null | undefined, at: Date = new Date()): string | null {
+  return isValidTimeZone(tz) ? `${zoneLongName(tz, at)} (${zoneAbbr(tz, at)}) · ${tz}` : null;
+}
+
+/**
+ * The API's interview time on the applicant's clock (`applicant_label`, e.g.
+ * "Wed 14 Oct, 4:00 AM CDT (10:00 AM WAT, VideoMed time)") — null when they
+ * gave no zone, or theirs reads the same as WAT then (it would only repeat it).
+ */
+export function applicantInterviewTime(
+  iv: Pick<ApplicationInterviewDto, 'starts_at' | 'applicant_time_zone' | 'applicant_label'>,
+): string | null {
+  const label = (iv.applicant_label ?? '').trim();
+  if (!label) return null;
+  const tz = iv.applicant_time_zone;
+  return isValidTimeZone(tz) && !offsetsDiffer(iv.starts_at, tz, CLINIC_TIME_ZONE) ? null : label;
+}
 
 /**
  * The application as submitted (and as changed in answer to a request): the
@@ -63,6 +87,9 @@ const DD = 'break-words text-ink';
             <div class="flex flex-col gap-0.5">
               <dt class="${LABEL}">When (Lagos time)</dt>
               <dd class="${DD}">{{ iv.starts_at_label }}</dd>
+              @if (applicantTime(); as at) {
+                <dd class="font-sans text-caption text-slate">Applicant's time: {{ at }}</dd>
+              }
               @if (viewerDiffers(iv.starts_at)) {
                 <dd class="font-sans text-caption text-slate">Your time: {{ viewerTime(iv.starts_at) }}</dd>
               }
@@ -100,6 +127,14 @@ const DD = 'break-words text-ink';
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Gender</dt><dd class="${DD}">{{ gender(personal()?.gender) }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Country of residence</dt><dd class="${DD}">{{ country(personal()?.country_of_residence) }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">City</dt><dd class="${DD}">{{ personal()?.city || '—' }}</dd></div>
+            <div class="flex flex-col gap-0.5">
+              <dt class="${LABEL}">Time zone</dt>
+              @if (zoneLabel(); as z) {
+                <dd class="${DD}">{{ z }}</dd>
+              } @else {
+                <dd class="text-slate">Not set</dd>
+              }
+            </div>
           </dl>
         </section>
 
@@ -191,6 +226,13 @@ export class ApplicationTab {
   protected readonly indemnity = computed(() => this.detail().sections?.indemnity ?? null);
   protected readonly qualifications = computed(() => this.detail().sections?.qualifications?.entries ?? []);
   protected readonly languages = computed(() => (this.professional()?.languages ?? []).join(', '));
+  /** The applicant's chosen zone, or null ("Not set"). */
+  protected readonly zoneLabel = computed(() => applicantZoneLabel(this.personal()?.time_zone));
+  /** The interview on the applicant's clock, when it differs from WAT. */
+  protected readonly applicantTime = computed(() => {
+    const iv = this.detail().interview;
+    return iv ? applicantInterviewTime(iv) : null;
+  });
   /** Newest request first. */
   protected readonly requests = computed(() =>
     [...this.detail().info_requests].sort((a, b) => b.requested_at.localeCompare(a.requested_at)),

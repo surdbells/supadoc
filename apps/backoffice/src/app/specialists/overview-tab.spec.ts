@@ -6,10 +6,10 @@ import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
 import { API_CONFIG } from '@supadoc/data-access';
-import type { ReferenceItemDto, SpecialistDetailDto } from '@supadoc/models';
+import type { ReferenceItemDto, SpecialistDetailDto, TimeZoneSource, WeeklyHours } from '@supadoc/models';
 import { DialogService, provideSupadocIcons, type ConfirmOptions } from '@supadoc/ui';
 import { firstValueFrom, isObservable } from 'rxjs';
-import { SpecialistOverviewTab } from './tabs/overview-tab';
+import { doctorZoneLabel, SpecialistOverviewTab, weeklyHoursLine } from './tabs/overview-tab';
 
 const BASE = 'http://api.test';
 
@@ -27,7 +27,16 @@ function ref(label: string, active = true): ReferenceItemDto {
   };
 }
 
-function detail(over: { specialty?: string; photo_url?: string | null; locked?: boolean } = {}): SpecialistDetailDto {
+function detail(
+  over: {
+    specialty?: string;
+    photo_url?: string | null;
+    locked?: boolean;
+    weekly_hours?: WeeklyHours;
+    timezone?: string;
+    timezone_source?: TimeZoneSource | null;
+  } = {},
+): SpecialistDetailDto {
   return {
     status: over.locked ? 'approved' : 'invited',
     locked_fields: over.locked ? ['name', 'specialty'] : [],
@@ -42,11 +51,47 @@ function detail(over: { specialty?: string; photo_url?: string | null; locked?: 
       consultation_fee: '15000.00',
       photo_url: over.photo_url ?? null,
       available: true,
-      weekly_hours: {},
+      weekly_hours: over.weekly_hours ?? {},
       expertise: [],
+      ...('timezone' in over ? { timezone: over.timezone } : {}),
+      ...('timezone_source' in over ? { timezone_source: over.timezone_source } : {}),
     },
   } as unknown as SpecialistDetailDto;
 }
+
+/** 4 Nov 2026: Chicago is on CST (UTC−6) from 1 Nov. */
+const NOV = new Date('2026-11-04T15:00:00Z');
+/** 8 Sep 2026: Chicago on CDT. */
+const SEP = new Date('2026-09-08T14:05:00Z');
+
+describe('weeklyHoursLine / doctorZoneLabel', () => {
+  it('runs equal consecutive days together, on the doctor’s clock, with their zone', () => {
+    const office: [string, string][] = [['09:00', '17:00']];
+    const hours: WeeklyHours = { '1': office, '2': office, '3': office, '4': office, '5': office, '6': [['10:00', '14:00']] };
+    expect(weeklyHoursLine({ weekly_hours: hours, timezone: 'America/Chicago' }, NOV)).toBe(
+      'Mon–Fri 09:00–17:00; Sat 10:00–14:00 · Central Time (America/Chicago)',
+    );
+    // A gap breaks the run; Sunday sits at the end of the week; two windows a day.
+    const split: WeeklyHours = { '0': [['08:00', '12:00']], '1': office, '3': office, '4': [['09:00', '12:00'], ['13:00', '24:00']] };
+    expect(weeklyHoursLine({ weekly_hours: split, timezone: 'Africa/Lagos' }, NOV)).toBe(
+      'Mon 09:00–17:00; Wed 09:00–17:00; Thu 09:00–12:00, 13:00–24:00; Sun 08:00–12:00 · West Africa Time (Africa/Lagos)',
+    );
+  });
+
+  it('falls back to the clinic zone, and is null without hours', () => {
+    expect(weeklyHoursLine({ weekly_hours: { '1': [['09:00', '17:00']] } }, NOV)).toBe('Mon 09:00–17:00 · West Africa Time (Africa/Lagos)');
+    expect(weeklyHoursLine({ weekly_hours: {} })).toBeNull();
+    expect(weeklyHoursLine({ weekly_hours: null })).toBeNull();
+  });
+
+  it('says how the zone was set (staff can only view it)', () => {
+    expect(doctorZoneLabel({ timezone: 'America/Chicago', timezone_source: 'auto' }, NOV)).toBe('Central Time (CST) · detected');
+    expect(doctorZoneLabel({ timezone: 'America/Chicago', timezone_source: 'manual' }, SEP)).toBe('Central Time (CDT) · chosen by the doctor');
+    expect(doctorZoneLabel({ timezone: 'Africa/Lagos', timezone_source: null }, NOV)).toBe('Not set (West Africa Time used)');
+    // An older API without either field.
+    expect(doctorZoneLabel({}, NOV)).toBe('Not set (West Africa Time used)');
+  });
+});
 
 @Component({
   imports: [SpecialistOverviewTab],
@@ -135,6 +180,24 @@ describe('SpecialistOverviewTab — specialty and photo', () => {
     expect(req.request.body).toEqual({ specialty: 'Cardiology' });
     req.flush(ok({ id: 's1', specialty: 'Cardiology' }));
     await render();
+  });
+
+  it('shows the weekly hours with the doctor’s zone, and how the zone was set (view only)', async () => {
+    await start(
+      detail({ weekly_hours: { '1': [['09:00', '17:00']], '2': [['09:00', '17:00']] }, timezone: 'America/Chicago', timezone_source: 'auto' }),
+      [ref('Cardiology')],
+    );
+    const text = el.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(text).toContain('Mon–Tue 09:00–17:00 · Central Time (America/Chicago)');
+    const zone = one<HTMLElement>('[data-testid="bo-ov-zone"]').textContent?.replace(/\s+/g, ' ').trim();
+    expect(zone).toMatch(/^Central Time \(C[DS]T\) · detected Only the doctor can change it/);
+    // No control to edit it here.
+    expect(el.querySelector('sd-time-zone-picker')).toBeNull();
+  });
+
+  it('says when the doctor never set a zone', async () => {
+    await start(detail({ timezone: 'Africa/Lagos', timezone_source: null }), [ref('Cardiology')]);
+    expect(one<HTMLElement>('[data-testid="bo-ov-zone"]').textContent).toContain('Not set (West Africa Time used)');
   });
 
   it('has no specialty field once the doctor is approved (it is locked)', async () => {

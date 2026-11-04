@@ -13,7 +13,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Params, Router, RouterLink } from '@angular/router';
 import { catchError, distinctUntilChanged, map, of, switchMap, tap } from 'rxjs';
-import { AdminAppointmentsApi, apiErrorMessage } from '@supadoc/data-access';
+import { AdminAppointmentsApi, apiErrorMessage, dualTime, viewerTimeZone, zoneAbbr } from '@supadoc/data-access';
 import { StaffAuthService } from '@supadoc/auth';
 import type { AppointmentDto, FollowUpPriceDto } from '@supadoc/models';
 import { AlertComponent, DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
@@ -133,7 +133,16 @@ const PAYMENT_LABEL: Record<string, string> = {
           <dl class="grid grid-cols-1 gap-x-8 gap-y-2 font-sans text-body-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4"><dt class="text-slate">Patient</dt><dd class="text-right text-ink">{{ a.patient?.name || '—' }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Patient email</dt><dd class="min-w-0 break-all text-right text-ink">{{ a.patient?.email || '—' }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="text-slate">When</dt><dd class="text-right text-ink">{{ when(a) }}</dd></div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate">When</dt>
+              <dd class="text-right text-ink" data-testid="bo-appt-when">
+                {{ when(a) }}
+                <!-- The doctor's / patient's own clock, each only when known and not the same as yours. -->
+                @for (t of otherTimes(); track t.label) {
+                  <span class="block text-caption text-slate">{{ t.label }}: {{ t.value }}</span>
+                }
+              </dd>
+            </div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Type</dt><dd class="text-right text-ink">{{ a.type_label }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Payment</dt><dd class="text-right text-ink">{{ paymentLabel(a) }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-slate">Guests</dt><dd class="text-right text-ink">{{ a.guests?.length || 0 }}</dd></div>
@@ -369,6 +378,26 @@ export class AdminAppointmentDetail implements OnInit {
     return `Unless you settle it below, the automatic check closes it: completed if there's proof the consultation took place, otherwise ${otherwise}`;
   });
 
+  /**
+   * "Doctor's time: 9:00 AM CST" and "Patient's time: 4:00 PM WAT" (with the
+   * weekday when their date differs) — each only when that zone is known and
+   * on a different UTC offset from this browser at the appointment's start.
+   * Staff otherwise keep their own browser zone.
+   */
+  protected readonly otherTimes = computed<{ label: string; value: string }[]>(() => {
+    const a = this.appt();
+    if (!a) return [];
+    const mine = viewerTimeZone();
+    const out: { label: string; value: string }[] = [];
+    const add = (label: string, tz: string | null | undefined) => {
+      const other = tz ? dualTime(a.scheduled_at, mine, tz).secondary : null;
+      if (other) out.push({ label, value: other });
+    };
+    add("Doctor's time", a.specialist.timezone);
+    add("Patient's time", a.patient?.timezone);
+    return out;
+  });
+
   protected readonly endedAgo = computed(() => {
     const a = this.appt();
     return a?.ends_at ? relativeTime(a.ends_at) : 'a while ago';
@@ -496,8 +525,10 @@ export class AdminAppointmentDetail implements OnInit {
     return act.style === 'primary' ? BTN_PRIMARY : act.style === 'danger' ? BTN_DANGER_OUTLINE : BTN_SECONDARY;
   }
 
+  /** In this browser's zone; its abbreviation is added when another party's time is shown beside it. */
   protected when(a: AppointmentDto): string {
-    return appointmentWhen(a);
+    const when = appointmentWhen(a);
+    return this.otherTimes().length && when !== '—' ? `${when} ${zoneAbbr(viewerTimeZone(), a.scheduled_at)}` : when;
   }
   protected dateTime(iso: string | null | undefined): string {
     if (!iso) return '—';

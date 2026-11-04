@@ -10,13 +10,25 @@ import type {
   DoctorApplicationStatus,
   LicenceRoute,
 } from '@supadoc/models';
-import { type Badge, CLINIC_TIME_ZONE } from '../specialists/specialist-ui';
+import {
+  CLINIC_TIME_ZONE,
+  formatInZone,
+  isoToZonedLocal,
+  isValidTimeZone,
+  offsetsDiffer,
+  viewerTimeZone,
+  whenLabel,
+  zoneAbbr,
+  zonedLocalToIso,
+} from '@supadoc/data-access';
+import type { Badge } from '../specialists/specialist-ui';
 
 /**
  * Shared look and wording for the back office's doctor-application screens
  * (list, detail, tabs and dialogs). Every state reads as icon + words, never
  * colour alone. Interview times are said in clinic time (Lagos, WAT), with the
- * viewer's own time beside them when it differs.
+ * applicant's time (their `personal.time_zone`) and the viewer's own time
+ * beside them when they differ.
  */
 
 /** The detail page's tabs (`?tab=`). */
@@ -252,30 +264,18 @@ export function meetingHost(url: string | null | undefined): string | null {
 }
 
 // ----- Clinic time -----
+// Built on the shared zone helpers (`@supadoc/data-access` time-zone): labels
+// come from numbers and fixed English names, so they match the API's emails.
 
-const pad2 = (n: number): string => String(n).padStart(2, '0');
-
-function zoneParts(at: Date, tz?: string): Record<string, string> {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: tz,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(at);
-  const out: Record<string, string> = {};
-  for (const p of parts) out[p.type] = p.value;
-  return out;
+/** A valid instant, or null. */
+function instant(iso: string | null | undefined): Date | null {
+  const at = iso ? new Date(iso) : null;
+  return at && !isNaN(at.getTime()) ? at : null;
 }
 
-/** Minutes a zone is ahead of UTC at an instant (Lagos: +60). */
-export function zoneOffsetMinutes(at: Date, tz?: string): number {
-  const p = zoneParts(at, tz);
-  const wall = Date.UTC(Number(p['year']), Number(p['month']) - 1, Number(p['day']), Number(p['hour']) % 24, Number(p['minute']), Number(p['second']));
-  return Math.round((wall - Math.floor(at.getTime() / 1000) * 1000) / 60_000);
+/** "Wed 14 Oct, 10:00" on `tz`'s clock (24-hour, as the applicant's SMS and the clinic say it). */
+function dayHm(at: Date, tz: string): string {
+  return `${formatInZone(at, tz, 'date').replace(/ \d+$/, '')}, ${formatInZone(at, tz, 'hm')}`;
 }
 
 /**
@@ -284,61 +284,41 @@ export function zoneOffsetMinutes(at: Date, tz?: string): number {
  * The API refuses a time without an offset (it would read it as server time).
  */
 export function clinicLocalToIso(local: string, tz: string = CLINIC_TIME_ZONE): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec((local ?? '').trim());
-  if (!m) return null;
-  const wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]));
-  if (isNaN(wall)) return null;
-  // Twice: the offset at the guessed instant, then at the instant it gives (a clock change in between).
-  let offset = zoneOffsetMinutes(new Date(wall), tz);
-  offset = zoneOffsetMinutes(new Date(wall - offset * 60_000), tz);
-  const sign = offset < 0 ? '-' : '+';
-  const abs = Math.abs(offset);
-  return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
+  // Seconds and beyond (a datetime-local with a small step) are dropped: interviews start on the minute.
+  const m = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.exec((local ?? '').trim());
+  return m ? zonedLocalToIso(m[0], tz) : null;
 }
 
 /** An instant as a `datetime-local` value on the clinic's clock ("2026-10-14T10:00"). */
 export function isoToClinicLocal(iso: string | null | undefined, tz: string = CLINIC_TIME_ZONE): string {
-  const at = iso ? new Date(iso) : null;
-  if (!at || isNaN(at.getTime())) return '';
-  const p = zoneParts(at, tz);
-  return `${p['year']}-${p['month']}-${p['day']}T${pad2(Number(p['hour']) % 24)}:${p['minute']}`;
+  return instant(iso) ? isoToZonedLocal(iso as string, tz) : '';
 }
 
-function shortParts(at: Date, tz?: string, zoneName = false): Record<string, string> {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: tz,
-    hourCycle: 'h23',
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(zoneName ? { timeZoneName: 'short' as const } : {}),
-  }).formatToParts(at);
-  const out: Record<string, string> = {};
-  for (const p of parts) out[p.type] = p.value;
-  return out;
-}
-
-/** "Wed 14 Oct, 10:00 WAT" — what the applicant is told. */
+/** "Wed 14 Oct, 10:00 WAT" — the clinic time every applicant is given. */
 export function clinicDateTime(iso: string | null | undefined): string {
-  const at = iso ? new Date(iso) : null;
-  if (!at || isNaN(at.getTime())) return '—';
-  const p = shortParts(at, CLINIC_TIME_ZONE);
-  return `${p['weekday']} ${p['day']} ${p['month']}, ${pad2(Number(p['hour']) % 24)}:${p['minute']} ${CLINIC_ZONE_LABEL}`;
+  const at = instant(iso);
+  return at ? `${dayHm(at, CLINIC_TIME_ZONE)} ${CLINIC_ZONE_LABEL}` : '—';
 }
 
-/** The same instant on the viewer's own clock, with its zone ("Wed 14 Oct, 10:00 BST"). */
-export function viewerDateTime(iso: string | null | undefined, tz?: string): string {
-  const at = iso ? new Date(iso) : null;
-  if (!at || isNaN(at.getTime())) return '—';
-  const p = shortParts(at, tz, true);
-  return `${p['weekday']} ${p['day']} ${p['month']}, ${pad2(Number(p['hour']) % 24)}:${p['minute']} ${p['timeZoneName'] ?? ''}`.trim();
+/** The same instant on the viewer's own clock, with its zone ("Wed 14 Oct, 05:00 EDT"). */
+export function viewerDateTime(iso: string | null | undefined, tz: string = viewerTimeZone()): string {
+  const at = instant(iso);
+  return at ? `${dayHm(at, tz)} ${zoneAbbr(tz, at)}` : '—';
 }
 
 /** Whether the viewer's clock reads differently from the clinic's at that instant. */
-export function viewerTimeDiffers(iso: string | null | undefined, tz?: string): boolean {
-  const at = iso ? new Date(iso) : null;
-  if (!at || isNaN(at.getTime())) return false;
-  return zoneOffsetMinutes(at, tz) !== zoneOffsetMinutes(at, CLINIC_TIME_ZONE);
+export function viewerTimeDiffers(iso: string | null | undefined, tz: string = viewerTimeZone()): boolean {
+  const at = instant(iso);
+  return !!at && offsetsDiffer(at, tz, CLINIC_TIME_ZONE);
+}
+
+/**
+ * The interview on the applicant's own clock, "Wed 14 Oct, 4:00 AM CDT
+ * (America/Chicago)" — only when they gave a zone (`personal.time_zone`) and
+ * it is on a different offset from the clinic's at that instant; else null.
+ */
+export function applicantDateTime(iso: string | null | undefined, applicantTz: string | null | undefined): string | null {
+  const at = instant(iso);
+  if (!at || !isValidTimeZone(applicantTz) || !offsetsDiffer(at, applicantTz, CLINIC_TIME_ZONE)) return null;
+  return `${whenLabel(at, applicantTz)} (${applicantTz})`;
 }

@@ -1,4 +1,6 @@
+import { zoneOffsetMinutes } from '@supadoc/data-access';
 import {
+  applicantDateTime,
   applicationStatusBadge,
   clinicDateTime,
   clinicLocalToIso,
@@ -15,7 +17,6 @@ import {
   viewerTimeDiffers,
   waitingLabel,
   waitingSince,
-  zoneOffsetMinutes,
 } from './application-ui';
 
 describe('application-ui', () => {
@@ -79,7 +80,22 @@ describe('application-ui', () => {
     expect(viewerTimeDiffers('2026-10-14T09:00:00Z', 'Europe/London')).toBe(false);
     expect(viewerTimeDiffers('2026-11-14T09:00:00Z', 'Europe/London')).toBe(true);
     expect(viewerTimeDiffers('2026-10-14T09:00:00Z', 'America/New_York')).toBe(true);
-    expect(viewerDateTime('2026-10-14T09:00:00Z', 'America/New_York')).toMatch(/^Wed 14 Oct, 05:00 /);
+    expect(viewerDateTime('2026-10-14T09:00:00Z', 'America/New_York')).toBe('Wed 14 Oct, 05:00 EDT');
+    expect(viewerDateTime('2026-12-14T09:00:00Z', 'Europe/London')).toBe('Mon 14 Dec, 09:00 GMT');
+    expect(viewerDateTime(null)).toBe('—');
+  });
+
+  it("gives the applicant's own time only when their zone is set and differs from WAT", () => {
+    // 10:00 WAT on Wed 14 Oct 2026 is 4:00 AM in Chicago (CDT).
+    expect(applicantDateTime('2026-10-14T09:00:00Z', 'America/Chicago')).toBe('Wed 14 Oct, 4:00 AM CDT (America/Chicago)');
+    // Across midnight the applicant's own date is used.
+    expect(applicantDateTime('2026-10-14T09:00:00Z', 'Pacific/Honolulu')).toBe('Tue 13 Oct, 11:00 PM HST (Pacific/Honolulu)');
+    // Same offset as Lagos at that instant (London on BST, Douala): nothing to add.
+    expect(applicantDateTime('2026-10-14T09:00:00Z', 'Europe/London')).toBeNull();
+    expect(applicantDateTime('2026-10-14T09:00:00Z', 'Africa/Douala')).toBeNull();
+    expect(applicantDateTime('2026-10-14T09:00:00Z', null)).toBeNull();
+    expect(applicantDateTime('2026-10-14T09:00:00Z', 'Not/AZone')).toBeNull();
+    expect(applicantDateTime('', 'America/Chicago')).toBeNull();
   });
 
   it('accepts only full https meeting links', () => {

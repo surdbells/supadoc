@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { DoctorApplicationsApi } from '@supadoc/data-access';
+import { DoctorApplicationsApi, isValidTimeZone, viewerTimeZone } from '@supadoc/data-access';
 import type { ApplicationStatusDto } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
 import { firstValueFrom } from 'rxjs';
@@ -177,9 +177,16 @@ export class OnbStatusPage {
     const s = this.status();
     return s ? `${s.full_name} · Reference ${s.reference}` : '';
   });
+  /**
+   * The interview time on the applicant's own clock: the zone they chose on
+   * the application (`applicant_time_zone`) when there is one, else this
+   * device's (still ASCII-only text, see interviewLabel).
+   */
   protected readonly when = computed(() => {
     const iv = this.status()?.interview;
-    return iv ? interviewLabel(iv.starts_at) : '';
+    if (!iv) return '';
+    const chosen = iv.applicant_time_zone;
+    return interviewLabel(iv.starts_at, isValidTimeZone(chosen) ? chosen : viewerTimeZone());
   });
   protected readonly portalLogin = computed(() => {
     const base = this.status()?.doctor_portal_url ?? this.config().doctor_portal_url;

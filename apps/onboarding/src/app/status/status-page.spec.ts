@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import type { ApplicationStatusDto } from '@supadoc/models';
+import type { ApplicationInterviewDto, ApplicationStatusDto } from '@supadoc/models';
 import { Router } from '@angular/router';
 import {
   buttonByText,
@@ -81,15 +81,13 @@ describe('OnbStatusPage', () => {
     el.remove();
   });
 
-  it('labels the interview in WAT, with the viewer time when it differs', () => {
+  it('labels the interview in WAT, led by the viewer time when it differs (more in interview.spec)', () => {
     expect(interviewLabel('2026-10-14T10:00:00+01:00', 'Africa/Lagos')).toBe('Wednesday 14 October, 10:00 WAT · video call');
-    // London keeps WAT's offset in October (BST), so no suffix; in December it is an hour behind.
+    // London keeps WAT's offset in October (BST); in December it is an hour behind.
     expect(interviewLabel('2026-10-14T10:00:00+01:00', 'Europe/London')).toBe('Wednesday 14 October, 10:00 WAT · video call');
-    expect(interviewLabel('2026-12-14T10:00:00+01:00', 'Europe/London')).toContain(
-      'Monday 14 December, 10:00 WAT · video call · 09:00 your time (',
+    expect(interviewLabel('2026-12-14T10:00:00+01:00', 'Europe/London')).toBe(
+      'Monday 14 December, 9:00 AM GMT your time · 10:00 WAT VideoMed time · video call',
     );
-    const ny = interviewLabel('2026-10-14T10:00:00+01:00', 'America/New_York');
-    expect(ny).toContain(' · 05:00 your time (');
   });
 
   it('shows the interview block with Join and Add to calendar', async () => {
@@ -104,15 +102,80 @@ describe('OnbStatusPage', () => {
           meeting_url: 'https://meet.google.com/abc',
           meeting_host: 'meet.google.com',
           note: 'Bring your ID',
+          applicant_time_zone: null,
+          applicant_label: null,
         },
       }),
     );
     const join = Array.from(el.querySelectorAll('a')).find((a) => a.textContent?.includes('Join interview'));
     expect(join?.getAttribute('href')).toBe('https://meet.google.com/abc');
     expect(join?.getAttribute('rel')).toBe('noopener noreferrer');
-    expect(textOf(el)).toContain('10:00 WAT · video call');
+    // The label is on this device's clock (whatever zone the test runs in): the clinic time is always in it.
+    expect(textOf(el)).toContain(interviewLabel('2026-10-14T10:00:00+01:00'));
+    expect(textOf(el)).toContain('10:00 WAT');
+    expect(textOf(el)).toContain('video call');
     expect(() => buttonByText(el, 'Add to calendar')).not.toThrow();
     el.remove();
+  });
+
+  describe("the interview on the applicant's own clock", () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    /** Makes this device report `tz` as its zone. */
+    const deviceZone = (tz: string) =>
+      vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...real.call(this), timeZone: tz };
+      });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    /** Wednesday 14 October 2026, 10:00 WAT, with the zone the applicant chose (if any). */
+    const scheduled = (applicant_time_zone: string | null) =>
+      statusDto({
+        status: 'interview_scheduled',
+        timeline: [{ key: 'interview_scheduled', label: 'Interview Scheduled', state: 'current', at: null, description: null }],
+        interview: {
+          starts_at: '2026-10-14T10:00:00+01:00',
+          starts_at_label: 'Wednesday 14 October, 10:00 WAT',
+          duration_minutes: 30,
+          meeting_url: 'https://meet.google.com/abc',
+          meeting_host: 'meet.google.com',
+          note: null,
+          applicant_time_zone,
+          applicant_label: null,
+        } satisfies ApplicationInterviewDto,
+      });
+    const label = (el: HTMLElement) =>
+      Array.from(el.querySelectorAll('p'))
+        .map((p) => (p.textContent ?? '').trim())
+        .find((t) => t.endsWith('video call'));
+
+    it('prefers the zone chosen on the application over this device', async () => {
+      deviceZone('Africa/Lagos');
+      const { el } = await create(scheduled('America/Chicago'));
+      expect(label(el)).toBe('Wednesday 14 October, 4:00 AM CDT your time · 10:00 WAT VideoMed time · video call');
+      // Still plain ASCII around the separators (no locale spaces before AM/PM).
+      expect(label(el)).not.toMatch(new RegExp(`[${String.fromCharCode(0x202f, 0xa0)}]`));
+      el.remove();
+    });
+
+    it('a chosen zone that reads like WAT keeps the clinic-time label, even on a device elsewhere', async () => {
+      deviceZone('America/New_York');
+      const { el } = await create(scheduled('Africa/Lagos'));
+      expect(label(el)).toBe('Wednesday 14 October, 10:00 WAT · video call');
+      el.remove();
+    });
+
+    for (const [why, chosen] of [
+      ['none was chosen', null],
+      ['the chosen one is unknown here', 'Not/AZone'],
+    ] as const) {
+      it(`falls back to this device when ${why}`, async () => {
+        deviceZone('America/New_York');
+        const { el } = await create(scheduled(chosen));
+        expect(label(el)).toBe('Wednesday 14 October, 5:00 AM EDT your time · 10:00 WAT VideoMed time · video call');
+        el.remove();
+      });
+    }
   });
 
   it('approved: the portal link (new tab) and the password caption', async () => {

@@ -5,7 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { API_CONFIG } from '@supadoc/data-access';
 import type { DoctorApplicationDetailDto } from '@supadoc/models';
 import { provideSupadocIcons } from '@supadoc/ui';
-import { clinicLocalToIso, isoToClinicLocal } from '../application-ui';
+import { applicantDateTime, clinicLocalToIso, isoToClinicLocal } from '../application-ui';
 import { applicationDetail } from '../testing';
 import { ScheduleInterviewDialog } from './schedule-interview-dialog';
 
@@ -110,6 +110,35 @@ describe('ScheduleInterviewDialog', () => {
     expect(host.done).toHaveLength(1);
   });
 
+  it('says the times are WAT and adds the applicant’s own time when their zone differs', async () => {
+    const d = applicationDetail({ status: 'under_review' });
+    await openWith({ ...d, sections: { ...d.sections, personal: { ...d.sections.personal, time_zone: 'America/Chicago' } } });
+    expect(field('#bo-iv-when-hint').textContent?.trim()).toBe('Times are in West Africa Time (WAT).');
+    expect(el.textContent).not.toContain('as the applicant sees it');
+    const local = lagosLocal(3);
+    await type('#bo-iv-when', local);
+    const iso = clinicLocalToIso(local) ?? '';
+    const line = field('[data-testid="bo-iv-applicant-time"]');
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe(`Applicant's time: ${applicantDateTime(iso, 'America/Chicago')}`);
+    expect(line.textContent).toMatch(/AM C[DS]T \(America\/Chicago\)$/);
+    // The WAT entry is still what is sent.
+    expect(el.textContent).toContain('10:00 WAT · video call');
+  });
+
+  it('has no applicant line without a zone, or when it reads the same as WAT', async () => {
+    await openWith(applicationDetail({ status: 'under_review' }));
+    await type('#bo-iv-when', lagosLocal(3));
+    expect(el.querySelector('[data-testid="bo-iv-applicant-time"]')).toBeNull();
+
+    host.open.set(false);
+    await render();
+    const d = applicationDetail({ status: 'under_review' });
+    await openWith({ ...d, sections: { ...d.sections, personal: { ...d.sections.personal, time_zone: 'Africa/Douala' } } });
+    await type('#bo-iv-when', lagosLocal(3));
+    expect(el.textContent).toContain('Applicant sees:');
+    expect(el.querySelector('[data-testid="bo-iv-applicant-time"]')).toBeNull();
+  });
+
   it('refuses a past or far-off time and a link that is not https', async () => {
     await openWith(applicationDetail({ status: 'under_review' }));
     await submit();
@@ -132,7 +161,16 @@ describe('ScheduleInterviewDialog', () => {
     await openWith(
       applicationDetail({
         status: 'interview_scheduled',
-        interview: { starts_at: starts, starts_at_label: '', duration_minutes: 60, meeting_url: 'https://teams.microsoft.com/l/x', meeting_host: 'teams.microsoft.com', note: null },
+        interview: {
+          starts_at: starts,
+          starts_at_label: '',
+          duration_minutes: 60,
+          meeting_url: 'https://teams.microsoft.com/l/x',
+          meeting_host: 'teams.microsoft.com',
+          note: null,
+          applicant_time_zone: null,
+          applicant_label: null,
+        },
       }),
     );
     expect(submitLabel()).toBe('Save new time');

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import type { CanLeave } from '@supadoc/auth';
+import { isValidTimeZone, zoneAbbr, zoneLongName } from '@supadoc/data-access';
 import type {
   ApplicationDocumentSlot,
   ApplicationDraftDto,
@@ -35,8 +36,21 @@ const countryName = (iso: unknown): string =>
   typeof iso === 'string' ? (WORLD_COUNTRIES.find((c) => c.iso === iso)?.name ?? iso) : '';
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
 
+/** What the Time zone row says when the applicant chose none (optional, spec §1.12). */
+export const TIME_ZONE_NOT_SET = 'Not set';
+
+/**
+ * The applicant's chosen zone as the review lists it, from the shared zone
+ * helpers: "Central Time (CST) · America/Chicago" (the abbreviation at `at`,
+ * so it follows daylight saving); {@link TIME_ZONE_NOT_SET} when none (or one
+ * this browser doesn't know) was given.
+ */
+export function timeZoneReviewLabel(tz: unknown, at: Date = new Date()): string {
+  return isValidTimeZone(tz) ? `${zoneLongName(tz, at)} (${zoneAbbr(tz, at)}) · ${tz}` : TIME_ZONE_NOT_SET;
+}
+
 /** Builds the review rows from a draft (spec §6.5.10). */
-export function reviewSections(draft: ApplicationDraftDto): ReviewSection[] {
+export function reviewSections(draft: ApplicationDraftDto, at: Date = new Date()): ReviewSection[] {
   const s = draft.sections;
   const route = draft.licence_route;
   const docs = draft.documents;
@@ -48,6 +62,7 @@ export function reviewSections(draft: ApplicationDraftDto): ReviewSection[] {
   const c = s.consent ?? {};
   const years = typeof pr.years_experience === 'number' ? pr.years_experience : null;
   const place = [text(p.city), countryName(p.country_of_residence)].filter(Boolean).join(', ');
+  const zone = timeZoneReviewLabel(p.time_zone, at);
   const licenceRows: ReviewRow[] =
     route === 'ng'
       ? [
@@ -80,6 +95,7 @@ export function reviewSections(draft: ApplicationDraftDto): ReviewSection[] {
         { label: 'Date of birth', value: formatDateLong(p.date_of_birth) },
         { label: 'Gender', value: GENDER_OPTIONS.find((g) => g.value === p.gender)?.label ?? '' },
         { label: 'Country / City', value: place },
+        { label: 'Time zone', value: zone, muted: zone === TIME_ZONE_NOT_SET },
       ],
     },
     {

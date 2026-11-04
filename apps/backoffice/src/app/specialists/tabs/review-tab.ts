@@ -42,6 +42,7 @@ import {
   registrationNumber,
   statusBadge,
 } from '../specialist-ui';
+import { doctorZoneLabel, weeklyHoursLine } from './overview-tab';
 
 type ChangeKey = keyof PendingChanges;
 
@@ -64,8 +65,6 @@ const PROBLEM_TABS: Record<string, { tab: DoctorTab; label: string } | undefined
   mdcn_certificate: { tab: 'credentials', label: 'Go to Credentials' },
   practising_licence: { tab: 'credentials', label: 'Go to Credentials' },
 };
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function qualificationLines(list: readonly QualificationEntry[] | null | undefined): string[] {
   return (list ?? []).map((q) => [q.title, q.institution, q.year ? `(${q.year})` : ''].filter(Boolean).join(' · '));
@@ -287,6 +286,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
             </dd>
           </div>
           <div class="flex flex-col gap-0.5 sm:col-span-2"><dt class="${LABEL}">Weekly hours</dt><dd class="break-words text-ink">{{ hours() }}</dd></div>
+          <div class="flex flex-col gap-0.5 sm:col-span-2"><dt class="${LABEL}">Time zone</dt><dd class="break-words text-ink" data-testid="bo-rv-zone">{{ zone() }}</dd></div>
           <div class="flex flex-col gap-0.5 sm:col-span-2"><dt class="${LABEL}">Bio</dt><dd class="whitespace-pre-line break-words text-ink">{{ detail().profile.bio || '—' }}</dd></div>
         </dl>
       </section>
@@ -336,15 +336,13 @@ export class SpecialistReviewTab {
   protected readonly qualifications = computed(() => qualificationLines(this.detail().profile.qualification_entries));
   protected readonly certifications = computed(() => certificationLines(this.detail().profile.certifications));
 
-  protected readonly hours = computed(() => {
-    const hours = this.detail().profile.weekly_hours ?? {};
-    const parts = Object.keys(hours)
-      .sort()
-      .filter((d) => (hours[d] ?? []).length > 0)
-      .map((d) => `${WEEKDAYS[Number(d)] ?? d} ${hours[d].map(([a, b]) => `${a}–${b}`).join(', ')}`);
-    if (parts.length) return parts.join(' · ');
-    return this.detail().checklist.availability ? 'No weekly hours — uses published open slots.' : 'Not set yet.';
-  });
+  /** On the doctor's own clock, with their zone (staff keep their browser zone everywhere else). */
+  protected readonly hours = computed(
+    () =>
+      weeklyHoursLine(this.detail().profile) ??
+      (this.detail().checklist.availability ? 'No weekly hours — uses published open slots.' : 'Not set yet.'),
+  );
+  protected readonly zone = computed(() => doctorZoneLabel(this.detail().profile));
 
   /** Each requested field against the approved snapshot (or, without one, the live profile). */
   protected readonly diff = computed(() => {
