@@ -214,7 +214,9 @@ export const SHARING_CLASSES: Record<SharingTheme, SharingClasses> = {
     warn: 'bg-warning/15 text-warning',
     error: 'bg-alert/15 text-alert',
     errText: 'text-alert',
-    field: 'border-white/15 bg-white/5 text-white focus:border-sky',
+    // Border ≥ 3:1 on the cockpit (white/15 was 1.6); focus adds a sky ring (a
+    // 2px edge). The light cockpit's colours for both are in styles.css.
+    field: 'border-white/45 bg-white/5 text-white focus-within:border-sky focus-within:ring-1 focus-within:ring-sky',
     iconBtn: 'text-white/60 hover:bg-white/10 hover:text-white',
     accent: 'text-frost',
   },

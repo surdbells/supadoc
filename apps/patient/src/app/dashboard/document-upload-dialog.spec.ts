@@ -79,6 +79,30 @@ function uploaded(over: Partial<UploadedDocumentDto> = {}): UploadedDocumentDto 
   };
 }
 
+/** Each row's type field (the searchable combobox's trigger). */
+function typeTriggers(el: HTMLElement): HTMLButtonElement[] {
+  return Array.from(el.querySelectorAll<HTMLButtonElement>('sd-search-select button[aria-haspopup="listbox"]'));
+}
+
+/** Open each row's type list and click `label` in it (as a person would). */
+async function chooseEveryType(el: HTMLElement, render: () => Promise<void>, label: string): Promise<void> {
+  for (let i = 0; i < typeTriggers(el).length; i++) {
+    typeTriggers(el)[i].click();
+    await render();
+    const option = Array.from(el.querySelectorAll<HTMLElement>('[role="option"]')).find((o) => o.textContent?.trim() === label);
+    if (!option) throw new Error(`No "${label}" option`);
+    option.click();
+    await render();
+  }
+}
+
+/** A key on an element (bubbling, cancelable, like the browser's). */
+function key(target: Element, k: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(e);
+  return e;
+}
+
 @Component({
   imports: [DocumentUploadDialog],
   template: `
@@ -139,6 +163,7 @@ describe('DocumentUploadDialog', () => {
   };
   const dialog = (): DocumentUploadDialog =>
     fixture.debugElement.query(By.directive(DocumentUploadDialog)).componentInstance as DocumentUploadDialog;
+  const typeAll = (label: string) => chooseEveryType(el, render, label);
 
   /** Open, pick `names`, type them all "lab", and go to "Who can see these files?". */
   const toShareStep = async (doctors: SharingDoctorDto[], names = ['scan.pdf']) => {
@@ -149,11 +174,7 @@ describe('DocumentUploadDialog', () => {
     await render();
     dialog()['addFiles'](names.map((n) => new File(['abc'], n, { type: 'application/pdf' })));
     await render();
-    for (const select of Array.from(el.querySelectorAll('select'))) {
-      select.value = 'lab';
-      select.dispatchEvent(new Event('change'));
-    }
-    await render();
+    await typeAll('Lab result');
     await click('Continue');
   };
   const nextUpload = (): TestRequest => http.expectOne((r) => r.method === 'POST' && r.url === UPLOAD);
@@ -367,6 +388,256 @@ describe('DocumentUploadDialog', () => {
     const warnings = Array.from(el.querySelectorAll('[data-testid="view-warning"]')).map((w) => w.textContent?.trim());
     expect(warnings).toEqual(["Dr Ade can't open MOV files in VideoMed. Share a PDF or photo."]);
   });
+
+  describe('the searchable document type', () => {
+    const TYPES = [
+      { value: 'laboratory_test_report', label: 'Laboratory Test Report' },
+      { value: 'blood_test_report', label: 'Blood Test Report' },
+      { value: 'xray_report', label: 'X-Ray Report' },
+      { value: 'prescription', label: 'Prescription' },
+    ];
+    const optionLabels = () => Array.from(el.querySelectorAll('[role="option"]')).map((o) => o.textContent?.trim());
+    const search = () => el.querySelector<HTMLInputElement>('sd-search-select input[role="combobox"]') as HTMLInputElement;
+    const typeInto = async (text: string) => {
+      search().value = text;
+      search().dispatchEvent(new Event('input'));
+      await render();
+    };
+    /** Open the dialog with TYPES and pick `names`. */
+    const pick = async (names = ['scan.pdf']) => {
+      host.show.set(true);
+      await render();
+      http.expectOne(`${BASE}/api/portal/document-types`).flush({ status: 'success', message: 'OK', data: TYPES });
+      http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: [] });
+      await render();
+      dialog()['addFiles'](names.map((n) => new File(['abc'], n, { type: 'application/pdf' })));
+      await render();
+    };
+
+    it('filters as you type: anywhere in the label, any case, and says when nothing matches', async () => {
+      await pick();
+      typeTriggers(el)[0].click();
+      await render();
+      expect(optionLabels()).toEqual(TYPES.map((t) => t.label));
+      await typeInto('TEST rep');
+      expect(optionLabels()).toEqual(['Laboratory Test Report', 'Blood Test Report']);
+      await typeInto('ray');
+      expect(optionLabels()).toEqual(['X-Ray Report']);
+      expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe('1 match');
+      await typeInto('zzz');
+      expect(optionLabels()).toEqual([]);
+      expect(text()).toContain('No matches');
+      expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe('No matches');
+      expect(search().getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('is an APG combobox: labelled per file, ↓ ↑ move, Enter picks, focus back on the field', async () => {
+      await pick(['scan.pdf']);
+      const trigger = typeTriggers(el)[0];
+      expect(trigger.getAttribute('aria-labelledby')).toBe(`doc-type-label-1 doc-type-1-value`);
+      expect(el.querySelector('#doc-type-label-1')?.textContent).toContain('Document type for scan.pdf');
+      expect(trigger.textContent?.trim()).toBe('Select document type');
+      // A letter on the closed field opens the list, searching for it.
+      trigger.focus();
+      key(trigger, 'b');
+      await render();
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      expect(trigger.getAttribute('aria-controls')).toBe('doc-type-1-list');
+      expect(search().value).toBe('b');
+      expect(search().getAttribute('aria-controls')).toBe('doc-type-1-list');
+      expect(el.querySelector('#doc-type-1-list')?.getAttribute('role')).toBe('listbox');
+      expect(el.querySelector('#doc-type-1-list')?.getAttribute('aria-labelledby')).toBe('doc-type-label-1');
+      await typeInto('report');
+      const active = () => el.querySelector(`#${search().getAttribute('aria-activedescendant')}`)?.textContent?.trim();
+      expect(active()).toBe('Laboratory Test Report');
+      key(search(), 'ArrowDown');
+      await render();
+      expect(active()).toBe('Blood Test Report');
+      expect(el.querySelector('.sd-ss-active')?.textContent?.trim()).toBe('Blood Test Report');
+      key(search(), 'ArrowDown');
+      key(search(), 'ArrowUp');
+      await render();
+      expect(active()).toBe('Blood Test Report');
+      const enter = key(search(), 'Enter');
+      await render();
+      expect(enter.defaultPrevented).toBe(true);
+      expect(el.querySelector('[role="listbox"]')).toBeNull();
+      expect(trigger.textContent?.trim()).toBe('Blood Test Report');
+      expect(document.activeElement).toBe(trigger);
+      expect(text()).not.toContain('Choose a type for 1 more document');
+    });
+
+    it('Esc closes just the list, not the dialog; ↓ on the field reopens it on the chosen type', async () => {
+      await pick();
+      const trigger = typeTriggers(el)[0];
+      trigger.click();
+      await render();
+      const esc = key(search(), 'Escape');
+      await render();
+      expect(esc.defaultPrevented).toBe(true);
+      expect(el.querySelector('[role="listbox"]')).toBeNull();
+      expect(text()).toContain('Document Type');
+      expect(document.activeElement).toBe(trigger);
+      // Pointer pick, then the keyboard reopens on it.
+      await chooseEveryType(el, render, 'X-Ray Report');
+      key(trigger, 'ArrowDown');
+      await render();
+      expect(el.querySelector(`#${search().getAttribute('aria-activedescendant')}`)?.textContent?.trim()).toBe('X-Ray Report');
+      expect(el.querySelector('[aria-selected="true"]')?.textContent?.trim()).toBe('X-Ray Report');
+      // Shift+Tab moves back from the field (the browser's own move); leaving it closes the list.
+      const tab = key(search(), 'Tab', { shiftKey: true });
+      expect(tab.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(trigger);
+      trigger.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: button('Cancel') }));
+      await render();
+      expect(el.querySelector('[role="listbox"]')).toBeNull();
+      expect(trigger.textContent?.trim()).toBe('X-Ray Report');
+      expect(text()).not.toContain('Choose a type for this document.'); // it has one
+    });
+
+    it('a press on the search icon keeps focus in the search box: Esc then closes just the list', async () => {
+      await pick();
+      const trigger = typeTriggers(el)[0];
+      trigger.click();
+      await render();
+      const icon = el.querySelector('sd-search-select .sd-menu sd-icon') as Element;
+      const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      icon.dispatchEvent(press);
+      expect(press.defaultPrevented).toBe(true);
+      (el.querySelector('sd-search-select .sd-menu') as HTMLElement).focus(); // whatever takes focus in the list
+      expect(document.activeElement).toBe(search());
+      const esc = key(document.activeElement as Element, 'Escape');
+      await render();
+      expect(esc.defaultPrevented).toBe(true);
+      expect(el.querySelector('[role="listbox"]')).toBeNull();
+      expect(text()).toContain('Document Type'); // no "Discard the selected file?"
+      expect(text()).not.toContain('Discard');
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('names each search box after its file', async () => {
+      await pick(['a.pdf', 'b.pdf']);
+      typeTriggers(el)[1].click();
+      await render();
+      expect(search().getAttribute('aria-labelledby')).toBe('doc-type-label-2 doc-type-2-search-label');
+      const names = search()
+        .getAttribute('aria-labelledby')
+        ?.split(' ')
+        .map((id) => el.querySelector(`#${id}`)?.textContent?.trim());
+      expect(names).toEqual(['Document type for b.pdf', 'Search document types']);
+    });
+
+    it('opened before the types arrive: says they are loading, then starts on the first', async () => {
+      host.show.set(true);
+      await render();
+      const types = http.expectOne(`${BASE}/api/portal/document-types`);
+      http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: [] });
+      await render();
+      dialog()['addFiles']([new File(['abc'], 'scan.pdf', { type: 'application/pdf' })]);
+      await render();
+      typeTriggers(el)[0].click();
+      await render();
+      expect(text()).toContain('Loading document types…');
+      expect(text()).not.toContain('No matches');
+      types.flush({ status: 'success', message: 'OK', data: TYPES });
+      await render();
+      expect(text()).not.toContain('Loading document types…');
+      expect(el.querySelector('.sd-ss-active')?.textContent?.trim()).toBe('Laboratory Test Report');
+      key(search(), 'Enter');
+      await render();
+      expect(typeTriggers(el)[0].textContent?.trim()).toBe('Laboratory Test Report');
+    });
+
+    it('says there are no types when the list could not be loaded', async () => {
+      host.show.set(true);
+      await render();
+      http.expectOne(`${BASE}/api/portal/document-types`).flush({ message: 'Down' }, { status: 500, statusText: 'Server Error' });
+      http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: [] });
+      await render();
+      dialog()['addFiles']([new File(['abc'], 'scan.pdf', { type: 'application/pdf' })]);
+      await render();
+      typeTriggers(el)[0].click();
+      await render();
+      expect(text()).toContain('No document types available');
+      expect(text()).not.toContain('Loading document types…');
+    });
+
+    it('says a file needs a type when its field is left empty, and clears once one is chosen', async () => {
+      await pick();
+      const trigger = typeTriggers(el)[0];
+      const field = el.querySelector('sd-search-select') as HTMLElement;
+      // Moving between the field and its own list is not leaving it.
+      trigger.click();
+      await render();
+      search().dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: trigger }));
+      await render();
+      expect(text()).not.toContain('Choose a type for this document.');
+      key(search(), 'Escape');
+      await render();
+      field.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: button('Cancel') }));
+      await render();
+      expect(text()).toContain('Choose a type for this document.');
+      expect(trigger.getAttribute('aria-invalid')).toBe('true');
+      expect(trigger.getAttribute('aria-describedby')).toBe('doc-type-error-1');
+      expect(el.querySelector('#doc-type-error-1')?.textContent?.trim()).toBe('Choose a type for this document.');
+      expect(trigger.className).toContain('border-alert');
+      expect(text()).toContain('Choose a type for 1 more document to continue.');
+      expect(button('Continue').disabled).toBe(true);
+      await chooseEveryType(el, render, 'Prescription');
+      expect(text()).not.toContain('Choose a type for this document.');
+      expect(trigger.hasAttribute('aria-invalid')).toBe(false);
+      expect(trigger.getAttribute('aria-describedby')).toBeNull();
+      expect(button('Continue').disabled).toBe(false);
+    });
+
+    it('keeps each file its own type and sends the chosen values unchanged', async () => {
+      await pick(['a.pdf', 'b.pdf']);
+      expect(text()).toContain('Choose a type for 2 more documents to continue.');
+      expect(typeTriggers(el).map((t) => t.id)).toEqual(['doc-type-1', 'doc-type-2']);
+      typeTriggers(el)[1].click();
+      await render();
+      Array.from(el.querySelectorAll<HTMLElement>('[role="option"]'))
+        .find((o) => o.textContent?.trim() === 'Blood Test Report')
+        ?.click();
+      await render();
+      expect(typeTriggers(el).map((t) => t.textContent?.trim())).toEqual(['Select document type', 'Blood Test Report']);
+      expect(text()).toContain('Choose a type for 1 more document to continue.');
+      typeTriggers(el)[0].click();
+      await render();
+      await typeInto('x-ray');
+      key(search(), 'Enter');
+      await render();
+      expect(typeTriggers(el).map((t) => t.textContent?.trim())).toEqual(['X-Ray Report', 'Blood Test Report']);
+      expect(text()).not.toContain('more document');
+      await click('Continue');
+      await click('Upload 2 files');
+      const first = nextUpload();
+      expect(form(first).get('document_type')).toBe('xray_report');
+      expect((form(first).get('file') as File).name).toBe('a.pdf');
+      first.flush({ status: 'success', message: 'OK', data: uploaded() });
+      await render();
+      const second = nextUpload();
+      expect(form(second).get('document_type')).toBe('blood_test_report');
+      expect((form(second).get('file') as File).name).toBe('b.pdf');
+      second.flush({ status: 'success', message: 'OK', data: uploaded({ id: 'd-2' }) });
+      await render();
+    });
+
+    it('draws the light field (the classes the portal’s dark mode re-points) with its list in the flow', async () => {
+      await pick();
+      const trigger = typeTriggers(el)[0];
+      expect(el.querySelector('sd-search-select > div')?.classList.contains('sd-ss-call')).toBe(false);
+      for (const cls of ['bg-white', 'border-[#b8c6d4]', 'py-3', 'text-body-sm']) expect(trigger.classList.contains(cls)).toBe(true);
+      expect(trigger.querySelector('span')?.classList.contains('text-slate')).toBe(true);
+      trigger.click();
+      await render();
+      const menu = el.querySelector('sd-search-select .sd-menu') as HTMLElement;
+      expect(menu.classList.contains('relative')).toBe(true); // inline: never clipped by the dialog body
+      expect(menu.classList.contains('absolute')).toBe(false);
+      expect(menu.classList.contains('bg-white')).toBe(true);
+      expect(el.querySelector('.sd-ss-active')?.getAttribute('role')).toBe('option');
+    });
+  });
 });
 
 @Component({
@@ -423,6 +694,7 @@ describe('DocumentUploadDialog in a call', () => {
   };
   const dialog = (): DocumentUploadDialog =>
     fixture.debugElement.query(By.directive(DocumentUploadDialog)).componentInstance as DocumentUploadDialog;
+  const typeAll = (label: string) => chooseEveryType(el, render, label);
   const open = async (doctors: SharingDoctorDto[] = [doctor('sp-1', 'Bayo Ade', true), doctor('sp-2', 'Ada Obi', true)]) => {
     host.show.set(true);
     await render();
@@ -434,11 +706,7 @@ describe('DocumentUploadDialog in a call', () => {
     await open();
     dialog()['addFiles'](names.map((n) => new File(['abc'], n, { type: 'application/pdf' })));
     await render();
-    for (const select of Array.from(el.querySelectorAll('select'))) {
-      select.value = 'lab';
-      select.dispatchEvent(new Event('change'));
-    }
-    await render();
+    await typeAll('Lab result');
     await click('Continue');
   };
 
@@ -525,5 +793,54 @@ describe('DocumentUploadDialog in a call', () => {
     dialog()['addFiles'](['a', 'b', 'c', 'd', 'e', 'f'].map((n) => new File(['abc'], `${n}.pdf`, { type: 'application/pdf' })));
     await render();
     expect(text()).toContain('f.pdf: You can upload up to 5 files at a time.');
+  });
+
+  it('draws the "Others (Specify)" field with a cockpit border that reads (white/45, not white/15)', async () => {
+    host.show.set(true);
+    await render();
+    http
+      .expectOne(`${BASE}/api/portal/document-types`)
+      .flush({ status: 'success', message: 'OK', data: [{ value: 'lab', label: 'Lab result' }, { value: 'other', label: 'Other' }] });
+    http.expectOne(`${BASE}/api/portal/document-access/doctors`).flush({ status: 'success', message: 'OK', data: [] });
+    await render();
+    dialog()['addFiles']([new File(['abc'], 'scan.pdf', { type: 'application/pdf' })]);
+    await render();
+    await typeAll('Other');
+    const other = el.querySelector('input[placeholder="Enter document type"]') as HTMLInputElement;
+    for (const cls of ['border-white/45', 'focus-within:border-sky', 'focus-within:ring-1', 'focus-within:ring-sky', 'text-white']) {
+      expect(other.classList.contains(cls)).toBe(true);
+    }
+    expect(other.classList.contains('border-white/15')).toBe(false);
+    expect(other.closest('.sd-share')).not.toBeNull(); // the light cockpit's mapping (styles.css) is scoped to it
+  });
+
+  it("draws the type field in the cockpit's palette, searchable, with its list in the flow", async () => {
+    await open();
+    dialog()['addFiles']([new File(['abc'], 'scan.pdf', { type: 'application/pdf' })]);
+    await render();
+    const root = el.querySelector('sd-search-select > div') as HTMLElement;
+    expect(root.classList.contains('sd-ss-call')).toBe(true);
+    const trigger = typeTriggers(el)[0];
+    expect(trigger.classList.contains('border-(--ss-border)')).toBe(true);
+    expect(trigger.classList.contains('bg-white')).toBe(false);
+    trigger.click();
+    await render();
+    const menu = el.querySelector('sd-search-select .sd-menu') as HTMLElement;
+    expect(menu.classList.contains('relative')).toBe(true);
+    expect(menu.classList.contains('bg-white')).toBe(false);
+    const search = el.querySelector<HTMLInputElement>('input[role="combobox"]') as HTMLInputElement;
+    search.value = 'LAB';
+    search.dispatchEvent(new Event('input'));
+    await render();
+    expect(Array.from(el.querySelectorAll('[role="option"]')).map((o) => o.textContent?.trim())).toEqual(['Lab result']);
+    key(search, 'Enter');
+    await render();
+    expect(trigger.textContent?.trim()).toBe('Lab result');
+    await click('Continue');
+    await click('Upload 1 file');
+    const req = http.expectOne((r) => r.method === 'POST' && r.url === UPLOAD);
+    expect((req.request.body as FormData).get('document_type')).toBe('lab');
+    req.flush({ status: 'success', message: 'OK', data: uploaded() });
+    await render();
   });
 });

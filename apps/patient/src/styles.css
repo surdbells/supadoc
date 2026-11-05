@@ -594,6 +594,13 @@ html[data-theme='dark'] sd-search-select .sd-menu,
 html[data-theme='dark'] sd-phone-input [role='listbox'] {
   background-color: #1c2633;
 }
+/* sd-search-select's combobox (`pattern="combobox"`): the active row's ring is
+   cerulean on light (2.8 on this menu) → light blue: ring 6.00 on the frost
+   tint, label 9.90. The call theme keeps its own (component rule, higher). */
+html[data-theme='dark'] sd-search-select .sd-ss-active {
+  background-color: rgba(33, 111, 209, 0.26);
+  box-shadow: inset 0 0 0 2px #8cbcff;
+}
 /* Neutral empty-state disc was the page colour. */
 html[data-theme='dark'] .sd-es .bg-glacier {
   background-color: #212c39;
@@ -688,6 +695,23 @@ html .sd-call[data-theme='light'] .sd-share .text-alert {
  * tone: 7.9 on abyss, 7.1 on alert/15 over it. */
 html .sd-call[data-theme='dark'] .sd-share .text-alert {
   color: #ff8a80;
+}
+/* The sharing text fields (`SHARING_CLASSES.call.field`: "Others (Specify)",
+ * end dates, the document search) are white/45 in the dark cockpit (4.3:1 on
+ * its row box), as the type combobox; theme.css has no light mapping for
+ * white/45, so the LIGHT cockpit gets the combobox's slate-grey (3.4:1 on
+ * white), cerulean (border + ring, 5.4:1) on focus, and a slate placeholder
+ * (4.6:1 on the field; the browser's grey was 2.9:1). */
+html .sd-call[data-theme='light'] .sd-share .border-white\/45 {
+  border-color: #78909c;
+}
+html .sd-call[data-theme='light'] .sd-share .border-white\/45:focus-within {
+  border-color: #0b62e4;
+  --tw-ring-color: #0b62e4;
+}
+html .sd-call[data-theme='light'] .sd-share .border-white\/45::placeholder,
+html .sd-call[data-theme='light'] .sd-share .border-white\/45 input::placeholder {
+  color: #546e7a;
 }
 
 /* ----- The call's video dock (the stage and its control bar) -----

@@ -41,6 +41,7 @@ import {
   IconComponent,
   type FileDropRejection,
   type LeaveCopy,
+  SearchSelectComponent,
   warnBeforeUnload,
 } from '@supadoc/ui';
 import {
@@ -78,6 +79,8 @@ interface QueueItem {
   readonly file: File;
   readonly type: string;
   readonly custom: string;
+  /** Its type field was left without a type: the row says so. */
+  readonly typeTouched: boolean;
   readonly status: UploadStatus;
   readonly progress: number;
   /** The API's message when the upload failed. */
@@ -164,7 +167,7 @@ const CUSTOM_TYPE_MAX = 120;
 @Component({
   selector: 'pat-document-upload-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DialogComponent, FileDropComponent, IconComponent, NgTemplateOutlet],
+  imports: [DialogComponent, FileDropComponent, IconComponent, NgTemplateOutlet, SearchSelectComponent],
   template: `
     <!-- Files a drop or pick turned away (accumulates until dismissed) -->
     <ng-template #skippedNote>
@@ -280,14 +283,33 @@ const CUSTOM_TYPE_MAX = 120;
                       <sd-icon name="trash-2" [size]="18" />
                     </button>
                   </div>
-                  <label class="relative block">
-                    <span class="sr-only">Document type for {{ item.file.name }}</span>
-                    <select class="w-full appearance-none rounded-field border px-4 py-3 pr-10 font-sans text-body-sm outline-none" [class]="c().field" (change)="setType(item.key, $any($event.target).value)">
-                      <option value="" [selected]="item.type === ''">Select document type</option>
-                      @for (t of types(); track t.value) { <option [value]="t.value" [selected]="t.value === item.type">{{ t.label }}</option> }
-                    </select>
-                    <sd-icon name="chevron-down" [size]="18" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" [class]="c().muted" />
-                  </label>
+                  <!-- Searchable (type to filter), its list in the flow so the dialog's scrolling body never clips it -->
+                  <div class="flex flex-col gap-1.5">
+                    <span [id]="'doc-type-label-' + item.key" class="sr-only">Document type for {{ item.file.name }}</span>
+                    <sd-search-select
+                      pattern="combobox"
+                      menu="inline"
+                      size="field"
+                      [theme]="theme()"
+                      [inputId]="'doc-type-' + item.key"
+                      [labelledBy]="'doc-type-label-' + item.key"
+                      [describedBy]="typeError(item) ? 'doc-type-error-' + item.key : null"
+                      [invalid]="typeError(item)"
+                      [options]="types()"
+                      [value]="item.type"
+                      [clearable]="false"
+                      placeholder="Select document type"
+                      searchPlaceholder="Search document types"
+                      [noOptionsText]="typesLoaded() ? 'No document types available' : 'Loading document types…'"
+                      (valueChange)="setType(item.key, $event)"
+                      (focusout)="onTypeBlur(item.key, $event)"
+                    />
+                    @if (typeError(item)) {
+                      <p [id]="'doc-type-error-' + item.key" class="flex items-start gap-1.5 font-sans text-caption" [class]="c().errText">
+                        <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />Choose a type for this document.
+                      </p>
+                    }
+                  </div>
                   @if (item.type === 'other') {
                     <label class="flex flex-col gap-1.5">
                       <span class="font-sans text-caption" [class]="c().muted">Others (Specify)<span class="sr-only"> for {{ item.file.name }}</span></span>
@@ -633,6 +655,8 @@ export class DocumentUploadDialog implements OnInit {
   protected readonly open = signal(true);
   protected readonly step = signal<UploadStep>('source');
   protected readonly types = signal<DocumentTypeOption[]>([]);
+  /** The types request has answered (the type list says "Loading…" until then). */
+  protected readonly typesLoaded = signal(false);
   protected readonly typesError = signal('');
   protected readonly queue = signal<QueueItem[]>([]);
   protected readonly skipped = signal<SkippedFile[]>([]);
@@ -803,8 +827,14 @@ export class DocumentUploadDialog implements OnInit {
       .types()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.types.set(res.data),
-        error: (err: unknown) => this.typesError.set(apiErrorMessage(err, 'Could not load document types.')),
+        next: (res) => {
+          this.types.set(res.data);
+          this.typesLoaded.set(true);
+        },
+        error: (err: unknown) => {
+          this.typesError.set(apiErrorMessage(err, 'Could not load document types.'));
+          this.typesLoaded.set(true);
+        },
       });
     const preset = this.presetDoctorId();
     if (preset) {
@@ -984,7 +1014,17 @@ export class DocumentUploadDialog implements OnInit {
       else if (current.length + added.length >= max) {
         skipped.push({ name: file.name, reason: `You can upload up to ${max} files at a time.` });
       } else {
-        added.push({ key: this.nextKey++, file, type: '', custom: '', status: 'queued', progress: 0, error: '', result: null });
+        added.push({
+          key: this.nextKey++,
+          file,
+          type: '',
+          custom: '',
+          typeTouched: false,
+          status: 'queued',
+          progress: 0,
+          error: '',
+          result: null,
+        });
       }
     }
     if (added.length > 0) this.queue.set([...current, ...added]);
@@ -1029,6 +1069,20 @@ export class DocumentUploadDialog implements OnInit {
 
   protected setCustom(key: number, custom: string): void {
     this.patch(key, { custom });
+  }
+
+  /** Focus left a row's type field (its list too) with no type chosen: show the row's error. */
+  protected onTypeBlur(key: number, event: FocusEvent): void {
+    const field = event.currentTarget as HTMLElement | null;
+    const next = event.relatedTarget as Node | null;
+    if (field && next && field.contains(next)) return; // still inside (trigger ↔ its list)
+    const item = this.queue().find((i) => i.key === key);
+    if (item && item.type === '' && !item.typeTouched) this.patch(key, { typeTouched: true });
+  }
+
+  /** The row's "Choose a type" error is showing. */
+  protected typeError(item: QueueItem): boolean {
+    return item.typeTouched && item.type === '';
   }
 
   /** Copy one file's type (and its "Others" name) onto every file in the batch. */
