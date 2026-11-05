@@ -45,12 +45,14 @@ describe('specialtyField', () => {
 });
 
 describe('photoUploadStep', () => {
-  it('turns upload events into progress, and the response into the result', () => {
-    expect(photoUploadStep({ type: HttpEventType.UploadProgress, loaded: 50, total: 200 })).toEqual({ progress: 25 });
-    expect(photoUploadStep({ type: HttpEventType.UploadProgress, loaded: 50 })).toEqual({});
+  it('turns upload events into progress ("finishing" once sent), and the response into the result', () => {
+    expect(photoUploadStep({ type: HttpEventType.UploadProgress, loaded: 50, total: 200 })).toEqual({ progress: { percent: 25, finishing: false } });
+    expect(photoUploadStep({ type: HttpEventType.UploadProgress, loaded: 200, total: 200 })).toEqual({ progress: { percent: 100, finishing: true } });
+    // The browser can't tell the size: no percent (an indeterminate bar), never a stuck 0%.
+    expect(photoUploadStep({ type: HttpEventType.UploadProgress, loaded: 50 })).toEqual({ progress: { percent: null, finishing: false } });
     expect(photoUploadStep({ type: HttpEventType.Sent })).toEqual({});
     const data = { id: 's1', photo_url: '/uploads/avatars/dr-s1-abcd1234.jpg' } as SpecialistPhotoResultDto;
     const body: SuccessResponse<SpecialistPhotoResultDto> = { status: 'success', message: 'OK', data };
-    expect(photoUploadStep(new HttpResponse({ body, status: 200 }))).toEqual({ progress: 100, result: data });
+    expect(photoUploadStep(new HttpResponse({ body, status: 200 }))).toEqual({ result: data });
   });
 });

@@ -33,5 +33,6 @@ export * from './lib/date-input';
 export * from './lib/time-zone';
 export * from './lib/call-nudge';
 export * from './lib/document-types';
+export * from './lib/upload-progress';
 export * from './lib/http-error.interceptor';
 export * from './lib/provide-data-access';

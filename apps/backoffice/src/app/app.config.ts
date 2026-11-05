@@ -4,7 +4,7 @@ import {
   provideZoneChangeDetection,
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import {
   httpErrorInterceptor,
   provideSupadocDataAccess,
@@ -28,6 +28,9 @@ export const appConfig: ApplicationConfig = {
       // staffAuthInterceptor is innermost: it sees the raw 401 to refresh + retry,
       // so httpErrorInterceptor never logs a handled token expiry.
       withInterceptors([httpErrorInterceptor, staffAuthInterceptor]),
+      // XHR, not the default fetch backend: only XHR reports upload progress,
+      // so upload bars fill as the file goes up instead of sitting at 0%.
+      withXhr(),
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Back-office silo: its own token key; nav/routes gate on RBAC permissions.

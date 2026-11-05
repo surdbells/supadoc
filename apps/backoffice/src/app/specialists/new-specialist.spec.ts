@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpEventType, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
@@ -229,6 +229,47 @@ describe('AdminSpecialists — New specialist', () => {
     http.expectOne(`${BASE}/api/specialists/s1/photo`).flush(ok({ ...CREATED, photo_url: '/uploads/avatars/dr-s1-1.jpg' }));
     await render();
     flushLists();
+  });
+
+  it('shows the photo going up, then "Finishing…" (said once) until the server answers, then "Photo added."', async () => {
+    await openCreate([ref('Cardiology')]);
+    await chooseSpecialty('Cardiology');
+    await typeName('Dr Ada Obi');
+    await pickFile(new File([new Uint8Array([0xff, 0xd8, 0xff])], 'ada.jpg', { type: 'image/jpeg' }));
+    await submit();
+    http.expectOne((r) => r.method === 'POST' && r.url === `${BASE}/api/specialists`).flush(ok(CREATED));
+    await render();
+    flushLists();
+    const upload = http.expectOne(`${BASE}/api/specialists/s1/photo`);
+    const bar = () => el.querySelector<HTMLElement>('sd-upload-progress [role="progressbar"]');
+    const box = () => bar()?.closest('[aria-live="polite"]') ?? null;
+    const said = () => box()?.textContent?.replace(/\s+/g, ' ').trim();
+
+    upload.event({ type: HttpEventType.UploadProgress, loaded: 1, total: 4 });
+    await render();
+    expect(bar()?.getAttribute('aria-valuenow')).toBe('25');
+    expect(bar()?.getAttribute('aria-valuetext')).toBe('25%');
+    expect(said()).toContain('Uploading the photo…');
+    expect(said()).toContain('25%');
+    // The page's box is the live region: the bar doesn't announce on its own too.
+    expect(el.querySelectorAll('sd-upload-progress [aria-live]')).toHaveLength(0);
+
+    upload.event({ type: HttpEventType.UploadProgress, loaded: 4, total: 4 });
+    await render();
+    // Every byte is out: an indeterminate "Finishing…", not a bar frozen at 100%.
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar()?.getAttribute('aria-valuetext')).toBe('Finishing…');
+    expect(bar()?.getAttribute('data-state')).toBe('finishing');
+    expect(said()).toBe('The photo is sent. Finishing up…');
+    expect(said()).not.toContain('%');
+
+    upload.flush(ok({ ...CREATED, photo_url: '/uploads/avatars/dr-s1-abcd1234.jpg' }));
+    await render();
+    flushLists();
+    await render();
+    expect(bar()).toBeNull();
+    expect(el.textContent).toContain('Photo added.');
+    expect(el.textContent).not.toContain('Finishing up…');
   });
 
   it('refuses a file that is not an image before uploading anything', async () => {

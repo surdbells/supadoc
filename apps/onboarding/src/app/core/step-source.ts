@@ -1,4 +1,5 @@
 import { HttpEvent, HttpEventType } from '@angular/common/http';
+import { uploadProgressFrom, type UploadProgress } from '@supadoc/data-access';
 import type {
   ApplicationDocumentDto,
   ApplicationDocumentSlot,
@@ -8,8 +9,8 @@ import type {
 } from '@supadoc/models';
 import { filter, map, Observable } from 'rxjs';
 
-/** Progress of one upload: a percentage while sending, then the stored document. */
-export type UploadEvent = { progress: number } | { done: ApplicationDocumentDto };
+/** Progress of one upload: how far it has got while sending, then the stored document. */
+export type UploadEvent = { progress: UploadProgress } | { done: ApplicationDocumentDto };
 
 /**
  * What a step form reads and uploads through. The wizard uses the draft
@@ -32,18 +33,18 @@ export interface StepSource {
   viewDocument(doc: ApplicationDocumentDto): void;
 }
 
-/** HttpClient upload events → UploadEvent (progress %, then the document). */
+/**
+ * HttpClient upload events → UploadEvent (progress — "finishing" once every
+ * byte is sent — then the document).
+ */
 export function toUploadEvents(
   events$: Observable<HttpEvent<SuccessResponse<ApplicationDocumentDto>>>,
 ): Observable<UploadEvent> {
   return events$.pipe(
     map((event): UploadEvent | null => {
-      if (event.type === HttpEventType.UploadProgress) {
-        const total = event.total ?? 0;
-        return { progress: total > 0 ? Math.min(99, Math.round((event.loaded / total) * 100)) : 0 };
-      }
       if (event.type === HttpEventType.Response && event.body) return { done: event.body.data };
-      return null;
+      const progress = uploadProgressFrom(event);
+      return progress ? { progress } : null;
     }),
     filter((e): e is UploadEvent => e !== null),
   );

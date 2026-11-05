@@ -14,7 +14,14 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Params, Router, RouterLink } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { apiErrorFields, apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  SpecialistsApi,
+  UPLOAD_STARTED,
+  uploadFinishingText,
+  type UploadProgress,
+} from '@supadoc/data-access';
 import type {
   AdminSpecialistsQuery,
   CreateSpecialistParams,
@@ -24,7 +31,7 @@ import type {
   SpecialistAdminRowDto,
   SpecialistReviewQueueDto,
 } from '@supadoc/models';
-import { AlertComponent, EmptyStateComponent, IconComponent, SearchSelectComponent } from '@supadoc/ui';
+import { AlertComponent, EmptyStateComponent, IconComponent, SearchSelectComponent, UploadProgressComponent } from '@supadoc/ui';
 import { BoDialog } from '../shared/dialog';
 import {
   CARD_ITEM,
@@ -183,6 +190,7 @@ const EMPTY_DRAFT: Draft = {
     SearchSelectA11y,
     PhotoPicker,
     SpecialistAvatar,
+    UploadProgressComponent,
   ],
   host: { class: 'block' },
   template: `
@@ -385,16 +393,17 @@ const EMPTY_DRAFT: Draft = {
           @if (photoFile() || photoUploadError() || photoUploaded()) {
             <!-- The photo goes up right after the record exists. -->
             <div class="flex flex-col gap-3 rounded-field border border-cloud px-4 py-3" aria-live="polite">
-              @if (uploadProgress() !== null) {
+              @if (uploadProgress(); as p) {
                 <div class="flex items-center gap-3">
                   <sd-icon name="loader-circle" [size]="18" class="shrink-0 animate-spin text-cerulean" />
-                  <span class="font-sans text-body-sm text-ink">Uploading the photo…</span>
-                  <!-- Not announced on every tick: the progressbar below carries the value. -->
-                  <span class="ml-auto font-sans text-caption tabular-nums text-slate" aria-hidden="true">{{ uploadProgress() }}%</span>
+                  <!-- This box is the live region: "finishing" is said once, when every byte is sent. -->
+                  <span class="font-sans text-body-sm text-ink">{{ p.finishing ? photoFinishing : 'Uploading the photo…' }}</span>
+                  @if (!p.finishing && p.percent !== null) {
+                    <!-- Not announced on every tick: the progressbar below carries the value. -->
+                    <span class="ml-auto font-sans text-caption tabular-nums text-slate" aria-hidden="true">{{ p.percent }}%</span>
+                  }
                 </div>
-                <div class="h-2 overflow-hidden rounded-pill bg-glacier" role="progressbar" aria-label="Uploading the photo" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="uploadProgress()">
-                  <div class="h-full rounded-pill bg-cerulean transition-[width] duration-200" [style.width.%]="uploadProgress()"></div>
-                </div>
+                <sd-upload-progress [progress]="p" label="Uploading the photo" size="md" trackClass="bg-glacier" [announce]="false" />
               } @else if (photoUploadError(); as e) {
                 <p class="flex items-start gap-2 font-sans text-body-sm text-alert" role="alert">
                   <sd-icon name="circle-alert" [size]="18" class="mt-0.5 shrink-0" />
@@ -595,8 +604,9 @@ export class AdminSpecialists implements OnInit {
   protected readonly photoFile = signal<File | null>(null);
   /** Its preview (an object URL). */
   protected readonly photoPreview = signal<string | null>(null);
-  /** 0–100 while it uploads; null when idle. */
-  protected readonly uploadProgress = signal<number | null>(null);
+  /** How far the photo has got while it uploads (`photoUploadStep`); null when idle. */
+  protected readonly uploadProgress = signal<UploadProgress | null>(null);
+  protected readonly photoFinishing = uploadFinishingText('The photo');
   protected readonly photoUploadError = signal('');
   protected readonly photoUploaded = signal(false);
   private uploadSub?: Subscription;
@@ -848,7 +858,7 @@ export class AdminSpecialists implements OnInit {
     const c = this.created();
     const file = this.photoFile();
     if (!c || !file || this.uploadProgress() !== null) return;
-    this.uploadProgress.set(0);
+    this.uploadProgress.set(UPLOAD_STARTED);
     this.photoUploadError.set('');
     this.uploadSub = this.api
       .uploadPhoto(c.id, file)

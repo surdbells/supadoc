@@ -1,5 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import type { UploadProgress } from '@supadoc/data-access';
 import type { ApplicationDocumentDto } from '@supadoc/models';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { doc } from '../../testing/onb-testing';
@@ -23,7 +24,7 @@ import { FILE_SIZE_ERROR, FILE_TYPE_ERROR, FileFieldComponent, fileProblem } fro
 })
 class Host {
   readonly document = signal<ApplicationDocumentDto | null>(null);
-  readonly progress = signal<number | null>(null);
+  readonly progress = signal<UploadProgress | null>(null);
   readonly readonly = signal(false);
   readonly picked: File[] = [];
   removed = 0;
@@ -73,10 +74,26 @@ describe('FileFieldComponent', () => {
   });
 
   it('shows progress while uploading', () => {
-    host.progress.set(42);
+    host.progress.set({ percent: 42, finishing: false });
     fixture.detectChanges();
     const bar = el.querySelector('[role="progressbar"]');
     expect(bar?.getAttribute('aria-valuenow')).toBe('42');
+    expect(bar?.getAttribute('aria-label')).toBe('Uploading Government-issued ID');
+    expect(el.textContent).toContain('42%');
+  });
+
+  it('says "Finishing…" (politely, once) when every byte is sent, and sweeps for an unknown size', () => {
+    host.progress.set({ percent: 100, finishing: true });
+    fixture.detectChanges();
+    const bar = el.querySelector('[role="progressbar"]');
+    expect(bar?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar?.getAttribute('aria-valuetext')).toBe('Finishing…');
+    expect(el.textContent).toContain('Finishing…');
+    expect(el.querySelector('[aria-live="polite"]')?.textContent?.trim()).toBe('Government-issued ID is sent. Finishing up…');
+    host.progress.set({ percent: null, finishing: false });
+    fixture.detectChanges();
+    expect(el.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe('Uploading…');
+    expect(el.querySelector('[aria-live="polite"]')?.textContent?.trim()).toBe('');
   });
 
   it('shows the uploaded row with labelled Replace and Remove', () => {

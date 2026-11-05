@@ -24,6 +24,11 @@ import {
   DocumentsApi,
   DocumentSharingApi,
   isDoctorViewableName,
+  UPLOAD_STARTED,
+  uploadFinishingText,
+  uploadProgressFrom,
+  uploadProgressText,
+  type UploadProgress,
 } from '@supadoc/data-access';
 import type {
   DocumentShareDuration,
@@ -42,6 +47,7 @@ import {
   type FileDropRejection,
   type LeaveCopy,
   SearchSelectComponent,
+  UploadProgressComponent,
   warnBeforeUnload,
 } from '@supadoc/ui';
 import {
@@ -82,7 +88,7 @@ interface QueueItem {
   /** Its type field was left without a type: the row says so. */
   readonly typeTouched: boolean;
   readonly status: UploadStatus;
-  readonly progress: number;
+  readonly progress: UploadProgress;
   /** The API's message when the upload failed. */
   readonly error: string;
   readonly result: UploadedDocumentDto | null;
@@ -167,7 +173,7 @@ const CUSTOM_TYPE_MAX = 120;
 @Component({
   selector: 'pat-document-upload-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DialogComponent, FileDropComponent, IconComponent, NgTemplateOutlet, SearchSelectComponent],
+  imports: [DialogComponent, FileDropComponent, IconComponent, NgTemplateOutlet, SearchSelectComponent, UploadProgressComponent],
   template: `
     <!-- Files a drop or pick turned away (accumulates until dismissed) -->
     <ng-template #skippedNote>
@@ -519,21 +525,12 @@ const CUSTOM_TYPE_MAX = 120;
                       <span class="truncate font-sans text-caption" [class]="c().muted">{{ sizeLabel(item.file.size) }} · {{ typeLabel(item) }}</span>
                     </span>
                     <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="uploadStatus(item.status).cls">
-                      <sd-icon [name]="uploadStatus(item.status).icon" [size]="12" [class.animate-spin]="item.status === 'uploading'" />{{ item.status === 'uploading' ? item.progress + '%' : uploadStatus(item.status).label }}
+                      <sd-icon [name]="uploadStatus(item.status).icon" [size]="12" [class.animate-spin]="item.status === 'uploading'" />{{ item.status === 'uploading' ? progressText(item.progress) : uploadStatus(item.status).label }}
                     </span>
                   </div>
                   @if (item.status === 'uploading') {
-                    <div
-                      class="h-1.5 w-full overflow-hidden rounded-full"
-                      [class]="extra().track"
-                      role="progressbar"
-                      aria-valuemin="0"
-                      aria-valuemax="100"
-                      [attr.aria-valuenow]="item.progress"
-                      [attr.aria-label]="'Uploading ' + item.file.name"
-                    >
-                      <div class="h-full rounded-full bg-cerulean transition-[width] duration-200 motion-reduce:transition-none" [style.width.%]="item.progress"></div>
-                    </div>
+                    <!-- Announced by the dialog's live region (liveStatus) -->
+                    <sd-upload-progress [progress]="item.progress" [label]="'Uploading ' + item.file.name" [trackClass]="extra().track" [announce]="false" />
                   }
                   @if (item.status === 'failed') {
                     <div class="flex items-start justify-between gap-3">
@@ -778,7 +775,13 @@ export class DocumentUploadDialog implements OnInit {
     const failedNote = failed > 0 ? ` ${failed} failed.` : '';
     if (this.step() === 'uploading') {
       const at = list.findIndex((i) => i.status === 'uploading');
-      if (at >= 0) return `Uploading ${list[at].file.name}, ${at + 1} of ${list.length}.${failedNote}`;
+      if (at >= 0) {
+        const { file, progress } = list[at];
+        // Once per file, and once more when every byte is sent (never per progress tick).
+        return progress.finishing
+          ? `${uploadFinishingText(file.name)} File ${at + 1} of ${list.length}.${failedNote}`
+          : `Uploading ${file.name}, ${at + 1} of ${list.length}.${failedNote}`;
+      }
       if (!this.running()) return `${this.doneItems().length} of ${list.length} uploaded.${failedNote}`;
     }
     if (this.step() === 'success') return `${this.uploadedSummary()}. ${this.outcomeLines().join(' ')}${failedNote}`;
@@ -1021,7 +1024,7 @@ export class DocumentUploadDialog implements OnInit {
           custom: '',
           typeTouched: false,
           status: 'queued',
-          progress: 0,
+          progress: UPLOAD_STARTED,
           error: '',
           result: null,
         });
@@ -1178,18 +1181,19 @@ export class DocumentUploadDialog implements OnInit {
       if (this.failedCount() === 0) this.step.set('success');
       return;
     }
-    this.patch(next.key, { status: 'uploading', progress: 0, error: '' });
+    this.patch(next.key, { status: 'uploading', progress: UPLOAD_STARTED, error: '' });
 
     this.api
       .upload(next.file, next.type, next.type === 'other' ? next.custom.trim() : undefined, this.batchShare ?? undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (event) => {
-          if (event.type === HttpEventType.UploadProgress && event.total) {
-            this.patch(next.key, { progress: Math.round((event.loaded / event.total) * 100) });
+          const progress = uploadProgressFrom(event);
+          if (progress) {
+            this.patch(next.key, { progress });
           } else if (event.type === HttpEventType.Response) {
             const doc = event.body?.data ?? null;
-            this.patch(next.key, { status: 'done', progress: 100, result: doc });
+            this.patch(next.key, { status: 'done', result: doc });
             this.uploadedCount += 1;
             if (doc) this.uploaded.emit(doc);
             this.uploadNext();
@@ -1203,14 +1207,14 @@ export class DocumentUploadDialog implements OnInit {
   }
 
   protected retry(key: number): void {
-    this.patch(key, { status: 'queued', progress: 0, error: '' });
+    this.patch(key, { status: 'queued', progress: UPLOAD_STARTED, error: '' });
     this.uploadNext();
     this.keepFocusInDialog(); // the row's Retry button is gone
   }
 
   protected retryFailed(): void {
     this.queue.update((list) =>
-      list.map((i): QueueItem => (i.status === 'failed' ? { ...i, status: 'queued', progress: 0, error: '' } : i)),
+      list.map((i): QueueItem => (i.status === 'failed' ? { ...i, status: 'queued', progress: UPLOAD_STARTED, error: '' } : i)),
     );
     this.uploadNext();
     this.keepFocusInDialog(); // the footer hides while the batch runs
@@ -1237,6 +1241,7 @@ export class DocumentUploadDialog implements OnInit {
   }
 
   // ----- Display helpers -----
+  protected readonly progressText = uploadProgressText;
   protected sizeLabel(bytes: number): string {
     return bytes >= 1024 * 1024
       ? `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1).replace(/\.0$/, '')}mb`

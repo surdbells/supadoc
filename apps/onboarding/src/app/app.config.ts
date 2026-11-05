@@ -3,7 +3,7 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
 } from '@angular/core';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { httpErrorInterceptor, provideSupadocDataAccess } from '@supadoc/data-access';
 import { provideSupadocIcons } from '@supadoc/ui';
@@ -17,9 +17,14 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(appRoutes, withInMemoryScrolling({ scrollPositionRestoration: 'top' })),
-    // httpErrorInterceptor outermost (normalises errors); the token interceptor
-    // innermost, so it sees the raw response to drop a dead token.
-    provideHttpClient(withInterceptors([httpErrorInterceptor, applicantTokenInterceptor])),
+    provideHttpClient(
+      // httpErrorInterceptor outermost (normalises errors); the token interceptor
+      // innermost, so it sees the raw response to drop a dead token.
+      withInterceptors([httpErrorInterceptor, applicantTokenInterceptor]),
+      // XHR, not the default fetch backend: only XHR reports upload progress,
+      // so upload bars fill as the file goes up instead of sitting at 0%.
+      withXhr(),
+    ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     provideSupadocIcons(),
   ],

@@ -19,6 +19,9 @@ import {
   fileExtension,
   isDoctorViewableName,
   LabRequestsApi,
+  UPLOAD_STARTED,
+  uploadProgressFrom,
+  type UploadProgress,
 } from '@supadoc/data-access';
 import type {
   LabResultUploadedDto,
@@ -31,6 +34,7 @@ import {
   IconComponent,
   type FileDropRejection,
   type LeaveCopy,
+  UploadProgressComponent,
   warnBeforeUnload,
 } from '@supadoc/ui';
 import {
@@ -83,7 +87,7 @@ export interface LabUploadRefused {
 @Component({
   selector: 'pat-lab-result-upload-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DialogComponent, FileDropComponent, IconComponent],
+  imports: [DialogComponent, FileDropComponent, IconComponent, UploadProgressComponent],
   template: `
     <sd-dialog
       [open]="open()"
@@ -349,23 +353,22 @@ export interface LabUploadRefused {
         @if (uploading()) {
           <div class="flex flex-col gap-2">
             <p
-              class="font-sans text-body-sm font-semibold text-(--sd-dialog-text)"
+              class="flex items-baseline justify-between gap-3 font-sans text-body-sm font-semibold text-(--sd-dialog-text)"
             >
-              Uploading…
+              <span>{{ progress().finishing ? 'Finishing…' : 'Uploading…' }}</span>
+              @if (!progress().finishing && progress().percent !== null) {
+                <!-- The progressbar carries the value for screen readers. -->
+                <span class="font-normal tabular-nums" aria-hidden="true"
+                  >{{ progress().percent }}%</span
+                >
+              }
             </p>
-            <div
-              class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
-              role="progressbar"
-              aria-label="Uploading…"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              [attr.aria-valuenow]="progress()"
-            >
-              <div
-                class="h-full rounded-full bg-cerulean transition-[width] duration-200 motion-reduce:transition-none"
-                [style.width.%]="progress()"
-              ></div>
-            </div>
+            <!-- Says "Your result is sent. Finishing up…" once every byte is out. -->
+            <sd-upload-progress
+              [progress]="progress()"
+              label="Uploading your result"
+              subject="Your result"
+            />
           </div>
         }
 
@@ -444,7 +447,7 @@ export class LabResultUploadDialog implements OnInit {
   protected readonly open = signal(true);
   /** A file is on the wire (the page asks before leaving; the tab warns before closing). */
   readonly uploading = signal(false);
-  protected readonly progress = signal(0);
+  protected readonly progress = signal<UploadProgress>(UPLOAD_STARTED);
   protected readonly file = signal<File | null>(null);
   protected readonly fileError = signal('');
   protected readonly docType = signal('');
@@ -621,7 +624,7 @@ export class LabResultUploadDialog implements OnInit {
           .map((d) => d.specialist.id)
           .filter((id) => !this.ticks()[id]);
     this.uploading.set(true);
-    this.progress.set(0);
+    this.progress.set(UPLOAD_STARTED);
     this.uploadSub?.unsubscribe();
     this.uploadSub = this.api
       .uploadResult(r.id, f, {
@@ -633,12 +636,10 @@ export class LabResultUploadDialog implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (event) => {
-          if (event.type === HttpEventType.UploadProgress && event.total) {
-            this.progress.set(
-              Math.min(100, Math.round((event.loaded / event.total) * 100)),
-            );
+          const progress = uploadProgressFrom(event);
+          if (progress) {
+            this.progress.set(progress);
           } else if (event.type === HttpEventType.Response) {
-            this.progress.set(100);
             this.uploading.set(false);
             const data = event.body?.data;
             if (data) this.uploaded.emit(data);
@@ -647,7 +648,7 @@ export class LabResultUploadDialog implements OnInit {
         },
         error: (err: unknown) => {
           this.uploading.set(false);
-          this.progress.set(0);
+          this.progress.set(UPLOAD_STARTED);
           if (apiErrorCode(err) === 'status_changed') {
             // Nothing was stored: the page says why and shows the request as it is now.
             this.refused.emit({

@@ -28,6 +28,11 @@ import {
   DocumentSharingApi,
   slotLabel,
   SpecialistsApi,
+  UPLOAD_STARTED,
+  uploadFinishingText,
+  uploadProgressFrom,
+  uploadProgressText,
+  type UploadProgress,
   WalletApi,
   ymdInZone,
   zoneAbbr,
@@ -56,6 +61,7 @@ import {
   shortDayLabel,
   StepperComponent,
   type LeaveCopy,
+  UploadProgressComponent,
   warnBeforeUnload,
   type FileDropRejection,
 } from '@supadoc/ui';
@@ -83,7 +89,7 @@ interface Attachment {
   readonly key: number;
   readonly file: File;
   readonly status: AttachStatus;
-  readonly progress: number;
+  readonly progress: UploadProgress;
   /** The API's message when the upload failed. */
   readonly error: string;
   /** The filed document once uploaded — its id goes in the booking. */
@@ -227,6 +233,7 @@ function daysApart(a: string, b: string): number {
     IconComponent,
     SimilarDoctors,
     StepperComponent,
+    UploadProgressComponent,
   ],
   providers: [AvailabilityCalendarStore],
   host: { class: 'block' },
@@ -786,7 +793,7 @@ function daysApart(a: string, b: string): number {
                           [name]="attachStatus(a.status).icon"
                           [size]="12"
                           [class.animate-spin]="a.status === 'uploading'"
-                        />{{ a.status === 'uploading' ? a.progress + '%' : attachStatus(a.status).label }}
+                        />{{ a.status === 'uploading' ? progressText(a.progress) : attachStatus(a.status).label }}
                       </span>
                       <button
                         type="button"
@@ -798,16 +805,8 @@ function daysApart(a: string, b: string): number {
                       </button>
                     </div>
                     @if (a.status === 'uploading') {
-                      <div
-                        class="h-1.5 w-full overflow-hidden rounded-full bg-frost"
-                        role="progressbar"
-                        aria-valuemin="0"
-                        aria-valuemax="100"
-                        [attr.aria-valuenow]="a.progress"
-                        [attr.aria-label]="'Uploading ' + a.file.name"
-                      >
-                        <div class="h-full rounded-full bg-cerulean transition-[width] duration-200" [style.width.%]="a.progress"></div>
-                      </div>
+                      <!-- Announced by the live region above (docsLiveStatus) -->
+                      <sd-upload-progress [progress]="a.progress" [label]="'Uploading ' + a.file.name" [announce]="false" />
                     }
                     @if (a.status === 'failed') {
                       <div class="flex items-start justify-between gap-3">
@@ -1408,11 +1407,13 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
   protected readonly docsLiveStatus = computed(() => {
     const list = this.attachments();
     const at = list.find((a) => a.status === 'uploading');
-    if (at) return `Uploading ${at.file.name}.`;
+    // Once per file, and once more when every byte is sent (never per progress tick).
+    if (at) return at.progress.finishing ? uploadFinishingText(at.file.name) : `Uploading ${at.file.name}.`;
     if (list.length === 0) return '';
     const failed = this.failedAttachments();
     return `${this.attachedSummary()}.${failed > 0 ? ` ${failed} failed.` : ''}`;
   });
+  protected readonly progressText = uploadProgressText;
   private nextDocKey = 1;
   /** The in-flight upload per attachment, so Remove can cancel it. */
   private readonly uploads = new Map<number, Subscription>();
@@ -2419,7 +2420,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       else if (current.length + added.length >= MAX_DOCS) {
         skipped.push({ name: file.name, reason: `You can attach up to ${MAX_DOCS} files to a booking.` });
       } else {
-        added.push({ key: this.nextDocKey++, file, status: 'queued', progress: 0, error: '', doc: null });
+        added.push({ key: this.nextDocKey++, file, status: 'queued', progress: UPLOAD_STARTED, error: '', doc: null });
       }
     }
     if (added.length > 0) this.attachments.set([...current, ...added]);
@@ -2455,7 +2456,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
   }
 
   protected retryAttachment(key: number): void {
-    this.patchAttachment(key, { status: 'queued', progress: 0, error: '' });
+    this.patchAttachment(key, { status: 'queued', progress: UPLOAD_STARTED, error: '' });
     this.keepDocsFocus(); // the row's Retry button is gone
     this.uploadNext();
   }
@@ -2469,7 +2470,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
     if (this.attachments().some((a) => a.status === 'uploading')) return;
     const next = this.attachments().find((a) => a.status === 'queued');
     if (!next) return;
-    this.patchAttachment(next.key, { status: 'uploading', progress: 0, error: '' });
+    this.patchAttachment(next.key, { status: 'uploading', progress: UPLOAD_STARTED, error: '' });
 
     // Hidden from every doctor with whole-folder access, except the ticked ones.
     const sub = this.appointments
@@ -2477,8 +2478,9 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (event) => {
-          if (event.type === HttpEventType.UploadProgress && event.total) {
-            this.patchAttachment(next.key, { progress: Math.round((event.loaded / event.total) * 100) });
+          const progress = uploadProgressFrom(event);
+          if (progress) {
+            this.patchAttachment(next.key, { progress });
           } else if (event.type === HttpEventType.Response) {
             const doc = event.body?.data ?? null;
             this.uploads.delete(next.key);
@@ -2488,7 +2490,7 @@ export class BookConsultation implements OnInit, HasUnsavedChanges {
             this.patchAttachment(
               next.key,
               doc?.id
-                ? { status: 'done', progress: 100, doc }
+                ? { status: 'done', doc }
                 : { status: 'failed', error: 'Upload failed. Please try again.' },
             );
             this.uploadNext();

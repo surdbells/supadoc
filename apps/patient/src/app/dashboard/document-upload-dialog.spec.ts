@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpEventType, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting, type TestRequest } from '@angular/common/http/testing';
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -216,6 +216,49 @@ describe('DocumentUploadDialog', () => {
     req.flush({ status: 'success', message: 'OK', data: uploaded() });
     await render();
     expect(text()).toContain('Kept private — only you can see them.');
+  });
+
+  it('shows real progress, then "Finishing…" (announced once) when every byte is sent, then the outcome', async () => {
+    await toShareStep([doctor('sp-1', 'Bayo Ade')], ['scan.pdf', 'labs.pdf']);
+    await click('Upload 2 files');
+    const req = nextUpload();
+    const bar = () => el.querySelector('[role="progressbar"]') as HTMLElement;
+    const live = () => el.querySelector('p.sr-only[aria-live="polite"]')?.textContent?.trim();
+    const pill = (i: number) => el.querySelectorAll('[aria-label="Upload progress"] li')[i]?.querySelector('span.rounded-pill')?.textContent?.trim();
+    expect(live()).toBe('Uploading scan.pdf, 1 of 2.');
+
+    req.event({ type: HttpEventType.UploadProgress, loaded: 250, total: 1000 });
+    await render();
+    expect(bar().getAttribute('aria-label')).toBe('Uploading scan.pdf');
+    expect(bar().getAttribute('aria-valuenow')).toBe('25');
+    expect(pill(0)).toBe('25%');
+    expect(live()).toBe('Uploading scan.pdf, 1 of 2.'); // not on every tick
+
+    // Every byte is out but the server hasn't answered: an indeterminate "Finishing…", not a frozen 100%.
+    req.event({ type: HttpEventType.UploadProgress, loaded: 1000, total: 1000 });
+    await render();
+    expect(bar().hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar().getAttribute('aria-valuetext')).toBe('Finishing…');
+    expect(bar().dataset['state']).toBe('finishing');
+    expect(pill(0)).toBe('Finishing…');
+    expect(live()).toBe('scan.pdf is sent. Finishing up… File 1 of 2.');
+    expect(text()).toContain('0 of 2 uploaded');
+
+    req.flush({ status: 'success', message: 'OK', data: uploaded() });
+    await render();
+    expect(text()).toContain('1 of 2 uploaded');
+    expect(live()).toBe('Uploading labs.pdf, 2 of 2.');
+    const second = nextUpload();
+    // The browser can't tell this one's size: a sweep saying "Uploading…", never a stuck 0%.
+    second.event({ type: HttpEventType.UploadProgress, loaded: 10 });
+    await render();
+    expect(bar().getAttribute('aria-valuetext')).toBe('Uploading…');
+    expect(pill(1)).toBe('Uploading…');
+    second.flush({ status: 'success', message: 'OK', data: uploaded({ id: 'd-2' }) });
+    await render();
+    expect(el.querySelector('[role="progressbar"]')).toBeNull();
+    expect(live()).toContain('2 documents uploaded.');
+    expect(host.docs.length).toBe(2);
   });
 
   it('renames Keep private and ticks folder doctors on the documents page; unticked ones are excluded', async () => {

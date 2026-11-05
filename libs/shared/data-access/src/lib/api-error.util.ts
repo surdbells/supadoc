@@ -21,8 +21,12 @@ export const NETWORK_ERROR_MESSAGE =
 export const SERVER_ERROR_MESSAGE =
   'The server ran into a problem. Please try again in a moment.';
 
-/** Angular's transport-layer message — never useful to a person, so we hide it. */
-const TRANSPORT_NOISE = /^Http failure response/i;
+/**
+ * Angular's transport-layer messages — never useful to a person (and they carry
+ * the full request URL), so we hide them: "Http failure response for <url>: …"
+ * and, for a 2xx whose body could not be read, "Http failure during parsing for <url>".
+ */
+const TRANSPORT_NOISE = /^Http failure (response|during parsing)/i;
 
 /** The API's opaque production 500 body — replace with a friendlier 5xx message. */
 const GENERIC_SERVER_TEXT = /^(internal server error|unexpected server error)$/i;
@@ -119,6 +123,7 @@ export function apiErrorReason(err: unknown): string | null {
 /**
  * The single best human-facing message for a thrown error. In priority order:
  *   1. a friendly connectivity message when no response reached us (status 0),
+ *      or the server-error message when a 2xx body could not be parsed,
  *   2. the first specific field-level validation error (machine tags such as
  *      `errors.code: "doctor_portal_only"` / `errors.status: "approved"`, and
  *      data such as `errors.available_at`, are never shown),
@@ -133,6 +138,13 @@ export function apiErrorMessage(err: unknown, fallback: string = GENERIC_ERROR_M
 
   // No HTTP response at all — offline, DNS, CORS, or the API is down.
   if (status === 0) return NETWORK_ERROR_MESSAGE;
+
+  // An error with a success status: the server answered 2xx but its body could
+  // not be read as JSON (e.g. a PHP notice printed before it). The XHR backend
+  // says "Http failure during parsing for <url>", the fetch backend passes the
+  // parser's SyntaxError ("Unexpected token '<'…"): neither is for a person,
+  // and the fault is the server's, so say that.
+  if (typeof status === 'number' && status >= 200 && status < 300) return SERVER_ERROR_MESSAGE;
 
   // A specific field error is the most useful thing we can show.
   const firstField = Object.entries(apiErrorFields(err)).find(

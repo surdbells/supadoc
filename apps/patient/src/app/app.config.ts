@@ -4,7 +4,7 @@ import {
   provideZoneChangeDetection,
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import {
   httpErrorInterceptor,
   provideSupadocDataAccess,
@@ -29,6 +29,9 @@ export const appConfig: ApplicationConfig = {
       // token about to expire before sending, and sees the raw 401 to refresh +
       // retry — so httpErrorInterceptor (outside) never logs a handled expiry.
       withInterceptors([httpErrorInterceptor, refreshInterceptor]),
+      // XHR, not the default fetch backend: only XHR reports upload progress,
+      // so upload bars fill as the file goes up instead of sitting at 0%.
+      withXhr(),
     ),
     provideSupadocDataAccess({
       baseUrl: environment.apiBaseUrl,

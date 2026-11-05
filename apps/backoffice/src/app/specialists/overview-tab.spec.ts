@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpEventType, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -217,6 +217,19 @@ describe('SpecialistOverviewTab — specialty and photo', () => {
     await render();
     expect(el.querySelector('[role="progressbar"]')).not.toBeNull();
     const upload = http.expectOne((r) => r.method === 'POST' && r.url === `${BASE}/api/specialists/s1/photo`);
+    const bar = () => el.querySelector('[role="progressbar"]') as HTMLElement;
+    const live = () => el.querySelector('bo-photo-picker [aria-live="polite"]')?.textContent?.trim();
+    upload.event({ type: HttpEventType.UploadProgress, loaded: 1, total: 4 });
+    await render();
+    expect(bar().getAttribute('aria-valuenow')).toBe('25');
+    expect(el.querySelector('bo-photo-picker')?.textContent).toContain('25%');
+    expect(live()).toBe('');
+    upload.event({ type: HttpEventType.UploadProgress, loaded: 4, total: 4 });
+    await render();
+    expect(bar().hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar().getAttribute('aria-valuetext')).toBe('Finishing…');
+    expect(el.querySelector('bo-photo-picker')?.textContent).toContain('Finishing…');
+    expect(live()).toBe('The photo is sent. Finishing up…');
     upload.flush(ok({ id: 's1', photo_url: '/uploads/avatars/dr-s1-abcd1234.webp' }));
     await render();
     expect(host.updates[0]?.profile?.photo_url).toBe('/uploads/avatars/dr-s1-abcd1234.webp');

@@ -23,6 +23,8 @@ import {
   CLINIC_TIME_ZONE,
   isValidTimeZone,
   SpecialistsApi,
+  UPLOAD_STARTED,
+  type UploadProgress,
   zoneAbbr,
   zoneLongName,
 } from '@supadoc/data-access';
@@ -424,8 +426,8 @@ export class SpecialistOverviewTab {
   readonly updated = output<Partial<SpecialistDetailDto>>();
 
   // ----- Photo (uploaded / removed on its own) -----
-  /** 0–100 while a photo uploads; null when idle. */
-  protected readonly photoProgress = signal<number | null>(null);
+  /** How far a photo has got while it uploads (`photoUploadStep`); null when idle. */
+  protected readonly photoProgress = signal<UploadProgress | null>(null);
   protected readonly photoError = signal('');
   protected readonly photoNotice = signal('');
   /** The picked file, shown while it uploads (an object URL). */
@@ -660,7 +662,7 @@ export class SpecialistOverviewTab {
     this.photoError.set('');
     this.photoNotice.set('');
     this.setPreview(URL.createObjectURL(file));
-    this.photoProgress.set(0);
+    this.photoProgress.set(UPLOAD_STARTED);
     const hadPhoto = !!this.detail().profile.photo_url;
     this.photoSub = this.api
       .uploadPhoto(id, file)

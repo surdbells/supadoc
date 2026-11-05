@@ -4,7 +4,7 @@ import {
   provideZoneChangeDetection,
 } from '@angular/core';
 import { provideRouter, RouteReuseStrategy } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import {
   httpErrorInterceptor,
   provideSupadocDataAccess,
@@ -33,6 +33,11 @@ export const appConfig: ApplicationConfig = {
       // staffAuthInterceptor is innermost: it sees the raw 401 to refresh + retry,
       // so httpErrorInterceptor never logs a handled token expiry.
       withInterceptors([doctorStandingInterceptor, httpErrorInterceptor, staffAuthInterceptor]),
+      // XHR, not the default fetch backend: only XHR reports upload progress, so
+      // any upload bar (the shared <sd-upload-progress>) fills as the file goes up
+      // instead of sitting at 0%. Nothing here uploads with a bar yet; this keeps
+      // every web app on the same transport.
+      withXhr(),
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Doctor silo: its own token key, and only `doctor` accounts may sign in.

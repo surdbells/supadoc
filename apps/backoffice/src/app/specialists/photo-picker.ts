@@ -10,14 +10,20 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { apiErrorFields, apiErrorMessage } from '@supadoc/data-access';
+import {
+  apiErrorFields,
+  apiErrorMessage,
+  uploadProgressFrom,
+  uploadProgressText,
+  type UploadProgress,
+} from '@supadoc/data-access';
 import {
   SPECIALIST_PHOTO_ACCEPT,
   SPECIALIST_PHOTO_MAX_BYTES,
   type SpecialistPhotoResultDto,
   type SuccessResponse,
 } from '@supadoc/models';
-import { FileDropComponent, IconComponent, type FileDropRejection } from '@supadoc/ui';
+import { FileDropComponent, IconComponent, UploadProgressComponent, type FileDropRejection } from '@supadoc/ui';
 import { SpecialistAvatar } from './specialist-avatar';
 
 /** The API's own wording (422 `errors.photo`), so a refusal reads the same either side. */
@@ -26,20 +32,16 @@ export const PHOTO_SIZE_ERROR = 'Image must be 2MB or smaller.';
 
 /** What one event of `SpecialistsApi.uploadPhoto()` means for the screen. */
 export interface PhotoUploadStep {
-  /** 0–100 while the file goes up (absent when the browser can't tell). */
-  readonly progress?: number;
+  /** How far the file has got while it goes up ("finishing" once every byte is sent). */
+  readonly progress?: UploadProgress;
   /** The updated specialist, once the server has stored the photo. */
   readonly result?: SpecialistPhotoResultDto;
 }
 
 export function photoUploadStep(event: HttpEvent<SuccessResponse<SpecialistPhotoResultDto>>): PhotoUploadStep {
-  if (event.type === HttpEventType.UploadProgress) {
-    return event.total ? { progress: Math.min(100, Math.round((event.loaded / event.total) * 100)) } : {};
-  }
-  if (event.type === HttpEventType.Response && event.body?.data) {
-    return { progress: 100, result: event.body.data };
-  }
-  return {};
+  if (event.type === HttpEventType.Response && event.body?.data) return { result: event.body.data };
+  const progress = uploadProgressFrom(event);
+  return progress ? { progress } : {};
 }
 
 /** Why an upload or removal failed, for the person: the photo field's own error first. */
@@ -58,13 +60,13 @@ let nextId = 0;
  * It only reports what the person did (`picked`, `remove`); the parent
  * uploads, confirms removal and passes `progress` / `error` back.
  *
- * `<bo-photo-picker [src]="previewUrl" [name]="name" [progress]="pct" [error]="err"
+ * `<bo-photo-picker [src]="previewUrl" [name]="name" [progress]="photoProgress" [error]="err"
  *    (picked)="upload($event)" (remove)="askRemove()" />`
  */
 @Component({
   selector: 'bo-photo-picker',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, FileDropComponent, SpecialistAvatar],
+  imports: [IconComponent, FileDropComponent, SpecialistAvatar, UploadProgressComponent],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -99,20 +101,19 @@ let nextId = 0;
             </button>
           }
         </div>
-        @if (uploading()) {
+        @if (progress(); as p) {
           <div class="flex items-center gap-3">
-            <div
-              class="h-2 min-w-0 flex-1 overflow-hidden rounded-pill bg-glacier"
-              role="progressbar"
-              aria-label="Uploading the photo"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              [attr.aria-valuenow]="progress()"
-            >
-              <div class="h-full rounded-pill bg-cerulean transition-[width] duration-200" [style.width.%]="progress() ?? 0"></div>
-            </div>
+            <!-- Says "The photo is sent. Finishing up…" once every byte is out. -->
+            <sd-upload-progress
+              class="min-w-0 flex-1"
+              [progress]="p"
+              label="Uploading the photo"
+              subject="The photo"
+              size="md"
+              trackClass="bg-glacier"
+            />
             <!-- The progressbar carries the value for screen readers. -->
-            <span class="font-sans text-caption tabular-nums text-slate" aria-hidden="true">{{ progress() }}%</span>
+            <span class="font-sans text-caption tabular-nums text-slate" aria-hidden="true">{{ progressText(p) }}</span>
           </div>
         }
         @if (shownError(); as e) {
@@ -129,8 +130,8 @@ export class PhotoPicker {
   readonly src = input<string | null>(null);
   /** For the initials when there is no photo. */
   readonly name = input('');
-  /** 0–100 while uploading; null when idle. */
-  readonly progress = input<number | null>(null);
+  /** How far the upload has got while one runs (`uploadProgressFrom`); null when idle. */
+  readonly progress = input<UploadProgress | null>(null);
   /** The parent's error (an upload or removal the server refused). */
   readonly error = input('');
   readonly disabled = input(false);
@@ -145,6 +146,7 @@ export class PhotoPicker {
   /** "Remove photo" was pressed (the parent confirms). */
   readonly remove = output<void>();
 
+  protected readonly progressText = uploadProgressText;
   protected readonly accept = SPECIALIST_PHOTO_ACCEPT;
   protected readonly maxBytes = SPECIALIST_PHOTO_MAX_BYTES;
   private readonly uid = ++nextId;

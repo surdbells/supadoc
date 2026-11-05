@@ -1,4 +1,5 @@
 import { computed, type Signal, signal } from '@angular/core';
+import { UPLOAD_STARTED, type UploadProgress } from '@supadoc/data-access';
 import type { ApplicationDocumentDto, ApplicationDocumentSlot } from '@supadoc/models';
 import type { StepSource } from '../core/step-source';
 import { bannerMessage } from '../core/errors';
@@ -76,7 +77,7 @@ export const UPLOAD_REQUIRED = 'Add this document to continue.';
 
 /** Per-slot upload progress and errors for a step's file fields. */
 export class SlotUploads {
-  readonly progress = signal<Record<string, number>>({});
+  readonly progress = signal<Record<string, UploadProgress>>({});
   readonly errors = signal<Record<string, string>>({});
 
   constructor(private readonly source: () => StepSource) {}
@@ -85,7 +86,7 @@ export class SlotUploads {
     return slot === 'additional' && label ? `additional:${label}` : slot;
   }
 
-  progressOf(key: string): number | null {
+  progressOf(key: string): UploadProgress | null {
     return this.progress()[key] ?? null;
   }
 
@@ -106,7 +107,7 @@ export class SlotUploads {
   pick(slot: ApplicationDocumentSlot, file: File, label?: string | null): void {
     const key = this.key(slot, label);
     this.setError(key, null);
-    this.progress.update((p) => ({ ...p, [key]: 0 }));
+    this.progress.update((p) => ({ ...p, [key]: UPLOAD_STARTED }));
     this.source()
       .upload(slot, file)
       .subscribe({

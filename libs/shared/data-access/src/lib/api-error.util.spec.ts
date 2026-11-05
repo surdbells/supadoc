@@ -4,6 +4,7 @@ import {
   apiErrorFields,
   apiErrorMessage,
   apiErrorReason,
+  SERVER_ERROR_MESSAGE,
 } from './api-error.util';
 
 describe('apiErrorMessage — machine tags', () => {
@@ -50,6 +51,41 @@ describe('apiErrorMessage — machine tags', () => {
         errors: { reason: 'Say why you are cancelling it' },
       }),
     ).toBe('Say why you are cancelling it');
+  });
+});
+
+describe('apiErrorMessage — a 2xx whose body could not be parsed', () => {
+  const CALL_URL = 'https://api.example.test/api/public/call/secret-token';
+
+  it('XHR shape ({ error, text }): the server-error message, never "Http failure during parsing for <url>"', () => {
+    const raw = new HttpErrorResponse({
+      status: 200,
+      statusText: 'OK',
+      url: CALL_URL,
+      error: { error: new SyntaxError('Unexpected token'), text: '<br />Deprecated…{"status":"success"}' },
+    });
+    expect(raw.message).toContain('Http failure during parsing');
+    const msg = apiErrorMessage(raw, 'Could not upload the file.');
+    expect(msg).toBe(SERVER_ERROR_MESSAGE);
+    expect(msg).not.toContain(CALL_URL);
+  });
+
+  it("fetch shape (the parser's SyntaxError): the server-error message, not the parser's words", () => {
+    const raw = new HttpErrorResponse({
+      status: 201,
+      url: CALL_URL,
+      error: new SyntaxError(`Unexpected token '<', "<br />Depr"... is not valid JSON`),
+    });
+    expect(apiErrorMessage(raw)).toBe(SERVER_ERROR_MESSAGE);
+  });
+
+  it('the transport text alone (no status) is noise too, whichever wording Angular used', () => {
+    expect(apiErrorMessage({ message: `Http failure during parsing for ${CALL_URL}` }, 'Fallback.')).toBe('Fallback.');
+    expect(apiErrorMessage({ message: `Http failure response for ${CALL_URL}: 502 Bad Gateway` }, 'Fallback.')).toBe('Fallback.');
+  });
+
+  it('a normalised ApiError from it keeps saying the same', () => {
+    expect(apiErrorMessage({ statusCode: 200, message: SERVER_ERROR_MESSAGE })).toBe(SERVER_ERROR_MESSAGE);
   });
 });
 

@@ -454,19 +454,33 @@ describe('LabResultUploadDialog', () => {
     await render();
   });
 
-  it('shows progress while uploading, then hands the result to the page and closes', async () => {
+  it('shows real progress, then "Finishing…" (announced) once sent, then hands the result to the page and closes', async () => {
     await open();
     await pick('result.pdf');
     await submit();
     const req = nextUpload();
     expect(dialog().uploading()).toBe(true);
-    req.event({ type: HttpEventType.UploadProgress, loaded: 1, total: 2 });
+    const bar = () => el.querySelector('[role="progressbar"]') as HTMLElement;
+    const live = () => el.querySelector('sd-upload-progress [aria-live="polite"]')?.textContent?.trim();
+    req.event({ type: HttpEventType.UploadProgress, loaded: 1, total: 4 });
     await render();
-    const bar = el.querySelector('[role="progressbar"]') as HTMLElement;
-    expect(bar.getAttribute('aria-valuenow')).toBe('50');
-    expect(bar.getAttribute('aria-label')).toBe('Uploading…');
+    expect(bar().getAttribute('aria-valuenow')).toBe('25');
+    expect(bar().getAttribute('aria-label')).toBe('Uploading your result');
+    expect(text()).toMatch(/Uploading…\s*25%/);
+    expect(live()).toBe('');
+    // Every byte sent, the server still working: not frozen at 100%.
+    req.event({ type: HttpEventType.UploadProgress, loaded: 4, total: 4 });
+    await render();
+    expect(bar().hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar().getAttribute('aria-valuetext')).toBe('Finishing…');
+    expect(text()).toContain('Finishing…');
+    expect(text()).not.toContain('100%');
+    expect(live()).toBe('Your result is sent. Finishing up…');
+    expect(dialog().uploading()).toBe(true);
     req.flush(response());
     await render();
+    // Done: the dialog has closed (the page shows the result).
+    expect(el.querySelector('[role="progressbar"]')).toBeNull();
     expect(host.uploads).toHaveLength(1);
     expect(host.uploads[0].result.share_outcome).toBe('shared');
   });

@@ -13,8 +13,9 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { uploadProgressText, type UploadProgress } from '@supadoc/data-access';
 import { APPLICATION_MAX_UPLOAD_BYTES, APPLICATION_UPLOAD_ACCEPT, type ApplicationDocumentDto } from '@supadoc/models';
-import { fileMatchesAccept, IconComponent } from '@supadoc/ui';
+import { fileMatchesAccept, IconComponent, UploadProgressComponent } from '@supadoc/ui';
 import { formatBytes } from '../core/format';
 
 export const UPLOAD_HINT = 'PDF, PNG or JPG, up to 5MB';
@@ -35,8 +36,9 @@ export function fileProblem(file: File): string | null {
  * then either the drop zone (Snow fill, Haze hairline: "Click to upload or drag
  * and drop", "PDF, PNG or JPG, up to 5MB") or the uploaded row (Sage/10 fill,
  * Sage border, file disc, name, "{size} · Uploaded", Replace, trash). While a
- * file uploads a progress bar shows; refused files and failures show an alert
- * line. When an upload finishes, focus moves to the file name.
+ * file uploads a progress bar shows ("42%", then "Finishing…" — announced —
+ * once every byte is sent); refused files and failures show an alert line.
+ * When an upload finishes, focus moves to the file name.
  *
  * It only checks type and size; the page uploads on `pick` and sets
  * `document`, `progress` and `error`.
@@ -44,7 +46,7 @@ export function fileProblem(file: File): string | null {
 @Component({
   selector: 'onb-file-field',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, UploadProgressComponent],
   host: { class: 'flex min-w-0 flex-col' },
   template: `
     <!-- prettier-ignore -->
@@ -126,17 +128,10 @@ export function fileProblem(file: File): string | null {
           <span class="mt-1 font-sans text-caption text-slate">{{ uploadHint }}</span>
         </button>
       }
-      @if (progress() !== null) {
-        <div
-          class="mt-2 h-1.5 overflow-hidden rounded-full bg-frost"
-          role="progressbar"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          [attr.aria-valuenow]="progress()"
-          [attr.aria-label]="'Uploading ' + label()"
-        >
-          <div class="h-full rounded-full bg-cerulean transition-[width]" [style.width.%]="progress()"></div>
-        </div>
+      @if (progress(); as p) {
+        <sd-upload-progress class="mt-2" [progress]="p" [label]="'Uploading ' + label()" [subject]="label()" />
+        <!-- The progressbar (and its announcement) carry this for screen readers. -->
+        <p class="mt-1 font-label text-caption tabular-nums text-slate" aria-hidden="true">{{ progressText(p) }}</p>
       }
       @if (shownError()) {
         <p [id]="errorId" role="alert" class="mt-1 font-label text-caption text-alert">{{ shownError() }}</p>
@@ -156,8 +151,8 @@ export class FileFieldComponent {
   readonly hint = input<string | null>(null);
   readonly required = input(false);
   readonly document = input<ApplicationDocumentDto | null>(null);
-  /** 0–100 while uploading, else null. */
-  readonly progress = input<number | null>(null);
+  /** How far the upload has got while one runs, else null. */
+  readonly progress = input<UploadProgress | null>(null);
   /** An upload / server error from the page. */
   readonly error = input<string | null>(null);
   /** Read-only (info mode, not in the open request). */
@@ -173,6 +168,7 @@ export class FileFieldComponent {
 
   protected readonly accept = APPLICATION_UPLOAD_ACCEPT;
   protected readonly uploadHint = UPLOAD_HINT;
+  protected readonly progressText = uploadProgressText;
   protected readonly titleId = `onb-file-${++nextId}`;
   protected readonly errorId = `${this.titleId}-error`;
   private readonly localError = signal<string | null>(null);

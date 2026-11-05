@@ -31,3 +31,4 @@ export * from './lib/smooth-height/smooth-height';
 export * from './lib/call-controls/call-controls';
 export * from './lib/call-controls/call-quality';
 export * from './lib/time-zone-picker/time-zone-picker';
+export * from './lib/upload-progress/upload-progress';
