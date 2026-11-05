@@ -63,9 +63,7 @@ import { AlertComponent, ButtonComponent, InputComponent } from '@supadoc/ui';
         <div class="flex flex-col gap-4 text-center">
           <h2 class="font-heading text-h2 text-ink">Sign In with your Email</h2>
           <p class="text-h5 text-slate">
-            Enter your email to log in to
-            <span class="text-cerulean">Video</span
-            ><span class="text-teal">Med</span> your account
+            Enter your email to log in to your account
           </p>
         </div>
 
