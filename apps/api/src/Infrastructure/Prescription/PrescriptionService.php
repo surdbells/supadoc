@@ -298,6 +298,8 @@ final class PrescriptionService
             );
             $state = $this->formState($rx);
             $state['valid_until'] = null;
+            // A new prescription: "medicines already taken" is no longer on the form.
+            $state['current_medications'] = null;
             $this->apply($replacement, $state, $today);
             $replacement->markReplaces($rx->getId());
             $this->prescriptions->persist($replacement);
@@ -473,8 +475,9 @@ final class PrescriptionService
     /**
      * Read-only patient information for the doctor while prescribing (AC1–AC6):
      * allergies most serious first, latest readings (flagged when older than 7
-     * days), current medicines grouped by what they are for, and whether to ask
-     * the pregnancy question.
+     * days), conditions, and whether to ask the pregnancy question. The
+     * patient's own medicines list is not part of it: the panel no longer shows
+     * it, so it is not sent (data minimisation).
      */
     public function clinicalSummary(Patient $patient): array
     {
@@ -492,21 +495,6 @@ final class PrescriptionService
             ];
         }, $medical['allergies'] ?? []);
         usort($allergies, static fn (array $a, array $b): int => $rank[$a['severity']] <=> $rank[$b['severity']]);
-
-        $groups = [];
-        foreach ($medical['medications'] ?? [] as $m) {
-            $for = trim((string) ($m['reason'] ?? ''));
-            $groups[$for !== '' ? $for : 'Not stated'][] = [
-                'name'      => (string) ($m['name'] ?? ''),
-                'amount'    => (string) ($m['dosage'] ?? ''),
-                'frequency' => (string) ($m['frequency'] ?? ''),
-                'herbal'    => in_array(strtolower((string) ($m['herbal'] ?? '')), ['1', 'yes', 'true', 'on'], true),
-            ];
-        }
-        $medicines = [];
-        foreach ($groups as $for => $rows) {
-            $medicines[] = ['for' => $for, 'items' => $rows];
-        }
 
         // Same list the call screens show; `source` stays a label here, and
         // self-reported readings say so ("Self-reported").
@@ -536,7 +524,6 @@ final class PrescriptionService
             'allergies'          => $allergies,
             'ask_pregnancy'      => PrescriptionForm::asksPregnancy($patient->getGender(), $dob, $today),
             'vitals'             => $vitals,
-            'medicines'          => $medicines,
             'conditions'         => array_values(array_map(
                 static fn (array $c): string => trim(((string) ($c['condition'] ?? '')) . (($c['status'] ?? '') !== '' ? ' (' . $c['status'] . ')' : '')),
                 $medical['conditions'] ?? [],

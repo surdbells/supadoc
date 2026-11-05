@@ -966,7 +966,7 @@ return [
             'post' => [
                 'tags' => ['Prescriptions'],
                 'summary' => 'Start a draft prescription',
-                'description' => 'With appointment_id it belongs to that consultation (during or after the call); otherwise patient_id must be a patient the doctor has consulted. The rest of the body is the (possibly partial) GVM-F-RX-01 form: readings, reason, icd_code, current_medications, pregnancy_status, items[{rxcui, dose, route, frequency, duration, quantity, repeats, no_substitute, instructions}], advice, follow_up_date, follow_up_mode, tests_referrals, valid_until, allows_repeats.',
+                'description' => 'With appointment_id it belongs to that consultation (during or after the call); otherwise patient_id must be a patient the doctor has consulted. The rest of the body is the (possibly partial) GVM-F-RX-01 form: readings, reason, icd_code, pregnancy_status, items[{rxcui, dose, route, frequency, duration, quantity, repeats, no_substitute, instructions}], advice, follow_up_date, follow_up_mode, tests_referrals, valid_until, allows_repeats. A legacy current_medications (≤110 chars) is still accepted from older clients; the form no longer sends it.',
                 'responses' => ['201' => ['description' => 'Draft created (numbered GVM-RX-YYYYMMDD-NNNNN)'], '404' => ['$ref' => '#/components/responses/NotFound'], '422' => ['$ref' => '#/components/responses/Validation']],
             ],
         ],
@@ -990,7 +990,7 @@ return [
             'post' => ['tags' => ['Prescriptions'], 'summary' => 'Signed short-lived URL to the PDF {download?} (drafts carry a DRAFT watermark)', 'responses' => ['200' => ['description' => '{url, expires_at, filename}'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/doctor/patients/{id}/clinical-summary' => [
-            'get' => ['tags' => ['Prescriptions'], 'summary' => 'Read-only side panel: allergies (most serious first), latest readings, current medicines, pregnancy question flag', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'get' => ['tags' => ['Prescriptions'], 'summary' => 'Read-only side panel: patient, allergies (most serious first), latest readings, conditions, pregnancy question flag', 'responses' => ['200' => ['description' => 'OK'], '404' => ['$ref' => '#/components/responses/NotFound']]],
         ],
         '/api/doctor/signature' => [
             'get'    => ['tags' => ['Prescriptions'], 'summary' => 'My saved signature {has_signature, image}', 'responses' => ['200' => ['description' => 'OK'], '403' => ['$ref' => '#/components/responses/Forbidden']]],

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit;
 
 use App\Domain\Entity\Drug;
+use App\Domain\Entity\Patient;
 use App\Domain\Entity\Prescription;
 use App\Domain\Entity\PrescriptionCheckThrottle;
 use App\Infrastructure\Drug\DrugRoute;
@@ -12,6 +13,7 @@ use App\Infrastructure\Drug\DrugSearchTerms;
 use App\Infrastructure\Prescription\PrescriptionForm;
 use App\Infrastructure\Prescription\PrescriptionNumberGenerator;
 use App\Infrastructure\Prescription\PrescriptionPdfRenderer;
+use App\Infrastructure\Prescription\PrescriptionService;
 use App\Infrastructure\Prescription\SignatureStore;
 use App\Infrastructure\Service\JwtService;
 use App\Infrastructure\Storage\FileVault;
@@ -225,6 +227,56 @@ final class PrescriptionTest extends TestCase
         $this->assertSame(2, preg_match_all('#/Type /Page\b#', $pdf));
     }
 
+    public function testPdfPrintsMedicinesAlreadyTakenOnlyOnPrescriptionsThatHaveThem(): void
+    {
+        $render = function (?string $taken): string {
+            $rx = new Prescription('p-1', 's-1', 'a-1', 'GVM-RX-20261105-00001', new DateTimeImmutable('2026-12-05'));
+            $rx->setItems([$this->row(['name' => 'amoxicillin 500 MG Oral Capsule', 'route' => 'Oral'])]);
+            $rx->setConsultation('Acute sinusitis', 'CA01', $taken, 'no');
+            $rx->send(['name' => 'Dr. Grace Bell'], ['name' => 'Amaka Okafor'], 'saved', null, new DateTimeImmutable('2026-11-05T09:00:00Z'));
+
+            return self::pdfText((new PrescriptionPdfRenderer())->render($rx, ['name' => 'Amaka Okafor'], ['name' => 'Dr. Grace Bell'], null, 'https://example.test/check-prescription'));
+        };
+
+        // New prescriptions: the form no longer asks, so there is no line at all.
+        $new = $render(null);
+        $this->assertStringContainsString('(Reason for the prescription) Tj', $new);
+        $this->assertStringNotContainsString('Medicines already taken', $new);
+        $this->assertStringNotContainsString('None recorded', $new);
+
+        // An older prescription that has one still prints it.
+        $old = $render('Metformin 500 mg twice daily');
+        $this->assertStringContainsString('(Medicines already taken) Tj', $old);
+        $this->assertStringContainsString('(Metformin 500 mg twice daily) Tj', $old);
+
+        // Without the line the layout closes up: what follows sits one line (4.6 mm) higher.
+        $shift = self::textY($new, 'Medicines') - self::textY($old, 'Medicines');
+        $this->assertEqualsWithDelta(4.6 * 72 / 25.4, $shift, 0.02);
+    }
+
+    public function testClinicalSummaryLeavesOutThePatientsOwnMedicines(): void
+    {
+        $patient = new Patient('amaka@example.test', 'Amaka', 'Okafor');
+        $patient->setGender('female');
+        $patient->setDateOfBirth(new DateTimeImmutable('1990-01-01'));
+        $patient->setMedical([
+            'allergies'   => [['allergen' => 'Penicillin', 'severity' => 'severe', 'reaction' => 'Rash']],
+            'medications' => [['name' => 'Metformin', 'dosage' => '500 mg', 'frequency' => 'Twice daily', 'reason' => 'Diabetes', 'herbal' => '']],
+            'conditions'  => [['condition' => 'Asthma', 'status' => 'active', 'since' => '']],
+        ]);
+        // The summary needs none of the service's collaborators.
+        $summary = (new \ReflectionClass(PrescriptionService::class))->newInstanceWithoutConstructor()->clinicalSummary($patient);
+
+        // The side panel no longer shows them, so they are not sent (data minimisation).
+        $this->assertSame(['patient', 'allergies_recorded', 'allergies', 'ask_pregnancy', 'vitals', 'conditions'], array_keys($summary));
+        $json = (string) json_encode($summary);
+        $this->assertStringNotContainsString('Metformin', $json);
+        $this->assertStringNotContainsString('Diabetes', $json);
+        $this->assertSame('Penicillin', $summary['allergies'][0]['substance']);
+        $this->assertSame(['Asthma (active)'], $summary['conditions']);
+        $this->assertTrue($summary['ask_pregnancy']);
+    }
+
     // ----- signed links, vault, signatures, throttle -----
 
     public function testFileLinksVerifyAndAreTypeScoped(): void
@@ -285,5 +337,30 @@ final class PrescriptionTest extends TestCase
         $this->assertNull($t->lockedUntil($now->modify('+16 minutes')), 'lock runs out');
         $t->reset($now);
         $this->assertSame(0, $t->getFailures());
+    }
+
+    // ----- helpers -----
+
+    /** The inflated page streams of a PDF (FPDF's text-drawing operators). */
+    private static function pdfText(string $pdf): string
+    {
+        $out = '';
+        if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf, $m) > 0) {
+            foreach ($m[1] as $stream) {
+                $plain = @gzuncompress($stream);
+                $out  .= ($plain !== false ? $plain : $stream) . "\n";
+            }
+        }
+
+        return $out;
+    }
+
+    /** Where (PDF points from the page bottom) a piece of text is drawn first. */
+    private static function textY(string $text, string $label): float
+    {
+        $found = preg_match('/BT [\d.]+ ([\d.]+) Td \(' . preg_quote($label, '/') . '\) Tj ET/', $text, $m);
+        self::assertSame(1, $found, "\"{$label}\" is drawn");
+
+        return (float) $m[1];
     }
 }

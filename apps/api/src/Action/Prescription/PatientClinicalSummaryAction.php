@@ -15,8 +15,8 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * GET /api/doctor/patients/{id}/clinical-summary — the read-only side panel
  * shown while prescribing: allergies (most serious first), latest readings,
- * current medicines grouped by what they're for, and whether to ask the
- * pregnancy question. Only for a patient this doctor has consulted.
+ * conditions, and whether to ask the pregnancy question. Only for a patient
+ * this doctor has consulted.
  */
 final class PatientClinicalSummaryAction
 {

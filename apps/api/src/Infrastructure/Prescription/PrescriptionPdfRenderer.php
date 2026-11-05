@@ -12,8 +12,9 @@ use DateTimeZone;
 /**
  * Renders a prescription as the branded GVM-F-RX-01 PDF (A4, well under 1 MB):
  * header with the VideoMed mark and the prescription number, patient and
- * prescriber details, the ten health-reading boxes, reason / illness code /
- * current medicines, five numbered medicine rows per page (an extra page,
+ * prescriber details, the ten health-reading boxes, reason / illness code (and
+ * medicines already taken, on older prescriptions that have them), five
+ * numbered medicine rows per page (an extra page,
  * "Page 2 of 2", for medicines 6-10), advice and follow-up, the signature, an
  * empty "For pharmacy use only" box sized for a standard 40x25 mm stamp, and the
  * check-page address. A status watermark (DRAFT / EXPIRED / CANCELLED) can be
@@ -285,6 +286,13 @@ final class PrescriptionPdfRenderer
         $pdf->SetFont('Helvetica', '', 8.6);
         $this->text($pdf, self::INK);
         $pdf->Text(self::M + 42, $y + 1.2, PrescriptionPdf::enc($rx->getIcdCode() ?? '-'));
+
+        // Older prescriptions only: the form no longer asks for medicines
+        // already taken. Without one the line is left out and the layout closes up.
+        $taken = $rx->getCurrentMedications();
+        if ($taken === null || trim($taken) === '') {
+            return $y + 4.8;
+        }
         $y += 4.6;
 
         $pdf->SetFont('Helvetica', 'B', 7.6);
@@ -292,7 +300,7 @@ final class PrescriptionPdfRenderer
         $pdf->Text(self::M, $y + 1.2, 'Medicines already taken');
         $pdf->SetFont('Helvetica', '', 8.6);
         $this->text($pdf, self::INK);
-        $current = $pdf->wrap((string) ($rx->getCurrentMedications() ?? 'None recorded'), self::W - 44, 1);
+        $current = $pdf->wrap($taken, self::W - 44, 1);
         $pdf->Text(self::M + 42, $y + 1.2, $current[0] ?? '-');
 
         return $y + 4.8;
