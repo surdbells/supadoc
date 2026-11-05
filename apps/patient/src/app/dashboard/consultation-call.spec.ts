@@ -720,6 +720,8 @@ describe('ConsultationCall (the dock)', () => {
       expect(text).toContain('Back to call');
       expect(text).toContain('Dr Ade ·');
       expect(text).toContain('Mute');
+      // Their labels are screen-reader-only in the viewer's one-row band on a phone held sideways (§1.3.5).
+      expect(nodesOf(band).flatMap((n) => Array.from(n.querySelectorAll('[data-band-label]'))).map((l) => l.textContent?.trim())).toEqual(['Back to call', 'Mute']);
       expect(query(band, 'button[aria-label="End call"]')).toBeTruthy();
       nodesOf(band)
         .find((n) => n.textContent?.includes('Back to call'))
@@ -746,6 +748,9 @@ describe('ConsultationCall (the dock)', () => {
       const pip = render(c.peer);
       expect(nodesOf(pip).some((n) => n.tagName.toLowerCase() === 'sd-call-peer-tile')).toBe(true);
       expect(CallPeerTileComponent).toBeTruthy();
+      // Under the doctor's full name, as on the stage: initials "BA", not "A" from the band's "Dr Ade".
+      expect(query(pip, '.sdv-peer-off span')?.textContent?.trim()).toBe('BA');
+      expect(query(pip, '[role="img"]')?.getAttribute('aria-label')).toBe('Dr Bayo Ade, live video. Camera off');
       pip.destroy();
     });
 

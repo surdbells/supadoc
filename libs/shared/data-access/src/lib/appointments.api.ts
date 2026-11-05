@@ -355,7 +355,11 @@ export class AppointmentsApi {
     );
   }
 
-  /** GET a rendered clinical document as HTML (open via openClinicalDocument). */
+  /**
+   * GET a rendered clinical document as HTML (the original route). The apps
+   * show referrals and certificates as PDFs in the shared viewer instead: see
+   * {@link documentPdf}.
+   */
   document(
     id: string,
     kind: ClinicalDocumentKind,

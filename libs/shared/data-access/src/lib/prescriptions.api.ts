@@ -21,55 +21,6 @@ export function apiFileUrl(baseUrl: string, path: string): string {
 }
 
 /**
- * Open a signed file link obtained asynchronously without tripping popup
- * blockers: call this synchronously from the click handler, then `go(url)` once
- * the link arrives (or `fail()` to close the placeholder tab).
- *
- * `go()` returns true when the file opened in the new tab. If the browser
- * blocked the tab (or the user closed it first) it falls back to opening the
- * file in the current tab — unless `allowSameTab: false` is passed (e.g. during
- * a live video call, where leaving the page would end the call), in which case
- * it returns false and the caller should offer a link to open it instead.
- *
- * @deprecated Open prescriptions and lab request PDFs in the shared viewer
- * (`DocumentViewerService` with `signedLinkSource`, `@supadoc/viewer`) and save
- * them with `saveSignedLink`. Removed once every site has moved.
- */
-export function openPendingTab(options: { allowSameTab?: boolean } = {}): {
-  go: (url: string) => boolean;
-  fail: () => void;
-} {
-  const allowSameTab = options.allowSameTab ?? true;
-  let win: Window | null = null;
-  try {
-    win = window.open('', '_blank');
-    if (win) {
-      win.opener = null;
-      win.document.title = 'Opening prescription…';
-      win.document.body.textContent = 'Opening your prescription…';
-    }
-  } catch {
-    win = null;
-  }
-  return {
-    go: (url: string) => {
-      if (win && !win.closed) {
-        win.location.href = url;
-        return true;
-      }
-      if (allowSameTab) {
-        window.location.href = url;
-        return true;
-      }
-      return false;
-    },
-    fail: () => {
-      if (win && !win.closed) win.close();
-    },
-  };
-}
-
-/**
  * Patient prescriptions (`/api/portal/prescriptions*`), the public pharmacist
  * check, and the back-office prescription settings / staff access.
  */

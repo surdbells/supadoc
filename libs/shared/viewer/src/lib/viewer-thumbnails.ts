@@ -4,7 +4,6 @@ import {
   Component,
   computed,
   DestroyRef,
-  effect,
   ElementRef,
   inject,
   input,
@@ -105,17 +104,18 @@ export class ViewerThumbnailsComponent {
   private generation = 0;
 
   constructor() {
-    // A new document, rotation or watermark: everything is drawn again.
-    effect(() => {
-      this.pdf();
-      this.rotation();
-      this.watermark();
-      untracked(() => this.reset());
-    });
+    // A new document, page count, rotation or watermark: everything is dropped and drawn
+    // again. One effect, after render (the buttons exist), so a reset is always followed by
+    // a new observer: a reset alone (rotation) left every canvas blank.
     afterRenderEffect(() => {
       const pdf = this.pdf();
       this.count();
-      untracked(() => this.observe(pdf));
+      this.rotation();
+      this.watermark();
+      untracked(() => {
+        this.reset();
+        this.observe(pdf);
+      });
     });
     // Keep the current page's thumbnail in view.
     afterRenderEffect(() => {

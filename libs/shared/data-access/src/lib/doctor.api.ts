@@ -317,23 +317,6 @@ export class DoctorApi {
   }
 
   /**
-   * GET a patient document's bytes (authenticated). Every open is recorded and
-   * shown to the patient. 404 `errors.code = 'not_shared'` when it is no longer
-   * shared with you; 503 `view_unavailable` when the open could not be
-   * recorded (nothing is streamed then).
-   *
-   * @deprecated Doctors may only view or print patient documents: use
-   * {@link patientDocumentView} in the view-only viewer. The API now refuses
-   * this request (409 `update_required`: it lacks `X-SD-Viewer`). Removed once
-   * every preview opens in the shared viewer (`@supadoc/viewer`).
-   */
-  patientDocumentBlob(id: string, docId: string): Observable<Blob> {
-    return this.api.getBlob(
-      `${this.base(id)}/patient-documents/${encodeURIComponent(docId)}/file`,
-    );
-  }
-
-  /**
    * GET a patient document for the view-only viewer (sends `X-SD-Viewer: 1`).
    * Every view is recorded and shown to the patient. `viewRef` is the API's
    * `X-SD-View-Ref` when well-formed, else null (an older API sends none);
@@ -868,7 +851,11 @@ export class DoctorApi {
     );
   }
 
-  /** GET a rendered clinical document as HTML (open via openClinicalDocument). */
+  /**
+   * GET a rendered clinical document as HTML (the original route). The doctor
+   * app shows referrals and certificates as PDFs in the shared viewer instead:
+   * see {@link documentPdf}.
+   */
   document(
     id: string,
     kind: ClinicalDocumentKind,

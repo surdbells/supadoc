@@ -55,13 +55,17 @@ import type {
 } from './viewer-types';
 import {
   clampZoom,
+  FIT_ZOOM_MIN,
   MAX_CANVAS_AREA,
   MENU_ZOOMS,
   nextZoom,
+  pageInset,
   PDF_TO_CSS,
   renderScale,
   rotatedSize,
   stagePadding,
+  ZOOM_MIN,
+  zoomFloor,
   type ZoomMode,
   zoomFor,
   zoomPercent,
@@ -177,6 +181,8 @@ function inMenu(el: EventTarget | null): boolean {
 const BODY_CSS = `
 sd-document-viewer{display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;color:var(--sd-viewer-text);background:var(--sd-viewer-chrome)}
 sd-document-viewer.sdv-modal{flex:1 1 0%}
+sd-document-viewer:fullscreen{border:0;border-radius:0}
+sd-document-viewer:-webkit-full-screen{border:0;border-radius:0}
 @media print{sd-document-viewer{display:none!important}}
 .sdv-deter{-webkit-touch-callout:none;-webkit-user-drag:none}
 .sdv-c{background:var(--sd-viewer-chrome)}
@@ -302,13 +308,15 @@ sd-document-viewer.sdv-modal{flex:1 1 0%}
                 </div>
               }
               @case ('pdf') {
-                <div #column class="sdv-col flex flex-col items-center gap-4" [style.visibility]="covered() ? 'hidden' : null">
+                <!-- Each page is centred on the stage's client width (its own inset), not in the widest page's column (§1.5.2). -->
+                <div #column class="sdv-col flex flex-col items-start gap-4" [style.visibility]="covered() ? 'hidden' : null">
                   @for (p of pageNumbers(); track p) {
                     <div
                       class="sdv-page relative shrink-0 shadow-card"
                       [attr.data-page]="p"
                       [style.width.px]="holderWidth(p)"
                       [style.height.px]="holderHeight(p)"
+                      [style.margin-left.px]="holderInset(p)"
                       [style.--scale-factor]="cssScale()"
                       [attr.role]="policy().textLayer ? 'group' : null"
                       [attr.aria-label]="policy().textLayer ? c.pageOf(p, pageCount()) : null"
@@ -327,7 +335,7 @@ sd-document-viewer.sdv-modal{flex:1 1 0%}
               }
               @case ('image') {
                 <div class="sdv-image flex items-start justify-center" [style.visibility]="covered() ? 'hidden' : null">
-                  <canvas #imageCanvas role="img" [attr.aria-label]="source().title" [style.width.px]="imageCss().width" [style.height.px]="imageCss().height"></canvas>
+                  <canvas #imageCanvas class="shadow-card" role="img" [attr.aria-label]="source().title" [style.width.px]="imageCss().width" [style.height.px]="imageCss().height"></canvas>
                 </div>
               }
               @case ('video') {
@@ -444,7 +452,7 @@ sd-document-viewer.sdv-modal{flex:1 1 0%}
         (keydown)="onToolbarKey($event)"
       >
         @for (t of tools(); track t.id; let i = $index) {
-          @if (t.sep && barPlace() === 'top') {
+          @if (t.sep && !compactTools()) {
             <span class="sdv-sep h-7 w-px shrink-0" aria-hidden="true"></span>
           }
           <button
@@ -688,6 +696,13 @@ export class DocumentViewerComponent {
     const stage = { width: this.stageW() || 800, height: this.stageH() || 600 };
     return zoomFor(this.zoomMode(), this.customZoom(), kind === 'image' ? 'image' : 'pdf', stage, page, this.padding());
   });
+  /** The lowest zoom out, a gesture or a custom zoom goes: 25 %, or the fit page of a large photo (§1.5.1). */
+  private readonly minZoom = computed(() => {
+    const shown = this.shown();
+    if (shown !== 'pdf' && shown !== 'image') return ZOOM_MIN;
+    const page = shown === 'image' ? this.imageSize() : this.pageSize(1);
+    return zoomFloor(this.stageW() || 800, this.stageH() || 600, page.width, page.height, this.padding());
+  });
   protected readonly cssScale = computed(() => this.zoom() * PDF_TO_CSS);
   protected readonly firstAspect = computed(() => {
     const s = this.pageSize(1);
@@ -779,6 +794,17 @@ export class DocumentViewerComponent {
     const d = this.doc as Document & { webkitFullscreenEnabled?: boolean };
     return !!(d.fullscreenEnabled || d.webkitFullscreenEnabled);
   });
+  /**
+   * The phone tool set (§1.3.3): page "n/N" opening the page sheet; Rotate, Print,
+   * Download and Keyboard shortcuts in "More options". The bottom and side bars,
+   * and an embedded viewer's top bar on a phone, where the desktop set (356 px)
+   * ran out of a 333 px dialog.
+   */
+  protected readonly compactTools = computed(() => {
+    if (this.barPlace() !== 'top') return true;
+    const l = this.layout();
+    return this.mode() === 'embedded' && (l === 'phone' || l === 'compact');
+  });
 
   protected readonly tools = computed<readonly Tool[]>(() => {
     const shown = this.shown();
@@ -786,12 +812,12 @@ export class DocumentViewerComponent {
     const visual = shown === 'pdf' || shown === 'image';
     const isVideo = shown === 'video';
     const multi = this.multiPage();
-    const place = this.barPlace();
     const z = this.zoom();
     const page = this.currentPage();
     const total = this.pageCount();
     const out: Tool[] = [];
-    const compactBar = place !== 'top';
+    const compactBar = this.compactTools();
+    const place = this.barPlace();
     if (multi || (loading && !this.imageHint())) {
       const open = this.railPlace() === 'sheet' ? this.sheetOpen() : this.railOpen();
       out.push({
@@ -804,7 +830,7 @@ export class DocumentViewerComponent {
       });
     }
     if (visual || loading) {
-      out.push({ id: 'zoomOut', label: copy.ZOOM_OUT, icon: 'zoom-out', disabled: loading || z <= 0.2501, sep: out.length > 0 });
+      out.push({ id: 'zoomOut', label: copy.ZOOM_OUT, icon: 'zoom-out', disabled: loading || z <= this.minZoom() + 0.0001, sep: out.length > 0 });
       out.push({ id: 'zoom', label: copy.zoomLevel(zoomPercent(z)), text: `${zoomPercent(z)}%`, disabled: loading, popup: 'menu' });
       out.push({ id: 'zoomIn', label: copy.ZOOM_IN, icon: 'zoom-in', disabled: loading || z >= 3.999 });
       if (!compactBar) out.push({ id: 'rotate', label: copy.ROTATE, icon: 'rotate-cw', disabled: loading });
@@ -1188,6 +1214,10 @@ export class DocumentViewerComponent {
   protected holderHeight(n: number): number {
     return Math.max(1, Math.round(this.pageSize(n).height * this.zoom()));
   }
+  /** The page's left margin: centred on the stage, or 0 when wider (it overflows to the right). */
+  protected holderInset(n: number): number {
+    return pageInset(this.stageW() || 800, this.padding(), this.holderWidth(n));
+  }
 
   protected canvasRole(n: number): 'img' | null {
     if (!this.policy().textLayer) return 'img';
@@ -1455,7 +1485,7 @@ export class DocumentViewerComponent {
   // =============================================================== zoom, rotate, pages
 
   protected setZoom(mode: ZoomMode, value?: number): void {
-    if (mode === 'custom') this.customZoom.set(clampZoom(value ?? this.zoom()));
+    if (mode === 'custom') this.customZoom.set(clampZoom(value ?? this.zoom(), this.minZoom()));
     this.zoomMode.set(mode);
     if (mode === 'width') this.announce(copy.FIT_WIDTH);
     else if (mode === 'page') this.announce(copy.FIT_PAGE);
@@ -1464,7 +1494,11 @@ export class DocumentViewerComponent {
 
   private stepZoom(dir: 1 | -1): void {
     if (!this.visual()) return;
-    this.setZoom('custom', nextZoom(this.zoom(), dir));
+    const z = this.zoom();
+    const next = nextZoom(z, dir, this.minZoom());
+    // At either end: nothing changes (a fit stays a fit).
+    if (Math.abs(next - z) < 0.0005) return;
+    this.setZoom('custom', next);
   }
 
   private rotate(dir: 1 | -1): void {
@@ -1525,7 +1559,7 @@ export class DocumentViewerComponent {
     this.resumeApplied = true;
     this.rotation.set(r.rotation);
     this.zoomMode.set(r.zoomMode);
-    if (r.zoomMode === 'custom') this.customZoom.set(clampZoom(r.zoom));
+    if (r.zoomMode === 'custom') this.customZoom.set(clampZoom(r.zoom, FIT_ZOOM_MIN));
     if (this.pageCount() > 1 && r.page > 1) {
       const page = Math.min(this.pageCount(), r.page);
       this.currentPage.set(page);
@@ -1594,7 +1628,7 @@ export class DocumentViewerComponent {
       case 'fullscreen':
         return void this.toggleFullscreen();
       case 'page':
-        if (this.barPlace() !== 'top') return this.openSheet();
+        if (this.compactTools()) return this.openSheet();
         return this.openPanel('page', e.currentTarget as HTMLElement);
       default: {
         const p = this.popupFor(t.id);
@@ -1633,7 +1667,7 @@ export class DocumentViewerComponent {
     const p = this.panel();
     if (!p) return;
     this.panel.set(null);
-    if (refocus) this.focusTool(p === 'zoom' ? 'zoom' : p === 'page' ? 'page' : p === 'more' ? 'more' : this.barPlace() === 'top' ? 'keys' : 'more');
+    if (refocus) this.focusTool(p === 'zoom' ? 'zoom' : p === 'page' ? 'page' : p === 'more' ? 'more' : this.compactTools() ? 'more' : 'keys');
   }
 
   private focusTool(id: ToolId): void {
@@ -1912,7 +1946,7 @@ export class DocumentViewerComponent {
    */
   private gestureZoom(factor: number, point: Point, absolute = false): void {
     const base = this.zoom();
-    const target = clampZoom(base * (absolute ? factor * this.gestureScale : this.gestureScale * factor));
+    const target = clampZoom(base * (absolute ? factor * this.gestureScale : this.gestureScale * factor), this.minZoom());
     this.gestureScale = target / base;
     this.gesturePoint = point;
     const el = this.scroller()?.nativeElement;

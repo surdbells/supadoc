@@ -2,14 +2,18 @@ import { distance, panDelta, PinchTracker, scrollAfterZoom, wheelFactor } from '
 import {
   autoScale,
   clampZoom,
+  FIT_ZOOM_MIN,
   fitPageScale,
   fitWidthScale,
   MAX_CANVAS_AREA,
   nextZoom,
+  pageInset,
   renderScale,
   rotatedSize,
   stagePadding,
+  ZOOM_MIN,
   ZOOM_PRESETS,
+  zoomFloor,
   zoomFor,
   zoomPercent,
 } from './viewer-zoom';
@@ -50,6 +54,37 @@ describe('viewer-zoom', () => {
     expect(autoScale('image', 432, 4000, 800, 600, 16)).toBeCloseTo(0.5);
     expect(zoomFor('custom', 2.2, 'pdf', { width: 800, height: 600 }, { width: 794, height: 1123 }, 16)).toBe(2.2);
     expect(zoomFor('width', 2.2, 'pdf', { width: 826, height: 600 }, { width: 794, height: 1123 }, 16)).toBeCloseTo(1);
+  });
+
+  it('a large photo fits below 25 % (fit width, fit page, the default), down to 5 %; a custom zoom keeps its floor', () => {
+    // A 4032 × 3024 phone photo on a 375 px phone (8 px padding): 359 / 4032 ≈ 8.9 %, not 25 % (1008 px wide).
+    expect(fitWidthScale(375, 4032, 8)).toBeCloseTo(359 / 4032);
+    expect(fitPageScale(375, 600, 4032, 3024, 8)).toBeCloseTo(359 / 4032);
+    expect(autoScale('image', 375, 600, 4032, 3024, 8)).toBeCloseTo(359 / 4032);
+    expect(autoScale('image', 375, 600, 1600, 1200, 8) * 1600).toBeLessThanOrEqual(359);
+    expect(zoomFor('width', 1, 'image', { width: 375, height: 600 }, { width: 4032, height: 3024 }, 8)).toBeCloseTo(359 / 4032);
+    expect(fitWidthScale(100, 1_000_000, 8)).toBe(FIT_ZOOM_MIN);
+    expect(zoomFor('custom', 0.01, 'image', { width: 375, height: 600 }, { width: 4032, height: 3024 }, 8)).toBe(FIT_ZOOM_MIN);
+    // The floor of zoom out: 25 %, or the fit when lower.
+    expect(zoomFloor(375, 600, 4032, 3024, 8)).toBeCloseTo(359 / 4032);
+    expect(zoomFloor(1232, 800, 794, 1123, 16)).toBe(ZOOM_MIN);
+    // Zoom out from 25 % goes back to the fit, never in; zoom in from the fit goes to 25 %.
+    const fit = 359 / 4032;
+    expect(nextZoom(0.25, -1, fit)).toBeCloseTo(fit);
+    expect(nextZoom(fit, -1, fit)).toBeCloseTo(fit);
+    expect(nextZoom(fit, 1, fit)).toBe(0.25);
+    expect(nextZoom(0.5, -1, fit)).toBe(0.33);
+    expect(clampZoom(0.01, fit)).toBeCloseTo(fit);
+  });
+
+  it('pageInset centres a page on the stage, and is 0 for a wider page (it overflows to the right)', () => {
+    // Desktop 1232 px stage, 16 px padding: a 1000 px portrait page sits 100 px in.
+    expect(pageInset(1232, 16, 1000)).toBe(100);
+    // A wider landscape page starts at the padding, whatever the other pages.
+    expect(pageInset(1232, 16, 1435)).toBe(0);
+    // A phone at fit width: exactly the padding, never pushed right by a landscape page.
+    expect(pageInset(375, 8, 359)).toBe(0);
+    expect(pageInset(0, 16, 500)).toBe(0);
   });
 
   it('renderScale multiplies by the DPR and stays under the iOS canvas area', () => {

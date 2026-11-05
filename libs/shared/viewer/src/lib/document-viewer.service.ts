@@ -218,7 +218,12 @@ export class DocumentViewerService {
     }
   }
 
-  /** The dialog has finished closing (the outlet's `afterClose`): focus back to the opener, else the fallback. */
+  /**
+   * The dialog has finished closing (the outlet's `afterClose`): focus back to
+   * the opener, else the fallback. An opener that is still in the page but
+   * hidden (no box: `display:none`, or inside a collapsed panel or a tab that
+   * is no longer shown) can't take focus, so it counts as gone.
+   */
   afterClosed(): void {
     if (this.sessionState()) return;
     const opener = this.opener;
@@ -229,13 +234,23 @@ export class DocumentViewerService {
     setTimeout(() => {
       if (this.sessionState()) return;
       const active = this.doc.activeElement;
-      const lost = !active || active === this.doc.body;
-      if (opener?.isConnected) {
+      const usable = !!opener?.isConnected && !this.hidden(opener);
+      // Focus "on" a hidden opener (a DOM without layout lets it) is focus lost too.
+      const lost = !active || active === this.doc.body || (!usable && active === opener);
+      if (opener && usable) {
         if (lost) opener.focus();
         return;
       }
       if (lost || !active?.isConnected) fallback?.()?.focus();
     });
+  }
+
+  /**
+   * In the page but without a box. With no layout at all (not even for
+   * `<html>`, e.g. a test DOM) nothing can be told, so nothing counts as hidden.
+   */
+  private hidden(el: HTMLElement): boolean {
+    return el.getClientRects().length === 0 && this.doc.documentElement.getClientRects().length > 0;
   }
 
   /** The document is no longer shared: drop its bytes at once and show `text` (role=alert) in place. */

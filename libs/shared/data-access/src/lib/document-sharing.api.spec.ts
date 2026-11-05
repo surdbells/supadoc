@@ -440,15 +440,8 @@ describe('DoctorApi document access', () => {
     cancel.flush(OK);
   });
 
-  it('keeps the legacy list and the file path', () => {
+  it('keeps the legacy list', () => {
     s.doctor.patientDocuments('ap-1').subscribe();
     s.http.expectOne(`${base}/api/doctor/appointments/ap-1/patient-documents`).flush(OK);
-
-    s.doctor.patientDocumentBlob('ap-1', ODD).subscribe();
-    const file = s.http.expectOne(
-      `${base}/api/doctor/appointments/ap-1/patient-documents/${ODD_ENC}/file`,
-    );
-    expect(file.request.responseType).toBe('blob');
-    file.flush(new Blob(['x']));
   });
 });

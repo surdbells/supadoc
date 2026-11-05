@@ -14,13 +14,20 @@ const noop = (): void => undefined;
 
 @Component({
   template: `
-    <ng-template #bar><button type="button" class="band-back">Back to call</button><span class="band-status" role="status">Recording</span></ng-template>
+    <ng-template #bar>
+      <button type="button" class="band-back">Back to call</button><span class="band-status" role="status">Recording</span>
+      @if (live()) {
+        <span class="band-controls"><button type="button" class="band-mute">Mute</button><button type="button" class="band-end" aria-label="End call"></button></span>
+      }
+    </ng-template>
     <ng-template #peer><div role="img" aria-label="Ada Obi, live video" class="fake-tile"></div></ng-template>
   `,
 })
 class CallHostComponent {
   readonly bar = viewChild.required('bar', { read: TemplateRef });
   readonly peer = viewChild.required('peer', { read: TemplateRef });
+  /** Mute and End render only in a live call (as in both call pages). */
+  readonly live = signal(true);
 }
 
 let pages = 1;
@@ -72,9 +79,16 @@ describe('DocumentViewerOutletComponent (sd-document-viewer-outlet)', () => {
   const text = () => (el.textContent ?? '').replace(/\s+/g, ' ');
   const dialog = () => el.querySelector('dialog') as HTMLDialogElement;
 
+  /** The call page of the last callContext() (its band template). */
+  let host: CallHostComponent;
+
   function callContext(over: Partial<ViewerCallContext> = {}) {
     const f = TestBed.createComponent(CallHostComponent);
     f.detectChanges();
+    host = f.componentInstance;
+    // A new fixture removes every earlier root element (the outlet's host is one): put it back,
+    // so focus can land in it.
+    if (el && !el.isConnected) document.body.appendChild(el);
     const ctx: ViewerCallContext = {
       bar: f.componentInstance.bar(),
       peer: f.componentInstance.peer(),
@@ -291,16 +305,92 @@ describe('DocumentViewerOutletComponent (sd-document-viewer-outlet)', () => {
     for (let i = 0; i < 3; i++) move.click();
     fixture.detectChanges();
     expect(pip.classList.contains('sdv-pip--br')).toBe(true);
-    buttons.find((b) => b.getAttribute('aria-label') === 'Hide video')?.click();
+    const hide = buttons.find((b) => b.getAttribute('aria-label') === 'Hide video') as HTMLButtonElement;
+    hide.focus();
+    hide.click();
     await settle(2);
     expect(pip.classList.contains('sdv-pip--hidden')).toBe(true);
     // Still rendered (the track keeps playing), so no hand-over churn.
     expect(layer.querySelector('.fake-tile')).not.toBeNull();
-    const show = Array.from(el.querySelectorAll<HTMLButtonElement>('.sdv-band > button')).find((b) => b.textContent?.includes('Show video'));
+    const show = Array.from(el.querySelectorAll<HTMLButtonElement>('.sdv-band button')).find((b) => b.textContent?.includes('Show video'));
     expect(show).toBeTruthy();
+    // Focus follows the control: Hide video → Show video → the tile's first button (never the title).
+    expect(document.activeElement).toBe(show);
     show?.click();
     await settle(2);
     expect(pip.classList.contains('sdv-pip--hidden')).toBe(false);
+    expect(document.activeElement).toBe(move);
+  });
+
+  it('band order (§3.3): "Show video" opens the band\'s control group, before the host\'s Mute and End', async () => {
+    await setup();
+    svc.registerCall(callContext());
+    svc.open(owner('a'));
+    await settle();
+    (el.querySelector('button[aria-label="Hide video"]') as HTMLButtonElement).click();
+    await settle(2);
+    const group = el.querySelector('.sdv-band > .sdv-band-controls') as HTMLElement;
+    const show = group.querySelector('button') as HTMLButtonElement;
+    expect(show.textContent).toContain('Show video');
+    expect(group.firstElementChild).toBe(show);
+    // Nothing of the outlet's follows the host's content (End stays last).
+    expect(el.querySelector('.sdv-band')?.lastElementChild).toBe(group);
+    const order = Array.from(el.querySelectorAll<HTMLButtonElement>('.sdv-band button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'));
+    expect(order).toEqual(['Show video', 'Back to call', 'Mute', 'End call']);
+  });
+
+  it('a focused band control that disappears (Mute when the call ends) sends focus to the title; focus elsewhere stays put (§1.10.2)', async () => {
+    await setup();
+    svc.registerCall(callContext());
+    svc.open(owner('a'));
+    await settle();
+    const title = el.querySelector<HTMLElement>('[id^="sd-viewer-title-"]') as HTMLElement;
+    (el.querySelector('.band-mute') as HTMLButtonElement).focus();
+    host.live.set(false);
+    await settle(2);
+    expect(el.querySelector('.band-mute')).toBeNull();
+    expect(document.activeElement).toBe(title);
+
+    // Focus moved on before the control went: it stays where it is.
+    host.live.set(true);
+    await settle(2);
+    (el.querySelector('.band-mute') as HTMLButtonElement).focus();
+    const close = el.querySelector<HTMLButtonElement>('button[aria-label="Close document"]') as HTMLButtonElement;
+    close.focus();
+    host.live.set(false);
+    await settle(2);
+    expect(document.activeElement).toBe(close);
+
+    // A browser that also fires focusout (no relatedTarget) as the control goes: still the title.
+    host.live.set(true);
+    await settle(2);
+    const mute = el.querySelector('.band-mute') as HTMLButtonElement;
+    mute.focus();
+    host.live.set(false);
+    mute.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    await settle(2);
+    expect(document.activeElement).toBe(title);
+  });
+
+  it('a removed band control does not take focus while the viewer closes, or once focus left it for the window', async () => {
+    await setup();
+    svc.registerCall(callContext());
+    svc.open(owner('a'));
+    await settle();
+    const mute = el.querySelector('.band-mute') as HTMLButtonElement;
+    mute.focus();
+    // The window lost focus: focusout with no relatedTarget, but Mute is still the active element.
+    mute.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    await settle(2);
+    expect(document.activeElement).toBe(mute);
+    // The call ends and the viewer closes in the same turn: the service owns focus then.
+    const title = el.querySelector<HTMLElement>('[id^="sd-viewer-title-"]') as HTMLElement;
+    const focusTitle = vi.spyOn(title, 'focus');
+    host.live.set(false);
+    svc.close();
+    await settle(2);
+    expect(el.querySelector('.band-mute')).toBeNull();
+    expect(focusTitle).not.toHaveBeenCalled();
   });
 
   it('while the body chunk loads, the skeleton shows with the PiP, then the body', async () => {
@@ -388,6 +478,68 @@ describe('DocumentViewerOutletComponent (sd-document-viewer-outlet)', () => {
       expect(el.querySelector('.sdv-details')).toBeNull();
       esc(details);
       expect(svc.isOpen()).toBe(false);
+    } finally {
+      window.matchMedia = mm;
+    }
+  });
+
+  it('a portrait phone: the notice is its own full-width row under the header row; the document counter is for screen readers only (§1.3.3)', async () => {
+    const mm = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: noop, removeEventListener: noop })) as unknown as typeof window.matchMedia;
+    try {
+      await setup();
+      svc.open([viewOnly(), viewOnly()], { watermark: WM });
+      await settle();
+      expect(el.querySelector('.sd-viewer-frame')?.getAttribute('data-layout')).toBe('phone');
+      const header = el.querySelector('header.sdv-head') as HTMLElement;
+      const notices = el.querySelectorAll('.sdv-notice');
+      expect(notices.length).toBe(1);
+      const notice = notices[0] as HTMLElement;
+      // A direct child of the header, after Close (it wraps onto its own row), not in the title column.
+      expect(notice.parentElement).toBe(header);
+      expect(notice.classList.contains('sdv-notice--row')).toBe(true);
+      expect(header.lastElementChild).toBe(notice);
+      expect(notice.textContent?.trim()).toBe('View only · Downloads are turned off for patient documents.');
+      const counter = Array.from(header.querySelectorAll('span')).find((s) => s.textContent?.replace(/\s+/g, ' ').trim() === 'Document 1 of 2') as HTMLElement;
+      expect(counter.classList.contains('sr-only')).toBe(true);
+      // The meta line stays visible (one line, truncated).
+      expect(el.querySelector('[id^="sd-viewer-meta-"]')?.classList.contains('sr-only')).toBe(false);
+      const css = Array.from(document.querySelectorAll('style'))
+        .map((s) => s.textContent ?? '')
+        .join('\n');
+      expect(css).toContain('[data-layout=phone] .sdv-head{min-height:56px;padding-top:8px;padding-bottom:8px;flex-wrap:wrap;gap:4px 8px}');
+      expect(css).toContain('.sdv-notice--row{flex-basis:100%;min-width:0}');
+    } finally {
+      window.matchMedia = mm;
+    }
+  });
+
+  it('a phone held sideways in a call: Details opens under the 48 px row; band labels and the 112×84 PiP controls fit the row and the tile (§1.3.5)', async () => {
+    const mm = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes('orientation: landscape'), media: q, addEventListener: noop, removeEventListener: noop })) as unknown as typeof window.matchMedia;
+    try {
+      await setup();
+      svc.registerCall(callContext());
+      svc.open(viewOnly(), { watermark: WM });
+      await settle();
+      (el.querySelector('button[aria-label="Details"]') as HTMLButtonElement).click();
+      await settle(2);
+      const pop = el.querySelector('.sdv-details') as HTMLElement;
+      expect(pop.classList.contains('absolute')).toBe(true);
+      expect(Array.from(pop.classList).some((c) => /^mt-/.test(c))).toBe(false);
+      const css = Array.from(document.querySelectorAll('style'))
+        .map((s) => s.textContent ?? '')
+        .join('\n');
+      // Anchored below the header row (top: 100%), never over the title.
+      expect(css).toContain('.sdv-details{top:calc(100% + 4px)}');
+      // A band button's text label marked data-band-label is screen-reader-only in the row.
+      expect(css).toContain('[data-layout=compact] .sdv-band [data-band-label]{position:absolute;width:1px;height:1px;');
+      // The PiP's Move / Hide are 28 px, and the initials move to the top-left corner, clear of them.
+      expect(css).toContain('[data-layout=compact] .sdv-pill button{width:28px;height:28px}');
+      expect(css).toContain('[data-layout=compact] .sdv-pip .sdv-peer-off{align-items:flex-start;justify-content:flex-start;padding:6px}');
+      expect(el.querySelector('.sd-viewer-frame')?.getAttribute('data-layout')).toBe('compact');
+      expect(el.querySelector('.sdv-band')).not.toBeNull();
+      expect(el.querySelector('.sdv-pip .sdv-pill')).not.toBeNull();
     } finally {
       window.matchMedia = mm;
     }

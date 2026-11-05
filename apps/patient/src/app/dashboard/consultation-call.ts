@@ -261,7 +261,7 @@ interface RecordItem {
         class="inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/10"
         (click)="backToCall()"
       >
-        <sd-icon name="arrow-left" [size]="18" /><span class="max-sm:sr-only">Back to call</span>
+        <sd-icon name="arrow-left" [size]="18" /><span class="max-sm:sr-only" data-band-label>Back to call</span>
       </button>
       <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ viewerPeerName() }} · {{ elapsedLabel() }}</span>
       <span class="inline-flex shrink-0 empty:hidden" role="status">@if (recordingActive()) {<span class="inline-flex items-center gap-1.5 rounded-pill bg-alert-ink px-2.5 py-1 font-sans text-caption font-medium text-white"><span class="size-2 shrink-0 rounded-full bg-white" aria-hidden="true"></span>Recording</span>}</span>
@@ -272,7 +272,7 @@ interface RecordItem {
             class="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/10"
             (click)="toggleMic()"
           >
-            <sd-icon [name]="micLive() ? 'mic' : 'mic-off'" [size]="18" /><span class="max-sm:sr-only">{{ micLive() ? 'Mute' : 'Unmute' }}</span>
+            <sd-icon [name]="micLive() ? 'mic' : 'mic-off'" [size]="18" /><span class="max-sm:sr-only" data-band-label>{{ micLive() ? 'Mute' : 'Unmute' }}</span>
           </button>
           <!-- Icon-only, like the cockpit's own End: a white label on bg-alert is 4.23:1 (under 4.5 for
                caption text); the white icon is a graphic (3:1). -->
@@ -2306,15 +2306,19 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly viewerPeerTrack = signal<CallVideoTrack | null>(null);
   /** The peer is the doctor (guests never are). */
   private readonly peerUid = computed(() => this.roster().find((p) => p.role === 'doctor')?.uid ?? DOCTOR_CALL_UID);
-  /** "Dr Ade" in the band and the tile's labels. */
+  /** "Dr Ade" in the band and the PiP's Move label. */
   protected readonly viewerPeerName = computed(() => drLast(this.appointment()?.specialist?.name) || 'Your doctor');
-  /** The doctor's tile (name, camera, microphone) for the picture-in-picture. */
+  /**
+   * The doctor's tile (name, camera, microphone) for the picture-in-picture, under
+   * their full name as on the stage ("Dr Bayo Ade"): the initials come from it
+   * ("BA"), where the short "Dr Ade" gave just "A".
+   */
   protected readonly viewerPeerTile = computed<CallTile>(() => {
     const uid = this.peerUid();
     const tile = this.tiles().find((t) => !t.self && String(t.uid) === String(uid));
-    return tile
-      ? { ...tile, name: this.viewerPeerName() }
-      : { uid, name: this.viewerPeerName(), role: 'doctor', hasVideo: false, muted: false };
+    const full = this.appointment()?.specialist?.name?.trim();
+    const name = full ? doctorTitle(full) : this.viewerPeerName();
+    return tile ? { ...tile, name } : { uid, name, role: 'doctor', hasVideo: false, muted: false };
   });
 
   // ---- Is a consultation actually going on? (drives the idle-timer hold) ----

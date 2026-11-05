@@ -660,6 +660,8 @@ describe('DoctorCall — documents in the call', () => {
       let h = band();
       expect(bandText(h)).toContain('Bola Ade · 00:00:00');
       expect(button(h, 'Back to call')).not.toBeNull();
+      // Its label is screen-reader-only in the viewer's one-row band on a phone held sideways (§1.3.5).
+      expect(button(h, 'Back to call')?.querySelector('[data-band-label]')?.textContent).toBe('Back to call');
       expect(button(h, 'Mute')).not.toBeNull();
       expect(button(h, 'Mute')?.hasAttribute('aria-pressed')).toBe(false);
       expect(button(h, 'End consultation')).not.toBeNull();

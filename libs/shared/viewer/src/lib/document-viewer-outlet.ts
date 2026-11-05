@@ -68,11 +68,18 @@ const OUTLET_CSS = `
 [data-layout=tablet] .sdv-pip{width:176px;height:132px}
 [data-layout=phone] .sdv-pip{width:104px;height:138px;margin:-4px}
 [data-layout=phone] .sdv-band{min-height:52px}
-[data-layout=phone] .sdv-head{min-height:56px;padding-top:8px;padding-bottom:8px}
+[data-layout=phone] .sdv-head{min-height:56px;padding-top:8px;padding-bottom:8px;flex-wrap:wrap;gap:4px 8px}
+.sdv-notice--row{flex-basis:100%;min-width:0}
+.sdv-details{top:calc(100% + 4px)}
 [data-layout=compact] .sdv-top{flex-direction:row;align-items:center;min-height:48px;border-bottom:1px solid var(--sd-viewer-border);background:var(--sd-viewer-band)}
 [data-layout=compact] .sdv-band,[data-layout=compact] .sdv-head{flex-wrap:nowrap;min-height:48px;padding:0 4px;border:0}
 [data-layout=compact] .sdv-head{flex:1 1 auto;min-width:0;align-items:center;padding-right:max(4px,env(safe-area-inset-right))}
+[data-layout=compact] .sdv-band [data-band-label]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 [data-layout=compact] .sdv-pip{width:112px;height:84px}
+[data-layout=compact] .sdv-pill{top:4px;right:4px}
+[data-layout=compact] .sdv-pill button{width:28px;height:28px}
+[data-layout=compact] .sdv-pip .sdv-peer-off{align-items:flex-start;justify-content:flex-start;padding:6px}
+[data-layout=compact] .sdv-pip .sdv-peer-off span{width:32px;height:32px}
 `;
 
 /**
@@ -110,16 +117,21 @@ const OUTLET_CSS = `
       <div #frame class="sd-viewer-frame relative flex h-full min-h-0 w-full flex-1 flex-col" [attr.data-layout]="layout()" [attr.data-policy]="head()?.policy ?? null">
         <div class="sdv-top flex min-w-0 shrink-0 flex-col">
           @if (call(); as c) {
-            <div class="sd-call sdv-band flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5" data-theme="dark">
-              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1"><ng-container [ngTemplateOutlet]="c.bar" /></div>
-              @if (c.peer && pipHidden()) {
-                <button type="button" class="sdv-hbtn inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold" [attr.aria-label]="compact() ? c$.SHOW_VIDEO : null" (click)="showPip()">
-                  <sd-icon name="picture-in-picture-2" [size]="18" />
-                  @if (!compact()) {
-                    <span>{{ c$.SHOW_VIDEO }}</span>
-                  }
-                </button>
-              }
+            <!-- "Show video" opens the band's control group, so it comes before the host's Mute and End
+                 (§3.3; the outlet can't know where the host puts Mute). focusin/focusout track the band
+                 control focus is on, for when it disappears (§1.10.2). -->
+            <div #band class="sd-call sdv-band flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5" data-theme="dark" (focusin)="onBandFocusIn($event)" (focusout)="onBandFocusOut($event)">
+              <div class="sdv-band-controls flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                @if (c.peer && pipHidden()) {
+                  <button #showVideoBtn type="button" class="sdv-hbtn inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold" [attr.aria-label]="compact() ? c$.SHOW_VIDEO : null" (click)="showPip()">
+                    <sd-icon name="picture-in-picture-2" [size]="18" />
+                    @if (!compact()) {
+                      <span>{{ c$.SHOW_VIDEO }}</span>
+                    }
+                  </button>
+                }
+                <ng-container [ngTemplateOutlet]="c.bar" />
+              </div>
             </div>
           }
           @if (head(); as h) {
@@ -130,7 +142,7 @@ const OUTLET_CSS = `
               <div class="min-w-0 flex-1">
                 <h2 #title [id]="titleId" tabindex="-1" data-autofocus class="truncate font-heading text-body-lg font-semibold outline-none" [attr.title]="h.title">{{ h.title }}</h2>
                 <p [id]="metaId" class="truncate font-sans text-caption sdv-muted" [class.sr-only]="compact()">{{ metaText() }}</p>
-                @if (h.notice && !compact()) {
+                @if (h.notice && !compact() && !phone()) {
                   <p class="sdv-notice sdv-muted mt-0.5 flex items-start gap-1.5 font-sans text-caption">
                     <sd-icon [name]="h.noticeIcon ?? 'lock'" [size]="13" class="mt-px shrink-0" />{{ h.notice }}
                   </p>
@@ -152,15 +164,22 @@ const OUTLET_CSS = `
                   <button #prevBtn type="button" class="sdv-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field" [disabled]="index() <= 0" [attr.aria-label]="prevLabel()" (click)="prev()">
                     <sd-icon name="chevron-left" [size]="20" />
                   </button>
-                  <span class="px-1 font-sans text-caption tabular-nums sdv-muted" [class.sr-only]="compact()"><span class="sr-only">Document </span>{{ index() + 1 }} of {{ total() }}</span>
+                  <span class="px-1 font-sans text-caption tabular-nums sdv-muted" [class.sr-only]="compact() || phone()"><span class="sr-only">Document </span>{{ index() + 1 }} of {{ total() }}</span>
                   <button #nextBtn type="button" class="sdv-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field" [disabled]="index() >= total() - 1" [attr.aria-label]="nextLabel()" (click)="next()">
                     <sd-icon name="chevron-right" [size]="20" />
                   </button>
                 </div>
               }
               <button type="button" class="sdv-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field" [attr.aria-label]="c$.CLOSE_DOCUMENT" (click)="svc.close()"><sd-icon name="x" [size]="22" /></button>
+              <!-- Phones: the notice is a full-width row under the title, meta and buttons (§1.3.3), not a narrow column beside them. -->
+              @if (h.notice && phone()) {
+                <p class="sdv-notice sdv-notice--row sdv-muted flex items-start gap-1.5 font-sans text-caption">
+                  <sd-icon [name]="h.noticeIcon ?? 'lock'" [size]="13" class="mt-px shrink-0" />{{ h.notice }}
+                </p>
+              }
               @if (compact() && detailsOpen()) {
-                <div class="sdv-details sdv-c sdv-l absolute inset-x-2 z-30 mt-12 max-w-sm rounded-xl border p-3 font-sans text-caption shadow-overlay" role="dialog" [attr.aria-label]="c$.DETAILS">
+                <!-- Anchored under the 48 px row (.sdv-details), never over it. -->
+                <div class="sdv-details sdv-c sdv-l absolute inset-x-2 z-30 max-w-sm rounded-xl border p-3 font-sans text-caption shadow-overlay" role="dialog" [attr.aria-label]="c$.DETAILS">
                   <p>{{ metaText() }}</p>
                   @if (h.notice) {
                     <p class="sdv-notice sdv-muted mt-0.5 flex items-start gap-1.5"><sd-icon [name]="h.noticeIcon ?? 'lock'" [size]="13" class="mt-px shrink-0" />{{ h.notice }}</p>
@@ -248,6 +267,8 @@ export class DocumentViewerOutletComponent {
   private readonly theme = pageTheme();
   protected readonly layout = viewerLayout();
   protected readonly compact = computed(() => this.layout() === 'compact');
+  /** A portrait phone (< 640 px): the notice on its own row, the document counter for screen readers only (§1.3.3). */
+  protected readonly phone = computed(() => this.layout() === 'phone');
 
   protected readonly session = this.svc.session;
   protected readonly open = computed(() => this.session() !== null);
@@ -335,9 +356,13 @@ export class DocumentViewerOutletComponent {
   private readonly titleEl = viewChild<ElementRef<HTMLElement>>('title');
   private readonly detailsBtn = viewChild<ElementRef<HTMLElement>>('detailsBtn');
   private readonly pipEl = viewChild<ElementRef<HTMLElement>>('pip');
+  private readonly bandEl = viewChild<ElementRef<HTMLElement>>('band');
+  private readonly showVideoBtn = viewChild<ElementRef<HTMLElement>>('showVideoBtn');
   private settleTimer: ReturnType<typeof setTimeout> | undefined;
   private lastSeq = 0;
   private dragFrom: { x: number; y: number } | null = null;
+  /** The call-band control focus is on (null once focus has moved elsewhere). */
+  private bandFocus: HTMLElement | null = null;
 
   constructor() {
     // The colour tokens on the frame (not a [style] map binding: see applyViewerTokens).
@@ -372,6 +397,7 @@ export class DocumentViewerOutletComponent {
         if (!s) {
           this.insets.set({ top: 0, right: 0, bottom: 0, left: 0 });
           this.detailsOpen.set(false);
+          this.bandFocus = null;
           clearTimeout(this.settleTimer);
         }
       });
@@ -406,6 +432,16 @@ export class DocumentViewerOutletComponent {
       untracked(() => {
         for (const [name, value] of Object.entries(inputs)) ref.setInput(name, value);
       });
+    });
+    // A band control removed while focused (Mute and End when the call ends, an alert's button
+    // once handled): not every browser fires focusout on removal, so watch the band itself.
+    effect((onCleanup) => {
+      const band = this.bandEl()?.nativeElement;
+      const view = this.doc.defaultView as (Window & { MutationObserver?: typeof MutationObserver }) | null;
+      if (!band || typeof view?.MutationObserver !== 'function') return;
+      const observer = new view.MutationObserver(() => this.refocusIfBandControlGone());
+      observer.observe(band, { childList: true, subtree: true });
+      onCleanup(() => observer.disconnect());
     });
     inject(DestroyRef).onDestroy(() => clearTimeout(this.settleTimer));
   }
@@ -511,7 +547,7 @@ export class DocumentViewerOutletComponent {
 
   protected hidePip(): void {
     this.pipHidden.set(true);
-    afterNextRender(() => this.doc.querySelector<HTMLElement>('.sdv-band > button')?.focus(), { injector: this.injector });
+    afterNextRender(() => this.showVideoBtn()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected showPip(): void {
@@ -552,6 +588,44 @@ export class DocumentViewerOutletComponent {
     pip.addEventListener('pointermove', move);
     pip.addEventListener('pointerup', up);
     pip.addEventListener('pointercancel', up);
+  }
+
+  // ----- call band: when the focused control disappears (§1.10.2) -----
+
+  protected onBandFocusIn(e: FocusEvent): void {
+    this.bandFocus = e.target instanceof HTMLElement ? e.target : null;
+  }
+
+  protected onBandFocusOut(e: FocusEvent): void {
+    if (e.relatedTarget) {
+      // To another element: a focusin there takes over if it is in the band.
+      if (this.bandFocus === e.target) this.bandFocus = null;
+      return;
+    }
+    // To nothing: the control is being removed (browsers that fire focusout on removal),
+    // the window lost focus, or a click landed on plain text. Decide once things settle.
+    setTimeout(() => this.refocusIfBandControlGone());
+  }
+
+  /**
+   * The band control focus was on has been removed and focus fell to nothing
+   * (the page body): focus goes to the title, as after the band's "View".
+   * Never while the viewer closes (the service then returns focus to the
+   * opener), and never when something else already took focus (e.g. "Show
+   * video" hands it to the picture-in-picture).
+   */
+  private refocusIfBandControlGone(): void {
+    const lost = this.bandFocus;
+    if (!lost) return;
+    const active = this.doc.activeElement;
+    if (lost.isConnected) {
+      // Still there: it keeps focus while the window is in the background; otherwise focus left it.
+      if (active !== lost) this.bandFocus = null;
+      return;
+    }
+    this.bandFocus = null;
+    if (!this.session() || (active && active !== this.doc.body)) return;
+    this.titleEl()?.nativeElement.focus();
   }
 
   private focusTitle(): void {

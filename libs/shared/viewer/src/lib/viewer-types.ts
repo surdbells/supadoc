@@ -90,7 +90,12 @@ export interface ViewerOpenOptions {
 
 /** A call page's context while it lives (§3). */
 export interface ViewerCallContext {
-  /** The host's call band content (rendered inside `.sd-call[data-theme=dark]`, §1.9). */
+  /**
+   * The host's call band content (rendered inside `.sd-call[data-theme=dark]`, §1.9).
+   * A button's text label marked `data-band-label` is for screen readers only on a
+   * phone held sideways, where the band shares one 48 px row (§1.3.5: Back to call is
+   * icon-only there); it stays the button's name.
+   */
   readonly bar: TemplateRef<unknown>;
   /** The host's `<sd-call-peer-tile>` (null: no tile). */
   readonly peer: TemplateRef<unknown> | null;

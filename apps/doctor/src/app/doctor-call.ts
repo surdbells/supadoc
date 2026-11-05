@@ -1792,7 +1792,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         aria-label="Back to call"
         (click)="viewer.close()"
       >
-        <sd-icon name="arrow-left" [size]="18" /><span class="hidden sm:inline">Back to call</span>
+        <sd-icon name="arrow-left" [size]="18" /><span class="hidden sm:inline" data-band-label>Back to call</span>
       </button>
       <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ patientName() }} · <span class="font-label tabular-nums">{{ elapsedLabel() }}</span></span>
       <span role="status" class="shrink-0">

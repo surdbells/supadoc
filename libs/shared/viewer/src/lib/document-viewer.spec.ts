@@ -38,6 +38,8 @@ interface PdfState {
   renders: { n: number; scale: number; rotation: number; canvas: HTMLCanvasElement | null }[];
   destroyed: number;
   reject?: unknown;
+  /** Page sizes in points by page number (default 600 × 800, portrait). */
+  sizes?: Record<number, readonly [number, number]>;
 }
 
 function fakeLoader(state: PdfState): PdfLoader {
@@ -48,12 +50,10 @@ function fakeLoader(state: PdfState): PdfLoader {
           numPages: state.pages,
           getPage: async (n: number) => ({
             rotate: 0,
-            getViewport: ({ scale, rotation = 0 }: { scale: number; rotation?: number }) => ({
-              width: (rotation % 180 ? 800 : 600) * scale,
-              height: (rotation % 180 ? 600 : 800) * scale,
-              scale,
-              rotation,
-            }),
+            getViewport: ({ scale, rotation = 0 }: { scale: number; rotation?: number }) => {
+              const [w, h] = state.sizes?.[n] ?? [600, 800];
+              return { width: (rotation % 180 ? h : w) * scale, height: (rotation % 180 ? w : h) * scale, scale, rotation };
+            },
             render: ({ canvas, viewport }: { canvas: HTMLCanvasElement | null; viewport: { scale?: number; rotation?: number } }) => {
               state.renders.push({ n, scale: viewport.scale ?? 0, rotation: viewport.rotation ?? 0, canvas });
               return { promise: Promise.resolve(), cancel: () => undefined };
@@ -405,6 +405,109 @@ describe('DocumentViewerComponent (sd-document-viewer)', () => {
       } finally {
         Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 });
       }
+    });
+
+    it('thumbnails are drawn again after a rotation, never left blank', async () => {
+      pdf.pages = 3;
+      await create((h) => h.source.set(owner()));
+      const thumbs = () => pdf.renders.filter((r) => r.canvas?.closest('sd-viewer-thumbnails'));
+      expect(new Set(thumbs().map((r) => r.n))).toEqual(new Set([1, 2, 3]));
+      pdf.renders = [];
+      tool('rotate')?.click();
+      await settle();
+      const again = thumbs();
+      expect(new Set(again.map((r) => r.n))).toEqual(new Set([1, 2, 3]));
+      expect(again.every((r) => r.rotation === 90)).toBe(true);
+      const canvases = Array.from(el.querySelectorAll<HTMLCanvasElement>('sd-viewer-thumbnails canvas'));
+      expect(canvases.length).toBe(3);
+      // Drawn (not zeroed by the reset), and turned: 120 × 90.
+      expect(canvases.map((c) => [c.width, c.height])).toEqual([
+        [120, 90],
+        [120, 90],
+        [120, 90],
+      ]);
+    });
+
+    it('mixed orientations: each page is centred on the stage; a wider landscape page starts at the padding and never pushes the others right', async () => {
+      pdf.pages = 3;
+      pdf.sizes = { 2: [800, 600] };
+      const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.classList.contains('sdv-stage') ? 1232 : 0;
+        },
+      });
+      try {
+        await create((h) => h.source.set(owner()));
+        const holder = (n: number) => el.querySelector<HTMLElement>(`[data-page="${n}"]`) as HTMLElement;
+        // auto: portrait pages min(fit width, 125 %) = 125 %, 1000 px wide; the landscape page is 1333 px.
+        expect(holder(1).style.width).toBe('1000px');
+        expect(holder(2).style.width).toBe('1333px');
+        // (1232 − 2 × 16 − 1000) / 2: centred on the stage, not in the 1365 px column.
+        expect(holder(1).style.marginLeft).toBe('100px');
+        expect(holder(3).style.marginLeft).toBe('100px');
+        expect(holder(2).style.marginLeft).toBe('0px');
+        expect(el.querySelector('.sdv-col')?.classList.contains('items-center')).toBe(false);
+      } finally {
+        delete proto['clientWidth'];
+      }
+    });
+
+    it('a large photo opens fitted below 25 %; zoom out stops there; zoom in goes to 25 % and zoom out back to the fit', async () => {
+      vi.stubGlobal('createImageBitmap', async () => ({ width: 8000, height: 6000, close: () => undefined }));
+      await create((h) =>
+        h.source.set(viewOnly({ extension: 'jpg', view: () => of({ blob: new Blob(['j'], { type: 'image/jpeg' }), mime: 'image/jpeg', viewRef: 'VM-7F3A2C1D', viewedAt: '2026-11-04T20:05:09Z' }) })),
+      );
+      const canvas = () => el.querySelector('.sdv-image canvas') as HTMLCanvasElement;
+      // The tests' 800 × 600 stage: min(768 / 8000, 568 / 6000) ≈ 9 %, where 25 % was 2000 px wide.
+      expect(tool('zoom')?.textContent).toContain('9%');
+      expect(parseFloat(canvas().style.width)).toBeLessThanOrEqual(768);
+      expect(tool('zoomOut')?.getAttribute('aria-disabled')).toBe('true');
+      key('-');
+      await settle(2);
+      expect(tool('zoom')?.textContent).toContain('9%');
+      tool('zoomIn')?.click();
+      await settle(2);
+      expect(tool('zoom')?.textContent).toContain('25%');
+      expect(tool('zoomOut')?.getAttribute('aria-disabled')).toBeNull();
+      tool('zoomOut')?.click();
+      await settle(2);
+      expect(tool('zoom')?.textContent).toContain('9%');
+      expect(parseFloat(canvas().style.width)).toBeLessThanOrEqual(768);
+    });
+
+    it('embedded on a phone: the phone tool set on top (n/N opens the page sheet; the rest under More options), no separators', async () => {
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+      await create((h) => {
+        h.source.set(owner());
+        h.mode.set('embedded');
+      });
+      const bar = el.querySelector('[role="toolbar"]') as HTMLElement;
+      expect(bar.classList.contains('sdv-bar--bottom')).toBe(false);
+      expect(bar.classList.contains('border-b')).toBe(true);
+      const ids = Array.from(bar.querySelectorAll('[data-tool]')).map((b) => b.getAttribute('data-tool'));
+      expect(ids).toEqual(['pages', 'zoomOut', 'zoom', 'zoomIn', 'page', 'more']);
+      expect(bar.querySelector('.sdv-sep')).toBeNull();
+      expect(tool('page')?.textContent?.trim()).toBe('1/2');
+      tool('more')?.click();
+      await settle(2);
+      const items = Array.from(el.querySelectorAll('.sdv-panel[role="menu"] [role="menuitem"]')).map((i) => i.textContent?.trim());
+      expect(items).toEqual(['Fit width', 'Fit page', 'Rotate', 'Print', 'Download My scan', 'Keyboard shortcuts']);
+      key('Escape', {}, el.querySelector('[role="menuitem"]') as Element);
+      await settle(2);
+      tool('page')?.click();
+      await settle(2);
+      expect(el.querySelector('.sdv-sheet .sdv-thumbs--grid')).not.toBeNull();
+    });
+
+    it('an embedded viewer in full screen drops its host frame (border and radius)', async () => {
+      await create((h) => h.mode.set('embedded'));
+      const css = Array.from(document.querySelectorAll('style'))
+        .map((s) => s.textContent ?? '')
+        .join('\n');
+      expect(css).toContain('sd-document-viewer:fullscreen{border:0;border-radius:0}');
+      expect(css).toContain('sd-document-viewer:-webkit-full-screen{border:0;border-radius:0}');
     });
 
     it('Full screen takes .sd-viewer-frame (modal) or the host (embedded), and is hidden when unsupported', async () => {
@@ -1116,6 +1219,8 @@ describe('DocumentViewerComponent (sd-document-viewer)', () => {
         h.source.set(viewOnly({ extension: 'jpg', view: () => of({ blob: new Blob(['j'], { type: 'image/jpeg' }), mime: 'image/jpeg', viewRef: 'VM-7F3A2C1D', viewedAt: '2026-11-04T20:05:09Z' }) })),
       );
       const canvas = el.querySelector('.sdv-image canvas') as HTMLCanvasElement;
+      // A light photo keeps an edge on the light stage, like a page.
+      expect(canvas.classList.contains('shadow-card')).toBe(true);
       expect(canvas.getAttribute('role')).toBe('img');
       expect(canvas.getAttribute('aria-label')).toBe('Lab report');
       expect(allFillText()).toContain(REF_TEXT);

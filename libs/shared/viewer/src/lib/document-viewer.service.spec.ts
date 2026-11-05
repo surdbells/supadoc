@@ -216,6 +216,44 @@ describe('DocumentViewerService', () => {
     heading.remove();
   });
 
+  it('an opener still in the page but hidden (no box) counts as gone: focus goes to fallbackFocus; a shown one still gets it back', async () => {
+    const box = [{ x: 0, y: 0, width: 10, height: 10 }] as unknown as DOMRectList;
+    const none = [] as unknown as DOMRectList;
+    // A DOM with layout: <html> has a box.
+    vi.spyOn(document.documentElement, 'getClientRects').mockReturnValue(box);
+    const s = svc();
+    const opener = document.createElement('button');
+    const heading = document.createElement('h2');
+    heading.tabIndex = -1;
+    document.body.append(opener, heading);
+    const openerRects = vi.spyOn(opener, 'getClientRects').mockReturnValue(box);
+
+    // Hidden while the viewer was open (e.g. its panel collapsed): the fallback, even though
+    // sd-dialog put focus "on" it (a DOM without layout lets it; a browser would leave it on <body>).
+    opener.focus();
+    s.open(owner('a'), { fallbackFocus: () => heading });
+    await mounted();
+    await render();
+    openerRects.mockReturnValue(none);
+    s.close();
+    await render();
+    await new Promise((r) => setTimeout(r));
+    expect(opener.isConnected).toBe(true);
+    expect(document.activeElement).toBe(heading);
+
+    // Shown: back to the opener, as before.
+    openerRects.mockReturnValue(box);
+    opener.focus();
+    s.open(owner('b'), { fallbackFocus: () => heading });
+    await render();
+    s.close();
+    await render();
+    await new Promise((r) => setTimeout(r));
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+    heading.remove();
+  });
+
   it('closes on GuardsCheckEnd with shouldActivate and a path change — not on a query-only change, a cancelled guard or NavigationStart', () => {
     const s = svc();
     s.open(owner('a'));
