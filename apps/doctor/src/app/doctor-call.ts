@@ -58,7 +58,6 @@ import {
   type DoctorSharedDocumentDto,
   type DoctorStandingCode,
   type JoinInfoDto,
-  type LabOrderDto,
   type MedicalCertificateDto,
   PATIENT_CALL_UID,
   type ReferralDto,
@@ -127,12 +126,12 @@ import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointme
 import { callHoldWanted, FIRST_WAIT_HOLD_MS } from './call-hold';
 import { DoctorClock } from './doctor-clock';
 import { focusAfterDialogs } from './focus-after-dialog';
+import { CallLabRequests } from './lab/call-lab-requests';
 import { RxPanel } from './prescriptions/rx-panel';
 import { UNSAVED_RX_LEAVE } from './prescriptions/rx-shared';
 import {
   certificatePrompt,
   finalizeNotePrompt,
-  labOrderPrompt,
   carePlanPrompt,
   referralPrompt,
   STOP_RECORDING_PROMPT,
@@ -336,6 +335,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     IconComponent,
     RequestAccessDialog,
     RxPanel,
+    CallLabRequests,
     SmoothHeightDirective,
   ],
   host: {
@@ -735,7 +735,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
                 </div>
               }
-              @for (shown of [notesTab()]; track shown) {
+              <!-- Keyed (not tracked by identity): each tab remounts its panel for the fade, without the NG0956 dev warning. -->
+              @for (shown of [notesTab()]; track 'tab:' + shown) {
               <div class="sd-tab-panel">
               @switch (notesTab()) {
                 @case ('notes') {
@@ -928,73 +929,14 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   }
                 }
                 @case ('labs') {
-                  @if (!canDocument()) {
-                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
-                      Sign in to the doctor portal to order tests.
-                    </p>
-                  }
-                  <div class="flex flex-col gap-3">
-                    <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption font-semibold text-white/60">Tests (one per line)</span>
-                      <textarea
-                        rows="3"
-                        placeholder="Complete Blood Count&#10;Lipid Panel"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                        [value]="labTests()"
-                        (input)="labTests.set($any($event.target).value)"
-                      ></textarea>
-                    </label>
-                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <label class="flex flex-col gap-1.5">
-                        <span class="font-sans text-caption font-semibold text-white/60">Priority</span>
-                        <select
-                          class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
-                          [value]="labPriority()"
-                          (change)="labPriority.set($any($event.target).value)"
-                        >
-                          <option value="routine" class="bg-ink">Routine</option>
-                          <option value="urgent" class="bg-ink">Urgent</option>
-                        </select>
-                      </label>
-                      <label class="flex flex-col gap-1.5">
-                        <span class="font-sans text-caption font-semibold text-white/60">Instructions</span>
-                        <input
-                          placeholder="Fasting required, etc."
-                          class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                          [value]="labInstructions()"
-                          (input)="labInstructions.set($any($event.target).value)"
-                        />
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      class="flex w-fit items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                      [disabled]="labBusy() || !canDocument()"
-                      (click)="issueLab()"
-                    >
-                      <sd-icon name="check" [size]="14" /> {{ labBusy() ? 'Sending…' : 'Sign & send order' }}
-                    </button>
-                    @if (labError()) {
-                      <p class="font-sans text-caption text-alert">{{ labError() }}</p>
-                    }
-                  </div>
-                  @if (issuedLabs().length) {
-                    <div class="mt-4 border-t border-white/10 pt-3">
-                      <p class="mb-2 font-sans text-caption font-semibold text-white/60">Ordered</p>
-                      <ul class="flex flex-col gap-2">
-                        @for (o of issuedLabs(); track o.id) {
-                          <li class="flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2">
-                            <sd-icon name="clipboard-list" [size]="16" class="text-frost" />
-                            <span class="flex-1 font-sans text-body-sm text-white/85">{{ o.tests.join(', ') }}</span>
-                            <span
-                              class="rounded-pill px-2 py-0.5 font-sans text-[10px] capitalize"
-                              [class]="o.priority === 'urgent' ? 'bg-alert/15 text-alert' : 'bg-white/[0.06] text-white/60'"
-                            >{{ o.priority }}</span>
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
+                  <!-- Lab requests: "New lab request" opens the composer in a new tab, so this call stays connected. -->
+                  <doc-call-lab-requests
+                    [appointmentId]="rxAppointmentId()"
+                    [patientId]="rxPatientId()"
+                    [signedIn]="portalSignedIn()"
+                    [tone]="theme()"
+                    [narrow]="layout() === 'narrow'"
+                  />
                 }
                 @case ('followup') {
                   @if (!followUpMounted()) {
@@ -3195,14 +3137,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** Why the visit could not be closed — the doctor stays in the call. */
   protected readonly endError = signal('');
 
-  // Lab orders builder + list.
-  protected readonly labTests = signal('');
-  protected readonly labInstructions = signal('');
-  protected readonly labPriority = signal<'routine' | 'urgent'>('routine');
-  protected readonly labBusy = signal(false);
-  protected readonly labError = signal('');
-  protected readonly issuedLabs = signal<LabOrderDto[]>([]);
-
   // Care plan editor.
   protected readonly carePlanItems = signal<string[]>(['']);
   protected readonly carePlanBusy = signal(false);
@@ -3330,7 +3264,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
     { key: 'notes', label: 'Consultation Notes' },
     { key: 'prescriptions', label: 'Prescriptions' },
-    { key: 'labs', label: 'Lab Orders' },
+    { key: 'labs', label: 'Lab requests' },
     { key: 'followup', label: 'Follow-ups' },
     { key: 'copilot', label: 'Transcript & AI' },
   ];
@@ -3341,7 +3275,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   ];
   protected readonly tools: ReadonlyArray<{ label: string; icon: string }> = [
     { label: 'ePrescription', icon: 'pill' },
-    { label: 'Lab Request', icon: 'clipboard-list' },
+    { label: 'Lab request', icon: 'flask-conical' },
     { label: 'Referral', icon: 'user-round' },
     { label: 'Certificate', icon: 'file-text' },
   ];
@@ -3610,7 +3544,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     // The doctor's zone for every time shown here (shared with the portal's pages).
     void this.clock.ensureLoaded();
     void this.loadNote();
-    void this.loadLabOrders();
     void this.loadCarePlan();
     void this.loadReferrals();
     void this.loadCertificates();
@@ -4034,12 +3967,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected useTool(label: string): void {
     if (label === 'ePrescription') {
       this.toolNote.set('');
-      this.notesTab.set('prescriptions');
+      this.showToolsTab('prescriptions');
       return;
     }
-    if (label === 'Lab Request') {
+    if (label === 'Lab request') {
       this.toolNote.set('');
-      this.notesTab.set('labs');
+      this.showToolsTab('labs');
       return;
     }
     if (label === 'Referral') {
@@ -4057,9 +3990,30 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   /** The Follow-ups tab, scrolled to one of its tools (they sit below Schedule follow-up and the care plan). */
   private openFollowUpSection(id: string): void {
-    this.notesTab.set('followup');
+    this.showToolsTab('followup');
     afterNextRender(
       () => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+      { injector: this.injector },
+    );
+  }
+
+  /**
+   * A tool picked a tools tab: select it and scroll the tab strip sideways
+   * (only the strip, never the page) so the chosen tab shows in full — on a
+   * phone "Lab requests" sat past the edge as "Lab requ…".
+   */
+  private showToolsTab(key: NotesTab): void {
+    this.notesTab.set(key);
+    afterNextRender(
+      () => {
+        const tab = document.getElementById('call-tab-' + key);
+        const strip = tab?.parentElement;
+        if (!tab || !strip) return;
+        const s = strip.getBoundingClientRect();
+        const t = tab.getBoundingClientRect();
+        if (t.left < s.left) strip.scrollLeft -= s.left - t.left;
+        else if (t.right > s.right) strip.scrollLeft += t.right - s.right;
+      },
       { injector: this.injector },
     );
   }
@@ -4472,57 +4426,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.noteError.set(apiErrorMessage(err, 'Could not finalize the note.'));
     } finally {
       this.finalizing.set(false);
-    }
-  }
-
-  // ---- Lab orders ----
-  private async loadLabOrders(): Promise<void> {
-    if (!this.appointmentId || !this.auth.isAuthenticated()) return;
-    try {
-      const body = await this.noteFetch(
-        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/lab-orders`,
-        { method: 'GET' },
-      );
-      this.issuedLabs.set(Array.isArray(body.data) ? body.data : []);
-    } catch {
-      /* leave empty */
-    }
-  }
-
-  protected async issueLab(): Promise<void> {
-    if (!this.appointmentId || !this.portalSignedIn() || this.labBusy()) return;
-    const tests = this.labTests()
-      .split(/\r?\n|,/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (tests.length === 0) {
-      this.labError.set('Add at least one test.');
-      return;
-    }
-    this.labError.set('');
-    if (!(await this.dialogs.confirm(labOrderPrompt(this.patientName(), tests.length, this.labPriority()))).confirmed) return;
-    if (this.labBusy()) return;
-    this.labBusy.set(true);
-    try {
-      await this.noteFetch(
-        `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/lab-orders`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            tests,
-            instructions: this.labInstructions(),
-            priority: this.labPriority(),
-          }),
-        },
-      );
-      this.labTests.set('');
-      this.labInstructions.set('');
-      this.labPriority.set('routine');
-      await this.loadLabOrders();
-    } catch (err: unknown) {
-      this.labError.set(apiErrorMessage(err, 'Could not create order.'));
-    } finally {
-      this.labBusy.set(false);
     }
   }
 

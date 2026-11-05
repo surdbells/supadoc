@@ -88,13 +88,14 @@ const TONE_CLASS: Record<ClinicalTone, string> = {
   danger: 'bg-alert/10 text-alert-ink',
 };
 
-/** Routine / Urgent — icon + text, never colour alone. */
+/** Routine / Urgent / STAT — icon + text, never colour alone. */
 export const PRIORITY_META: Record<
-  'routine' | 'urgent',
+  'routine' | 'urgent' | 'stat',
   { readonly label: string; readonly icon: string; readonly tone: ClinicalTone }
 > = {
   routine: { label: 'Routine', icon: 'clock', tone: 'neutral' },
   urgent: { label: 'Urgent', icon: 'zap', tone: 'danger' },
+  stat: { label: 'STAT', icon: 'zap', tone: 'danger' },
 };
 
 /**

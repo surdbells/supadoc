@@ -43,7 +43,6 @@ import type {
   DoctorPatientRecordDto,
   DoctorRecordingStateDto,
   DoctorSharedDocumentDto,
-  LabOrderDto,
   MedicalCertificateDto,
   MessageDto,
   RecordingFileDto,
@@ -70,6 +69,7 @@ import {
   viewerWatermark,
 } from '../viewer/doctor-viewer-sources';
 import { MedicationItem, VisitStatusBadge } from '../patients/patient-record-ui';
+import { LabRequestsPanel } from '../lab/lab-requests-panel';
 import { RxPanel } from '../prescriptions/rx-panel';
 import {
   canConfirm,
@@ -85,14 +85,12 @@ import { ClinicalAi } from './clinical/clinical-ai';
 import { ClinicalCarePlan } from './clinical/clinical-care-plan';
 import { CERTIFICATE_BACKDATE_DAYS, ClinicalCertificates } from './clinical/clinical-certificates';
 import { ClinicalConsents } from './clinical/clinical-consents';
-import { ClinicalLabs } from './clinical/clinical-labs';
 import { ClinicalNote, type NoteSaveMode } from './clinical/clinical-note';
 import { ClinicalRecording } from './clinical/clinical-recording';
 import {
   carePlanPrompt,
   certificatePrompt,
   finalizeNotePrompt,
-  labOrderPrompt,
   referralPrompt,
   STOP_RECORDING_PROMPT,
 } from './clinical/clinical-prompts';
@@ -189,7 +187,7 @@ const TABS: Tab[] = [
   { key: 'notes', label: 'Clinical note', icon: 'file-text' },
   { key: 'messages', label: 'Messages', icon: 'message-square' },
   { key: 'prescriptions', label: 'Prescriptions', icon: 'pill' },
-  { key: 'labs', label: 'Lab orders', icon: 'clipboard-list' },
+  { key: 'labs', label: 'Lab requests', icon: 'flask-conical' },
   { key: 'care', label: 'Care plan', icon: 'list-checks' },
   { key: 'followups', label: 'Follow-ups', icon: 'calendar-plus' },
   { key: 'referrals', label: 'Referrals', icon: 'share-2' },
@@ -253,13 +251,13 @@ function timeLeft(ms: number): TimeLeft | null {
     IconComponent,
     MessageThreadComponent,
     RxPanel,
+    LabRequestsPanel,
     ClinicalAi,
     ClinicalBadge,
     ClinicalCarePlan,
     ClinicalCertificates,
     ClinicalConsents,
     ClinicalHeader,
-    ClinicalLabs,
     ClinicalNote,
     ClinicalRecording,
     ClinicalReferrals,
@@ -865,15 +863,8 @@ function timeLeft(ms: number): TimeLeft | null {
                     <doc-rx-panel [patientId]="a.patient_id" [appointmentId]="id" />
                   }
                   @case ('labs') {
-                    <doc-clinical-labs
-                      [orders]="labOrders()"
-                      [(tests)]="labTests"
-                      [(priority)]="labPriority"
-                      [(instructions)]="labInstructions"
-                      [busy]="sectionBusy()"
-                      [error]="sectionError()"
-                      (placeOrder)="orderLab()"
-                    />
+                    <!-- Lab requests from this consultation (the composer opens with the patient and appointment filled in). -->
+                    <doc-lab-requests-panel [appointmentId]="id" [patientId]="a.patient_id" [patientName]="a.patient_name" />
                   }
                   @case ('care') {
                     <doc-clinical-care-plan
@@ -1229,11 +1220,6 @@ export class DoctorAppointmentDetail implements OnInit {
   protected readonly messages = signal<MessageDto[]>([]);
   protected readonly messagesLoading = signal(false);
   protected readonly sendingMessage = signal(false);
-
-  protected readonly labOrders = signal<LabOrderDto[]>([]);
-  protected readonly labTests = signal('');
-  protected readonly labPriority = signal<'routine' | 'urgent'>('routine');
-  protected readonly labInstructions = signal('');
 
   protected readonly careItems = signal<string[]>([]);
   /** The last loaded / published care plan (published state + who / when) — display only. */
@@ -1613,9 +1599,7 @@ export class DoctorAppointmentDetail implements OnInit {
         this.api.messages(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.messages.set(r.data); this.messagesLoading.set(false); }, error: (err: unknown) => { this.messagesLoading.set(false); this.tabLoadFailed('messages', err, 'Could not load the messages.'); } });
         break;
       // 'prescriptions': <doc-rx-panel> loads (and refreshes) its own list.
-      case 'labs':
-        this.api.listLabOrders(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.labOrders.set(r.data), error: () => undefined });
-        break;
+      // 'labs': <doc-lab-requests-panel> loads its own list (and the legacy lab orders).
       case 'care':
         // Not silent: an empty editor after a failed load would let "Publish" overwrite the real plan.
         this.api.getCarePlan(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.careItems.set(r.data.items ?? []); this.carePlan.set(r.data); }, error: (err: unknown) => this.tabLoadFailed('care', err, 'Could not load the care plan.') });
@@ -1738,18 +1722,6 @@ export class DoctorAppointmentDetail implements OnInit {
   protected sendMessage(body: string): void {
     this.sendingMessage.set(true); this.sectionError.set('');
     this.api.sendMessage(this.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.messages.update((list) => [...list, r.data]); this.sendingMessage.set(false); }, error: (err) => { this.sectionError.set(apiErrorMessage(err, 'Could not send the message.')); this.sendingMessage.set(false); } });
-  }
-
-  // ----- Labs -----
-  protected async orderLab(): Promise<void> {
-    const tests = this.labTests().split('\n').map((t) => t.trim()).filter(Boolean);
-    if (tests.length === 0) { this.sectionError.set('Add at least one test.'); return; }
-    if (this.sectionBusy()) return;
-    if (!(await this.dialogs.confirm(labOrderPrompt(this.patientName(), tests.length, this.labPriority()))).confirmed) return;
-    this.runSection(this.api.createLabOrder(this.id, { tests, priority: this.labPriority(), instructions: this.labInstructions() || null }), () => {
-      this.labTests.set(''); this.labInstructions.set('');
-      this.api.listLabOrders(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.labOrders.set(r.data), error: () => undefined });
-    }, 'Could not place the lab order.');
   }
 
   // ----- Care plan -----

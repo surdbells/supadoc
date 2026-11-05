@@ -125,6 +125,9 @@ const CHIP =
             <a routerLink="/prescriptions/new" [queryParams]="{ patientId: id }" class="${PRIMARY_ACTION}">
               <sd-icon name="pill" [size]="18" /> Write prescription
             </a>
+            <a routerLink="/prescriptions/labs/new" [queryParams]="{ patientId: id }" class="${SECONDARY_ACTION}">
+              <sd-icon name="microscope" [size]="18" /> New lab request
+            </a>
             @if (latestVisit(); as v) {
               <a [routerLink]="['/appointments', v.id]" class="${SECONDARY_ACTION}">
                 <sd-icon name="file-text" [size]="18" /> Open latest chart

@@ -115,6 +115,12 @@ export const appRoutes: Route[] = [
           import('./prescriptions/prescriptions-page').then((m) => m.PrescriptionsPage),
       },
       {
+        // Laboratory & Diagnostics: list, new request, detail (lab/lab.routes.ts).
+        // Must stay before 'prescriptions/:id'.
+        path: 'prescriptions/labs',
+        loadChildren: () => import('./lab/lab.routes').then((m) => m.LAB_ROUTES),
+      },
+      {
         // Must stay before 'prescriptions/:id'.
         path: 'prescriptions/new',
         canActivate: [doctorStandingGuard],

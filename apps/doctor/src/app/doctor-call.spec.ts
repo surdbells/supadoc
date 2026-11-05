@@ -5,7 +5,7 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { Observable, of, Subject, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
-import { ApiService, DoctorApi } from '@supadoc/data-access';
+import { ApiService, DoctorApi, LabRequestsApi } from '@supadoc/data-access';
 import type { DoctorDocumentAccessDto, DoctorSharedDocumentDto } from '@supadoc/models';
 import {
   CallControlsComponent,
@@ -253,8 +253,11 @@ describe('DoctorCall — documents in the call', () => {
             appointment: () => of({ data: { patient_id: 'p1' } }),
             getProfile: () => of({ data: { id: 'd1', name: 'Dr Ada Obi', timezone: 'Africa/Lagos', timezone_source: 'manual' } }),
             complete: () => of({}),
+            listLabOrders: () => of({ data: [] }),
           },
         },
+        // The Lab requests tab lists this consultation's requests.
+        { provide: LabRequestsApi, useValue: { list: () => of({ data: [] }) } },
         { provide: SessionTimeoutService, useValue: { hold: vi.fn(), release: vi.fn() } },
         { provide: NoteDraftStore, useValue: { take: () => null, clear: () => undefined, save: () => true } },
         {
@@ -458,7 +461,7 @@ describe('DoctorCall — documents in the call', () => {
       await tick();
       expect(viewer.open).toHaveBeenCalledTimes(1);
       const tabs = Array.from(el.querySelectorAll('[role="tablist"][aria-label="Consultation tools"] [role="tab"]')).map((t) => t.textContent?.trim());
-      expect(tabs).toEqual(['Consultation Notes', 'Prescriptions', 'Lab Orders', 'Follow-ups', 'Transcript & AI']);
+      expect(tabs).toEqual(['Consultation Notes', 'Prescriptions', 'Lab requests', 'Follow-ups', 'Transcript & AI']);
       expect(el.querySelector('[aria-label="Close document"]')).toBeNull();
       expect(el.querySelector('doc-protected-document-viewer, sd-document-viewer')).toBeNull();
       expect(el.querySelector('.fixed.inset-0.z-50')).toBeNull();
@@ -469,6 +472,25 @@ describe('DoctorCall — documents in the call', () => {
       vi.useRealTimers();
       agora.clients.length = 0;
     }
+  });
+
+  it('the Lab request tool selects Lab requests and scrolls only the tab strip so the tab shows in full', async () => {
+    await setup([doc('a')]);
+    const strip = el.querySelector<HTMLElement>('[role="tablist"][aria-label="Consultation tools"]');
+    const tab = el.querySelector<HTMLElement>('#call-tab-labs');
+    if (!strip || !tab) throw new Error('no tools tab strip');
+    // A phone-width strip (300 px) with Lab requests starting 20 px before its right edge.
+    let left = 0;
+    Object.defineProperty(strip, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => (left = v) });
+    strip.getBoundingClientRect = () => ({ left: 10, right: 310 }) as DOMRect;
+    tab.getBoundingClientRect = () => ({ left: 290 - left, right: 390 - left }) as DOMRect;
+    const tool = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Lab request');
+    if (!tool) throw new Error('no Lab request tool');
+    tool.click();
+    await tick();
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(left).toBe(80);
+    expect(tab.getBoundingClientRect().right).toBe(310);
   });
 
   it('a document of the open viewer that stops being shared is revoked in place (NOT_SHARED), not closed', async () => {

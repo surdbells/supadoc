@@ -12,6 +12,7 @@ import { apiErrorMessage, DoctorApi } from '@supadoc/data-access';
 import type { PrescriptionStatus, PrescriptionSummaryDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { Subscription } from 'rxjs';
+import { DocPrescriptionsLabHeader } from '../lab/prescriptions-lab-header';
 import { medicinesLabel, rxDate, RxStatusBadge } from './rx-shared';
 import { DoctorClock } from '../doctor-clock';
 
@@ -35,14 +36,16 @@ const PER_PAGE = 20;
 @Component({
   selector: 'doc-prescriptions-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, RxStatusBadge],
+  imports: [RouterLink, IconComponent, RxStatusBadge, DocPrescriptionsLabHeader],
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
-      <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <doc-prescriptions-lab-header active="prescriptions" />
+
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Prescriptions</h1>
-          <p class="font-sans text-body text-slate">Everything you have prescribed, newest first.</p>
+          <h2 class="font-sans text-h5 font-semibold text-ink">Prescriptions</h2>
+          <p class="font-sans text-caption text-slate">Everything you have prescribed, newest first.</p>
         </div>
         <a
           routerLink="/prescriptions/new"
@@ -50,7 +53,7 @@ const PER_PAGE = 20;
         >
           <sd-icon name="plus" [size]="18" /> New prescription
         </a>
-      </header>
+      </div>
 
       <!-- Status filter -->
       <div class="overflow-x-auto rounded-pill border border-haze bg-glacier px-2 py-1.5 shadow-bar" role="group" aria-label="Filter by status">

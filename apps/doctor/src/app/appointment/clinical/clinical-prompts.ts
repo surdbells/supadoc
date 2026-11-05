@@ -21,22 +21,6 @@ export function finalizeNotePrompt(patient: string): ConfirmOptions {
   };
 }
 
-/** "Send this lab order to {patient}?" */
-export function labOrderPrompt(patient: string, tests: number, priority: 'routine' | 'urgent'): ConfirmOptions {
-  return {
-    tone: 'info',
-    icon: 'flask-conical',
-    title: `Send this lab order to ${patient}?`,
-    message: 'It appears in their consultation record straight away.',
-    details: [
-      { label: 'Tests', value: String(tests) },
-      { label: 'Priority', value: priority === 'urgent' ? 'Urgent' : 'Routine' },
-    ],
-    confirmLabel: 'Send lab order',
-    cancelLabel: 'Not yet',
-  };
-}
-
 /** "Send this referral to {patient}?" */
 export function referralPrompt(patient: string, target: string, priority: 'routine' | 'urgent'): ConfirmOptions {
   return {

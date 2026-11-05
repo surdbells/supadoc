@@ -20,6 +20,8 @@ const ICON: Record<string, string> = {
   message: 'message-square',
   // A patient shared documents, or answered your request to see them.
   document_access: 'folder-open',
+  // A lab request changed (accepted, declined, sample, result, support update).
+  lab: 'microscope',
 };
 
 /** Doctor notifications (route `/notifications`). */
