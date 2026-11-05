@@ -82,6 +82,20 @@ describe('LabRequestsApi', () => {
     });
   });
 
+  describe('fileBlob', () => {
+    it('GETs the relative signed link through HttpClient as a blob (for the viewer and Download)', async () => {
+      const got = firstValueFrom(
+        s.lab.fileBlob({ url: '/api/public/lab-requests/file?token=abc', expires_at: 'x', filename: 'GVM-REQ-1.pdf' }),
+      );
+      const req = s.http.expectOne(`${base}/api/public/lab-requests/file?token=abc`);
+      expect(req.request.method).toBe('GET');
+      expect(req.request.responseType).toBe('blob');
+      expect(req.request.headers.has(DOCUMENT_VIEWER_HEADER)).toBe(false);
+      req.flush(new Blob(['%PDF-1.7'], { type: 'application/pdf' }));
+      expect((await got).size).toBeGreaterThan(0);
+    });
+  });
+
   describe('doctor', () => {
     it('GETs the options', () => {
       s.lab.options().subscribe();

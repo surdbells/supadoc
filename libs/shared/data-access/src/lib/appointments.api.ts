@@ -366,6 +366,18 @@ export class AppointmentsApi {
     );
   }
 
+  /**
+   * GET /api/portal/appointments/{id}/documents/{kind}/{docId}?format=pdf — my
+   * referral letter or medical certificate as a server-rendered PDF, for the
+   * shared viewer (View, Print, Download).
+   */
+  documentPdf(id: string, kind: 'referral' | 'certificate', docId: string): Observable<Blob> {
+    return this.api.getBlob(
+      `api/portal/appointments/${encodeURIComponent(id)}/documents/${kind}/${encodeURIComponent(docId)}`,
+      { format: 'pdf' },
+    );
+  }
+
   /** GET /api/portal/appointments/{id}/consents — the patient's consent decisions. */
   consents(id: string): Observable<SuccessResponse<ConsentDto[]>> {
     return this.api.get<SuccessResponse<ConsentDto[]>>(

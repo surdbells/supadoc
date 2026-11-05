@@ -24,10 +24,8 @@ import type {
 import { API_CONFIG } from './api-config';
 import { ApiService, QueryParams } from './api.service';
 import { DOCUMENT_VIEWER_HEADER, type PatientDocumentView } from './doctor.api';
+import { parseDocumentView } from './document-view';
 import { apiFileUrl } from './prescriptions.api';
-
-/** A view reference the API issues per view: "VM-" + 8 upper-case hex digits. */
-const VIEW_REF_PATTERN = /^VM-[0-9A-F]{8}$/;
 
 const DOCTOR = 'api/doctor/lab-requests';
 const PORTAL = 'api/portal/lab-requests';
@@ -113,11 +111,12 @@ function seg(id: string): string {
  * (`/api/admin/*lab-requests*`, `monitoring.view` / `labs.manage`). Tokens are
  * attached by each app's interceptor; nothing here reads a token.
  *
- * Request PDFs are opened through short-lived signed links (`link`, `myLink`,
- * `staffLink` → {@link fileUrl}), never fetched as blobs. A doctor views a
- * result only through the view-only viewer ({@link viewResult}, which sends
- * `X-SD-Viewer: 1`); the patient opens their own result with
- * `DocumentsApi.fileBlob(document.id)`.
+ * Request PDFs are reached only through short-lived signed links (`link`,
+ * `myLink`, `staffLink`): the shared viewer and Download fetch the link's PDF as
+ * a Blob through `HttpClient` ({@link fileBlob}), never as a cross-origin
+ * `<a href>` or a new tab. A doctor views a result only through the view-only
+ * viewer ({@link viewResult}, which sends `X-SD-Viewer: 1`); the patient opens
+ * their own result with `DocumentsApi.fileBlob(document.id)`.
  */
 @Injectable({ providedIn: 'root' })
 export class LabRequestsApi {
@@ -128,6 +127,16 @@ export class LabRequestsApi {
   /** Absolute URL of a signed request-PDF link (`/api/public/lab-requests/file?token=…`). */
   fileUrl(link: LabRequestLinkDto): string {
     return apiFileUrl(this.config.baseUrl, link.url);
+  }
+
+  /**
+   * GET a signed link's request PDF as a Blob through `HttpClient`
+   * (`link.url` is the relative `/api/public/lab-requests/file?token=…`, which
+   * `ApiService` prefixes with the API base). For the shared viewer and
+   * `saveSignedLink`; the link itself stays short-lived and audited.
+   */
+  fileBlob(link: LabRequestLinkDto): Observable<Blob> {
+    return this.api.getBlob(link.url);
   }
 
   // ----- doctor -----
@@ -193,7 +202,7 @@ export class LabRequestsApi {
     );
   }
 
-  /** POST …/{id}/link — a signed short-lived PDF link (resolve with {@link fileUrl}). */
+  /** POST …/{id}/link — a signed short-lived PDF link (fetch it with {@link fileBlob}). */
   link(id: string, download = false): Observable<SuccessResponse<LabRequestLinkDto>> {
     return this.api.post<SuccessResponse<LabRequestLinkDto>>(`${DOCTOR}/${seg(id)}/link`, { download });
   }
@@ -210,21 +219,7 @@ export class LabRequestsApi {
       .getBlobResponse(`${DOCTOR}/${seg(id)}/results/${seg(resultId)}/file`, undefined, {
         [DOCUMENT_VIEWER_HEADER]: '1',
       })
-      .pipe(
-        map((res) => {
-          const blob = res.body ?? new Blob([]);
-          const type = (res.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
-          const ref = (res.headers.get('X-SD-View-Ref') ?? '').trim();
-          const at = res.headers.get('X-SD-Viewed-At');
-          const atMs = at ? Date.parse(at) : NaN;
-          return {
-            blob,
-            mime: type || blob.type,
-            viewRef: VIEW_REF_PATTERN.test(ref) ? ref : null,
-            viewedAt: Number.isFinite(atMs) && at ? at : new Date().toISOString(),
-          };
-        }),
-      );
+      .pipe(map((r) => parseDocumentView(r)));
   }
 
   /**

@@ -30,6 +30,10 @@ export function apiFileUrl(baseUrl: string, path: string): string {
  * file in the current tab — unless `allowSameTab: false` is passed (e.g. during
  * a live video call, where leaving the page would end the call), in which case
  * it returns false and the caller should offer a link to open it instead.
+ *
+ * @deprecated Open prescriptions and lab request PDFs in the shared viewer
+ * (`DocumentViewerService` with `signedLinkSource`, `@supadoc/viewer`) and save
+ * them with `saveSignedLink`. Removed once every site has moved.
  */
 export function openPendingTab(options: { allowSameTab?: boolean } = {}): {
   go: (url: string) => boolean;
@@ -77,6 +81,17 @@ export class PrescriptionsApi {
   /** Absolute URL for a signed link returned by any `*link` call. */
   fileUrl(link: PrescriptionLinkDto): string {
     return apiFileUrl(this.config.baseUrl, link.url);
+  }
+
+  /**
+   * GET a signed link's PDF as a Blob through `HttpClient` (the interceptors
+   * run; the public route ignores the bearer). `link.url` is the relative path
+   * the `*link` calls return (`/api/public/prescriptions/file?token=…`), which
+   * `ApiService` prefixes with the API base. For the shared viewer and for
+   * Download (`saveSignedLink`): never a cross-origin `<a href>` navigation.
+   */
+  fileBlob(link: PrescriptionLinkDto): Observable<Blob> {
+    return this.api.getBlob(link.url);
   }
 
   // ----- patient -----

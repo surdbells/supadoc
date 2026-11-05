@@ -1,0 +1,26 @@
+{
+  "name": "shared-viewer",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shared/viewer/src",
+  "prefix": "sd",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/doctor/project.json",
+        "{workspaceRoot}/apps/patient/project.json",
+        "{workspaceRoot}/apps/backoffice/project.json",
+        "{workspaceRoot}/apps/onboarding/project.json",
+        "{workspaceRoot}/apps/*/src/index.html",
+        "{workspaceRoot}/package.json",
+        "{workspaceRoot}/tailwind/theme.css"
+      ]
+    }
+  }
+}

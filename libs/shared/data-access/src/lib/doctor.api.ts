@@ -77,6 +77,7 @@ import type {
 import { API_CONFIG } from './api-config';
 import { apiErrorFields } from './api-error.util';
 import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
+import { parseDocumentView } from './document-view';
 
 const STANDING_CODES: readonly DoctorStandingCode[] = ['doctor_suspended', 'doctor_not_approved', 'terms_required'];
 
@@ -87,9 +88,6 @@ const STANDING_CODES: readonly DoctorStandingCode[] = ['doctor_suspended', 'doct
  * viewer (which has a download button).
  */
 export const DOCUMENT_VIEWER_HEADER = 'X-SD-Viewer';
-
-/** A view reference the API issues per view: "VM-" + 8 upper-case hex digits. */
-const VIEW_REF_PATTERN = /^VM-[0-9A-F]{8}$/;
 
 /** A patient document fetched for the view-only viewer. */
 export interface PatientDocumentView {
@@ -326,7 +324,8 @@ export class DoctorApi {
    *
    * @deprecated Doctors may only view or print patient documents: use
    * {@link patientDocumentView} in the view-only viewer. The API now refuses
-   * this request (409 `update_required`: it lacks `X-SD-Viewer`).
+   * this request (409 `update_required`: it lacks `X-SD-Viewer`). Removed once
+   * every preview opens in the shared viewer (`@supadoc/viewer`).
    */
   patientDocumentBlob(id: string, docId: string): Observable<Blob> {
     return this.api.getBlob(
@@ -349,21 +348,7 @@ export class DoctorApi {
         undefined,
         { [DOCUMENT_VIEWER_HEADER]: '1' },
       )
-      .pipe(
-        map((res) => {
-          const blob = res.body ?? new Blob([]);
-          const type = (res.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
-          const ref = (res.headers.get('X-SD-View-Ref') ?? '').trim();
-          const at = res.headers.get('X-SD-Viewed-At');
-          const atMs = at ? Date.parse(at) : NaN;
-          return {
-            blob,
-            mime: type || blob.type,
-            viewRef: VIEW_REF_PATTERN.test(ref) ? ref : null,
-            viewedAt: Number.isFinite(atMs) && at ? at : new Date().toISOString(),
-          };
-        }),
-      );
+      .pipe(map((r) => parseDocumentView(r)));
   }
 
   /**
@@ -892,6 +877,17 @@ export class DoctorApi {
     return this.api.getText(
       `${this.base(id)}/documents/${kind}/${encodeURIComponent(docId)}`,
     );
+  }
+
+  /**
+   * GET …/documents/{kind}/{docId}?format=pdf — a referral letter or medical
+   * certificate as a server-rendered PDF, for the shared viewer (Print only for
+   * the doctor; nothing is saved). Not audited, like the HTML route.
+   */
+  documentPdf(id: string, kind: 'referral' | 'certificate', docId: string): Observable<Blob> {
+    return this.api.getBlob(`${this.base(id)}/documents/${kind}/${encodeURIComponent(docId)}`, {
+      format: 'pdf',
+    });
   }
 
   // ----- Consents (read) -----

@@ -20,6 +20,10 @@ function showTabError(tab: Window, message: string): void {
  * blockers, shows a lightweight placeholder, then swaps in the fetched document
  * via a blob URL once the request resolves. One-shot: the HTTP GET completes and
  * the subscription ends on its own.
+ *
+ * @deprecated Referral letters and medical certificates open as PDFs in the
+ * shared viewer (`DocumentViewerService`, `@supadoc/viewer`; `DoctorApi.documentPdf` /
+ * `AppointmentsApi.documentPdf`). Removed once every site has moved.
  */
 export function openClinicalDocument(document$: Observable<string>): void {
   const tab = window.open('', '_blank');
@@ -74,6 +78,10 @@ function errorStatus(err: unknown): number {
  * host is told the status and the API's `errors.code` (readable for blob
  * requests because the http-error interceptor parses JSON error bodies);
  * without it the error text is shown in the tab, as before.
+ *
+ * @deprecated Open documents in the shared viewer (`DocumentViewerService` with
+ * `blobSource`, `@supadoc/viewer`): a modal, never a new tab. Removed once every
+ * site has moved.
  */
 export function openBlobDocument(file$: Observable<Blob>, options?: OpenBlobOptions): void {
   const tab = window.open('', '_blank');

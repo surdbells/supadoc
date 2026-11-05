@@ -106,4 +106,19 @@ describe('DoctorApi (time zones, availability, view-only documents)', () => {
     expect(withRef.request.body).toEqual({ view_ref: 'VM-7F3A2C1D' });
     withRef.flush(OK);
   });
+
+  it('documentPdf GETs the referral / certificate with format=pdf as a blob', async () => {
+    const pdf = firstValueFrom(s.doctor.documentPdf('ap 1', 'referral', 'ref/1'));
+    const req = s.http.expectOne((r) => r.url === `${base}/api/doctor/appointments/ap%201/documents/referral/ref%2F1`);
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.get('format')).toBe('pdf');
+    expect(req.request.responseType).toBe('blob');
+    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+    expect((await pdf).size).toBeGreaterThan(0);
+
+    s.doctor.documentPdf('ap1', 'certificate', 'c1').subscribe();
+    const cert = s.http.expectOne((r) => r.url === `${base}/api/doctor/appointments/ap1/documents/certificate/c1`);
+    expect(cert.request.urlWithParams).toBe(`${base}/api/doctor/appointments/ap1/documents/certificate/c1?format=pdf`);
+    cert.flush(new Blob(['%PDF']));
+  });
 });

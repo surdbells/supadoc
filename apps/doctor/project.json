@@ -39,7 +39,8 @@
           {
             "glob": "**/*",
             "input": "node_modules/pdfjs-dist/wasm",
-            "output": "pdfjs/wasm"
+            "output": "pdfjs/wasm",
+            "ignore": ["quickjs-eval.*"]
           }
         ],
         "styles": [

@@ -419,3 +419,118 @@ describe('DialogComponent (sd-dialog)', () => {
 class MaxWidthHostComponent {
   readonly width = signal<number | null>(470);
 }
+
+@Component({
+  imports: [DialogComponent],
+  template: `
+    <sd-dialog [open]="open()" [size]="size()" [layout]="layout()" labelledBy="vt" title="Viewer">
+      <h2 id="vt">Lab report</h2>
+    </sd-dialog>
+  `,
+})
+class ViewerSizeHostComponent {
+  readonly open = signal(true);
+  readonly size = signal<'viewer' | 'md'>('viewer');
+  readonly layout = signal<'plain' | 'standard'>('plain');
+}
+
+describe('DialogComponent size="viewer"', () => {
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+  });
+  afterAll(() => {
+    delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
+    delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).close;
+  });
+
+  const make = async () => {
+    await TestBed.configureTestingModule({ imports: [ViewerSizeHostComponent], providers: [provideSupadocIcons()] }).compileComponents();
+    const f = TestBed.createComponent(ViewerSizeHostComponent);
+    document.body.appendChild(f.nativeElement);
+    f.detectChanges();
+    await f.whenStable();
+    f.detectChanges();
+    return f;
+  };
+  const body = (d: HTMLDialogElement | null) => d?.querySelector('#vt')?.parentElement ?? null;
+
+  it('viewer + plain: the viewer class and a non-scrolling, filling body', async () => {
+    const f = await make();
+    const d = (f.nativeElement as HTMLElement).querySelector('dialog');
+    expect(d?.classList.contains('sd-dialog--viewer')).toBe(true);
+    const b = body(d);
+    expect(b?.className.split(' ').sort()).toEqual(['flex', 'flex-1', 'flex-col', 'min-h-0', 'overflow-hidden']);
+    expect(b?.className).not.toContain('overflow-y-auto');
+    f.destroy();
+  });
+
+  it('viewer + standard keeps the scrolling, padded body; other sizes are unchanged', async () => {
+    const f = await make();
+    f.componentInstance.layout.set('standard');
+    f.detectChanges();
+    const d = (f.nativeElement as HTMLElement).querySelector('dialog');
+    const scrolling = body(d)?.className ?? '';
+    expect(scrolling).toContain('overflow-y-auto');
+    expect(scrolling).toContain('px-5');
+    f.componentInstance.size.set('md');
+    f.componentInstance.layout.set('plain');
+    f.detectChanges();
+    expect(d?.classList.contains('sd-dialog--md')).toBe(true);
+    expect(d?.classList.contains('sd-dialog--viewer')).toBe(false);
+    expect(body(d)?.className.split(' ').sort()).toEqual(['flex-1', 'min-h-0', 'overflow-y-auto', 'overscroll-contain']);
+    f.destroy();
+  });
+
+  it('enters with a fade only below 40rem (never the sheet slide), and scales a touch as a panel', async () => {
+    const view = document.defaultView as Window & typeof globalThis;
+    const animate = Element.prototype.animate;
+    const matchMedia = view.matchMedia;
+    const calls: Keyframe[][] = [];
+    let wide = false;
+    Element.prototype.animate = vi.fn((frames: Keyframe[]) => {
+      calls.push(frames);
+      return { cancel: vi.fn() } as unknown as Animation;
+    }) as unknown as typeof Element.prototype.animate;
+    view.matchMedia = vi.fn((media: string) => ({ matches: media.includes('min-width: 40rem') ? wide : false, media }) as unknown as MediaQueryList);
+    try {
+      const f = await make();
+      await new Promise((r) => setTimeout(r));
+      expect(calls[0]).toEqual([
+        { opacity: 0, transform: 'none' },
+        { opacity: 1, transform: 'none' },
+      ]);
+      f.componentInstance.open.set(false);
+      f.detectChanges();
+      wide = true;
+      calls.length = 0;
+      f.componentInstance.open.set(true);
+      f.detectChanges();
+      await f.whenStable();
+      await new Promise((r) => setTimeout(r));
+      expect(calls[0]?.[0]).toEqual({ opacity: 0, transform: 'scale(0.98)' });
+      f.destroy();
+    } finally {
+      Element.prototype.animate = animate;
+      view.matchMedia = matchMedia;
+    }
+  });
+
+  it('ships the full-screen rules, the fade exit and the dark-page backdrop override', async () => {
+    const f = await make();
+    const css = Array.from(document.querySelectorAll('style'))
+      .map((s) => s.textContent ?? '')
+      .join('\n')
+      .replace(/\s+/g, ' ');
+    expect(css).toMatch(/\.sd-dialog--viewer\[[^\]]+\] \{ inset: 0; margin: 0; width: 100%; max-width: none; height: 100dvh;/);
+    expect(css).toMatch(/\.sd-dialog--viewer\.sd-dialog--leaving\[[^\]]+\] \{ transform: none; \}/);
+    expect(css).toContain('max-width: 96rem');
+    // The dark page's darker scrim rule is more specific than the plain one: overridden for the viewer.
+    expect(css).toMatch(/html\[data-theme='dark'\][^{]*\.sd-dialog--viewer\[[^\]]+\]::backdrop[^{]*\{ background: rgb\(10 22 40 \/ 0\.72\); \}/);
+    f.destroy();
+  });
+});

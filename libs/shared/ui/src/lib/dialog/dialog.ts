@@ -17,11 +17,19 @@ import {
 } from '@angular/core';
 import { IconComponent } from '../icon/icon';
 
-export type DialogSize = 'sm' | 'md' | 'lg' | 'xl';
+/**
+ * `viewer`: the shared document viewer's modal (`@supadoc/viewer`, with
+ * `layout="plain"`): full screen on phones (and phones held sideways), a large
+ * panel from `sm`, fading in and out; its body fills the panel and does not scroll.
+ */
+export type DialogSize = 'sm' | 'md' | 'lg' | 'xl' | 'viewer';
 export type DialogRole = 'dialog' | 'alertdialog';
 export type DialogLayout = 'standard' | 'plain';
 
 let nextId = 0;
+
+/** A phone held sideways: the document viewer is full screen there too. */
+const COMPACT_QUERY = '(orientation: landscape) and (max-height: 500px)';
 
 /** Exit animation length (ms). */
 const EXIT_MS = 160;
@@ -227,6 +235,36 @@ const FOCUSABLE =
     :host-context(html[data-theme='dark']) .sd-dialog::backdrop {
       background: rgb(0 0 0 / 0.6);
     }
+
+    /* The document viewer: full screen on phones and on phones held sideways,
+       a large panel otherwise; it leaves with a fade. After the rules above. */
+    .sd-dialog--viewer {
+      inset: 0;
+      margin: 0;
+      width: 100%;
+      max-width: none;
+      height: 100dvh;
+      max-height: 100dvh;
+      border-radius: 0;
+      padding: 0;
+    }
+    .sd-dialog--viewer.sd-dialog--leaving {
+      transform: none;
+    }
+    @media (min-width: 40rem) and (orientation: portrait), (min-width: 40rem) and (min-height: 500.1px) {
+      .sd-dialog--viewer {
+        width: calc(100% - 2rem);
+        max-width: 96rem;
+        height: min(calc(100dvh - 2rem), 72rem);
+        max-height: none;
+        margin: auto;
+        border-radius: 16px;
+      }
+    }
+    .sd-dialog--viewer::backdrop,
+    :host-context(html[data-theme='dark']) .sd-dialog--viewer::backdrop {
+      background: rgb(10 22 40 / 0.72);
+    }
   `,
   template: `
     @if (rendered()) {
@@ -270,7 +308,7 @@ const FOCUSABLE =
           </div>
         }
         <!-- One default slot only: Angular projects into the last one it finds. -->
-        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain" [class]="bodyClass()">
+        <div [class]="bodyClass()">
           <ng-content />
         </div>
         <ng-content select="[dialogFooter]" />
@@ -328,7 +366,12 @@ export class DialogComponent implements OnDestroy {
     const px = this.maxWidth();
     return px ? `${px}px` : null;
   });
-  protected readonly bodyClass = computed(() => (this.layout() === 'standard' ? 'px-5 py-5 sm:px-6' : ''));
+  /** The body scrolls, except the viewer's: it fills the panel and scrolls inside. */
+  protected readonly bodyClass = computed(() => {
+    if (this.size() === 'viewer' && this.layout() === 'plain') return 'flex min-h-0 flex-1 flex-col overflow-hidden';
+    const scroll = 'min-h-0 flex-1 overflow-y-auto overscroll-contain';
+    return this.layout() === 'standard' ? `${scroll} px-5 py-5 sm:px-6` : scroll;
+  });
   protected readonly labelledById = computed(
     () => this.labelledBy() ?? (this.layout() === 'standard' ? this.titleId : null),
   );
@@ -638,14 +681,24 @@ export class DialogComponent implements OnDestroy {
     return !(this.doc.defaultView?.matchMedia?.('(min-width: 40rem)').matches ?? true);
   }
 
+  /** A phone held sideways (the viewer is full screen there). */
+  private isCompact(): boolean {
+    return this.doc.defaultView?.matchMedia?.(COMPACT_QUERY).matches ?? false;
+  }
+
   private animateIn(dialog: HTMLDialogElement): void {
     if (!this.motionAllowed(dialog)) return;
-    const from = this.isSheet() ? 'translateY(100%)' : 'translateY(8px) scale(0.98)';
+    // The viewer fades at every width (never the sheet's slide), with a slight
+    // scale only as a panel; everything else as before.
+    const viewer = this.size() === 'viewer' && !this.maxWidth();
+    let from = this.isSheet() ? 'translateY(100%)' : 'translateY(8px) scale(0.98)';
+    if (viewer) from = this.isSheet() || this.isCompact() ? 'none' : 'scale(0.98)';
+    const duration = viewer ? EXIT_MS : 220;
     const panel = dialog.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: 'none' }], {
-      duration: 220,
+      duration,
       easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
     });
-    const scrim = animateBackdrop(dialog, [{ opacity: 0 }, { opacity: 1 }], 220);
+    const scrim = animateBackdrop(dialog, [{ opacity: 0 }, { opacity: 1 }], duration);
     this.entryAnimations = scrim ? [panel, scrim] : [panel];
   }
 }
