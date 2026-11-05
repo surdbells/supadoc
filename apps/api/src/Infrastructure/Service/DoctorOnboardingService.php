@@ -556,8 +556,9 @@ final class DoctorOnboardingService
             '/specialists/' . $s->getId(),
         );
 
-        // The back office has no notification bell, so the reviewers are also
-        // emailed — after the doctor's reply has gone, so N sends don't slow it.
+        // The in-app notice reaches the back-office bell; the reviewers are also
+        // emailed, so a waiting profile is seen even with the console closed —
+        // after the doctor's reply has gone, so N sends don't slow it.
         $name = $s->getName();
         AfterResponse::defer(fn () => $this->emailReviewers($name));
     }

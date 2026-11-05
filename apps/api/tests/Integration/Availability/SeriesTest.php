@@ -360,7 +360,17 @@ final class SeriesTest extends DocShareTestCase
         $legacyList = $this->get(ListAvailabilityAction::class, ['from' => $date, 'to' => $date]);
         $this->assertSame(200, $legacyList['status']);
         $this->assertArrayNotHasKey('tz', $legacyList['body']['data'], 'an old editor never sees the zone contract');
-        $this->assertSame($date . 'T09:00:00+00:00', $legacyList['body']['data']['slots'][0]['starts_at']);
+        // Pick this series' rows by id: the shared fixture books doctor A for
+        // "+3 days at the current hour", which the listing also returns (an
+        // `appt-` row, or the matching slot marked booked) and which sorts
+        // first whenever the suite runs before 09:00 UTC.
+        $seriesId = $res['body']['data']['series_id'];
+        $this->assertIsString($seriesId);
+        $slots = $legacyList['body']['data']['slots'];
+        $mine  = array_values(array_filter($slots, static fn (array $r): bool => $r['series_id'] === $seriesId));
+        $this->assertSame([$date . 'T09:00:00+00:00', $date . 'T09:30:00+00:00'], array_column($mine, 'starts_at'), 'the UTC day holds exactly this day\'s two times, from 09:00 UTC');
+        $others = array_filter($slots, static fn (array $r): bool => $r['series_id'] !== $seriesId);
+        $this->assertSame([], array_values(array_filter($others, static fn (array $r): bool => !str_starts_with((string) $r['id'], 'appt-'))), 'nothing else but the fixture\'s appointments');
 
         $block = $this->doctorAction(BlockAvailabilityAction::class, $this->userA, [], ['date' => $date, 'entire_day' => true]);
         $this->assertSame($date . 'T00:00:00+00:00', $block['body']['data']['starts_at'], 'a UTC day');
