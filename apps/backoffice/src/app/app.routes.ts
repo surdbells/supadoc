@@ -144,6 +144,12 @@ export const appRoutes: Route[] = [
           import('./reference-data/reference-data').then((m) => m.AdminReferenceData),
       },
       {
+        // The user's notifications (the header bell) — any signed-in staff user.
+        path: 'notifications',
+        loadComponent: () =>
+          import('./notifications/notifications').then((m) => m.AdminNotifications),
+      },
+      {
         // Account settings — any signed-in staff user (no extra permission).
         path: 'settings',
         // Unsaved booking-rule edits ask before leaving.

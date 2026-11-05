@@ -5,7 +5,7 @@ import type {
   StaffNotificationDto,
   SuccessResponse,
 } from '@supadoc/models';
-import { ApiService, QueryParams } from './api.service';
+import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 
 /** In-app notifications for the signed-in staff user (doctor/admin). */
 @Injectable({ providedIn: 'root' })
@@ -23,8 +23,15 @@ export class StaffNotificationsApi {
     );
   }
 
-  unread(): Observable<SuccessResponse<{ count: number }>> {
-    return this.api.get<SuccessResponse<{ count: number }>>('api/me/notifications/unread');
+  /** The unread count. A badge poll passes `{ passive: true }`, so it never extends the idle session. */
+  unread(
+    options?: ApiRequestOptions,
+  ): Observable<SuccessResponse<{ count: number }>> {
+    return this.api.get<SuccessResponse<{ count: number }>>(
+      'api/me/notifications/unread',
+      undefined,
+      options,
+    );
   }
 
   markRead(id: string): Observable<SuccessResponse<StaffNotificationDto>> {

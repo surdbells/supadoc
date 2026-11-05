@@ -29,13 +29,14 @@ import {
   type NavItem,
   waitingSummary,
 } from './nav';
+import { NotificationBell } from './notifications/notification-bell';
 import { ReviewQueue } from './specialists/review-queue';
 
 /** Back-office shell — permission-gated side nav + header. */
 @Component({
   selector: 'bo-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [NgTemplateOutlet, RouterOutlet, RouterLink, RouterLinkActive, IconComponent, NotificationBell],
   template: `
     <div class="flex min-h-screen bg-glacier">
       <aside
@@ -67,6 +68,7 @@ import { ReviewQueue } from './specialists/review-queue';
             </span>
           </div>
           <div class="flex items-center gap-3">
+            <bo-notification-bell />
             <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-ink/10 font-heading text-body-sm font-semibold text-ink ring-2 ring-white shadow-control">
               {{ initials() || 'AD' }}
             </span>
