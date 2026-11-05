@@ -59,18 +59,35 @@ const ROLES = [
   { value: 'super_admin', label: 'Super admin' },
 ];
 
-/** The permissions the staff editor offers. */
-export const STAFF_PERMISSIONS: readonly { readonly value: string; readonly label: string }[] = [
-  { value: 'appointments.view', label: 'View appointments' },
-  { value: 'appointments.create', label: 'Create appointments' },
-  { value: 'appointments.book', label: 'Book appointments' },
-  { value: 'appointments.update', label: 'Update appointments' },
-  { value: 'specialists.manage', label: 'Manage specialists' },
-  { value: 'settings.manage', label: 'Manage pricing/settings' },
-  { value: 'monitoring.view', label: 'View monitoring' },
-  { value: 'staff.manage', label: 'Manage staff' },
-  // Lab requests (2026-11): correct a status and open a request PDF. monitoring.view sees summary rows only.
-  { value: 'labs.manage', label: 'Manage lab requests (status, PDFs)' },
+/** One permission the staff editor can grant. */
+export interface StaffPermissionOption {
+  /** The permission string the API stores and enforces. */
+  readonly value: string;
+  readonly label: string;
+  /** One line under the label: what it opens in the back office. */
+  readonly description: string;
+}
+
+/**
+ * The permissions the staff editor offers: every one the API accepts
+ * (`App\Action\Admin\ManagesStaff::PERMISSIONS`), in the same order.
+ * staff.spec.ts reads that PHP list and fails when the two drift.
+ */
+export const STAFF_PERMISSIONS: readonly StaffPermissionOption[] = [
+  { value: 'appointments.view', label: 'View appointments', description: 'See the appointments list and visit details.' },
+  { value: 'appointments.create', label: 'Create appointments', description: 'Book a visit for a patient from the back office.' },
+  // The API treats book like create; the back-office booking page asks for create.
+  { value: 'appointments.book', label: 'Book appointments', description: 'Not enough to book here on its own; grant Create for the booking page.' },
+  { value: 'appointments.update', label: 'Update appointments', description: "Change a visit's status and settle missed or stale visits." },
+  { value: 'specialists.manage', label: 'Manage specialists', description: 'Doctor profiles, credentials, suspensions and applications.' },
+  { value: 'settings.manage', label: 'Manage pricing/settings', description: 'Pricing, booking and prescription rules, and reference data.' },
+  { value: 'monitoring.view', label: 'View monitoring', description: 'Dashboard, analytics, monitoring, patients and the audit log.' },
+  { value: 'staff.manage', label: 'Manage staff', description: 'Staff accounts, roles, permissions and password resets.' },
+  // Also unlocks unmasked payout bank details (MasksPayoutAccounts) and dashboard revenue (AdminDashboardService).
+  { value: 'payouts.manage', label: 'Manage payouts', description: 'Approve, reject and mark payouts paid; shows full bank details and revenue.' },
+  { value: 'support.manage', label: 'Manage support tickets', description: 'Read and reply to patient tickets, and resolve or close them.' },
+  // monitoring.view sees a patient's lab requests as summary rows only.
+  { value: 'labs.manage', label: 'Manage lab requests (status, PDFs)', description: "Correct a lab request's status and open its PDF (with View monitoring)." },
 ];
 
 /** Desktop column template, shared by the header and every row: Staff member | Roles | Status | chevron. */
@@ -256,11 +273,21 @@ const COLUMNS = 'md:grid-cols-[minmax(0,1fr)_10rem_10rem_2.5rem] xl:grid-cols-[m
 
           <div class="flex flex-col gap-2">
             <span class="${LABEL}">Permissions</span>
-            <div class="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
               @for (p of permissionOptions; track p.value) {
-                <label class="${CHECK_ROW}">
-                  <input type="checkbox" class="${CHECKBOX}" [checked]="hasPerm(p.value)" (change)="togglePerm(p.value)" />
-                  <span class="font-sans text-body-sm text-ink">{{ p.label }}</span>
+                <label class="flex min-h-11 cursor-pointer items-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    class="mt-0.5 ${CHECKBOX}"
+                    [attr.aria-labelledby]="'bo-staff-perm-' + $index"
+                    [attr.aria-describedby]="'bo-staff-perm-' + $index + '-hint'"
+                    [checked]="hasPerm(p.value)"
+                    (change)="togglePerm(p.value)"
+                  />
+                  <span class="flex min-w-0 flex-col">
+                    <span [id]="'bo-staff-perm-' + $index" class="font-sans text-body-sm text-ink">{{ p.label }}</span>
+                    <span [id]="'bo-staff-perm-' + $index + '-hint'" class="font-sans text-caption text-slate">{{ p.description }}</span>
+                  </span>
                 </label>
               }
             </div>

@@ -96,6 +96,10 @@
     },
     "test": {
       "executor": "@angular/build:unit-test",
+      "inputs": [
+        "...",
+        "{workspaceRoot}/apps/api/src/Action/Admin/ManagesStaff.php"
+      ],
       "options": {
         "watch": false
       }

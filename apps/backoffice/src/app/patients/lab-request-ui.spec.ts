@@ -105,6 +105,6 @@ describe('lab-request-ui', () => {
   });
 
   it('the staff editor offers labs.manage (§5)', () => {
-    expect(STAFF_PERMISSIONS).toContainEqual({ value: 'labs.manage', label: 'Manage lab requests (status, PDFs)' });
+    expect(STAFF_PERMISSIONS).toContainEqual(expect.objectContaining({ value: 'labs.manage', label: 'Manage lab requests (status, PDFs)' }));
   });
 });
