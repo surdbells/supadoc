@@ -8,6 +8,13 @@
   "targets": {
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "test": {
+      "inputs": [
+        "...",
+        "{workspaceRoot}/tailwind/theme.css",
+        "{workspaceRoot}/apps/patient/src/styles.css"
+      ]
     }
   }
 }

@@ -49,7 +49,7 @@ import { firstNavLink } from '../nav';
               <span class="min-w-0 flex-1">{{ message }}</span>
               <button
                 type="button"
-                class="-my-0.5 -mr-1 shrink-0 rounded-field p-0.5 text-cerulean/70 transition-colors hover:text-cerulean focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cerulean"
+                class="-my-0.5 -mr-1 shrink-0 rounded-field p-0.5 text-cerulean-dark transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cerulean"
                 aria-label="Dismiss message"
                 (click)="dismissNotice()"
               >
