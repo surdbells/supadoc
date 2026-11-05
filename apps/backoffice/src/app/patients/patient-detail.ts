@@ -1,6 +1,8 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   OnInit,
@@ -8,9 +10,13 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { AdminPatientsApi, apiErrorMessage, PrescriptionsApi } from '@supadoc/data-access';
+import { StaffAuthService } from '@supadoc/auth';
+import { AdminPatientsApi, apiErrorMessage, LabRequestsApi, PrescriptionsApi } from '@supadoc/data-access';
 import type {
+  AdminLabRequestSummaryDto,
   AppointmentDto,
+  LabPriority,
+  LabRequestStatus,
   PatientDetailDto,
   PrescriptionStatus,
   PrescriptionSummaryDto,
@@ -44,6 +50,15 @@ import {
 } from '../shared/layout';
 import { staffPrescriptionSource } from '../shared/viewer-sources';
 import { initials as initialsOfName } from '../specialists/specialist-ui';
+import {
+  type LabChip,
+  labPriorityCls,
+  labPriorityLabel,
+  labStatusMeta,
+  sentLabel,
+  staffLabRequestSource,
+} from './lab-request-ui';
+import { LabStatusDialog } from './lab-status-dialog';
 
 /** Every status reads as icon + words — never colour alone. */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
@@ -53,11 +68,22 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
   cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/10 text-alert-ink' },
 };
 
-/** A single patient record + their recent appointments (route `/patients/:id`). */
+/** Lab section copy (lab spec §5). */
+export const LAB_COPY = {
+  note: 'Summary only. Opening a request PDF is recorded in the audit log.',
+  error: "Could not load this patient's lab requests.",
+  empty: 'No lab requests have been sent to this patient yet.',
+  updated: 'Status updated.',
+} as const;
+
+/**
+ * A single patient record + their recent appointments, prescriptions and lab
+ * requests (route `/patients/:id`).
+ */
 @Component({
   selector: 'bo-patient-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, EmptyStateComponent],
+  imports: [RouterLink, IconComponent, EmptyStateComponent, LabStatusDialog],
   host: { class: 'block' },
   template: `
     <div class="${PAGE}">
@@ -240,6 +266,117 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
             </ul>
           }
         </section>
+
+        <section class="${SECTION}" aria-labelledby="bo-patient-labs-title">
+          <div class="flex flex-col gap-1">
+            <h2 id="bo-patient-labs-title" class="${SECTION_TITLE}">
+              <sd-icon name="flask-conical" [size]="20" class="text-cerulean" />Lab requests
+              @if (!labLoading() && !labError()) {
+                <span class="${COUNT_PILL}">{{ labs().length }}</span>
+              }
+            </h2>
+            <p class="flex items-start gap-1.5 font-sans text-caption text-slate">
+              <sd-icon name="shield-check" [size]="14" class="mt-0.5 shrink-0" />
+              {{ labCopy.note }}
+            </p>
+          </div>
+
+          @if (labLoading()) {
+            <div class="flex flex-col gap-3" aria-busy="true" aria-label="Loading lab requests">
+              <div class="sd-shimmer h-16 rounded-field"></div>
+              <div class="sd-shimmer h-16 rounded-field"></div>
+            </div>
+          } @else if (labError()) {
+            <div class="${LIST_CARD_EMPTY} !py-8" role="alert">
+              <sd-icon name="wifi-off" [size]="28" class="text-alert" />
+              <p class="font-sans text-body-sm text-slate">{{ labError() }}</p>
+              <button type="button" class="${BTN_SECONDARY} mt-1" (click)="loadLabs()">
+                <sd-icon name="refresh-cw" [size]="16" />Try again
+              </button>
+            </div>
+          } @else if (labs().length === 0) {
+            <div class="${LIST_CARD_EMPTY} !py-8">
+              <sd-icon name="flask-conical" [size]="28" class="text-slate" />
+              <p class="font-sans text-body-sm text-slate">{{ labCopy.empty }}</p>
+            </div>
+          } @else {
+            <ul class="flex flex-col divide-y divide-cloud">
+              @for (r of labs(); track r.id) {
+                <li class="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 first:pt-0 last:pb-0" [attr.data-lab-id]="r.id">
+                  <div class="flex min-w-0 flex-col gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span [id]="'bo-lab-' + r.id" tabindex="-1" class="break-all rounded-sm font-sans text-body-sm font-semibold text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">{{ r.number }}</span>
+                      <span class="${PILL}" [class]="labStatus(r.status).cls">
+                        <sd-icon [name]="labStatus(r.status).icon" [size]="13" />{{ labStatus(r.status).label }}
+                      </span>
+                    </div>
+                    <dl class="grid grid-cols-1 gap-x-6 gap-y-1 font-sans text-caption sm:grid-cols-3">
+                      <div class="flex gap-1.5">
+                        <dt class="text-slate">Priority</dt>
+                        <dd [class]="priorityCls(r.priority)">{{ priorityLabel(r.priority) }}</dd>
+                      </div>
+                      <div class="flex gap-1.5">
+                        <dt class="text-slate">Doctor</dt>
+                        <dd class="min-w-0 break-words text-ink">{{ r.doctor_name || '—' }}</dd>
+                      </div>
+                      <div class="flex gap-1.5">
+                        <dt class="text-slate">Sent</dt>
+                        <dd class="text-ink">{{ sent(r.sent_at) }}</dd>
+                      </div>
+                      <div class="flex gap-1.5">
+                        <dt class="text-slate">Tests</dt>
+                        <dd class="tabular-nums text-ink">{{ r.items_count }}</dd>
+                      </div>
+                      <div class="flex gap-1.5">
+                        <dt class="text-slate">Results</dt>
+                        <dd class="tabular-nums text-ink">{{ r.results_count }}</dd>
+                      </div>
+                    </dl>
+                    @if (canManageLabs() && r.last_correction_note) {
+                      <p class="font-sans text-caption text-slate [overflow-wrap:anywhere]">Last correction note: {{ r.last_correction_note }}</p>
+                    }
+                  </div>
+                  @if (canManageLabs()) {
+                    <div class="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        #labView
+                        type="button"
+                        class="${BTN_SECONDARY}"
+                        [attr.aria-label]="'View PDF of lab request ' + r.number"
+                        (click)="viewLabPdf(r, labView)"
+                      >
+                        <sd-icon name="file-text" [size]="16" />View PDF
+                      </button>
+                      @if (r.corrections.length) {
+                        <button
+                          #labFix
+                          type="button"
+                          class="${BTN_SECONDARY}"
+                          [attr.aria-label]="'Correct status of lab request ' + r.number"
+                          aria-haspopup="dialog"
+                          (click)="openCorrection(r, labFix)"
+                        >
+                          <sd-icon name="square-pen" [size]="16" />Correct status
+                        </button>
+                      }
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          }
+          <p class="sr-only" role="status" aria-live="polite">{{ labAnnouncement() }}</p>
+        </section>
+
+        @if (canManageLabs()) {
+          <bo-lab-status-dialog
+            [open]="correctionOpen()"
+            [request]="correctionRow()"
+            (closed)="closeCorrection()"
+            (corrected)="onCorrected($event)"
+            (conflict)="labsStale = true"
+          />
+        }
       }
     </div>
   `,
@@ -247,9 +384,12 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
 export class AdminPatientDetail implements OnInit {
   private readonly api = inject(AdminPatientsApi);
   private readonly rxApi = inject(PrescriptionsApi);
+  private readonly labApi = inject(LabRequestsApi);
+  private readonly auth = inject(StaffAuthService);
   private readonly viewer = inject(DocumentViewerService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly doc = inject(DOCUMENT);
 
   protected readonly data = signal<PatientDetailDto | null>(null);
   protected readonly loading = signal(true);
@@ -260,12 +400,29 @@ export class AdminPatientDetail implements OnInit {
   protected readonly rxLoading = signal(true);
   protected readonly rxError = signal('');
 
+  /** The patient's lab requests (summary rows — never tests or clinical details). */
+  protected readonly labs = signal<AdminLabRequestSummaryDto[]>([]);
+  protected readonly labLoading = signal(true);
+  protected readonly labError = signal('');
+  protected readonly labAnnouncement = signal('');
+  protected readonly labCopy = LAB_COPY;
+  /** Opening a request PDF and correcting a status need labs.manage; monitoring.view sees the rows. */
+  protected readonly canManageLabs = computed(() => this.auth.hasPermission('labs.manage'));
+
+  /** The status dialog: its row stays set while the dialog animates out. */
+  protected readonly correctionOpen = signal(false);
+  protected readonly correctionRow = signal<AdminLabRequestSummaryDto | null>(null);
+  private correctionOpener: HTMLElement | null = null;
+  /** The dialog found the row out of date (the API's 409, or 422 `status`): reload the rows once it closes. */
+  protected labsStale = false;
+
   private patientId = '';
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
     this.patientId = id;
     this.loadPrescriptions();
+    this.loadLabs();
     this.api
       .get(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -299,6 +456,84 @@ export class AdminPatientDetail implements OnInit {
       });
   }
 
+  /** Loads the lab rows; `quiet` keeps the current rows on screen (after a conflict in the dialog). */
+  protected loadLabs(quiet = false): void {
+    if (!quiet) {
+      this.labLoading.set(true);
+      this.labError.set('');
+    }
+    this.labApi
+      .forPatient(this.patientId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.labs.set(res.data ?? []);
+          this.labLoading.set(false);
+          this.labError.set('');
+        },
+        error: () => {
+          if (quiet) return;
+          this.labError.set(LAB_COPY.error);
+          this.labLoading.set(false);
+        },
+      });
+  }
+
+  /**
+   * A lab request PDF in the document viewer (labs.manage): view and print, no
+   * Download. The viewer mints the signed, short-lived staff link when it
+   * loads; the server records each open in the audit log.
+   */
+  protected viewLabPdf(r: AdminLabRequestSummaryDto, opener: HTMLElement): void {
+    this.viewer.open(staffLabRequestSource(this.labApi, r), { opener });
+  }
+
+  protected openCorrection(r: AdminLabRequestSummaryDto, opener: HTMLElement): void {
+    this.labsStale = false;
+    this.correctionOpener = opener;
+    this.correctionRow.set(r);
+    this.correctionOpen.set(true);
+  }
+
+  protected closeCorrection(): void {
+    const row = this.correctionRow();
+    this.correctionOpen.set(false);
+    if (this.labsStale) {
+      this.labsStale = false;
+      this.loadLabs(true);
+    }
+    this.keepFocus(row);
+  }
+
+  protected onCorrected(updated: AdminLabRequestSummaryDto): void {
+    this.labs.update((rows) => rows.map((r) => (r.id === updated.id ? updated : r)));
+    // The dialog keeps the row it was opened with while it fades out: swapping in the
+    // updated one would redraw its subtitle and status choices mid-close (and Angular
+    // warns NG0956 about the re-created list). The next "Correct status" passes the new row.
+    this.correctionOpen.set(false);
+    this.labsStale = false;
+    // Cleared first, so a second correction in a row is announced again.
+    this.labAnnouncement.set('');
+    setTimeout(() => this.labAnnouncement.set(LAB_COPY.updated));
+    this.keepFocus(updated);
+  }
+
+  /**
+   * The dialog hands focus back to "Correct status"; when that button is gone
+   * (no further correction allowed), focus the row's number instead of
+   * dropping it on the page.
+   */
+  private keepFocus(row: AdminLabRequestSummaryDto | null): void {
+    const opener = this.correctionOpener;
+    this.correctionOpener = null;
+    setTimeout(() => {
+      if (!row || (opener && opener.isConnected)) return;
+      const active = this.doc.activeElement;
+      if (active && active !== this.doc.body) return;
+      this.doc.getElementById('bo-lab-' + row.id)?.focus();
+    });
+  }
+
   /**
    * The prescription PDF in the document viewer: view and print, no Download
    * (staff never had one). The viewer mints the signed, short-lived staff link
@@ -307,6 +542,23 @@ export class AdminPatientDetail implements OnInit {
    */
   protected viewPdf(rx: PrescriptionSummaryDto, opener: HTMLElement): void {
     this.viewer.open(staffPrescriptionSource(this.rxApi, rx), { opener });
+  }
+
+  protected labStatus(status: LabRequestStatus): LabChip {
+    return labStatusMeta(status);
+  }
+
+  protected priorityLabel(p: LabPriority): string {
+    return labPriorityLabel(p);
+  }
+
+  protected priorityCls(p: LabPriority): string {
+    return labPriorityCls(p);
+  }
+
+  /** When a lab request was sent, in this browser's zone. */
+  protected sent(iso: string): string {
+    return sentLabel(iso);
   }
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {

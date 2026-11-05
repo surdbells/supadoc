@@ -59,7 +59,8 @@ const ROLES = [
   { value: 'super_admin', label: 'Super admin' },
 ];
 
-const PERMISSIONS = [
+/** The permissions the staff editor offers. */
+export const STAFF_PERMISSIONS: readonly { readonly value: string; readonly label: string }[] = [
   { value: 'appointments.view', label: 'View appointments' },
   { value: 'appointments.create', label: 'Create appointments' },
   { value: 'appointments.book', label: 'Book appointments' },
@@ -68,6 +69,8 @@ const PERMISSIONS = [
   { value: 'settings.manage', label: 'Manage pricing/settings' },
   { value: 'monitoring.view', label: 'View monitoring' },
   { value: 'staff.manage', label: 'Manage staff' },
+  // Lab requests (2026-11): correct a status and open a request PDF. monitoring.view sees summary rows only.
+  { value: 'labs.manage', label: 'Manage lab requests (status, PDFs)' },
 ];
 
 /** Desktop column template, shared by the header and every row: Staff member | Roles | Status | chevron. */
@@ -309,7 +312,7 @@ export class AdminStaff implements OnInit, HasUnsavedChanges {
   private readonly auth = inject(StaffAuthService);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly permissionOptions = PERMISSIONS;
+  protected readonly permissionOptions = STAFF_PERMISSIONS;
   protected readonly users = signal<StaffUserDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly listError = signal('');

@@ -27,9 +27,11 @@ const COUNT = new Intl.NumberFormat();
 
 /**
  * Clinical records on the platform so far (monitoring.view) — the totals the
- * old overview showed: clinical notes, prescriptions, lab orders, referrals
- * and recordings (with how many are recording now). Counts only — never
- * what any record says.
+ * old overview showed: clinical notes, prescriptions, lab requests (with how
+ * many results need review and how many are overdue), referrals and
+ * recordings (with how many are recording now). Counts only — never what any
+ * record says. An API from before lab requests (no `lab_requests`) still
+ * shows its legacy lab-order total.
  */
 @Component({
   selector: 'bo-dash-clinical',
@@ -70,10 +72,20 @@ export class DashboardClinical {
     const o = this.overview();
     const n = (v: unknown): number => Math.max(0, Number(v) || 0);
     const live = n(o.recordings?.active);
+    const labs = o.lab_requests;
     return [
       { key: 'notes', label: 'Clinical notes', value: n(o.clinical_notes), icon: 'file-text', tint: TINT.brand, sub: null },
       { key: 'rx', label: 'Prescriptions', value: n(o.prescriptions), icon: 'pill', tint: TINT.success, sub: null },
-      { key: 'labs', label: 'Lab orders', value: n(o.lab_orders), icon: 'flask-conical', tint: TINT.teal, sub: null },
+      {
+        key: 'lab-requests',
+        label: 'Lab requests',
+        value: n(labs?.total ?? o.lab_orders),
+        icon: 'flask-conical',
+        tint: TINT.teal,
+        // needs_review: requests with a result the doctor can open and hasn't reviewed;
+        // review_overdue: results waiting more than 72 hours.
+        sub: labs ? `${COUNT.format(n(labs.needs_review))} need review · ${COUNT.format(n(labs.review_overdue))} overdue` : null,
+      },
       { key: 'referrals', label: 'Referrals', value: n(o.referrals), icon: 'share-2', tint: TINT.blue, sub: null },
       {
         key: 'recordings',

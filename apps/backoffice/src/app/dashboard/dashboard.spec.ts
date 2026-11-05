@@ -92,15 +92,17 @@ function full(over: Partial<AdminDashboardDto> = {}): AdminDashboardDto {
   };
 }
 
-function overview(activeRecordings = 0): MonitoringOverviewDto {
+function overview(activeRecordings = 0, over: Partial<MonitoringOverviewDto> = {}): MonitoringOverviewDto {
   return {
     appointments: { total: 0, by_status: {} },
     clinical_notes: 0,
     prescriptions: 0,
-    lab_orders: 0,
+    lab_orders: 3,
     referrals: 0,
     recordings: { total: activeRecordings, active: activeRecordings },
     audit_events: 0,
+    lab_requests: { total: 41, awaiting_consent: 6, in_progress: 9, result_ready: 20, needs_review: 4, review_overdue: 1 },
+    ...over,
   };
 }
 
@@ -124,18 +126,23 @@ describe('AdminDashboard', () => {
       (r) => isDashboardGet(r) && r.params.get('period') === period && (r.params.get('refresh') === '1') === refresh,
     );
   /** Answers the recording check that goes with each load (superseded ones were cancelled). */
-  const flushOverview = (activeRecordings = 0): number => {
+  const flushOverview = (activeRecordings = 0, over: Partial<MonitoringOverviewDto> = {}): number => {
     let flushed = 0;
     for (const r of http.match(isOverviewGet)) {
       if (r.cancelled) continue;
-      r.flush({ status: 'success', message: 'OK', data: overview(activeRecordings) });
+      r.flush({ status: 'success', message: 'OK', data: overview(activeRecordings, over) });
       flushed++;
     }
     return flushed;
   };
-  const ok = async (req: TestRequest, data: AdminDashboardDto, activeRecordings = 0) => {
+  const ok = async (
+    req: TestRequest,
+    data: AdminDashboardDto,
+    activeRecordings = 0,
+    over: Partial<MonitoringOverviewDto> = {},
+  ) => {
     req.flush({ status: 'success', message: 'OK', data });
-    flushOverview(activeRecordings);
+    flushOverview(activeRecordings, over);
     await render();
     await tick();
     await render();
@@ -301,6 +308,28 @@ describe('AdminDashboard', () => {
     const notice = el.querySelector<HTMLAnchorElement>('a[href="/monitoring"]');
     expect(text()).toContain('2 consultations recording now');
     expect(notice?.textContent).toContain('recording now');
+  });
+
+  it('shows the lab requests tile: total, results needing review and overdue reviews', async () => {
+    await open();
+    await ok(expectGet('today'), full());
+    const tiles = Array.from(el.querySelectorAll('bo-dash-clinical li'));
+    const lab = tiles.find((li) => li.textContent?.includes('Lab requests'));
+    const t = lab?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(t).toContain('41');
+    expect(t).toContain('4 need review · 1 overdue');
+    // The legacy lab-order tile is replaced, not shown beside it.
+    expect(text()).not.toContain('Lab orders');
+  });
+
+  it('falls back to the legacy lab-order total, with no review line, on an API without lab requests', async () => {
+    await open();
+    await ok(expectGet('today'), full(), 0, { lab_requests: undefined });
+    const lab = Array.from(el.querySelectorAll('bo-dash-clinical li')).find((li) => li.textContent?.includes('Lab requests'));
+    const t = lab?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(t).toContain('3');
+    expect(t).not.toContain('need review');
+    expect(t).not.toContain('overdue');
   });
 
   it('shows no recording notice and makes no monitoring read without monitoring.view', async () => {
