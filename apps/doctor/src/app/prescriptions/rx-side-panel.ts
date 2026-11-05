@@ -37,7 +37,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
 /**
  * Read-only clinical context shown beside the prescription form (GVM-RX-02):
  * allergies (most serious first), the pregnancy reminder, latest health
- * readings, medicines they already take and conditions. It never edits.
+ * readings and conditions. It never edits.
  *
  * Usage: `<doc-rx-side-panel [patientId]="id" (loaded)="summary.set($event)" />`.
  */
@@ -173,40 +173,6 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
           }
         </div>
 
-        <!-- Medicines they already take -->
-        <div class="flex flex-col gap-2">
-          <h3 class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
-            <sd-icon name="pill-bottle" [size]="16" class="text-cerulean" /> Medicines they already take
-          </h3>
-          @if (s.medicines.length === 0) {
-            <p class="font-sans text-body-sm text-slate">No medicines recorded</p>
-          } @else {
-            <div class="flex flex-col gap-3">
-              @for (g of s.medicines; track $index) {
-                <div class="flex flex-col gap-1">
-                  <h4 class="font-sans text-caption font-semibold uppercase tracking-wide text-slate">
-                    {{ g.for || 'Other' }}
-                  </h4>
-                  <ul class="flex flex-col gap-1">
-                    @for (m of g.items; track $index) {
-                      <li class="flex flex-wrap items-center gap-1.5 font-sans text-body-sm text-ink">
-                        <span>{{ medicineLine(m) }}</span>
-                        @if (m.herbal) {
-                          <span
-                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2 py-0.5 font-sans text-caption font-semibold text-sage-ink inset-ring inset-ring-current/20"
-                          >
-                            <sd-icon name="leaf" [size]="12" /> Herbal
-                          </span>
-                        }
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
-            </div>
-          }
-        </div>
-
         @if (s.conditions.length > 0) {
           <div class="flex flex-col gap-2">
             <h3 class="flex items-center gap-2 font-sans text-body-sm font-semibold text-ink">
@@ -291,9 +257,5 @@ export class RxSidePanel {
 
   protected when(iso: string): string {
     return rxShortDateTime(iso, this.clock.zone());
-  }
-
-  protected medicineLine(m: { name: string; amount: string; frequency: string }): string {
-    return [m.name, m.amount, m.frequency].filter((p) => !!p && p.trim() !== '').join(' · ');
   }
 }

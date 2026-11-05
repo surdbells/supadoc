@@ -108,7 +108,6 @@ const DURATIONS = ['3 days', '5 days', '7 days', '14 days', '1 month'];
 
 const DEFAULT_LIMITS: PrescriptionOptionsDto['limits'] = {
   reason: 220,
-  current_medications: 110,
   advice: 220,
   tests_referrals: 110,
   instructions: 110,
@@ -415,56 +414,31 @@ function nullIfBlank(v: string): string | null {
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 gap-3 @xl:grid-cols-2">
-                <div class="flex flex-col gap-1.5">
-                  <label class="${LABEL}" [for]="id('icd')">Illness code (ICD) <span class="font-normal text-slate">(optional)</span></label>
-                  <input
-                    type="text"
-                    autocomplete="off"
-                    class="${RX_FIELD}"
-                    [class]="fc('icd_code')"
-                    [id]="id('icd')"
-                    maxlength="20"
-                    placeholder="e.g. 1F40 or J45.9"
-                    [value]="icd()"
-                    [attr.aria-invalid]="fe('icd_code') ? 'true' : null"
-                    (input)="setText('icd_code', $any($event.target).value)"
-                  />
-                  <a
-                    class="inline-flex w-fit items-center gap-1 font-sans text-caption font-semibold text-cerulean hover:underline"
-                    [href]="icdUrl"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Look up illness codes <sd-icon name="external-link" [size]="12" />
-                  </a>
-                  @if (fe('icd_code'); as m) {
-                    <p class="${ERR}" data-rx-error>{{ m }}</p>
-                  }
-                </div>
-                <div class="flex flex-col gap-1.5">
-                  <label class="${LABEL}" [for]="id('curmeds')">Medicines already taken</label>
-                  <input
-                    type="text"
-                    autocomplete="off"
-                    class="${RX_FIELD}"
-                    [class]="fc('current_medications')"
-                    [id]="id('curmeds')"
-                    [attr.maxlength]="limits().current_medications"
-                    placeholder="Anything the patient already takes"
-                    [value]="currentMeds()"
-                    [attr.aria-invalid]="fe('current_medications') ? 'true' : null"
-                    (input)="setText('current_medications', $any($event.target).value)"
-                  />
-                  <div class="flex items-start justify-between gap-3">
-                    @if (fe('current_medications'); as m) {
-                      <p class="${ERR}" data-rx-error>{{ m }}</p>
-                    } @else {
-                      <span></span>
-                    }
-                    <span class="shrink-0 font-sans text-caption" [class]="counterClass(currentMeds(), limits().current_medications)">{{ currentMeds().length }}/{{ limits().current_medications }}</span>
-                  </div>
-                </div>
+              <div class="flex flex-col gap-1.5">
+                <label class="${LABEL}" [for]="id('icd')">Illness code (ICD) <span class="font-normal text-slate">(optional)</span></label>
+                <input
+                  type="text"
+                  autocomplete="off"
+                  class="${RX_FIELD}"
+                  [class]="fc('icd_code')"
+                  [id]="id('icd')"
+                  maxlength="20"
+                  placeholder="e.g. 1F40 or J45.9"
+                  [value]="icd()"
+                  [attr.aria-invalid]="fe('icd_code') ? 'true' : null"
+                  (input)="setText('icd_code', $any($event.target).value)"
+                />
+                <a
+                  class="inline-flex w-fit items-center gap-1 font-sans text-caption font-semibold text-cerulean hover:underline"
+                  [href]="icdUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Look up illness codes <sd-icon name="external-link" [size]="12" />
+                </a>
+                @if (fe('icd_code'); as m) {
+                  <p class="${ERR}" data-rx-error>{{ m }}</p>
+                }
               </div>
 
               @if (isMale()) {
@@ -1122,7 +1096,6 @@ export class RxComposer {
   protected readonly bmiAuto = signal(true);
   protected readonly reason = signal('');
   protected readonly icd = signal('');
-  protected readonly currentMeds = signal('');
   protected readonly pregnancy = signal<PregnancyStatus | ''>('');
   /** The medicines on the prescription (each one complete — added through the form below). */
   protected readonly rows = signal<RowState[]>([]);
@@ -1343,7 +1316,6 @@ export class RxComposer {
     this.takenAt.set(isoToLocalInput(r.taken_at, this.clock.zone()));
     this.reason.set(rx?.reason ?? '');
     this.icd.set(rx?.icd_code ?? '');
-    this.currentMeds.set(rx?.current_medications ?? '');
     this.pregnancy.set(rx?.pregnancy_status ?? '');
     const rows = rx ? rx.items.map((it) => this.rowFrom(it)) : [];
     this.rows.set(rows);
@@ -1493,14 +1465,13 @@ export class RxComposer {
   }
 
   protected setText(
-    key: 'reason' | 'icd_code' | 'current_medications' | 'advice' | 'tests_referrals' | 'valid_until',
+    key: 'reason' | 'icd_code' | 'advice' | 'tests_referrals' | 'valid_until',
     value: string,
   ): void {
     this.touched();
     const target = {
       reason: this.reason,
       icd_code: this.icd,
-      current_medications: this.currentMeds,
       advice: this.advice,
       tests_referrals: this.tests,
       valid_until: this.validUntil,
@@ -1807,7 +1778,8 @@ export class RxComposer {
       readings,
       reason: nullIfBlank(this.reason()),
       icd_code: nullIfBlank(this.icd()),
-      current_medications: nullIfBlank(this.currentMeds()),
+      // No "medicines already taken": the form no longer asks. Saving the whole
+      // form clears one an older draft still carries.
       pregnancy_status: this.isMale() ? 'not_applicable' : this.pregnancy() || null,
       items: filled.map((r) => ({
         rxcui: r.rxcui,
@@ -1970,7 +1942,11 @@ export class RxComposer {
       () => {
         // Inside the viewer's load (an effect): never a dependency of it.
         const current = untracked(() => this.rx());
-        return current && !untracked(() => this.dirty()) ? of(current) : this.saveForPreview();
+        // An older draft's "medicines already taken" (no longer on the form) is
+        // saved away first, so the preview matches what Send will print.
+        return current && !current.current_medications && !untracked(() => this.dirty())
+          ? of(current)
+          : this.saveForPreview();
       },
       {
         opener,

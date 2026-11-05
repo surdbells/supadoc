@@ -139,6 +139,10 @@ export interface PrescriptionDto extends PrescriptionSummaryDto {
   readings: PrescriptionReadings;
   reason: string | null;
   icd_code: string | null;
+  /**
+   * "Medicines already taken" — older prescriptions only (the form no longer
+   * asks; null on every new one). Show it only when it has a value.
+   */
   current_medications: string | null;
   pregnancy_status: PregnancyStatus | null;
   items: PrescriptionItem[];
@@ -162,12 +166,15 @@ export interface PrescriptionDto extends PrescriptionSummaryDto {
   specialist_id: string | null;
 }
 
-/** The editable form (all optional — a draft may be partial). */
+/**
+ * The editable form (all optional — a draft may be partial). Saving replaces
+ * the whole form; "medicines already taken" is no longer on it, so a save
+ * clears one an older draft carried.
+ */
 export interface PrescriptionFormInput {
   readings?: PrescriptionReadings;
   reason?: string | null;
   icd_code?: string | null;
-  current_medications?: string | null;
   pregnancy_status?: PregnancyStatus | null;
   items?: PrescriptionItemInput[];
   advice?: string | null;
@@ -230,10 +237,12 @@ export interface PrescriptionOptionsDto {
   max_items: number;
   rows_per_page: number;
   max_repeats: number;
-  limits: Record<
-    'reason' | 'current_medications' | 'advice' | 'tests_referrals' | 'instructions',
-    number
-  >;
+  /**
+   * Character limits of the form's text boxes. The API also still sends
+   * `current_medications` (for doctor tabs opened before that box was
+   * removed); this form no longer reads it.
+   */
+  limits: Record<'reason' | 'advice' | 'tests_referrals' | 'instructions', number>;
   routes: string[];
   readings: PrescriptionReadingField[];
   reading_sources: Record<ReadingSource, string>;
@@ -279,11 +288,6 @@ export interface ClinicalSummaryDto {
     stale: boolean;
     /** Typical adult range check from the API (null: no flag for this reading). */
     flag?: VitalFlagDto | null;
-  }[];
-  /** Grouped by what they are for. */
-  medicines: {
-    for: string;
-    items: { name: string; amount: string; frequency: string; herbal: boolean }[];
   }[];
   conditions: string[];
 }

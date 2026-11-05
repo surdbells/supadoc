@@ -269,7 +269,10 @@ const DD = 'font-sans text-body-sm text-ink break-words';
               <div class="flex flex-col gap-0.5 sm:col-span-2"><dt class="${DT}">Reason for the prescription</dt><dd class="${DD} whitespace-pre-line">{{ r.reason || '—' }}</dd></div>
               <div class="flex flex-col gap-0.5"><dt class="${DT}">Illness code (ICD)</dt><dd class="${DD}">{{ r.icd_code || '—' }}</dd></div>
               <div class="flex flex-col gap-0.5"><dt class="${DT}">Pregnant or breastfeeding?</dt><dd class="${DD}">{{ pregnancyLabel(r) }}</dd></div>
-              <div class="flex flex-col gap-0.5 sm:col-span-2"><dt class="${DT}">Medicines already taken</dt><dd class="${DD}">{{ r.current_medications || '—' }}</dd></div>
+              <!-- Older prescriptions only: the form no longer asks for medicines already taken. -->
+              @if (r.current_medications?.trim()) {
+                <div class="flex flex-col gap-0.5 sm:col-span-2"><dt class="${DT}">Medicines already taken</dt><dd class="${DD}">{{ r.current_medications }}</dd></div>
+              }
             </dl>
           </section>
 

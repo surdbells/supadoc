@@ -19,7 +19,7 @@ const OPTIONS: PrescriptionOptionsDto = {
   max_items: 10,
   rows_per_page: 5,
   max_repeats: 11,
-  limits: { reason: 220, current_medications: 110, advice: 220, tests_referrals: 110, instructions: 110 },
+  limits: { reason: 220, advice: 220, tests_referrals: 110, instructions: 110 },
   routes: ['By mouth'],
   readings: [],
   reading_sources: RX_SOURCE_LABELS,
@@ -36,7 +36,6 @@ function summary(over: Partial<ClinicalSummaryDto> = {}, dob: string | null = '1
     allergies: [],
     ask_pregnancy: false,
     vitals: [],
-    medicines: [],
     conditions: [],
     ...over,
   };
@@ -209,6 +208,27 @@ describe('RxComposer', () => {
     c.saveDraft();
     const form = ((sent as { form?: Record<string, unknown> } | null)?.form ?? sent) as Record<string, unknown>;
     expect(form['pregnancy_status']).toBe('not_applicable');
+  });
+
+  it('no longer asks for medicines already taken, in the form or the patient panel, and never sends them', async () => {
+    let sent: Record<string, unknown> | null = null;
+    const { fixture, c, text } = setup({
+      summary: summary({ conditions: ['Asthma (active)'] }),
+      create: (input?: unknown) => {
+        sent = input as Record<string, unknown>;
+        return of({ data: { id: 'rx1', status: 'draft', items: [], readings: {} } });
+      },
+    });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(text()).toContain('Illness code (ICD)');
+    expect(text()).toContain('Asthma (active)');
+    expect(text()).not.toMatch(/already take/i);
+    expect(el.querySelector('[id$="-curmeds"]')).toBeNull();
+    c.saveDraft();
+    expect(sent).not.toBeNull();
+    expect(Object.keys(sent ?? {})).not.toContain('current_medications');
   });
 
   it('only lists a medicine once it is complete, and supports edit, remove and undo', async () => {
@@ -405,6 +425,24 @@ describe('RxComposer — PDFs in the shared viewer', () => {
     expect(order).toEqual(['link:rx1']);
     c.preview();
     expect(opened[1].sources.key).toBe(first.key);
+  });
+
+  it('Preview of an older draft that still has "medicines already taken" saves it away first', async () => {
+    const { fixture, c, api } = setupViewer({ draft: { reason: 'Cough', current_medications: 'Metformin 500 mg' } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(false);
+    c.preview();
+    await firstValueFrom(opened[0].sources.load());
+    expect(api.updatePrescription).toHaveBeenCalledTimes(1);
+    const calls = api.updatePrescription.mock.calls as unknown as [string, Record<string, unknown>][];
+    expect(calls[0][0]).toBe('rx1');
+    expect(Object.keys(calls[0][1])).not.toContain('current_medications');
+    expect(order).toEqual(['link:rx1']);
+    // Saved now (the API's answer has none): the next Preview links without saving.
+    c.preview();
+    await firstValueFrom(opened[1].sources.load());
+    expect(api.updatePrescription).toHaveBeenCalledTimes(1);
   });
 
   it('a save that fails shows in the viewer (Try again) and under the form', async () => {
