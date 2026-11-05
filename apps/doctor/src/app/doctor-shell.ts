@@ -286,7 +286,10 @@ export class DoctorShell {
     void this.auth.loadMe();
     // The account's standing (suspended / owes the terms) for the banner and the guard.
     void this.standing.load();
-    this.notificationsApi.unread().subscribe({
+    // The bell's unread dot: a background read (`passive`, X-SD-Passive), so
+    // it never counts as activity that keeps an unattended session alive. The
+    // doctor's own requests (opening Notifications, marking read) still count.
+    this.notificationsApi.unread({ passive: true }).subscribe({
       next: (res) => this.unread.set(res.data.count),
       error: () => undefined,
     });
