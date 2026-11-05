@@ -1290,8 +1290,14 @@ Then, in this order:
    `CLINIC_CONTACT` (set `CLINIC_CONTACT` so labs know whom to call). Request numbers use the clinic
    calendar (`APP_TIMEZONE`). Run CLI checks with aaPanel's PHP (`/www/server/php/84/bin/php`).
 4. **Back office permission:** a new staff permission **"Manage lab requests (status, PDFs)"**
-   (`labs.manage`). Grant it in Back office › Staff to the support staff who need it; they must sign out and
-   in again. Without it staff see summary rows only (`monitoring.view`).
+   (`labs.manage`). Staff can only grant permissions they hold themselves, and no account holds this one
+   yet, so first give it to your admin account on this box (it only adds permissions; it never removes
+   one or creates an account):
+   ```bash
+   cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && /www/server/php/84/bin/php bin/grant-admin.php <your-admin-email> && chown -R www:www var
+   ```
+   Sign out of the back office and in again, then grant it in Back office › Staff to the support staff who
+   need it; they must sign out and in again too. Without it staff see summary rows only (`monitoring.view`).
 5. **Cron:** `bin/send-reminders.php` gains the lab job. What needs the cron, and what doesn't:
    - **Needs cron:** patient reminders for unanswered requests (2 h STAT / 12 h urgent / 48 h routine);
      the doctor's "not accepted yet" notice (STAT 4 h / urgent 24 h); the doctor's review reminder

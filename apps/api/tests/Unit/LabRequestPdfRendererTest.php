@@ -8,6 +8,7 @@ use App\Domain\Entity\LabRequest;
 use App\Domain\Lab\LabRequestRules;
 use App\Domain\Settings\ClinicTime;
 use App\Infrastructure\Lab\LabRequestPdfRenderer;
+use App\Infrastructure\Prescription\PrescriptionPdf;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -99,6 +100,47 @@ final class LabRequestPdfRendererTest extends TestCase
             $this->assertSame('4 Dec 2026', LabRequestRules::dateLabel($r->getValidUntil()));
         } finally {
             date_default_timezone_set($zone);
+        }
+    }
+
+    /**
+     * Labels never run into the next column: each investigations header fits
+     * its column, and each summary-row label and its longest value fit their
+     * cell ("TRANSFUSION IN LAST 3 MONTHS" once ran into "PURPOSE").
+     */
+    public function testHeadersAndSummaryLabelsFitTheirColumns(): void
+    {
+        $const = static fn (string $name): array => (array) (new \ReflectionClassConstant(LabRequestPdfRenderer::class, $name))->getValue();
+        $pdf   = new PrescriptionPdf('P', 'mm', 'A4');
+        $pdf->AddPage();
+
+        $cols = $const('COLS');
+        $this->assertEqualsWithDelta(186.0, array_sum(array_column($cols, 1)), 0.001);
+        $pdf->SetFont('Helvetica', 'B', 7);
+        foreach ($cols as [$label, $w]) {
+            // Drawn 1.5 mm in; keep at least 1.5 mm clear of the column's right edge.
+            $this->assertLessThanOrEqual($w - 3.0, $pdf->GetStringWidth($label), $label);
+        }
+        $pdf->SetFont('Helvetica', '', 7.6);
+        $this->assertLessThanOrEqual($cols[2][1] - 3.0, $pdf->GetStringWidth('Physiological'), 'the longest Type value');
+
+        $meta = $const('META_COLS');
+        $this->assertEqualsWithDelta(186.0, array_sum(array_column($meta, 1)), 0.001);
+        $longest = [
+            ['Yes, 99 hours', 'Not stated'],
+            ['Yes, 99 weeks', 'Not stated', 'Not asked'],
+            [implode(', ', LabRequestRules::INFECTION_ALERTS)],
+            ['Not stated'],
+            [...array_values(LabRequestRules::PURPOSES), 'Not stated'],
+        ];
+        foreach ($meta as $i => [$label, $w]) {
+            // Label and value start 2.5 mm in; the next cell's text starts 2.5 mm into it.
+            $pdf->SetFont('Helvetica', '', 6.2);
+            $this->assertLessThanOrEqual($w - 2.5, $pdf->GetStringWidth(strtoupper($label)) + 2.5, $label);
+            $pdf->SetFont('Helvetica', 'B', 8);
+            foreach ($longest[$i] as $value) {
+                $this->assertLessThanOrEqual($w - 4.0, $pdf->GetStringWidth($value), "{$label}: {$value} is not cut");
+            }
         }
     }
 

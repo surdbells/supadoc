@@ -41,8 +41,17 @@ final class LabRequestPdfRenderer
     private const TINT  = [241, 249, 255];
     private const ALERT = [229, 57, 53];
 
-    /** Investigations table: [label, width]. */
-    private const COLS = [['#', 8.0], ['Investigation', 76.0], ['Type', 26.0], ['Specimen / preparation', 54.0], ['Contrast possible', 22.0]];
+    /**
+     * Investigations table: [label, width] (sums to W). Every header fits its
+     * column with room to spare (tests/Unit/LabRequestPdfRendererTest).
+     */
+    private const COLS = [['#', 8.0], ['Investigation', 76.0], ['Type', 22.0], ['Specimen / preparation', 52.0], ['Contrast possible', 28.0]];
+
+    /**
+     * The clinical summary row: [label, width] (sums to W), sized so each
+     * upper-case label and its longest value stay inside their own cell.
+     */
+    private const META_COLS = [['Fasting', 32.0], ['Pregnant', 34.0], ['Infection alert', 40.0], ['Transfusion in last 3 months', 48.0], ['Purpose', 32.0]];
 
     private DateTimeZone $tz;
 
@@ -230,26 +239,26 @@ final class LabRequestPdfRenderer
             false   => 'No',
             default => 'Not stated',
         };
-        $cells = [
-            ['Fasting', $fasting],
-            ['Pregnant', $pregnant],
-            ['Infection alert', $alerts !== [] ? implode(', ', $alerts) : 'None'],
-            ['Transfusion in last 3 months', $transfusion],
-            ['Purpose', $r->getPurpose() !== null ? (LabRequestRules::PURPOSES[$r->getPurpose()] ?? $r->getPurpose()) : 'Not stated'],
+        $values = [
+            $fasting,
+            $pregnant,
+            $alerts !== [] ? implode(', ', $alerts) : 'None',
+            $transfusion,
+            $r->getPurpose() !== null ? (LabRequestRules::PURPOSES[$r->getPurpose()] ?? $r->getPurpose()) : 'Not stated',
         ];
         $y = $this->ensure($pdf, $r, $y, 12);
         $this->fill($pdf, self::TINT);
         $pdf->roundedRect(self::M, $y, self::W, 10.5, 2, 'F');
-        $w = self::W / count($cells);
-        foreach ($cells as $i => [$label, $value]) {
-            $x = self::M + $i * $w + 2.5;
+        $x = self::M;
+        foreach (self::META_COLS as $i => [$label, $w]) {
             $pdf->SetFont('Helvetica', '', 6.2);
             $this->text($pdf, self::SLATE);
-            $pdf->Text($x, $y + 3.9, PrescriptionPdf::enc(strtoupper($label)));
+            $pdf->Text($x + 2.5, $y + 3.9, PrescriptionPdf::enc(strtoupper($label)));
             $pdf->SetFont('Helvetica', 'B', 8);
             $this->text($pdf, self::INK);
-            $line = $pdf->wrap($value, $w - 4, 1);
-            $pdf->Text($x, $y + 8.3, $line[0] ?? '-');
+            $line = $pdf->wrap($values[$i], $w - 4, 1);
+            $pdf->Text($x + 2.5, $y + 8.3, $line[0] ?? '-');
+            $x += $w;
         }
 
         return $y + 13.5;

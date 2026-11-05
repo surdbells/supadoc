@@ -27,7 +27,9 @@ require __DIR__ . '/../vendor/autoload.php';
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
 // The canonical full back-office permission set (keep in sync with bin/seed.php's
-// admin grant and App\Action\Admin\ManagesStaff::PERMISSIONS).
+// admin grant and App\Action\Admin\ManagesStaff::PERMISSIONS; tests/Unit/AdminPermissionSetsTest
+// fails when they drift). A staff member can only grant what they hold, so a
+// permission missing here can't be handed out from Back office › Staff.
 const ADMIN_PERMISSIONS = [
     'appointments.view',
     'appointments.create',
@@ -39,6 +41,7 @@ const ADMIN_PERMISSIONS = [
     'staff.manage',
     'payouts.manage',
     'support.manage',
+    'labs.manage',
 ];
 
 // ----- Parse args: an optional email + an optional --super flag -----
