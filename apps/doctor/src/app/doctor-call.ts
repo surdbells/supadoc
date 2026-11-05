@@ -67,13 +67,14 @@ import {
 } from '@supadoc/models';
 import {
   buildCallTiles,
+  type CallChoiceChange,
   type CallControl,
   type CallControlId,
   CallControlsComponent,
-  type CallMenuItem,
   CallQualityComponent,
   CallSelfTileComponent,
   type CallSelfViewMode,
+  type CallSetting,
   CALL_SELF_VIEW_CLASS_DOCTOR,
   type CallTilesMode,
   CallTilesComponent,
@@ -147,7 +148,7 @@ type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot';
 type CallSection = 'notes' | 'patient' | 'documents' | 'people';
 /** Mid screens: the side panel's tab. */
 type SideTab = 'patient' | 'documents' | 'people';
-/** Video size (More › Small / Medium / Large). */
+/** Video size (the dock's Small / Medium / Large; Large by default). */
 type VideoSize = 's' | 'm' | 'l';
 
 /** The new-document alert hides after this long (the badge stays). */
@@ -157,9 +158,22 @@ const VIDEO_SIZE_KEY = 'videomed.call.video-size';
 const OLD_MORE_ROOM_KEY = 'videomed.call.more-room';
 const FIT_KEY = 'videomed.call.fit';
 const SELF_KEY = 'videomed.call.self';
+/** The dock's segmented settings: the video size and how the video fills the stage. */
+const SIZE_OPTIONS = [
+  { value: 's', label: 'Small', ariaLabel: 'Small video' },
+  { value: 'm', label: 'Medium', ariaLabel: 'Medium video' },
+  { value: 'l', label: 'Large', ariaLabel: 'Large video' },
+] as const;
+const FIT_OPTIONS = [
+  { value: 'contain', label: 'Fit', ariaLabel: 'Fit whole picture' },
+  { value: 'cover', label: 'Fill', ariaLabel: 'Fill the frame' },
+] as const;
 const CHART_OPEN_KEY = 'videomed.call.chart-open';
 const CHART_SECTIONS: readonly string[] = ['vitals', 'conditions', 'medications', 'history'];
-/** The stage's height at wide and mid, per video size. */
+/**
+ * The stage's height at wide and mid, per video size — at most: the dock's grid
+ * row never takes the tools row below 8rem, and the stage gives way first.
+ */
 const STAGE_HEIGHT: Record<VideoSize, string> = {
   l: 'clamp(320px, calc(100dvh - 16rem), 900px)',
   m: 'clamp(260px, calc(52dvh - 3rem), 640px)',
@@ -168,14 +182,21 @@ const STAGE_HEIGHT: Record<VideoSize, string> = {
 /** A phone held sideways: the controls become a rail beside the video (as in the patient's call). */
 const RAIL_QUERY = '(orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px)';
 /**
+ * The most of the screen's height the dock may take and still stick to the top
+ * (narrow, held upright). Taller (its bar on three or four rows on a short
+ * phone) it scrolls with the page, so the section under it keeps its room.
+ */
+const DOCK_STICKY_MAX = 0.6;
+/**
  * The height of the rail's stage column (the video, and under it the
  * new-document alert while it shows), per video size. Fixed, so an alert takes
  * its room from the video: the dock and the rail never move and nothing below
  * shifts. Medium and Large fill the screen under the 48px top bar and any banner
  * (--rail-above, measured); they are alike below 1024px, as at narrow. Small
  * leaves the section switcher and the top of the notes in view. Never shorter
- * than the compact rail beside it, so their bottoms line up: four 44px controls
- * (Mute, Stop video, More, End), three 8px gaps, py-2 and the border = 218px.
+ * than one column of four 44px controls beside it (the rail packs its controls
+ * and settings into columns of its height), so their bottoms line up: three 8px
+ * gaps, py-2 and the border = 218px. The rail is given the same height.
  */
 const RAIL_COLUMN: Record<VideoSize, string> = {
   l: 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]',
@@ -201,11 +222,11 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-/** The video size, migrating the old "More room" switch (on = small). */
+/** The video size (Large unless chosen), migrating the old "More room" switch (on = small). */
 function readVideoSize(): VideoSize {
   const size = readStored<VideoSize | ''>(VIDEO_SIZE_KEY, ['s', 'm', 'l'], '');
   if (size) return size;
-  return readStored(OLD_MORE_ROOM_KEY, ['1', '0'], '0') === '1' ? 's' : 'm';
+  return readStored(OLD_MORE_ROOM_KEY, ['1', '0'], '0') === '1' ? 's' : 'l';
 }
 
 /** The chart sections left open (all, the first time). */
@@ -543,11 +564,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                Never inside an @if: the tiles keep the tracks handed to them. -->
           <div [class]="stageColumnClass()">
             <div
-              class="sd-stage relative shrink-0 overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size] motion-reduce:transition-none"
+              class="sd-stage relative overflow-hidden rounded-card bg-ink [container-name:stage] [container-type:size] motion-reduce:transition-none"
               [class]="stageClass()"
             >
               <!-- One tile per person, keyed by Agora uid: 1:1 the patient (or whoever is
-                   there) fills the stage, whole (contain) unless "fill the frame" is chosen;
+                   there) fills the stage (cover) unless "Fit" (the whole picture) is chosen;
                    from a third person an even grid. The doctor's own camera is the PiP from
                    640px up and on a phone held sideways; on a phone held upright it is a
                    small tile at the start of the control row. -->
@@ -621,11 +642,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               <div [class]="controlsBoxClass()">
                 <sd-call-controls
                   [controls]="controls()"
-                  [menu]="menu()"
+                  [settings]="settings()"
                   [layout]="rail() ? 'rail' : 'bar'"
                   ariaLabel="Call controls"
                   (pressed)="onControl($event)"
-                  (menuSelect)="onMenu($event)"
+                  (choiceChange)="onChoice($event)"
                 />
               </div>
             </div>
@@ -2140,8 +2161,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * A phone held sideways (narrow only): the dock is a row, not sticky — the video,
    * with the controls as a rail beside it — under a 48px top bar; the section
    * switcher and the panels follow below (page scroll). The self view is the
-   * picture-in-picture at any width: the 16:9 stage has a free corner and the rail
-   * has no room for the 64px tile above Mute, Stop video, More and End.
+   * picture-in-picture at any width: the wide stage has a free corner and the rail
+   * has no room for the 64px tile above its controls.
    */
   protected readonly rail = computed(() => this.railMq() && this.layout() === 'narrow');
   /** Narrow: which section shows under the video. */
@@ -2167,19 +2188,21 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   protected readonly gridClass = computed(() => {
     switch (this.layout()) {
+      // The dock's row is as tall as its video size asks, but never leaves the tools row under 8rem.
       case 'wide':
-        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[272px_minmax(0,1fr)_336px] 2xl:grid-cols-[300px_minmax(0,1fr)_380px] grid-rows-[auto_minmax(0,1fr)] [grid-template-areas:'chart_dock_records''chart_tools_records']";
+        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[272px_minmax(0,1fr)_336px] 2xl:grid-cols-[300px_minmax(0,1fr)_380px] grid-rows-[minmax(0,auto)_minmax(8rem,1fr)] [grid-template-areas:'chart_dock_records''chart_tools_records']";
       case 'mid':
-        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[minmax(0,1fr)_340px] grid-rows-[auto_minmax(0,1fr)] [grid-template-areas:'dock_side''tools_side']";
+        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[minmax(0,1fr)_340px] grid-rows-[minmax(0,auto)_minmax(8rem,1fr)] [grid-template-areas:'dock_side''tools_side']";
       default:
         return 'flex flex-col gap-3 p-3';
     }
   });
+  /** The dock: the tools column's width (wide, mid) or the content width (narrow), so the stage and bar line up with what is below. */
   protected readonly dockClass = computed(() => {
     if (this.rail()) return 'flex-row items-stretch';
     return this.layout() === 'narrow'
       ? 'flex-col sticky top-0 z-20 bg-abyss pt-1 [@media(max-height:500px)]:static'
-      : 'flex-col [grid-area:dock]';
+      : 'flex-col min-h-0 [grid-area:dock]';
   });
   /**
    * A phone held sideways: the stage's column beside the rail, a fixed height
@@ -2191,22 +2214,34 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       ? `grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] ${RAIL_COLUMN[this.videoSize()]}`
       : 'contents',
   );
+  /**
+   * The stage is always the full width of its column; the video fills it (or
+   * is letterboxed in it: Video fit). Beside a rail: the grid row's height (what
+   * the alert leaves). Narrow: 4:3 (16:9 from sm) of the width, at most
+   * --stage-max. Wide and mid: the video size's height, giving way (flex
+   * shrink) when the dock's row can't spare it.
+   */
   protected readonly stageClass = computed(() => {
-    // h-full: the grid row's height (what the alert leaves); 16:9 from it, never wider than the column.
-    if (this.rail()) return 'mx-auto aspect-video h-full max-w-full';
+    if (this.rail()) return 'h-full w-full';
     return this.layout() === 'narrow'
-      ? 'mx-auto w-full aspect-[4/3] max-w-[calc(var(--stage-max)*4/3)] sm:aspect-video sm:max-w-[calc(var(--stage-max)*16/9)]'
-      : 'w-full h-[var(--stage-h)] transition-[height] duration-300 ease-out';
+      ? 'w-full shrink-0 aspect-[4/3] max-h-[var(--stage-max)] sm:aspect-video'
+      : 'w-full min-h-0 h-[var(--stage-h)] transition-[height] duration-300 ease-out';
   });
-  /** The control bar under the video, or (a phone held sideways) the rail beside it. */
+  /**
+   * The control bar under the video, or (a phone held sideways) the rail beside
+   * it: exactly as tall as the stage's column (RAIL_COLUMN), never by its
+   * content, so the controls measure that height and pack into as many columns
+   * as it needs (End stays on the screen), and as wide as those columns.
+   */
   protected readonly controlRowClass = computed(() =>
     this.rail()
-      ? 'flex w-[4.5rem] shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2'
-      : 'flex items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2',
+      ? `flex min-h-0 shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2 ${RAIL_COLUMN[this.videoSize()]}`
+      : 'flex shrink-0 items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2',
   );
+  /** The bar's `callbar` container (its labels show from 34rem); a rail's box sizes to its columns instead. */
   protected readonly controlsBoxClass = computed(() =>
     this.rail()
-      ? 'flex min-h-0 w-full flex-1 justify-center [container-name:callbar] [container-type:inline-size]'
+      ? 'flex min-h-0 flex-1 justify-center'
       : 'min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]',
   );
   /** The new-document alert floats at the bottom (narrow, held upright). */
@@ -2243,9 +2278,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     return layout === 'mid' ? this.sideTab() !== panel : this.section() !== panel;
   }
 
-  // ---- The video: size, fit and my own preview (remembered per device) ----
+  // ---- The video: size, fit and my own preview (remembered per device; Large and fill by default) ----
   protected readonly videoSize = signal<VideoSize>(readVideoSize());
-  protected readonly fit = signal<CallVideoFit>(readStored(FIT_KEY, ['contain', 'cover'], 'contain'));
+  protected readonly fit = signal<CallVideoFit>(readStored(FIT_KEY, ['contain', 'cover'], 'cover'));
   protected readonly selfHidden = signal(readStored(SELF_KEY, ['hidden', 'shown'], 'shown') === 'hidden');
   /** The control-row tile only on a phone held upright; else the stage's picture-in-picture. */
   protected readonly selfMode = computed<CallSelfViewMode>(() =>
@@ -2272,7 +2307,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         icon: 'monitor-smartphone',
         pressed: this.screenOn(),
         tone: this.screenOn() ? 'active' : 'default',
-        overflow: 'menu',
         hidden: !this.canShareScreen,
       },
       {
@@ -2281,7 +2315,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         icon: this.recordingActive() ? 'circle-stop' : 'circle',
         pressed: this.recordingActive(),
         tone: this.recordingActive() ? 'active' : 'default',
-        overflow: 'menu',
         hidden: !this.recordingConfigured(),
         disabled: this.recordingBusy() || blocked !== '',
         reason: blocked || null,
@@ -2293,24 +2326,22 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         badge: this.newDocCount() || null,
         hidden: this.layout() !== 'mid',
       },
-      { id: 'more', label: 'More', icon: 'ellipsis' },
       { id: 'end', label: 'End', ariaLabel: 'End consultation', icon: 'phone-off', tone: 'danger' },
     ];
   });
 
-  protected readonly menu = computed<CallMenuItem[]>(() => {
-    const size = this.videoSize();
-    const items: CallMenuItem[] = [
-      { id: 'size-s', label: 'Small video', icon: 'minimize-2', checked: size === 's', group: 'size' },
-      { id: 'size-m', label: 'Medium video', icon: 'video', checked: size === 'm', group: 'size' },
-      { id: 'size-l', label: 'Large video', icon: 'maximize-2', checked: size === 'l', group: 'size' },
-      { id: 'fit-contain', label: 'Video: fit whole picture', checked: this.fit() === 'contain', group: 'fit' },
-      { id: 'fit-cover', label: 'Video: fill the frame', checked: this.fit() === 'cover', group: 'fit' },
-      { id: 'self', label: 'Hide my preview', icon: 'eye-off', checked: this.selfHidden() },
+  /**
+   * The dock's settings, after its controls (never behind a menu): the video
+   * size and fit, my preview, and on a phone (where the top bar has no room for
+   * it) the cockpit theme.
+   */
+  protected readonly settings = computed<CallSetting[]>(() => {
+    const items: CallSetting[] = [
+      { id: 'size', label: 'Video size', value: this.videoSize(), options: SIZE_OPTIONS },
+      { id: 'fit', label: 'Video fit', value: this.fit(), options: FIT_OPTIONS },
+      { id: 'self', label: 'Hide my preview', icon: 'eye-off', pressed: this.selfHidden() },
     ];
-    if (this.layout() === 'narrow') {
-      items.push({ id: 'theme', label: this.theme() === 'dark' ? 'Light cockpit' : 'Dark cockpit', icon: this.theme() === 'dark' ? 'sun' : 'moon' });
-    }
+    if (this.phone()) items.push({ id: 'theme', label: 'Light cockpit', icon: 'sun', pressed: this.theme() === 'light' });
     return items;
   });
 
@@ -2452,26 +2483,28 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       case 'end':
         void this.askEnd();
         return;
+      case 'self': {
+        const hidden = !this.selfHidden();
+        this.moveSelfView(() => this.selfHidden.set(hidden));
+        writeStored(SELF_KEY, hidden ? 'hidden' : 'shown');
+        return;
+      }
+      case 'theme':
+        this.toggleTheme();
+        return;
       default:
         return;
     }
   }
 
-  protected onMenu(id: string): void {
-    if (id.startsWith('size-')) {
-      const size = id.slice(5) as VideoSize;
-      this.videoSize.set(size);
-      writeStored(VIDEO_SIZE_KEY, size);
-    } else if (id === 'fit-contain' || id === 'fit-cover') {
-      const fit = id === 'fit-cover' ? 'cover' : 'contain';
-      this.fit.set(fit);
-      writeStored(FIT_KEY, fit);
-    } else if (id === 'self') {
-      const hidden = !this.selfHidden();
-      this.moveSelfView(() => this.selfHidden.set(hidden));
-      writeStored(SELF_KEY, hidden ? 'hidden' : 'shown');
-    } else if (id === 'theme') {
-      this.toggleTheme();
+  /** A segmented setting in the dock changed: the video size or fit. */
+  protected onChoice({ id, value }: CallChoiceChange): void {
+    if (id === 'size' && (value === 's' || value === 'm' || value === 'l')) {
+      this.videoSize.set(value);
+      writeStored(VIDEO_SIZE_KEY, value);
+    } else if (id === 'fit' && (value === 'contain' || value === 'cover')) {
+      this.fit.set(value);
+      writeStored(FIT_KEY, value);
     }
   }
 
@@ -2829,12 +2862,23 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
           return;
         }
         const sync = () => {
-          const sticky = this.layout() === 'narrow' && getComputedStyle(dock).position === 'sticky';
-          root.style.scrollPaddingTop = sticky ? `${Math.ceil(dock.getBoundingClientRect().height)}px` : '';
+          const narrow = this.layout() === 'narrow';
+          const height = dock.getBoundingClientRect().height;
+          // Too tall to stay in view: it scrolls with the page (set inline, so the check below sees it at once).
+          const room = root.clientHeight;
+          dock.style.position = narrow && room > 0 && height > room * DOCK_STICKY_MAX ? 'static' : '';
+          const sticky = narrow && getComputedStyle(dock).position === 'sticky';
+          root.style.scrollPaddingTop = sticky ? `${Math.ceil(height)}px` : '';
         };
         const ro = new ResizeObserver(sync);
         ro.observe(dock);
-        onCleanup(() => ro.disconnect());
+        // The screen's height can change without the dock's (a window made shorter).
+        window.addEventListener('resize', sync);
+        onCleanup(() => {
+          ro.disconnect();
+          window.removeEventListener('resize', sync);
+          dock.style.position = '';
+        });
       },
       { injector: this.injector },
     );

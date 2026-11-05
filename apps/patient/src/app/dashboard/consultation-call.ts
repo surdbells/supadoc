@@ -70,13 +70,14 @@ import {
 import {
   buildCallTiles,
   ButtonComponent,
+  type CallChoiceChange,
   type CallControl,
   type CallControlId,
   CallControlsComponent,
-  type CallMenuItem,
   CallQualityComponent,
   CallSelfTileComponent,
   type CallSelfViewMode,
+  type CallSetting,
   CallTilesComponent,
   type CallVideoFit,
   DialogService,
@@ -170,17 +171,26 @@ const RAIL_QUERY = '(orientation: landscape) and (max-height: 500px) and (max-wi
  * show). Fixed, so those take their room from the video: the dock and the rail
  * never move and nothing below shifts. The screen under the 48px top bar (as the
  * stage was), less the banners above the dock (--rail-above, measured). Never
- * shorter than the compact rail beside it, so their bottoms line up: four 44px
- * controls (Mute, Stop video, More, End), three 8px gaps, py-2 and the border =
- * 218px (as in the doctor's call).
+ * shorter than one column of four 44px controls beside it (the rail packs its
+ * controls and settings into columns of that height), so their bottoms line up:
+ * three 8px gaps, py-2 and the border = 218px (as in the doctor's call). The
+ * rail is given the same height.
  */
 const RAIL_COLUMN = 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]';
+/**
+ * The most of the screen's height the dock may take and still stick to the top
+ * (below lg, held upright). Taller (its bar on three or four rows on a short
+ * phone) it scrolls with the page, so the notes under it keep their room.
+ */
+const DOCK_STICKY_MAX = 0.6;
 /** Per-device choices (best-effort). */
 const FIT_KEY = 'videomed.call.fit';
 const SELF_KEY = 'videomed.call.self';
-/** The lg stage leaves this much height for the rest of the column (captions add their strip). */
-const RESERVE = '20rem';
-const RESERVE_CAPTIONS = '24.5rem';
+/** The video fit: fill the frame (the default) or the whole picture. */
+const FIT_OPTIONS = [
+  { value: 'contain', label: 'Fit', ariaLabel: 'Fit whole picture' },
+  { value: 'cover', label: 'Fill', ariaLabel: 'Fill the frame' },
+] as const;
 
 /** A record shown in the right-hand Documents & Records panel. */
 interface RecordItem {
@@ -203,8 +213,9 @@ interface RecordItem {
  * and its control bar (`sd-call-controls`) below it — never over the video.
  * Only the video, the name tag and (from sm) your picture-in-picture are on the
  * stage; below sm (a phone held upright) your camera is a small tile at the
- * start of the control row (D18). The main video is contained (the whole picture; More › fill), and
- * captions sit in a strip under it. Below lg the dock sticks to the top while
+ * start of the control row (D18). The stage is as wide as the notes card under it; the main video
+ * fills it (or, chosen in the bar, shows whole), and captions sit in a strip under it. Every
+ * control and setting is in the bar — nothing behind a menu. Below lg the dock sticks to the top while
  * the notes and the cards scroll; from lg the page doesn't scroll and each
  * column scrolls inside.
  *
@@ -525,7 +536,7 @@ interface RecordItem {
             <span class="hidden sm:inline" aria-hidden="true">Recording</span>
           </span>
         }
-        <!-- In More below sm -->
+        <!-- In the dock's settings below sm -->
         <button
           type="button"
           class="hidden min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-pill border border-white/15 px-3 font-sans text-body-sm text-white/85 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost sm:inline-flex"
@@ -558,7 +569,6 @@ interface RecordItem {
              page (its containing block is the body, not this column). -->
         <div
           class="contents lg:flex lg:min-h-0 lg:min-w-0 lg:flex-col lg:gap-3 lg:overflow-y-auto"
-          [style.--reserve]="reserve()"
           data-testid="call-left"
         >
           <!-- The banners above the dock, measured: a phone held sideways takes their
@@ -589,8 +599,8 @@ interface RecordItem {
                 [class]="stageClass()"
                 data-testid="call-stage"
               >
-                <!-- Everyone's video: the other person big (contain: the whole picture, or
-                     More › fill) and, from sm, you picture-in-picture; an even grid with
+                <!-- Everyone's video: the other person big (filling the frame, or the whole
+                     picture: the bar's Video fit) and, from sm, you picture-in-picture; an even grid with
                      guests. Always rendered, so a track can be handed over before its tile
                      appears. Below sm your camera is the tile in the control row instead. -->
                 <sd-call-tiles
@@ -736,7 +746,7 @@ interface RecordItem {
               <!-- Captions: under the video, never over a face (not a live region — the audio carries them) -->
               @if (status() === 'in-call' && captionsOn()) {
                 <div
-                  class="flex max-h-[4.5rem] min-h-12 flex-col justify-end overflow-hidden rounded-card bg-ink px-4 py-2 font-sans text-body text-white"
+                  class="flex max-h-[4.5rem] min-h-12 shrink-0 flex-col justify-end overflow-hidden rounded-card bg-ink px-4 py-2 font-sans text-body text-white"
                   data-testid="call-captions"
                 >
                   @for (seg of latestCaptions(); track seg.id) {
@@ -782,10 +792,10 @@ interface RecordItem {
                 <div [class]="controlsBoxClass()">
                   <sd-call-controls
                     [controls]="controls()"
-                    [menu]="menu()"
+                    [settings]="settings()"
                     [layout]="rail() ? 'rail' : 'bar'"
                     (pressed)="onControl($event)"
-                    (menuSelect)="onMenu($event)"
+                    (choiceChange)="onChoice($event)"
                   />
                 </div>
               </div>
@@ -1331,7 +1341,7 @@ interface RecordItem {
             }
           </section>
 
-          <!-- Privacy & consent (More › Privacy & consent brings focus here) -->
+          <!-- Privacy & consent (the dock's Privacy brings focus here) -->
           <section id="call-privacy" class="rounded-card border border-white/10 bg-white/[0.03] p-4" aria-labelledby="call-privacy-title">
             <h2 id="call-privacy-title" tabindex="-1" class="mb-1 flex items-center gap-1.5 font-sans text-body font-semibold text-white outline-none">
               <sd-icon name="shield-check" [size]="16" class="text-frost" /> Privacy &amp; Consent
@@ -1469,15 +1479,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly wide = signal(this.mediaMatches(WIDE_QUERY));
   /** A phone held sideways: the controls are a rail beside the video. */
   protected readonly rail = signal(this.mediaMatches(RAIL_QUERY));
-  /** How the other person's video fills the stage (More › Video: fit / fill), per device. */
+  /** How the other person's video fills the stage (the dock's Video fit: fill by default), per device. */
   protected readonly fit = signal<CallVideoFit>(this.readFit());
-  /** "Hide my preview" (More), per device: your camera still goes to the doctor. */
+  /** "Hide my preview" (the dock's settings), per device: your camera still goes to the doctor. */
   protected readonly hidePreview = signal(this.readHidePreview());
   /**
    * Where your own camera shows: the stage's picture-in-picture, the control-row
    * tile, or nowhere. A phone held sideways uses the picture-in-picture at any
-   * width: its stage is 16:9 (the corner is free, as from sm up), and the rail
-   * has no room for the 64px tile above Mute, Stop video, More and End.
+   * width: its stage is wide (the corner is free, as from sm up), and the rail
+   * has no room for the 64px tile above its controls.
    */
   protected readonly selfMode = computed<CallSelfViewMode>(() =>
     this.hidePreview() ? 'hidden' : this.wide() || this.rail() ? 'pip' : 'external',
@@ -1491,11 +1501,16 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 
   protected readonly rootClass = computed(() => (this.phase() === 'live' ? 'lg:h-dvh lg:overflow-hidden' : ''));
-  protected readonly reserve = computed(() => (this.captionsOn() ? RESERVE_CAPTIONS : RESERVE));
+  /**
+   * The dock: as wide as the column, so the stage and its bar line up with the
+   * notes card under them (below lg, the page's content width). From lg the
+   * page doesn't scroll: the dock may shrink (min-h-0), and only its stage
+   * gives way, so the notes card keeps its 8rem and the column needs no scroll.
+   */
   protected readonly dockClass = computed(() =>
     this.rail()
       ? 'sd-dock flex flex-row items-stretch gap-2 pt-2'
-      : 'sd-dock sticky top-0 z-20 flex flex-col gap-2 bg-abyss pt-2 [@media(max-height:500px)]:static lg:static lg:mx-auto lg:w-[min(100%,calc((100dvh_-_var(--reserve))*16/9))] lg:shrink-0 lg:pt-0',
+      : 'sd-dock sticky top-0 z-20 flex flex-col gap-2 bg-abyss pt-2 [@media(max-height:500px)]:static lg:static lg:min-h-0 lg:pt-0',
   );
   /**
    * The banners above the dock (the device notice): box-less (display: contents)
@@ -1514,20 +1529,32 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       ? `grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-2 ${RAIL_COLUMN}`
       : 'contents',
   );
+  /**
+   * The stage is always the column's full width; the video fills it (or is
+   * letterboxed in it: Video fit). Its height: below lg 4:3 (16:9 from sm) of
+   * that width, at most 45dvh; from lg 16:9 of it, giving way (flex shrink) to
+   * whatever the column can't spare; beside a rail, the column's first row.
+   */
   protected readonly stageClass = computed(() =>
     this.rail()
-      ? // h-full: the first row's height (what the captions and the card leave); 16:9 from it, never wider than the column.
-        'mx-auto aspect-video h-full max-w-full'
-      : 'mx-auto aspect-[4/3] w-full max-h-[45dvh] max-w-[calc(45dvh*4/3)] sm:aspect-video sm:max-w-[calc(45dvh*16/9)] lg:max-h-none lg:max-w-none',
+      ? 'h-full w-full'
+      : 'w-full aspect-[4/3] max-h-[45dvh] sm:aspect-video lg:max-h-none lg:min-h-0',
   );
+  /**
+   * The bar under the video, or (a phone held sideways) the rail beside it:
+   * exactly as tall as the stage's column (RAIL_COLUMN), never by its content,
+   * so the controls measure that height and pack into as many columns as it
+   * needs (End stays on the screen), and as wide as those columns.
+   */
   protected readonly controlRowClass = computed(() =>
     this.rail()
-      ? 'flex w-[4.5rem] shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2'
-      : 'flex items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2',
+      ? `flex min-h-0 shrink-0 flex-col items-center gap-2 rounded-card border border-white/10 bg-ink px-1 py-2 ${RAIL_COLUMN}`
+      : 'flex shrink-0 items-center gap-2 rounded-card border border-white/10 bg-ink px-2 py-2',
   );
+  /** The bar's `callbar` container (its labels show from 34rem); a rail's box sizes to its columns instead. */
   protected readonly controlsBoxClass = computed(() =>
     this.rail()
-      ? 'flex min-h-0 w-full flex-1 justify-center [container-name:callbar] [container-type:inline-size]'
+      ? 'flex min-h-0 flex-1 justify-center'
       : 'min-w-0 flex-1 [container-name:callbar] [container-type:inline-size]',
   );
 
@@ -1546,7 +1573,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         icon: 'monitor-smartphone',
         pressed: this.screenOn(),
         tone: this.screenOn() ? 'active' : 'default',
-        overflow: 'menu',
         hidden: !this.canShareScreen,
       },
       {
@@ -1555,28 +1581,30 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         icon: 'captions',
         pressed: captions,
         tone: captions ? 'active' : 'default',
-        overflow: 'menu',
         disabled: noConsent,
         reason: noConsent ? 'Turn on captions consent in Privacy & consent first.' : null,
       },
-      { id: 'more', label: 'More', icon: 'ellipsis' },
       { id: 'end', label: 'End', ariaLabel: 'End call', icon: 'phone-off', tone: 'danger' },
     ];
   });
 
-  /** More: what doesn't fit the bar (Invite and the theme below sm), the video fit, your preview, consent. */
-  protected readonly menu = computed<CallMenuItem[]>(() => {
-    const items: CallMenuItem[] = [];
-    if (!this.wide()) items.push({ id: 'invite', label: 'Invite someone', icon: 'user-plus' });
-    items.push(
-      { id: 'fit-contain', label: 'Video: fit whole picture', checked: this.fit() === 'contain', group: 'fit' },
-      { id: 'fit-cover', label: 'Video: fill the frame', checked: this.fit() === 'cover', group: 'fit' },
-      { id: 'self', label: 'Hide my preview', checked: this.hidePreview() },
-    );
+  /**
+   * The dock's settings, after its controls (never behind a menu): the video
+   * fit, your preview, Privacy & consent, and below sm (where the top bar has no
+   * room for them) Invite and the cockpit theme.
+   */
+  protected readonly settings = computed<CallSetting[]>(() => {
+    const items: CallSetting[] = [
+      { id: 'fit', label: 'Video fit', value: this.fit(), options: FIT_OPTIONS },
+      { id: 'self', label: 'Hide my preview', icon: 'eye-off', pressed: this.hidePreview() },
+      { id: 'privacy', label: 'Privacy', ariaLabel: 'Privacy & consent', icon: 'shield-check' },
+    ];
     if (!this.wide()) {
-      items.push({ id: 'theme', label: this.theme() === 'dark' ? 'Light cockpit' : 'Dark cockpit', icon: 'lightbulb' });
+      items.push(
+        { id: 'invite', label: 'Invite', ariaLabel: 'Invite someone to this call', icon: 'user-plus' },
+        { id: 'theme', label: 'Light cockpit', icon: 'lightbulb', pressed: this.theme() === 'light' },
+      );
     }
-    items.push({ id: 'privacy', label: 'Privacy & consent', icon: 'shield-check' });
     return items;
   });
 
@@ -1693,11 +1721,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** Fill the frame unless the whole picture was chosen on this device. */
   private readFit(): CallVideoFit {
     try {
-      return localStorage.getItem(FIT_KEY) === 'cover' ? 'cover' : 'contain';
+      return localStorage.getItem(FIT_KEY) === 'contain' ? 'contain' : 'cover';
     } catch {
-      return 'contain';
+      return 'cover';
     }
   }
 
@@ -1739,9 +1768,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.destroyRef.onDestroy(() => mql.removeEventListener?.('change', onChange));
   }
 
-  // ---- The dock's controls and More ----
+  // ---- The dock's controls and settings ----
 
-  /** A control of the dock was pressed (More opens its own menu). */
+  /** A control or a setting's button in the dock was pressed. */
   protected onControl(id: CallControlId): void {
     switch (id) {
       case 'mic':
@@ -1759,30 +1788,25 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       case 'end':
         void this.leave('history');
         break;
-    }
-  }
-
-  /** A More item was chosen. */
-  protected onMenu(id: string): void {
-    switch (id) {
-      case 'invite':
-        this.invite();
-        break;
-      case 'fit-contain':
-      case 'fit-cover':
-        this.setFit(id === 'fit-cover' ? 'cover' : 'contain');
-        break;
       case 'self':
         this.moveSelfView(() => this.hidePreview.update((h) => !h));
         this.remember(SELF_KEY, this.hidePreview() ? 'hidden' : 'shown');
         break;
-      case 'theme':
-        this.toggleTheme();
-        break;
       case 'privacy':
         this.focusPrivacy();
         break;
+      case 'invite':
+        this.invite();
+        break;
+      case 'theme':
+        this.toggleTheme();
+        break;
     }
+  }
+
+  /** A segmented setting in the dock changed (the video fit). */
+  protected onChoice(change: CallChoiceChange): void {
+    if (change.id === 'fit' && (change.value === 'contain' || change.value === 'cover')) this.setFit(change.value);
   }
 
   protected setFit(fit: CallVideoFit): void {
@@ -1790,7 +1814,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.remember(FIT_KEY, fit);
   }
 
-  /** More › Privacy & consent: the card's heading, scrolled into view and focused. */
+  /** The dock's Privacy: the Privacy & consent card's heading, scrolled into view and focused. */
   private focusPrivacy(): void {
     afterNextRender(
       () => {
@@ -1854,13 +1878,18 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /**
    * Keeps the focused element clear of the sticky dock and the bottom toast
    * (WCAG 2.4.11): `scroll-padding` on the page, from their sizes. Nothing
-   * when the dock isn't sticky (lg, a short screen) or isn't given (a phone
-   * held sideways).
+   * when the dock isn't sticky (lg, a short screen, a dock taller than
+   * DOCK_STICKY_MAX of the screen) or isn't given (a phone held sideways).
    */
   private syncScrollPadding(dock: HTMLElement | null, toast: HTMLElement | null): void {
     const win = this.document.defaultView;
     const root = this.document.documentElement;
     if (!win) return;
+    if (dock) {
+      // Too tall to stay in view: it scrolls with the page (set inline, so the check below sees it at once).
+      const room = root.clientHeight;
+      dock.style.position = room > 0 && dock.getBoundingClientRect().height > room * DOCK_STICKY_MAX ? 'static' : '';
+    }
     const sticky = !!dock && win.getComputedStyle(dock).position === 'sticky';
     root.style.scrollPaddingTop = sticky && dock ? `${Math.ceil(dock.getBoundingClientRect().height)}px` : '';
     let bottom = '';
@@ -2441,6 +2470,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       onCleanup(() => {
         observer?.disconnect();
         win.removeEventListener('resize', sync);
+        if (dock) dock.style.position = '';
       });
     });
     this.destroyRef.onDestroy(() => {

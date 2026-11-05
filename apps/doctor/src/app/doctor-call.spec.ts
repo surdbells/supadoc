@@ -611,6 +611,102 @@ describe('DoctorCall — documents in the call', () => {
     expect(el.querySelector('#call-people-list')).not.toBeNull();
   });
 
+  describe('the dock: every control in the bar (no More), Large and fill by default, as wide as the tools', () => {
+    const KEYS = ['videomed.call.video-size', 'videomed.call.more-room', 'videomed.call.fit', 'videomed.call.self', 'videomed.call.theme'];
+    const clear = () => KEYS.forEach((k) => localStorage.removeItem(k));
+    const controlsCmp = () => fixture.debugElement.query(By.directive(CallControlsComponent)).componentInstance as CallControlsComponent;
+    const tilesCmp = () => fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+    const stage = () => el.querySelector<HTMLElement>('.sd-stage');
+    const dock = () => el.querySelector<HTMLElement>('section[aria-label="Video call"]');
+    const radio = (choice: string, value: string) =>
+      el.querySelector<HTMLButtonElement>(`sd-call-controls [data-choice="${choice}"][data-value="${value}"]`) as HTMLButtonElement;
+    const button = (id: string) => el.querySelector<HTMLButtonElement>(`sd-call-controls [data-control="${id}"]`) as HTMLButtonElement;
+    const stageH = () => el.querySelector<HTMLElement>('main')?.style.getPropertyValue('--stage-h');
+    const WIDE = ['(min-width: 1024px)', '(min-width: 1280px)'];
+    beforeEach(clear);
+    afterEach(clear);
+
+    it('nothing saved: Large video, filling the frame; every setting is a control in the bar', async () => {
+      media(WIDE);
+      await setup([doc('a')]);
+      expect(stageH()).toBe('clamp(320px, calc(100dvh - 16rem), 900px)');
+      expect(tilesCmp().mainFit()).toBe('cover');
+      expect(el.querySelector('sd-call-controls [data-control="more"], sd-call-controls [role="menu"]')).toBeNull();
+      expect(controlsCmp().settings().map((s) => s.id)).toEqual(['size', 'fit', 'self']);
+      expect(radio('size', 'l').getAttribute('aria-checked')).toBe('true');
+      expect(radio('size', 'l').getAttribute('aria-label')).toBe('Large video');
+      expect(radio('fit', 'cover').getAttribute('aria-checked')).toBe('true');
+      expect(button('self').getAttribute('aria-pressed')).toBe('false');
+      expect(el.querySelector('sd-call-controls [role="radiogroup"][aria-label="Video size"]')).not.toBeNull();
+      expect(el.querySelector('sd-call-controls [role="group"][aria-label="Call settings"]')).not.toBeNull();
+    });
+
+    it('the bar’s choices change and remember the size and fit; Hide my preview is a toggle', async () => {
+      media(WIDE);
+      await setup([doc('a')]);
+      radio('size', 'm').click();
+      radio('fit', 'contain').click();
+      await tick();
+      expect(stageH()).toBe('clamp(260px, calc(52dvh - 3rem), 640px)');
+      expect(tilesCmp().mainFit()).toBe('contain');
+      expect(radio('size', 'm').getAttribute('aria-checked')).toBe('true');
+      expect(localStorage.getItem('videomed.call.video-size')).toBe('m');
+      expect(localStorage.getItem('videomed.call.fit')).toBe('contain');
+      button('self').click();
+      await tick();
+      expect(tilesCmp().selfView()).toBe('hidden');
+      expect(button('self').getAttribute('aria-pressed')).toBe('true');
+      expect(localStorage.getItem('videomed.call.self')).toBe('hidden');
+    });
+
+    it('a saved choice is honoured, and the old "More room" switch still means Small', async () => {
+      localStorage.setItem('videomed.call.video-size', 'm');
+      localStorage.setItem('videomed.call.fit', 'contain');
+      media(WIDE);
+      await setup([doc('a')]);
+      expect(stageH()).toBe('clamp(260px, calc(52dvh - 3rem), 640px)');
+      expect(tilesCmp().mainFit()).toBe('contain');
+      fixture.destroy();
+      el.remove();
+      TestBed.resetTestingModule();
+      clear();
+      localStorage.setItem('videomed.call.more-room', '1');
+      await setup([doc('a')]);
+      expect(stageH()).toBe('clamp(200px, 32dvh, 360px)');
+      expect(radio('size', 's').getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('wide and mid: the stage fills the tools column’s width, its height giving way before the tools row’s 8rem', async () => {
+      media(WIDE);
+      await setup([doc('a')]);
+      const tools = el.querySelector<HTMLElement>('#call-tools');
+      expect(dock()?.className).toContain('[grid-area:dock]');
+      expect(tools?.className).toContain('[grid-area:tools]');
+      expect(el.querySelector('main')?.className).toContain('grid-rows-[minmax(0,auto)_minmax(8rem,1fr)]');
+      expect(dock()?.className).toContain('min-h-0');
+      expect(stage()?.className.split(/\s+/)).toEqual(expect.arrayContaining(['w-full', 'min-h-0', 'h-[var(--stage-h)]']));
+      expect(stage()?.className).not.toContain('shrink-0');
+      expect(stage()?.className).not.toContain('max-w-');
+      expect(el.querySelector('sd-call-controls')?.closest('.rounded-card')?.className).toContain('shrink-0');
+    });
+
+    it('narrow (a phone held upright): the stage is the content’s full width, 4:3 up to --stage-max; the theme joins the bar', async () => {
+      media(['(max-width: 639.98px)']);
+      await setup([doc('a')]);
+      expect(stage()?.className.split(/\s+/)).toEqual(
+        expect.arrayContaining(['w-full', 'aspect-[4/3]', 'max-h-[var(--stage-max)]', 'sm:aspect-video']),
+      );
+      expect(stage()?.className).not.toContain('mx-auto');
+      expect(stage()?.className).not.toContain('max-w-');
+      expect(controlsCmp().settings().map((s) => s.id)).toEqual(['size', 'fit', 'self', 'theme']);
+      expect(button('theme').getAttribute('aria-label')).toBe('Light cockpit');
+      button('theme').click();
+      await tick();
+      expect(button('theme').getAttribute('aria-pressed')).toBe('true');
+      expect(el.getAttribute('data-theme')).toBe('light');
+    });
+  });
+
   describe('the shared viewer during the call (call band, peer hand-over)', () => {
     /** A remote video track, faked (the stage and the viewer's tile only play and stop it). */
     const remoteTrack = (name: string) => ({ name, play: vi.fn(), stop: vi.fn() });
@@ -984,7 +1080,9 @@ describe('DoctorCall — documents in the call', () => {
     const lastOrder = (fn: ReturnType<typeof vi.fn>) => Math.max(0, ...fn.mock.invocationCallOrder);
     /** The rail's stage column: the video, then (while it shows) the new-document alert. */
     const column = () => stage()?.parentElement ?? null;
-    const menu = (id: string) => (call as unknown as { onMenu(id: string): void }).onMenu(id);
+    /** The dock's settings, as the bar emits them. */
+    const choose = (id: string, value: string) => (call as unknown as { onChoice(c: { id: string; value: string }): void }).onChoice({ id, value });
+    const press = (id: string) => (call as unknown as { onControl(id: string): void }).onControl(id);
     /** The rail's column heights (RAIL_COLUMN): Medium / Large, and Small. */
     const FULL = 'h-[max(13.625rem,calc(100dvh_-_4.5rem_-_var(--rail-above,0px)))]';
     const SMALL = 'h-[max(13.625rem,calc(100dvh_-_10rem_-_var(--rail-above,0px)))]';
@@ -1008,11 +1106,22 @@ describe('DoctorCall — documents in the call', () => {
       expect(dock()?.className).toContain('flex-row');
       expect(dock()?.className).not.toContain('sticky');
       // The stage's column has a fixed height (the screen under the top bar and any
-      // banner); the video fills it (16:9 from the row's height), the rail beside it.
+      // banner); the stage fills it (no letterbox: the video fills it by default), the rail beside it.
       expect(column()?.className).toContain('grid');
       expect(column()?.className).toContain(FULL);
       expect(stage()?.className).toContain('h-full');
-      expect(stage()?.className).toContain('aspect-video');
+      expect(stage()?.className).toContain('w-full');
+      expect(stage()?.className).not.toContain('aspect-');
+      expect(tilesCmp().mainFit()).toBe('cover');
+      // The rail is as wide as its columns, every control and setting in it (no More).
+      const rail = el.querySelector('sd-call-controls')?.closest<HTMLElement>('.rounded-card');
+      expect(rail?.className).not.toContain('w-[4.5rem]');
+      // ...and exactly as tall as the stage's column, not its content: the controls measure
+      // that height and pack into as many columns as it needs, so End stays on the screen.
+      expect(rail?.className).toContain(FULL);
+      expect(rail?.className.split(/\s+/)).toContain('min-h-0');
+      expect(el.querySelector('sd-call-controls [data-control="more"]')).toBeNull();
+      expect(el.querySelectorAll('sd-call-controls [role="radiogroup"]')).toHaveLength(2);
       expect(column()?.querySelector('sd-call-controls')).toBeNull();
       expect(stage()?.querySelector('sd-call-controls')).toBeNull();
       expect(dock()?.querySelector('sd-call-controls')).not.toBeNull();
@@ -1034,17 +1143,22 @@ describe('DoctorCall — documents in the call', () => {
       expect(tilesCmp().selfView()).toBe('pip');
     });
 
-    it('Small video: a shorter column in the rail (floored at the compact rail’s 218px); Large goes back to the full height', async () => {
+    it('Small video: a shorter column in the rail (floored at one column of four controls, 218px); Large goes back to the full height', async () => {
       viewport(812, 375);
       await setup([doc('a')]);
-      menu('size-s');
+      choose('size', 's');
       await tick();
-      // 13.625rem = the compact rail: 4 × 44px controls + 3 × 8px gaps + py-2 + the border.
+      // 13.625rem = a rail column: 4 × 44px controls + 3 × 8px gaps + py-2 + the border.
       expect(column()?.className).toContain(SMALL);
       expect(column()?.className).not.toContain(FULL);
-      menu('size-l');
+      // The rail follows it (its bottom lines up with the video's; the controls pack to it).
+      const rail = () => el.querySelector('sd-call-controls')?.closest<HTMLElement>('.rounded-card');
+      expect(rail()?.className).toContain(SMALL);
+      expect(rail()?.className).not.toContain(FULL);
+      choose('size', 'l');
       await tick();
       expect(column()?.className).toContain(FULL);
+      expect(rail()?.className).toContain(FULL);
     });
 
     it('375×812 (held upright): not a rail — the bar under the video with the row tile, the dock sticky', async () => {
@@ -1133,6 +1247,62 @@ describe('DoctorCall — documents in the call', () => {
       expect(page?.style.getPropertyValue('--rail-above')).toBe('0px');
     });
 
+    it('held upright, a dock taller than 60% of the screen scrolls with the page (no scroll padding); shorter, it sticks', async () => {
+      const observers: Array<{ el: Element; report: () => void }> = [];
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(private readonly cb: ResizeObserverCallback) {}
+          observe(target: Element) {
+            observers.push({ el: target, report: () => this.cb([], this as unknown as ResizeObserver) });
+          }
+          unobserve() {
+            /* not needed */
+          }
+          disconnect() {
+            /* not needed */
+          }
+        },
+      );
+      // As the stylesheet lays it out (jsdom loads none): the dock's `sticky` class.
+      const sheet = document.createElement('style');
+      sheet.textContent = '.sticky { position: sticky; }';
+      document.head.appendChild(sheet);
+      let room = 667;
+      const clientHeight = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+        return this === document.documentElement ? room : 0;
+      });
+      try {
+        viewport(375, 667);
+        await setup([doc('a')]);
+        const section = dock() as HTMLElement;
+        let height = 450;
+        vi.spyOn(section, 'getBoundingClientRect').mockImplementation(
+          () => ({ x: 0, y: 0, top: 0, left: 0, width: 351, right: 351, height, bottom: height, toJSON: () => ({}) }) as DOMRect,
+        );
+        const watch = observers.find((o) => o.el === section);
+        expect(watch).toBeTruthy();
+        // 450px of a 667px screen (67%: the bar on three rows): it scrolls away, nothing to pad.
+        watch?.report();
+        expect(section.style.position).toBe('static');
+        expect(section.className).toContain('sticky');
+        expect(document.documentElement.style.scrollPaddingTop).toBe('');
+        // 380px (57%): it sticks, and focus is kept clear of it (2.4.11).
+        height = 380;
+        watch?.report();
+        expect(section.style.position).toBe('');
+        expect(document.documentElement.style.scrollPaddingTop).toBe('380px');
+        // A shorter window (the dock unchanged): checked again on resize.
+        room = 600;
+        window.dispatchEvent(new Event('resize'));
+        expect(section.style.position).toBe('static');
+        expect(document.documentElement.style.scrollPaddingTop).toBe('');
+      } finally {
+        sheet.remove();
+        clientHeight.mockRestore();
+      }
+    });
+
     it('sideways the dock is not watched (the banners resize it: no ResizeObserver loop); upright it is again', async () => {
       const live = new Set<{ el: Element }>();
       vi.stubGlobal(
@@ -1165,7 +1335,7 @@ describe('DoctorCall — documents in the call', () => {
       expect(dockWatched()).toBe(true);
     });
 
-    it('More › Hide my preview, then show it: the picture-in-picture lets go of the camera, then plays it again', async () => {
+    it('Hide my preview, then show it: the picture-in-picture lets go of the camera, then plays it again', async () => {
       viewport(812, 375);
       await setup([doc('a')]);
       const cam = camera();
@@ -1179,7 +1349,7 @@ describe('DoctorCall — documents in the call', () => {
 
       // Hide: the stage stops it at once and forgets it.
       const stops = cam.stop.mock.calls.length;
-      menu('self');
+      press('self');
       expect(detach).toHaveBeenCalledWith(2);
       expect(cam.stop.mock.calls.length).toBe(stops + 1);
       await tick();
@@ -1188,7 +1358,7 @@ describe('DoctorCall — documents in the call', () => {
 
       // Show: handed back (camera: no play config), and played in the new picture-in-picture.
       const plays = cam.play.mock.calls.length;
-      menu('self');
+      press('self');
       expect(attach).toHaveBeenLastCalledWith(2, cam, undefined);
       await tick();
       expect(tiles.selfView()).toBe('pip');
@@ -1199,7 +1369,7 @@ describe('DoctorCall — documents in the call', () => {
       expect(lastOrder(cam.stop)).toBeLessThan(lastOrder(cam.play));
     });
 
-    it('More › Hide my preview while sharing the screen: shown again, the shared screen plays whole (fit: contain)', async () => {
+    it('Hide my preview while sharing the screen: shown again, the shared screen plays whole (fit: contain)', async () => {
       viewport(812, 375);
       await setup([doc('a')]);
       const screen = { kind: 'video', enabled: true, play: vi.fn(), stop: vi.fn(), close: vi.fn(), on: vi.fn(), setEnabled: vi.fn(async () => undefined) };
@@ -1211,10 +1381,10 @@ describe('DoctorCall — documents in the call', () => {
       expect(screen.play.mock.lastCall).toEqual([tiles.elementFor(2), { fit: 'contain' }]);
       const attach = vi.spyOn(tiles, 'attach');
 
-      menu('self');
+      press('self');
       expect(screen.stop).toHaveBeenCalledTimes(1);
       await tick();
-      menu('self');
+      press('self');
       expect(attach).toHaveBeenLastCalledWith(2, screen, { fit: 'contain' });
       await tick();
       const pip = tiles.elementFor(2);

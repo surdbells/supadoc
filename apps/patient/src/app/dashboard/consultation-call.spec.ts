@@ -278,13 +278,25 @@ describe('ConsultationCall (the dock)', () => {
     // Nothing but tiles and the name tag on the stage: the controls are outside it.
     expect(stage?.querySelector('sd-call-controls')).toBeNull();
     expect(row?.querySelector('sd-call-controls')).toBeTruthy();
-    expect(controlLabels()).toEqual(['Mute', 'Stop video', 'Captions', 'More', 'End call']);
+    // No More: the controls, then (below sm) every setting, Invite and the theme included.
+    expect(controlLabels()).toEqual([
+      'Mute',
+      'Stop video',
+      'Captions',
+      'End call',
+      'Hide my preview',
+      'Privacy & consent',
+      'Invite someone to this call',
+      'Light cockpit',
+    ]);
+    expect(el.querySelector('sd-call-controls [data-control="more"], sd-call-controls [role="menu"]')).toBeNull();
     expect(el.textContent).not.toContain('Chat');
     // Below sm: the self tile starts the row, and the stage has no picture-in-picture.
     expect(row?.firstElementChild?.tagName.toLowerCase()).toBe('sd-call-self-tile');
     const tiles = fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
     expect(tiles.selfView()).toBe('external');
-    expect(tiles.mainFit()).toBe('contain');
+    // Nothing chosen on this device: the video fills the frame.
+    expect(tiles.mainFit()).toBe('cover');
   });
 
   it('keeps your camera on the stage (picture-in-picture) from 640px up', async () => {
@@ -412,9 +424,18 @@ describe('ConsultationCall (the dock)', () => {
       expect(column?.className).toContain('grid-rows-[minmax(0,1fr)]');
       expect(column?.className).toContain(RAIL_COLUMN);
       expect(stage?.parentElement).toBe(column);
+      // The whole first row, beside the rail: no letterbox (the video fills it by default).
       expect(stage?.className).toContain('h-full');
-      expect(stage?.className).toContain('aspect-video');
+      expect(stage?.className).toContain('w-full');
+      expect(stage?.className).not.toContain('aspect-');
       expect(stage?.className).not.toContain('100dvh');
+      // The rail is as wide as its columns (not a fixed 4.5rem), and its box is no inline-size container.
+      expect(row?.className).not.toContain('w-[4.5rem]');
+      // ...and exactly as tall as the stage's column, not its content: the controls measure
+      // that height and pack into as many columns as it needs, so End stays on the screen.
+      expect(row?.className).toContain(RAIL_COLUMN);
+      expect(row?.className.split(/\s+/)).toContain('min-h-0');
+      expect(row?.querySelector('sd-call-controls')?.parentElement?.className).not.toContain('container-type');
       expect(column?.querySelector('sd-call-controls')).toBeNull();
       expect(row?.querySelector('sd-call-controls')).not.toBeNull();
       // Nothing above the dock but the (empty, hidden) banners.
@@ -487,6 +508,44 @@ describe('ConsultationCall (the dock)', () => {
       expect(watching(dock)).toHaveLength(1);
     });
 
+    it('held upright, a dock taller than 60% of the screen scrolls with the page (no scroll padding); shorter, it sticks', async () => {
+      // As the stylesheet lays it out (jsdom loads none): the dock's `sticky` class.
+      const sheet = document.createElement('style');
+      sheet.textContent = '.sticky { position: sticky; }';
+      document.head.appendChild(sheet);
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+        return this === document.documentElement ? 667 : 0;
+      });
+      try {
+        await create();
+        await enter();
+        const dock = el.querySelector<HTMLElement>('[data-testid="call-dock"]') as HTMLElement;
+        let height = 454;
+        vi.spyOn(dock, 'getBoundingClientRect').mockImplementation(
+          () => ({ x: 0, y: 0, top: 0, left: 0, width: 351, right: 351, height, bottom: height, toJSON: () => ({}) }) as DOMRect,
+        );
+        const watch = watching(dock)[0];
+        expect(watch).toBeTruthy();
+        // 454px of a 667px screen (68%: the bar on three rows): it scrolls away, nothing to pad.
+        watch.report(height);
+        expect(dock.style.position).toBe('static');
+        expect(dock.className).toContain('sticky');
+        expect(document.documentElement.style.scrollPaddingTop).toBe('');
+        // 380px (57%): it sticks, and focus is kept clear of it (2.4.11).
+        height = 380;
+        watch.report(height);
+        expect(dock.style.position).toBe('');
+        expect(document.documentElement.style.scrollPaddingTop).toBe('380px');
+        // Turned sideways (a rail, never sticky): the dock is let go of.
+        height = 454;
+        watch.report(height);
+        await turn(true);
+        expect(dock.style.position).toBe('');
+      } finally {
+        sheet.remove();
+      }
+    });
+
     it('held upright: the banners and the stage column have no box (the layout is as before)', async () => {
       await create();
       await enter();
@@ -515,31 +574,108 @@ describe('ConsultationCall (the dock)', () => {
     expect(region?.textContent?.trim()).toBe('This consultation is being recorded.');
   });
 
-  it('sizes the lg stage from the column reserve: 20rem, 24.5rem with captions on', async () => {
+  it('makes the stage and its bar as wide as the notes card below: no 16:9 cap, no centring', async () => {
     await create();
     await enter();
-    expect(left()?.style.getPropertyValue('--reserve')).toBe('20rem');
-    const dock = el.querySelector('[data-testid="call-dock"]');
-    expect(dock?.className).toContain('lg:w-[min(100%,calc((100dvh_-_var(--reserve))*16/9))]');
+    const dock = el.querySelector<HTMLElement>('[data-testid="call-dock"]');
+    const stage = el.querySelector<HTMLElement>('[data-testid="call-stage"]');
+    const row = el.querySelector<HTMLElement>('[data-testid="call-control-row"]');
+    const notes = el.querySelector<HTMLElement>('section[aria-label="Consultation notes"]');
+    // The dock and the notes card share the left column (the page's content below lg).
+    expect(dock?.parentElement).toBe(left());
+    expect(notes?.parentElement).toBe(left());
+    for (const c of ['mx-auto', 'lg:mx-auto', 'max-w-', 'lg:w-[min(']) expect(dock?.className).not.toContain(c);
+    // Full width; 4:3 (16:9 from sm) of it up to 45dvh, and from lg 16:9 giving way to the notes' 8rem.
+    expect(stage?.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['w-full', 'aspect-[4/3]', 'max-h-[45dvh]', 'sm:aspect-video', 'lg:max-h-none', 'lg:min-h-0']),
+    );
+    expect(stage?.className).not.toContain('max-w-');
+    expect(stage?.className).not.toContain('mx-auto');
+    expect(dock?.className).toContain('lg:min-h-0');
+    expect(notes?.className).toContain('lg:min-h-[8rem]');
+    expect(row?.className).toContain('shrink-0');
+    expect(left()?.style.getPropertyValue('--reserve')).toBe('');
+    // Captions keep their strip (the stage gives way).
     cmp()['onControl']('captions');
     await settle();
-    expect(left()?.style.getPropertyValue('--reserve')).toBe('24.5rem');
-    expect(el.querySelector('[data-testid="call-captions"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="call-captions"]')?.className).toContain('shrink-0');
   });
 
-  it('More holds Invite (below sm), the video fit, the preview and Privacy & consent', async () => {
-    await create();
-    await enter();
-    const controls = fixture.debugElement.query(By.directive(CallControlsComponent)).componentInstance as CallControlsComponent;
-    const items = controls.menu().map((m) => m.id);
-    expect(items).toEqual(['invite', 'fit-contain', 'fit-cover', 'self', 'theme', 'privacy']);
-    cmp()['onMenu']('fit-cover');
-    await settle();
-    const tiles = fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
-    expect(tiles.mainFit()).toBe('cover');
-    cmp()['onMenu']('self');
-    await settle();
-    expect(tiles.selfView()).toBe('hidden');
+  describe('the dock’s settings (no More)', () => {
+    const controlsCmp = () => fixture.debugElement.query(By.directive(CallControlsComponent)).componentInstance as CallControlsComponent;
+    const tiles = () => fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+    const button = (id: string) => el.querySelector<HTMLButtonElement>(`sd-call-controls [data-control="${id}"]`) as HTMLButtonElement;
+    const radio = (value: string) => el.querySelector<HTMLButtonElement>(`sd-call-controls [data-choice="fit"][data-value="${value}"]`) as HTMLButtonElement;
+    const clear = () => {
+      for (const k of ['videomed.call.fit', 'videomed.call.self', 'videomed.call.theme']) localStorage.removeItem(k);
+    };
+    beforeEach(clear);
+    afterEach(clear);
+
+    it('lists the video fit, your preview and Privacy, with Invite and the theme below sm', async () => {
+      await create();
+      await enter();
+      expect(controlsCmp().settings().map((s) => s.id)).toEqual(['fit', 'self', 'privacy', 'invite', 'theme']);
+      expect(controlsCmp().controls().some((c) => (c.id as string) === 'more')).toBe(false);
+      const group = el.querySelector('sd-call-controls [role="radiogroup"]');
+      expect(group?.getAttribute('aria-label')).toBe('Video fit');
+      expect([...(group?.querySelectorAll('[role="radio"]') ?? [])].map((r) => [r.getAttribute('aria-label'), r.getAttribute('aria-checked')])).toEqual([
+        ['Fit whole picture', 'false'],
+        ['Fill the frame', 'true'],
+      ]);
+      expect(button('self').getAttribute('aria-pressed')).toBe('false');
+      expect(button('theme').getAttribute('aria-pressed')).toBe('false');
+      expect(button('privacy').hasAttribute('aria-pressed')).toBe(false);
+    });
+
+    it('from sm the top bar has Invite and the theme: the dock does not repeat them', async () => {
+      wide = true;
+      await create();
+      await enter();
+      expect(controlsCmp().settings().map((s) => s.id)).toEqual(['fit', 'self', 'privacy']);
+    });
+
+    it('Fit / Fill switch the video fit and remember it; a saved choice is honoured', async () => {
+      await create();
+      await enter();
+      expect(tiles().mainFit()).toBe('cover');
+      radio('contain').click();
+      await settle();
+      expect(tiles().mainFit()).toBe('contain');
+      expect(radio('contain').getAttribute('aria-checked')).toBe('true');
+      expect(localStorage.getItem('videomed.call.fit')).toBe('contain');
+      // A new call on this device keeps it.
+      fixture.destroy();
+      el.remove();
+      await create();
+      await enter();
+      expect(tiles().mainFit()).toBe('contain');
+      radio('cover').click();
+      await settle();
+      expect(tiles().mainFit()).toBe('cover');
+      expect(localStorage.getItem('videomed.call.fit')).toBe('cover');
+    });
+
+    it('Hide my preview, Light cockpit, Privacy and Invite are buttons in the bar', async () => {
+      await create();
+      await enter();
+      button('self').click();
+      await settle();
+      expect(tiles().selfView()).toBe('hidden');
+      expect(button('self').getAttribute('aria-pressed')).toBe('true');
+      expect(button('self').getAttribute('aria-label')).toBe('Hide my preview');
+      button('theme').click();
+      await settle();
+      expect(el.querySelector('.sd-call')?.getAttribute('data-theme')).toBe('light');
+      expect(button('theme').getAttribute('aria-pressed')).toBe('true');
+      button('privacy').click();
+      await settle();
+      expect(document.activeElement?.id).toBe('call-privacy-title');
+      // (The invite dialog itself is tested on its own: here, that Invite opens it.)
+      const invite = vi.spyOn(fixture.componentInstance as unknown as { invite: () => void }, 'invite').mockImplementation(() => undefined);
+      button('invite').click();
+      expect(invite).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('shows real connection quality from Agora (the worse of up and down)', async () => {
