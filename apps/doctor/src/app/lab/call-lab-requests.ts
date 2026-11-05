@@ -23,7 +23,7 @@ export const CALL_LAB_CAPTION_NARROW =
   imports: [IconComponent],
   host: {
     class: 'flex flex-col gap-4',
-    '(window:focus)': 'refresh()',
+    '(window:focus)': 'refresh(true)',
     '(document:visibilitychange)': 'onVisibility()',
   },
   styles: `
@@ -165,18 +165,23 @@ export class CallLabRequests {
   }
 
   protected onVisibility(): void {
-    if (this.doc.visibilityState === 'visible') this.refresh();
+    if (this.doc.visibilityState === 'visible') this.refresh(true);
   }
 
-  /** Reload this consultation's requests (and the legacy orders). */
-  refresh(): void {
+  /**
+   * Reload this consultation's requests (and the legacy orders). `passive`
+   * for the re-read on returning to the window or tab (`X-SD-Passive`: it
+   * never extends the idle session); Refresh and the first load count.
+   */
+  refresh(passive = false): void {
     const id = this.appointmentId();
     if (!this.signedIn() || !id) return;
+    const options = passive ? { passive: true } : undefined;
     this.subs.forEach((s) => s.unsubscribe());
     this.loading.set(true);
     this.error.set('');
     this.subs = [
-      this.api.list({ appointment_id: id, per_page: 50 }).subscribe({
+      this.api.list({ appointment_id: id, per_page: 50 }, options).subscribe({
         next: (res) => {
           this.requests.set(res.data);
           this.loading.set(false);
@@ -186,7 +191,7 @@ export class CallLabRequests {
           this.error.set('Could not load the lab requests.');
         },
       }),
-      this.doctorApi.listLabOrders(id).subscribe({
+      this.doctorApi.listLabOrders(id, options).subscribe({
         next: (res) => this.legacy.set(Array.isArray(res.data) ? res.data : []),
         error: () => undefined,
       }),

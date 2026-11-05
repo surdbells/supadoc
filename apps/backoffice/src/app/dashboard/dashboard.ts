@@ -62,7 +62,11 @@ interface LoadRequest {
   readonly period: AdminDashboardPeriod;
   /** Skip the server cache (the Refresh button). */
   readonly refresh: boolean;
-  /** An automatic refresh: a failure keeps the figures on screen without an error. */
+  /**
+   * An automatic refresh (the timer, returning to the tab): a failure keeps
+   * the figures on screen without an error, and it is sent passive
+   * (`X-SD-Passive`) — a dashboard left open never keeps an idle session alive.
+   */
   readonly silent: boolean;
 }
 
@@ -296,15 +300,16 @@ export class AdminDashboard {
   });
 
   private readonly requests = new Subject<LoadRequest>();
-  private readonly recordingChecks = new Subject<void>();
+  /** A recording check goes with each load; `true` when that load is an automatic (passive) one. */
+  private readonly recordingChecks = new Subject<boolean>();
   /** When the last dashboard request went out (Date.now()); 0 before the first. */
   private lastRequestAt = 0;
 
   constructor() {
     this.recordingChecks
       .pipe(
-        switchMap(() =>
-          this.monitoring.overview().pipe(
+        switchMap((passive) =>
+          this.monitoring.overview(passive ? { passive: true } : undefined).pipe(
             map((res) => res.data ?? null),
             catchError(() => of(null)),
           ),
@@ -325,7 +330,7 @@ export class AdminDashboard {
             this.busy.set(true);
             this.error.set('');
           }
-          return this.api.get(req.period, { refresh: req.refresh }).pipe(
+          return this.api.get(req.period, { refresh: req.refresh, passive: req.silent }).pipe(
             map((res): LoadResult => ({ ok: true, data: res.data, req })),
             catchError((err: unknown) => of<LoadResult>({ ok: false, err, req })),
           );
@@ -388,7 +393,7 @@ export class AdminDashboard {
   private load(refresh: boolean, silent: boolean): void {
     this.lastRequestAt = Date.now();
     this.requests.next({ period: this.period(), refresh, silent });
-    if (this.canOpenAudit) this.recordingChecks.next();
+    if (this.canOpenAudit) this.recordingChecks.next(silent);
   }
 
   private settle(r: LoadResult): void {

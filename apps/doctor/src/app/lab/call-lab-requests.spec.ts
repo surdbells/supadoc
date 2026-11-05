@@ -108,4 +108,30 @@ describe('CallLabRequests (in-call tab)', () => {
     expect(el.textContent).toContain('Earlier lab orders');
     expect(el.textContent).toContain('Full blood count, Lipid panel');
   });
+
+  it('the re-reads on returning to the window or tab are passive; the first load and Refresh are not', () => {
+    const { el, list, listLabOrders } = setup([ORDER]);
+    /** The arguments of call `i` of a mock. */
+    const args = (fn: { mock: { calls: unknown[] } }, i: number) => fn.mock.calls[i] as unknown[];
+    // The first load (the tab opened / signed in) counts as activity.
+    expect(args(list, 0)[1]).toBeUndefined();
+    expect(args(listLabOrders, 0)[1]).toBeUndefined();
+
+    window.dispatchEvent(new Event('focus'));
+    expect(args(list, 1)).toEqual([{ appointment_id: 'ap-1', per_page: 50 }, { passive: true }]);
+    expect(args(listLabOrders, 1)).toEqual(['ap-1', { passive: true }]);
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+    expect(args(list, 2)[1]).toEqual({ passive: true });
+    expect(args(listLabOrders, 2)[1]).toEqual({ passive: true });
+
+    must(Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Refresh'), 'Refresh').click();
+    expect(args(list, 3)[1]).toBeUndefined();
+    expect(args(listLabOrders, 3)[1]).toBeUndefined();
+  });
 });

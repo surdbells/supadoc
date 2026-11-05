@@ -144,9 +144,12 @@ export class DoctorApi {
     return this.api.get<SuccessResponse<DoctorDashboardDto>>('api/doctor/dashboard');
   }
 
-  /** GET /api/doctor/appointments/presence — who is in each of my consultations' calls now. */
-  presence(): Observable<SuccessResponse<CallPresenceMap>> {
-    return this.api.get<SuccessResponse<CallPresenceMap>>('api/doctor/appointments/presence');
+  /**
+   * GET /api/doctor/appointments/presence — who is in each of my consultations'
+   * calls now. The pages' poll passes `{ passive: true }` (see `injectCallPresence`).
+   */
+  presence(options?: ApiRequestOptions): Observable<SuccessResponse<CallPresenceMap>> {
+    return this.api.get<SuccessResponse<CallPresenceMap>>('api/doctor/appointments/presence', undefined, options);
   }
 
   /**
@@ -164,9 +167,12 @@ export class DoctorApi {
     );
   }
 
-  /** GET /api/doctor/appointments/{id} — one of my consultations (any date), as a schedule row. */
-  appointment(id: string): Observable<SuccessResponse<DoctorAppointmentDto>> {
-    return this.api.get<SuccessResponse<DoctorAppointmentDto>>(this.base(id));
+  /**
+   * GET /api/doctor/appointments/{id} — one of my consultations (any date), as
+   * a schedule row. A background re-read passes `{ passive: true }`.
+   */
+  appointment(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<DoctorAppointmentDto>> {
+    return this.api.get<SuccessResponse<DoctorAppointmentDto>>(this.base(id), undefined, options);
   }
 
   /**
@@ -782,9 +788,12 @@ export class DoctorApi {
 
   // ----- Lab orders -----
 
-  listLabOrders(id: string): Observable<SuccessResponse<LabOrderDto[]>> {
+  /** GET .../lab-orders — the consultation's legacy lab orders. A background re-read passes `{ passive: true }`. */
+  listLabOrders(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<LabOrderDto[]>> {
     return this.api.get<SuccessResponse<LabOrderDto[]>>(
       `${this.base(id)}/lab-orders`,
+      undefined,
+      options,
     );
   }
 
@@ -885,11 +894,18 @@ export class DoctorApi {
 
   // ----- Recording -----
 
+  /**
+   * GET .../recording — the recording state (and guests' consent). A
+   * background re-read (guests coming and going) passes `{ passive: true }`.
+   */
   recordingState(
     id: string,
+    options?: ApiRequestOptions,
   ): Observable<SuccessResponse<DoctorRecordingStateDto>> {
     return this.api.get<SuccessResponse<DoctorRecordingStateDto>>(
       `${this.base(id)}/recording`,
+      undefined,
+      options,
     );
   }
 

@@ -8,18 +8,22 @@ import type {
   WalletDto,
   WalletTransactionDto,
 } from '@supadoc/models';
-import { ApiService, QueryParams } from './api.service';
+import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 
 /** Typed client for the signed-in patient's wallet (customer-scoped on the API). */
 @Injectable({ providedIn: 'root' })
 export class WalletApi {
   private readonly api = inject(ApiService);
 
-  /** GET /api/portal/wallet — balance, currencies and a few recent entries. */
-  wallet(currency?: string): Observable<SuccessResponse<WalletDto>> {
+  /**
+   * GET /api/portal/wallet — balance, currencies and a few recent entries. A
+   * background re-read (e.g. on returning to the tab) passes `{ passive: true }`.
+   */
+  wallet(currency?: string, options?: ApiRequestOptions): Observable<SuccessResponse<WalletDto>> {
     return this.api.get<SuccessResponse<WalletDto>>(
       'api/portal/wallet',
       currency ? ({ currency } as QueryParams) : undefined,
+      options,
     );
   }
 

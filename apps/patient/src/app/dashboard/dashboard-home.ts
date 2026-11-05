@@ -604,9 +604,7 @@ function greetingFor(now: Date): string {
 export class DashboardHome {
   private readonly appointments = inject(AppointmentsApi);
   /** Who is in my appointments' calls right now — feeds the Upcoming card's indicator. */
-  protected readonly presence = injectCallPresence(() =>
-    this.appointments.presence(),
-  );
+  protected readonly presence = injectCallPresence(this.appointments);
 
   /** Initials for a specialist name (the logged-in user's own initials use the `initials` signal). */
   protected docInitials(name: string): string {

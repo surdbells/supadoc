@@ -4,7 +4,7 @@ import { ApplicationRef, signal } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
-import { AvailabilityCalendarStore, DoctorApi, provideSupadocDataAccess } from '@supadoc/data-access';
+import { AvailabilityCalendarStore, CALL_PRESENCE_POLL_MS, DoctorApi, provideSupadocDataAccess } from '@supadoc/data-access';
 import type { DoctorDocumentAccessDto, DoctorSharedDocumentDto, ReferralDto } from '@supadoc/models';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { DocumentViewerService, type ViewerOpenOptions, type ViewerSession, type ViewerSource } from '@supadoc/viewer';
@@ -107,18 +107,24 @@ describe('DoctorAppointmentDetail with the shared viewer', () => {
     isShowing: (key: string) => boolean;
   };
   let api: Record<string, ReturnType<typeof vi.fn>>;
+  /** The appointment the API answers (APPT unless a test says otherwise). */
+  let appt: typeof APPT = APPT;
+  /** The guests the presence read reports in this consultation's call. */
+  let guestsInCall: string[] = [];
 
   /** Every DoctorApi call the page makes answers something harmless unless a test says otherwise. */
   function doctorApi(): DoctorApi {
     const known: Record<string, (...a: unknown[]) => unknown> = {
-      appointment: () => of({ data: APPT }),
+      appointment: () => of({ data: appt }),
       patient: () => of({ data: { patient: { id: 'p1', name: 'Bola Ade' }, medical: {}, appointments: [] } }),
       documentAccess: () => of({ data: access(docs) }),
       listReferrals: () => of({ data: [REFERRAL] }),
       listCertificates: () => of({ data: [], meta: {} }),
       documentPdf: () => of(new Blob(['%PDF'], { type: 'application/pdf' })),
       patientDocumentView: () => of({ blob: new Blob(['%PDF']), mime: 'application/pdf', viewRef: null, viewedAt: '' }),
-      presence: () => of({ data: {} }),
+      presence: () => of({ data: guestsInCall.length ? { 'ap-1': { doctor: false, patient: false, guests: [...guestsInCall] } } : {} }),
+      recordingState: () => of({ data: { configured: true, active: false, recording: null, guest_consent: { connected: 0, pending: 0, pending_ids: [] } } }),
+      recordingFiles: () => of({ data: { files: [] } }),
       getProfile: () => of({ data: { id: 'd1', name: 'Dr Ada Obi', timezone: 'UTC', timezone_source: 'manual' } }),
     };
     api = {};
@@ -192,6 +198,9 @@ describe('DoctorAppointmentDetail with the shared viewer', () => {
     fixture?.destroy();
     el?.remove();
     vi.restoreAllMocks();
+    vi.useRealTimers();
+    appt = APPT;
+    guestsInCall = [];
   });
 
   const rows = () => Array.from(el.querySelectorAll<HTMLButtonElement>('ul li > button')).filter((b) => /Report/.test(b.textContent ?? ''));
@@ -270,5 +279,69 @@ describe('DoctorAppointmentDetail with the shared viewer', () => {
     expect(el.querySelector('doc-protected-document-viewer')).toBeNull();
     expect(el.querySelector('sd-document-viewer')).toBeNull();
     expect(Array.from(el.querySelectorAll('dialog')).some((d) => d.getAttribute('aria-labelledby') === 'doc-viewer-title')).toBe(false);
+  });
+
+  describe('background reads are passive (X-SD-Passive); the page’s own loads are not', () => {
+    /** The `index`th argument of each call of a DoctorApi method. */
+    const argsOf = (name: string, index: number) => (api[name]?.mock.calls ?? []).map((c) => (c as unknown[])[index]);
+    /** Every presence read was handed `{ passive: true }` (and there was at least one). */
+    const presencePassive = () => {
+      const reads = argsOf('presence', 0);
+      return reads.length > 0 && reads.every((o) => JSON.stringify(o) === '{"passive":true}');
+    };
+
+    it('the first loads count; the presence poll is passive; returning to the window counts (audited re-read)', async () => {
+      await setup([doc('a')]);
+      expect(argsOf('appointment', 1)).toEqual([undefined]);
+      expect(argsOf('documentAccess', 1)).toEqual([undefined]);
+      // Who is in the call: polled from the start, every read passive.
+      expect(presencePassive()).toBe(true);
+
+      // A person came back to the window: an active read, so the API records
+      // activity and the document.list_viewed audit row.
+      const before = argsOf('documentAccess', 1).length;
+      window.dispatchEvent(new Event('focus'));
+      const reads = argsOf('documentAccess', 1);
+      expect(reads.length).toBe(before + 1);
+      expect(reads.at(-1)).toBeUndefined();
+    });
+
+    it('the clock’s re-read when the consultation starts is passive', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      vi.setSystemTime(new Date('2026-11-04T14:59:50Z'));
+      appt = { ...APPT, status: 'confirmed', phase: 'upcoming', scheduled_at: '2026-11-04T15:00:00Z', ends_at: '2026-11-04T15:30:00Z' };
+      await setup([doc('a')]);
+      expect(argsOf('appointment', 1)).toEqual([undefined]);
+      vi.advanceTimersByTime(30_000); // the start passes between two ticks
+      expect(argsOf('appointment', 1)).toEqual([undefined, { passive: true }]);
+      // The presence poll ran meanwhile: passive too.
+      expect(argsOf('presence', 0).length).toBeGreaterThan(1);
+      expect(presencePassive()).toBe(true);
+    });
+
+    it('opening the Recording tab counts; its re-read when a guest joins or leaves the call is passive', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await setup([doc('a')], 'clinical');
+      expect(api['recordingState']).toBeUndefined(); // not until the tab is opened
+      await (fixture.componentInstance as unknown as { select(tab: string): Promise<void> }).select('recording');
+      await settle();
+      expect(api['recordingState'].mock.calls).toEqual([['ap-1']]);
+
+      // A guest joins: the next presence poll sees it, and the tab re-reads — passive.
+      guestsInCall = ['g-1'];
+      vi.advanceTimersByTime(CALL_PRESENCE_POLL_MS);
+      await settle();
+      expect(api['recordingState'].mock.calls).toEqual([['ap-1'], ['ap-1', { passive: true }]]);
+
+      // Nobody came or went: no re-read. The guest leaves: passive again.
+      vi.advanceTimersByTime(CALL_PRESENCE_POLL_MS);
+      await settle();
+      expect(api['recordingState'].mock.calls.length).toBe(2);
+      guestsInCall = [];
+      vi.advanceTimersByTime(CALL_PRESENCE_POLL_MS);
+      await settle();
+      expect(api['recordingState'].mock.calls).toEqual([['ap-1'], ['ap-1', { passive: true }], ['ap-1', { passive: true }]]);
+      expect(presencePassive()).toBe(true);
+    });
   });
 });

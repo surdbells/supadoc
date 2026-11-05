@@ -15,6 +15,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of, startWith, Subscription, switchMap } from 'rxjs';
 import {
   apiErrorMessage,
+  type ApiRequestOptions,
   AppointmentsApi,
   DocumentSharingApi,
   LabRequestsApi,
@@ -611,12 +612,18 @@ export class HistoryDetails {
     this.destroyRef.onDestroy(() => clearInterval(timer));
   }
 
-  /** While it is still open, look for it being closed (or its live / ended state changing). */
+  /**
+   * While it is still open, look for it being closed (or its live / ended
+   * state changing) — a background read (passive): a page left open never
+   * keeps an idle session alive. The reload of the extras a status change
+   * starts (summary, follow-ups, documents…) is passive too: the patient did
+   * nothing.
+   */
   private pollStatus(): void {
     const a = this.appt();
     if (!a || !OPEN_STATUSES.includes(a.status)) return;
     this.api
-      .getMine(a.id)
+      .getMine(a.id, { passive: true })
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((res) => {
         const fresh = res?.data;
@@ -624,7 +631,7 @@ export class HistoryDetails {
         if (!fresh || fresh.id !== shown?.id) return;
         if (fresh.status === shown.status && fresh.display_status === shown.display_status) return;
         this.refreshed.set(fresh);
-        if (fresh.status !== shown.status) this.loadExtras(fresh.id);
+        if (fresh.status !== shown.status) this.loadExtras(fresh.id, { passive: true });
       });
   }
 
@@ -683,7 +690,12 @@ export class HistoryDetails {
       });
   }
 
-  private loadExtras(id: string): void {
+  /**
+   * The consultation's extras (summary, follow-ups, quote, documents, lab
+   * requests). `options`: `{ passive: true }` when the status poll, not the
+   * patient, started the reload.
+   */
+  private loadExtras(id: string, options?: ApiRequestOptions): void {
     // A reply still on its way is for the last visit (moving between a
     // consultation and its follow-ups): drop it, and what that visit showed.
     this.extrasSub?.unsubscribe();
@@ -701,7 +713,7 @@ export class HistoryDetails {
 
     sub.add(
       this.api
-        .consultationSummary(id)
+        .consultationSummary(id, options)
         .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
         .subscribe((res) => this.summary.set(res?.data ?? null)),
     );
@@ -709,7 +721,7 @@ export class HistoryDetails {
     this.followUpsError.set('');
     sub.add(
       this.api
-        .followUps(id)
+        .followUps(id, options)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (res) => this.followUps.set(res.data ?? []),
@@ -724,7 +736,7 @@ export class HistoryDetails {
     this.bookQuote.set(null);
     sub.add(
       this.api
-        .followUpQuote(id)
+        .followUpQuote(id, undefined, options)
         .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
         .subscribe((res) => this.bookQuote.set(res?.data ?? null)),
     );
@@ -732,12 +744,12 @@ export class HistoryDetails {
     this.docsLoading.set(true);
     this.docsError.set('');
     sub.add(forkJoin({
-      prescriptions: this.api.prescriptions(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your prescriptions')))),
-      referrals: this.api.referrals(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your referrals')))),
-      certificates: this.api.certificates(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your certificates')))),
-      labOrders: this.api.labOrders(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your lab orders')))),
+      prescriptions: this.api.prescriptions(id, options).pipe(catchError((err: unknown) => of(this.failed(err, 'your prescriptions')))),
+      referrals: this.api.referrals(id, options).pipe(catchError((err: unknown) => of(this.failed(err, 'your referrals')))),
+      certificates: this.api.certificates(id, options).pipe(catchError((err: unknown) => of(this.failed(err, 'your certificates')))),
+      labOrders: this.api.labOrders(id, options).pipe(catchError((err: unknown) => of(this.failed(err, 'your lab orders')))),
       labRequests: this.labApi
-        .mine({ appointment_id: id, per_page: 50 })
+        .mine({ appointment_id: id, per_page: 50 }, options)
         .pipe(catchError((err: unknown) => of(this.failed(err, 'your lab requests')))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))

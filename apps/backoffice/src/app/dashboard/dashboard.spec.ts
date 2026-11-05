@@ -366,4 +366,42 @@ describe('AdminDashboard', () => {
       Reflect.deleteProperty(document, 'visibilityState');
     }
   });
+
+  it('the automatic refresh (and its recording check) is passive; opening the page and Refresh are not', async () => {
+    await open();
+    const first = expectGet('today');
+    // Opening the page counts as activity.
+    expect(first.request.headers.has('X-SD-Passive')).toBe(false);
+    expect(http.match(isOverviewGet).every((r) => !r.request.headers.has('X-SD-Passive'))).toBe(true);
+    await ok(first, full());
+    const start = Date.now();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start + 25_000);
+    try {
+      // Returning to the tab once the figures are stale: a quiet, passive refresh.
+      document.dispatchEvent(new Event('visibilitychange'));
+      await render();
+      const quiet = expectGet('today', false);
+      expect(quiet.request.headers.get('X-SD-Passive')).toBe('1');
+      const checks = http.match(isOverviewGet).filter((r) => !r.cancelled);
+      expect(checks.length).toBe(1);
+      expect(checks[0].request.headers.get('X-SD-Passive')).toBe('1');
+      checks[0].flush({ status: 'success', message: 'OK', data: overview() });
+      await ok(quiet, full());
+
+      // The Refresh button is the admin's own request: active.
+      const refresh = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Refresh');
+      expect(refresh).toBeTruthy();
+      refresh?.click();
+      await render();
+      const manual = expectGet('today', true);
+      expect(manual.request.headers.has('X-SD-Passive')).toBe(false);
+      const manualChecks = http.match(isOverviewGet).filter((r) => !r.cancelled);
+      expect(manualChecks.every((r) => !r.request.headers.has('X-SD-Passive'))).toBe(true);
+      await ok(manual, full());
+    } finally {
+      clock.mockRestore();
+      Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
 });

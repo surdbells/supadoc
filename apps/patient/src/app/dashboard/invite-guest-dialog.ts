@@ -316,11 +316,12 @@ export class InviteGuestDialog implements OnInit {
 
   constructor() {
     // Back from topping up the wallet (or paying by card on the appointment
-    // page) in the other tab: read the balance and the guests again.
+    // page) in the other tab: read the balance and the guests again — passive
+    // reads (`X-SD-Passive`), so a dialog left open never keeps the session alive.
     const onVisible = (): void => {
       if (this.document.visibilityState !== 'visible' || this.busy()) return;
-      if (!this.loading()) this.load();
-      if (this.list() && !this.free()) this.loadWallet();
+      if (!this.loading()) this.load(true);
+      if (this.list() && !this.free()) this.loadWallet(true);
     };
     this.document.addEventListener('visibilitychange', onVisible);
     this.destroyRef.onDestroy(() => {
@@ -333,17 +334,18 @@ export class InviteGuestDialog implements OnInit {
     this.load();
   }
 
-  protected load(): void {
+  /** The guests (and, when not free, the wallet). `passive`: the re-read on returning to the tab. */
+  protected load(passive = false): void {
     this.loading.set(true);
     this.loadError.set('');
     this.appointments
-      .guests(this.appointmentId())
+      .guests(this.appointmentId(), passive ? { passive: true } : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.list.set(res.data);
           this.loading.set(false);
-          if (!guestIsFree(res.data) && this.walletBalance() === null) this.loadWallet();
+          if (!guestIsFree(res.data) && this.walletBalance() === null) this.loadWallet(passive);
         },
         error: (err: unknown) => {
           this.loading.set(false);
@@ -352,9 +354,9 @@ export class InviteGuestDialog implements OnInit {
       });
   }
 
-  private loadWallet(): void {
+  private loadWallet(passive = false): void {
     this.walletApi
-      .wallet()
+      .wallet(undefined, passive ? { passive: true } : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {

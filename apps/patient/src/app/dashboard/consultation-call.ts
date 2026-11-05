@@ -2647,8 +2647,9 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.callEnded(client, 'completed');
       return;
     }
-    // Pick up anything issued at the end, and whether the doctor closed the visit.
-    void this.refreshClinical();
+    // Pick up anything issued at the end, and whether the doctor closed the visit
+    // (background reads: passive).
+    void this.refreshClinical(true);
     void this.checkConsultationClosed();
   }
 
@@ -2688,12 +2689,14 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /**
    * Has the doctor closed the appointment? Then the call is over as soon as
    * nobody else is in it (a doctor still in the channel may be saying goodbye).
+   * Always a background read (the poll, Agora's events, a refused heartbeat):
+   * passive, never activity.
    */
   private async checkConsultationClosed(): Promise<void> {
     // Signed out mid-call (the page leaves once the call ends): nothing to ask the API.
     if (!this.auth.isAuthenticated()) return;
     try {
-      const res = await firstValueFrom(this.appointments.getMine(this.appointmentId));
+      const res = await firstValueFrom(this.appointments.getMine(this.appointmentId, { passive: true }));
       this.appointment.set(res.data);
       if (res.data.status !== 'completed' && res.data.status !== 'cancelled' && res.data.status !== 'missed') return;
       this.consultationClosed = true;
@@ -2736,8 +2739,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.reviewState.set('done');
       this.reviewNote.set('You have already rated this consultation — thank you.');
     }
-    // One last look, so the notes show everything issued during the visit.
-    void this.refreshClinical();
+    // One last look, so the notes show everything issued during the visit (passive).
+    void this.refreshClinical(true);
   }
 
   /**
@@ -2746,6 +2749,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * call (a guest invited meanwhile gets their name on their tile) and which
    * guests are here; a refusal (410 — the consultation was closed) ends the
    * call once nobody else is in it. Restarted after a rejoin; never two at once.
+   * Each beat is passive (`sendCallPresence` marks a beat with a bearer token
+   * `X-SD-Passive`): the call's hold, not the heartbeat, keeps the session alive.
    */
   private startHeartbeat(): void {
     if (this.heartbeatStop) return;
@@ -3024,11 +3029,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * call is live so the patient sees a new prescription in place — without the
    * page reload that would tear down the call. Flags a badge on the Prescriptions
    * tab when a new script arrives and the patient isn't already looking at it.
+   * `passive` for every re-read but the page's first load (the poll, Agora's
+   * events, the call ending): background reads never extend the idle session.
    */
-  private async refreshClinical(): Promise<void> {
+  private async refreshClinical(passive = false): Promise<void> {
     if (!this.auth.isAuthenticated()) return;
+    const id = this.appointmentId;
+    const options = passive ? { passive: true } : undefined;
     try {
-      const rx = await firstValueFrom(this.appointments.prescriptions(this.appointmentId));
+      const rx = await firstValueFrom(this.appointments.prescriptions(id, options));
       const list = rx.data ?? [];
       const fresh = list.filter((p) => !this.knownRx.has(p.id));
       for (const p of list) this.knownRx.add(p.id);
@@ -3046,37 +3055,37 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       }
     }
     try {
-      const lo = await firstValueFrom(this.appointments.labOrders(this.appointmentId));
+      const lo = await firstValueFrom(this.appointments.labOrders(id, options));
       this.labs.set(lo.data ?? []);
     } catch {
       /* none */
     }
     try {
-      const lr = await firstValueFrom(this.labApi.mine({ appointment_id: this.appointmentId, per_page: 50 }));
+      const lr = await firstValueFrom(this.labApi.mine({ appointment_id: id, per_page: 50 }, options));
       this.labRequests.set(lr.data ?? []);
     } catch {
       /* none (a failed poll keeps the list shown) */
     }
     try {
-      const cp = await firstValueFrom(this.appointments.carePlan(this.appointmentId));
+      const cp = await firstValueFrom(this.appointments.carePlan(id, options));
       this.carePlan.set(cp.data);
     } catch {
       /* not published */
     }
     try {
-      const rf = await firstValueFrom(this.appointments.referrals(this.appointmentId));
+      const rf = await firstValueFrom(this.appointments.referrals(id, options));
       this.referrals.set(rf.data ?? []);
     } catch {
       /* none */
     }
     try {
-      const fu = await firstValueFrom(this.appointments.followUps(this.appointmentId));
+      const fu = await firstValueFrom(this.appointments.followUps(id, options));
       this.proposedFollowUps.set((fu.data ?? []).filter((a) => isOpenProposal(a)));
     } catch {
       /* none */
     }
     try {
-      const s = await firstValueFrom(this.appointments.consultationSummary(this.appointmentId));
+      const s = await firstValueFrom(this.appointments.consultationSummary(id, options));
       this.summary.set(s.data);
     } catch {
       /* summary not finalized yet */
@@ -3248,9 +3257,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** token-privilege-will-expire (hourly): a fresh RTC token — asked for by the SDK, so passive. */
   private async renewToken(): Promise<void> {
     try {
-      const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
+      const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId, { passive: true }));
       if (data.participants?.length) this.participants.set(data.participants);
       if (data.token) await this.client?.renewToken(data.token);
     } catch {
@@ -3263,7 +3273,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
   }
 
-  /** In-call polling — runs only while the consultation holds the idle timer. */
+  /**
+   * In-call polling — runs only while the consultation holds the idle timer.
+   * Every request it makes is passive (`X-SD-Passive`): the hold itself keeps
+   * a live call's session alive (`SessionTimeoutService` touches the server
+   * every few minutes while held), so the polls never need to — and a call
+   * screen left open after the call never keeps an idle session alive.
+   */
   private startLivePolls(): void {
     this.startRecordingPoll();
     this.startMetricsReport();
@@ -3285,7 +3301,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     const check = async (): Promise<void> => {
       if (!this.auth.isAuthenticated()) return;
       try {
-        const res = await firstValueFrom(this.appointments.recordings(this.appointmentId));
+        const res = await firstValueFrom(this.appointments.recordings(this.appointmentId, { passive: true }));
         this.recordingActive.set(res.data?.active === true);
       } catch {
         /* leave as-is */
@@ -3303,7 +3319,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private startClinicalPoll(): void {
     if (this.clinicalPoll) return;
     this.clinicalPoll = setInterval(() => {
-      void this.refreshClinical();
+      void this.refreshClinical(true);
       void this.checkConsultationClosed();
     }, 15000);
   }
@@ -3327,11 +3343,15 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         /* stats unavailable */
       }
       this.appointments
-        .reportMetric(this.appointmentId, {
-          uplink: this.netUplink,
-          downlink: this.netDownlink,
-          rtt,
-        })
+        .reportMetric(
+          this.appointmentId,
+          {
+            uplink: this.netUplink,
+            downlink: this.netDownlink,
+            rtt,
+          },
+          { passive: true },
+        )
         .subscribe({ next: () => undefined, error: () => undefined });
     };
     this.metricsTimer = setInterval(report, 15000);
@@ -3351,7 +3371,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     if (!this.aiConsentGranted()) return;
     this.captionsOn.set(true);
     void this.loadCaptions();
-    this.captionsPoll = setInterval(() => void this.loadCaptions(), 6000);
+    this.captionsPoll = setInterval(() => void this.loadCaptions(true), 6000);
     if (this.speechSupported()) this.startCaptionRecognition();
   }
 
@@ -3359,10 +3379,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     return this.captions().slice(-2);
   }
 
-  private async loadCaptions(): Promise<void> {
+  /** The captions; `passive` for the 6 s poll (turning captions on is the patient's own request). */
+  private async loadCaptions(passive = false): Promise<void> {
     if (!this.auth.isAuthenticated()) return;
     try {
-      const res = await firstValueFrom(this.appointments.transcript(this.appointmentId));
+      const res = await firstValueFrom(
+        this.appointments.transcript(this.appointmentId, passive ? { passive: true } : undefined),
+      );
       this.captions.set(res.data ?? []);
     } catch {
       /* leave prior */

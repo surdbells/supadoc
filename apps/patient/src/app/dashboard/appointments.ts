@@ -439,9 +439,7 @@ export class Appointments {
   private readonly destroyRef = inject(DestroyRef);
 
   /** Who is in each appointment's call right now — polled while the page is open. */
-  protected readonly presence = injectCallPresence(() =>
-    this.appointments.presence(),
-  );
+  protected readonly presence = injectCallPresence(this.appointments);
 
   protected readonly activeTab = signal<Tab>('all');
   protected readonly tabs: { key: Tab; label: string }[] = [

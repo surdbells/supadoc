@@ -11,7 +11,7 @@ import type {
   RecordingFilesDto,
   SuccessResponse,
 } from '@supadoc/models';
-import { ApiService, QueryParams } from './api.service';
+import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 
 /**
  * Back-office monitoring API — the `/api/admin/monitoring/*` reads that power the
@@ -22,9 +22,12 @@ import { ApiService, QueryParams } from './api.service';
 export class MonitoringApi {
   private readonly api = inject(ApiService);
 
-  overview(): Observable<SuccessResponse<MonitoringOverviewDto>> {
+  /** GET /api/admin/monitoring/overview. A background refresh passes `{ passive: true }`. */
+  overview(options?: ApiRequestOptions): Observable<SuccessResponse<MonitoringOverviewDto>> {
     return this.api.get<SuccessResponse<MonitoringOverviewDto>>(
       'api/admin/monitoring/overview',
+      undefined,
+      options,
     );
   }
 

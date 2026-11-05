@@ -22,7 +22,7 @@ import type {
   SuccessResponse,
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
-import { ApiService, QueryParams } from './api.service';
+import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 import { DOCUMENT_VIEWER_HEADER, type PatientDocumentView } from './doctor.api';
 import { parseDocumentView } from './document-view';
 import { apiFileUrl } from './prescriptions.api';
@@ -166,10 +166,15 @@ export class LabRequestsApi {
   /**
    * GET /api/doctor/lab-requests — my requests, most recent activity first,
    * with group counts. `group` is always sent (`all` when not given): the API
-   * answers 422 "Unknown filter" for anything outside its groups.
+   * answers 422 "Unknown filter" for anything outside its groups. A background
+   * re-read passes `{ passive: true }`.
    */
-  list(q: DoctorLabListQuery = {}): Observable<LabRequestListResponse<LabRequestSummaryDto>> {
-    return this.api.get<LabRequestListResponse<LabRequestSummaryDto>>(DOCTOR, query({ ...q, group: q.group ?? 'all' }));
+  list(q: DoctorLabListQuery = {}, options?: ApiRequestOptions): Observable<LabRequestListResponse<LabRequestSummaryDto>> {
+    return this.api.get<LabRequestListResponse<LabRequestSummaryDto>>(
+      DOCTOR,
+      query({ ...q, group: q.group ?? 'all' }),
+      options,
+    );
   }
 
   /**
@@ -240,9 +245,16 @@ export class LabRequestsApi {
 
   // ----- patient -----
 
-  /** GET /api/portal/lab-requests — my requests (no test names), with group counts; `group` defaults to `all`. */
-  mine(q: PatientLabListQuery = {}): Observable<LabRequestListResponse<PatientLabRequestSummaryDto>> {
-    return this.api.get<LabRequestListResponse<PatientLabRequestSummaryDto>>(PORTAL, query({ ...q, group: q.group ?? 'all' }));
+  /**
+   * GET /api/portal/lab-requests — my requests (no test names), with group
+   * counts; `group` defaults to `all`. A background re-read passes `{ passive: true }`.
+   */
+  mine(q: PatientLabListQuery = {}, options?: ApiRequestOptions): Observable<LabRequestListResponse<PatientLabRequestSummaryDto>> {
+    return this.api.get<LabRequestListResponse<PatientLabRequestSummaryDto>>(
+      PORTAL,
+      query({ ...q, group: q.group ?? 'all' }),
+      options,
+    );
   }
 
   /** GET /api/portal/lab-requests/{id} — one of my requests (no review outcome). */

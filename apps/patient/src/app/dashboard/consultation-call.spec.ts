@@ -132,6 +132,26 @@ function apiStub(overrides: Record<string, unknown>): unknown {
   });
 }
 
+/** Every call made to a {@link recorded} API: which one, which method, with what. */
+const apiCalls: Array<{ api: string; method: string; args: unknown[] }> = [];
+
+/** `stub`, with each method call written to {@link apiCalls}. */
+function recorded(api: string, stub: unknown): unknown {
+  return new Proxy(stub as object, {
+    get: (target, prop: string) => {
+      const value = (target as Record<string, unknown>)[prop];
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        apiCalls.push({ api, method: prop, args });
+        return (value as (...a: unknown[]) => unknown)(...args);
+      };
+    },
+  });
+}
+
+/** The call was handed `{ passive: true }` (the API then sends `X-SD-Passive: 1`). */
+const isPassive = (c: { args: unknown[] }) => c.args.some((a) => JSON.stringify(a) === '{"passive":true}');
+
 @Component({ template: '' })
 class Blank {}
 
@@ -193,7 +213,7 @@ describe('ConsultationCall (the dock)', () => {
         { provide: SessionTimeoutService, useValue: { hold: vi.fn(), release: vi.fn() } },
         {
           provide: AppointmentsApi,
-          useValue: apiStub({
+          useValue: recorded('appointments', apiStub({
             getMine: () => ok({ ...appointment, document_url: legacyUrl }),
             prescriptions: () => ok(issued),
             callToken: () =>
@@ -205,12 +225,12 @@ describe('ConsultationCall (the dock)', () => {
             consultationSummary: () => ok({ available: false }),
             carePlan: () => ok({ available: false, items: [] }),
             labOrders: () => ok(legacyLabs),
-          }),
+          })),
         },
         { provide: PatientApi, useValue: apiStub({ me: () => ok({ id: 'p-1', first_name: 'Ada', last_name: 'Obi' }), vitals: () => ok({ latest: [] }), healthProfile: () => ok({}) }) },
         { provide: DocumentsApi, useValue: apiStub({ list: () => ok(library) }) },
         { provide: PrescriptionsApi, useValue: apiStub({}) },
-        { provide: LabRequestsApi, useValue: apiStub({ mine: labMine }) },
+        { provide: LabRequestsApi, useValue: recorded('labs', apiStub({ mine: labMine })) },
         { provide: DocumentSharingApi, useValue: apiStub({ forAppointment: () => ok(access) }) },
         // The shared viewer, stubbed (the real one schedules an idle prefetch of its chunks, a 2 s timer in jsdom).
         { provide: DocumentViewerService, useValue: { open: vi.fn(), close: vi.fn(), isOpen: signal(false), registerCall: vi.fn(() => () => undefined) } },
@@ -232,6 +252,8 @@ describe('ConsultationCall (the dock)', () => {
     legacyLabs = [];
     labRequests = [];
     labMine.mockClear();
+    apiCalls.length = 0;
+    vi.useRealTimers();
   });
 
   const create = async () => {
@@ -564,6 +586,93 @@ describe('ConsultationCall (the dock)', () => {
     await settle();
     expect(el.textContent).toContain("Saved to your records. Sharing is unavailable right now, so Dr Bayo Ade can't see it yet.");
     expect(agora.clients[agora.clients.length - 1].sendStreamMessage).not.toHaveBeenCalled();
+  });
+
+  describe('background requests are passive; the call hold keeps a live call alive', () => {
+    const session = () => TestBed.inject(SessionTimeoutService) as unknown as { hold: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+    /** The fetches (heartbeats) made since `from`, with their headers. */
+    const beats = (from: number) =>
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+        .slice(from)
+        .map((c) => ({ url: String(c[0]), headers: ((c[1] as RequestInit | undefined)?.headers ?? {}) as Record<string, string> }));
+    const fetchCount = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    const client = () => agora.clients[agora.clients.length - 1];
+    /** Requests (not URL builders) recorded since `from`. */
+    const requestsSince = (from: number) => apiCalls.slice(from).filter((c) => c.method !== 'presenceUrl');
+
+    it('the page’s first loads count; every timed in-call request (polls, metrics, heartbeat, token renewal) is passive', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await create();
+      // Opening the consultation is the patient's own doing: those loads count.
+      expect(apiCalls.some((c) => c.method === 'getMine')).toBe(true);
+      expect(apiCalls.some((c) => c.method === 'prescriptions')).toBe(true);
+      expect(apiCalls.filter(isPassive)).toEqual([]);
+
+      await enter();
+      expect(session().hold).toHaveBeenCalledWith('call');
+      const from = apiCalls.length;
+      const fromFetch = fetchCount();
+      vi.advanceTimersByTime(30_000);
+      await settle();
+
+      const timed = requestsSince(from);
+      const methods = new Set(timed.map((c) => c.method));
+      for (const m of ['recordings', 'reportMetric', 'prescriptions', 'labOrders', 'carePlan', 'referrals', 'followUps', 'consultationSummary', 'getMine', 'mine']) {
+        expect(methods.has(m)).toBe(true);
+      }
+      expect(timed.filter((c) => !isPassive(c))).toEqual([]);
+
+      // The heartbeat: the patient's bearer token, and passive.
+      const hb = beats(fromFetch).filter((b) => b.url === 'http://api.test/presence');
+      expect(hb.length).toBe(2); // 15 and 30 s
+      expect(hb.every((b) => b.headers['X-SD-Passive'] === '1' && b.headers['Authorization'] === 'Bearer tok')).toBe(true);
+
+      // Agora's hourly token renewal is the SDK's, not the patient's: passive.
+      const before = apiCalls.length;
+      await client().handlers['token-privilege-will-expire']();
+      await settle();
+      expect(requestsSince(before)).toEqual([{ api: 'appointments', method: 'callToken', args: ['ap-1', { passive: true }] }]);
+    });
+
+    it('captions: turning them on reads at once (the patient’s request); the 6 s poll is passive', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await create();
+      await enter();
+      const from = apiCalls.length;
+      cmp()['onControl']('captions');
+      await settle();
+      expect(requestsSince(from).filter((c) => c.method === 'transcript')).toEqual([{ api: 'appointments', method: 'transcript', args: ['ap-1', undefined] }]);
+      const polls = apiCalls.length;
+      vi.advanceTimersByTime(12_000);
+      await settle();
+      const transcript = requestsSince(polls).filter((c) => c.method === 'transcript');
+      expect(transcript.length).toBe(2);
+      expect(transcript.every(isPassive)).toBe(true);
+    });
+
+    it('the doctor leaving releases the hold and stops the in-call polls; the heartbeat goes on, passive', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      await create();
+      await enter();
+      client().handlers['user-joined']({ uid: 2 });
+      await settle();
+      expect(session().release).not.toHaveBeenCalled();
+      client().handlers['user-left']({ uid: 2 });
+      await settle();
+      expect(session().release).toHaveBeenCalledWith('call');
+
+      const from = apiCalls.length;
+      const fromFetch = fetchCount();
+      vi.advanceTimersByTime(60_000);
+      await settle();
+      // No more recording / clinical / metrics polls once the consultation is over…
+      expect(requestsSince(from).filter((c) => ['recordings', 'reportMetric', 'prescriptions'].includes(c.method))).toEqual([]);
+      // …and nothing timed counts as activity: an ended call left open idles out.
+      expect(requestsSince(from).filter((c) => !isPassive(c))).toEqual([]);
+      const hb = beats(fromFetch).filter((b) => b.url === 'http://api.test/presence');
+      expect(hb.length).toBeGreaterThan(0);
+      expect(hb.every((b) => b.headers['X-SD-Passive'] === '1')).toBe(true);
+    });
   });
 
   describe('documents in the shared viewer (§3)', () => {
@@ -919,7 +1028,8 @@ describe('ConsultationCall (the dock)', () => {
       expect(el.textContent).not.toContain('Lab Orders');
       sig<string>('notesTab').set('labs');
       await settle();
-      expect(labMine).toHaveBeenCalledWith({ appointment_id: 'ap-1', per_page: 50 });
+      // The page's first load: no options (active).
+      expect(labMine).toHaveBeenCalledWith({ appointment_id: 'ap-1', per_page: 50 }, undefined);
       const row = el.querySelector<HTMLElement>('[data-testid="call-lab-request"]') as HTMLElement;
       expect(row.textContent).toContain('GVM-REQ-20261101-00001');
       expect(row.textContent).toContain('Action needed');

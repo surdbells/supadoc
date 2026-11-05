@@ -23,6 +23,7 @@ import {
   apiErrorCode,
   apiErrorFields,
   apiErrorMessage,
+  type ApiRequestOptions,
   AvailabilityCalendarStore,
   DoctorApi,
   injectCallPresence,
@@ -139,11 +140,14 @@ const DOCS_STALE_MS = 30_000;
 
 /**
  * A read of what the patient shares: `load` (first load or Try again — a
- * failure shows the error), `refresh` (focus, back to the tab, after a
- * request — a failure keeps what is on screen), `poll` (background, passive:
- * never extends the session).
+ * failure shows the error), `refresh` (the doctor clicked back to the
+ * Documents tab after {@link DOCS_STALE_MS}, after a request — a failure keeps
+ * what is on screen), `focus` (the browser window regained focus while on the
+ * Documents tab: a refresh — a person came back, so it counts as activity and
+ * is audited as `document.list_viewed`), `poll` (background, passive: never
+ * extends the session).
  */
-type DocsLoad = 'load' | 'refresh' | 'poll';
+type DocsLoad = 'load' | 'refresh' | 'focus' | 'poll';
 
 const DOC_TONE_CHIP: Record<AccessTone, string> = {
   success: 'bg-sage/15 text-sage-ink',
@@ -1087,7 +1091,7 @@ export class DoctorAppointmentDetail implements OnInit {
   });
 
   /** Who is in each consultation's call right now (polled). */
-  protected readonly presence = injectCallPresence(() => this.api.presence());
+  protected readonly presence = injectCallPresence(this.api);
   /** The patient has joined this consultation's call and is waiting for the doctor. */
   protected readonly patientWaiting = computed(() => {
     const a = this.appt();
@@ -1257,11 +1261,13 @@ export class DoctorAppointmentDetail implements OnInit {
     });
     // The Recording tab's "N guests haven't agreed" goes stale as guests come
     // and go: re-read it when the guests in this call change (once it has loaded).
+    // Driven by the (passive) presence poll, not the doctor: passive too, so a
+    // page left open on the tab never keeps an idle session alive.
     const guestsHere = computed(() => [...(this.presence()[this.id]?.guests ?? [])].sort().join(','));
     effect(() => {
       guestsHere();
       untracked(() => {
-        if (this.loaded.has('recording')) this.refreshRecording();
+        if (this.loaded.has('recording')) this.refreshRecording({ passive: true });
       });
     });
     // An involuntary sign-out (idle, expiry, another tab) takes the doctor to
@@ -1279,12 +1285,14 @@ export class DoctorAppointmentDetail implements OnInit {
     // Keep time-derived UI (Join button countdown, Past Visits) fresh without a
     // reload — a memoized computed only re-runs when a signal it reads changes.
     // When the start or the end of the grace passes, the server's own answers
-    // (phase, can_confirm, can_reschedule) change too: re-read the appointment.
+    // (phase, can_confirm, can_reschedule) change too: re-read the appointment
+    // — a background read (passive), so a page left open never keeps an idle
+    // session alive.
     const tick = setInterval(() => {
       const before = this.now();
       const at = Date.now();
       this.now.set(at);
-      if (this.crossedBoundary(before, at)) this.loadAppointment();
+      if (this.crossedBoundary(before, at)) this.loadAppointment(false, true);
     }, 30_000);
     this.destroyRef.onDestroy(() => clearInterval(tick));
 
@@ -1306,8 +1314,9 @@ export class DoctorAppointmentDetail implements OnInit {
   /**
    * What the patient shares with you now (`DoctorApi.documentAccess`). Reads
    * are ordered (an older answer never replaces a newer one); a background
-   * poll is skipped while another read runs and is sent passive, so it never
-   * extends the session's idle clock.
+   * poll is skipped while another read runs. The poll and the re-read on
+   * returning to the window (`focus`) are sent passive, so they never extend
+   * the session's idle clock.
    */
   protected loadDocs(mode: DocsLoad): void {
     if (!this.id) return;
@@ -1320,8 +1329,12 @@ export class DoctorAppointmentDetail implements OnInit {
       // the banner is aria-busy and Try again disabled until this read settles.
       this.loadingDocs.set(true);
     }
+    // Only the background poll is passive. Regaining window focus is a person
+    // coming back: it counts as activity and is audited (document.list_viewed)
+    // like any other look at the shared documents.
+    const passive = mode === 'poll';
     this.docsLoading = this.api
-      .documentAccess(this.id, mode === 'poll' ? { passive: true } : undefined)
+      .documentAccess(this.id, passive ? { passive: true } : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -1367,7 +1380,7 @@ export class DoctorAppointmentDetail implements OnInit {
       this.lastLocalActivity = Date.now();
     };
     const onFocus = () => {
-      if (this.primary() === 'documents') this.zone.run(() => this.loadDocs('refresh'));
+      if (this.primary() === 'documents') this.zone.run(() => this.loadDocs('focus'));
     };
     let poll: ReturnType<typeof setInterval> | undefined;
     this.zone.runOutsideAngular(() => {
@@ -1490,11 +1503,12 @@ export class DoctorAppointmentDetail implements OnInit {
    * The appointment, by id (whatever its date — the schedule list only
    * carries the days around today). `initial` also loads the patient's record
    * and reports a failure; a later re-read (after an action raced the
-   * patient's answer) only refreshes what is on screen.
+   * patient's answer) only refreshes what is on screen. `passive`: the clock's
+   * background re-read (`X-SD-Passive`, never activity).
    */
-  private loadAppointment(initial = false): void {
+  private loadAppointment(initial = false, passive = false): void {
     this.api
-      .appointment(this.id)
+      .appointment(this.id, passive ? { passive: true } : undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -1805,8 +1819,9 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   // ----- Recording -----
-  private refreshRecording(): void {
-    this.api.recordingState(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined });
+  /** Re-read the recording state — after the doctor's own start / stop, or `{ passive: true }` from the guests watch. */
+  private refreshRecording(options?: ApiRequestOptions): void {
+    this.api.recordingState(this.id, options).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.recording.set(r.data), error: () => undefined });
   }
   protected startRecording(): void {
     // Refreshed on a refusal too: e.g. a guest in the call hasn't agreed yet (shown on the tab).

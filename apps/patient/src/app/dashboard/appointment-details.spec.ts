@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { BehaviorSubject, firstValueFrom, of } from 'rxjs';
+import { BehaviorSubject, firstValueFrom, type Observable, of } from 'rxjs';
 import {
   API_CONFIG,
   AppointmentsApi,
@@ -105,6 +105,8 @@ describe('AppointmentDetails › the document viewer', () => {
   const open = vi.fn();
   const documentPdf = vi.fn(() => of(new Blob(['%PDF'], { type: 'application/pdf' })));
   const fileBlob = vi.fn(() => of(new Blob(['%PDF'], { type: 'application/pdf' })));
+  /** Who is in the call: the page polls it — always passive (X-SD-Passive). */
+  const presence = vi.fn<(options?: { passive?: boolean }) => Observable<unknown>>(() => ok({}));
 
   /** The page polls call presence and ticks its clock on intervals, so the zone is never stable: flush by hand. */
   const settle = async () => {
@@ -119,6 +121,7 @@ describe('AppointmentDetails › the document viewer', () => {
 
   beforeEach(async () => {
     open.mockReset();
+    presence.mockClear();
     documentPdf.mockClear();
     fileBlob.mockClear();
     vi.spyOn(window, 'open').mockReturnValue(null);
@@ -140,7 +143,7 @@ describe('AppointmentDetails › the document viewer', () => {
           provide: AppointmentsApi,
           useValue: apiStub({
             getMine: () => ok(appointment),
-            presence: () => ok({}),
+            presence,
             prescriptions: () => ok([rx]),
             referrals: () =>
               ok([{ id: 'r-1', appointment_id: 'ap-1', referral_type: 'specialist', target: 'Lagos Heart Centre', reason: 'Murmur', clinical_summary: null, priority: 'routine', status: 'sent', author: null, created_at: '2026-11-01T15:15:00Z' }]),
@@ -221,5 +224,10 @@ describe('AppointmentDetails › the document viewer', () => {
     await firstValueFrom(referral.load());
     expect(documentPdf).toHaveBeenCalledExactlyOnceWith('ap-1', 'referral', 'r-1');
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('polls who is in the call with passive reads only (X-SD-Passive): a page left open never keeps the session alive', () => {
+    expect(presence).toHaveBeenCalled();
+    expect(presence.mock.calls.every((c) => JSON.stringify(c[0]) === '{"passive":true}')).toBe(true);
   });
 });

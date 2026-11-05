@@ -6,7 +6,7 @@ import type {
   AdminDashboardQuery,
   SuccessResponse,
 } from '@supadoc/models';
-import { ApiService } from './api.service';
+import { ApiRequestOptions, ApiService } from './api.service';
 import { viewerTimeZone } from './date-input';
 
 /**
@@ -22,16 +22,22 @@ export class AdminDashboardApi {
   /**
    * The dashboard for `period` (default today), on the viewer's calendar
    * (`tz` defaults to the browser's zone). `refresh: true` skips the short
-   * server cache. 422 `errors.period` for an unknown period.
+   * server cache. `passive: true` marks the page's automatic refresh
+   * (`X-SD-Passive: 1`): it never extends the idle session. 422
+   * `errors.period` for an unknown period.
    */
   get(
     period: AdminDashboardPeriod = 'today',
-    options: Omit<AdminDashboardQuery, 'period'> = {},
+    options: Omit<AdminDashboardQuery, 'period'> & ApiRequestOptions = {},
   ): Observable<SuccessResponse<AdminDashboardDto>> {
-    return this.api.get<SuccessResponse<AdminDashboardDto>>('api/admin/dashboard', {
-      period,
-      tz: options.tz ?? viewerTimeZone(),
-      refresh: options.refresh ? 1 : undefined,
-    });
+    return this.api.get<SuccessResponse<AdminDashboardDto>>(
+      'api/admin/dashboard',
+      {
+        period,
+        tz: options.tz ?? viewerTimeZone(),
+        refresh: options.refresh ? 1 : undefined,
+      },
+      options.passive ? { passive: true } : undefined,
+    );
   }
 }

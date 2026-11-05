@@ -177,7 +177,7 @@ export class DoctorSchedule implements OnInit {
   protected readonly busyId = signal<string | null>(null);
   protected readonly tab = signal<TabKey>('upcoming');
   /** Who is in each consultation's call right now (polled). */
-  protected readonly presence = injectCallPresence(() => this.api.presence());
+  protected readonly presence = injectCallPresence(this.api);
 
   private readonly tabs: ReadonlyArray<{ key: TabKey; label: string }> = [
     { key: 'upcoming', label: 'Upcoming' },

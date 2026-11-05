@@ -36,7 +36,7 @@ import type {
   TranscriptSegmentDto,
 } from '@supadoc/models';
 import { API_CONFIG } from './api-config';
-import { ApiService, QueryParams } from './api.service';
+import { ApiRequestOptions, ApiService, QueryParams } from './api.service';
 
 /**
  * Appointments client for the VideoMed backend. `listMine` hits the customer
@@ -67,10 +67,15 @@ export class AppointmentsApi {
     );
   }
 
-  /** GET /api/portal/appointments/{id} — one of the patient's own appointments. */
-  getMine(id: string): Observable<SuccessResponse<AppointmentDto>> {
+  /**
+   * GET /api/portal/appointments/{id} — one of the patient's own appointments.
+   * A background re-read (a status poll) passes `{ passive: true }`.
+   */
+  getMine(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<AppointmentDto>> {
     return this.api.get<SuccessResponse<AppointmentDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}`,
+      undefined,
+      options,
     );
   }
 
@@ -190,21 +195,26 @@ export class AppointmentsApi {
    * GET /api/portal/appointments/{id}/follow-up/quote — the price before
    * paying: `id` is a completed consultation (booking a follow-up of it) or an
    * open proposal (accepting it, re-priced when `scheduledAt` is another slot).
+   * A background re-read passes `{ passive: true }`.
    */
   followUpQuote(
     id: string,
     scheduledAt?: string,
+    options?: ApiRequestOptions,
   ): Observable<SuccessResponse<FollowUpQuoteDto>> {
     return this.api.get<SuccessResponse<FollowUpQuoteDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/follow-up/quote`,
       { scheduled_at: scheduledAt },
+      options,
     );
   }
 
   /** GET /api/portal/appointments/{id}/follow-ups — the follow-ups of one of my consultations (any status). */
-  followUps(id: string): Observable<SuccessResponse<AppointmentDto[]>> {
+  followUps(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<AppointmentDto[]>> {
     return this.api.get<SuccessResponse<AppointmentDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/follow-ups`,
+      undefined,
+      options,
     );
   }
 
@@ -243,9 +253,11 @@ export class AppointmentsApi {
    * their consultations (email, status, in the call now, personal join link to
    * copy), the guest fee, and whether the list can change.
    */
-  guests(id: string): Observable<SuccessResponse<PatientGuestListDto>> {
+  guests(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<PatientGuestListDto>> {
     return this.api.get<SuccessResponse<PatientGuestListDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/guests`,
+      undefined,
+      options,
     );
   }
 
@@ -301,10 +313,15 @@ export class AppointmentsApi {
     );
   }
 
-  /** GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials (uid 1) + `participants`. */
-  callToken(id: string): Observable<SuccessResponse<CallTokenDto>> {
+  /**
+   * GET /api/portal/appointments/{id}/call-token — Agora RTC join credentials
+   * (uid 1) + `participants`. The SDK's token renewal passes `{ passive: true }`.
+   */
+  callToken(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<CallTokenDto>> {
     return this.api.get<SuccessResponse<CallTokenDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/call-token`,
+      undefined,
+      options,
     );
   }
 
@@ -314,44 +331,61 @@ export class AppointmentsApi {
    */
   consultationSummary(
     id: string,
+    options?: ApiRequestOptions,
   ): Observable<SuccessResponse<ConsultationSummaryDto>> {
     return this.api.get<SuccessResponse<ConsultationSummaryDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/consultation`,
+      undefined,
+      options,
     );
   }
 
-  /** GET /api/portal/appointments/{id}/prescriptions — the patient's issued scripts. */
-  prescriptions(id: string): Observable<SuccessResponse<PrescriptionDto[]>> {
+  /**
+   * GET /api/portal/appointments/{id}/prescriptions — the patient's issued
+   * scripts. The call screen's poll passes `{ passive: true }` (as for the
+   * other clinical reads below).
+   */
+  prescriptions(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<PrescriptionDto[]>> {
     return this.api.get<SuccessResponse<PrescriptionDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/prescriptions`,
+      undefined,
+      options,
     );
   }
 
   /** GET /api/portal/appointments/{id}/lab-orders — the patient's lab orders. */
-  labOrders(id: string): Observable<SuccessResponse<LabOrderDto[]>> {
+  labOrders(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<LabOrderDto[]>> {
     return this.api.get<SuccessResponse<LabOrderDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/lab-orders`,
+      undefined,
+      options,
     );
   }
 
   /** GET /api/portal/appointments/{id}/care-plan — the published care plan. */
-  carePlan(id: string): Observable<SuccessResponse<PatientCarePlanDto>> {
+  carePlan(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<PatientCarePlanDto>> {
     return this.api.get<SuccessResponse<PatientCarePlanDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/care-plan`,
+      undefined,
+      options,
     );
   }
 
   /** GET /api/portal/appointments/{id}/referrals — the patient's referrals. */
-  referrals(id: string): Observable<SuccessResponse<ReferralDto[]>> {
+  referrals(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<ReferralDto[]>> {
     return this.api.get<SuccessResponse<ReferralDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/referrals`,
+      undefined,
+      options,
     );
   }
 
-  /** GET /api/portal/appointments/{id}/certificates — the patient's medical certificates. */
-  certificates(id: string): Observable<SuccessResponse<MedicalCertificateDto[]>> {
+  /** GET /api/portal/appointments/{id}/certificates — the patient's medical certificates. A background re-read passes `{ passive: true }`. */
+  certificates(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<MedicalCertificateDto[]>> {
     return this.api.get<SuccessResponse<MedicalCertificateDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/certificates`,
+      undefined,
+      options,
     );
   }
 
@@ -401,28 +435,43 @@ export class AppointmentsApi {
     );
   }
 
-  /** GET /api/portal/appointments/{id}/recordings — recording state + finished files. */
-  recordings(id: string): Observable<SuccessResponse<PatientRecordingsDto>> {
+  /**
+   * GET /api/portal/appointments/{id}/recordings — recording state + finished
+   * files. The call screen's poll passes `{ passive: true }`.
+   */
+  recordings(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<PatientRecordingsDto>> {
     return this.api.get<SuccessResponse<PatientRecordingsDto>>(
       `api/portal/appointments/${encodeURIComponent(id)}/recordings`,
+      undefined,
+      options,
     );
   }
 
-  /** POST /api/portal/appointments/{id}/metrics — report an RTC quality sample. */
+  /**
+   * POST /api/portal/appointments/{id}/metrics — report an RTC quality sample.
+   * The call screen's timed report passes `{ passive: true }`.
+   */
   reportMetric(
     id: string,
     payload: { uplink: number; downlink: number; rtt: number | null },
+    options?: ApiRequestOptions,
   ): Observable<SuccessResponse<{ recorded: boolean }>> {
     return this.api.post<SuccessResponse<{ recorded: boolean }>>(
       `api/portal/appointments/${encodeURIComponent(id)}/metrics`,
       payload,
+      options,
     );
   }
 
-  /** GET /api/portal/appointments/{id}/transcript — recent transcript for captions. */
-  transcript(id: string): Observable<SuccessResponse<TranscriptSegmentDto[]>> {
+  /**
+   * GET /api/portal/appointments/{id}/transcript — recent transcript for
+   * captions. The captions poll passes `{ passive: true }`.
+   */
+  transcript(id: string, options?: ApiRequestOptions): Observable<SuccessResponse<TranscriptSegmentDto[]>> {
     return this.api.get<SuccessResponse<TranscriptSegmentDto[]>>(
       `api/portal/appointments/${encodeURIComponent(id)}/transcript`,
+      undefined,
+      options,
     );
   }
 
@@ -452,9 +501,12 @@ export class AppointmentsApi {
     );
   }
 
-  /** GET /api/portal/appointments/presence — who is in each of my appointments' calls now. */
-  presence(): Observable<SuccessResponse<CallPresenceMap>> {
-    return this.api.get<SuccessResponse<CallPresenceMap>>('api/portal/appointments/presence');
+  /**
+   * GET /api/portal/appointments/presence — who is in each of my appointments'
+   * calls now. The pages' poll passes `{ passive: true }` (see `injectCallPresence`).
+   */
+  presence(options?: ApiRequestOptions): Observable<SuccessResponse<CallPresenceMap>> {
+    return this.api.get<SuccessResponse<CallPresenceMap>>('api/portal/appointments/presence', undefined, options);
   }
 
   /** Absolute URL of the signed-in patient's call heartbeat (POST {state}). */

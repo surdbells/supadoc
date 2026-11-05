@@ -29,6 +29,7 @@ import AgoraRTC, {
 } from 'agora-rtc-sdk-ng';
 import { type CanLeave, isSessionEndError, SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
 import {
+  type ApiRequestOptions,
   ApiService,
   apiErrorCode,
   apiErrorMessage,
@@ -3462,7 +3463,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     // Hold the portal idle timeout only while a consultation is going on:
     // connected and someone else is here, or (for a bounded time) waiting for
     // the patient to first arrive. An ended call left open on a shared
-    // computer still times out.
+    // computer still times out. The hold is also what keeps a live call's
+    // SERVER session alive (SessionTimeoutService touches it every few
+    // minutes while held, hidden tab or not); the call's timed requests
+    // (transcript, metrics, documents) are all passive and never do.
     effect(() => {
       const live = this.status() === 'in-call' && !this.callClosed();
       const othersInCall = this.people().length;
@@ -4279,11 +4283,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * A clinical call over the portal session (HttpClient + staffAuthInterceptor):
    * the token is refreshed before it expires and on a 401, and a session that
    * ended is handled like anywhere else in the portal. Errors arrive as the
-   * shared `ApiError` (`apiErrorMessage` reads them).
+   * shared `ApiError` (`apiErrorMessage` reads them). `{ passive: true }` for
+   * the timed background requests (transcript poll, metrics report): they
+   * never extend the idle session — the call's hold keeps a live call's
+   * session alive (see `syncHold`).
    */
-  private noteFetch(path: string, init: RequestInit): Promise<any> {
+  private noteFetch(path: string, init: RequestInit, options?: ApiRequestOptions): Promise<any> {
     const body = typeof init.body === 'string' && init.body !== '' ? JSON.parse(init.body) : undefined;
-    return firstValueFrom(this.api.request<unknown>(init.method ?? 'GET', path, body));
+    return firstValueFrom(this.api.request<unknown>(init.method ?? 'GET', path, body, options));
   }
 
   private notePayload(): NoteDraftPayload {
@@ -4773,7 +4780,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (id) window.open('/patients/' + encodeURIComponent(id), '_blank', 'noopener');
   }
 
-  /** Report an RTC quality sample every 15s for back-office monitoring. */
+  /**
+   * Report an RTC quality sample every 15s for back-office monitoring — a
+   * background request (passive): it never keeps the session alive.
+   */
   private startMetricsReport(): void {
     const report = async (): Promise<void> => {
       if (!this.client || !this.portalSignedIn()) return;
@@ -4788,6 +4798,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         await this.noteFetch(
           `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/metrics`,
           { method: 'POST', body: JSON.stringify({ uplink: this.netUplink, downlink: this.netDownlink, rtt }) },
+          { passive: true },
         );
       } catch {
         /* fire-and-forget */
@@ -4818,12 +4829,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.ensureTranscriptPoll();
   }
 
-  private async loadTranscript(): Promise<void> {
+  /** The transcript; `passive` for the 8 s poll (a background read, never activity). */
+  private async loadTranscript(passive = false): Promise<void> {
     if (!this.appointmentId || !this.portalSignedIn()) return;
     try {
       const body = await this.noteFetch(
         `/api/doctor/appointments/${encodeURIComponent(this.appointmentId)}/transcript`,
         { method: 'GET' },
+        passive ? { passive: true } : undefined,
       );
       if (Array.isArray(body.data)) this.transcript.set(body.data);
     } catch {
@@ -4831,9 +4844,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     }
   }
 
+  /**
+   * Re-read the transcript every 8 s until teardown — passive: it runs from
+   * the clinical load (before join) to leaving, live call or not, so it must
+   * never keep the session alive. A live call's session is held by `syncHold`.
+   */
   private ensureTranscriptPoll(): void {
     if (this.transcriptPoll) return;
-    this.transcriptPoll = setInterval(() => void this.loadTranscript(), 8000);
+    this.transcriptPoll = setInterval(() => void this.loadTranscript(true), 8000);
   }
 
   protected toggleTranscription(): void {

@@ -9,7 +9,6 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { EMPTY } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
 import {
   apiErrorMessage,
@@ -321,7 +320,7 @@ export class DoctorDashboard implements OnInit {
   protected readonly scheduleOpen = signal(true);
   protected readonly notificationsOpen = signal(true);
   /** Who is in each consultation's call right now (polled; not while clinical work is closed to them). */
-  protected readonly presence = injectCallPresence(() => (this.standing.blocked() ? EMPTY : this.api.presence()));
+  protected readonly presence = injectCallPresence(this.api, { paused: () => this.standing.blocked() });
 
   /** What needs the doctor's attention about their account (see `standingNotices`). */
   protected readonly notices = computed<StandingNotice[]>(() => {

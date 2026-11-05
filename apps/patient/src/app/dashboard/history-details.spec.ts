@@ -146,11 +146,104 @@ describe('HistoryDetails › documents in the viewer', () => {
   });
 
   it('lists the consultation’s lab requests: number, chip, and a link to the request (legacy rows unchanged)', () => {
-    expect(labMine).toHaveBeenCalledWith({ appointment_id: 'ap-1', per_page: 50 });
+    // The page load's read: no request options (it counts as activity).
+    expect(labMine).toHaveBeenCalledWith({ appointment_id: 'ap-1', per_page: 50 }, undefined);
     const row = el.querySelector<HTMLAnchorElement>('a[href="/dashboard/lab-requests/lr-1"]');
     expect(row).toBeTruthy();
     expect(row?.textContent).toContain('Lab request GVM-REQ-20261101-00001');
     expect(row?.textContent).toContain('Reviewed by your doctor');
     expect(row?.textContent?.toLowerCase()).not.toContain('abnormal');
+  });
+});
+
+describe('HistoryDetails › the status poll is passive', () => {
+  /** Every AppointmentsApi / LabRequestsApi call, by method name, with its arguments. */
+  let calls: Record<string, unknown[][]>;
+  /** What `getMine` answers (a test closes the visit by changing it). */
+  let current: AppointmentDto;
+  let fixture: ComponentFixture<HistoryDetails>;
+
+  /** A service that records every call and answers `answers[name]` (else an empty list). */
+  function recording(answers: Record<string, () => unknown>): unknown {
+    return new Proxy({}, {
+      get: (_t, name: string) =>
+        (...args: unknown[]) => {
+          (calls[name] ??= []).push(args);
+          return name in answers ? answers[name]() : ok([]);
+        },
+    });
+  }
+
+  /** The extras a load (or a status change) reads, and where each takes its request options. */
+  const EXTRAS: Readonly<Record<string, number>> = {
+    consultationSummary: 1,
+    followUps: 1,
+    followUpQuote: 2,
+    prescriptions: 1,
+    referrals: 1,
+    certificates: 1,
+    labOrders: 1,
+    mine: 1,
+  };
+  /** The request options of each call of `name`. */
+  const optionsOf = (name: string) => (calls[name] ?? []).map((args) => args[EXTRAS[name] ?? 1]);
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    calls = {};
+    current = { ...appointment, status: 'confirmed' } as AppointmentDto;
+    await TestBed.configureTestingModule({
+      imports: [HistoryDetails],
+      providers: [
+        provideRouter([]),
+        provideSupadocIcons(),
+        { provide: API_CONFIG, useValue: { baseUrl: 'http://api.test' } },
+        { provide: ActivatedRoute, useValue: { paramMap: new BehaviorSubject(convertToParamMap({ id: 'ap-1' })), snapshot: { paramMap: convertToParamMap({ id: 'ap-1' }) } } },
+        {
+          provide: AppointmentsApi,
+          useValue: recording({ getMine: () => ok(current), consultationSummary: () => ok({ available: false }), followUpQuote: () => ok(null) }),
+        },
+        { provide: PrescriptionsApi, useValue: apiStub({}) },
+        { provide: DocumentSharingApi, useValue: apiStub({ forAppointment: () => ok({ specialist: { id: 'sp-1', name: 'Bayo Ade' }, access: { state: 'none', scope: null, document_count: 0 } }) }) },
+        { provide: DocumentViewerService, useValue: { open: vi.fn() } },
+        { provide: LabRequestsApi, useValue: recording({}) },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(HistoryDetails);
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r));
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('the page load counts; the 30 s look for the doctor closing the visit is passive (X-SD-Passive)', () => {
+    expect(calls['getMine']).toEqual([['ap-1']]);
+
+    vi.advanceTimersByTime(30_000);
+    expect(calls['getMine'].slice(1)).toEqual([['ap-1', { passive: true }]]);
+    vi.advanceTimersByTime(60_000);
+    expect(calls['getMine'].slice(1).every((c) => JSON.stringify(c[1]) === '{"passive":true}')).toBe(true);
+    expect(calls['getMine'].length).toBe(4);
+    // Nothing changed: the extras were read once, by the page load.
+    for (const name of Object.keys(EXTRAS)) expect(optionsOf(name), name).toEqual([undefined]);
+  });
+
+  it('the doctor closing the visit reloads the extras passively (the page load’s reads counted)', () => {
+    for (const name of Object.keys(EXTRAS)) expect(optionsOf(name), name).toEqual([undefined]);
+
+    current = { ...current, status: 'completed' } as AppointmentDto;
+    vi.advanceTimersByTime(30_000);
+    expect(calls['getMine'].at(-1)).toEqual(['ap-1', { passive: true }]);
+    for (const name of Object.keys(EXTRAS)) expect(optionsOf(name), name).toEqual([undefined, { passive: true }]);
+
+    // Closed: the poll stops, nothing more is read.
+    const reads = calls['getMine'].length;
+    vi.advanceTimersByTime(90_000);
+    expect(calls['getMine'].length).toBe(reads);
   });
 });

@@ -116,11 +116,14 @@ export class ApiService {
   /**
    * Any method (e.g. `'PUT'`) with an optional JSON body — for callers that
    * pick the method at run time. Goes through the interceptors like the rest.
+   * `{ passive: true }` marks a background poll, as for {@link get}.
    */
-  request<T>(method: string, path: string, body?: unknown): Observable<T> {
+  request<T>(method: string, path: string, body?: unknown, options?: ApiRequestOptions): Observable<T> {
+    const headers = this.headersFor(options);
     return this.http.request<T>(method.toUpperCase(), this.url(path), {
       body,
       responseType: 'json',
+      ...(headers ? { headers } : {}),
     });
   }
 

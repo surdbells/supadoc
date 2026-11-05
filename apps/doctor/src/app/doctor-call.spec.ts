@@ -196,6 +196,9 @@ describe('DoctorCall — documents in the call', () => {
   let t0: number;
   let viewer: ReturnType<typeof fakeViewer>;
   let dialogConfirm: ReturnType<typeof vi.fn>;
+  /** Every portal request made through ApiService.request (the clinical panels, transcript, metrics). */
+  let portal: { method: string; path: string; passive: boolean }[];
+  let session: { hold: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
   const signedIn = signal(true);
   const realMatchMedia = window.matchMedia;
 
@@ -216,6 +219,8 @@ describe('DoctorCall — documents in the call', () => {
 
   async function setup(docs: DoctorSharedDocumentDto[] = [doc('a')]) {
     reads = [];
+    portal = [];
+    session = { hold: vi.fn(), release: vi.fn() };
     answer = () => of({ data: access(docs) });
     signedIn.set(true);
     viewer = fakeViewer();
@@ -240,7 +245,15 @@ describe('DoctorCall — documents in the call', () => {
           provide: StaffAuthService,
           useValue: { isAuthenticated: signedIn, subject: signal('doc-1'), displayName: () => 'Dr Ada Obi', clockOffset: () => 0 },
         },
-        { provide: ApiService, useValue: { request: () => of({ data: {} }) } },
+        {
+          provide: ApiService,
+          useValue: {
+            request: (method: string, path: string, _body?: unknown, opts?: { passive?: boolean }) => {
+              portal.push({ method: method.toUpperCase(), path, passive: !!opts?.passive });
+              return of({ data: {} });
+            },
+          },
+        },
         {
           provide: DoctorApi,
           useValue: {
@@ -258,7 +271,7 @@ describe('DoctorCall — documents in the call', () => {
         },
         // The Lab requests tab lists this consultation's requests.
         { provide: LabRequestsApi, useValue: { list: () => of({ data: [] }) } },
-        { provide: SessionTimeoutService, useValue: { hold: vi.fn(), release: vi.fn() } },
+        { provide: SessionTimeoutService, useValue: session },
         { provide: NoteDraftStore, useValue: { take: () => null, clear: () => undefined, save: () => true } },
         {
           provide: DialogService,
@@ -394,6 +407,72 @@ describe('DoctorCall — documents in the call', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
     await tick(91_000);
     expect(reads.slice(1).map((r) => r.at)).toEqual([30_000, 60_000, 90_000]);
+  });
+
+  describe('background requests are passive; the call hold keeps a live call alive', () => {
+    const transcript = '/api/doctor/appointments/ap-1/transcript';
+    const metrics = '/api/doctor/appointments/ap-1/metrics';
+
+    it('the transcript poll (8 s) and the metrics report (15 s) are passive; the panels’ first loads are not', async () => {
+      await setup([doc('a')]);
+      // The clinical panels load once the doctor is signed in: requests the doctor's
+      // opening of the call made, so they count (the transcript's first read too).
+      const first = portal.filter((r) => r.path === transcript);
+      expect(first).toEqual([{ method: 'GET', path: transcript, passive: false }]);
+      expect(portal.some((r) => r.path.endsWith('/note') && !r.passive)).toBe(true);
+
+      portal = [];
+      await tick(30_000);
+      const polls = portal.filter((r) => r.path === transcript);
+      const reports = portal.filter((r) => r.path === metrics);
+      expect(polls.length).toBe(3); // 8, 16, 24 s
+      expect(reports.length).toBe(2); // 15, 30 s
+      expect(reports.every((r) => r.method === 'POST')).toBe(true);
+      // Nothing the timers sent counts as activity.
+      expect(portal.length).toBe(polls.length + reports.length);
+      expect(portal.every((r) => r.passive)).toBe(true);
+    });
+
+    it('what the doctor asks for stays active (e.g. Generate draft)', async () => {
+      await setup([doc('a')]);
+      portal = [];
+      await (call as unknown as { generateDraft(): Promise<void> }).generateDraft();
+      expect(portal).toEqual([{ method: 'POST', path: '/api/doctor/appointments/ap-1/copilot/draft', passive: false }]);
+    });
+
+    it('holds the session while the call is live, releases it when the patient leaves; the polls stay passive throughout and stop on leaving', async () => {
+      await setup([doc('a')]);
+      // Joined, waiting for the patient (bounded): held.
+      expect(session.hold).toHaveBeenCalledWith('call');
+      expect(session.release).not.toHaveBeenCalled();
+
+      // The patient joins: still held — however long nobody touches anything.
+      client().remoteUsers = [{ uid: 1 }];
+      await client().handlers['user-joined']?.({ uid: 1 });
+      await tick();
+      portal = [];
+      await tick(60 * 60_000);
+      expect(session.release).not.toHaveBeenCalled();
+      expect(portal.length).toBeGreaterThan(0);
+      expect(portal.every((r) => r.passive)).toBe(true);
+
+      // The patient leaves: the call is over for the session — released, so an
+      // ended call left open idles out (its polls never kept it alive).
+      client().remoteUsers = [];
+      await client().handlers['user-left']?.({ uid: 1 });
+      await tick();
+      expect(session.release).toHaveBeenCalledWith('call');
+      portal = [];
+      await tick(60_000);
+      expect(portal.length).toBeGreaterThan(0);
+      expect(portal.every((r) => r.passive)).toBe(true);
+
+      // Leaving stops every timer.
+      await (call as unknown as { teardown(): Promise<void> }).teardown();
+      portal = [];
+      await tick(60_000);
+      expect(portal).toEqual([]);
+    });
   });
 
   it('puts the count in the title while the tab is hidden, and restores it on return', async () => {

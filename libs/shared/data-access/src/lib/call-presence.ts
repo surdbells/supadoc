@@ -9,6 +9,7 @@ import type {
   DoctorStandingCode,
   SuccessResponse,
 } from '@supadoc/models';
+import { type ApiRequestOptions, PASSIVE_REQUEST_HEADER } from './api.service';
 import { isDoctorStandingCode } from './doctor.api';
 
 export type CallPresenceState = 'in' | 'out';
@@ -53,6 +54,11 @@ export const CALL_PRESENCE_POLL_MS = 15_000;
  * the live presence + participants, or a refusal (410 / 409, or a doctor's
  * standing 403) that means the call is over for this screen — e.g. a guest
  * the patient just removed, or a doctor suspended mid-call.
+ *
+ * A beat sent with a bearer token (the signed-in patient's) also carries
+ * `X-SD-Passive: 1`: a heartbeat is never activity, so a call screen left
+ * open never keeps an idle session alive. A live call is kept alive by its
+ * session hold instead (`SessionTimeoutService.hold`).
  */
 export function sendCallPresence(
   url: string,
@@ -66,9 +72,15 @@ export function sendCallPresence(
       void fetch(`${url}${url.includes('?') ? '&' : '?'}state=out`, { method: 'POST', keepalive: true }).catch(swallow);
       return;
     }
+    const signedIn = Object.keys(headers).some((h) => h.toLowerCase() === 'authorization');
     const init: RequestInit = {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...headers,
+        ...(signedIn ? { [PASSIVE_REQUEST_HEADER]: '1' } : {}),
+      },
       body: JSON.stringify({ state }),
     };
     if (state === 'out') {
@@ -154,22 +166,45 @@ export function startCallPresence(
 }
 
 /**
+ * What {@link injectCallPresence} polls: an API whose `presence` read takes
+ * request options (`DoctorApi`, `AppointmentsApi`).
+ */
+export interface CallPresenceSource {
+  presence(options: ApiRequestOptions): Observable<SuccessResponse<CallPresenceMap>>;
+}
+
+/** Tuning for {@link injectCallPresence}. */
+export interface CallPresenceOptions {
+  /** Skip a read while this answers true (the last known state stays) — e.g. a doctor whose clinical work is closed. */
+  paused?: () => boolean;
+  /** How often to read (default {@link CALL_PRESENCE_POLL_MS}). */
+  intervalMs?: number;
+}
+
+/**
  * Who is in each appointment's call, kept fresh while the page is open: loads
  * now, every {@link CALL_PRESENCE_POLL_MS} while the tab is visible, and as soon
  * as it becomes visible again. Call in an injection context (a component's
  * field initialiser or constructor); polling stops with the component.
+ *
+ * Every read is a background one: this helper itself calls
+ * `source.presence({ passive: true })` (`X-SD-Passive: 1`), so a schedule or
+ * dashboard left open never keeps an idle session alive. Pages hand over the
+ * API itself (not a load function), so none can forget to forward the flag.
+ * The page's own loads count.
  */
 export function injectCallPresence(
-  load: () => Observable<SuccessResponse<CallPresenceMap>>,
-  intervalMs = CALL_PRESENCE_POLL_MS,
+  source: CallPresenceSource,
+  { paused, intervalMs = CALL_PRESENCE_POLL_MS }: CallPresenceOptions = {},
 ): Signal<CallPresenceMap> {
   const destroyRef = inject(DestroyRef);
   const map = signal<CallPresenceMap>({});
   let sub: Subscription | null = null;
   const tick = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (paused?.()) return;
     sub?.unsubscribe();
-    sub = load().subscribe({
+    sub = source.presence({ passive: true }).subscribe({
       next: (res) => map.set(res?.data ?? {}),
       // Keep the last known state; the next tick tries again.
       error: () => undefined,

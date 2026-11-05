@@ -1197,9 +1197,7 @@ export class AppointmentDetails {
   private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
 
   /** Who is in my appointments' calls right now — polled while the page is open. */
-  protected readonly presence = injectCallPresence(() =>
-    this.appointments.presence(),
-  );
+  protected readonly presence = injectCallPresence(this.appointments);
   /** The doctor has joined this appointment's call — the join button says so. */
   protected readonly doctorInCall = computed(() => {
     const id = this.vm()?.id;

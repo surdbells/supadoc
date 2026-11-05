@@ -193,6 +193,46 @@ describe('SessionTimeoutService', () => {
       expect(service.deadlineSoon()).not.toBeNull();
     });
 
+    /*
+     * The live-call keep-alive rule. The server ends a session after
+     * SESSION_IDLE_TIMEOUT without an activity-counting request, and every
+     * timed request a call screen makes (heartbeat, transcript / clinical /
+     * recording polls, metrics) is passive. What keeps a consultation's server
+     * session alive is the call's hold: while held, the session is touched
+     * (`keepAlive`, an active request) every `keepAliveMinutes` with no input
+     * at all — in a hidden tab too. Released (the call is over), nothing is
+     * touched without real input, so an ended call left open idles out.
+     */
+    it('a held call touches the server every 4 minutes with no input (hidden tab too); released, it stops', () => {
+      visibility = 'hidden';
+      const { service, auth } = setup({ accessMs: 600 * MIN, idleMinutes: 30 });
+      service.hold('call');
+      vi.advanceTimersByTime(4 * MIN + 1_000);
+      expect(auth.keepAlive).toHaveBeenCalledTimes(1);
+      // An hour-long consultation without a single click: never more than 4 min between touches.
+      vi.advanceTimersByTime(56 * MIN);
+      expect(auth.keepAlive).toHaveBeenCalledTimes(15);
+      expect(auth.expire).not.toHaveBeenCalled();
+
+      service.release('call');
+      vi.advanceTimersByTime(4 * MIN + 1_000); // the release itself counted as activity: one last touch
+      expect(auth.keepAlive).toHaveBeenCalledTimes(16);
+      vi.advanceTimersByTime(20 * MIN);
+      expect(auth.keepAlive).toHaveBeenCalledTimes(16);
+      // …and the local idle limit ends it as usual.
+      vi.advanceTimersByTime(6 * MIN);
+      expect(auth.expire).toHaveBeenCalledWith('idle');
+    });
+
+    it('without a hold, only real input touches the server', () => {
+      const { auth } = setup({ accessMs: 600 * MIN, idleMinutes: 30 });
+      vi.advanceTimersByTime(20 * MIN);
+      expect(auth.keepAlive).not.toHaveBeenCalled();
+      window.dispatchEvent(new Event('pointerdown'));
+      vi.advanceTimersByTime(1_000);
+      expect(auth.keepAlive).toHaveBeenCalledTimes(1);
+    });
+
     it('an upload hold pauses the idle timer but is not a call (no in-call notice)', () => {
       const { service, auth } = setup({ accessMs: 60 * MIN, idleMinutes: 15 });
       service.hold('upload:1');
