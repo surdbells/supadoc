@@ -1359,8 +1359,8 @@ the new viewer asks for referrals and certificates as `?format=pdf`. After the f
    for h in doctor.dosthq.com patient.dosthq.com backoffice.dosthq.com join.dosthq.com; do
      echo "== $h"
      curl -sI "https://$h/pdfjs/pdf.worker.min.mjs" | grep -iE '^(HTTP|content-type)'
-     curl -sI "https://$h/pdfjs/cmaps/Identity-H.bcmap" | grep -iE '^(HTTP|content-type)'
-     curl -sI "https://$h/pdfjs/standard_fonts/FoxitSans.pfb" | grep -iE '^(HTTP|content-type)'
+     curl -sI "https://$h/pdfjs/cmaps/78-H.bcmap" | grep -iE '^(HTTP|content-type)'
+     curl -sI "https://$h/pdfjs/standard_fonts/FoxitSerif.pfb" | grep -iE '^(HTTP|content-type)'
      curl -sI "https://$h/pdfjs/wasm/openjpeg.wasm" | grep -iE '^(HTTP|content-type)'
    done
    ```
