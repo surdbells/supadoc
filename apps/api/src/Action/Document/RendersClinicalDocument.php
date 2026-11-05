@@ -10,14 +10,18 @@ use App\Domain\Entity\Referral;
 use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\ReferralRepository;
+use App\Infrastructure\Document\ClinicalDocumentPdfRenderer;
 use App\Infrastructure\Document\ClinicalDocumentRenderer;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * Loads a clinical document record (referral / certificate), checks it belongs
- * to the appointment, and renders it as a printable HTML document. Shared by
- * the doctor and patient document endpoints. Prescriptions are not served here
- * (PDF only, through signed links).
+ * to the appointment, and renders it: as a printable HTML document (the
+ * default, kept for tabs opened before the document viewer), or with
+ * `?format=pdf` as the A4 PDF the viewer shows. Shared by the doctor and
+ * patient document endpoints. Prescriptions are not served here (PDF only,
+ * through signed links).
  */
 trait RendersClinicalDocument
 {
@@ -60,18 +64,26 @@ trait RendersClinicalDocument
         }
     }
 
-    /** Build the render context and write the document HTML to the response. */
-    private function renderDocument(
-        ResponseInterface $response,
-        ClinicalDocumentRenderer $renderer,
-        string $kind,
-        object $record,
-        Appointment $appointment,
-    ): ResponseInterface {
+    /** `?format=pdf` (exactly) asks for the PDF; anything else, or nothing, keeps the HTML. */
+    private function documentFormat(ServerRequestInterface $request): string
+    {
+        return ($request->getQueryParams()['format'] ?? 'html') === 'pdf' ? 'pdf' : 'html';
+    }
+
+    /**
+     * The render context, the same for both formats: the letterhead (patient,
+     * doctor, consultation), the record's own fields, its reference and its
+     * issue time, stamped in the issuing doctor's zone.
+     *
+     * @return array<string,mixed>
+     */
+    private function clinicalContext(object $record, Appointment $appointment): array
+    {
         /** @var array<string,mixed> $data */
         $data      = $record->toArray();
         $issuedAt  = (string) ($data['signed_at'] ?? $data['created_at'] ?? '');
-        $ctx       = array_merge(
+
+        return array_merge(
             $this->documentContext($appointment),
             $data,
             [
@@ -81,6 +93,37 @@ trait RendersClinicalDocument
                 'doctor_timezone' => $appointment->getSpecialist()->timeZone()->getName(),
             ],
         );
+    }
+
+    /**
+     * Write the document to the response: the HTML (unchanged), or with
+     * `$format === 'pdf'` the PDF with a no-store, sandboxed, inline answer.
+     */
+    private function renderDocument(
+        ResponseInterface $response,
+        ClinicalDocumentRenderer $renderer,
+        ClinicalDocumentPdfRenderer $pdfRenderer,
+        string $kind,
+        object $record,
+        Appointment $appointment,
+        string $format = 'html',
+    ): ResponseInterface {
+        $ctx = $this->clinicalContext($record, $appointment);
+
+        if ($format === 'pdf') {
+            $pdf = $pdfRenderer->render($kind, $ctx);
+            $response->getBody()->write($pdf);
+
+            return $response
+                ->withHeader('Content-Type', 'application/pdf')
+                ->withHeader('Content-Length', (string) strlen($pdf))
+                ->withHeader('Content-Disposition', 'inline; filename="' . $pdfRenderer->filename($kind, $ctx) . '"')
+                ->withHeader('Cache-Control', 'private, no-store, max-age=0')
+                ->withHeader('Pragma', 'no-cache')
+                ->withHeader('X-Content-Type-Options', 'nosniff')
+                ->withHeader('Content-Security-Policy', "default-src 'none'; sandbox")
+                ->withHeader('Referrer-Policy', 'no-referrer');
+        }
 
         $html = $renderer->render($kind, $ctx);
         $response->getBody()->write($html);

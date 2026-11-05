@@ -10,15 +10,17 @@ use App\Domain\Repository\MedicalCertificateRepository;
 use App\Domain\Repository\PrescriptionRepository;
 use App\Domain\Repository\ReferralRepository;
 use App\Domain\Repository\UserRepository;
+use App\Infrastructure\Document\ClinicalDocumentPdfRenderer;
 use App\Infrastructure\Document\ClinicalDocumentRenderer;
 use App\Infrastructure\Service\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET /api/doctor/appointments/{id}/documents/{kind}/{docId} — render a
- * prescription, referral, or certificate as a printable document. The signed-in
- * doctor must own the appointment, and the document must belong to it.
+ * GET /api/doctor/appointments/{id}/documents/{kind}/{docId}[?format=pdf] —
+ * render a referral or certificate as a printable HTML document, or with
+ * `?format=pdf` as the PDF the document viewer shows. The signed-in doctor
+ * must own the appointment, and the document must belong to it.
  */
 final class RenderDoctorDocumentAction
 {
@@ -33,6 +35,7 @@ final class RenderDoctorDocumentAction
         private readonly ReferralRepository $referrals,
         private readonly MedicalCertificateRepository $certificates,
         private readonly ClinicalDocumentRenderer $renderer,
+        private readonly ClinicalDocumentPdfRenderer $pdfRenderer,
     ) {
     }
 
@@ -62,6 +65,14 @@ final class RenderDoctorDocumentAction
             return $this->error($response, 'Document not found', 404);
         }
 
-        return $this->renderDocument($response, $this->renderer, $kind, $record, $appointment);
+        return $this->renderDocument(
+            $response,
+            $this->renderer,
+            $this->pdfRenderer,
+            $kind,
+            $record,
+            $appointment,
+            $this->documentFormat($request),
+        );
     }
 }

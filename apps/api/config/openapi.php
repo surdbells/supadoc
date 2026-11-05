@@ -38,6 +38,34 @@ $paginationParams = [
 
 $json = static fn (array $schema): array => ['content' => ['application/json' => ['schema' => $schema]]];
 
+// The clinical document routes (doctor + patient): the printable HTML page by
+// default, the document viewer's A4 PDF with ?format=pdf.
+$clinicalDocumentParams = [
+    ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+    ['name' => 'kind', 'in' => 'path', 'required' => true, 'description' => '`prescription` is 404 in both formats (prescriptions are served only as PDF through signed links).', 'schema' => ['type' => 'string', 'enum' => ['referral', 'certificate']]],
+    ['name' => 'docId', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string', 'format' => 'uuid']],
+    [
+        'name'        => 'format',
+        'in'          => 'query',
+        'required'    => false,
+        'description' => '`pdf` (exactly) answers the A4 PDF the document viewer shows (?format=pdf). Any other value, or none, answers the printable HTML page, unchanged (kept for tabs opened before the viewer).',
+        'schema'      => ['type' => 'string', 'enum' => ['html', 'pdf'], 'default' => 'html'],
+    ],
+];
+$clinicalDocumentOk = [
+    'description' => 'The document. Default: `text/html; charset=utf-8` with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. '
+        . "With `format=pdf`: `application/pdf` with `Content-Length`, `Content-Disposition: inline; filename=\"referral-YYYY-MM-DD.pdf\"` (or `medical-certificate-YYYY-MM-DD.pdf`; the issue date in the issuing doctor's zone), "
+        . "`Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and `Referrer-Policy: no-referrer`. "
+        . 'Neither format is audited.',
+    'headers'     => [
+        'Content-Disposition' => ['description' => 'PDF only: `inline; filename="referral-YYYY-MM-DD.pdf"` or `inline; filename="medical-certificate-YYYY-MM-DD.pdf"`.', 'schema' => ['type' => 'string']],
+    ],
+    'content'     => [
+        'text/html'       => ['schema' => ['type' => 'string']],
+        'application/pdf' => ['schema' => ['type' => 'string', 'format' => 'binary']],
+    ],
+];
+
 // Session payload = the shared token fields plus the endpoint-specific user.
 $authData = static fn (string $userRef): array => [
     'allOf' => [
@@ -982,7 +1010,13 @@ return [
             'post' => ['tags' => ['Doctor'], 'summary' => 'Issue a medical certificate', 'description' => 'Sick leave may start at most 7 days ago (clinic calendar); `to_date` must be on or after `from_date`.', 'responses' => ['201' => ['description' => 'Created'], '422' => ['$ref' => '#/components/responses/Validation']]],
         ],
         '/api/doctor/appointments/{id}/documents/{kind}/{docId}' => [
-            'get' => ['tags' => ['Doctor'], 'summary' => 'Render a printable clinical document (HTML)', 'responses' => ['200' => ['description' => 'HTML document'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'get' => [
+                'tags'        => ['Doctor'],
+                'summary'     => 'Render a referral or medical certificate (HTML, or PDF with ?format=pdf)',
+                'description' => 'The signed-in doctor must own the consultation (403 otherwise), and the document must belong to it (404).',
+                'parameters'  => $clinicalDocumentParams,
+                'responses'   => ['200' => $clinicalDocumentOk, '403' => ['$ref' => '#/components/responses/Forbidden'], '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
         ],
         '/api/doctor/appointments/{id}/care-plan' => [
             'get' => ['tags' => ['Doctor'], 'summary' => 'Get care plan', 'responses' => ['200' => ['description' => 'OK']]],
@@ -1082,7 +1116,13 @@ return [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My medical certificates', 'responses' => ['200' => ['description' => 'OK']]],
         ],
         '/api/portal/appointments/{id}/documents/{kind}/{docId}' => [
-            'get' => ['tags' => ['Consultation'], 'summary' => 'Render one of my clinical documents (HTML)', 'responses' => ['200' => ['description' => 'HTML document'], '404' => ['$ref' => '#/components/responses/NotFound']]],
+            'get' => [
+                'tags'        => ['Consultation'],
+                'summary'     => 'Render one of my referrals or medical certificates (HTML, or PDF with ?format=pdf)',
+                'description' => 'Only for my own bookings: another patient\'s booking, or a document that is not on it, is 404.',
+                'parameters'  => $clinicalDocumentParams,
+                'responses'   => ['200' => $clinicalDocumentOk, '404' => ['$ref' => '#/components/responses/NotFound']],
+            ],
         ],
         '/api/portal/appointments/{id}/care-plan' => [
             'get' => ['tags' => ['Consultation'], 'summary' => 'My care plan', 'responses' => ['200' => ['description' => 'OK']]],

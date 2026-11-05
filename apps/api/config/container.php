@@ -37,6 +37,7 @@ use App\Domain\Repository\UserRepository;
 use App\Infrastructure\Agora\AgoraKickingService;
 use App\Infrastructure\Agora\AgoraRecordingService;
 use App\Infrastructure\Agora\AgoraTokenService;
+use App\Infrastructure\Document\ClinicalDocumentPdfRenderer;
 use App\Infrastructure\Document\ClinicalDocumentRenderer;
 use App\Infrastructure\Email\EmailOtpService;
 use App\Infrastructure\Email\MailService;
@@ -371,6 +372,13 @@ return [
 
     // Printable clinical documents (prescription / referral / certificate).
     ClinicalDocumentRenderer::class => static fn (): ClinicalDocumentRenderer => new ClinicalDocumentRenderer(
+        clinicName:    trim($_ENV['CLINIC_NAME'] ?? '') !== '' ? trim($_ENV['CLINIC_NAME']) : 'VideoMed',
+        clinicTagline: trim($_ENV['CLINIC_TAGLINE'] ?? '') !== '' ? trim($_ENV['CLINIC_TAGLINE']) : 'Telehealth Consultations',
+        clinicContact: trim($_ENV['CLINIC_CONTACT'] ?? ''),
+    ),
+
+    // Referrals and certificates as the A4 PDF of the document viewer (?format=pdf).
+    ClinicalDocumentPdfRenderer::class => static fn (): ClinicalDocumentPdfRenderer => new ClinicalDocumentPdfRenderer(
         clinicName:    trim($_ENV['CLINIC_NAME'] ?? '') !== '' ? trim($_ENV['CLINIC_NAME']) : 'VideoMed',
         clinicTagline: trim($_ENV['CLINIC_TAGLINE'] ?? '') !== '' ? trim($_ENV['CLINIC_TAGLINE']) : 'Telehealth Consultations',
         clinicContact: trim($_ENV['CLINIC_CONTACT'] ?? ''),

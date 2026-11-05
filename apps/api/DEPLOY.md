@@ -1323,6 +1323,48 @@ Then, in this order:
 8. **Rollback:** roll the front ends back first, then the API. The new tables are unused by old code and can
    stay.
 
+### One-time: document viewer (2026-11)
+
+**One-time: document viewer (2026-11).** No schema or env changes. Deploy the API **before** the front ends:
+the new viewer asks for referrals and certificates as `?format=pdf`. After the front ends build, run the
+`/pdfjs/` content-type checks (spec §4.3).
+
+1. **Order: the API goes live before the front ends** (the same two-step push as the time-zone release).
+   1. From your machine: `git push origin <api-commit-sha>:main` — only the API commit.
+   2. On this box: the redeploy one-liner from "Redeploying". **This release adds no DDL.** If the one-liner
+      prints DDL, it belongs to an earlier release this box has not had yet (for example,
+      `CREATE TABLE lab_requests …` is "One-time: Laboratory & Diagnostics"), not to this one. Finish that
+      release's one-time section first (the one-liner has applied its tables; its permissions, cron and checks
+      remain), then continue here.
+   3. Check the new API is serving: `curl -s https://api.dosthq.com/api/docs/openapi.json | grep -c 'format=pdf'`
+      should print a number above `0`. `0` means the old API is still served — reload PHP, and stop here if it persists.
+   4. From your machine: `git push origin main` (doctor portal, patient app, back office, onboarding).
+   Why: an old API ignores `?format=pdf` and answers the HTML page, which the new viewer can't show, so
+   referrals and medical certificates would fail to open for doctors and patients.
+2. **What changes:** `GET …/appointments/{id}/documents/{referral|certificate}/{docId}` (doctor and patient)
+   answers the A4 PDF when asked with `?format=pdf` (inline, `no-store`, sandboxed; file name
+   `referral-YYYY-MM-DD.pdf` / `medical-certificate-YYYY-MM-DD.pdf`, the issue date in the doctor's zone). The PDF
+   uses the existing `CLINIC_NAME`, `CLINIC_TAGLINE` and `CLINIC_CONTACT`. Without `format` the HTML page is
+   unchanged (for tabs opened before this release); it is removed in a later release. Access rules, CORS and
+   audit events are unchanged (neither format is audited, as before).
+3. **After the front ends build,** run the `/pdfjs/` content-type checks (spec §4.3) on every app that shows
+   PDFs:
+   ```bash
+   for h in doctor.dosthq.com patient.dosthq.com backoffice.dosthq.com join.dosthq.com; do
+     echo "== $h"
+     curl -sI "https://$h/pdfjs/pdf.worker.min.mjs" | grep -iE '^(HTTP|content-type)'
+     curl -sI "https://$h/pdfjs/cmaps/Identity-H.bcmap" | grep -iE '^(HTTP|content-type)'
+     curl -sI "https://$h/pdfjs/standard_fonts/FoxitSans.pfb" | grep -iE '^(HTTP|content-type)'
+     curl -sI "https://$h/pdfjs/wasm/openjpeg.wasm" | grep -iE '^(HTTP|content-type)'
+   done
+   ```
+   Expect `200` everywhere, the worker as `application/javascript` or `text/javascript`, and **never
+   `text/html`** (that is the SPA fallback: the file is missing). If the worker's type is wrong, add an
+   exact-path rule (`/pdfjs/pdf.worker.min.mjs` → `Content-Type: text/javascript`) to that app's
+   `public/_headers` and redeploy it. Cloudflare Pages must also have actually built the commit — check the
+   deployed JS, as in step 6 of "One-time: private medical documents".
+4. **Rollback:** roll the front ends back first, then the API (old front ends never send `format`).
+
 ---
 
 ## Troubleshooting
