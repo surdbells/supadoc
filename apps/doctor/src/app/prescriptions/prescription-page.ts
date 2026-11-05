@@ -180,8 +180,8 @@ const DD = 'font-sans text-body-sm text-ink break-words';
             }
 
             <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-              <button type="button" class="${RX_ACTION}" [disabled]="busy() !== ''" (click)="view(r)">
-                <sd-icon name="file-text" [size]="14" /> {{ busy() === 'view' ? 'Opening…' : 'View PDF' }}
+              <button type="button" class="${RX_ACTION}" [disabled]="busy() !== ''" (click)="view(r, $event.currentTarget)">
+                <sd-icon name="file-text" [size]="14" /> View PDF
               </button>
               <button type="button" class="${RX_ACTION}" [disabled]="busy() !== ''" (click)="download(r)">
                 <sd-icon name="download" [size]="14" /> {{ busy() === 'download' ? 'Preparing…' : 'Download' }}
@@ -359,7 +359,7 @@ export class PrescriptionPage implements CanLeave {
   protected readonly error = signal('');
   protected readonly actionError = signal('');
   protected readonly notice = signal('');
-  protected readonly busy = signal<'' | 'view' | 'download'>('');
+  protected readonly busy = signal<'' | 'download'>('');
   protected readonly cancelling = signal(false);
   protected currentId = '';
   private sub: Subscription | null = null;
@@ -439,18 +439,11 @@ export class PrescriptionPage implements CanLeave {
     );
   }
 
-  protected view(r: PrescriptionDto): void {
+  /** The PDF in the shared viewer (it shows its own loading and errors). */
+  protected view(r: PrescriptionDto, opener?: EventTarget | null): void {
     if (this.busy()) return;
     this.actionError.set('');
-    this.busy.set('view');
-    this.files.view(
-      r.id,
-      (err) => {
-        this.busy.set('');
-        this.actionError.set(apiErrorMessage(err, 'Could not open the PDF. Please try again.'));
-      },
-      () => this.busy.set(''),
-    );
+    this.files.view(r, opener instanceof HTMLElement ? opener : null);
   }
 
   protected download(r: PrescriptionDto): void {

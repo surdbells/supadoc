@@ -1,85 +1,62 @@
 import { inject, Injectable } from '@angular/core';
-import { DoctorApi, openPendingTab, PrescriptionsApi } from '@supadoc/data-access';
+import { DoctorApi, PrescriptionsApi } from '@supadoc/data-access';
 import type { PrescriptionLinkDto } from '@supadoc/models';
-import { map, Observable, Subscription } from 'rxjs';
-
-/** How a PDF is opened. */
-export interface RxOpenOptions {
-  /**
-   * When the browser blocks the new tab, open the PDF in THIS tab instead.
-   * Default true. Pass false during a live video call — leaving the page would
-   * end the call — and offer `onBlocked`'s link instead.
-   */
-  allowSameTab?: boolean;
-  /**
-   * The PDF could not be opened in a new tab (and `allowSameTab` is false).
-   * Show the doctor a link to `url` (a short-lived signed link) to open it.
-   */
-  onBlocked?: (url: string) => void;
-}
+import { DocumentViewerService, saveSignedLink, type ViewerErrorView, type ViewerRef } from '@supadoc/viewer';
+import { map, type Observable, type Subscription } from 'rxjs';
+import { draftPrescriptionSource, prescriptionSource } from '../viewer/doctor-viewer-sources';
 
 /**
- * Opening / downloading prescription PDFs through short-lived signed links.
- *
- * `open*` methods MUST be called synchronously from a click handler: they open
- * a placeholder tab straight away (so popup blockers allow it) and point it at
- * the PDF once the link arrives — or close it again on failure.
+ * Prescription PDFs through short-lived signed links: View and Preview open
+ * the shared document viewer (a modal over the page — during a call it gets
+ * the call band and the patient's video from the registered call), Download
+ * saves the file. Nothing opens a tab or navigates, so nothing here can ever
+ * replace the page (or drop a call). Nothing needs to run inside a click.
  */
 @Injectable({ providedIn: 'root' })
 export class RxFiles {
   private readonly api = inject(DoctorApi);
   private readonly files = inject(PrescriptionsApi);
+  private readonly viewer = inject(DocumentViewerService);
 
-  /** Open the PDF of a prescription in a new tab (drafts carry a DRAFT watermark). */
+  /**
+   * A prescription's PDF in the viewer (drafts carry a DRAFT watermark): one
+   * `prescription.viewed` per open. Focus goes back to `opener` (default: the
+   * focused button) when it closes.
+   */
   view(
-    rxId: string,
-    onError: (err: unknown) => void,
-    onDone?: () => void,
-    options: RxOpenOptions = {},
-  ): Subscription {
-    return this.open(
-      this.api.prescriptionLink(rxId).pipe(map((r) => r.data)),
-      onError,
-      onDone,
-      options,
-    );
+    rx: { readonly id: string; readonly number: string; readonly status?: string | null },
+    opener?: HTMLElement | null,
+  ): ViewerRef {
+    return this.viewer.open(prescriptionSource(this.api, this.files, rx), opener ? { opener } : {});
   }
 
-  /** Open whatever link `link$` resolves to (e.g. "save first, then link"). */
-  open(
-    link$: Observable<PrescriptionLinkDto>,
-    onError: (err: unknown) => void,
-    onDone?: () => void,
-    options: RxOpenOptions = {},
-  ): Subscription {
-    const pending = openPendingTab({ allowSameTab: options.allowSameTab ?? true });
-    return link$.subscribe({
-      next: (link) => {
-        const url = this.files.fileUrl(link);
-        if (!pending.go(url)) options.onBlocked?.(url);
-        onDone?.();
-      },
-      error: (err: unknown) => {
-        pending.fail();
-        onError(err);
-      },
-    });
+  /**
+   * The composer's Preview: the viewer opens at once (loading); `resolve`
+   * (save first when needed) runs inside its load — and again on "Try again" —
+   * then the DRAFT PDF's link is minted for the id it gives. `draftKey` is the
+   * composer's own (`'rx-draft:' + n`). `mapError`: the composer's copy for a
+   * save that failed (null: the viewer's own).
+   */
+  preview(
+    draftKey: string,
+    resolve: () => Observable<{ readonly id: string }>,
+    options: { readonly opener?: HTMLElement | null; readonly mapError?: (err: unknown) => ViewerErrorView | null } = {},
+  ): ViewerRef {
+    const source = draftPrescriptionSource(this.api, this.files, draftKey, resolve, { mapError: options.mapError });
+    return this.viewer.open(source, options.opener ? { opener: options.opener } : {});
   }
 
-  /** Download the PDF (the server answers with `Content-Disposition: attachment`). */
+  /**
+   * Download the PDF: mint a download link (one `prescription.downloaded`),
+   * fetch it with HttpClient and save it (a same-origin object URL). Never a
+   * cross-origin `<a href download>`, which navigates the page on an error body.
+   */
   download(rxId: string, onError: (err: unknown) => void, onDone?: () => void): Subscription {
-    return this.api.prescriptionLink(rxId, true).subscribe({
-      next: (res) => {
-        const a = document.createElement('a');
-        a.href = this.files.fileUrl(res.data);
-        a.download = res.data.filename || 'prescription.pdf';
-        a.rel = 'noopener';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        onDone?.();
-      },
+    return saveSignedLink(
+      this.api.prescriptionLink(rxId, true).pipe(map((r) => r.data)),
+      (url) => this.files.fileBlob({ url } as PrescriptionLinkDto),
+    ).subscribe({
+      next: () => onDone?.(),
       error: (err: unknown) => onError(err),
     });
   }

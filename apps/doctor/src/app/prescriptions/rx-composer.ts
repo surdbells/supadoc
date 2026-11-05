@@ -40,9 +40,9 @@ import {
   DialogService,
   IconComponent,
 } from '@supadoc/ui';
-import { forkJoin, map, Observable, of, Subscription, switchMap } from 'rxjs';
+import { defer, finalize, forkJoin, map, Observable, of, Subscription, switchMap } from 'rxjs';
 import { RxDrugSearch } from './rx-drug-search';
-import { RxFiles, RxOpenOptions } from './rx-files';
+import { RxFiles } from './rx-files';
 import {
   isoToLocalInput,
   localInputToIso,
@@ -90,7 +90,10 @@ type RowField =
   | 'no_substitute'
   | 'instructions';
 
-type Busy = '' | 'save' | 'preview' | 'send' | 'pdf';
+type Busy = '' | 'save' | 'preview' | 'send';
+
+/** One draft key per composer instance: its Preview's place in the viewer (never `rx:undefined`). */
+let nextDraftKey = 0;
 
 const FREQUENCIES = [
   'Once daily',
@@ -113,6 +116,9 @@ const DEFAULT_LIMITS: PrescriptionOptionsDto['limits'] = {
 
 const ICD_URL = 'https://icd.who.int/browse/2024-01/mms/en';
 
+/** A Preview whose save first failed (the field errors, when the API names any, win). */
+const PREVIEW_SAVE_FAILED = 'Could not open the preview. Please try again.';
+
 /** Shown as soon as the clinical summary says the patient has no date of birth on file. */
 const DOB_MISSING =
   "This patient's date of birth is not on file. You can save a draft, but you can't send it until the patient adds their date of birth (pharmacists need it to check the prescription).";
@@ -124,6 +130,16 @@ const DOB_MISSING =
 const GENERAL_ERROR_KEYS = ['appointment_id', 'patient_id'];
 
 /** The send-time "patient's date of birth is not on file" error (422, key `patient`). */
+/**
+ * The button a click came from (an sd-button's own <button>), for the viewer to
+ * return focus to: Safari (macOS, iPadOS) doesn't focus a clicked button, so the
+ * focused element at open() isn't it.
+ */
+function clickedButton(e?: Event): HTMLElement | null {
+  const t = e?.target;
+  return t instanceof Element ? t.closest('button') : null;
+}
+
 function isPatientKey(key: string): boolean {
   return key === 'patient' || key.startsWith('patient.');
 }
@@ -870,15 +886,6 @@ function nullIfBlank(v: string): string | null {
           } @else if (notice()) {
             <sd-alert tone="success">{{ notice() }}</sd-alert>
           }
-          @if (blockedUrl() && !sendOpen()) {
-            <p class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-field bg-frost/50 px-3 py-2.5 font-sans text-body-sm text-ink" role="status">
-              <sd-icon name="info" [size]="16" class="shrink-0 text-cerulean" />
-              <span>Your browser blocked the new tab.</span>
-              <a class="inline-flex items-center gap-1 font-semibold text-cerulean underline" [href]="blockedUrl()" target="_blank" rel="noopener noreferrer" (click)="blockedUrl.set(null)">
-                Open the prescription <sd-icon name="external-link" [size]="13" />
-              </a>
-            </p>
-          }
           <!-- One row from a 32rem-wide form (short labels), full labels from 48rem;
                narrower: the status + Close line, then one row of actions. -->
           <div class="flex flex-col gap-2 @lg:flex-row @lg:items-center @lg:justify-between @lg:gap-3">
@@ -911,7 +918,7 @@ function nullIfBlank(v: string): string | null {
                 <sd-button variant="ghost" size="sm" [disabled]="busy() !== ''" (click)="requestClose()">Close</sd-button>
               </div>
               @if (locked()) {
-                <sd-button variant="secondary" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="viewPdf()">
+                <sd-button variant="secondary" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="viewPdf($event)">
                   <sd-icon name="file-text" [size]="16" /> View PDF
                 </sd-button>
               } @else {
@@ -919,7 +926,7 @@ function nullIfBlank(v: string): string | null {
                   <sd-icon name="save" [size]="16" class="hidden shrink-0 @sm:inline" />
                   <span class="truncate">{{ busy() === 'save' ? 'Saving…' : 'Save' }}<span class="hidden @3xl:inline">{{ busy() === 'save' ? '' : ' draft' }}</span></span>
                 </sd-button>
-                <sd-button variant="outline" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="preview()">
+                <sd-button variant="outline" size="sm" [full]="true" [disabled]="busy() !== '' || disabled()" (click)="preview($event)">
                   <sd-icon name="eye" [size]="16" class="hidden shrink-0 @sm:inline" />
                   <span class="truncate">{{ busy() === 'preview' ? 'Opening…' : 'Preview' }}<span class="hidden @3xl:inline">{{ busy() === 'preview' ? '' : ' PDF' }}</span></span>
                 </sd-button>
@@ -957,14 +964,6 @@ function nullIfBlank(v: string): string | null {
                 </p>
                 @if (sendError()) {
                   <sd-alert tone="error" class="w-full text-left">{{ sendError() }}</sd-alert>
-                }
-                @if (blockedUrl()) {
-                  <p class="flex w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-field bg-frost/50 px-3 py-2.5 font-sans text-body-sm text-ink">
-                    <span>Your browser blocked the new tab.</span>
-                    <a class="inline-flex items-center gap-1 font-semibold text-cerulean underline" [href]="blockedUrl()" target="_blank" rel="noopener noreferrer" (click)="blockedUrl.set(null)">
-                      Open the prescription <sd-icon name="external-link" [size]="13" />
-                    </a>
-                  </p>
                 }
               </div>
             } @else {
@@ -1054,8 +1053,9 @@ function nullIfBlank(v: string): string | null {
 
           <footer dialogFooter class="flex shrink-0 flex-col-reverse gap-2 border-t border-cloud px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
             @if (sendDone()) {
-              <sd-button variant="secondary" [full]="true" [disabled]="busy() === 'pdf' || disabled()" (click)="viewPdf()">
-                <sd-icon name="file-text" [size]="18" /> {{ busy() === 'pdf' ? 'Opening…' : 'View PDF' }}
+              <!-- The viewer stacks over this dialog; closing it brings focus back here. -->
+              <sd-button variant="secondary" [full]="true" [disabled]="disabled()" (click)="viewPdf($event)">
+                <sd-icon name="file-text" [size]="18" /> View PDF
               </sd-button>
               <sd-button variant="primary" [full]="true" (click)="finishSent()">Done</sd-button>
             } @else {
@@ -1084,11 +1084,6 @@ export class RxComposer {
   /** Narrow single-column layout for the in-call side panel (~380px). */
   readonly compact = input(false);
   /**
-   * Shown during a live video call: a blocked PDF tab never falls back to this
-   * tab (that would end the call) — a link to open it is offered instead.
-   */
-  readonly inCall = input(false);
-  /**
    * Pause everything that talks to the server (e.g. while the portal session is
    * signed out). The form stays as it is so nothing is lost.
    */
@@ -1102,6 +1097,8 @@ export class RxComposer {
   readonly closed = output<void>();
 
   private readonly uid = `rx${++nextUid}`;
+  /** This composer's Preview in the viewer: one key whether or not a draft is saved yet. */
+  protected readonly draftKey = `rx-draft:${++nextDraftKey}`;
   protected readonly frequencies = FREQUENCIES;
   protected readonly durations = DURATIONS;
   protected readonly icdUrl = ICD_URL;
@@ -1166,8 +1163,6 @@ export class RxComposer {
   protected readonly formError = signal('');
   /** The API refused to send because of the patient's record (date of birth not on file). */
   protected readonly patientError = signal('');
-  /** A PDF whose new tab was blocked during a call — offered as a link instead. */
-  protected readonly blockedUrl = signal<string | null>(null);
   protected readonly notice = signal('');
   protected readonly busy = signal<Busy>('');
   protected readonly infoOpen = signal(false);
@@ -1364,7 +1359,6 @@ export class RxComposer {
     this.fieldErrors.set({});
     this.formError.set('');
     this.patientError.set('');
-    this.blockedUrl.set(null);
     this.notice.set('');
     this.savedJson.set(JSON.stringify(this.buildForm().form));
   }
@@ -1958,58 +1952,88 @@ export class RxComposer {
       });
   }
 
-  /** Save first (if needed), then open the DRAFT-watermarked PDF in a new tab. */
-  protected preview(): void {
+  /**
+   * The DRAFT-stamped PDF in the shared viewer. It opens at once (loading);
+   * inside its load the form is saved first when it has unsaved changes or was
+   * never saved — `busy` is 'preview' only while that save runs — and the link
+   * is minted for the saved id. A failed save shows under the form as Save's
+   * does, and in the viewer (with Try again, which saves again).
+   */
+  protected preview(e?: Event): void {
     if (this.busy() || this.locked() || this.disabled()) return;
+    const opener = clickedButton(e);
     this.flushDraft(false);
     this.formError.set('');
     this.notice.set('');
-    this.blockedUrl.set(null);
-    const current = this.rx();
-    const needsSave = !current || this.dirty();
-    this.busy.set('preview');
-    const link$ = (needsSave || !current ? this.persist() : of(current)).pipe(
-      switchMap((rx) => this.api.prescriptionLink(rx.id)),
-      map((r) => r.data),
-      takeUntilDestroyed(this.destroyRef),
-    );
-    this.files.open(
-      link$,
-      (err) => {
-        this.busy.set('');
-        this.showFormError(err, 'Could not open the preview. Please try again.');
+    this.files.preview(
+      this.draftKey,
+      () => {
+        // Inside the viewer's load (an effect): never a dependency of it.
+        const current = untracked(() => this.rx());
+        return current && !untracked(() => this.dirty()) ? of(current) : this.saveForPreview();
       },
-      () => this.busy.set(''),
-      this.openOptions(),
+      {
+        opener,
+        mapError: (err) =>
+          err === this.previewSaveError
+            ? { state: 'error', text: this.formError() || this.patientError() || apiErrorMessage(err, PREVIEW_SAVE_FAILED), retry: true }
+            : null,
+      },
     );
   }
 
-  /** In a call a blocked tab must never take over this page — offer a link instead. */
-  private openOptions(): RxOpenOptions {
-    return {
-      allowSameTab: !this.inCall(),
-      onBlocked: (url) => this.blockedUrl.set(url),
-    };
+  /**
+   * The preview's save, run by the composer (not by the viewer's load): closing
+   * the viewer mid-save never cancels it, so it can't leave a second draft
+   * behind; "Try again" while it runs waits for the same save.
+   */
+  private previewSave: Promise<PrescriptionDto> | null = null;
+  private previewSaveError: unknown = null;
+
+  private saveForPreview(): Observable<PrescriptionDto> {
+    const running = this.previewSave;
+    if (running) return defer(() => running);
+    let settle!: { resolve(rx: PrescriptionDto): void; reject(err: unknown): void };
+    const saving = new Promise<PrescriptionDto>((resolve, reject) => (settle = { resolve, reject }));
+    // Nobody may be waiting any more (the viewer closed): a failure is then not "unhandled".
+    saving.catch(() => undefined);
+    this.previewSave = saving;
+    this.previewSaveError = null;
+    this.busy.set('preview');
+    let saved = false;
+    this.persist()
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => {
+          if (this.previewSave === saving) this.previewSave = null;
+          if (this.busy() === 'preview') this.busy.set('');
+        }),
+      )
+      .subscribe({
+        next: (rx) => {
+          saved = true;
+          settle.resolve(rx);
+        },
+        error: (err: unknown) => {
+          this.previewSaveError = err;
+          this.showFormError(err, PREVIEW_SAVE_FAILED);
+          settle.reject(err);
+        },
+        // The composer went away mid-save: the viewer's load fails rather than waiting forever.
+        complete: () => {
+          if (!saved) settle.reject(new Error('The prescription was closed.'));
+        },
+      });
+    return defer(() => saving);
   }
 
-  /** The sent PDF (from the success screen or a locked composer). */
-  protected viewPdf(): void {
+  /** The sent PDF (from the success screen — the viewer stacks over the Send dialog — or a locked composer). */
+  protected viewPdf(e?: Event): void {
     const current = this.rx();
     if (!current || this.busy() || this.disabled()) return;
-    this.busy.set('pdf');
     this.sendError.set('');
-    this.blockedUrl.set(null);
-    this.files.view(
-      current.id,
-      (err) => {
-        this.busy.set('');
-        const msg = apiErrorMessage(err, 'Could not open the PDF. Please try again.');
-        if (this.sendOpen()) this.sendError.set(msg);
-        else this.formError.set(msg);
-      },
-      () => this.busy.set(''),
-      this.openOptions(),
-    );
+    // Focus comes back to this button (inside the Send dialog, under the stacked viewer).
+    this.files.view(current, clickedButton(e));
   }
 
   protected async requestClose(): Promise<void> {

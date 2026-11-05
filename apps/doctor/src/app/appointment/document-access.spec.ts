@@ -1,4 +1,5 @@
 import { NETWORK_ERROR_MESSAGE } from '@supadoc/data-access';
+import { notViewableCopy, viewOnlyNotViewableText } from '@supadoc/viewer';
 import type { DoctorAccessRequestDto, DoctorDocumentAccessDto, DoctorSharedDocumentDto } from '@supadoc/models';
 import {
   ACTIVE_WINDOW_MS,
@@ -13,6 +14,7 @@ import {
   LOAD_FAILED,
   MAX_REFRESH_MS,
   nextRefreshDelay,
+  notViewableText,
   NOT_SHARED,
   OPEN_FAILED,
   openErrorCopy,
@@ -557,5 +559,16 @@ describe('new documents in the call', () => {
     });
     expect(docAlertLines({ count: 1, doc: d }, 'Ada', true).detail).toBeNull();
     expect(docAlertLines({ count: 3, doc: null }, 'Ada', false)).toEqual({ title: 'Ada shared 3 new documents', detail: null });
+  });
+});
+
+describe('the viewer card for a type it cannot show', () => {
+  it('notViewableText is the shared viewer’s view_only copy (one wording everywhere)', () => {
+    expect(notViewableText('docx')).toBe(viewOnlyNotViewableText('docx'));
+    expect(notViewableText('.dcm')).toBe(notViewableCopy('ask_patient', 'DCM'));
+    expect(notViewableText('docx')).toBe(
+      "Preview isn't available for this file type (DOCX). Ask the patient to share it as a PDF or photo.",
+    );
+    expect(notViewableText(null)).toBe(viewOnlyNotViewableText(null));
   });
 });

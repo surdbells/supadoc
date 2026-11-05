@@ -1,13 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { DoctorApi } from '@supadoc/data-access';
+import { DoctorApi, PrescriptionsApi } from '@supadoc/data-access';
 import type {
   ClinicalSummaryDto,
   PrescriptionDto,
   PrescriptionOptionsDto,
 } from '@supadoc/models';
 import { provideSupadocIcons } from '@supadoc/ui';
-import { Observable, of, throwError } from 'rxjs';
+import { DocumentViewerService, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
+import { firstValueFrom, Observable, of, throwError } from 'rxjs';
 import { RxComposer } from './rx-composer';
 import { RxFiles } from './rx-files';
 import { RX_PREGNANCY_LABELS, RX_SOURCE_LABELS, RX_FOLLOW_UP_LABELS } from './rx-shared';
@@ -302,5 +303,175 @@ describe('RxComposer', () => {
     await abroad.fixture.whenStable();
     abroad.fixture.detectChanges();
     expect(abroad.text()).toContain('Add your General Medical Council number in your profile');
+  });
+});
+
+describe('RxComposer — PDFs in the shared viewer', () => {
+  type Opened = { sources: ViewerSource; options: ViewerOpenOptions; active: Element | null };
+  let opened: Opened[];
+  let order: string[];
+
+  function setupViewer(opts: { draft?: Partial<PrescriptionDto>; create?: () => Observable<unknown> } = {}) {
+    opened = [];
+    order = [];
+    const viewer = {
+      open: vi.fn((sources: ViewerSource, options: ViewerOpenOptions = {}) => {
+        opened.push({ sources, options, active: document.activeElement });
+        return { closed: Promise.resolve(), close: () => undefined };
+      }),
+    };
+    const api = {
+      prescriptionOptions: () => of({ data: OPTIONS }),
+      getPrescription: () => of({ data: { id: 'rx1', number: 'GVM-RX-1', status: 'draft', items: [], readings: {}, ...opts.draft } }),
+      clinicalSummary: () => of({ data: summary() }),
+      createPrescription: vi.fn(
+        opts.create ??
+          (() =>
+            new Observable((sub) => {
+              order.push('persist');
+              sub.next({ data: { id: 'rx-new', number: 'GVM-RX-2', status: 'draft', items: [], readings: {} } });
+              sub.complete();
+            })),
+      ),
+      updatePrescription: vi.fn(() => of({ data: { id: 'rx1', number: 'GVM-RX-1', status: 'draft', items: [], readings: {} } })),
+      sendPrescription: () => of({ data: { id: 'rx1', number: 'GVM-RX-1', status: 'active', items: [], readings: {} } }),
+      prescriptionLink: vi.fn((id: string) => {
+        order.push(`link:${id}`);
+        return of({ data: { url: 'api/public/prescriptions/file?token=t', filename: 'x.pdf', expires_at: '' } });
+      }),
+      searchDrugs: () => of({ data: [] }),
+    };
+    TestBed.configureTestingModule({
+      imports: [RxComposer],
+      providers: [
+        provideRouter([]),
+        provideSupadocIcons(),
+        { provide: DoctorApi, useValue: api },
+        { provide: PrescriptionsApi, useValue: { fileBlob: () => of(new Blob(['%PDF'], { type: 'application/pdf' })) } },
+        { provide: DocumentViewerService, useValue: viewer },
+      ],
+    });
+    const fixture = TestBed.createComponent(RxComposer);
+    document.body.appendChild(fixture.nativeElement);
+    fixture.componentRef.setInput('patientId', 'p1');
+    fixture.componentRef.setInput('appointmentId', 'a1');
+    if (opts.draft) fixture.componentRef.setInput('prescriptionId', 'rx1');
+    fixture.detectChanges();
+    fixture.detectChanges();
+    const c = fixture.componentInstance as unknown as ComposerView & { preview(): void; viewPdf(): void; busy(): string };
+    return { fixture, c, api, viewer, el: fixture.nativeElement as HTMLElement };
+  }
+
+  afterEach(() => document.querySelectorAll('doc-rx-composer, div[id^="root"]').forEach((n) => n.remove()));
+
+  it('has no blocked-tab link: nothing opens a tab any more', async () => {
+    const { fixture, el } = setupViewer({ draft: { status: 'active' } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(el.textContent).not.toContain('blocked the new tab');
+    expect(el.querySelector('a[target="_blank"][href*="prescriptions"]')).toBeNull();
+  });
+
+  it('Preview from a NEW composer opens the viewer at once; the save runs inside its load, then the link for the saved id', async () => {
+    const { fixture, c, api } = setupViewer();
+    await fixture.whenStable();
+    fillDraft(c);
+    c.commitDraft();
+    c.preview();
+    // At once, in the loading state: nothing saved or linked yet.
+    expect(opened).toHaveLength(1);
+    expect(api.createPrescription).not.toHaveBeenCalled();
+    const source = opened[0].sources;
+    expect(source.key).toMatch(/^rx-draft:\d+$/);
+    expect(source.key).not.toContain('undefined');
+    expect(source.policy).toBe('authored_draft');
+    expect(source.download).toBeUndefined();
+    await firstValueFrom(source.load());
+    expect(order).toEqual(['persist', 'link:rx-new']);
+    expect(api.prescriptionLink).toHaveBeenCalledWith('rx-new');
+    expect(api.prescriptionLink).not.toHaveBeenCalledWith(undefined);
+    expect(c.busy()).toBe('');
+  });
+
+  it('Preview of a saved, unchanged draft links it without saving again; the key stays the composer’s', async () => {
+    const { fixture, c, api } = setupViewer({ draft: { reason: 'Cough' } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    c.preview();
+    const first = opened[0].sources;
+    await firstValueFrom(first.load());
+    expect(api.createPrescription).not.toHaveBeenCalled();
+    expect(api.updatePrescription).not.toHaveBeenCalled();
+    expect(order).toEqual(['link:rx1']);
+    c.preview();
+    expect(opened[1].sources.key).toBe(first.key);
+  });
+
+  it('a save that fails shows in the viewer (Try again) and under the form', async () => {
+    const message = 'This consultation was cancelled before it took place.';
+    const { fixture, c } = setupViewer({
+      create: () => throwError(() => ({ statusCode: 422, message: 'Validation failed', errors: { appointment_id: message } })),
+    });
+    await fixture.whenStable();
+    c.preview();
+    const source = opened[0].sources;
+    let err: unknown = null;
+    await firstValueFrom(source.load()).catch((e: unknown) => (err = e));
+    expect(err).not.toBeNull();
+    expect(source.mapError?.(err)).toEqual({ state: 'error', text: message, retry: true });
+    expect(c.formError()).toBe(message);
+    expect(source.mapError?.({ statusCode: 503 })).toBeNull();
+  });
+
+  it('"View PDF" in the Send dialog opens the viewer stacked over it, its button the opener focus returns to', async () => {
+    const { fixture, c, el } = setupViewer({ draft: { reason: 'Cough' } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    c.checkAllergies.set(true);
+    c.checkDoses.set(true);
+    c.checkPatient.set(true);
+    c.setSigMode('drawn');
+    c.drawn.set('data:image/png;base64,AAAA');
+    (c as unknown as { sendOpen: { set(v: boolean): void } }).sendOpen.set(true);
+    c.confirmSend();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const button = Array.from(el.querySelectorAll<HTMLButtonElement>('dialog button')).find((b) => (b.textContent ?? '').includes('View PDF'));
+    expect(button).toBeDefined();
+    // Safari doesn't focus a clicked button: the click (here on its icon) names the opener itself.
+    expect(document.activeElement).not.toBe(button);
+    button?.querySelector('sd-icon')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(opened).toHaveLength(1);
+    expect(opened[0].sources.policy).toBe('authored');
+    expect(opened[0].sources.key).toBe('rx:rx1');
+    // The button inside the Send dialog, so focus returns to it when the stacked viewer closes.
+    expect(opened[0].options.opener).toBe(button);
+  });
+
+  it('"Preview PDF" and a locked composer’s "View PDF" name their clicked button as the opener (no focus needed)', async () => {
+    const draft = setupViewer({ draft: { reason: 'Cough' } });
+    await draft.fixture.whenStable();
+    draft.fixture.detectChanges();
+    const preview = Array.from(draft.el.querySelectorAll<HTMLButtonElement>('button')).find((b) => (b.textContent ?? '').includes('Preview'));
+    expect(preview).toBeDefined();
+    expect(document.activeElement).not.toBe(preview);
+    preview?.click();
+    expect(opened).toHaveLength(1);
+    expect(opened[0].sources.policy).toBe('authored_draft');
+    expect(opened[0].options.opener).toBe(preview);
+    draft.fixture.destroy();
+    document.querySelectorAll('doc-rx-composer').forEach((n) => n.remove());
+    TestBed.resetTestingModule();
+
+    const sent = setupViewer({ draft: { status: 'active' } });
+    await sent.fixture.whenStable();
+    sent.fixture.detectChanges();
+    const view = Array.from(sent.el.querySelectorAll<HTMLButtonElement>('button')).find((b) => (b.textContent ?? '').includes('View PDF'));
+    expect(view).toBeDefined();
+    view?.click();
+    expect(opened).toHaveLength(1);
+    expect(opened[0].sources.key).toBe('rx:rx1');
+    expect(opened[0].options.opener).toBe(view);
   });
 });

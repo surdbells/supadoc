@@ -14,7 +14,8 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize, tap } from 'rxjs';
-import { apiErrorFields, apiErrorMessage, DoctorApi, openBlobDocument, todayLocal } from '@supadoc/data-access';
+import { apiErrorFields, apiErrorMessage, DoctorApi, todayLocal } from '@supadoc/data-access';
+import { DocumentViewerService } from '@supadoc/viewer';
 import type { CredentialType, DoctorCredentialsDto, SpecialistCredentialDto } from '@supadoc/models';
 import {
   AlertComponent,
@@ -37,6 +38,7 @@ import {
 } from '../standing/standing-rules';
 import { CredentialStatusChip } from './credential-status';
 import { DoctorClock } from '../doctor-clock';
+import { credentialSource } from '../viewer/doctor-viewer-sources';
 
 const FIELD =
   'min-h-11 w-full rounded-field border border-[#b8c6d4] bg-white px-4 py-2.5 font-sans text-body-sm text-ink shadow-control placeholder:text-slate/50 focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 aria-[invalid=true]:border-alert';
@@ -346,8 +348,8 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
                     <span class="shrink-0">· {{ size(c.size_bytes) }} · uploaded {{ uploaded(c.created_at) }}</span>
                   </p>
                   <div class="flex flex-wrap gap-2">
-                    <button type="button" class="${ACTION} text-cerulean hover:border-cerulean" (click)="view(c)">
-                      <sd-icon name="eye" [size]="16" />View<span class="sr-only"> {{ c.type_label }} (opens in a new tab)</span>
+                    <button type="button" class="${ACTION} text-cerulean hover:border-cerulean" (click)="view(c, $event.currentTarget)">
+                      <sd-icon name="eye" [size]="16" />View<span class="sr-only"> {{ c.type_label }}</span>
                     </button>
                     <button type="button" class="${ACTION} text-cerulean hover:border-cerulean" (click)="startUpload(c.type)">
                       <sd-icon name="refresh-cw" [size]="16" />Replace<span class="sr-only"> {{ c.type_label }}</span>
@@ -386,8 +388,8 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
                       <span class="shrink-0">· {{ size(c.size_bytes) }}</span>
                     </p>
                   </div>
-                  <button type="button" class="${ACTION} w-fit shrink-0 text-cerulean hover:border-cerulean" (click)="view(c)">
-                    <sd-icon name="eye" [size]="16" />View<span class="sr-only"> {{ c.type_label }} (opens in a new tab)</span>
+                  <button type="button" class="${ACTION} w-fit shrink-0 text-cerulean hover:border-cerulean" (click)="view(c, $event.currentTarget)">
+                    <sd-icon name="eye" [size]="16" />View<span class="sr-only"> {{ c.type_label }}</span>
                   </button>
                 </li>
               }
@@ -402,6 +404,7 @@ export class DoctorCredentials implements OnInit {
   /** The doctor's clock (their profile time zone): every time shown here. */
   protected readonly clock = inject(DoctorClock);
   private readonly api = inject(DoctorApi);
+  private readonly viewer = inject(DocumentViewerService);
   private readonly standing = inject(DoctorStandingStore);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
@@ -651,9 +654,9 @@ export class DoctorCredentials implements OnInit {
 
   // ----- List -----
 
-  /** Popup-safe: the tab opens on the click, the file follows from a blob URL. */
-  protected view(c: SpecialistCredentialDto): void {
-    openBlobDocument(this.api.credentialFile(c.id));
+  /** One of my own documents in the shared viewer (View, Print, Download); focus returns to its View button. */
+  protected view(c: SpecialistCredentialDto, opener?: EventTarget | null): void {
+    this.viewer.open(credentialSource(this.api, c), opener instanceof HTMLElement ? { opener } : {});
   }
 
   /** "Delete this document?" — deleted inside the dialog (spinner, inline error); the list then reloads. */

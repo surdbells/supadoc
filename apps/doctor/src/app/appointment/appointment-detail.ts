@@ -27,7 +27,6 @@ import {
   DoctorApi,
   injectCallPresence,
   isoToZonedLocal,
-  openClinicalDocument,
   todayLocal,
   zonedLocalToIso,
 } from '@supadoc/data-access';
@@ -56,19 +55,20 @@ import {
   AlertComponent,
   BookingCalendarComponent,
   CallPresenceComponent,
-  DialogComponent,
   DialogService,
   IconComponent,
   MessageThreadComponent,
   shortDayLabel,
 } from '@supadoc/ui';
+import { DocumentViewerService } from '@supadoc/viewer';
 import { DoctorClock } from '../doctor-clock';
 import { focusAfterDialogs } from '../focus-after-dialog';
 import {
-  ProtectedDocumentViewer,
-  type ProtectedDocumentFile,
-  type ProtectedViewerState,
-} from '../viewer/protected-document-viewer';
+  clinicalDocumentSource,
+  patientDocumentSource,
+  revokeUnshared,
+  viewerWatermark,
+} from '../viewer/doctor-viewer-sources';
 import { MedicationItem, VisitStatusBadge } from '../patients/patient-record-ui';
 import { RxPanel } from '../prescriptions/rx-panel';
 import {
@@ -104,10 +104,7 @@ import {
   type AccessTone,
   FINE_PRINT,
   isStaleRequestCode,
-  isViewableDoc,
   nextRefreshDelay,
-  NOT_SHARED,
-  openErrorCopy,
   PAGE_POLL_MS,
   REQUEST_SENT,
   REQUEST_WITHDRAWN,
@@ -269,8 +266,6 @@ function timeLeft(ms: number): TimeLeft | null {
     FollowUpPlanner,
     MedicationItem,
     RequestAccessDialog,
-    DialogComponent,
-    ProtectedDocumentViewer,
     VisitStatusBadge,
   ],
   host: { class: 'block' },
@@ -733,10 +728,6 @@ function timeLeft(ms: number): TimeLeft | null {
                 }
               }
 
-              @if (docOpenError()) {
-                <sd-alert tone="error">{{ docOpenError() }}</sd-alert>
-              }
-
               @if (docAccess(); as acc) {
                 @if (!docsError() && acc.request.blocked_reason !== 'sharing_unavailable') {
                   @if (patientDocs().length > 0) {
@@ -993,29 +984,6 @@ function timeLeft(ms: number): TimeLeft | null {
         <p class="font-sans text-body-sm text-slate">{{ recordError() }}</p>
       </div>
     </ng-template>
-
-    <!-- A shared document, view-only (watermarked; Print is recorded for the patient). -->
-    <sd-dialog
-      [open]="!!viewerDoc()"
-      size="xl"
-      layout="plain"
-      labelledBy="doc-viewer-title"
-      (closed)="closeViewer()"
-      (afterClose)="afterViewerClosed()"
-    >
-      @if (viewerFile(); as f) {
-        <doc-protected-document-viewer
-          class="h-[min(85dvh,56rem)]"
-          mode="dialog"
-          [file]="f"
-          [state]="viewerState()"
-          [errorText]="viewerError()"
-          [watermark]="viewerWatermark()"
-          (closed)="closeViewer()"
-          (printRequested)="onViewerPrint()"
-        />
-      }
-    </sd-dialog>
   `,
 })
 export class DoctorAppointmentDetail implements OnInit {
@@ -1061,23 +1029,10 @@ export class DoctorAppointmentDetail implements OnInit {
   /** The last load failed (or sharing is unavailable): an error with Try again — never a false "nothing shared". */
   protected readonly docsError = signal(false);
   protected readonly docSearch = signal('');
-  /** Why a shared document did not open (e.g. no longer shared). */
-  protected readonly docOpenError = signal('');
   /** The doctor's clock (profile zone): every time on this page. */
   protected readonly clock = inject(DoctorClock);
-  // The view-only viewer (a dialog over this page).
-  protected readonly viewerDoc = signal<DoctorSharedDocumentDto | null>(null);
-  protected readonly viewerFile = signal<ProtectedDocumentFile | null>(null);
-  protected readonly viewerState = signal<ProtectedViewerState>('loading');
-  protected readonly viewerError = signal('');
-  private readonly viewer = viewChild(ProtectedDocumentViewer);
-  private viewerSub: Subscription | null = null;
-  private viewerOpener: HTMLElement | null = null;
-  /** The viewer's watermark: the doctor's name and zone. */
-  protected readonly viewerWatermark = computed(() => ({
-    viewerName: this.clock.profile()?.name || this.auth.displayName() || 'Doctor',
-    timeZone: this.clock.zone(),
-  }));
+  /** The shared document viewer (a modal over the page; view-only for the patient's documents). */
+  private readonly viewer = inject(DocumentViewerService);
   /** Sharing results for screen readers ("Request sent."). */
   protected readonly docAnnounce = signal('');
   /** The request dialog is showing. */
@@ -1390,6 +1345,8 @@ export class DoctorAppointmentDetail implements OnInit {
           this.loadingDocs.set(false);
           this.docsLoadedAt = Date.now();
           this.scheduleDocsChange(res.data);
+          // No longer shared (poll, refresh, realtime): the open viewer drops those bytes and says so in place.
+          revokeUnshared(this.viewer, new Set((res.data.documents ?? []).map((d) => d.id)));
         },
         error: (err: unknown) => {
           if (seq !== this.docsSeq) return;
@@ -1474,7 +1431,6 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   protected onDocAction(kind: AccessActionKind): void {
-    this.docOpenError.set('');
     switch (kind) {
       case 'retry':
         this.loadDocs('load');
@@ -1591,86 +1547,29 @@ export class DoctorAppointmentDetail implements OnInit {
   }
 
   /**
-   * Open a shared document in the view-only viewer (a dialog over this page):
-   * fetched with `X-SD-Viewer` and recorded for the patient. A type the viewer
-   * can't show is said without fetching; no longer shared re-reads the list.
+   * Open a shared document in the shared viewer (a modal over this page), with
+   * the Documents tab's list as displayed so ‹ / › move through it: view-only
+   * (watermarked, every print recorded first, never downloadable), fetched
+   * with `X-SD-Viewer` and recorded for the patient. A type the viewer can't
+   * show is said without fetching; "no longer shared" re-reads the list. Focus
+   * goes back to the row, else to the documents banner.
    */
   protected openPatientDoc(doc: DoctorSharedDocumentDto, opener?: EventTarget | null): void {
-    this.docOpenError.set('');
-    this.viewerSub?.unsubscribe();
-    this.viewerOpener = opener instanceof HTMLElement ? opener : null;
-    this.viewerDoc.set(doc);
-    this.viewerError.set('');
-    this.viewerFile.set(this.placeholderFile(doc));
-    if (!isViewableDoc(doc)) {
-      this.viewerState.set('not_viewable');
-      return;
-    }
-    this.viewerState.set('loading');
-    this.viewerSub = this.api
-      .patientDocumentView(this.id, doc.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (v) => {
-          if (this.viewerDoc()?.id !== doc.id) return;
-          this.viewerFile.set({ ...this.placeholderFile(doc), blob: v.blob, mime: v.mime, viewRef: v.viewRef, viewedAt: v.viewedAt });
-          this.viewerState.set('ready');
-        },
-        error: (err: unknown) => {
-          if (this.viewerDoc()?.id !== doc.id) return;
-          const code = apiErrorCode(err);
-          const status = (err as { statusCode?: number; status?: number })?.statusCode ?? (err as { status?: number })?.status ?? 0;
-          if (status === 415 || code === 'not_viewable') {
-            this.viewerState.set('not_viewable');
-            return;
-          }
-          this.viewerError.set(code === 'not_shared' ? NOT_SHARED : openErrorCopy(status, code));
-          this.viewerState.set('error');
-          if (code === 'not_shared') this.loadDocs('refresh');
-        },
-      });
-  }
-
-  private placeholderFile(doc: DoctorSharedDocumentDto): ProtectedDocumentFile {
-    return {
-      blob: null,
-      mime: '',
-      title: doc.title,
-      typeLabel: doc.type_label,
-      extension: doc.extension,
-      viewRef: null,
-      viewedAt: new Date().toISOString(),
-    };
-  }
-
-  /** The viewer's pages are prepared: record the print (the patient sees it), then print — or don't. */
-  protected onViewerPrint(): void {
-    const doc = this.viewerDoc();
-    const file = this.viewerFile();
-    const viewer = this.viewer();
-    if (!doc || !file || !viewer) return;
-    this.api
-      .patientDocumentPrinted(this.id, doc.id, file.viewRef)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => void viewer.print(),
-        error: () => viewer.cancelPrint(),
-      });
-  }
-
-  protected closeViewer(): void {
-    this.viewerSub?.unsubscribe();
-    this.viewerSub = null;
-    this.viewerDoc.set(null);
-  }
-
-  /** After the viewer dialog closed: back to the row that opened it, else the documents heading. */
-  protected afterViewerClosed(): void {
-    const opener = this.viewerOpener;
-    this.viewerOpener = null;
-    this.viewerFile.set(null);
-    if (opener?.isConnected) opener.focus();
-    else this.docBannerEl()?.nativeElement.focus();
+    const list = this.filteredDocs();
+    const at = list.findIndex((d) => d.id === doc.id);
+    const docs = at < 0 ? [doc] : list;
+    const zone = this.clock.zone();
+    this.viewer.open(
+      docs.map((d) => patientDocumentSource(this.api, this.id, d, { onGone: () => this.loadDocs('refresh') }, zone)),
+      {
+        index: Math.max(0, at),
+        opener: opener instanceof HTMLElement ? opener : null,
+        fallbackFocus: () => this.docBannerEl()?.nativeElement ?? null,
+        watermark: viewerWatermark(this.clock, this.auth),
+        tone: 'light',
+        listLabel: 'shared documents',
+      },
+    );
   }
 
   /** Route guard hook: never drop an unsaved prescription when leaving the page. */
@@ -1918,8 +1817,19 @@ export class DoctorAppointmentDetail implements OnInit {
     return this.certEarliestFrom() || todayLocal(-CERTIFICATE_BACKDATE_DAYS - 1);
   }
 
+  /**
+   * "Open / print": the referral letter or medical certificate as the API's PDF
+   * in the shared viewer — Print, no Download (as the old printable tab had none).
+   */
   protected openDoc(kind: ClinicalDocumentKind, docId: string): void {
-    openClinicalDocument(this.api.document(this.id, kind, docId));
+    const ref = kind === 'referral' ? this.referrals().find((r) => r.id === docId) : null;
+    const cert = kind === 'certificate' ? this.certificates().find((c) => c.id === docId) : null;
+    const doc = {
+      id: docId,
+      label: ref ? ref.target : (cert?.type_label ?? null),
+      issued_at: (ref ?? cert)?.created_at ?? null,
+    };
+    this.viewer.open(clinicalDocumentSource(this.api, this.id, kind, doc, this.clock.zone()));
   }
 
   // ----- Recording -----

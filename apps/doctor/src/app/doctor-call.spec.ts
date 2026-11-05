@@ -1,4 +1,4 @@
-import { ApplicationRef, signal, type WritableSignal } from '@angular/core';
+import { ApplicationRef, type EmbeddedViewRef, signal, type WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
@@ -14,14 +14,19 @@ import {
   DialogService,
   provideSupadocIcons,
 } from '@supadoc/ui';
+import { DocumentViewerService, type ViewerCallContext, type ViewerOpenOptions, type ViewerSession, type ViewerSource } from '@supadoc/viewer';
 import { NOT_SHARED } from './appointment/document-access';
 import { NoteDraftStore } from './appointment/note-draft';
 import { DoctorCall } from './doctor-call';
-import { PDF_LOADER } from './viewer/pdf-loader';
 
 /** Agora, faked: a client that joins and keeps its event handlers (the nudge arrives on 'stream-message'). */
 const agora = vi.hoisted(() => {
-  const clients: Array<{ handlers: Record<string, (...a: unknown[]) => void> }> = [];
+  const clients: Array<{
+    handlers: Record<string, (...a: unknown[]) => unknown>;
+    remoteUsers: Array<{ uid: number | string; videoTrack?: unknown }>;
+    leave: (...a: unknown[]) => Promise<unknown>;
+    join: (...a: unknown[]) => Promise<unknown>;
+  }> = [];
   const track = (kind: string) => ({
     kind,
     enabled: true,
@@ -33,11 +38,15 @@ const agora = vi.hoisted(() => {
   });
   const module = {
     createClient: vi.fn(() => {
-      const handlers: Record<string, (...a: unknown[]) => void> = {};
+      const listeners: Record<string, Array<(...a: unknown[]) => unknown>> = {};
+      /** One dispatcher per event: calls every listener, and waits for the async ones. */
+      const handlers: Record<string, (...a: unknown[]) => unknown> = {};
       const client = {
         handlers,
-        on: vi.fn((event: string, cb: (...a: unknown[]) => void) => {
-          handlers[event] = cb;
+        remoteUsers: [] as Array<{ uid: number | string; videoTrack?: unknown }>,
+        on: vi.fn((event: string, cb: (...a: unknown[]) => unknown) => {
+          (listeners[event] ??= []).push(cb);
+          handlers[event] = (...a: unknown[]) => Promise.all(listeners[event].map((l) => l(...a)));
         }),
         off: vi.fn(),
         join: vi.fn(async () => 2),
@@ -127,9 +136,55 @@ interface CallInternals {
   readonly newDocCount: () => number;
   readonly docAlert: () => { count: number } | null;
   readonly docAlertView: () => { title: string; detail: string | null } | null;
-  readonly viewerDoc: () => DoctorSharedDocumentDto | null;
+  readonly callClosed: WritableSignal<string>;
+  readonly connectionLost: WritableSignal<boolean>;
+  readonly recordingError: WritableSignal<string>;
+  readonly recordingActive: WritableSignal<boolean>;
+  readonly joinStanding: WritableSignal<string | null>;
+  readonly errorMessage: WritableSignal<string>;
+  readonly docAnnounce: WritableSignal<string>;
+  readonly viewerPeerTrack: () => unknown;
+  readonly newDocIds: () => ReadonlySet<string>;
   loadDocumentAccess(mode: 'load' | 'refresh' | 'poll' | 'nudge'): void;
-  closeViewer(refocus?: boolean): void;
+  rejoin(): Promise<void>;
+  leave(to?: 'appointment' | 'schedule'): Promise<void>;
+  openStanding(): Promise<void>;
+  askEnd(): Promise<void>;
+  toggleMic(): Promise<void>;
+}
+
+/** The shared viewer, faked: what the page registers and opens, with the service's hand-over order. */
+function fakeViewer() {
+  const session = signal<ViewerSession | null>(null);
+  let ctx: ViewerCallContext | null = null;
+  const unregister = vi.fn(() => {
+    if (session()) viewer.close();
+    ctx = null;
+  });
+  const viewer = {
+    session,
+    ctx: () => ctx,
+    unregister,
+    registerCall: vi.fn((c: ViewerCallContext) => {
+      ctx = c;
+      return unregister;
+    }),
+    open: vi.fn((sources: ViewerSource | readonly ViewerSource[], options: ViewerOpenOptions = {}) => {
+      const list = Array.isArray(sources) ? (sources as readonly ViewerSource[]) : [sources as ViewerSource];
+      const wasOpen = session() !== null;
+      session.set({ seq: 1, sources: list, refused: list.map(() => null), options });
+      if (!wasOpen) ctx?.willOpen();
+      return { closed: Promise.resolve(), close: () => viewer.close() };
+    }),
+    close: vi.fn(() => {
+      if (!session()) return;
+      session.set(null);
+      ctx?.didClose();
+    }),
+    revoke: vi.fn(),
+    isShowing: (key: string) => session()?.sources.some((s) => s.key === key) ?? false,
+  };
+  return viewer;
 }
 
 describe('DoctorCall — documents in the call', () => {
@@ -139,6 +194,8 @@ describe('DoctorCall — documents in the call', () => {
   let reads: { at: number; passive: boolean }[];
   let answer: () => Observable<{ data: DoctorDocumentAccessDto }>;
   let t0: number;
+  let viewer: ReturnType<typeof fakeViewer>;
+  let dialogConfirm: ReturnType<typeof vi.fn>;
   const signedIn = signal(true);
   const realMatchMedia = window.matchMedia;
 
@@ -161,6 +218,8 @@ describe('DoctorCall — documents in the call', () => {
     reads = [];
     answer = () => of({ data: access(docs) });
     signedIn.set(true);
+    viewer = fakeViewer();
+    dialogConfirm = vi.fn(async () => ({ confirmed: true }));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     vi.setSystemTime(new Date('2026-11-04T15:00:00Z'));
     vi.stubGlobal(
@@ -200,9 +259,9 @@ describe('DoctorCall — documents in the call', () => {
         { provide: NoteDraftStore, useValue: { take: () => null, clear: () => undefined, save: () => true } },
         {
           provide: DialogService,
-          useValue: { confirm: async () => ({ confirmed: true }), confirmLeave: async () => true, requests: () => [] },
+          useValue: { confirm: dialogConfirm, confirmLeave: async () => true, requests: () => [] },
         },
-        { provide: PDF_LOADER, useValue: async () => ({ promise: new Promise(() => undefined), destroy: () => undefined }) },
+        { provide: DocumentViewerService, useValue: viewer },
       ],
     });
     fixture = TestBed.createComponent(DoctorCall);
@@ -348,22 +407,31 @@ describe('DoctorCall — documents in the call', () => {
     expect(document.title).toBe('VideoMed Doctor');
   });
 
-  it('closing the viewer after the alert went focuses the Medical Records heading', async () => {
-    await setup([doc('a')]);
-    answer = () => of({ data: access([doc('a'), doc('b', { viewable: false })]) });
-    call.loadDocumentAccess('refresh');
+  it('a record opens the shared viewer on the filtered list (view-only, watermarked); with its opener gone, focus goes to Medical Records', async () => {
+    media(['(min-width: 1024px)']);
+    await setup([doc('a', { document_type: 'xray_report' }), doc('b'), doc('c', { document_type: 'xray_report', shared_at: '2026-11-04T14:30:00Z' })]);
+    (call as unknown as { recordsTab: WritableSignal<string> }).recordsTab.set('imaging');
+    (call as unknown as { sideTab: WritableSignal<string> }).sideTab.set('documents');
     await tick();
-    // Show in records is there; View isn't for a type the viewer can't show — open it from the list.
-    const row = el.querySelector<HTMLButtonElement>('[data-doc-id="b"]');
+    const row = el.querySelector<HTMLButtonElement>('[data-doc-id="a"]');
     expect(row).not.toBeNull();
     row?.click();
+    expect(viewer.open).toHaveBeenCalledTimes(1);
+    const [sources, options] = viewer.open.mock.calls[0] as [ViewerSource[], ViewerOpenOptions];
+    // The Imaging filter as shown (newest share first), at the row pressed.
+    expect(sources.map((s) => s.key)).toEqual(['doc:c', 'doc:a']);
+    expect(sources.every((s) => s.policy === 'view_only' && s.download === undefined)).toBe(true);
+    expect(options.index).toBe(1);
+    expect(options.opener).toBe(row);
+    expect(options.watermark).toEqual({ viewerName: 'Dr Ada Obi', timeZone: expect.any(String) });
+    expect(options.watermark?.timeZone).not.toBe('');
+    expect(options.tone).toBeUndefined(); // the registered call sets the cockpit's
+    // The opener went (the list re-rendered): the Medical Records heading, its side tab chosen first.
+    (call as unknown as { sideTab: WritableSignal<string> }).sideTab.set('patient');
     await tick();
-    expect(call.viewerDoc()?.id).toBe('b');
-    await tick(16_000); // the alert has hidden itself meanwhile
-    expect(call.docAlert()).toBeNull();
-    row?.remove(); // the list re-rendered: the opener is gone
-    call.closeViewer();
+    expect(options.fallbackFocus?.()).toBeNull();
     await tick();
+    expect(el.querySelector<HTMLElement>('#call-records')?.hidden).toBe(false);
     expect(document.activeElement?.id).toBe('call-records-heading');
   });
 
@@ -382,38 +450,39 @@ describe('DoctorCall — documents in the call', () => {
     expect(regions.filter((p) => (p.textContent ?? '').includes('Bola shared')).length).toBe(1);
   });
 
-  it('narrow: the viewer sheet makes the cockpit and the floating alert inert until it closes', async () => {
-    await setup([doc('a')]);
-    answer = () => of({ data: access([doc('a'), doc('b')]) });
-    call.loadDocumentAccess('refresh');
-    await tick();
-    const cockpit = el.querySelector('main')?.parentElement;
-    const alertWrap = el.querySelector(':scope > .sd-dock');
-    expect(cockpit?.hasAttribute('inert')).toBe(false);
-    expect(alertWrap?.hasAttribute('inert')).toBe(false);
-    el.querySelector<HTMLButtonElement>('[data-doc-id="b"]')?.click();
-    await tick();
-    expect(call.viewerDoc()?.id).toBe('b');
-    expect(cockpit?.getAttribute('inert')).toBe('');
-    expect(el.querySelector(':scope > .sd-dock')?.getAttribute('inert')).toBe('');
-    call.closeViewer();
-    await tick();
-    expect(cockpit?.hasAttribute('inert')).toBe(false);
+  it('no "Document" tool tab, no narrow sheet and no hand-written inert: the viewer is a modal of its own', async () => {
+    for (const size of [[], ['(min-width: 1024px)'], ['(min-width: 1024px)', '(min-width: 1280px)']]) {
+      media(size);
+      await setup([doc('a'), doc('b')]);
+      el.querySelector<HTMLButtonElement>('[data-doc-id="b"]')?.click();
+      await tick();
+      expect(viewer.open).toHaveBeenCalledTimes(1);
+      const tabs = Array.from(el.querySelectorAll('[role="tablist"][aria-label="Consultation tools"] [role="tab"]')).map((t) => t.textContent?.trim());
+      expect(tabs).toEqual(['Consultation Notes', 'Prescriptions', 'Lab Orders', 'Follow-ups', 'Transcript & AI']);
+      expect(el.querySelector('[aria-label="Close document"]')).toBeNull();
+      expect(el.querySelector('doc-protected-document-viewer, sd-document-viewer')).toBeNull();
+      expect(el.querySelector('.fixed.inset-0.z-50')).toBeNull();
+      expect(el.querySelector('[inert]')).toBeNull();
+      fixture.destroy();
+      el.remove();
+      TestBed.resetTestingModule();
+      vi.useRealTimers();
+      agora.clients.length = 0;
+    }
   });
 
-  it('a document in the viewer that stops being shared: closed, the reason shown, focus on Medical Records (mid)', async () => {
+  it('a document of the open viewer that stops being shared is revoked in place (NOT_SHARED), not closed', async () => {
     media(['(min-width: 1024px)']);
     await setup([doc('a'), doc('b')]);
-    el.querySelector<HTMLButtonElement>('[data-doc-id="b"]')?.click();
+    (call as unknown as { sideTab: WritableSignal<string> }).sideTab.set('documents');
     await tick();
-    expect(call.viewerDoc()?.id).toBe('b');
+    el.querySelector<HTMLButtonElement>('[data-doc-id="b"]')?.click();
     answer = () => of({ data: access([doc('a')]) });
     call.loadDocumentAccess('refresh');
     await tick();
-    expect(call.viewerDoc()).toBeNull();
-    expect(el.querySelector<HTMLElement>('#call-records')?.hidden).toBe(false); // the Documents side tab
-    expect(document.activeElement?.id).toBe('call-records-heading');
-    expect(text()).toContain(NOT_SHARED);
+    expect(viewer.revoke).toHaveBeenCalledTimes(1);
+    expect(viewer.revoke).toHaveBeenCalledWith('doc:b', NOT_SHARED);
+    expect(viewer.close).not.toHaveBeenCalled();
   });
 
   it('mid layout: the side wrapper is the one item in "side", showing only the chosen panel', async () => {
@@ -439,6 +508,309 @@ describe('DoctorCall — documents in the call', () => {
     expect(el.querySelector<HTMLElement>('#call-records')?.hidden).toBe(false);
     expect(el.querySelector('#call-people')).toBeNull();
     expect(el.querySelector('#call-people-list')).not.toBeNull();
+  });
+
+  describe('the shared viewer during the call (call band, peer hand-over)', () => {
+    /** A remote video track, faked (the stage and the viewer's tile only play and stop it). */
+    const remoteTrack = (name: string) => ({ name, play: vi.fn(), stop: vi.fn() });
+    const tilesCmp = () => fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+    const ctx = () => {
+      const c = viewer.ctx();
+      if (!c) throw new Error('No call registered');
+      return c;
+    };
+    const bands: EmbeddedViewRef<unknown>[] = [];
+    /** The registered band, rendered the way the viewer's outlet does (inside .sd-call[data-theme=dark]). */
+    function band(): HTMLElement {
+      const view = ctx().bar.createEmbeddedView(null);
+      bands.push(view);
+      view.detectChanges();
+      const host = document.createElement('div');
+      host.className = 'sd-call';
+      host.dataset['theme'] = 'dark';
+      for (const n of view.rootNodes) host.appendChild(n as Node);
+      document.body.appendChild(host);
+      return host;
+    }
+    /** The doctor leaves (what leave() and End do after asking). */
+    const teardown = () => (call as unknown as { teardown(): Promise<void> }).teardown();
+    const bandText = (h: HTMLElement) => (h.textContent ?? '').replace(/\s+/g, ' ');
+    const button = (h: HTMLElement, label: string) =>
+      Array.from(h.querySelectorAll<HTMLButtonElement>('button')).find(
+        (b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').replace(/\s+/g, ' ').trim() === label,
+      ) ?? null;
+    /** The patient (uid 1) in the channel, with a video track Agora holds. */
+    async function patientJoins(track = remoteTrack('v1')) {
+      client().remoteUsers = [{ uid: 1, videoTrack: track }];
+      await client().handlers['user-joined']?.({ uid: 1 });
+      await client().handlers['user-published']?.({ uid: 1, videoTrack: track }, 'video');
+      await tick();
+      return track;
+    }
+
+    afterEach(() => {
+      for (const v of bands.splice(0)) v.destroy();
+      document.querySelectorAll('body > .sd-call').forEach((n) => n.remove());
+    });
+
+    it('registers once (band, peer tile, the cockpit’s signals) and unregisters on destroy; live is inLive', async () => {
+      await setup([doc('a')]);
+      expect(viewer.registerCall).toHaveBeenCalledTimes(1);
+      const c = ctx();
+      expect(c.bar).toBeTruthy();
+      expect(c.peer).toBeTruthy();
+      expect(c.peerName()).toBe('Bola Ade');
+      expect(c.tone()).toBe('dark');
+      expect(c.live()).toBe(true);
+      expect(c.sharingScreen()).toBe(false);
+      expect(c.recording()).toBe(false);
+      call.callClosed.set('This consultation has ended.');
+      expect(c.live()).toBe(false); // the API closed the call
+      call.callClosed.set('');
+      expect(c.live()).toBe(true);
+      call.recordingActive.set(true);
+      expect(c.recording()).toBe(true);
+      // Leaving (teardown): live turns false and the viewer closes.
+      viewer.open({ key: 'rx:1' } as ViewerSource);
+      await teardown();
+      await tick();
+      expect(c.live()).toBe(false);
+      expect(viewer.close).toHaveBeenCalled();
+      expect(viewer.session()).toBeNull();
+      fixture.destroy();
+      expect(viewer.unregister).toHaveBeenCalledTimes(1);
+      expect(viewer.registerCall).toHaveBeenCalledTimes(1);
+    });
+
+    it('opening hands the patient’s video to the tile: detached from the stage FIRST, then the track set', async () => {
+      await setup([doc('a')]);
+      const track = await patientJoins();
+      const stage = tilesCmp();
+      const order: string[] = [];
+      vi.spyOn(stage, 'detach').mockImplementation((uid) => {
+        order.push(`detach:${uid}:${call.viewerPeerTrack() ? 'tile-has-track' : 'tile-empty'}`);
+      });
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      order.push(`tile:${(call.viewerPeerTrack() as { name?: string } | null)?.name ?? 'none'}`);
+      expect(order).toEqual(['detach:1:tile-empty', 'tile:v1']);
+      expect(call.viewerPeerTrack()).toBe(track);
+    });
+
+    it('closing takes it back: the tile’s track cleared, the CURRENT track re-read from Agora, attached with no config', async () => {
+      await setup([doc('a')]);
+      await patientJoins(remoteTrack('v1'));
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      const stage = tilesCmp();
+      // The patient re-published meanwhile (Agora's remoteUsers holds the new track).
+      const fresh = remoteTrack('v2');
+      client().remoteUsers = [{ uid: 1, videoTrack: fresh }];
+      const attach = vi.spyOn(stage, 'attach');
+      const order: string[] = [];
+      attach.mockImplementation((uid) => {
+        order.push(`attach:${uid}:${call.viewerPeerTrack() === null ? 'tile-cleared' : 'tile-still-set'}`);
+      });
+      viewer.close();
+      expect(call.viewerPeerTrack()).toBeNull();
+      expect(order).toEqual(['attach:1:tile-cleared']);
+      expect(attach).toHaveBeenCalledWith(1, fresh);
+      expect(attach.mock.calls[0]).toHaveLength(2);
+    });
+
+    it('while open, the patient’s re-publish goes to the tile (not the stage), an unpublish empties it; a guest still goes to the stage', async () => {
+      await setup([doc('a')]);
+      await patientJoins();
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      const stage = tilesCmp();
+      const attach = vi.spyOn(stage, 'attach');
+      const detach = vi.spyOn(stage, 'detach');
+      const again = remoteTrack('v2');
+      await client().handlers['user-published']?.({ uid: 1, videoTrack: again }, 'video');
+      expect(call.viewerPeerTrack()).toBe(again);
+      expect(attach).not.toHaveBeenCalled();
+      await client().handlers['user-unpublished']?.({ uid: 1 }, 'video');
+      expect(call.viewerPeerTrack()).toBeNull();
+      expect(detach).not.toHaveBeenCalled();
+      const guest = remoteTrack('g');
+      await client().handlers['user-published']?.({ uid: 3, videoTrack: guest }, 'video');
+      expect(attach).toHaveBeenCalledWith(3, guest);
+      await client().handlers['user-left']?.({ uid: 3 });
+      expect(detach).toHaveBeenCalledWith(3);
+    });
+
+    it('rejoin() while open routes its detach loop through the gate: the tile drops the dead track, then gets the re-published one', async () => {
+      await setup([doc('a')]);
+      await patientJoins(remoteTrack('v1'));
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      expect(call.viewerPeerTrack()).not.toBeNull();
+      const stage = tilesCmp();
+      const detach = vi.spyOn(stage, 'detach');
+      const rejoined = call.rejoin();
+      await tick();
+      await rejoined;
+      expect(call.viewerPeerTrack()).toBeNull();
+      expect(detach).not.toHaveBeenCalledWith(1);
+      const back = remoteTrack('v3');
+      client().remoteUsers = [{ uid: 1, videoTrack: back }];
+      await client().handlers['user-published']?.({ uid: 1, videoTrack: back }, 'video');
+      expect(call.viewerPeerTrack()).toBe(back);
+    });
+
+    it('the band: Back to call, who and how long, Mute and End while live — and every call banner with its action', async () => {
+      await setup([doc('a')]);
+      let h = band();
+      expect(bandText(h)).toContain('Bola Ade · 00:00:00');
+      expect(button(h, 'Back to call')).not.toBeNull();
+      expect(button(h, 'Mute')).not.toBeNull();
+      expect(button(h, 'Mute')?.hasAttribute('aria-pressed')).toBe(false);
+      expect(button(h, 'End consultation')).not.toBeNull();
+      // Back to call closes the viewer only.
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      button(h, 'Back to call')?.click();
+      expect(viewer.close).toHaveBeenCalledTimes(1);
+      // Mute / End call the cockpit's own handlers (End asks first, over the viewer).
+      const mic = vi.spyOn(call, 'toggleMic').mockResolvedValue(undefined);
+      const end = vi.spyOn(call, 'askEnd').mockResolvedValue(undefined);
+      button(h, 'Mute')?.click();
+      button(h, 'End consultation')?.click();
+      expect(mic).toHaveBeenCalledTimes(1);
+      expect(end).toHaveBeenCalledTimes(1);
+
+      call.recordingActive.set(true);
+      call.recordingError.set('Recording failed.');
+      call.docAnnounce.set('Request sent.');
+      h = band();
+      expect(h.querySelector('[role="status"]')?.textContent).toContain('Recording');
+      expect(Array.from(h.querySelectorAll('[role="alert"]')).map((a) => a.textContent?.trim())).toContain('Recording failed.');
+      expect(Array.from(h.querySelectorAll('[aria-live="polite"]')).some((p) => p.textContent?.includes('Request sent.'))).toBe(true);
+
+      // The API closed the call (with a standing refusal): Mute / End go, the alert keeps its two ways out.
+      call.recordingError.set('');
+      call.joinStanding.set('terms_required');
+      call.callClosed.set('This consultation has ended.');
+      h = band();
+      const closed = Array.from(h.querySelectorAll('[role="alert"]')).find((a) => a.textContent?.includes('This consultation has ended.'));
+      expect(closed).toBeDefined();
+      expect(button(h, 'Mute')).toBeNull();
+      expect(button(h, 'End consultation')).toBeNull();
+      const leave = vi.spyOn(call, 'leave').mockResolvedValue(undefined);
+      const standing = vi.spyOn(call, 'openStanding').mockResolvedValue(undefined);
+      button(h, 'Leave the call')?.click();
+      button(h, 'Read and accept the terms')?.click();
+      expect(leave).toHaveBeenCalledTimes(1);
+      expect(standing).toHaveBeenCalledTimes(1);
+
+      // Dropped from the channel: the disconnected alert with Rejoin.
+      call.callClosed.set('');
+      call.connectionLost.set(true);
+      h = band();
+      const lost = Array.from(h.querySelectorAll('[role="alert"]')).find((a) => a.textContent?.includes('You were disconnected from the call.'));
+      expect(lost).toBeDefined();
+      const rejoin = vi.spyOn(call, 'rejoin').mockResolvedValue(undefined);
+      button(h, 'Rejoin')?.click();
+      expect(rejoin).toHaveBeenCalledTimes(1);
+    });
+
+    it('the band says when the patient left the call', async () => {
+      await setup([doc('a')]);
+      await patientJoins();
+      expect(bandText(band())).not.toContain('left the call');
+      await client().handlers['user-left']?.({ uid: 1 });
+      await tick();
+      const h = band();
+      expect(bandText(h)).toContain('Bola Ade left the call');
+      expect(Array.from(h.querySelectorAll('[role="status"]')).some((s) => s.textContent?.includes('Bola Ade left the call'))).toBe(true);
+    });
+
+    it('the new-document alert in the band: its View dismisses it, marks the document seen and replaces the open one', async () => {
+      await setup([doc('a')]);
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      answer = () => of({ data: access([doc('b', { title: 'Lab report' }), doc('a')]) });
+      call.loadDocumentAccess('refresh');
+      await tick();
+      expect(call.newDocIds().has('b')).toBe(true);
+      const h = band();
+      expect(bandText(h)).toContain('Bola shared a new document');
+      const view = button(h, 'View');
+      expect(view).not.toBeNull();
+      view?.click();
+      expect(call.docAlert()).toBeNull();
+      expect(call.newDocIds().has('b')).toBe(false);
+      expect(viewer.open).toHaveBeenCalledTimes(2);
+      const [sources, options] = viewer.open.mock.calls[1] as [ViewerSource[], ViewerOpenOptions];
+      expect(sources[options.index ?? 0].key).toBe('doc:b');
+    });
+
+    it('the band’s new-document alert stays while hovered (as the cockpit’s does), then hides after its 15 s', async () => {
+      await setup([doc('a')]);
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      answer = () => of({ data: access([doc('b', { title: 'Lab report' }), doc('a')]) });
+      call.loadDocumentAccess('refresh');
+      await tick();
+      const h = band();
+      const row = Array.from(h.querySelectorAll<HTMLElement>('[role="status"]')).find((r) => r.textContent?.includes('shared a new document'));
+      expect(row).toBeDefined();
+      row?.dispatchEvent(new MouseEvent('mouseenter'));
+      await tick(20_000);
+      expect(call.docAlert()).not.toBeNull();
+      row?.dispatchEvent(new MouseEvent('mouseleave'));
+      await tick(14_000);
+      expect(call.docAlert()).not.toBeNull();
+      await tick(1_000);
+      expect(call.docAlert()).toBeNull();
+    });
+
+    it('the band mirrors the stage while joining and when the join fails, with its ways out', async () => {
+      await setup([doc('a')]);
+      // Records can be opened before Agora has joined (the camera prompt may still be up).
+      call.status.set('loading');
+      let h = band();
+      const joining = Array.from(h.querySelectorAll('[role="status"]')).find((r) => r.textContent?.includes('Connecting to the consultation…'));
+      expect(joining).toBeDefined();
+      expect(button(h, 'Mute')).toBeNull();
+      expect(button(h, 'End consultation')).toBeNull();
+
+      // The join failed (camera denied, or refused for the doctor's standing): its alert and both ways out.
+      call.errorMessage.set('Your account is suspended.');
+      call.joinStanding.set('doctor_suspended');
+      call.status.set('error');
+      h = band();
+      expect(bandText(h)).not.toContain('Connecting to the consultation…');
+      const failed = Array.from(h.querySelectorAll('[role="alert"]')).find((a) => a.textContent?.includes('Your account is suspended.'));
+      expect(failed).toBeDefined();
+      expect(button(h, 'Mute')).toBeNull();
+      const leave = vi.spyOn(call, 'leave').mockResolvedValue(undefined);
+      const standing = vi.spyOn(call, 'openStanding').mockResolvedValue(undefined);
+      button(h, 'See your account status')?.click();
+      button(h, 'Back to schedule')?.click();
+      expect(standing).toHaveBeenCalledTimes(1);
+      expect(leave).toHaveBeenCalledWith('schedule');
+    });
+
+    it('signing out of the portal and leaving close the viewer; the API closing the call does not', async () => {
+      await setup([doc('a')]);
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      call.callClosed.set('This consultation was cancelled.');
+      await tick();
+      expect(viewer.close).not.toHaveBeenCalled();
+      expect(viewer.session()).not.toBeNull();
+      signedIn.set(false);
+      await tick();
+      expect(viewer.close).toHaveBeenCalledTimes(1);
+      expect(viewer.session()).toBeNull();
+      signedIn.set(true);
+      await tick();
+      el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
+      expect(viewer.session()).not.toBeNull();
+      await teardown();
+      await tick();
+      expect(viewer.session()).toBeNull();
+    });
+
+    it('stopSharing only stops a share that is on (never starts one)', async () => {
+      await setup([doc('a')]);
+      ctx().stopSharing();
+      expect(agora.module.createScreenVideoTrack).not.toHaveBeenCalled();
+    });
   });
 
   describe('a phone held sideways (the control rail)', () => {

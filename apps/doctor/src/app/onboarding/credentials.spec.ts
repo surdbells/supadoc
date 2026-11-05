@@ -4,7 +4,8 @@ import { provideRouter } from '@angular/router';
 import { DoctorApi } from '@supadoc/data-access';
 import type { DoctorCredentialsDto, DoctorOnboardingDto, SpecialistCredentialDto } from '@supadoc/models';
 import { DialogService, provideSupadocIcons } from '@supadoc/ui';
-import { of } from 'rxjs';
+import { DocumentViewerService, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
+import { firstValueFrom, of } from 'rxjs';
 import { DoctorStandingStore } from '../standing/doctor-standing.store';
 import { licenceWording } from '../standing/standing-rules';
 import { DoctorCredentials, requiredFor } from './credentials';
@@ -51,6 +52,8 @@ describe('requiredFor', () => {
 describe('DoctorCredentials', () => {
   let fixture: ComponentFixture<DoctorCredentials>;
   let el: HTMLElement;
+  let viewer: { open: ReturnType<typeof vi.fn> };
+  let credentialFile: ReturnType<typeof vi.fn>;
 
   const render = async () => {
     fixture.detectChanges();
@@ -59,12 +62,15 @@ describe('DoctorCredentials', () => {
   };
 
   async function setup(standing: DoctorOnboardingDto, data: DoctorCredentialsDto) {
+    viewer = { open: vi.fn(() => ({ closed: Promise.resolve(), close: () => undefined })) };
+    credentialFile = vi.fn(() => of(new Blob(['%PDF'], { type: 'application/pdf' })));
     TestBed.configureTestingModule({
       imports: [DoctorCredentials],
       providers: [
         provideRouter([]),
         provideSupadocIcons(),
-        { provide: DoctorApi, useValue: { credentials: () => of({ data }), credentialFile: () => of(new Blob()) } },
+        { provide: DoctorApi, useValue: { credentials: () => of({ data }), credentialFile } },
+        { provide: DocumentViewerService, useValue: viewer },
         { provide: DoctorStandingStore, useValue: { onboarding: signal(standing), load: () => Promise.resolve(standing) } },
         { provide: DialogService, useValue: { requests: signal([]), confirm: () => Promise.resolve({ confirmed: false }) } },
       ],
@@ -175,5 +181,31 @@ describe('DoctorCredentials', () => {
 
     await pick('specialist_certificate');
     expect(label()).toContain('Certificate number');
+  });
+
+  it('View opens the doctor’s own document in the shared viewer (owner: Print and Download), never a tab', async () => {
+    const open = vi.spyOn(window, 'open');
+    await setup(ABROAD, {
+      credentials: [credential()],
+      types: [{ type: 'foreign_practising_licence', label: 'Practising licence (outside Nigeria)', requires_expiry: true, requires_number: true }],
+      max_bytes: 10_485_760,
+      accepted: ['application/pdf'],
+    });
+    expect(el.textContent).not.toContain('opens in a new tab');
+    const view = Array.from(el.querySelectorAll<HTMLButtonElement>('button')).find((b) => (b.textContent ?? '').trim().startsWith('View'));
+    expect(view).toBeDefined();
+    view?.click();
+    expect(viewer.open).toHaveBeenCalledTimes(1);
+    const [source, options] = viewer.open.mock.calls[0] as unknown as [ViewerSource, ViewerOpenOptions];
+    expect(source.policy).toBe('owner');
+    expect(source.key).toBe('cred:c-1');
+    expect(source.title).toBe('Practising licence (outside Nigeria)');
+    expect(source.filename).toBe('licence.pdf');
+    expect(options.opener).toBe(view);
+    expect(credentialFile).not.toHaveBeenCalled();
+    await firstValueFrom(source.load());
+    expect(credentialFile).toHaveBeenCalledWith('c-1');
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 });

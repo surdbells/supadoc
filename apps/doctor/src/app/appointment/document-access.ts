@@ -1,4 +1,5 @@
 import { NETWORK_ERROR_MESSAGE } from '@supadoc/data-access';
+import { viewOnlyNotViewableText } from '@supadoc/viewer';
 import type {
   DoctorDocumentAccessDto,
   DoctorSharedDocumentDto,
@@ -381,10 +382,12 @@ export function isStaleRequestCode(code: string | null): boolean {
 /** An old tab (without the viewer's `X-SD-Viewer` header) was refused: 409 `update_required`. */
 export const UPDATE_REQUIRED = 'Reload VideoMed to open documents.';
 
-/** The viewer's card for a type it can't show (`viewable: false`, or a 415 `not_viewable`). */
+/**
+ * The viewer's card for a type it can't show (`viewable: false`, or a 415
+ * `not_viewable`): the shared viewer's `view_only` copy, so both say the same.
+ */
 export function notViewableText(extension: string | null | undefined): string {
-  const ext = (extension ?? '').replace(/^\./, '').toUpperCase();
-  return `Preview isn't available for this file type${ext ? ` (${ext})` : ''}. Ask the patient to share it as a PDF or photo.`;
+  return viewOnlyNotViewableText(extension);
 }
 
 /** A document the doctor may try to open: `viewable` false only when the API says so (undefined: an older API, let a 415 decide). */

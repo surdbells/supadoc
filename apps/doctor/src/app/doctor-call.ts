@@ -13,9 +13,9 @@ import {
   OnDestroy,
   type Signal,
   signal,
+  type TemplateRef,
   untracked,
   viewChild,
-  viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -77,7 +77,9 @@ import {
   CALL_SELF_VIEW_CLASS_DOCTOR,
   type CallTilesMode,
   CallTilesComponent,
+  type CallTile,
   type CallVideoFit,
+  type CallVideoTrack,
   type CallUid,
   callTilesMode,
   DialogComponent,
@@ -89,6 +91,7 @@ import {
   shortDayLabel,
   SmoothHeightDirective,
 } from '@supadoc/ui';
+import { CallPeerTileComponent, DocumentViewerService } from '@supadoc/viewer';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import {
@@ -104,14 +107,11 @@ import {
   docAlertLines,
   EMPTY_NEW_DOCS,
   isStaleRequestCode,
-  isViewableDoc,
   LOAD_FAILED,
   type NewDocsState,
   nextRefreshDelay,
-  NOT_SHARED,
   NUDGE_DEBOUNCE_MS,
   NUDGE_MIN_INTERVAL_MS,
-  openErrorCopy,
   POLL_SLACK_MS,
   REQUEST_SENT,
   REQUEST_WITHDRAWN,
@@ -137,17 +137,12 @@ import {
   referralPrompt,
   STOP_RECORDING_PROMPT,
 } from './appointment/clinical/clinical-prompts';
-import {
-  ProtectedDocumentViewer,
-  type ProtectedDocumentFile,
-  type ProtectedViewerState,
-} from './viewer/protected-document-viewer';
+import { patientDocumentSource, revokeUnshared, viewerWatermark } from './viewer/doctor-viewer-sources';
 
 /** Load state of something the editor must not overwrite before it has loaded. */
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-/** 'document': the viewer's temporary tab (wide and mid). */
-type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot' | 'document';
+type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot';
 /** Narrow screens: the section under the video. */
 type CallSection = 'notes' | 'patient' | 'documents' | 'people';
 /** Mid screens: the side panel's tab. */
@@ -309,13 +304,6 @@ function fetchError(status: number, body: unknown): Error {
   });
 }
 
-/** The HTTP status of an API error (`ApiError.statusCode` / `HttpErrorResponse.status`), else 0. */
-function errorStatus(err: unknown): number {
-  const e = (err && typeof err === 'object' ? err : {}) as { statusCode?: unknown; status?: unknown };
-  if (typeof e.statusCode === 'number') return e.statusCode;
-  return typeof e.status === 'number' ? e.status : 0;
-}
-
 /** `fetch()` whose network failure (offline, DNS, CORS) rejects as status 0. */
 async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
@@ -344,8 +332,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     CallTilesComponent,
     DialogComponent,
     FollowUpPlanner,
+    CallPeerTileComponent,
     IconComponent,
-    ProtectedDocumentViewer,
     RequestAccessDialog,
     RxPanel,
     SmoothHeightDirective,
@@ -389,9 +377,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
   template: `
     <!-- relative: contains absolutely positioned bits (e.g. screen-reader-only labels deep in
          the tools panel) so they can never make the desktop cockpit scroll as a page.
-         Inert while the narrow viewer sheet covers it (Tab can't wander under the sheet;
-         the sheet's own bar keeps Back to call, Mute and End). -->
-    <div class="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden" [attr.inert]="sheetOpen() ? '' : null">
+         A document opens in the shared viewer, a real modal: the cockpit is inert under it
+         natively, and its call band (#viewerBar) keeps Back to call, Mute and End. -->
+    <div class="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       <!-- Top bar: who, their allergies, how the call is going. Nothing here covers the video. -->
       <!-- A phone held sideways: one 48px row (the logo, "Encrypted" and "Secure call" give way). -->
       <header
@@ -686,7 +674,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         >
           <div class="flex shrink-0 items-center gap-1 border-b border-white/10 px-2">
             <div role="tablist" aria-label="Consultation tools" class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-              @for (t of toolTabs(); track t.key) {
+              @for (t of notesTabs; track t.key) {
                 <button
                   type="button"
                   role="tab"
@@ -706,22 +694,12 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 </button>
               }
             </div>
-            @if (viewerDoc() && layout() !== 'narrow') {
-              <button
-                type="button"
-                class="flex size-11 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
-                aria-label="Close document"
-                (click)="closeViewer()"
-              >
-                <sd-icon name="x" [size]="16" />
-              </button>
-            }
           </div>
 
             <!-- Desktop: scrolls inside the panel. Everywhere: height changes ease
                  (sdSmoothHeight) and each tab fades in, instead of jumping. -->
             <div id="call-tools-panel" role="tabpanel" class="relative" [class]="toolsBodyClass()" [attr.aria-labelledby]="'call-tab-' + notesTab()">
-              <div sdSmoothHeight [hidden]="docTabShown()">
+              <div sdSmoothHeight>
               <div>
               <!-- Schedule follow-up (Follow-ups tab, above the care plan). Once opened
                    it stays mounted for the rest of the call — hidden on the other
@@ -1367,7 +1345,6 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                       [patientId]="pid"
                       [appointmentId]="rxAppointmentId()"
                       [compact]="true"
-                      [inCall]="true"
                       [disabled]="!portalSignedIn()"
                     />
                   </div>
@@ -1375,28 +1352,6 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               }
               </div>
               </div>
-
-              <!-- The shared document, view-only, in its own tab (wide / mid): the video stays
-                   in view. It fills the tools panel (its toolbar stays in sight; the pages
-                   scroll inside it), and stays mounted behind the other tabs. -->
-              @if (viewerFile(); as vf) {
-                @if (viewerDoc() && layout() !== 'narrow') {
-                  <div class="flex min-h-[20rem] flex-1 flex-col" [hidden]="notesTab() !== 'document'">
-                    <doc-protected-document-viewer
-                      class="flex-1 overflow-hidden rounded-b-card"
-                      mode="docked"
-                      [tone]="theme()"
-                      [file]="vf"
-                      [state]="viewerState()"
-                      [errorText]="viewerError()"
-                      [watermark]="viewerWatermark()"
-                      [inCall]="inLiveCall()"
-                      (closed)="closeViewer()"
-                      (printRequested)="onViewerPrint()"
-                    />
-                  </div>
-                }
-              }
             </div>
         </section>
 
@@ -1769,11 +1724,6 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </div>
                 }
               }
-              @if (docOpenError()) {
-                <p class="mt-3 flex items-start gap-1.5 font-sans text-caption text-white" role="alert">
-                  <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0 text-alert" /> {{ docOpenError() }}
-                </p>
-              }
             </div>
 
             @if (layout() === 'wide') {
@@ -1816,53 +1766,181 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     </div>
 
     <!-- The one live region for documents ("Request sent.", "Ada shared a new document…").
-         Outside every panel that can be hidden (the records aside at mid and narrow) and
-         outside the cockpit that goes inert under the narrow viewer, so it is always read out. -->
+         Outside every panel that can be hidden (the records aside at mid and narrow), so it
+         is always read out — except under the document viewer (a modal: the page is inert),
+         where the call band says the same (#viewerBar). -->
     <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
 
     <!-- Narrow screens: the new-document alert floats at the bottom (never over the video:
          the dock is above it). Held sideways it is under the video, beside the rail, instead. -->
     @if (floatAlert()) {
-      <!-- Dark in both cockpit themes, like the dock it belongs to. Inert under the viewer sheet. -->
-      <div class="sd-dock" [attr.inert]="sheetOpen() ? '' : null">
+      <!-- Dark in both cockpit themes, like the dock it belongs to. -->
+      <div class="sd-dock">
         <ng-container [ngTemplateOutlet]="docAlertTpl" />
       </div>
     }
 
-    <!-- Narrow screens: the document fills the screen; the call keeps going under it. -->
-    @if (viewerFile(); as vf) {
-      @if (viewerDoc() && layout() === 'narrow') {
-      <div class="fixed inset-0 z-50 flex flex-col bg-abyss">
-        <doc-protected-document-viewer
-          class="min-h-0 flex-1"
-          mode="sheet"
-          [tone]="theme()"
-          [file]="vf"
-          [state]="viewerState()"
-          [errorText]="viewerError()"
-          [watermark]="viewerWatermark()"
-          [inCall]="inLiveCall()"
-          (closed)="closeViewer()"
-          (printRequested)="onViewerPrint()"
+    <!-- The call band of the shared document viewer (registered with it in afterNextRender):
+         the viewer renders it above the document while this call page lives, always dark
+         (.sd-call[data-theme=dark]). Under the modal the cockpit is inert and its live
+         regions silent, so this mirrors every call-level banner and live region, with its
+         action. Back to call, then who and how long, Mute and End, then the alerts row. -->
+    <ng-template #viewerBar>
+      <button
+        type="button"
+        class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-field px-2 font-sans text-body-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-frost"
+        aria-label="Back to call"
+        (click)="viewer.close()"
+      >
+        <sd-icon name="arrow-left" [size]="18" /><span class="hidden sm:inline">Back to call</span>
+      </button>
+      <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ patientName() }} · <span class="font-label tabular-nums">{{ elapsedLabel() }}</span></span>
+      <span role="status" class="shrink-0">
+        @if (recordingActive()) {
+          <span class="flex items-center gap-1.5 rounded-pill bg-alert/20 px-3 py-1.5 font-sans text-caption font-semibold text-white">
+            <span class="size-2 rounded-full bg-alert motion-safe:animate-pulse"></span>Recording
+          </span>
+        }
+      </span>
+      @if (inLive()) {
+        <button
+          type="button"
+          class="flex size-11 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-frost"
+          [class]="micOn() ? 'bg-white/10 hover:bg-white/20' : 'bg-alert hover:bg-alert/85'"
+          [attr.aria-label]="micOn() ? 'Mute' : 'Unmute'"
+          (click)="toggleMic()"
         >
-          <div viewerBar class="sd-dock flex shrink-0 items-center gap-2 border-b border-white/10 bg-ink px-2 py-1.5">
-            <button type="button" class="flex min-h-11 items-center gap-1.5 rounded-field px-2 font-sans text-body-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-frost" (click)="closeViewer()">
-              <sd-icon name="arrow-left" [size]="18" />Back to call
-            </button>
-            <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ patientName() }} · {{ elapsedLabel() }}</span>
-            @if (status() === 'in-call') {
-              <button type="button" class="flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-frost" [class]="micOn() ? 'bg-white/10 hover:bg-white/20' : 'bg-alert hover:bg-alert/85'" [attr.aria-label]="micOn() ? 'Mute' : 'Unmute'" (click)="toggleMic()">
-                <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="18" />
+          <sd-icon [name]="micOn() ? 'mic' : 'mic-off'" [size]="18" />
+        </button>
+        <button
+          type="button"
+          class="flex size-11 shrink-0 items-center justify-center rounded-full bg-alert transition-colors hover:bg-alert/85 focus-visible:outline-2 focus-visible:outline-frost"
+          aria-label="End consultation"
+          (click)="endFromViewer()"
+        >
+          <sd-icon name="phone-off" [size]="18" />
+        </button>
+      }
+      <!-- The alerts row (wraps under the controls); only while there is one. -->
+      @if (bandAlerts()) {
+      <div class="flex w-full flex-col gap-1">
+        <!-- Still joining (records open before Agora has joined), or the join failed: the
+             stage's own status and error (with its ways out) are inert under the viewer. -->
+        @if (status() === 'loading') {
+          <p class="flex items-center gap-1.5 font-sans text-caption text-white/80" role="status">
+            <sd-icon name="loader-circle" [size]="14" class="shrink-0 motion-safe:animate-spin" />Connecting to the consultation…
+          </p>
+        } @else if (status() === 'error') {
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+              <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ errorMessage() }}
+            </span>
+            @if (joinStanding(); as code) {
+              <button
+                type="button"
+                class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+                (click)="standingFromViewer()"
+              >
+                {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
               </button>
-              <button type="button" class="flex size-11 items-center justify-center rounded-full bg-alert transition-colors hover:bg-alert/85 focus-visible:outline-2 focus-visible:outline-frost" aria-label="End consultation" (click)="askEnd()">
-                <sd-icon name="phone-off" [size]="18" />
+            }
+            <button
+              type="button"
+              class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+              (click)="scheduleFromViewer()"
+            >
+              Back to schedule
+            </button>
+          </div>
+        }
+        @if (recordingError()) {
+          <p class="font-sans text-caption text-white" role="alert">{{ recordingError() }}</p>
+        }
+        @if (callClosed()) {
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+              <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ callClosed() }}
+            </span>
+            @if (joinStanding(); as code) {
+              <button
+                type="button"
+                class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+                (click)="standingFromViewer()"
+              >
+                {{ code === 'terms_required' ? 'Read and accept the terms' : 'See your account status' }}
+              </button>
+            }
+            <button
+              type="button"
+              class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+              (click)="leaveFromViewer()"
+            >
+              Leave the call
+            </button>
+          </div>
+        } @else if (rejoining() || connectionLost()) {
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+              <sd-icon
+                [name]="rejoining() ? 'loader-circle' : 'circle-alert'"
+                [size]="14"
+                [class]="rejoining() ? 'shrink-0 motion-safe:animate-spin' : 'shrink-0'"
+              />{{ rejoining() ? 'Reconnecting to the call…' : 'You were disconnected from the call.' }}
+            </span>
+            @if (connectionLost()) {
+              <button
+                type="button"
+                class="min-h-11 rounded-field px-3 font-sans text-caption font-semibold text-white underline underline-offset-2 transition-colors hover:text-white/80"
+                (click)="rejoin()"
+              >
+                Rejoin
               </button>
             }
           </div>
-        </doc-protected-document-viewer>
+        }
+        @if (peerLeft()) {
+          <p class="font-sans text-caption text-white/80" aria-hidden="true">{{ patientName() }} left the call</p>
+        }
+        @if (docAlertView(); as al) {
+          <!-- The new-document alert: its View replaces the open document (focus goes to its title). -->
+          <div
+            class="flex flex-wrap items-center gap-x-3 gap-y-1"
+            role="status"
+            (mouseenter)="holdAlert(true)"
+            (mouseleave)="holdAlert(false)"
+            (focusin)="holdAlert(true)"
+            (focusout)="holdAlert(false)"
+          >
+            <span class="flex min-w-0 items-center gap-1.5 font-sans text-caption font-semibold text-white">
+              <sd-icon name="bell" [size]="14" class="shrink-0 text-frost" /><span class="truncate">{{ al.title }}</span>
+            </span>
+            @if (al.detail) {
+              <span class="min-w-0 truncate font-sans text-caption text-white/80">{{ al.detail }}</span>
+            }
+            @if (al.signedOut) {
+              <button type="button" class="${ALERT_BUTTON}" (click)="openPortalSignIn()">
+                <sd-icon name="external-link" [size]="14" />Sign in
+              </button>
+            } @else if (al.doc; as doc) {
+              @if (doc.viewable !== false) {
+                <button type="button" class="${ALERT_BUTTON}" (click)="openPatientDoc(doc, $event.currentTarget)">
+                  <sd-icon name="eye" [size]="14" />View
+                </button>
+              }
+            }
+          </div>
+        }
       </div>
       }
-    }
+      <!-- Live regions (sr-only: out of the band's layout). -->
+      <p class="sr-only" role="status">{{ peerLeft() ? patientName() + ' left the call' : '' }}</p>
+      <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
+    </ng-template>
+
+    <!-- The patient's live video in the viewer's picture-in-picture (handed over, never in two places). -->
+    <ng-template #viewerPeer>
+      <sd-call-peer-tile [tile]="peerTile()" [track]="viewerPeerTrack()" />
+    </ng-template>
 
     <!-- The participants list (wide: a disclosure in the records; mid: the People tab;
          narrow: the People section; below xl also the header's popover). -->
@@ -2191,12 +2269,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** The new-document alert floats at the bottom (narrow, held upright). */
   protected readonly floatAlert = computed(() => this.layout() === 'narrow' && !this.rail());
   protected readonly toolsClass = computed(() => (this.layout() === 'narrow' ? '' : 'min-h-0 [grid-area:tools]'));
-  /** Wide / mid with the Document tab chosen: the viewer fills the tools panel. */
-  protected readonly docTabShown = computed(() => this.layout() !== 'narrow' && this.notesTab() === 'document' && !!this.viewerDoc());
-  protected readonly toolsBodyClass = computed(() => {
-    if (this.layout() === 'narrow') return 'p-4';
-    return this.docTabShown() ? 'flex min-h-0 flex-1 flex-col overflow-y-auto p-0' : 'min-h-0 flex-1 overflow-y-auto p-4';
-  });
+  protected readonly toolsBodyClass = computed(() => (this.layout() === 'narrow' ? 'p-4' : 'min-h-0 flex-1 overflow-y-auto p-4'));
   protected readonly sideClass = computed(() =>
     this.layout() === 'mid' ? 'flex min-h-0 min-w-0 flex-col gap-3 [grid-area:side]' : 'contents',
   );
@@ -2335,26 +2408,18 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** Records newest share first. */
   protected readonly sortedDocs = computed(() => [...this.visibleDocs()].sort(byNewestShare));
 
-  // ---- The view-only document viewer ----
-  protected readonly viewerDoc = signal<DoctorSharedDocumentDto | null>(null);
-  protected readonly viewerFile = signal<ProtectedDocumentFile | null>(null);
-  protected readonly viewerState = signal<ProtectedViewerState>('loading');
-  protected readonly viewerError = signal('');
-  private viewerSub: Subscription | null = null;
-  private viewerOpener: HTMLElement | null = null;
-  private readonly viewers = viewChildren(ProtectedDocumentViewer);
-  /** Narrow: the viewer fills the screen (the cockpit under it is inert). */
-  protected readonly sheetOpen = computed(() => this.layout() === 'narrow' && !!this.viewerDoc() && !!this.viewerFile());
-  protected readonly viewerWatermark = computed(() => ({
-    viewerName: this.clock.profile()?.name || this.doctorName(),
-    timeZone: this.callZone(),
-  }));
-  protected readonly toolTabs = computed<ReadonlyArray<{ key: NotesTab; label: string }>>(() => {
-    const doc = this.viewerDoc();
-    if (!doc || this.layout() === 'narrow') return this.notesTabs;
-    const title = doc.title.length > 28 ? `${doc.title.slice(0, 27)}…` : doc.title;
-    return [...this.notesTabs, { key: 'document', label: title }];
-  });
+  // ---- The shared document viewer (a modal over the cockpit, §3) ----
+  /** Opens every document here (records, prescriptions); this page registers its call with it. */
+  protected readonly viewer = inject(DocumentViewerService);
+  /** The call band and the picture-in-picture the viewer renders while this page lives. */
+  private readonly viewerBarTpl = viewChild.required<TemplateRef<unknown>>('viewerBar');
+  private readonly viewerPeerTpl = viewChild.required<TemplateRef<unknown>>('viewerPeer');
+  /** The view-only watermark: the doctor's name and the call's zone. */
+  private readonly watermark = computed(() => viewerWatermark(this.clock, { displayName: () => this.doctorName() }, this.callZone()));
+  /** The viewer holds the patient's video (its picture-in-picture): the patient's stage attaches go to its tile instead. */
+  private readonly viewerHasPeer = signal(false);
+  /** The patient's track for the viewer's tile (the source of truth stays Agora's `remoteUsers`). */
+  protected readonly viewerPeerTrack = signal<CallVideoTrack | null>(null);
 
   // ---- The patient chart's disclosures (remembered per device) ----
   protected readonly chartOpen = signal<ReadonlySet<string>>(readChartOpen());
@@ -2470,7 +2535,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   // ---- Tabs (APG: arrows, Home, End move and select) ----
   protected onTabKey(e: KeyboardEvent, list: 'section' | 'side' | 'tools'): void {
     const keys: readonly string[] =
-      list === 'section' ? this.sectionTabs.map((t) => t.key) : list === 'side' ? this.sideTabs.map((t) => t.key) : this.toolTabs().map((t) => t.key);
+      list === 'section' ? this.sectionTabs.map((t) => t.key) : list === 'side' ? this.sideTabs.map((t) => t.key) : this.notesTabs.map((t) => t.key);
     const current = list === 'section' ? this.section() : list === 'side' ? this.sideTab() : this.notesTab();
     let i = keys.indexOf(current);
     if (e.key === 'ArrowRight') i = (i + 1) % keys.length;
@@ -2542,19 +2607,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     const next = new Set([...this.newDocIds()].filter((id) => present.has(id)));
     for (const d of added) next.add(d.id);
     this.newDocIds.set(next);
-    // A document open in the viewer that is no longer shared: close it and say so.
-    const open = this.viewerDoc();
-    if (open && !present.has(open.id)) {
-      // On screen (the narrow sheet, the Document tab) or holding focus: the message
-      // and focus go to the Medical Records (its tab or section chosen first), so focus
-      // isn't dropped to the page and the reason is in view. A viewer left behind
-      // another tab while the doctor works elsewhere doesn't pull focus away.
-      const active = typeof document === 'undefined' ? null : document.activeElement;
-      const shown = this.layout() === 'narrow' || this.notesTab() === 'document' || !active || active === document.body;
-      this.closeViewer(false);
-      this.docOpenError.set(NOT_SHARED);
-      if (shown) this.focusRecordsHeading();
-    }
+    // No longer shared (realtime or poll): the open viewer drops those bytes at once and
+    // says so in place (role=alert) until the doctor closes it.
+    revokeUnshared(this.viewer, present);
     if (!added.length) return;
     const prev = this.docAlert();
     const count = (prev?.count ?? 0) + added.length;
@@ -2649,7 +2704,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   /** A "new document" nudge over the call's data stream (only the patient's counts). */
   private onNudge(uid: number | string): void {
-    if (this.left || String(uid) !== String(this.patientUid())) return;
+    if (this.left() || String(uid) !== String(this.patientUid())) return;
     if (!this.portalSignedIn()) {
       // Nothing can be read: say so (no request).
       this.docAlert.set(null);
@@ -2677,95 +2732,142 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   // ---- The viewer ----
 
   /**
-   * Open a shared document in the view-only viewer: a "Document" tab in the
-   * tools (wide / mid; the video stays in view) or a full-screen sheet
-   * (narrow; the call goes on). Fetched with `X-SD-Viewer` and recorded.
+   * Open a shared document in the shared viewer — a modal over the cockpit with
+   * the call band (Back to call, Mute, End, the call's alerts) and the
+   * patient's video as its picture-in-picture; the call goes on underneath. It
+   * opens on the records list as filtered and shown (Documents / Imaging /
+   * Labs), so ‹ / › move through it. View-only: watermarked, every print
+   * recorded first, never downloadable; fetched with `X-SD-Viewer` and
+   * recorded (over the portal session, never a raw token). Focus goes back to
+   * the row or alert button, else to the Medical Records heading.
    */
   protected openPatientDoc(doc: DoctorSharedDocumentDto, opener?: EventTarget | null): void {
-    this.docOpenError.set('');
     this.markSeen(doc.id);
     if (this.docAlert()?.doc?.id === doc.id) this.dismissAlert(false);
-    this.viewerSub?.unsubscribe();
-    this.viewerOpener = opener instanceof HTMLElement ? opener : null;
-    this.viewerDoc.set(doc);
-    this.viewerError.set('');
-    this.viewerFile.set(this.placeholderFile(doc));
-    if (this.layout() !== 'narrow') this.notesTab.set('document');
-    if (!isViewableDoc(doc)) {
-      this.viewerState.set('not_viewable');
-      return;
-    }
-    this.viewerState.set('loading');
-    // Over the portal session (fresh token, refreshed if need be) — never a raw token from storage.
-    this.viewerSub = this.doctorApi
-      .patientDocumentView(this.appointmentId, doc.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (v) => {
-          if (this.viewerDoc()?.id !== doc.id) return;
-          this.viewerFile.set({ ...this.placeholderFile(doc), blob: v.blob, mime: v.mime, viewRef: v.viewRef, viewedAt: v.viewedAt });
-          this.viewerState.set('ready');
+    const list = this.sortedDocs();
+    const at = list.findIndex((d) => d.id === doc.id);
+    const docs = at < 0 ? [doc] : list;
+    const zone = this.callZone();
+    const onGone = () => this.loadDocumentAccess('refresh');
+    this.viewer.open(
+      docs.map((d) => patientDocumentSource(this.doctorApi, this.appointmentId, d, { onGone }, zone)),
+      {
+        index: Math.max(0, at),
+        opener: opener instanceof HTMLElement ? opener : null,
+        // The heading may be behind another side tab or section: choose it, then focus it.
+        fallbackFocus: () => {
+          this.focusRecordsHeading();
+          return null;
         },
-        error: (err: unknown) => {
-          if (this.viewerDoc()?.id !== doc.id) return;
-          const code = apiErrorCode(err);
-          const status = errorStatus(err);
-          if (status === 415 || code === 'not_viewable') {
-            this.viewerState.set('not_viewable');
-            return;
-          }
-          this.viewerError.set(openErrorCopy(status, code));
-          this.viewerState.set('error');
-          if (code === 'not_shared') this.loadDocumentAccess('refresh');
-        },
-      });
+        watermark: this.watermark(),
+        listLabel: 'shared documents',
+      },
+    );
   }
 
-  private placeholderFile(doc: DoctorSharedDocumentDto): ProtectedDocumentFile {
-    return {
-      blob: null,
-      mime: '',
-      title: doc.title,
-      typeLabel: doc.type_label,
-      extension: doc.extension,
-      viewRef: null,
-      viewedAt: new Date().toISOString(),
-    };
+  /** "Back to call" is the viewer's own; these band actions leave its full screen first (their prompts aren't in it). */
+  private leaveViewerFullscreen(): void {
+    if (typeof document === 'undefined' || !document.fullscreenElement) return;
+    void document.exitFullscreen?.()?.catch(() => undefined);
+  }
+
+  protected endFromViewer(): void {
+    this.leaveViewerFullscreen();
+    void this.askEnd();
+  }
+
+  protected leaveFromViewer(): void {
+    this.leaveViewerFullscreen();
+    void this.leave();
+  }
+
+  protected standingFromViewer(): void {
+    this.leaveViewerFullscreen();
+    void this.openStanding();
+  }
+
+  /** The join failed (the stage's "Back to schedule", mirrored in the band). */
+  protected scheduleFromViewer(): void {
+    this.leaveViewerFullscreen();
+    void this.leave('schedule');
+  }
+
+  // ---- The patient's video, handed between the stage and the viewer (§3.4) ----
+
+  /** Agora's current video track of a remote uid (never a copy kept here). */
+  private remoteVideo(uid: CallUid): CallVideoTrack | null {
+    return this.client?.remoteUsers.find((u) => String(u.uid) === String(uid))?.videoTrack ?? null;
+  }
+
+  /** While the viewer is open its tile plays the patient's video: the stage must not. */
+  private viewerOwnsPeer(uid: CallUid): boolean {
+    return this.viewerHasPeer() && String(uid) === String(this.patientUid());
   }
 
   /**
-   * Close the viewer; focus goes back to the row or alert button that opened
-   * it, or (when that is gone) to the Medical Records heading.
+   * The one gate for every stage attach / detach of a remote (published,
+   * unpublished, left, rejoin): the patient's track goes to the viewer's tile
+   * while it owns it, everyone else's (and the patient's otherwise) to the stage.
    */
-  protected closeViewer(refocus = true): void {
-    const opener = this.viewerOpener;
-    this.viewerOpener = null;
-    this.viewerSub?.unsubscribe();
-    this.viewerSub = null;
-    this.viewerDoc.set(null);
-    this.viewerFile.set(null);
-    if (this.notesTab() === 'document') this.notesTab.set('notes');
-    if (!refocus) return;
-    // The opener may still be in the document but hidden (a Documents row after the
-    // mid side tab changed): focus would silently go nowhere, so use the heading then.
-    if (opener?.isConnected && opener.getClientRects().length) afterNextRender(() => opener.focus(), { injector: this.injector });
-    else this.focusRecordsHeading();
+  private routeRemoteVideo(uid: CallUid, track: CallVideoTrack | null): void {
+    if (this.viewerOwnsPeer(uid)) {
+      this.viewerPeerTrack.set(track);
+      return;
+    }
+    if (track) this.stage().attach(uid, track);
+    else this.stage().detach(uid);
   }
 
-  /** The viewer's pages are prepared: record the print (the patient sees it), then print — or don't. */
-  protected onViewerPrint(): void {
-    const doc = this.viewerDoc();
-    const file = this.viewerFile();
-    const viewer = this.viewers()[0];
-    if (!doc || !file || !viewer) return;
-    this.doctorApi
-      .patientDocumentPrinted(this.appointmentId, doc.id, file.viewRef)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => void viewer.print(),
-        error: () => viewer.cancelPrint(),
-      });
+  /** The viewer opened (every check passed): stop the patient's video on the stage first, then hand it to the tile. */
+  private handPeerToViewer(): void {
+    const uid = this.patientUid();
+    this.viewerHasPeer.set(true);
+    this.stage().detach(uid);
+    this.viewerPeerTrack.set(this.remoteVideo(uid));
   }
+
+  /** The viewer closed and its tile has stopped the track: the stage plays the patient's CURRENT video again. */
+  private takePeerBack(): void {
+    this.viewerHasPeer.set(false);
+    this.viewerPeerTrack.set(null);
+    if (this.left()) return;
+    const uid = this.patientUid();
+    const track = this.remoteVideo(uid);
+    if (track) this.stage().attach(uid, track);
+  }
+
+  /** The patient (for the viewer's tile): their stage tile, or initials until they are in the call. */
+  protected readonly peerTile = computed<CallTile>(() => {
+    const uid = this.patientUid();
+    return (
+      this.tiles().find((t) => !t.self && String(t.uid) === String(uid)) ?? {
+        uid,
+        name: this.patientName(),
+        role: 'patient',
+        hasVideo: false,
+        muted: false,
+      }
+    );
+  });
+  /** The patient is connected now. */
+  private readonly peerPresent = computed(() => this.people().some((r) => String(r.uid) === String(this.patientUid())));
+  /** The patient has been in this call (so "left the call" can be said). */
+  private readonly peerSeen = signal(false);
+  /** "{name} left the call" in the band — not while the doctor's own connection is the problem. */
+  protected readonly peerLeft = computed(
+    () => this.peerSeen() && !this.peerPresent() && this.status() === 'in-call' && !this.rejoining() && !this.connectionLost(),
+  );
+  /** The band's alerts row shows (wraps under the controls): joining or failed to join, or a banner. */
+  protected readonly bandAlerts = computed(
+    () =>
+      this.status() !== 'in-call' ||
+      !!this.recordingError() ||
+      !!this.callClosed() ||
+      this.rejoining() ||
+      this.connectionLost() ||
+      this.peerLeft() ||
+      !!this.docAlertView(),
+  );
 
   // ---- Focus not obscured (WCAG 2.4.11): scroll padding for the sticky dock and the alert ----
   private observeObscurers(): void {
@@ -3176,8 +3278,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private docsRead: Subscription | null = null;
   private docsPoll?: ReturnType<typeof setInterval>;
   private docsChangeTimer?: ReturnType<typeof setTimeout>;
-  /** Why the last document could not be opened (e.g. no longer shared). */
-  protected readonly docOpenError = signal('');
 
   // Patient consent decisions (read-only for the doctor).
   protected readonly consents = signal<ConsentDto[]>([]);
@@ -3335,7 +3435,13 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private token = '';
   private appointmentId = '';
   private readonly base = environment.apiBaseUrl.replace(/\/+$/, '');
-  private left = false;
+  /** The doctor left the call (teardown): no rejoin, no more reads; the viewer closes. */
+  private readonly left = signal(false);
+  /**
+   * In the live call: connected, not left, and the API still takes it. The
+   * viewer reads it (Mute / End in its band, print asks first, no Reload).
+   */
+  protected readonly inLive = computed(() => this.status() === 'in-call' && !this.left() && !this.callClosed());
   /** The portal idle timeout is held (see syncHold). */
   private holding = false;
   /** Someone else has been in the call (the first-wait hold no longer applies). */
@@ -3355,7 +3461,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * before the call starts or after it ends.
    */
   private readonly onBeforeUnload = (e: BeforeUnloadEvent): void => {
-    if (this.status() === 'in-call' && !this.left) {
+    if (this.status() === 'in-call' && !this.left()) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -3379,7 +3485,37 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.unbindNudge?.();
       this.unbindNudge = undefined;
       this.restoreTitle();
-      this.viewerSub?.unsubscribe();
+    });
+
+    // While this page lives, every document opened anywhere (records, prescriptions) gets
+    // the call band and the patient's video (§3). The templates exist after the first render.
+    afterNextRender(() => {
+      const unregister = this.viewer.registerCall({
+        bar: this.viewerBarTpl(),
+        peer: this.viewerPeerTpl(),
+        peerName: this.patientName,
+        tone: this.theme,
+        live: this.inLive,
+        sharingScreen: this.screenOn,
+        recording: this.recordingActive,
+        stopSharing: () => {
+          if (this.screenOn()) void this.toggleScreen();
+        },
+        willOpen: () => this.handPeerToViewer(),
+        didClose: () => this.takePeerBack(),
+      });
+      this.destroyRef.onDestroy(unregister);
+    });
+
+    // The call is over for this doctor (teardown): the viewer closes (the page then navigates).
+    // The API closing the call (callClosed) keeps it open: its band says so.
+    effect(() => {
+      if (this.left()) untracked(() => this.viewer.close());
+    });
+
+    // The patient has been here: from now on the band can say they left.
+    effect(() => {
+      if (this.peerPresent() && !untracked(this.peerSeen)) untracked(() => this.peerSeen.set(true));
     });
 
     // The floating alert (narrow, held upright) pads the page's bottom while it shows.
@@ -3455,7 +3591,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   /** Hold (or release) the portal idle timeout — never held after leaving. */
   private syncHold(want: boolean): void {
-    const on = want && !this.left;
+    const on = want && !this.left();
     if (on === this.holding) return;
     this.holding = on;
     if (on) this.session.hold(CALL_HOLD);
@@ -3491,7 +3627,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * it is the same doctor's.
    */
   private onPortalSignedIn(): void {
-    if (this.left) return;
+    if (this.left()) return;
     if (!this.clinicalLoaded) {
       this.loadClinical();
       return;
@@ -3569,15 +3705,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         } catch {
           return; // they left (or unpublished) in the meantime
         }
-        if (this.left) return;
-        if (mediaType === 'video' && user.videoTrack) this.stage().attach(user.uid, user.videoTrack);
+        if (this.left()) return;
+        // The stage, or the viewer's picture-in-picture while it holds the patient's video.
+        if (mediaType === 'video' && user.videoTrack) this.routeRemoteVideo(user.uid, user.videoTrack);
         else if (mediaType === 'audio') user.audioTrack?.play();
       });
       // One person's camera going off (or them leaving) only touches their own tile.
       client.on('user-unpublished', (user, mediaType) => {
-        if (mediaType === 'video') this.stage().detach(user.uid);
+        if (mediaType === 'video') this.routeRemoteVideo(user.uid, null);
       });
-      client.on('user-left', (user) => this.stage().detach(user.uid));
+      client.on('user-left', (user) => this.routeRemoteVideo(user.uid, null));
       client.on('user-joined', (user) => this.labelNewcomer(user.uid));
       client.on('token-privilege-will-expire', () => void this.renewToken());
       client.on('token-privilege-did-expire', () => void this.rejoin());
@@ -3597,7 +3734,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         data.uid === 0 ? null : (data.uid ?? null),
       );
       this.selfUid = joinedAs ?? 'self';
-      if (this.left) return;
+      if (this.left()) return;
 
       const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
       this.micTrack = mic;
@@ -3612,28 +3749,28 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       // Nobody touches the keyboard for long stretches in a consultation: the
       // portal idle timeout is held while the call goes on (the hold effect) —
       // waiting for the patient to first arrive holds it for a bounded time.
-      if (!this.left) {
+      if (!this.left()) {
         this.firstWaitTimer = setTimeout(() => this.firstWaitOver.set(true), FIRST_WAIT_HOLD_MS);
       }
       // Let schedules show the doctor is in the call (stopped in teardown).
-      if (!this.left) this.startHeartbeat();
+      if (!this.left()) this.startHeartbeat();
       this.timer = setInterval(() => this.elapsed.update((s) => s + 1), 1000);
       this.startMetricsReport();
-      if (!this.left) this.startDocsPoll();
+      if (!this.left()) this.startDocsPoll();
     } catch (err: unknown) {
       this.errorMessage.set(apiErrorMessage(err, 'This join link is invalid or has expired.'));
       this.joinStanding.set(doctorStandingCode(err));
       this.status.set('error');
       // Joined but could not go on (e.g. no camera): don't sit in the others'
       // call as a silent tile while this screen says it failed.
-      if (this.client && !this.left) {
+      if (this.client && !this.left()) {
         this.unbindRemotes?.();
         this.unbindRemotes = undefined;
         this.remotes.clear();
         void this.client.leave().catch(() => undefined);
       }
       // ...and don't keep the camera and mic open behind it (e.g. publish failed).
-      if (!this.left) {
+      if (!this.left()) {
         this.stage().detach(this.selfUid);
         this.micTrack?.close();
         this.camTrack?.close();
@@ -3660,14 +3797,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    */
   private async renewToken(attempt = 0): Promise<void> {
     this.renewRetry = undefined;
-    if (this.left || this.rejoining()) return;
+    if (this.left() || this.rejoining()) return;
     try {
       const data = await this.resolveJoin();
-      if (this.left) return;
+      if (this.left()) return;
       if (data.participants) this.freshRoster.set(data.participants);
       if (data.token) await this.client?.renewToken(data.token);
     } catch (err: unknown) {
-      if (this.left || this.refusedBy(err)) return;
+      if (this.left() || this.refusedBy(err)) return;
       if (attempt + 1 < RENEW_RETRIES) {
         this.renewRetry = setTimeout(() => void this.renewToken(attempt + 1), RENEW_RETRY_MS);
       }
@@ -3683,29 +3820,31 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    */
   protected async rejoin(): Promise<void> {
     const client = this.client;
-    if (!client || this.left || this.rejoining() || this.callClosed() || this.status() !== 'in-call') return;
+    if (!client || this.left() || this.rejoining() || this.callClosed() || this.status() !== 'in-call') return;
     if (this.renewRetry) clearTimeout(this.renewRetry);
     this.renewRetry = undefined;
     this.rejoining.set(true);
     this.connectionLost.set(false);
     try {
       const data = await this.resolveJoin();
-      if (this.left) return;
+      if (this.left()) return;
       if (data.participants) this.freshRoster.set(data.participants);
       if (!data.configured || !data.app_id || !data.channel) throw fetchError(0, null);
       await client.leave().catch(() => undefined);
-      for (const r of this.remotes.list()) this.stage().detach(r.uid);
+      // Through the gate: the viewer's tile drops the patient's dead track too (the
+      // re-published one reaches it through user-published).
+      for (const r of this.remotes.list()) this.routeRemoteVideo(r.uid, null);
       this.remotes.clear();
       // The same uid as before, so the doctor's own tile (keyed by it) stays put.
       const uid = typeof this.selfUid === 'number' ? this.selfUid : data.uid ? data.uid : null;
       await client.join(data.app_id, data.channel, data.token ?? null, uid);
-      if (this.left) {
+      if (this.left()) {
         await client.leave().catch(() => undefined);
         return;
       }
       await this.publishOwnTracks();
     } catch (err: unknown) {
-      if (this.left || this.refusedBy(err)) return;
+      if (this.left() || this.refusedBy(err)) return;
       this.connectionLost.set(true);
     } finally {
       this.rejoining.set(false);
@@ -3775,7 +3914,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   private onBeat(beat: CallPresenceBeatDto): void {
-    if (this.left) return;
+    if (this.left()) return;
     if (beat.presence) this.presence.set(beat.presence);
     if (beat.participants) this.freshRoster.set(beat.participants);
   }
@@ -3800,7 +3939,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * at most every few seconds (one asked for sooner is sent once allowed).
    */
   private refreshRoster(): void {
-    if (!this.heartbeatStop || this.left) return;
+    if (!this.heartbeatStop || this.left()) return;
     const wait = this.rosterRefreshedAt + ROSTER_REFRESH_MS - Date.now();
     if (wait > 0) {
       this.rosterRefreshTimer ??= setTimeout(() => {
@@ -3836,7 +3975,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * Not while ending it here (that refusal is expected) or after leaving.
    */
   private callRefused(code: CallRefusalCode | null, message: string): void {
-    if (this.left || this.ending() || this.callClosed()) return;
+    if (this.left() || this.ending() || this.callClosed()) return;
     this.callClosed.set(
       message || (code === 'cancelled' ? 'This consultation was cancelled.' : 'This consultation has ended.'),
     );
@@ -3938,7 +4077,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * without a session.
    */
   protected loadDocumentAccess(mode: 'load' | 'refresh' | 'poll' | 'nudge'): void {
-    if (!this.appointmentId || !this.portalSignedIn() || this.left) return;
+    if (!this.appointmentId || !this.portalSignedIn() || this.left()) return;
     const passive = mode === 'poll' || mode === 'nudge';
     if (passive && this.docsRead && !this.docsRead.closed) {
       this.docsFollowUp = true;
@@ -4010,7 +4149,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.newDocIds.set(new Set());
     this.docAlert.set(null);
     this.restoreTitle();
-    if (this.viewerDoc()) this.closeViewer(false);
+    // Signed out (or another doctor signed in): nothing the viewer shows may stay on screen.
+    this.viewer.close();
   }
 
   /**
@@ -4039,7 +4179,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   protected openDocRequest(): void {
     if (!this.portalSignedIn() || !this.appointmentIdForDocs()) return;
-    this.docOpenError.set('');
     this.docRequestOpen.set(true);
   }
 
@@ -4570,7 +4709,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * screen). Asks first while in the call, or with a half-written prescription.
    */
   protected async leave(to: 'appointment' | 'schedule' = 'appointment', asked = false): Promise<void> {
-    if (!this.left && !asked && !(await this.confirmLeaveCall())) return;
+    if (!this.left() && !asked && !(await this.confirmLeaveCall())) return;
     await this.flushNote();
     await this.teardown();
     if (to === 'schedule') void this.router.navigate(['/']);
@@ -4580,7 +4719,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** A join refused for the doctor's standing: the terms to accept, or the account-status page. */
   protected async openStanding(): Promise<void> {
     const target = this.joinStanding() === 'terms_required' ? '/onboarding/terms' : '/account-status';
-    if (!this.left && !(await this.confirmLeaveCall())) return;
+    if (!this.left() && !(await this.confirmLeaveCall())) return;
     await this.flushNote();
     await this.teardown();
     void this.router.navigateByUrl(target);
@@ -4599,9 +4738,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * visit. (The dialog is modal, so nothing can be edited between the two.)
    */
   protected async askEnd(): Promise<void> {
-    if (this.endOpen() || this.asking > 0 || this.left) return;
+    if (this.endOpen() || this.asking > 0 || this.left()) return;
     if (!(await this.confirmDiscardPrescription())) return;
-    if (this.endOpen() || this.left) return;
+    if (this.endOpen() || this.left()) return;
     this.endError.set('');
     this.endOpen.set(true);
   }
@@ -4665,12 +4804,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   /** Route guard hook (e.g. the browser Back button) — the same question as Leave. */
   canLeave(): boolean | Promise<boolean> {
-    return this.left ? true : this.confirmLeaveCall();
+    return this.left() ? true : this.confirmLeaveCall();
   }
 
   /** In the live call (connected, and the API still takes it). */
   protected inLiveCall(): boolean {
-    return this.status() === 'in-call' && !this.left && !this.callClosed();
+    return this.inLive();
   }
 
   /**
@@ -4680,7 +4819,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * the call is over. True to leave.
    */
   private confirmLeaveCall(): boolean | Promise<boolean> {
-    if (this.left) return true;
+    if (this.left()) return true;
     const rx = !!this.rxPanel()?.hasUnsavedChanges();
     if (!this.inLiveCall()) return rx ? this.ask(UNSAVED_RX_LEAVE) : true;
     return this.ask(
@@ -4899,7 +5038,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   private async teardown(): Promise<void> {
-    this.left = true;
+    this.left.set(true);
     this.releaseHold();
     clearTimeout(this.firstWaitTimer);
     // Says "out" at once, so schedules stop showing the doctor in the call.

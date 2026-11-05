@@ -70,7 +70,6 @@ import { DoctorClock } from '../doctor-clock';
         [appointmentId]="appointmentId()"
         [prescriptionId]="composerId()"
         [compact]="compact()"
-        [inCall]="inCall()"
         [disabled]="disabled()"
         (saved)="onSaved()"
         (sent)="onSent()"
@@ -101,21 +100,6 @@ import { DoctorClock } from '../doctor-clock';
           <!-- Focusable: after a delete it takes focus from the row's button, which went away. -->
           <sd-alert #noticeEl tabindex="-1" class="outline-none" tone="success">{{ notice() }}</sd-alert>
         }
-        @if (blockedPdf(); as b) {
-          <!-- The browser blocked the new tab; this page must not be left (e.g. a live call). -->
-          <p class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-field bg-frost/50 px-4 py-3 font-sans text-body-sm text-ink" role="status">
-            <sd-icon name="info" [size]="16" class="shrink-0 text-cerulean" />
-            <span>Your browser blocked the new tab for {{ b.number }}.</span>
-            <a
-              class="inline-flex items-center gap-1 font-semibold text-cerulean underline"
-              [href]="b.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              (click)="blockedPdf.set(null)"
-            >Open the prescription <sd-icon name="external-link" [size]="13" /></a>
-          </p>
-        }
-
         @if (loading() && items().length === 0) {
           <div class="flex flex-col gap-3" aria-busy="true">
             <span class="sr-only">Loading prescriptions…</span>
@@ -189,9 +173,9 @@ import { DoctorClock } from '../doctor-clock';
                         class="${RX_ACTION}"
                         [disabled]="busy() !== '' || disabled()"
                         [attr.aria-label]="'View PDF of ' + rx.number"
-                        (click)="view(rx)"
+                        (click)="view(rx, $event.currentTarget)"
                       >
-                        <sd-icon name="file-text" [size]="14" /> {{ busy() === rx.id + ':view' ? 'Opening…' : 'View PDF' }}
+                        <sd-icon name="file-text" [size]="14" /> View PDF
                       </button>
                       <button
                         type="button"
@@ -252,12 +236,6 @@ export class RxPanel implements CanLeave {
   /** Stacked layout for the narrow in-call side panel (~380px). */
   readonly compact = input(false);
   /**
-   * Shown during a live video call: a blocked "View PDF" tab never falls back
-   * to opening the PDF in this tab (that would end the call) — a link is
-   * offered instead.
-   */
-  readonly inCall = input(false);
-  /**
    * Pause everything that talks to the server (e.g. while the portal session
    * is signed out). The list and any half-written prescription stay on screen,
    * so nothing is lost; actions come back once this turns false again.
@@ -276,8 +254,6 @@ export class RxPanel implements CanLeave {
   protected readonly composing = signal(false);
   protected readonly composerId = signal<string | null>(null);
   protected readonly cancelFor = signal<string | null>(null);
-  /** A PDF whose new tab was blocked during a call — offered as a link. */
-  protected readonly blockedPdf = signal<{ number: string; url: string } | null>(null);
   protected readonly emptyText = computed(() =>
     this.appointmentId()
       ? 'No prescriptions yet for this consultation'
@@ -353,7 +329,6 @@ export class RxPanel implements CanLeave {
     if (this.disabled()) return;
     this.actionError.set('');
     this.notice.set('');
-    this.blockedPdf.set(null);
     this.cancelFor.set(null);
     this.composerId.set(id);
     this.composing.set(true);
@@ -380,23 +355,11 @@ export class RxPanel implements CanLeave {
 
   // ----- row actions -----
 
-  protected view(rx: PrescriptionSummaryDto): void {
+  /** The PDF in the shared viewer (its own loading and errors; in a call it gets the call band). */
+  protected view(rx: PrescriptionSummaryDto, opener?: EventTarget | null): void {
     if (this.busy() || this.disabled()) return;
     this.actionError.set('');
-    this.blockedPdf.set(null);
-    this.busy.set(`${rx.id}:view`);
-    this.files.view(
-      rx.id,
-      (err) => {
-        this.busy.set('');
-        this.actionError.set(apiErrorMessage(err, 'Could not open the PDF. Please try again.'));
-      },
-      () => this.busy.set(''),
-      {
-        allowSameTab: !this.inCall(),
-        onBlocked: (url) => this.blockedPdf.set({ number: rx.number, url }),
-      },
-    );
+    this.files.view(rx, opener instanceof HTMLElement ? opener : null);
   }
 
   protected download(rx: PrescriptionSummaryDto): void {
