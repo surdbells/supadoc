@@ -17,6 +17,7 @@ import {
   apiErrorMessage,
   AppointmentsApi,
   DocumentSharingApi,
+  LabRequestsApi,
   PrescriptionsApi,
 } from '@supadoc/data-access';
 import type {
@@ -25,6 +26,7 @@ import type {
   ConsultationSummaryDto,
   FollowUpQuoteDto,
   LabOrderDto,
+  PatientLabRequestSummaryDto,
   PrescriptionDto,
   PrescriptionStatus,
 } from '@supadoc/models';
@@ -41,6 +43,7 @@ import {
 } from './appointment-status';
 import { accessUntilPhrase, countNoun, drName } from './document-sharing';
 import { dayLabel, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
+import { labChip, type LabChip } from './lab-ui';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 import { deviceZone, myClinicalDocumentSource, myPrescriptionSource, openerOf } from './viewer-sources';
 
@@ -342,7 +345,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                     <div class="h-14 animate-pulse rounded-field bg-cloud"></div>
                     <div class="h-14 animate-pulse rounded-field bg-cloud"></div>
                   </div>
-                } @else if (prescriptions().length > 0 || docs().length > 0 || labs().length > 0) {
+                } @else if (prescriptions().length > 0 || docs().length > 0 || labs().length > 0 || labRequests().length > 0) {
                   <ul class="flex flex-col gap-2.5">
                     @for (rx of prescriptions(); track rx.id) {
                       <li class="flex flex-col gap-3 rounded-field border border-cloud p-3 sm:flex-row sm:items-center">
@@ -389,6 +392,21 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                         <button type="button" class="flex size-8 items-center justify-center rounded-field border border-haze bg-white text-slate shadow-control transition hover:bg-glacier active:shadow-none disabled:shadow-none" [attr.aria-label]="'View ' + doc.label" (click)="openDoc(a.id, doc, $event)">
                           <sd-icon name="eye" [size]="16" />
                         </button>
+                      </li>
+                    }
+                    @for (lr of labRequests(); track lr.id) {
+                      <li>
+                        <a
+                          [routerLink]="['/dashboard/lab-requests', lr.id]"
+                          class="flex flex-wrap items-center gap-3 rounded-field border border-cloud p-3 transition-colors hover:border-cerulean/50"
+                        >
+                          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink" aria-hidden="true"><sd-icon name="flask-conical" [size]="18" /></span>
+                          <span class="min-w-0 flex-1 break-all font-sans text-body-sm font-semibold text-ink">Lab request {{ lr.number }}</span>
+                          <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="labChip(lr).cls">
+                            <sd-icon [name]="labChip(lr).icon" [size]="12" />{{ labChip(lr).label }}
+                          </span>
+                          <sd-icon name="chevron-right" [size]="16" class="shrink-0 text-cerulean" />
+                        </a>
                       </li>
                     }
                     @for (lab of labs(); track lab.id) {
@@ -445,6 +463,7 @@ export class HistoryDetails {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(AppointmentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
+  private readonly labApi = inject(LabRequestsApi);
   private readonly viewer = inject(DocumentViewerService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
@@ -453,6 +472,8 @@ export class HistoryDetails {
   protected readonly prescriptions = signal<PrescriptionDto[]>([]);
   protected readonly docs = signal<DocItem[]>([]);
   protected readonly labs = signal<LabOrderDto[]>([]);
+  /** Lab requests the doctor sent from this consultation. */
+  protected readonly labRequests = signal<PatientLabRequestSummaryDto[]>([]);
   protected readonly docsLoading = signal(true);
   /** A documents request failed — shown so a failure never reads as "no documents". */
   protected readonly docsError = signal('');
@@ -674,6 +695,7 @@ export class HistoryDetails {
       this.prescriptions.set([]);
       this.docs.set([]);
       this.labs.set([]);
+      this.labRequests.set([]);
     }
     this.followUps.set([]);
 
@@ -714,10 +736,13 @@ export class HistoryDetails {
       referrals: this.api.referrals(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your referrals')))),
       certificates: this.api.certificates(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your certificates')))),
       labOrders: this.api.labOrders(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your lab orders')))),
+      labRequests: this.labApi
+        .mine({ appointment_id: id, per_page: 50 })
+        .pipe(catchError((err: unknown) => of(this.failed(err, 'your lab requests')))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ prescriptions, referrals, certificates, labOrders }) => {
-        const failure = [prescriptions, referrals, certificates, labOrders].find(
+      .subscribe(({ prescriptions, referrals, certificates, labOrders, labRequests }) => {
+        const failure = [prescriptions, referrals, certificates, labOrders, labRequests].find(
           (r): r is { failed: string } => 'failed' in r,
         );
         this.docsError.set(failure?.failed ?? '');
@@ -745,6 +770,7 @@ export class HistoryDetails {
         }
         this.docs.set(docs);
         this.labs.set('data' in labOrders ? (labOrders.data ?? []) : []);
+        this.labRequests.set('data' in labRequests ? (labRequests.data ?? []) : []);
         this.docsLoading.set(false);
       }));
   }
@@ -783,6 +809,11 @@ export class HistoryDetails {
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
     return RX_STATUS[status] ?? RX_STATUS.active;
+  }
+
+  /** A lab request's chip (icon + words; never an outcome). */
+  protected labChip(lr: PatientLabRequestSummaryDto): LabChip {
+    return labChip(lr);
   }
 
   protected prescriberName(rx: PrescriptionDto): string {

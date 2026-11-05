@@ -9,10 +9,19 @@ import {
   AppointmentsApi,
   DocumentsApi,
   DocumentSharingApi,
+  LabRequestsApi,
   PatientApi,
   PrescriptionsApi,
 } from '@supadoc/data-access';
-import type { AppointmentDocumentAccessDto, AppointmentDto, MedicalDocumentDto, PrescriptionDto, UploadedDocumentDto } from '@supadoc/models';
+import type {
+  AppointmentDocumentAccessDto,
+  AppointmentDto,
+  LabOrderDto,
+  MedicalDocumentDto,
+  PatientLabRequestSummaryDto,
+  PrescriptionDto,
+  UploadedDocumentDto,
+} from '@supadoc/models';
 import {
   CallControlsComponent,
   CallSelfTileComponent,
@@ -111,6 +120,10 @@ const ok = <T,>(data: T) => of({ status: 'success', message: 'OK', data });
 let legacyUrl: string | null = null;
 let issued: PrescriptionDto[] = [];
 let library: MedicalDocumentDto[] = [];
+/** Per test: the visit's legacy lab orders and its lab requests. */
+let legacyLabs: LabOrderDto[] = [];
+let labRequests: PatientLabRequestSummaryDto[] = [];
+const labMine = vi.fn(() => ok(labRequests));
 
 /** An API service whose every other method answers an empty list. */
 function apiStub(overrides: Record<string, unknown>): unknown {
@@ -191,11 +204,13 @@ describe('ConsultationCall (the dock)', () => {
             presenceUrl: () => 'http://api.test/presence',
             consultationSummary: () => ok({ available: false }),
             carePlan: () => ok({ available: false, items: [] }),
+            labOrders: () => ok(legacyLabs),
           }),
         },
         { provide: PatientApi, useValue: apiStub({ me: () => ok({ id: 'p-1', first_name: 'Ada', last_name: 'Obi' }), vitals: () => ok({ latest: [] }), healthProfile: () => ok({}) }) },
         { provide: DocumentsApi, useValue: apiStub({ list: () => ok(library) }) },
         { provide: PrescriptionsApi, useValue: apiStub({}) },
+        { provide: LabRequestsApi, useValue: apiStub({ mine: labMine }) },
         { provide: DocumentSharingApi, useValue: apiStub({ forAppointment: () => ok(access) }) },
         // The shared viewer, stubbed (the real one schedules an idle prefetch of its chunks, a 2 s timer in jsdom).
         { provide: DocumentViewerService, useValue: { open: vi.fn(), close: vi.fn(), isOpen: signal(false), registerCall: vi.fn(() => () => undefined) } },
@@ -214,6 +229,9 @@ describe('ConsultationCall (the dock)', () => {
     legacyUrl = null;
     issued = [];
     library = [];
+    legacyLabs = [];
+    labRequests = [];
+    labMine.mockClear();
   });
 
   const create = async () => {
@@ -866,6 +884,60 @@ describe('ConsultationCall (the dock)', () => {
       expect(end.classList).toContain('bg-alert');
       expect(end.textContent?.trim()).toBe('');
       band.destroy();
+    });
+  });
+
+  describe('the labs tab (lab requests)', () => {
+    const sig = <T,>(name: string) => cmp()[name] as unknown as { (): T; set(v: T): void };
+    const labRow = (over: Partial<PatientLabRequestSummaryDto> = {}): PatientLabRequestSummaryDto =>
+      ({
+        id: 'lr-1',
+        number: 'GVM-REQ-20261101-00001',
+        status: 'awaiting_consent',
+        priority: 'urgent',
+        doctor: { id: 'sp-1', name: 'Bayo Ade', specialty: 'Cardiology' },
+        items_count: 3,
+        results_count: 0,
+        reviewed: false,
+        awaiting_review: false,
+        appointment_id: 'ap-1',
+        sent_at: '2026-11-01T15:30:00Z',
+        valid_until: '2026-12-01',
+        expires_at: '2026-12-01T23:00:00Z',
+        last_activity_at: '2026-11-01T15:30:00Z',
+        ...over,
+      }) as PatientLabRequestSummaryDto;
+
+    it('is "Lab requests": the visit’s requests (number, chip, test count); legacy orders read "Ordered"', async () => {
+      labRequests = [labRow()];
+      legacyLabs = [
+        { id: 'lo-1', appointment_id: 'ap-1', tests: ['FBC'], notes: null, status: 'pending', author: 'Bayo Ade', created_at: '2026-10-01T10:00:00Z' } as unknown as LabOrderDto,
+      ];
+      await create();
+      await enter();
+      expect(el.textContent).toContain('Lab requests');
+      expect(el.textContent).not.toContain('Lab Orders');
+      sig<string>('notesTab').set('labs');
+      await settle();
+      expect(labMine).toHaveBeenCalledWith({ appointment_id: 'ap-1', per_page: 50 });
+      const row = el.querySelector<HTMLElement>('[data-testid="call-lab-request"]') as HTMLElement;
+      expect(row.textContent).toContain('GVM-REQ-20261101-00001');
+      expect(row.textContent).toContain('Action needed');
+      expect(row.textContent).toContain('3 tests');
+      expect(el.textContent).toContain('Open Lab Tests after your call to review and accept.');
+      // No way out of the call from here: the row is not a link.
+      expect(row.querySelector('a')).toBeNull();
+      const legacy = el.querySelector<HTMLElement>('[data-testid="call-lab-order-status"]') as HTMLElement;
+      expect(legacy.textContent?.trim()).toBe('Ordered');
+      expect(legacy.textContent).not.toContain('pending');
+    });
+
+    it('says so when the visit has no lab requests', async () => {
+      await create();
+      await enter();
+      sig<string>('notesTab').set('labs');
+      await settle();
+      expect(el.textContent).toContain('No lab requests for this consultation yet.');
     });
   });
 });

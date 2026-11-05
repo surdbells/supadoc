@@ -33,6 +33,7 @@ import {
   AppointmentsApi,
   DocumentsApi,
   DocumentSharingApi,
+  LabRequestsApi,
   PatientApi,
   PrescriptionsApi,
   sendCallNudge,
@@ -56,6 +57,7 @@ import {
   type MedicalDocumentDto,
   type MedicationRow,
   type PatientCarePlanDto,
+  type PatientLabRequestSummaryDto,
   type PatientGuestDto,
   type PatientProfileDto,
   type PrescriptionDto,
@@ -97,6 +99,7 @@ import { drLast, isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } fr
 import { DocumentUploadDialog } from './document-upload-dialog';
 import { isOpenProposal, whenLabel } from './follow-up';
 import { InviteGuestDialog } from './invite-guest-dialog';
+import { labChip, testsLabel } from './lab-ui';
 import { ShareConfirmSheet } from './share-confirm-sheet';
 import { ShareDialog } from './share-dialog';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
@@ -829,7 +832,8 @@ interface RecordItem {
               sdSmoothHeight
             >
               <div>
-              @for (shown of [notesTab()]; track shown) {
+              <!-- Keyed (not tracked by identity): each tab remounts its panel for the fade, without the NG0956 dev warning. -->
+              @for (shown of [notesTab()]; track 'tab:' + shown) {
               <div class="sd-tab-panel">
               @switch (notesTab()) {
                 @case ('notes') {
@@ -980,16 +984,32 @@ interface RecordItem {
                   }
                 }
                 @case ('labs') {
-                  @if (labs().length) {
+                  @if (labRequests().length || labs().length) {
                     <ul class="flex flex-col gap-2">
+                      <!-- Lab requests: answered after the call, in Lab Tests (no navigation from the call) -->
+                      @for (lr of labRequests(); track lr.id) {
+                        <li class="rounded-2xl bg-white/[0.04] p-3" data-testid="call-lab-request">
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm font-medium text-white">
+                              <sd-icon name="flask-conical" [size]="16" class="shrink-0 text-frost" />
+                              <span class="break-all">{{ lr.number }}</span>
+                            </span>
+                            <span class="inline-flex shrink-0 items-center gap-1 rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85">
+                              <sd-icon [name]="labChipOf(lr).icon" [size]="12" />{{ labChipOf(lr).label }}
+                            </span>
+                          </div>
+                          <p class="mt-1 font-sans text-caption text-white/70">{{ labTests(lr.items_count) }}</p>
+                        </li>
+                      }
                       @for (o of labs(); track o.id) {
                         <li class="rounded-2xl bg-white/[0.04] p-3">
                           <div class="flex items-center justify-between">
                             <span class="flex items-center gap-2 font-sans text-body-sm font-medium text-white">
                               <sd-icon name="clipboard-list" [size]="16" class="text-frost" /> Lab order
                             </span>
-                            <span class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-[10px] capitalize text-warning">
-                              {{ o.status }}
+                            <!-- Legacy orders are read-only: never the raw stored status. -->
+                            <span class="rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85" data-testid="call-lab-order-status">
+                              Ordered
                             </span>
                           </div>
                           <p class="mt-1 font-sans text-body-sm text-white/70">{{ o.tests.join(', ') }}</p>
@@ -999,9 +1019,15 @@ interface RecordItem {
                         </li>
                       }
                     </ul>
+                    @if (labRequests().length) {
+                      <p class="mt-3 flex items-start gap-2 font-sans text-caption text-white/60">
+                        <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                        Open Lab Tests after your call to review and accept.
+                      </p>
+                    }
                   } @else {
                     <p class="py-6 text-center font-sans text-body-sm text-white/60">
-                      No lab orders for this consultation yet.
+                      No lab requests for this consultation yet.
                     </p>
                   }
                 }
@@ -1412,6 +1438,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly patientApi = inject(PatientApi);
   private readonly documentsApi = inject(DocumentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
+  private readonly labApi = inject(LabRequestsApi);
   /** Paused while connected so the idle timeout never signs a patient out mid-call. */
   private readonly session = inject(SessionTimeoutService);
   /** Bearer token for the presence heartbeat (a raw fetch, outside the interceptors). */
@@ -1885,7 +1912,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
     { key: 'notes', label: 'Consultation Notes' },
     { key: 'prescriptions', label: 'Prescriptions' },
-    { key: 'labs', label: 'Lab Orders' },
+    { key: 'labs', label: 'Lab requests' },
     { key: 'followup', label: 'Follow-up Plan' },
   ];
   protected readonly docsTabs: ReadonlyArray<{ key: DocsTab; label: string }> = [
@@ -1917,6 +1944,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   // Prescriptions the doctor has issued for this consultation.
   protected readonly issuedRx = signal<PrescriptionDto[]>([]);
   protected readonly labs = signal<LabOrderDto[]>([]);
+  /** Lab requests the doctor sent for this consultation (answered after the call, in Lab Tests). */
+  protected readonly labRequests = signal<PatientLabRequestSummaryDto[]>([]);
+  /** A lab request's chip (icon + words; the cockpit draws it in its own neutral tone). */
+  protected readonly labChipOf = labChip;
+  protected readonly labTests = testsLabel;
   protected readonly carePlan = signal<PatientCarePlanDto | null>(null);
   protected readonly referrals = signal<ReferralDto[]>([]);
   /** Follow-ups the doctor proposed from this call, waiting for the patient's answer. */
@@ -3018,6 +3050,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       this.labs.set(lo.data ?? []);
     } catch {
       /* none */
+    }
+    try {
+      const lr = await firstValueFrom(this.labApi.mine({ appointment_id: this.appointmentId, per_page: 50 }));
+      this.labRequests.set(lr.data ?? []);
+    } catch {
+      /* none (a failed poll keeps the list shown) */
     }
     try {
       const cp = await firstValueFrom(this.appointments.carePlan(this.appointmentId));

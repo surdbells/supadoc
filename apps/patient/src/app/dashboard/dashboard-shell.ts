@@ -65,9 +65,11 @@ const zoneSynced = new Set<string>();
       @if (!immersive()) {
       <!-- Desktop side nav (collapsible). Width is pinned via inline styles
            (width/min/max together) so the flex row can't clamp it to the
-           content's min-content size. -->
+           content's min-content size. It scrolls vertically when the window
+           is shorter than the nav (~800 px), so Settings and Log Out are
+           never clipped out of reach. -->
       <aside
-        class="sticky top-0 hidden h-screen shrink-0 flex-col justify-between overflow-hidden border-r-[0.5px] border-ash bg-snow pt-6 pb-10 transition-[width,padding] duration-200 ease-out lg:flex"
+        class="sticky top-0 hidden h-screen shrink-0 flex-col justify-between overflow-x-hidden overflow-y-auto border-r-[0.5px] border-ash bg-snow pt-6 pb-10 transition-[width,padding] duration-200 ease-out lg:flex"
         [class.px-6]="!collapsed()"
         [class.px-3]="collapsed()"
         [style.width.px]="collapsed() ? 80 : 256"
@@ -381,6 +383,7 @@ export class DashboardShell {
     },
     { label: 'History', icon: 'history', link: '/dashboard/history' },
     { label: 'Prescriptions', icon: 'pill', link: '/dashboard/prescriptions' },
+    { label: 'Lab Tests', icon: 'flask-conical', link: '/dashboard/lab-requests' },
     { label: 'Notification', icon: 'bell', link: '/dashboard/notifications' },
     { label: 'Wallet', icon: 'wallet', link: '/dashboard/wallet' },
     {

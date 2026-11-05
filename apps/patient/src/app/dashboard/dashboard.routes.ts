@@ -87,6 +87,18 @@ export const dashboardRoutes: Route[] = [
           import('./prescription-details').then((m) => m.PrescriptionDetails),
       },
       {
+        path: 'lab-requests',
+        loadComponent: () =>
+          import('./lab-requests').then((m) => m.LabRequests),
+      },
+      {
+        // Asks before leaving while a result is uploading.
+        path: 'lab-requests/:id',
+        loadComponent: () =>
+          import('./lab-request-details').then((m) => m.LabRequestDetails),
+        canDeactivate: [unsavedChangesGuard],
+      },
+      {
         path: 'notifications',
         loadComponent: () =>
           import('./notification').then((m) => m.Notification),

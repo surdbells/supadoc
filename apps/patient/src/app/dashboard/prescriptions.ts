@@ -102,22 +102,33 @@ type Tab = 'all' | 'active' | 'expired' | 'cancelled';
       <!-- Consultation History › Prescriptions -->
       <nav
         aria-label="Consultation history sections"
-        class="flex w-full items-center gap-1 rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit"
+        class="flex w-full items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit"
       >
         <a
           routerLink="/dashboard/history"
-          class="flex flex-1 items-center justify-center gap-2 rounded-pill px-4 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none"
+          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill px-2.5 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none sm:px-4"
         >
-          <sd-icon name="history" [size]="16" />
+          <sd-icon name="history" [size]="16" class="hidden sm:inline-flex" />
           Consultations
         </a>
         <a
           routerLink="/dashboard/prescriptions"
           aria-current="page"
-          class="flex flex-1 items-center justify-center gap-2 rounded-pill bg-cerulean px-4 py-2 font-sans text-body-sm font-medium text-white shadow-control inset-shadow-rim sm:flex-none"
+          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill bg-cerulean px-2.5 py-2 font-sans text-body-sm font-medium text-white shadow-control inset-shadow-rim sm:flex-none sm:px-4"
         >
-          <sd-icon name="pill" [size]="16" />
+          <sd-icon name="pill" [size]="16" class="hidden sm:inline-flex" />
           Prescriptions
+        </a>
+        <a
+          routerLink="/dashboard/lab-requests"
+          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill px-2.5 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none sm:px-4"
+        >
+          <sd-icon
+            name="flask-conical"
+            [size]="16"
+            class="hidden sm:inline-flex"
+          />
+          Lab tests
         </a>
       </nav>
 

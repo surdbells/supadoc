@@ -105,6 +105,24 @@ describe('DashboardShell', () => {
     expect(shell.querySelector('pat-dashboard-shell aside')).toBeTruthy();
   });
 
+  it('lists Lab Tests after Prescriptions; the desktop sidebar scrolls rather than clipping Settings and Log Out', async () => {
+    await harness.navigateByUrl('/dashboard');
+    flushStart(me('p-1', 'manual'));
+    harness.detectChanges();
+    const shell = harness.fixture.nativeElement as HTMLElement;
+    const aside = shell.querySelector('pat-dashboard-shell aside') as HTMLElement;
+    const labels = Array.from(aside.querySelectorAll('nav a')).map((a) => a.textContent?.trim());
+    expect(labels.slice(labels.indexOf('Prescriptions'), labels.indexOf('Prescriptions') + 2)).toEqual([
+      'Prescriptions',
+      'Lab Tests',
+    ]);
+    expect(aside.querySelector('a[href="/dashboard/lab-requests"]')).toBeTruthy();
+    // Ten links plus Settings and Log Out need ~800 px: a shorter window must scroll, not hide them.
+    expect(aside.classList).toContain('overflow-y-auto');
+    expect(aside.classList).toContain('overflow-x-hidden');
+    expect(aside.classList).not.toContain('overflow-hidden');
+  });
+
   it("saves this device's zone once the profile loads, while the patient has none", async () => {
     deviceZone('America/Chicago');
     await harness.navigateByUrl('/dashboard');

@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { BehaviorSubject, firstValueFrom, of } from 'rxjs';
-import { API_CONFIG, AppointmentsApi, DocumentSharingApi, PrescriptionsApi } from '@supadoc/data-access';
-import type { AppointmentDto } from '@supadoc/models';
+import { API_CONFIG, AppointmentsApi, DocumentSharingApi, LabRequestsApi, PrescriptionsApi } from '@supadoc/data-access';
+import type { AppointmentDto, PatientLabRequestSummaryDto } from '@supadoc/models';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { DocumentViewerService, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
 import { HistoryDetails } from './history-details';
@@ -29,12 +29,31 @@ const appointment = {
   specialist: { id: 'sp-1', name: 'Bayo Ade', specialty: 'Cardiology', photo_url: null, timezone: 'Africa/Lagos' },
 } as unknown as AppointmentDto;
 
+/** A lab request the doctor sent from this consultation (a list row: no test names). */
+const labRow = {
+  id: 'lr-1',
+  number: 'GVM-REQ-20261101-00001',
+  status: 'result_ready',
+  priority: 'routine',
+  doctor: { id: 'sp-1', name: 'Bayo Ade', specialty: 'Cardiology' },
+  items_count: 2,
+  results_count: 1,
+  reviewed: true,
+  awaiting_review: false,
+  appointment_id: 'ap-1',
+  sent_at: '2026-11-01T15:30:00Z',
+  valid_until: '2026-12-01',
+  expires_at: '2026-12-01T23:00:00Z',
+  last_activity_at: '2026-11-02T10:00:00Z',
+} as PatientLabRequestSummaryDto;
+
 describe('HistoryDetails › documents in the viewer', () => {
   let fixture: ComponentFixture<HistoryDetails>;
   let el: HTMLElement;
   const open = vi.fn();
   const documentPdf = vi.fn(() => of(new Blob(['%PDF'], { type: 'application/pdf' })));
   const link = vi.fn(() => ok({ url: '/api/public/prescriptions/file?token=t', expires_at: '', filename: 'rx.pdf' }));
+  const labMine = vi.fn(() => ok([labRow]));
 
   /** The page polls the visit's status on an interval, so the zone is never stable: flush by hand. */
   const settle = async () => {
@@ -81,6 +100,7 @@ describe('HistoryDetails › documents in the viewer', () => {
           }),
         },
         { provide: DocumentViewerService, useValue: { open } },
+        { provide: LabRequestsApi, useValue: apiStub({ mine: labMine }) },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(HistoryDetails);
@@ -123,5 +143,14 @@ describe('HistoryDetails › documents in the viewer', () => {
     await firstValueFrom(sources[0].load());
     expect(link).toHaveBeenCalledExactlyOnceWith('rx-1', false);
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('lists the consultation’s lab requests: number, chip, and a link to the request (legacy rows unchanged)', () => {
+    expect(labMine).toHaveBeenCalledWith({ appointment_id: 'ap-1', per_page: 50 });
+    const row = el.querySelector<HTMLAnchorElement>('a[href="/dashboard/lab-requests/lr-1"]');
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain('Lab request GVM-REQ-20261101-00001');
+    expect(row?.textContent).toContain('Reviewed by your doctor');
+    expect(row?.textContent?.toLowerCase()).not.toContain('abnormal');
   });
 });
