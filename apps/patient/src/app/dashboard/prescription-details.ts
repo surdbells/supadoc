@@ -1,4 +1,3 @@
-import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,29 +11,26 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   catchError,
   distinctUntilChanged,
-  from,
   map,
   of,
   Subscription,
-  switchMap,
 } from 'rxjs';
 import {
   apiErrorMessage,
   AppointmentsApi,
-  openPendingTab,
   PrescriptionsApi,
 } from '@supadoc/data-access';
-import type { FollowUpMode, PrescriptionDto, PrescriptionItem } from '@supadoc/models';
+import type { FollowUpMode, PrescriptionDto, PrescriptionItem, PrescriptionLinkDto } from '@supadoc/models';
 import {
   AlertComponent,
   ButtonComponent,
   EmptyStateComponent,
   IconComponent,
 } from '@supadoc/ui';
+import { DocumentViewerService, safeFilename, saveSignedLink } from '@supadoc/viewer';
 import { isOpenProposal } from './follow-up';
 import { rxDate, rxStatus, type RxStatusMeta } from './prescriptions';
-
-type FileAction = 'view' | 'download' | 'print';
+import { myPrescriptionSource, openerOf } from './viewer-sources';
 
 const FOLLOW_UP: Record<FollowUpMode, { label: string; icon: string }> = {
   video: { label: 'Video', icon: 'video' },
@@ -53,9 +49,12 @@ function httpStatus(err: unknown): number | undefined {
 /**
  * One prescription (GVM-RX-02) — wired to GET /api/portal/prescriptions/{id}.
  * Shows the status (icon + text), prescriber, dates, the medicines, advice,
- * follow-up and tests, and offers the PDF three ways: full screen (the
- * browser's PDF viewer — pinch-zoom on phones), download and print. Expired and
- * cancelled files come stamped by the server, and the page says so.
+ * follow-up and tests, and offers the PDF three ways: View (the shared
+ * document viewer, in a modal: zoom, pinch on phones, print and download from
+ * there), Download and Print (the viewer, printing as soon as the pages are
+ * ready — the same raster print on every device). Expired and cancelled files
+ * come stamped by the server, and the page says so. The file never opens in a
+ * tab, and a download never navigates (an error body can't replace the page).
  */
 @Component({
   selector: 'pat-prescription-details',
@@ -246,41 +245,26 @@ function httpStatus(err: unknown): number | undefined {
                 <sd-icon name="file-text" [size]="20" />Prescription file
               </h2>
               <div class="grid grid-cols-1 gap-3 md:grid-cols-3 lg:max-w-2xl">
-                <sd-button [full]="true" [disabled]="busy() !== null" (click)="view()">
-                  <sd-icon
-                    [name]="busy() === 'view' ? 'loader-circle' : 'maximize-2'"
-                    [size]="18"
-                    class="inline-flex"
-                    [class.animate-spin]="busy() === 'view'"
-                  />
-                  View full screen
+                <sd-button [full]="true" (click)="view($event)">
+                  <sd-icon name="eye" [size]="18" class="inline-flex" />
+                  View
                 </sd-button>
                 <sd-button
                   variant="outline"
                   [full]="true"
-                  [disabled]="busy() !== null"
+                  [disabled]="downloading()"
                   (click)="download()"
                 >
                   <sd-icon
-                    [name]="busy() === 'download' ? 'loader-circle' : 'download'"
+                    [name]="downloading() ? 'loader-circle' : 'download'"
                     [size]="18"
                     class="inline-flex"
-                    [class.animate-spin]="busy() === 'download'"
+                    [class.animate-spin]="downloading()"
                   />
                   Download
                 </sd-button>
-                <sd-button
-                  variant="outline"
-                  [full]="true"
-                  [disabled]="busy() !== null"
-                  (click)="print()"
-                >
-                  <sd-icon
-                    [name]="busy() === 'print' ? 'loader-circle' : 'printer'"
-                    [size]="18"
-                    class="inline-flex"
-                    [class.animate-spin]="busy() === 'print'"
-                  />
+                <sd-button variant="outline" [full]="true" (click)="print($event)">
+                  <sd-icon name="printer" [size]="18" class="inline-flex" />
                   Print
                 </sd-button>
               </div>
@@ -295,20 +279,7 @@ function httpStatus(err: unknown): number | undefined {
                   <sd-alert tone="error">{{ actionError() }}</sd-alert>
                 }
                 @if (actionNote()) {
-                  <sd-alert tone="info">
-                    {{ actionNote() }}
-                    @if (fallbackUrl(); as url) {
-                      <a
-                        [href]="url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="mt-1 flex w-fit items-center gap-1 font-semibold underline"
-                      >
-                        <sd-icon name="external-link" [size]="16" />
-                        Open the prescription
-                      </a>
-                    }
-                  </sd-alert>
+                  <sd-alert tone="info">{{ actionNote() }}</sd-alert>
                 }
               </div>
             </section>
@@ -483,7 +454,7 @@ export class PrescriptionDetails {
   private readonly appointments = inject(AppointmentsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly doc = inject(DOCUMENT);
+  private readonly viewer = inject(DocumentViewerService);
 
   protected readonly rx = signal<PrescriptionDto | null>(null);
   private readonly loading = signal(true);
@@ -491,18 +462,15 @@ export class PrescriptionDetails {
   /** The API's reason the prescription failed to load ('' when it hasn't). */
   protected readonly loadError = signal('');
 
-  protected readonly busy = signal<FileAction | null>(null);
+  /** A download is being minted and fetched. */
+  protected readonly downloading = signal(false);
   protected readonly actionError = signal('');
   protected readonly actionNote = signal('');
-  /** A direct link offered when the browser blocked the print fallback tab. */
-  protected readonly fallbackUrl = signal<string | null>(null);
 
   private id = '';
   private loadSub: Subscription | null = null;
   private proposalSub: Subscription | null = null;
-  private printFrame: HTMLIFrameElement | null = null;
-  private printObjectUrl: string | null = null;
-  private printTimer: ReturnType<typeof setTimeout> | null = null;
+  private downloadSub: Subscription | null = null;
 
   protected readonly viewState = computed<'loading' | 'not-found' | 'error' | 'ready'>(() => {
     if (this.loading()) return 'loading';
@@ -573,7 +541,6 @@ export class PrescriptionDetails {
         this.id = id;
         this.load();
       });
-    this.destroyRef.onDestroy(() => this.cleanupPrint());
   }
 
   protected date(value: string | null): string {
@@ -592,217 +559,62 @@ export class PrescriptionDetails {
 
   // ----- file actions -----
 
-  /** Full screen: the browser's own PDF viewer in a new tab (pinch-zoom on phones). */
-  protected view(): void {
-    const p = this.rx();
-    if (!p || this.busy()) return;
-    // Open the tab synchronously inside the click so popup blockers allow it.
-    const pending = openPendingTab();
-    this.startAction('view');
-    this.api
-      .link(p.id, false)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          pending.go(this.api.fileUrl(res.data));
-          this.busy.set(null);
-        },
-        error: (err: unknown) => {
-          pending.fail();
-          this.busy.set(null);
-          this.actionError.set(
-            apiErrorMessage(err, "We couldn't open your prescription. Please try again."),
-          );
-        },
-      });
+  /** View: the PDF in the shared document viewer (zoom, pages, print and download from there). */
+  protected view(event?: Event): void {
+    this.openViewer(false, event);
   }
 
-  /** Download: the server answers the signed link with `attachment; filename=<number>.pdf`. */
+  /**
+   * Download: mint a download link (one `prescription.downloaded` row), fetch
+   * it with HttpClient and save it from a same-origin object URL. Never a
+   * cross-origin `<a href download>`: the browser ignores `download` there and
+   * navigates, so a 410 / 429 / 5xx body would replace this page.
+   */
   protected download(): void {
     const p = this.rx();
-    if (!p || this.busy()) return;
-    this.startAction('download');
-    this.api
-      .link(p.id, true)
+    if (!p || this.downloading()) return;
+    this.downloading.set(true);
+    this.actionError.set('');
+    this.actionNote.set('');
+    let filename = '';
+    this.downloadSub?.unsubscribe();
+    this.downloadSub = saveSignedLink(
+      this.api.link(p.id, true).pipe(
+        map((res) => {
+          filename = res.data.filename || safeFilename(`Prescription ${p.number}`, 'pdf');
+          return { url: res.data.url, filename };
+        }),
+      ),
+      (url) => this.api.fileBlob({ url } as PrescriptionLinkDto),
+    )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => {
-          const filename = res.data.filename || `${p.number}.pdf`;
-          const a = this.doc.createElement('a');
-          a.href = this.api.fileUrl(res.data);
-          a.download = filename;
-          a.rel = 'noopener';
-          a.style.display = 'none';
-          this.doc.body.appendChild(a);
-          a.click();
-          a.remove();
-          this.busy.set(null);
+        next: () => {
+          this.downloading.set(false);
           this.actionNote.set(`Your download has started (${filename}).`);
         },
         error: (err: unknown) => {
-          this.busy.set(null);
-          this.actionError.set(
-            apiErrorMessage(err, "We couldn't download your prescription. Please try again."),
-          );
+          this.downloading.set(false);
+          this.actionError.set(apiErrorMessage(err, "We couldn't download your prescription. Please try again."));
         },
       });
   }
 
   /**
-   * Print: fetch the PDF as a blob and print it from a hidden same-origin frame.
-   * Phones and tablets can't print a PDF from a frame, so there (and whenever
-   * the frame route fails) the file opens in a new tab to print from the viewer.
+   * Print: the viewer, printing once the first pages are ready (the same 200
+   * DPI raster print on every device, phones and tablets included). It never
+   * prints the page behind it.
    */
-  protected print(): void {
-    const p = this.rx();
-    if (!p || this.busy()) return;
-
-    if (this.isTouchDevice()) {
-      const pending = openPendingTab();
-      this.startAction('print');
-      this.api
-        .link(p.id, false)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (res) => {
-            pending.go(this.api.fileUrl(res.data));
-            this.busy.set(null);
-            this.actionNote.set(
-              'Your prescription opened in a new tab. Use your browser’s print or share option to print it.',
-            );
-          },
-          error: (err: unknown) => {
-            pending.fail();
-            this.busy.set(null);
-            this.actionError.set(
-              apiErrorMessage(err, "We couldn't get your prescription ready to print. Please try again."),
-            );
-          },
-        });
-      return;
-    }
-
-    this.startAction('print');
-    this.api
-      .link(p.id, false)
-      .pipe(
-        switchMap((res) => {
-          const url = this.api.fileUrl(res.data);
-          return from(this.fetchPdf(url)).pipe(
-            map((blob): { url: string; blob: Blob | null } => ({ url, blob })),
-            catchError(() => of({ url, blob: null })),
-          );
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: ({ url, blob }) => {
-          this.busy.set(null);
-          if (blob) this.printBlob(blob, url);
-          else this.printFallback(url);
-        },
-        error: (err: unknown) => {
-          this.busy.set(null);
-          this.actionError.set(
-            apiErrorMessage(err, "We couldn't get your prescription ready to print. Please try again."),
-          );
-        },
-      });
+  protected print(event?: Event): void {
+    this.openViewer(true, event);
   }
 
-  private startAction(action: FileAction): void {
-    this.busy.set(action);
+  private openViewer(autoPrint: boolean, event?: Event): void {
+    const p = this.rx();
+    if (!p) return;
     this.actionError.set('');
     this.actionNote.set('');
-    this.fallbackUrl.set(null);
-  }
-
-  private isTouchDevice(): boolean {
-    try {
-      const win = this.doc.defaultView;
-      return !!win?.matchMedia?.('(hover: none) and (pointer: coarse)').matches;
-    } catch {
-      return false;
-    }
-  }
-
-  private async fetchPdf(url: string): Promise<Blob> {
-    const res = await fetch(url, { credentials: 'omit', cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
-  }
-
-  private printBlob(blob: Blob, url: string): void {
-    this.cleanupPrint();
-    const objectUrl = URL.createObjectURL(blob);
-    const frame = this.doc.createElement('iframe');
-    frame.setAttribute('aria-hidden', 'true');
-    frame.tabIndex = -1;
-    frame.title = 'Prescription for printing';
-    Object.assign(frame.style, {
-      position: 'fixed',
-      right: '0',
-      bottom: '0',
-      width: '1px',
-      height: '1px',
-      border: '0',
-      opacity: '0',
-      pointerEvents: 'none',
-    });
-    frame.onload = () => {
-      try {
-        const w = frame.contentWindow;
-        if (!w) throw new Error('No frame window');
-        w.focus();
-        w.print();
-      } catch {
-        this.printFallback(url);
-      }
-    };
-    frame.src = objectUrl;
-    this.doc.body.appendChild(frame);
-    this.printFrame = frame;
-    this.printObjectUrl = objectUrl;
-    // The print dialog can hold the document for a while — tidy up later.
-    this.printTimer = setTimeout(() => this.cleanupPrint(), 120_000);
-  }
-
-  /** Open the inline PDF in a new tab to print from the viewer; offer a link if blocked. */
-  private printFallback(url: string): void {
-    let opened: Window | null = null;
-    try {
-      opened = this.doc.defaultView?.open(url, '_blank') ?? null;
-      if (opened) opened.opener = null;
-    } catch {
-      opened = null;
-    }
-    if (opened) {
-      this.actionNote.set(
-        'Your prescription opened in a new tab. Use your browser’s print option there.',
-      );
-    } else {
-      this.fallbackUrl.set(url);
-      this.actionNote.set(
-        "We couldn't start printing here. Open your prescription and print it from there.",
-      );
-    }
-  }
-
-  private cleanupPrint(): void {
-    if (this.printTimer) {
-      clearTimeout(this.printTimer);
-      this.printTimer = null;
-    }
-    if (this.printFrame) {
-      this.printFrame.onload = null;
-      this.printFrame.remove();
-      this.printFrame = null;
-    }
-    if (this.printObjectUrl) {
-      URL.revokeObjectURL(this.printObjectUrl);
-      this.printObjectUrl = null;
-    }
+    this.viewer.open(myPrescriptionSource(this.api, p), { opener: openerOf(event), autoPrint });
   }
 
   /** Is a follow-up of this consultation waiting for the patient's answer? (best effort) */
@@ -826,7 +638,6 @@ export class PrescriptionDetails {
     this.notFound.set(false);
     this.actionError.set('');
     this.actionNote.set('');
-    this.fallbackUrl.set(null);
     if (!this.id) {
       this.rx.set(null);
       this.notFound.set(true);

@@ -12,6 +12,7 @@ import {
   Injector,
   OnDestroy,
   signal,
+  TemplateRef,
   untracked,
   viewChild,
 } from '@angular/core';
@@ -32,8 +33,6 @@ import {
   AppointmentsApi,
   DocumentsApi,
   DocumentSharingApi,
-  openBlobDocument,
-  openPendingTab,
   PatientApi,
   PrescriptionsApi,
   sendCallNudge,
@@ -87,18 +86,21 @@ import {
   type RemoteParticipant,
   RemoteParticipants,
   SmoothHeightDirective,
+  type CallTile,
 } from '@supadoc/ui';
+import { CallPeerTileComponent, DocumentViewerService } from '@supadoc/viewer';
 import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call-helpers';
 import { openLocalMedia } from '../call/call-media';
 import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
 import { doctorTimeLabel } from './doctor-time';
-import { isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
+import { drLast, isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
 import { DocumentUploadDialog } from './document-upload-dialog';
 import { isOpenProposal, whenLabel } from './follow-up';
 import { InviteGuestDialog } from './invite-guest-dialog';
 import { ShareConfirmSheet } from './share-confirm-sheet';
 import { ShareDialog } from './share-dialog';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
+import { deviceZone, myDocumentSource, myPrescriptionSource, openerOf } from './viewer-sources';
 
 type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
 type DocsTab = 'all' | 'labs' | 'imaging' | 'reports';
@@ -119,8 +121,6 @@ const FIRST_JOIN_WAIT_MS = 30 * 60_000;
 const RECONNECT_GIVE_UP_MS = 2 * 60_000;
 /** How long the "new prescription" toast stays up (ms). */
 const RX_TOAST_MS = 10_000;
-/** How long an "Open the prescription" fallback link stays up when the link has no expiry (ms). */
-const RX_FALLBACK_MS = 5 * 60_000;
 
 /** Why the call ended without the patient pressing End. */
 type CallEndReason = 'completed' | 'dropped';
@@ -185,9 +185,10 @@ interface RecordItem {
   readonly date: string;
   readonly kind: DocsTab;
   readonly badge: string;
-  readonly url: string | null;
-  /** Set for medical-library documents — opened via an authenticated blob. */
+  /** Set for medical-library documents — opened in the document viewer (an authenticated blob). */
   readonly docId?: string;
+  /** The library document, or null for an older booking attachment that only has a URL (it can't be opened here). */
+  readonly doc: MedicalDocumentDto | null;
 }
 
 /**
@@ -221,6 +222,7 @@ interface RecordItem {
   imports: [
     ApproveRequestDialog,
     ButtonComponent,
+    CallPeerTileComponent,
     CallControlsComponent,
     CallQualityComponent,
     CallSelfTileComponent,
@@ -248,6 +250,70 @@ interface RecordItem {
     `,
   ],
   template: `
+    <!-- The document viewer's call band (§3.3). Any document opened while this page lives opens
+         in the shared viewer, a modal over the call: the viewer renders this band above its
+         header, always cockpit-dark (.sd-call[data-theme=dark]). The cockpit is inert behind
+         the modal, so the band mirrors its call-level live regions and banners, with their
+         actions, and keeps Mute and End in reach. -->
+    <ng-template #viewerBar>
+      <button
+        type="button"
+        class="inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/10"
+        (click)="backToCall()"
+      >
+        <sd-icon name="arrow-left" [size]="18" /><span class="max-sm:sr-only">Back to call</span>
+      </button>
+      <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ viewerPeerName() }} · {{ elapsedLabel() }}</span>
+      <span class="inline-flex shrink-0 empty:hidden" role="status">@if (recordingActive()) {<span class="inline-flex items-center gap-1.5 rounded-pill bg-alert-ink px-2.5 py-1 font-sans text-caption font-medium text-white"><span class="size-2 shrink-0 rounded-full bg-white" aria-hidden="true"></span>Recording</span>}</span>
+      @if (inLive()) {
+        <span class="ml-auto flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            class="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/10"
+            (click)="toggleMic()"
+          >
+            <sd-icon [name]="micLive() ? 'mic' : 'mic-off'" [size]="18" /><span class="max-sm:sr-only">{{ micLive() ? 'Mute' : 'Unmute' }}</span>
+          </button>
+          <!-- Icon-only, like the cockpit's own End: a white label on bg-alert is 4.23:1 (under 4.5 for
+               caption text); the white icon is a graphic (3:1). -->
+          <button
+            type="button"
+            class="inline-flex size-11 shrink-0 items-center justify-center rounded-field bg-alert text-white transition-colors hover:bg-alert-ink"
+            aria-label="End call"
+            (click)="leaveFromViewer()"
+          >
+            <sd-icon name="phone-off" [size]="18" />
+          </button>
+        </span>
+      }
+      @if (reconnecting()) {
+        <p class="flex basis-full items-start gap-1.5 font-sans text-caption text-white" role="alert">
+          <sd-icon name="loader-circle" [size]="14" class="mt-0.5 shrink-0 animate-spin motion-reduce:animate-none" />Reconnecting to the call…
+        </p>
+      }
+      @if (status() === 'in-call' && remoteLeft()) {
+        <p class="basis-full font-sans text-caption text-white/80" role="status">{{ leftText() }}</p>
+      }
+      @if (rxToast(); as t) {
+        <span class="flex basis-full items-center gap-2 font-sans text-caption text-white" role="status">
+          <sd-icon name="pill" [size]="14" class="shrink-0" />New prescription
+          <button
+            type="button"
+            class="inline-flex min-h-9 items-center rounded-field px-2.5 font-semibold text-frost transition-colors hover:bg-white/10 hover:text-white"
+            [attr.aria-label]="'View prescription ' + t.rx.number"
+            (click)="viewRxFromToast(t.rx)"
+          >
+            View
+          </button>
+        </span>
+      }
+      <span class="sr-only" aria-live="polite" aria-atomic="true">{{ docShareLive() }}</span>
+    </ng-template>
+    <!-- The doctor's live video as the viewer's picture-in-picture (handed over from the stage, §3.4). -->
+    <ng-template #viewerPeer>
+      <sd-call-peer-tile [tile]="viewerPeerTile()" [track]="viewerPeerTrack()" />
+    </ng-template>
+
     <!-- New prescription notice (says who sent it and its number — never the medicines).
          Never over the stage: the bottom of the screen below lg, the top of the right
          column (beside the video) from lg up. On a phone held sideways the toast would
@@ -560,20 +626,23 @@ interface RecordItem {
                 <!-- The call ended without the patient pressing End -->
                 @if (status() === 'ended') {
                   <div
-                    class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85"
+                    class="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-4 text-center text-white/85 outline-none"
                     role="status"
+                    tabindex="-1"
+                    aria-labelledby="call-ended-title"
+                    data-testid="call-ended"
                   >
                     <span class="hidden size-16 shrink-0 items-center justify-center rounded-full bg-white/10 tall:flex">
                       <sd-icon [name]="endedReason() === 'completed' ? 'circle-check' : 'wifi-off'" [size]="28" />
                     </span>
                     @if (endedReason() === 'completed') {
-                      <p class="max-w-sm font-sans text-body">Your consultation has ended.</p>
+                      <p id="call-ended-title" class="max-w-sm font-sans text-body">Your consultation has ended.</p>
                       <p class="hidden max-w-sm font-sans text-caption text-white/60 roomy:block">
                         Your consultation summary, prescriptions and anything else your doctor shares
                         appear in your consultation history.
                       </p>
                     } @else {
-                      <p class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
+                      <p id="call-ended-title" class="max-w-sm font-sans text-body">You were disconnected from the call.</p>
                       <p class="hidden max-w-sm font-sans text-caption text-white/60 roomy:block">
                         Check your internet connection, then rejoin. Anything your doctor has shared
                         is in your consultation history.
@@ -861,46 +930,17 @@ interface RecordItem {
                             </div>
                           </div>
                           <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                            <!-- The document viewer, a modal over the call (the call keeps running behind it). -->
                             <button
                               type="button"
                               class="inline-flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:opacity-60"
-                              [disabled]="openingRx() === p.id"
                               [attr.aria-label]="'View prescription ' + p.number"
-                              (click)="viewRx(p)"
+                              (click)="viewRx(p, $event)"
                             >
-                              <sd-icon
-                                [name]="openingRx() === p.id ? 'loader-circle' : 'eye'"
-                                [size]="14"
-                                [class.animate-spin]="openingRx() === p.id"
-                              />View
+                              <sd-icon name="eye" [size]="14" />View
                             </button>
-                            <!-- The browser blocked the new tab: a direct link (never this tab — it would end the call). -->
-                            @if (rxFallback(); as fb) {
-                              @if (fb.id === p.id) {
-                                <a
-                                  [href]="fb.url"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-sky underline transition-colors hover:text-frost"
-                                  [attr.aria-label]="'Open prescription ' + p.number + ' (opens in a new tab)'"
-                                >
-                                  Open the prescription<sd-icon name="external-link" [size]="13" />
-                                </a>
-                              }
-                            }
                           </div>
                         </div>
-                      }
-                      @if (rxFallback()) {
-                        <p class="flex items-start gap-2 font-sans text-caption text-white/70" role="status">
-                          <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
-                          Your browser didn’t open a new tab. Use “Open the prescription” — your call keeps running here.
-                        </p>
-                      }
-                      @if (rxError()) {
-                        <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-                          <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ rxError() }}
-                        </p>
                       }
                       <!-- The details page needs the portal session, which a new tab may not have
                            (sessionStorage sign-ins), and opening it here would end the call. -->
@@ -1162,16 +1202,21 @@ interface RecordItem {
                       <span class="rounded bg-white/[0.06] px-1.5 py-0.5 font-label text-[10px] text-white/70">
                         {{ r.badge }}
                       </span>
-                      <button
-                        type="button"
-                        class="flex size-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
-                        [attr.aria-label]="'Open ' + r.title"
-                        [disabled]="!r.url && !r.docId"
-                        (click)="download(r)"
-                      >
-                        <sd-icon name="eye" [size]="16" />
-                      </button>
+                      @if (r.doc) {
+                        <!-- The document viewer, a modal over the call: never a tab or a navigation (either would end the call). -->
+                        <button
+                          type="button"
+                          class="flex size-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                          [attr.aria-label]="'Open ' + r.title"
+                          (click)="viewRecord(r, $event)"
+                        >
+                          <sd-icon name="eye" [size]="16" />
+                        </button>
+                      }
                     </div>
+                    @if (!r.doc) {
+                      <p class="ml-12 font-sans text-caption text-white/60">This older attachment can't be opened here. Contact support for a copy.</p>
+                    }
                     @if (shareState(r) === 'private' && canShareInCall()) {
                       <button
                         type="button"
@@ -1373,11 +1418,16 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly auth = inject(AuthService);
   /** "Leave the consultation?" before a live call is left. */
   private readonly dialogs = inject(DialogService);
+  /** The shared document viewer: records and prescriptions open in it, a modal over the call (§3). */
+  private readonly viewer = inject(DocumentViewerService);
 
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
 
+  /** The viewer's call band and picture-in-picture (registered with the viewer, §3.2). */
+  private readonly viewerBarTpl = viewChild.required('viewerBar', { read: TemplateRef });
+  private readonly viewerPeerTpl = viewChild.required('viewerPeer', { read: TemplateRef });
   private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
   /** The stage's video tiles (rendered once the patient enters the call). */
   private readonly stageTiles = viewChild(CallTilesComponent);
@@ -1881,13 +1931,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private readonly knownRx = new Set<string>();
   /** The first prescriptions fetch failed (so "none yet" isn't shown for a failure). */
   protected readonly rxLoadError = signal('');
-  /** Opening a prescription PDF failed. */
-  protected readonly rxError = signal('');
-  /** Id of the prescription whose PDF link is being fetched. */
-  protected readonly openingRx = signal('');
-  /** The browser blocked the PDF tab: offer this signed link instead (never this tab). */
-  protected readonly rxFallback = signal<{ id: string; url: string } | null>(null);
-  private rxFallbackTimer?: ReturnType<typeof setTimeout>;
   /** "Dr X sent you prescription GVM-RX-…" notice. */
   protected readonly rxToast = signal<RxToast | null>(null);
   private rxToastTimer?: ReturnType<typeof setTimeout>;
@@ -2180,15 +2223,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private readonly records = computed<RecordItem[]>(() => {
     const list: RecordItem[] = [];
-    const doc = this.appointment()?.document_url ?? null;
-    if (doc) {
-      list.push({
-        title: 'Booking attachment',
-        date: 'This appointment',
-        kind: 'reports',
-        badge: 'FILE',
-        url: this.patientApi.assetUrl(doc),
-      });
+    // An older booking attachment prod-migrate step 7 couldn't file into the library (not a
+    // canonical appointment-docs file): listed so the patient knows it exists, never opened.
+    if (this.appointment()?.document_url) {
+      list.push({ title: 'Booking attachment', date: 'This appointment', kind: 'reports', badge: 'FILE', doc: null });
     }
     for (const d of this.libraryDocs()) {
       list.push({
@@ -2196,8 +2234,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         date: this.rxDate(d.created_at),
         kind: this.docKind(d.document_type),
         badge: d.extension.toUpperCase(),
-        url: null,
         docId: d.id,
+        doc: d,
       });
     }
     return list;
@@ -2243,7 +2281,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * from the consultation. Armed only while actually in-call.
    */
   private readonly onBeforeUnload = (e: BeforeUnloadEvent): void => {
-    if (this.status() === 'in-call' && !this.left) {
+    if (this.inLive()) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -2252,8 +2290,32 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private netUplink = 0;
   private netDownlink = 0;
   protected appointmentId = '';
-  /** The patient pressed End / left the page — final. */
-  private left = false;
+  /** The patient pressed End / left the page — final. A signal, so `inLive` follows it. */
+  private readonly left = signal(false);
+  /** In the live call right now (the viewer's band shows Mute / End, and print asks first). */
+  protected readonly inLive = computed(() => this.status() === 'in-call' && !this.left());
+  /** Agora is retrying a lost connection (the viewer's band says so; the cockpit shows the stage). */
+  protected readonly reconnecting = signal(false);
+
+  // ---- The document viewer's picture-in-picture (§3.4) ----
+  /** The viewer holds the doctor's video (between willOpen and didClose). */
+  private readonly viewerHasPeer = signal(false);
+  /** The doctor's uid as it was when the viewer took their video. */
+  private viewerPeerUid: string | null = null;
+  /** The doctor's current video track, played by the viewer's tile (never also on the stage). */
+  protected readonly viewerPeerTrack = signal<CallVideoTrack | null>(null);
+  /** The peer is the doctor (guests never are). */
+  private readonly peerUid = computed(() => this.roster().find((p) => p.role === 'doctor')?.uid ?? DOCTOR_CALL_UID);
+  /** "Dr Ade" in the band and the tile's labels. */
+  protected readonly viewerPeerName = computed(() => drLast(this.appointment()?.specialist?.name) || 'Your doctor');
+  /** The doctor's tile (name, camera, microphone) for the picture-in-picture. */
+  protected readonly viewerPeerTile = computed<CallTile>(() => {
+    const uid = this.peerUid();
+    const tile = this.tiles().find((t) => !t.self && String(t.uid) === String(uid));
+    return tile
+      ? { ...tile, name: this.viewerPeerName() }
+      : { uid, name: this.viewerPeerName(), role: 'doctor', hasVideo: false, muted: false };
+  });
 
   // ---- Is a consultation actually going on? (drives the idle-timer hold) ----
   /** Joined to the Agora channel (false again once the call ends or drops). */
@@ -2280,12 +2342,40 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     effect(() => {
       const tiles = this.stageTiles();
       if (!tiles) return;
+      untracked(() => this.replayOnStage(tiles));
+    });
+
+    // The shared document viewer (§3): every open while this page lives gets the call band and
+    // the doctor's picture-in-picture. Registered once the templates exist; gone with the page.
+    afterNextRender(() => {
+      const unregister = this.viewer.registerCall({
+        bar: this.viewerBarTpl(),
+        peer: this.viewerPeerTpl(),
+        peerName: this.viewerPeerName,
+        tone: this.theme,
+        live: this.inLive,
+        sharingScreen: this.screenOn,
+        recording: this.recordingActive,
+        stopSharing: () => void this.toggleScreen(),
+        willOpen: () => this.handPeerToViewer(),
+        didClose: () => this.takePeerBack(),
+      });
+      this.destroyRef.onDestroy(unregister);
+    });
+    // The call is over (the other side ended it, the connection dropped, or the patient left):
+    // the viewer closes with it. When the call ended under an open viewer, focus goes to the
+    // ended screen (§3.5), even though the opener (a record row, the Prescriptions tab's View)
+    // is still on the page: the screen appeared while the page was inert behind the modal, so
+    // nothing announced it. The patient leaving navigates away instead.
+    effect(() => {
+      const ended = this.status() === 'ended';
+      if (!ended && !this.left()) return;
       untracked(() => {
-        const self = String(this.selfUid());
-        for (const v of this.videos.values()) {
-          if (String(v.uid) === self && this.selfMode() !== 'pip') continue;
-          tiles.attach(v.uid, v.track, v.config);
-        }
+        const wasOpen = this.viewer.isOpen();
+        this.viewer.close();
+        // After the render that closes the dialog natively (the browser hands focus back to
+        // the opener then); sd-dialog's and the viewer's own restores only act on lost focus.
+        if (ended && wasOpen) afterNextRender(() => this.focusEndedScreen(), { injector: this.injector });
       });
     });
 
@@ -2353,11 +2443,12 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     // A fresh connection (first join, or a rejoin after a drop).
     this.resetRemotes();
     this.deviceNotice.set('');
+    this.reconnecting.set(false);
     this.netQuality.set(null);
     let client: IAgoraRTCClient | undefined;
     try {
       const { data } = await firstValueFrom(this.appointments.callToken(this.appointmentId));
-      if (this.left) return; // left while the token was on its way
+      if (this.left()) return; // left while the token was on its way
       if (data.participants?.length) this.participants.set(data.participants);
 
       client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
@@ -2395,6 +2486,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         if (state === 'DISCONNECTED') this.callEnded(self, 'dropped');
         else if (state === 'RECONNECTING') this.watchReconnect(self);
         else if (state === 'CONNECTED') this.clearReconnectWatch();
+        if (self === this.client) this.reconnecting.set(state === 'RECONNECTING');
       });
       self.on('network-quality', (s) => {
         this.netUplink = s.uplinkNetworkQuality ?? 0;
@@ -2414,7 +2506,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         data.token ?? null,
         data.uid === 0 ? null : data.uid,
       );
-      if (this.left || this.client !== self) return; // left / dropped mid-join
+      if (this.left() || this.client !== self) return; // left / dropped mid-join
       // Connected: a consultation has long stretches without input, so pause the
       // idle timeout while it is actually going on (see syncHold).
       this.connected = true;
@@ -2425,7 +2517,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       // Each device on its own when both together fail: a missing or blocked
       // camera still leaves an audio-only call (and the other way round).
       const media = await openLocalMedia({ audio: true, video: true });
-      if (this.left || this.client !== self) {
+      if (this.left() || this.client !== self) {
         // The call ended while the browser asked for the camera — don't leave it on.
         media.mic?.close();
         media.cam?.close();
@@ -2440,14 +2532,14 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       if (this.camTrack) this.showVideo(this.selfUid(), this.camTrack); // plays once your tile renders
       const tracks = [this.micTrack, this.camTrack].filter((t): t is IMicrophoneAudioTrack | ICameraVideoTrack => !!t);
       if (tracks.length) await self.publish(tracks);
-      if (this.left || this.client !== self) return;
+      if (this.left() || this.client !== self) return;
 
       this.status.set('in-call');
       this.startHeartbeat();
       this.startTimer();
       if (this.holding) this.startLivePolls();
     } catch (err) {
-      if (this.left || (client && this.client !== client)) return; // already handled
+      if (this.left() || (client && this.client !== client)) return; // already handled
       // Not in a working call — let the idle timeout run again.
       this.connected = false;
       this.stopHeartbeat();
@@ -2485,7 +2577,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private syncHold(): void {
     const want =
       this.connected &&
-      !this.left &&
+      !this.left() &&
       (this.remoteUids.size > 0 || (!this.remoteSeen && !this.firstWaitOver));
     if (want === this.holding) return;
     this.holding = want;
@@ -2526,7 +2618,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /** Before `connected` flips, Agora already reports who is in the channel. */
   private connectedOrJoining(): boolean {
-    return !this.left && this.status() !== 'ended';
+    return !this.left() && this.status() !== 'ended';
   }
 
   private startFirstWait(): void {
@@ -2584,7 +2676,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * the camera and microphone, and keep the page (and its notes) readable.
    */
   private callEnded(client: IAgoraRTCClient, reason: CallEndReason): void {
-    if (client !== this.client || this.left || !this.connected) return;
+    if (client !== this.client || this.left() || !this.connected) return;
     this.connected = false;
     this.stopHeartbeat();
     this.syncHold();
@@ -2599,6 +2691,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.resetRemotes();
     this.screenOn.set(false);
     this.recordingActive.set(false);
+    this.reconnecting.set(false);
     this.netQuality.set(null);
     this.inviteOpen.set(false);
     this.endedReason.set(reason);
@@ -2652,7 +2745,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /** "Rejoin call" after a dropped connection. */
   protected rejoin(): void {
-    if (this.left || this.status() !== 'ended' || this.endedReason() !== 'dropped') return;
+    if (this.left() || this.status() !== 'ended' || this.endedReason() !== 'dropped') return;
     this.micOn.set(true);
     this.camOn.set(true);
     this.errorMessage.set('');
@@ -2702,6 +2795,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    */
   private showVideo(uid: CallUid, track: CallVideoTrack, config?: CallVideoPlayConfig): void {
     this.videos.set(String(uid), { uid, track, config });
+    // The document viewer holds the doctor's video: its picture-in-picture plays it, never the stage too.
+    if (this.viewerOwnsPeer(uid)) {
+      this.viewerPeerTrack.set(track);
+      return;
+    }
     const self = String(uid) === String(this.selfUid());
     if (self) this.selfVideo.set({ track, config });
     if (!self || this.selfMode() === 'pip') this.stageTiles()?.attach(uid, track, config);
@@ -2710,8 +2808,60 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   private hideVideo(uid: CallUid): void {
     this.videos.delete(String(uid));
+    if (this.viewerOwnsPeer(uid)) {
+      this.viewerPeerTrack.set(null);
+      return;
+    }
     if (String(uid) === String(this.selfUid())) this.selfVideo.set(null);
     this.stageTiles()?.detach(uid);
+  }
+
+  /**
+   * Play every video handed over so far on (re-created) stage tiles. Your own
+   * only while it is their picture-in-picture (else the row tile has it); the
+   * doctor's not while the document viewer's picture-in-picture plays it.
+   */
+  private replayOnStage(tiles: Pick<CallTilesComponent, 'attach'>): void {
+    const self = String(this.selfUid());
+    for (const v of this.videos.values()) {
+      if (String(v.uid) === self && this.selfMode() !== 'pip') continue;
+      if (this.viewerOwnsPeer(v.uid)) continue;
+      tiles.attach(v.uid, v.track, v.config);
+    }
+  }
+
+  // ---- The document viewer's picture-in-picture (§3.4) ----
+
+  /** The one gate for every stage attach / detach of a remote: the viewer holds the doctor's video. */
+  private viewerOwnsPeer(uid: CallUid): boolean {
+    return this.viewerHasPeer() && String(uid) === this.viewerPeerUid;
+  }
+
+  /**
+   * The viewer opened (every check passed): stop the doctor's video on the
+   * stage first, then give it to the picture-in-picture, which plays it once
+   * rendered — so it never plays in two places.
+   */
+  private handPeerToViewer(): void {
+    const uid = String(this.peerUid());
+    this.viewerPeerUid = uid;
+    this.viewerHasPeer.set(true);
+    this.stageTiles()?.detach(uid);
+    this.viewerPeerTrack.set(this.videos.get(uid)?.track ?? null);
+  }
+
+  /**
+   * The viewer closed, and its picture-in-picture is gone (its tile stopped the
+   * track): play the doctor's current video on the stage again — re-read, as
+   * they may have re-published, or left, meanwhile.
+   */
+  private takePeerBack(): void {
+    const uid = this.viewerPeerUid;
+    this.viewerHasPeer.set(false);
+    this.viewerPeerTrack.set(null);
+    this.viewerPeerUid = null;
+    const v = uid ? this.videos.get(uid) : undefined;
+    if (v) this.stageTiles()?.attach(v.uid, v.track, v.config);
   }
 
   /**
@@ -2745,7 +2895,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   private async openMissing(kind: 'mic' | 'cam'): Promise<void> {
     const client = this.client;
     const media = await openLocalMedia({ audio: kind === 'mic', video: kind === 'cam' });
-    if (this.left || !client || client !== this.client || !this.connected) {
+    if (this.left() || !client || client !== this.client || !this.connected) {
       media.mic?.close();
       media.cam?.close();
       return;
@@ -2920,7 +3070,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.openNotesTab('prescriptions');
   }
 
-  /** Toast "View prescription": open the PDF (errors surface on the Prescriptions tab). */
+  /**
+   * "View prescription" (the toast, or the viewer's band while it is open):
+   * the prescription in the document viewer — replacing the document on
+   * screen when the viewer is open — and its row in the Prescriptions tab.
+   */
   protected viewRxFromToast(rx: PrescriptionDto): void {
     this.viewRx(rx);
     this.dismissRxToast();
@@ -2928,44 +3082,72 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Open the prescription PDF in a new tab (the call keeps running here). The
-   * tab is opened synchronously on the click so popup blockers allow it, then
-   * pointed at the short-lived signed link. This tab is never navigated — that
-   * would end the call — so if the new tab was blocked or closed, the row offers
-   * a direct "Open the prescription" link instead.
+   * A prescription in the shared document viewer, a modal over the call (the
+   * call keeps running, and the viewer's band keeps Mute and End in reach):
+   * the Prescriptions tab's list, at this one. Never a tab or a navigation of
+   * this page — either would end the call.
    */
-  protected viewRx(rx: PrescriptionDto): void {
-    if (this.openingRx()) return;
-    const pending = openPendingTab({ allowSameTab: false });
-    this.openingRx.set(rx.id);
-    this.rxError.set('');
-    this.clearRxFallback();
-    this.prescriptionsApi.link(rx.id, false).subscribe({
-      next: (res) => {
-        const url = this.prescriptionsApi.fileUrl(res.data);
-        if (!pending.go(url)) this.showRxFallback(rx.id, url, res.data.expires_at);
-        this.openingRx.set('');
+  protected viewRx(rx: PrescriptionDto, event?: Event): void {
+    const list = this.issuedRx().some((p) => p.id === rx.id) ? this.issuedRx() : [rx];
+    const zone = deviceZone();
+    this.viewer.open(
+      list.map((p) => myPrescriptionSource(this.prescriptionsApi, p, zone)),
+      {
+        index: Math.max(0, list.findIndex((p) => p.id === rx.id)),
+        opener: openerOf(event),
+        fallbackFocus: () => this.viewerFallbackFocus('call-notes-tab-prescriptions'),
+        listLabel: 'your prescriptions',
       },
-      error: (err: unknown) => {
-        pending.fail();
-        this.openingRx.set('');
-        this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
-      },
-    });
+    );
   }
 
-  /** Offer the signed link until it expires (it is useless after that). */
-  private showRxFallback(id: string, url: string, expiresAt: string | undefined): void {
-    this.rxFallback.set({ id, url });
-    const left = expiresAt ? Date.parse(expiresAt) - Date.now() : NaN;
-    const ms = Number.isFinite(left) && left > 0 ? Math.min(left, RX_FALLBACK_MS) : RX_FALLBACK_MS;
-    clearTimeout(this.rxFallbackTimer);
-    this.rxFallbackTimer = setTimeout(() => this.rxFallback.set(null), ms);
+  /**
+   * A record's eye: the document viewer over the records listed now (All /
+   * Reports / Labs / Imaging), at this one. An older attachment that only has
+   * a URL is not in the list (it can't be opened here).
+   */
+  protected viewRecord(r: RecordItem, event?: Event): void {
+    const docs = this.visibleRecords()
+      .map((x) => x.doc)
+      .filter((d): d is MedicalDocumentDto => d !== null);
+    if (!r.doc) return;
+    const zone = deviceZone();
+    this.viewer.open(
+      docs.map((d) => myDocumentSource(this.documentsApi, d, zone)),
+      {
+        index: Math.max(0, docs.findIndex((d) => d.id === r.doc?.id)),
+        opener: openerOf(event),
+        fallbackFocus: () => this.viewerFallbackFocus('call-docs-title'),
+        listLabel: 'your records',
+      },
+    );
   }
 
-  private clearRxFallback(): void {
-    clearTimeout(this.rxFallbackTimer);
-    this.rxFallback.set(null);
+  /** Where focus goes when the viewer closes and its opener is gone: the ended screen, else `id`. */
+  private viewerFallbackFocus(id: string): HTMLElement | null {
+    if (this.status() === 'ended') {
+      const ended = this.document.querySelector<HTMLElement>('[data-testid="call-ended"]');
+      if (ended) return ended;
+    }
+    return this.document.getElementById(id);
+  }
+
+  /** The call ended under the viewer: focus the ended screen, unless another dialog (e.g. "Leave the consultation?") holds it. */
+  private focusEndedScreen(): void {
+    if (this.status() !== 'ended' || this.viewer.isOpen()) return;
+    if (this.document.activeElement?.closest('dialog[open]')) return;
+    this.document.querySelector<HTMLElement>('[data-testid="call-ended"]')?.focus();
+  }
+
+  /** The band's "Back to call": close the viewer (focus goes back to what opened it). */
+  protected backToCall(): void {
+    this.viewer.close();
+  }
+
+  /** The band's End: out of full screen first, then the usual "Leave the consultation?" (it stacks above the viewer). */
+  protected leaveFromViewer(): void {
+    if (this.document.fullscreenElement) void this.document.exitFullscreen?.().catch(() => undefined);
+    void this.leave('history');
   }
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
@@ -3302,14 +3484,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     }
   }
 
-  protected download(r: RecordItem): void {
-    if (r.docId) {
-      openBlobDocument(this.documentsApi.fileBlob(r.docId));
-    } else if (r.url) {
-      window.open(r.url, '_blank', 'noopener');
-    }
-  }
-
   protected rxDate(iso: string | null): string {
     if (!iso) return '';
     const d = new Date(iso);
@@ -3328,7 +3502,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /** In the live call right now — leaving drops the patient from it. */
   private inLiveCall(): boolean {
-    return this.status() === 'in-call' && !this.left;
+    return this.inLive();
   }
 
   /** Asked before a live call is left (End, Back, the sidebar, the browser's Back button). */
@@ -3449,14 +3623,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   private async teardown(): Promise<void> {
-    this.left = true;
+    this.left.set(true);
     this.connected = false;
     this.stopHeartbeat();
     // Out of the call: the idle timeout runs again.
     this.holding = false;
     this.session.release(CALL_HOLD);
     clearTimeout(this.rxToastTimer);
-    clearTimeout(this.rxFallbackTimer);
     this.clearFirstWait();
     this.clearReconnectWatch();
     window.removeEventListener('beforeunload', this.onBeforeUnload);

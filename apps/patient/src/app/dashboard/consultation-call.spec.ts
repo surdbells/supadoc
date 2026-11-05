@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, type EmbeddedViewRef, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
@@ -12,13 +12,14 @@ import {
   PatientApi,
   PrescriptionsApi,
 } from '@supadoc/data-access';
-import type { AppointmentDocumentAccessDto, AppointmentDto, UploadedDocumentDto } from '@supadoc/models';
+import type { AppointmentDocumentAccessDto, AppointmentDto, MedicalDocumentDto, PrescriptionDto, UploadedDocumentDto } from '@supadoc/models';
 import {
   CallControlsComponent,
   CallSelfTileComponent,
   CallTilesComponent,
   provideSupadocIcons,
 } from '@supadoc/ui';
+import { CallPeerTileComponent, DocumentViewerService, type ViewerCallContext, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
 import { ConsultationCall } from './consultation-call';
 
 /** Agora, faked: a client that joins, publishes and records what it sends. */
@@ -106,6 +107,11 @@ const access: AppointmentDocumentAccessDto = {
 
 const ok = <T,>(data: T) => of({ status: 'success', message: 'OK', data });
 
+/** Per test: the booking's legacy `document_url`, the prescriptions issued, the patient's library. */
+let legacyUrl: string | null = null;
+let issued: PrescriptionDto[] = [];
+let library: MedicalDocumentDto[] = [];
+
 /** An API service whose every other method answers an empty list. */
 function apiStub(overrides: Record<string, unknown>): unknown {
   return new Proxy(overrides, {
@@ -175,7 +181,8 @@ describe('ConsultationCall (the dock)', () => {
         {
           provide: AppointmentsApi,
           useValue: apiStub({
-            getMine: () => ok(appointment),
+            getMine: () => ok({ ...appointment, document_url: legacyUrl }),
+            prescriptions: () => ok(issued),
             callToken: () =>
               ok({ app_id: 'app', channel: 'ap-1', uid: 1, token: null, expires_in: null, participants: [{ uid: 2, role: 'doctor', name: 'Bayo Ade' }] }),
             consents: () =>
@@ -187,9 +194,11 @@ describe('ConsultationCall (the dock)', () => {
           }),
         },
         { provide: PatientApi, useValue: apiStub({ me: () => ok({ id: 'p-1', first_name: 'Ada', last_name: 'Obi' }), vitals: () => ok({ latest: [] }), healthProfile: () => ok({}) }) },
-        { provide: DocumentsApi, useValue: apiStub({}) },
+        { provide: DocumentsApi, useValue: apiStub({ list: () => ok(library) }) },
         { provide: PrescriptionsApi, useValue: apiStub({}) },
         { provide: DocumentSharingApi, useValue: apiStub({ forAppointment: () => ok(access) }) },
+        // The shared viewer, stubbed (the real one schedules an idle prefetch of its chunks, a 2 s timer in jsdom).
+        { provide: DocumentViewerService, useValue: { open: vi.fn(), close: vi.fn(), isOpen: signal(false), registerCall: vi.fn(() => () => undefined) } },
       ],
     }).compileComponents();
   });
@@ -202,6 +211,9 @@ describe('ConsultationCall (the dock)', () => {
     vi.restoreAllMocks();
     wide = false;
     rail = false;
+    legacyUrl = null;
+    issued = [];
+    library = [];
   });
 
   const create = async () => {
@@ -534,5 +546,321 @@ describe('ConsultationCall (the dock)', () => {
     await settle();
     expect(el.textContent).toContain("Saved to your records. Sharing is unavailable right now, so Dr Bayo Ade can't see it yet.");
     expect(agora.clients[agora.clients.length - 1].sendStreamMessage).not.toHaveBeenCalled();
+  });
+
+  describe('documents in the shared viewer (§3)', () => {
+    /** The shared viewer, stubbed: what the page opens and registers. */
+    const viewer = {
+      open: vi.fn(),
+      close: vi.fn(),
+      registerCall: vi.fn(),
+      isOpen: signal(false),
+    };
+    const unregister = vi.fn();
+    let ctx: ViewerCallContext | null = null;
+
+    const libDoc = (id: string, title: string, type: string): MedicalDocumentDto =>
+      ({
+        id,
+        patient_id: 'p-1',
+        uploader_role: 'patient',
+        uploader_name: 'Ada Obi',
+        appointment_id: null,
+        document_type: type,
+        custom_type: null,
+        type_label: 'Report',
+        title,
+        extension: 'pdf',
+        mime_type: 'application/pdf',
+        size_bytes: 100,
+        size_label: '100 B',
+        created_at: '2026-11-03T10:00:00Z',
+      }) as MedicalDocumentDto;
+    const prescription = (id: string): PrescriptionDto =>
+      ({
+        id,
+        number: `GVM-RX-${id}`,
+        status: 'active',
+        appointment_id: 'ap-1',
+        patient_id: 'p-1',
+        prescriber: 'Dr Bayo Ade',
+        items_count: 1,
+        valid_until: null,
+        sent_at: '2026-11-04T15:10:00Z',
+        created_at: '2026-11-04T15:05:00Z',
+        items: [],
+      }) as unknown as PrescriptionDto;
+    const lastOpen = () => viewer.open.mock.calls[viewer.open.mock.calls.length - 1] as [readonly ViewerSource[], ViewerOpenOptions];
+    const sig = <T,>(name: string) => cmp()[name] as unknown as { (): T; set(v: T): void };
+    const peerTrack = () => sig<unknown>('viewerPeerTrack')();
+    /** A fake Agora remote video track. */
+    const track = (name: string) => ({ name, play: vi.fn(), stop: vi.fn() });
+    const stage = () => fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+    /** Renders a registered template (the band or the PiP) the way the viewer's outlet does. */
+    const render = (tpl: ViewerCallContext['bar'] | null): EmbeddedViewRef<unknown> => {
+      const view = (tpl as ViewerCallContext['bar']).createEmbeddedView({});
+      view.detectChanges();
+      return view;
+    };
+    const nodesOf = (view: EmbeddedViewRef<unknown>) => view.rootNodes.filter((n): n is HTMLElement => n instanceof HTMLElement);
+    const textOf = (view: EmbeddedViewRef<unknown>) =>
+      nodesOf(view)
+        .map((n) => n.textContent ?? '')
+        .join(' ')
+        .replace(/\s+/g, ' ');
+    const query = (view: EmbeddedViewRef<unknown>, sel: string) =>
+      nodesOf(view)
+        .map((n) => (n.matches(sel) ? n : n.querySelector<HTMLElement>(sel)))
+        .find((n): n is HTMLElement => !!n);
+
+    beforeEach(() => {
+      viewer.open.mockReset();
+      viewer.isOpen.set(false);
+      viewer.close.mockReset().mockImplementation(() => viewer.isOpen.set(false));
+      unregister.mockReset();
+      ctx = null;
+      viewer.registerCall.mockReset().mockImplementation((c: ViewerCallContext) => {
+        ctx = c;
+        return unregister;
+      });
+      TestBed.overrideProvider(DocumentViewerService, { useValue: viewer });
+      vi.spyOn(window, 'open').mockReturnValue(null);
+    });
+
+    it('registers the call once (live = in the call), and unregisters with the page', async () => {
+      await create();
+      expect(viewer.registerCall).toHaveBeenCalledTimes(1);
+      const c = ctx as unknown as ViewerCallContext;
+      expect(c.peerName()).toBe('Dr Ade');
+      expect(c.tone()).toBe('dark');
+      expect(c.live()).toBe(false);
+      expect(c.sharingScreen()).toBe(false);
+      expect(c.recording()).toBe(false);
+      await enter();
+      expect(c.live()).toBe(true);
+      sig<boolean>('screenOn').set(true);
+      sig<boolean>('recordingActive').set(true);
+      expect(c.sharingScreen()).toBe(true);
+      expect(c.recording()).toBe(true);
+      sig<boolean>('left').set(true);
+      expect(c.live()).toBe(false);
+      expect(unregister).not.toHaveBeenCalled();
+      fixture.destroy();
+      expect(unregister).toHaveBeenCalledTimes(1);
+    });
+
+    it('a record’s eye opens the viewer over the filtered records list (never a tab)', async () => {
+      library = [
+        libDoc('d-1', 'Chest X-ray', 'xray_report'),
+        libDoc('d-2', 'Blood count', 'blood_test_report'),
+        libDoc('d-3', 'Lipids', 'laboratory_test_report'),
+      ];
+      await create();
+      await enter();
+      sig<string>('docsTab').set('labs');
+      await settle();
+      expect(el.querySelector('button[aria-label="Open Chest X-ray"]')).toBeNull();
+      const eye = el.querySelector<HTMLButtonElement>('button[aria-label="Open Lipids"]') as HTMLButtonElement;
+      eye.click();
+      expect(viewer.open).toHaveBeenCalledTimes(1);
+      const [sources, options] = lastOpen();
+      expect(sources.map((s) => s.key)).toEqual(['doc:d-2', 'doc:d-3']);
+      expect(sources.every((s) => s.policy === 'owner')).toBe(true);
+      expect(options.index).toBe(1);
+      expect(options.opener).toBe(eye);
+      // Opener gone: the Documents & Records heading.
+      expect(options.fallbackFocus?.()?.id).toBe('call-docs-title');
+      expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('an older url-only booking attachment has no eye and says how to get a copy', async () => {
+      legacyUrl = '/uploads/other/legacy.pdf';
+      library = [libDoc('d-1', 'Chest X-ray', 'xray_report')];
+      await create();
+      await enter();
+      expect(el.textContent).toContain('Booking attachment');
+      expect(el.querySelector('button[aria-label="Open Booking attachment"]')).toBeNull();
+      expect(el.textContent).toContain("This older attachment can't be opened here. Contact support for a copy.");
+      expect(el.querySelector('button[aria-label="Open Chest X-ray"]')).not.toBeNull();
+      expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('a prescription’s View and the new-prescription toast open the viewer (no fallback link)', async () => {
+      issued = [prescription('1'), prescription('2')];
+      await create();
+      await enter();
+      cmp()['openNotesTab']('prescriptions');
+      await settle();
+      const view = el.querySelector<HTMLButtonElement>('button[aria-label="View prescription GVM-RX-2"]') as HTMLButtonElement;
+      view.click();
+      let [sources, options] = lastOpen();
+      expect(sources.map((s) => s.key)).toEqual(['rx:1', 'rx:2']);
+      expect(options.index).toBe(1);
+      expect(options.opener).toBe(view);
+      expect(typeof sources[1].download).toBe('function');
+      sig<unknown>('rxToast').set({ text: 'Dr Bayo Ade sent you prescription GVM-RX-1', rx: issued[0] });
+      await settle();
+      Array.from(el.querySelectorAll<HTMLButtonElement>('[data-testid="call-rx-toast"] button'))
+        .find((b) => b.textContent?.includes('View prescription'))
+        ?.click();
+      expect(viewer.open).toHaveBeenCalledTimes(2);
+      [sources, options] = lastOpen();
+      expect(options.index).toBe(0);
+      expect(el.textContent).not.toContain('Open the prescription');
+      expect(el.querySelector('a[target="_blank"][href*="prescriptions"]')).toBeNull();
+      expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('the band: Back to call, who and how long, Mute and End, and the call’s alerts', async () => {
+      await create();
+      await enter();
+      const c = ctx as unknown as ViewerCallContext;
+      let band = render(c.bar);
+      let text = textOf(band);
+      expect(text).toContain('Back to call');
+      expect(text).toContain('Dr Ade ·');
+      expect(text).toContain('Mute');
+      expect(query(band, 'button[aria-label="End call"]')).toBeTruthy();
+      nodesOf(band)
+        .find((n) => n.textContent?.includes('Back to call'))
+        ?.click();
+      expect(viewer.close).toHaveBeenCalledTimes(1);
+      band.destroy();
+      sig<boolean>('recordingActive').set(true);
+      sig<boolean>('reconnecting').set(true);
+      sig<unknown>('rxToast').set({ text: 'x', rx: prescription('7') });
+      band = render(c.bar);
+      text = textOf(band);
+      expect(text).toContain('Recording');
+      expect(text).toContain('Reconnecting to the call…');
+      expect(text).toContain('New prescription');
+      expect(query(band, 'button[aria-label="View prescription GVM-RX-7"]')).toBeTruthy();
+      band.destroy();
+      // Out of the live call: no Mute or End.
+      sig<boolean>('left').set(true);
+      band = render(c.bar);
+      expect(textOf(band)).not.toContain('Mute');
+      expect(query(band, 'button[aria-label="End call"]')).toBeUndefined();
+      band.destroy();
+      // The PiP template is the doctor's peer tile.
+      const pip = render(c.peer);
+      expect(nodesOf(pip).some((n) => n.tagName.toLowerCase() === 'sd-call-peer-tile')).toBe(true);
+      expect(CallPeerTileComponent).toBeTruthy();
+      pip.destroy();
+    });
+
+    it('hands the doctor’s video to the PiP (stage first), routes re-publishes to it, and takes it back on close', async () => {
+      await create();
+      await enter();
+      const client = agora.clients[agora.clients.length - 1];
+      const doctorCam = track('doctor-1');
+      const guestCam = track('guest');
+      await client.handlers['user-published']({ uid: 2, videoTrack: doctorCam }, 'video');
+      await client.handlers['user-published']({ uid: 3, videoTrack: guestCam }, 'video');
+      await settle();
+      const tiles = stage();
+      const log: string[] = [];
+      vi.spyOn(tiles, 'detach').mockImplementation((uid) => {
+        log.push(`detach:${uid}:${peerTrack() ? 'tile' : 'none'}`);
+      });
+      const attach = vi.spyOn(tiles, 'attach').mockImplementation((uid, t) => {
+        log.push(`attach:${uid}:${(t as unknown as { name: string }).name}`);
+      });
+      const c = ctx as unknown as ViewerCallContext;
+      c.willOpen();
+      // Off the stage before the tile gets it: never in two places.
+      expect(log).toEqual(['detach:2:none']);
+      expect(peerTrack()).toBe(doctorCam);
+
+      // A re-publish while open goes to the tile, not the stage.
+      const doctorCam2 = track('doctor-2');
+      await client.handlers['user-published']({ uid: 2, videoTrack: doctorCam2 }, 'video');
+      expect(peerTrack()).toBe(doctorCam2);
+      expect(attach).not.toHaveBeenCalled();
+
+      // The stage tiles re-created while open (rotation, the rail): every video but the doctor's.
+      const recreated = { attach: vi.fn() };
+      cmp()['replayOnStage'](recreated);
+      const replayed = recreated.attach.mock.calls.map((a) => String(a[0]));
+      expect(replayed).not.toContain('2');
+      expect(replayed).toContain('3');
+
+      // An unpublish while open clears the tile's track (the stage is not touched).
+      client.handlers['user-unpublished']({ uid: 2 }, 'video');
+      expect(peerTrack()).toBeNull();
+      expect(log).toEqual(['detach:2:none']);
+      await client.handlers['user-published']({ uid: 2, videoTrack: doctorCam2 }, 'video');
+
+      // Close: the tile is gone (and stopped), then the stage plays the current track, once.
+      c.didClose();
+      expect(peerTrack()).toBeNull();
+      expect(log).toEqual(['detach:2:none', 'attach:2:doctor-2']);
+      // From now on the stage gets the doctor again.
+      await client.handlers['user-published']({ uid: 2, videoTrack: doctorCam }, 'video');
+      expect(log[log.length - 1]).toBe('attach:2:doctor-1');
+    });
+
+    it('the call ending closes the viewer: the other side ending it, or the patient leaving', async () => {
+      await create();
+      await enter();
+      expect(viewer.close).not.toHaveBeenCalled();
+      sig<string>('status').set('ended');
+      await settle();
+      expect(viewer.close).toHaveBeenCalledTimes(1);
+      sig<string>('status').set('in-call');
+      await settle();
+      sig<boolean>('left').set(true);
+      await settle();
+      expect(viewer.close).toHaveBeenCalledTimes(2);
+    });
+
+    it('the call ending under the viewer focuses the ended screen, though the opener is still on the page (§3.5)', async () => {
+      library = [libDoc('d-3', 'Lipids', 'laboratory_test_report')];
+      await create();
+      await enter();
+      const eye = el.querySelector<HTMLButtonElement>('button[aria-label="Open Lipids"]') as HTMLButtonElement;
+      eye.focus();
+      eye.click();
+      expect(viewer.open).toHaveBeenCalledTimes(1);
+      viewer.isOpen.set(true);
+      // The doctor ends the consultation while the patient reads.
+      sig<string>('endedReason').set('completed');
+      sig<string>('status').set('ended');
+      await settle();
+      expect(viewer.close).toHaveBeenCalledTimes(1);
+      expect(eye.isConnected).toBe(true);
+      const ended = el.querySelector<HTMLElement>('[data-testid="call-ended"]') as HTMLElement;
+      expect(document.activeElement).toBe(ended);
+      // Its name is the ended message, so focusing it says what happened.
+      const label = document.getElementById(ended.getAttribute('aria-labelledby') ?? '');
+      expect(label?.textContent?.trim()).toBe('Your consultation has ended.');
+    });
+
+    it('the call ending with no viewer open leaves focus where it is', async () => {
+      library = [libDoc('d-3', 'Lipids', 'laboratory_test_report')];
+      await create();
+      await enter();
+      const eye = el.querySelector<HTMLButtonElement>('button[aria-label="Open Lipids"]') as HTMLButtonElement;
+      eye.focus();
+      sig<string>('status').set('ended');
+      await settle();
+      expect(document.activeElement).toBe(eye);
+    });
+
+    it('the band’s new-prescription View and End meet contrast on the ink band', async () => {
+      await create();
+      await enter();
+      sig<unknown>('rxToast').set({ text: 'x', rx: prescription('7') });
+      const band = render((ctx as unknown as ViewerCallContext).bar);
+      const view = query(band, 'button[aria-label="View prescription GVM-RX-7"]') as HTMLElement;
+      // frost on #1c2b3a is 10.27:1 (sky was 4.46:1, under 4.5 for its caption text).
+      expect(view.classList).toContain('text-frost');
+      expect(view.classList).not.toContain('text-sky');
+      // End is icon-only: a white "End" on bg-alert would be 4.23:1; the white icon needs 3:1.
+      const end = query(band, 'button[aria-label="End call"]') as HTMLElement;
+      expect(end.classList).toContain('bg-alert');
+      expect(end.textContent?.trim()).toBe('');
+      band.destroy();
+    });
   });
 });

@@ -13,13 +13,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
-import {
-  apiErrorMessage,
-  DocumentsApi,
-  openBlobDocument,
-  openPendingTab,
-  PrescriptionsApi,
-} from '@supadoc/data-access';
+import { apiErrorMessage, DocumentsApi, PrescriptionsApi } from '@supadoc/data-access';
 import type {
   DocumentTypeOption,
   MedicalDocumentDto,
@@ -29,11 +23,13 @@ import type {
 } from '@supadoc/models';
 import type { HasUnsavedChanges } from '@supadoc/auth';
 import { AlertComponent, IconComponent, type LeaveCopy } from '@supadoc/ui';
+import { DocumentViewerService } from '@supadoc/viewer';
 import { AccessRequestsBanner } from './access-requests-banner';
 import { type ApproveOutcome, approveOutcomeLine } from './approve-request-dialog';
 import { DocumentAccessDialog } from './document-access-dialog';
 import { type AccessChip, accessChip } from './document-sharing';
 import { DocumentUploadDialog } from './document-upload-dialog';
+import { deviceZone, myDocumentSource, myPrescriptionSource, openerOf, uploaderLabel } from './viewer-sources';
 
 /** How many recent prescriptions the documents page previews. */
 const RX_PREVIEW = 3;
@@ -52,8 +48,9 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
  * what the patient shares (→ Manage sharing), doctors' pending requests, and
  * per row who can see the document (chip + an access button opening "Who can
  * see this document"). Uploads go through the upload dialog, which asks who
- * can see the files. Files are streamed back through an authenticated
- * endpoint, opened in a new tab.
+ * can see the files. A row (or a prescription's View) opens the shared
+ * document viewer in a modal, over the list as shown: files are streamed
+ * through the authenticated endpoint, never opened in a tab.
  */
 @Component({
   selector: 'pat-documents',
@@ -91,7 +88,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
         <sd-alert tone="success">{{ notice() }}</sd-alert>
       }
 
-      <!-- Prescriptions sent by your doctors (the PDF opens in a new tab) -->
+      <!-- Prescriptions sent by your doctors (the PDF opens in the document viewer) -->
       @if (rxLoading()) {
         <div class="sd-shimmer h-24 rounded-card"></div>
       } @else if (rxLoadError()) {
@@ -142,11 +139,10 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                   <button
                     type="button"
                     class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
-                    [disabled]="openingRx() === rx.id"
                     [attr.aria-label]="'View prescription ' + rx.number"
-                    (click)="viewRx(rx)"
+                    (click)="viewRx(rx, $event)"
                   >
-                    <sd-icon [name]="openingRx() === rx.id ? 'loader-circle' : 'eye'" [size]="14" [class.animate-spin]="openingRx() === rx.id" />View
+                    <sd-icon name="eye" [size]="14" />View
                   </button>
                   <a
                     [routerLink]="['/dashboard/prescriptions', rx.id]"
@@ -159,11 +155,6 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
               </li>
             }
           </ul>
-          @if (rxError()) {
-            <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxError() }}
-            </p>
-          }
         </section>
       }
 
@@ -246,7 +237,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
               <button
                 type="button"
                 class="flex min-w-0 flex-1 items-center gap-4 rounded-card p-4 text-left"
-                (click)="open(d)"
+                (click)="open(d, $event)"
               >
                 <span class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-glacier text-slate">
                   <sd-icon name="file-text" [size]="20" />
@@ -313,6 +304,7 @@ export class PatientDocuments implements OnInit, HasUnsavedChanges {
   private readonly document = inject(DOCUMENT);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly viewer = inject(DocumentViewerService);
   /** The page-header Upload button — focus goes here when the empty-state opener is gone. */
   private readonly headerUpload = viewChild<ElementRef<HTMLElement>>('headerUpload');
   private readonly uploadDialog = viewChild(DocumentUploadDialog);
@@ -323,10 +315,6 @@ export class PatientDocuments implements OnInit, HasUnsavedChanges {
   protected readonly rxLoading = signal(true);
   /** Loading the list failed — shown instead of hiding the section. */
   protected readonly rxLoadError = signal('');
-  /** Opening one prescription's PDF failed. */
-  protected readonly rxError = signal('');
-  /** Id of the prescription whose PDF link is being fetched. */
-  protected readonly openingRx = signal('');
 
   // List state
   protected readonly docs = signal<MedicalDocumentDto[]>([]);
@@ -383,28 +371,17 @@ export class PatientDocuments implements OnInit, HasUnsavedChanges {
   }
 
   /**
-   * Open the prescription PDF in a new tab. The tab is opened synchronously on
-   * the click (so popup blockers allow it), then pointed at the signed link.
+   * Open the prescription in the document viewer, with the cards shown as its
+   * list (‹ / › move between them). The viewer mints the signed link and shows
+   * its own loading and errors.
    */
-  protected viewRx(rx: PrescriptionSummaryDto): void {
-    if (this.openingRx()) return;
-    const pending = openPendingTab();
-    this.openingRx.set(rx.id);
-    this.rxError.set('');
-    this.prescriptionsApi
-      .link(rx.id, false)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          pending.go(this.prescriptionsApi.fileUrl(res.data));
-          this.openingRx.set('');
-        },
-        error: (err: unknown) => {
-          pending.fail();
-          this.openingRx.set('');
-          this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
-        },
-      });
+  protected viewRx(rx: PrescriptionSummaryDto, event?: Event): void {
+    const list = this.recentRx();
+    const zone = deviceZone();
+    this.viewer.open(
+      list.map((p) => myPrescriptionSource(this.prescriptionsApi, p, zone)),
+      { index: Math.max(0, list.findIndex((p) => p.id === rx.id)), opener: openerOf(event), listLabel: 'your recent prescriptions' },
+    );
   }
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
@@ -469,8 +446,14 @@ export class PatientDocuments implements OnInit, HasUnsavedChanges {
     this.reload();
   }
 
-  protected open(d: MedicalDocumentDto): void {
-    openBlobDocument(this.api.fileBlob(d.id));
+  /** A row: the viewer over the documents listed now (search, filter and sort applied), at this one. */
+  protected open(d: MedicalDocumentDto, event?: Event): void {
+    const list = this.docs();
+    const zone = deviceZone();
+    this.viewer.open(
+      list.map((x) => myDocumentSource(this.api, x, zone)),
+      { index: Math.max(0, list.findIndex((x) => x.id === d.id)), opener: openerOf(event), listLabel: 'your documents' },
+    );
   }
 
   /** Who can see a document, as one chip (hidden when the API didn't say). */
@@ -538,7 +521,7 @@ export class PatientDocuments implements OnInit, HasUnsavedChanges {
 
   // ----- Display helpers -----
   protected badgeLabel(role: string): string {
-    return role === 'patient' ? 'Patient-upload' : role === 'doctor' ? 'Doctor-uploaded' : 'Staff-uploaded';
+    return uploaderLabel(role);
   }
   protected badgeClass(role: string): string {
     return role === 'patient'

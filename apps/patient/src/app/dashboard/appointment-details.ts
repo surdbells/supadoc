@@ -36,9 +36,6 @@ import {
   DocumentsApi,
   DocumentSharingApi,
   injectCallPresence,
-  openBlobDocument,
-  openClinicalDocument,
-  openPendingTab,
   PrescriptionsApi,
   WalletApi,
 } from '@supadoc/data-access';
@@ -69,6 +66,7 @@ import {
   IconComponent,
   MessageThreadComponent,
 } from '@supadoc/ui';
+import { DocumentViewerService, type ViewerSource } from '@supadoc/viewer';
 import { doctorTitle } from '../call/call-helpers';
 import { afterDialogsClose } from '../dialog-helpers';
 import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
@@ -78,6 +76,7 @@ import {
   accessUntilPhrase,
   bookedShareLine,
   countNoun,
+  drLast,
   isSharingUnavailable,
   possessive,
   shareResultLine,
@@ -90,13 +89,18 @@ import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './fo
 import { GuestsPanel } from './guests-panel';
 import { loadPaystack } from './paystack';
 import { ShareDialog } from './share-dialog';
+import { deviceZone, myClinicalDocumentSource, myDocumentSource, myPrescriptionSource, openerOf } from './viewer-sources';
 
-/** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
+/** A referral or certificate of this consultation (shown as the server-rendered PDF in the viewer). */
 interface DocumentItem {
   readonly kind: Exclude<ClinicalDocumentKind, 'prescription'>;
   readonly id: string;
   readonly title: string;
   readonly meta: string;
+  /** When it was issued (its `created_at`), for the viewer and the download name. */
+  readonly issued_at: string;
+  /** "referral letter to Lagos Heart Centre", for "View …" (2.4.6). */
+  readonly label: string;
 }
 
 /** Every prescription status reads as an icon AND a word — never colour alone. */
@@ -811,7 +815,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                             type="button"
                             class="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-field px-3 py-2 text-left transition-colors hover:text-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
                             [attr.aria-label]="'Open ' + d.title + ', ' + d.type_label"
-                            (click)="openShared(d)"
+                            (click)="openShared(s.visible_documents, d, 'shared', $event)"
                           >
                             <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
                             <span class="flex min-w-0 flex-1 flex-col">
@@ -840,7 +844,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                       <ul class="flex flex-col gap-2">
                         @for (d of s.unshared_attachments; track d.id) {
                           <li class="flex flex-wrap items-center gap-2 rounded-field border border-cloud px-3 py-2">
-                            <button type="button" class="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left" [attr.aria-label]="'Open ' + d.title" (click)="openShared(d)">
+                            <button type="button" class="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left" [attr.aria-label]="'Open ' + d.title" (click)="openShared(s.unshared_attachments, d, 'attachments', $event)">
                               <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
                               <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
                             </button>
@@ -945,15 +949,10 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                         <button
                           type="button"
                           class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
-                          [disabled]="openingRx() === rx.id"
                           [attr.aria-label]="'View prescription ' + rx.number"
-                          (click)="viewRx(rx)"
+                          (click)="viewRx(rx, $event)"
                         >
-                          <sd-icon
-                            [name]="openingRx() === rx.id ? 'loader-circle' : 'eye'"
-                            [size]="14"
-                            [class.animate-spin]="openingRx() === rx.id"
-                          />View
+                          <sd-icon name="eye" [size]="14" />View
                         </button>
                         <a
                           [routerLink]="['/dashboard/prescriptions', rx.id]"
@@ -971,8 +970,13 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                         <span class="font-sans text-body-sm font-semibold text-ink">{{ doc.title }}</span>
                         @if (doc.meta) { <span class="truncate font-sans text-caption text-slate">{{ doc.meta }}</span> }
                       </span>
-                      <button type="button" class="flex shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline" (click)="openDoc(doc)">
-                        <sd-icon name="download" [size]="16" />Open / print
+                      <button
+                        type="button"
+                        class="flex min-h-11 shrink-0 items-center gap-1.5 font-sans text-caption font-semibold text-cerulean hover:underline"
+                        [attr.aria-label]="'View ' + doc.label"
+                        (click)="openDoc(doc, $event)"
+                      >
+                        <sd-icon name="eye" [size]="16" />View
                       </button>
                     </li>
                   }
@@ -980,11 +984,6 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                 @if (docsError()) {
                   <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
                     <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ docsError() }}
-                  </p>
-                }
-                @if (rxError()) {
-                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxError() }}
                   </p>
                 }
               </section>
@@ -1190,6 +1189,7 @@ export class AppointmentDetails {
   private readonly appointments = inject(AppointmentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
   private readonly documentsApi = inject(DocumentsApi);
+  private readonly viewer = inject(DocumentViewerService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly dialogs = inject(DialogService);
@@ -1219,10 +1219,6 @@ export class AppointmentDetails {
   protected readonly clinicalDocs = signal<DocumentItem[]>([]);
   /** A documents request failed — shown so a failure never reads as "no documents". */
   protected readonly docsError = signal('');
-  /** Opening a prescription PDF failed. */
-  protected readonly rxError = signal('');
-  /** Id of the prescription whose PDF link is being fetched. */
-  protected readonly openingRx = signal('');
 
   // What this consultation's doctor can see (GET …/appointments/{id}/document-access).
   private readonly sharingApi = inject(DocumentSharingApi);
@@ -1804,9 +1800,27 @@ export class AppointmentDetails {
     this.sharingTimer = setTimeout(() => this.loadSharing(id, true), delay);
   }
 
-  /** Same authenticated view as the Documents page: fetched as a blob, opened in a new tab. */
-  protected openShared(d: MedicalDocumentDto): void {
-    openBlobDocument(this.documentsApi.fileBlob(d.id));
+  /**
+   * A shared document or a booking attachment: the document viewer over the
+   * sub-list it is in (as shown), at this one — the same authenticated file
+   * route as the Documents page.
+   */
+  protected openShared(
+    list: readonly MedicalDocumentDto[],
+    d: MedicalDocumentDto,
+    which: 'shared' | 'attachments',
+    event?: Event,
+  ): void {
+    const zone = deviceZone();
+    const doctor = drLast(this.appt()?.specialist.name) || 'your doctor';
+    this.viewer.open(
+      list.map((x) => myDocumentSource(this.documentsApi, x, zone)),
+      {
+        index: Math.max(0, list.findIndex((x) => x.id === d.id)),
+        opener: openerOf(event),
+        listLabel: which === 'shared' ? `documents shared with ${doctor}` : `attachments not shared with ${doctor}`,
+      },
+    );
   }
 
   /**
@@ -1890,7 +1904,6 @@ export class AppointmentDetails {
 
   private loadDocuments(id: string): void {
     this.docsError.set('');
-    this.rxError.set('');
     forkJoin({
       prescriptions: this.appointments
         .prescriptions(id)
@@ -1916,6 +1929,8 @@ export class AppointmentDetails {
             id: r.id,
             title: `Referral · ${r.target}`,
             meta: r.reason,
+            issued_at: r.created_at,
+            label: `referral letter to ${r.target}`,
           });
         }
         for (const c of 'data' in certificates ? (certificates.data ?? []) : []) {
@@ -1927,6 +1942,8 @@ export class AppointmentDetails {
               c.from_date && c.to_date
                 ? `${c.from_date} → ${c.to_date}`
                 : new Date(c.created_at).toLocaleDateString('en-GB'),
+            issued_at: c.created_at,
+            label: c.type_label.toLowerCase(),
           });
         }
         this.clinicalDocs.set(docs);
@@ -1938,34 +1955,34 @@ export class AppointmentDetails {
     return { failed: apiErrorMessage(err, `Could not load ${what}. Please try again.`) };
   }
 
-  protected openDoc(doc: DocumentItem): void {
-    const id = this.vm()?.id;
-    if (id) openClinicalDocument(this.appointments.document(id, doc.kind, doc.id));
+  /** A referral or certificate: the server-rendered PDF in the document viewer (View, Print, Download). */
+  protected openDoc(doc: DocumentItem, event?: Event): void {
+    this.openSection(`${doc.kind}:${doc.id}`, event);
+  }
+
+  /** A prescription: its signed PDF in the document viewer (View, Print, Download). */
+  protected viewRx(rx: PrescriptionDto, event?: Event): void {
+    this.openSection('rx:' + rx.id, event);
   }
 
   /**
-   * Open the prescription PDF in a new tab. The tab is opened synchronously on
-   * the click (so popup blockers allow it), then pointed at the signed link.
+   * The viewer over the Documents section as listed (the prescriptions, then
+   * the referrals and certificates), at the row pressed: ‹ / › move through
+   * this consultation's documents.
    */
-  protected viewRx(rx: PrescriptionDto): void {
-    if (this.openingRx()) return;
-    const pending = openPendingTab();
-    this.openingRx.set(rx.id);
-    this.rxError.set('');
-    this.prescriptionsApi
-      .link(rx.id, false)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          pending.go(this.prescriptionsApi.fileUrl(res.data));
-          this.openingRx.set('');
-        },
-        error: (err: unknown) => {
-          pending.fail();
-          this.openingRx.set('');
-          this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
-        },
-      });
+  private openSection(key: string, event?: Event): void {
+    const id = this.vm()?.id;
+    if (!id) return;
+    const zone = deviceZone();
+    const sources: ViewerSource[] = [
+      ...this.prescriptions().map((rx) => myPrescriptionSource(this.prescriptionsApi, rx, zone)),
+      ...this.clinicalDocs().map((d) => myClinicalDocumentSource(this.appointments, id, d.kind, d, zone)),
+    ];
+    this.viewer.open(sources, {
+      index: Math.max(0, sources.findIndex((s) => s.key === key)),
+      opener: openerOf(event),
+      listLabel: 'this consultation’s documents',
+    });
   }
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {

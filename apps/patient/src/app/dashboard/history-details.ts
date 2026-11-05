@@ -17,8 +17,6 @@ import {
   apiErrorMessage,
   AppointmentsApi,
   DocumentSharingApi,
-  openClinicalDocument,
-  openPendingTab,
   PrescriptionsApi,
 } from '@supadoc/data-access';
 import type {
@@ -31,6 +29,7 @@ import type {
   PrescriptionStatus,
 } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
+import { DocumentViewerService, type ViewerSource } from '@supadoc/viewer';
 import {
   detailsLink,
   isPast,
@@ -43,6 +42,7 @@ import {
 import { accessUntilPhrase, countNoun, drName } from './document-sharing';
 import { dayLabel, isOpenProposal, isUntakenProposal, priceLabel, whenLabel } from './follow-up';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
+import { deviceZone, myClinicalDocumentSource, myPrescriptionSource, openerOf } from './viewer-sources';
 
 /**
  * How long after its start a consultation the doctor hasn't closed yet can be
@@ -54,12 +54,16 @@ const REJOIN_WINDOW_MS = 12 * 60 * 60_000;
 /** While the doctor hasn't closed the visit, look for it being closed this often. */
 const STATUS_POLL_MS = 30_000;
 
-/** Referrals and certificates still render as HTML documents; prescriptions open as PDFs. */
+/** A referral or certificate of this consultation (shown as the server-rendered PDF in the viewer). */
 interface DocItem {
   readonly kind: Exclude<ClinicalDocumentKind, 'prescription'>;
   readonly id: string;
   readonly title: string;
   readonly meta: string;
+  /** When it was issued (its `created_at`), for the viewer and the download name. */
+  readonly issued_at: string;
+  /** "referral letter to Lagos Heart Centre", for the eye button's "View …" (2.4.6, 4.1.2). */
+  readonly label: string;
 }
 
 /** Every prescription status reads as an icon AND a word — never colour alone. */
@@ -360,11 +364,10 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
-                            [disabled]="openingRx() === rx.id"
                             [attr.aria-label]="'View prescription ' + rx.number"
-                            (click)="viewRx(rx)"
+                            (click)="viewRx(a.id, rx, $event)"
                           >
-                            <sd-icon [name]="openingRx() === rx.id ? 'loader-circle' : 'eye'" [size]="14" [class.animate-spin]="openingRx() === rx.id" />View
+                            <sd-icon name="eye" [size]="14" />View
                           </button>
                           <a
                             [routerLink]="['/dashboard/prescriptions', rx.id]"
@@ -383,7 +386,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           <span class="truncate font-sans text-body-sm font-medium text-ink">{{ doc.title }}</span>
                           @if (doc.meta) { <span class="truncate font-sans text-caption text-slate">{{ doc.meta }}</span> }
                         </span>
-                        <button type="button" class="flex size-8 items-center justify-center rounded-field border border-haze bg-white text-slate shadow-control transition hover:bg-glacier active:shadow-none disabled:shadow-none" aria-label="Open document" (click)="openDoc(a.id, doc)">
+                        <button type="button" class="flex size-8 items-center justify-center rounded-field border border-haze bg-white text-slate shadow-control transition hover:bg-glacier active:shadow-none disabled:shadow-none" [attr.aria-label]="'View ' + doc.label" (click)="openDoc(a.id, doc, $event)">
                           <sd-icon name="eye" [size]="16" />
                         </button>
                       </li>
@@ -401,11 +404,6 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                 @if (docsError()) {
                   <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
                     <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ docsError() }}
-                  </p>
-                }
-                @if (rxError()) {
-                  <p class="flex items-start gap-2 font-sans text-caption text-alert" role="alert">
-                    <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxError() }}
                   </p>
                 }
                 <!-- What the doctor can see of the patient's own documents -->
@@ -447,6 +445,7 @@ export class HistoryDetails {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(AppointmentsApi);
   private readonly prescriptionsApi = inject(PrescriptionsApi);
+  private readonly viewer = inject(DocumentViewerService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
 
@@ -457,14 +456,10 @@ export class HistoryDetails {
   protected readonly docsLoading = signal(true);
   /** A documents request failed — shown so a failure never reads as "no documents". */
   protected readonly docsError = signal('');
-  /** Opening a prescription PDF failed. */
-  protected readonly rxError = signal('');
   /** "Your documents: …" — what this doctor can see now ('' until known, or when it can't be read). */
   protected readonly sharingLine = signal('');
   private readonly sharingApi = inject(DocumentSharingApi);
   private sharingSub?: Subscription;
-  /** Id of the prescription whose PDF link is being fetched. */
-  protected readonly openingRx = signal('');
 
   // Follow-ups of this consultation (a doctor's proposal, ones booked) and the price of booking one.
   protected readonly followUps = signal<AppointmentDto[]>([]);
@@ -714,7 +709,6 @@ export class HistoryDetails {
 
     this.docsLoading.set(true);
     this.docsError.set('');
-    this.rxError.set('');
     sub.add(forkJoin({
       prescriptions: this.api.prescriptions(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your prescriptions')))),
       referrals: this.api.referrals(id).pipe(catchError((err: unknown) => of(this.failed(err, 'your referrals')))),
@@ -730,7 +724,14 @@ export class HistoryDetails {
         this.prescriptions.set('data' in prescriptions ? (prescriptions.data ?? []) : []);
         const docs: DocItem[] = [];
         for (const r of 'data' in referrals ? (referrals.data ?? []) : []) {
-          docs.push({ kind: 'referral', id: r.id, title: `Referral · ${r.target}`, meta: r.reason });
+          docs.push({
+            kind: 'referral',
+            id: r.id,
+            title: `Referral · ${r.target}`,
+            meta: r.reason,
+            issued_at: r.created_at,
+            label: `referral letter to ${r.target}`,
+          });
         }
         for (const c of 'data' in certificates ? (certificates.data ?? []) : []) {
           docs.push({
@@ -738,6 +739,8 @@ export class HistoryDetails {
             id: c.id,
             title: c.type_label,
             meta: c.from_date && c.to_date ? `${c.from_date} → ${c.to_date}` : new Date(c.created_at).toLocaleDateString('en-GB'),
+            issued_at: c.created_at,
+            label: c.type_label.toLowerCase(),
           });
         }
         this.docs.set(docs);
@@ -751,33 +754,31 @@ export class HistoryDetails {
     return { failed: apiErrorMessage(err, `Could not load ${what}. Please try again.`) };
   }
 
-  protected openDoc(id: string, doc: DocItem): void {
-    openClinicalDocument(this.api.document(id, doc.kind, doc.id));
+  /** A referral or certificate: the server-rendered PDF in the document viewer (View, Print, Download). */
+  protected openDoc(appointmentId: string, doc: DocItem, event?: Event): void {
+    this.openSection(appointmentId, `${doc.kind}:${doc.id}`, event);
+  }
+
+  /** A prescription: its signed PDF in the document viewer (View, Print, Download). */
+  protected viewRx(appointmentId: string, rx: PrescriptionDto, event?: Event): void {
+    this.openSection(appointmentId, 'rx:' + rx.id, event);
   }
 
   /**
-   * Open the prescription PDF in a new tab. The tab is opened synchronously on
-   * the click (so popup blockers allow it), then pointed at the signed link.
+   * The viewer over the Documents card as listed (the prescriptions, then the
+   * referrals and certificates; lab orders have no file), at the row pressed.
    */
-  protected viewRx(rx: PrescriptionDto): void {
-    if (this.openingRx()) return;
-    const pending = openPendingTab();
-    this.openingRx.set(rx.id);
-    this.rxError.set('');
-    this.prescriptionsApi
-      .link(rx.id, false)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          pending.go(this.prescriptionsApi.fileUrl(res.data));
-          this.openingRx.set('');
-        },
-        error: (err: unknown) => {
-          pending.fail();
-          this.openingRx.set('');
-          this.rxError.set(apiErrorMessage(err, 'Could not open the prescription. Please try again.'));
-        },
-      });
+  private openSection(appointmentId: string, key: string, event?: Event): void {
+    const zone = deviceZone();
+    const sources: ViewerSource[] = [
+      ...this.prescriptions().map((rx) => myPrescriptionSource(this.prescriptionsApi, rx, zone)),
+      ...this.docs().map((d) => myClinicalDocumentSource(this.api, appointmentId, d.kind, d, zone)),
+    ];
+    this.viewer.open(sources, {
+      index: Math.max(0, sources.findIndex((s) => s.key === key)),
+      opener: openerOf(event),
+      listLabel: 'this consultation’s documents',
+    });
   }
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
