@@ -81,4 +81,20 @@ describe('OnbDocumentsStep', () => {
     expect(el.querySelector('[role="progressbar"]')).toBeNull();
     el.remove();
   });
+
+  it('View opens the uploaded file through the store (the shared viewer, never a tab)', async () => {
+    const store = TestBed.inject(ApplicationDraftStore);
+    const view = vi.spyOn(store, 'viewDocument').mockResolvedValue();
+    const windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { fixture, el } = await create('ng');
+    const file = doc('government_id', { original_name: 'id.png', mime: 'image/png' });
+    store.draft.update((d) => (d ? { ...d, documents: [file] } : d));
+    await settle(fixture);
+    (el.querySelector('[aria-label="View id.png"]') as HTMLButtonElement).click();
+    expect(view).toHaveBeenCalledTimes(1);
+    expect(view).toHaveBeenCalledWith(file);
+    expect(windowOpen).not.toHaveBeenCalled();
+    windowOpen.mockRestore();
+    el.remove();
+  });
 });

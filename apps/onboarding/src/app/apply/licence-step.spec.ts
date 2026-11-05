@@ -68,4 +68,17 @@ describe('OnbLicenceStep', () => {
     expect(el.querySelector('[aria-label="Remove MDCN full registration certificate"]')).toBeTruthy();
     el.remove();
   });
+
+  it('View opens the certificate through the store (the shared viewer, never a tab)', async () => {
+    const view = vi.spyOn(TestBed.inject(ApplicationDraftStore), 'viewDocument').mockResolvedValue();
+    const windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
+    const file = doc('mdcn_certificate', { original_name: 'mdcn.pdf' });
+    const { el } = await create('ng', [file]);
+    (el.querySelector('[aria-label="View mdcn.pdf"]') as HTMLButtonElement).click();
+    expect(view).toHaveBeenCalledTimes(1);
+    expect(view).toHaveBeenCalledWith(file);
+    expect(windowOpen).not.toHaveBeenCalled();
+    windowOpen.mockRestore();
+    el.remove();
+  });
 });

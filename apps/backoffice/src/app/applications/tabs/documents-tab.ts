@@ -1,7 +1,6 @@
 import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AdminDoctorApplicationsApi, openBlobDocument } from '@supadoc/data-access';
 import type { ApplicationDocumentDto, DoctorApplicationDetailDto } from '@supadoc/models';
 import { IconComponent } from '@supadoc/ui';
 import { afterDialogCloses, focusIfLost } from '../../shared/after-dialog';
@@ -13,10 +12,10 @@ import { ApplicationDocumentDialog } from '../dialogs/application-document-dialo
 /**
  * The application's documents: each current one with what it is, the file,
  * its size and upload date and where it came from (with the application, or
- * sent after a request), to View here or open in a new tab (every view is
- * audited). Required slots still empty are named. Replaced uploads are folded
- * away. Once approved, documents carried over link to the doctor's
- * Credentials tab.
+ * sent after a request), to View in the document viewer (every view is
+ * audited; Full screen and Download are there). Required slots still empty
+ * are named. Replaced uploads are folded away. Once approved, documents
+ * carried over link to the doctor's Credentials tab.
  */
 @Component({
   selector: 'bo-application-documents',
@@ -59,9 +58,6 @@ import { ApplicationDocumentDialog } from '../dialogs/application-document-dialo
                   <button type="button" [id]="'bo-app-doc-view-' + doc.id" class="${BTN_SECONDARY}" (click)="view(doc)" [attr.aria-label]="'View ' + title(doc)">
                     <sd-icon name="eye" [size]="16" />View
                   </button>
-                  <button type="button" class="${BTN_SECONDARY}" (click)="openTab(doc)" [attr.aria-label]="'Open ' + title(doc) + ' in a new tab'">
-                    <sd-icon name="external-link" [size]="16" />Open in new tab
-                  </button>
                 </div>
               </li>
             }
@@ -101,7 +97,6 @@ import { ApplicationDocumentDialog } from '../dialogs/application-document-dialo
   `,
 })
 export class ApplicationDocumentsTab {
-  private readonly api = inject(AdminDoctorApplicationsApi);
   private readonly doc = inject(DOCUMENT);
 
   readonly detail = input.required<DoctorApplicationDetailDto>();
@@ -135,11 +130,6 @@ export class ApplicationDocumentsTab {
     this.dialogOpen.set(false);
     // Focus goes back to the View button (it stays); a list that changed meanwhile loses it.
     afterDialogCloses(() => focusIfLost(id ? this.doc.getElementById(`bo-app-doc-view-${id}`) : null, this.doc), this.doc);
-  }
-
-  /** Popup-safe: the tab opens on the click, the file follows from a blob URL. */
-  protected openTab(doc: ApplicationDocumentDto): void {
-    openBlobDocument(this.api.documentFile(this.detail().id, doc.id));
   }
 
   protected title(doc: ApplicationDocumentDto): string {

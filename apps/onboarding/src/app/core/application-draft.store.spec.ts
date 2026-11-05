@@ -1,5 +1,7 @@
 import { TestBed } from '@angular/core/testing';
-import { D, draft, fail, HttpTestingController, ok, P, testProviders, tick } from '../../testing/onb-testing';
+import { DocumentViewerService, type ViewerSource } from '@supadoc/viewer';
+import { firstValueFrom } from 'rxjs';
+import { D, doc, draft, fail, HttpTestingController, ok, P, testProviders, tick } from '../../testing/onb-testing';
 import { ApplicantSession, DRAFT_TOKEN_KEY, ROUTE_KEY } from './applicant-session';
 import { ApplicationDraftStore } from './application-draft.store';
 
@@ -140,5 +142,42 @@ describe('ApplicationDraftStore', () => {
     req.flush(ok({ deleted: true }));
     await discarding;
     expect(session.draftToken()).toBeNull();
+  });
+});
+
+describe('ApplicationDraftStore.viewDocument', () => {
+  let open: ReturnType<typeof vi.fn>;
+  let windowOpen: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    open = vi.fn(() => ({ closed: Promise.resolve(), close: () => undefined }));
+    windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
+    TestBed.configureTestingModule({ providers: [...testProviders(), { provide: DocumentViewerService, useValue: { open } }] });
+    TestBed.inject(ApplicantSession).setDraftToken('tok');
+  });
+
+  afterEach(() => {
+    TestBed.inject(HttpTestingController).verify();
+    windowOpen.mockRestore();
+  });
+
+  it('opens the applicant\'s own file in the shared viewer (owner), never a tab', async () => {
+    const store = TestBed.inject(ApplicationDraftStore);
+    const http = TestBed.inject(HttpTestingController);
+    await store.viewDocument(doc('government_id', { id: 'd-7', original_name: 'passport.png', mime: 'image/png' }));
+
+    expect(open).toHaveBeenCalledTimes(1);
+    const [source] = open.mock.calls[0] as [ViewerSource];
+    expect(source).toMatchObject({ key: 'appdoc:d-7', policy: 'owner', title: 'passport.png', filename: 'passport.png' });
+    expect(windowOpen).not.toHaveBeenCalled();
+    // Nothing is fetched until the viewer loads it; then the draft token's file route.
+    http.expectNone(`${D}/documents/d-7/file`);
+    const loading = firstValueFrom(source.load());
+    const req = http.expectOne(`${D}/documents/d-7/file`);
+    expect(req.request.headers.get('Authorization')).toBe('Bearer tok');
+    expect(req.request.responseType).toBe('blob');
+    req.flush(new Blob(['png'], { type: 'image/png' }));
+    expect((await loading).mime).toBe('image/png');
   });
 });

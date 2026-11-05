@@ -1,5 +1,6 @@
-import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
-import { DoctorApplicationsApi, openBlobDocument } from '@supadoc/data-access';
+import { DOCUMENT } from '@angular/common';
+import { computed, effect, inject, Injectable, Injector, signal, untracked } from '@angular/core';
+import { DoctorApplicationsApi } from '@supadoc/data-access';
 import type {
   ApplicationDocumentDto,
   ApplicationDocumentSlot,
@@ -14,9 +15,41 @@ import type {
   ResumeEmailSentDto,
   SubmittedApplicationDto,
 } from '@supadoc/models';
+import { DialogService } from '@supadoc/ui';
 import { firstValueFrom, Observable, tap } from 'rxjs';
 import { ApplicantSession } from './applicant-session';
 import { type StepSource, toUploadEvents, type UploadEvent } from './step-source';
+
+/**
+ * Opens one of the applicant's own documents in the shared viewer (view,
+ * print, download). The viewer is imported here, on the click: this store is
+ * in the initial bundle (the wizard guards use it), so a static import would
+ * put the viewer there too. The viewer's opener is the focused control (the
+ * file field's name button), where focus returns on close. If the viewer's
+ * code can't load (old file names after a deploy), a dialog offers to reload.
+ */
+export function viewApplicantDocument(
+  injector: Injector,
+  fetch: () => Observable<Blob>,
+  doc: ApplicationDocumentDto,
+): Promise<void> {
+  return import('./viewer-sources').then(
+    (m) => void m.openApplicantDocument(injector, fetch, doc),
+    () =>
+      injector
+        .get(DialogService)
+        .confirm({
+          tone: 'warning',
+          title: "Couldn't open the document",
+          message: 'VideoMed was updated. Reload the page to open documents.',
+          confirmLabel: 'Reload',
+          cancelLabel: 'Close',
+        })
+        .then(({ confirmed }) => {
+          if (confirmed) injector.get(DOCUMENT).defaultView?.location.reload();
+        }),
+  );
+}
 
 /** Values as the step forms hold them (blank fields allowed when partial). */
 export type SectionDraft<K extends ApplicationSectionKey> = Partial<ApplicationSectionValues[K]>;
@@ -32,6 +65,7 @@ export class ApplicationDraftStore implements StepSource {
   readonly kind = 'wizard' as const;
   private readonly api = inject(DoctorApplicationsApi);
   private readonly session = inject(ApplicantSession);
+  private readonly injector = inject(Injector);
 
   /** The server truth once a draft exists. */
   readonly draft = signal<ApplicationDraftDto | null>(null);
@@ -168,8 +202,9 @@ export class ApplicationDraftStore implements StepSource {
     this.refresh().catch(() => undefined);
   }
 
-  viewDocument(doc: ApplicationDocumentDto): void {
-    openBlobDocument(this.api.documentFile(doc.id));
+  /** The applicant's own file in the shared viewer (view, print, download). */
+  viewDocument(doc: ApplicationDocumentDto): Promise<void> {
+    return viewApplicantDocument(this.injector, () => this.api.documentFile(doc.id), doc);
   }
 
   /** POST drafts/current/resume-email (429 resend_cooldown within 60 s). */

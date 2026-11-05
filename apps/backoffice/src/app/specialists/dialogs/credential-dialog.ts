@@ -11,12 +11,12 @@ import {
   untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { Observable } from 'rxjs';
 import { apiErrorFields, apiErrorMessage, SpecialistsApi } from '@supadoc/data-access';
 import type { SpecialistCredentialDto, SpecialistReviewSummaryDto, VerifyCredentialInput } from '@supadoc/models';
 import { AlertComponent, IconComponent } from '@supadoc/ui';
+import type { ViewerSource } from '@supadoc/viewer';
 import { BoDialog } from '../../shared/dialog';
-import { DocumentViewer } from '../../shared/document-viewer';
+import { credentialSource, EmbeddedViewer } from '../../shared/viewer-sources';
 import {
   BTN_DANGER,
   BTN_GHOST,
@@ -36,17 +36,18 @@ export type CredentialDialogMode = 'view' | 'verify' | 'reject';
 
 /**
  * One licensing document, opened from the Credentials tab: the file itself
- * (the shared {@link DocumentViewer} — fetched as a blob, every open audited
- * server-side, shown from a blob URL that is revoked on close) beside its
- * details, with the reviewer's decision: verify with an attestation (register
- * checked + reference, and for a licence its number and expiry) or reject with
- * a reason the doctor sees. The register named is the doctor's: MDCN, or their
- * regulator abroad (`registerName`).
+ * (the shared document viewer, embedded: fetched as a blob, every open
+ * audited server-side, released on close; Print, Download and Full screen)
+ * beside its details, with the reviewer's decision: verify with an
+ * attestation (register checked + reference, and for a licence its number and
+ * expiry) or reject with a reason the doctor sees. The register named is the
+ * doctor's: MDCN, or their regulator abroad (`registerName`). The dialog keeps
+ * its scrolling body, so the form stays reachable below or beside the viewer.
  */
 @Component({
   selector: 'bo-credential-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, AlertComponent, BoDialog, DocumentViewer],
+  imports: [IconComponent, AlertComponent, BoDialog, EmbeddedViewer],
   template: `
     <bo-dialog
       [open]="open()"
@@ -60,14 +61,7 @@ export type CredentialDialogMode = 'view' | 'verify' | 'reject';
         <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
           <!-- The document (only while open: closing releases the file) -->
           @if (open()) {
-            <bo-document-viewer
-              [load]="loadFile()"
-              [mime]="c.mime"
-              [name]="c.original_name"
-              [sizeBytes]="c.size_bytes"
-              [alt]="c.type_label + ' uploaded by the doctor'"
-              goneMessage="This document could not be read. Ask the doctor to upload it again."
-            />
+            <bo-embedded-viewer [source]="viewerSource()" />
           } @else {
             <div></div>
           }
@@ -203,10 +197,11 @@ export class CredentialDialog {
 
   /** Re-keyed on the document's id only, so a refreshed copy of the same document isn't fetched (and audited) again. */
   private readonly credentialId = computed(() => this.credential()?.id ?? null);
-  protected readonly loadFile = computed<(() => Observable<Blob>) | null>(() => {
+  protected readonly viewerSource = computed<ViewerSource | null>(() => {
     const id = this.credentialId();
     const specialistId = this.specialistId();
-    return id ? () => this.api.credentialFile(specialistId, id) : null;
+    const c = untracked(() => this.credential());
+    return id && c ? credentialSource(this.api, specialistId, c) : null;
   });
 
   protected readonly registerChecked = signal(false);

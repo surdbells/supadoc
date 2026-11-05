@@ -1,5 +1,5 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
-import { DoctorApplicationsApi, openBlobDocument } from '@supadoc/data-access';
+import { computed, inject, Injectable, Injector, signal } from '@angular/core';
+import { DoctorApplicationsApi } from '@supadoc/data-access';
 import type {
   ApplicantApplicationDto,
   ApplicationDocumentDto,
@@ -11,6 +11,7 @@ import type {
   LicenceRoute,
 } from '@supadoc/models';
 import { firstValueFrom, Observable, tap } from 'rxjs';
+import { viewApplicantDocument } from './application-draft.store';
 import { errorStatus } from './errors';
 import { type StepSource, toUploadEvents, type UploadEvent } from './step-source';
 
@@ -45,6 +46,7 @@ function writeUpdated(requestId: string, keys: string[]): void {
 export class InfoResponseStore implements StepSource {
   readonly kind = 'info' as const;
   private readonly api = inject(DoctorApplicationsApi);
+  private readonly injector = inject(Injector);
 
   readonly application = signal<ApplicantApplicationDto | null>(null);
   readonly request = computed(() => this.application()?.info_request ?? null);
@@ -161,8 +163,9 @@ export class InfoResponseStore implements StepSource {
     this.load().catch(() => undefined);
   }
 
-  viewDocument(doc: ApplicationDocumentDto): void {
-    openBlobDocument(this.api.trackDocumentFile(doc.id));
+  /** The applicant's own file in the shared viewer (view, print, download), through the track session. */
+  viewDocument(doc: ApplicationDocumentDto): Promise<void> {
+    return viewApplicantDocument(this.injector, () => this.api.trackDocumentFile(doc.id), doc);
   }
 
   async submit(note: string | null): Promise<ApplicationStatusDto> {

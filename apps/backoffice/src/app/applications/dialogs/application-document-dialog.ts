@@ -1,34 +1,30 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
-import type { Observable } from 'rxjs';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, untracked } from '@angular/core';
 import { AdminDoctorApplicationsApi } from '@supadoc/data-access';
 import type { ApplicationDocumentDto } from '@supadoc/models';
 import { DialogComponent, IconComponent } from '@supadoc/ui';
+import type { ViewerSource } from '@supadoc/viewer';
 import { DIALOG_FOOTER, PILL } from '../../shared/layout';
-import { DocumentViewer } from '../../shared/document-viewer';
+import { applicationDocumentSource, EmbeddedViewer } from '../../shared/viewer-sources';
 import { BTN_GHOST, dateTime, fileSize } from '../../specialists/specialist-ui';
 import { documentSourceBadge, documentTitle } from '../application-ui';
 
 /**
- * One application document: the file itself (the shared viewer — fetched as a
- * blob, every view audited server-side, never a public link) beside what it
- * is, where it came from and, once approved, the credential it became.
+ * One application document: the file itself (the shared document viewer,
+ * embedded: fetched as a blob, every view audited server-side, never a public
+ * link; Print, Download and Full screen) beside what it is, where it came
+ * from and, once approved, the credential it became. The dialog keeps its
+ * scrolling body, so the details stay reachable at every width.
  */
 @Component({
   selector: 'bo-application-document-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DialogComponent, DocumentViewer, IconComponent],
+  imports: [DialogComponent, EmbeddedViewer, IconComponent],
   template: `
     <sd-dialog [open]="open()" [title]="title()" [subtitle]="subtitle()" size="xl" (closed)="closed.emit()">
       @if (document(); as doc) {
         <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
           @if (open()) {
-            <bo-document-viewer
-              [load]="loadFile()"
-              [mime]="doc.mime"
-              [name]="doc.original_name"
-              [sizeBytes]="doc.size_bytes"
-              [alt]="title() + ' sent by the applicant'"
-            />
+            <bo-embedded-viewer [source]="viewerSource()" />
           } @else {
             <div></div>
           }
@@ -79,10 +75,11 @@ export class ApplicationDocumentDialog {
 
   /** Re-keyed on the document's id only: a refreshed copy of the same document isn't fetched (and audited) again. */
   private readonly documentId = computed(() => this.document()?.id ?? null);
-  protected readonly loadFile = computed<(() => Observable<Blob>) | null>(() => {
+  protected readonly viewerSource = computed<ViewerSource | null>(() => {
     const id = this.documentId();
     const appId = this.applicationId();
-    return id ? () => this.api.documentFile(appId, id) : null;
+    const doc = untracked(() => this.document());
+    return id && doc ? applicationDocumentSource(this.api, appId, doc) : null;
   });
 
   protected size(bytes: number): string {

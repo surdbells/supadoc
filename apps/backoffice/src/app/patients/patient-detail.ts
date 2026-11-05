@@ -8,19 +8,15 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import {
-  AdminPatientsApi,
-  apiErrorMessage,
-  openPendingTab,
-  PrescriptionsApi,
-} from '@supadoc/data-access';
+import { AdminPatientsApi, apiErrorMessage, PrescriptionsApi } from '@supadoc/data-access';
 import type {
   AppointmentDto,
   PatientDetailDto,
   PrescriptionStatus,
   PrescriptionSummaryDto,
 } from '@supadoc/models';
-import { AlertComponent, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { DocumentViewerService } from '@supadoc/viewer';
 import { appointmentBadge, AppointmentBadge, ATTENTION_BADGE } from '../shared/appointment-status';
 import {
   AVATAR_SM,
@@ -46,6 +42,7 @@ import {
   SECTION,
   SECTION_TITLE,
 } from '../shared/layout';
+import { staffPrescriptionSource } from '../shared/viewer-sources';
 import { initials as initialsOfName } from '../specialists/specialist-ui';
 
 /** Every status reads as icon + words — never colour alone. */
@@ -60,7 +57,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
 @Component({
   selector: 'bo-patient-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, AlertComponent, EmptyStateComponent],
+  imports: [RouterLink, IconComponent, EmptyStateComponent],
   host: { class: 'block' },
   template: `
     <div class="${PAGE}">
@@ -185,10 +182,6 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
             </p>
           </div>
 
-          @if (openError(); as oe) {
-            <sd-alert tone="error">{{ oe }}</sd-alert>
-          }
-
           @if (rxLoading()) {
             <div class="flex flex-col gap-3" aria-busy="true" aria-label="Loading prescriptions">
               <div class="sd-shimmer h-16 rounded-field"></div>
@@ -234,17 +227,13 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                     </dl>
                   </div>
                   <button
+                    #rxView
                     type="button"
                     class="${BTN_SECONDARY} shrink-0"
-                    [disabled]="opening() === rx.id"
                     [attr.aria-label]="'View PDF of prescription ' + rx.number"
-                    (click)="viewPdf(rx)"
+                    (click)="viewPdf(rx, rxView)"
                   >
-                    @if (opening() === rx.id) {
-                      <sd-icon name="loader-circle" [size]="16" class="animate-spin" />Opening…
-                    } @else {
-                      <sd-icon name="file-text" [size]="16" />View PDF
-                    }
+                    <sd-icon name="file-text" [size]="16" />View PDF
                   </button>
                 </li>
               }
@@ -258,6 +247,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
 export class AdminPatientDetail implements OnInit {
   private readonly api = inject(AdminPatientsApi);
   private readonly rxApi = inject(PrescriptionsApi);
+  private readonly viewer = inject(DocumentViewerService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -269,9 +259,6 @@ export class AdminPatientDetail implements OnInit {
   protected readonly prescriptions = signal<PrescriptionSummaryDto[]>([]);
   protected readonly rxLoading = signal(true);
   protected readonly rxError = signal('');
-  /** Id of the prescription whose PDF link is being fetched. */
-  protected readonly opening = signal<string | null>(null);
-  protected readonly openError = signal('');
 
   private patientId = '';
 
@@ -313,31 +300,13 @@ export class AdminPatientDetail implements OnInit {
   }
 
   /**
-   * Open the prescription PDF in a new tab. The placeholder tab is opened
-   * synchronously (inside the click) so popup blockers allow it; the signed,
-   * short-lived link is fetched afterwards. The server records the open in the
-   * audit log.
+   * The prescription PDF in the document viewer: view and print, no Download
+   * (staff never had one). The viewer mints the signed, short-lived staff link
+   * and shows its own loading and error states; the server records each open
+   * in the audit log.
    */
-  protected viewPdf(rx: PrescriptionSummaryDto): void {
-    if (this.opening() === rx.id) return;
-    const pending = openPendingTab();
-    this.opening.set(rx.id);
-    this.openError.set('');
-    // Not tied to the component's lifetime: if the admin navigates away the
-    // placeholder tab must still receive its URL (or be closed).
-    this.rxApi.staffLink(rx.id, false).subscribe({
-      next: (res) => {
-        pending.go(this.rxApi.fileUrl(res.data));
-        this.opening.set(null);
-      },
-      error: (err: unknown) => {
-        pending.fail();
-        this.openError.set(
-          `${rx.number}: ${apiErrorMessage(err, 'Could not open this prescription. Please try again.')}`,
-        );
-        this.opening.set(null);
-      },
-    });
+  protected viewPdf(rx: PrescriptionSummaryDto, opener: HTMLElement): void {
+    this.viewer.open(staffPrescriptionSource(this.rxApi, rx), { opener });
   }
 
   protected rxStatus(status: PrescriptionStatus): { label: string; icon: string; cls: string } {
