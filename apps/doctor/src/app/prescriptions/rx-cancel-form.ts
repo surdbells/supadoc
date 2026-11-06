@@ -32,7 +32,7 @@ const REASON_MAX = 300;
       class="flex flex-col gap-4 rounded-card border border-alert/30 bg-alert/5 p-4"
       [attr.aria-labelledby]="uid + '-title'"
       (submit)="$event.preventDefault(); submit()"
-      (keydown.escape)="dismissed.emit()"
+      (keydown.escape)="$event.preventDefault(); dismissed.emit()"
     >
       <div class="flex items-start gap-2">
         <sd-icon name="circle-x" [size]="18" class="mt-0.5 shrink-0 text-alert" />

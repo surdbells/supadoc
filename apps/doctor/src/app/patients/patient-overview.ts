@@ -154,9 +154,21 @@ const FOOTER_LINK =
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <doc-visit-status-badge [status]="statusKey(v)" [label]="statusLabel(v)" />
-                <a [routerLink]="['/appointments', v.id]" class="inline-flex items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
-                  Open chart <sd-icon name="chevron-right" [size]="14" />
-                </a>
+                @if (chartMode() === 'drill') {
+                  <button
+                    type="button"
+                    [attr.data-visit-id]="v.id"
+                    class="inline-flex min-h-11 items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                    [attr.aria-label]="'View visit: ' + v.type_label + ' on ' + day(v.scheduled_at)"
+                    (click)="openVisit.emit(v)"
+                  >
+                    View visit <sd-icon name="chevron-right" [size]="14" />
+                  </button>
+                } @else {
+                  <a [routerLink]="['/appointments', v.id]" class="inline-flex items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
+                    Open chart <sd-icon name="chevron-right" [size]="14" />
+                  </a>
+                }
               </div>
             } @else {
               <p class="font-sans text-body-sm text-slate">{{ slot.emptyText }}</p>
@@ -181,6 +193,9 @@ export class PatientOverview {
   readonly visitCount = input(0);
   /** A footer link asked to open another tab. */
   readonly openTab = output<PatientRecordTab>();
+  /** 'link': "Open chart" router links (the /patients/:id page). 'drill': "View visit" buttons that emit (the call's EMR). */
+  readonly chartMode = input<'link' | 'drill'>('link');
+  readonly openVisit = output<AppointmentDto>();
 
   protected readonly allergies = computed(() => sortAllergies(this.medical().allergies));
   protected readonly seriousAllergy = computed(() =>

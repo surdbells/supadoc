@@ -90,9 +90,8 @@ import {
   type RemoteParticipant,
   RemoteParticipants,
   shortDayLabel,
-  SmoothHeightDirective,
 } from '@supadoc/ui';
-import { CallPeerTileComponent, DocumentViewerService } from '@supadoc/viewer';
+import { CallPeerTileComponent, DocumentViewerService, SHARE_COVER_TITLE, shareCoverText, SHOW_ANYWAY, STOP_SHARING } from '@supadoc/viewer';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import {
@@ -125,6 +124,19 @@ import {
 import { FollowUpPlanner } from './appointment/follow-up-planner';
 import { RequestAccessDialog } from './appointment/request-access-dialog';
 import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointment/note-draft';
+import { CallPatientRecord } from './call-workspace/call-patient-record';
+import { CallWorkspace, WorkspacePanel } from './call-workspace/call-workspace';
+import {
+  STANDING_REFUSED,
+  STANDING_TERMS,
+  WS_LAUNCHERS,
+  WS_RECORD_SHOWN,
+  WS_STATUS,
+  WS_TABS,
+  WS_TOOLS_HINT,
+  type WorkspaceTab,
+} from './call-workspace/call-workspace-copy';
+import { PeerHandover } from './call-workspace/peer-handover';
 import { callHoldWanted, FIRST_WAIT_HOLD_MS } from './call-hold';
 import { DoctorClock } from './doctor-clock';
 import { focusAfterDialogs } from './focus-after-dialog';
@@ -138,12 +150,19 @@ import {
   referralPrompt,
   STOP_RECORDING_PROMPT,
 } from './appointment/clinical/clinical-prompts';
-import { patientDocumentSource, revokeUnshared, viewerWatermark } from './viewer/doctor-viewer-sources';
+import { clinicalDocumentSource, patientDocumentSource, revokeUnshared, viewerWatermark } from './viewer/doctor-viewer-sources';
 
 /** Load state of something the editor must not overwrite before it has loaded. */
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot';
+/** Whether the note's save line signals a problem (the launcher reads the type, never the words). */
+type NoteIssue = '' | 'failed' | 'device' | 'signed-out';
+/** A launcher's status under its label: short visible words, the rest for screen readers. */
+interface LauncherStatus {
+  readonly text: string;
+  readonly sr?: string;
+  readonly tone: 'muted' | 'warn' | 'live';
+}
 /** Narrow screens: the section under the video. */
 type CallSection = 'notes' | 'patient' | 'documents' | 'people';
 /** Mid screens: the side panel's tab. */
@@ -172,7 +191,8 @@ const CHART_OPEN_KEY = 'videomed.call.chart-open';
 const CHART_SECTIONS: readonly string[] = ['vitals', 'conditions', 'medications', 'history'];
 /**
  * The stage's height at wide and mid, per video size — at most: the dock's grid
- * row never takes the tools row below 8rem, and the stage gives way first.
+ * row never takes the launcher card's height from the tools row (the row's
+ * minimum), and the stage gives way first.
  */
 const STAGE_HEIGHT: Record<VideoSize, string> = {
   l: 'clamp(320px, calc(100dvh - 16rem), 900px)',
@@ -340,7 +360,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
  * to the Agora room plus the patient's clinical summary. Left: the patient chart.
  * Centre: the video (one tile per person: 1:1 the patient on the main stage and
  * the doctor picture-in-picture; with the patient's guests an even grid, patient
- * first), call controls and SOAP notes. Right: records and participants.
+ * first), call controls and the launchers of the consultation tools, which open
+ * over the call in one large modal (the workspace, with the Full EMR), the
+ * patient staying in view. Right: records and participants.
  */
 @Component({
   selector: 'doc-call',
@@ -353,12 +375,14 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     CallTilesComponent,
     DialogComponent,
     FollowUpPlanner,
+    CallPatientRecord,
     CallPeerTileComponent,
+    CallWorkspace,
+    WorkspacePanel,
     IconComponent,
     RequestAccessDialog,
     RxPanel,
     CallLabRequests,
-    SmoothHeightDirective,
   ],
   host: {
     class: 'sd-call block min-h-dvh bg-abyss text-white',
@@ -394,6 +418,40 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          would make that text dark (about 2.6:1). */
       :host([data-theme='light']) .sd-badge,
       :host([data-theme='light']) .bg-cerulean.text-white { color: #ffffff; }
+
+      /* The launcher card under the video: its own height in the grid's tools row. */
+      #call-tools { container: tools / inline-size; }
+      .ws-tools-start { align-self: start; }
+      /* The launchers, "View Full EMR" and the Full EMR cover's buttons. theme.css has no light remap for the frost outline: about 1.3:1 on the light cockpit. */
+      .ws-ring:focus-visible { outline: 2px solid var(--color-frost); outline-offset: 2px; }
+      :host([data-theme='light']) .ws-ring:focus-visible { outline-color: var(--color-cerulean); }
+      /* Phones (container < 32rem): two columns, icon above, body-sm labels; an odd last one spans both. */
+      .ws-launchers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+      .ws-launchers > li:last-child:nth-child(odd) { grid-column: 1 / -1; }
+      .ws-launcher { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; width: 100%; height: 100%; padding: 0.5rem 0.75rem; text-align: left; }
+      .ws-launcher-label {
+        font-size: var(--text-body-sm); line-height: var(--text-body-sm--line-height); letter-spacing: var(--text-body-sm--letter-spacing);
+        display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: normal;
+      }
+      .ws-launcher-status { min-height: var(--text-caption--line-height); }
+      .ws-launcher-status--warn { color: var(--color-warning); }
+      :host([data-theme='light']) .ws-launcher-status--warn { color: var(--color-warning-ink); }
+      /* 32–51.99rem: ONE ROW of five, icon above, caption labels (2 lines at most, broken at spaces only). */
+      @container tools (min-width: 32rem) {
+        .ws-launchers { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        .ws-launchers > li:last-child:nth-child(odd) { grid-column: auto; }
+        .ws-launcher { padding: 0.5rem 0.375rem; }
+        .ws-launcher-label { font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); }
+      }
+      /* From 52rem: one row of five, icon beside the text, body-sm labels. */
+      @container tools (min-width: 52rem) {
+        .ws-launcher { flex-direction: row; align-items: center; gap: 0.5rem; padding: 0.625rem 0.75rem; }
+        .ws-launcher-label { font-size: var(--text-body-sm); line-height: var(--text-body-sm--line-height); letter-spacing: var(--text-body-sm--letter-spacing); }
+      }
+      /* Narrow pages scroll: room under the launchers for the fixed Feedback button (index.html). */
+      .ws-tools-narrow { margin-bottom: 3rem; }
+      /* The transcript in the workspace: its box scrolls, its offset is kept (data-ws-keep-scroll). */
+      .ws-transcript { max-height: min(24rem, 45dvh); }
     `,
   ],
   template: `
@@ -684,639 +742,52 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </div>
         }
 
-        <!-- ===================== CONSULTATION TOOLS ===================== -->
+        <!-- ===================== CONSULTATION TOOLS =====================
+             The launcher card: each opens the workspace (a modal over the call) on its tool. -->
         <section
           id="call-tools"
-          aria-label="Consultation tools"
-          class="flex min-w-0 flex-col rounded-card border border-white/10 bg-white/[0.03]"
+          class="flex min-w-0 flex-col rounded-card border border-white/10 bg-white/[0.03] p-3"
           [class]="toolsClass()"
           [hidden]="layout() === 'narrow' && section() !== 'notes'"
           [attr.role]="layout() === 'narrow' ? 'tabpanel' : null"
-          [attr.aria-labelledby]="layout() === 'narrow' ? 'call-section-notes' : null"
+          [attr.aria-labelledby]="layout() === 'narrow' ? 'call-section-notes' : 'call-tools-heading'"
         >
-          <div class="flex shrink-0 items-center gap-1 border-b border-white/10 px-2">
-            <div role="tablist" aria-label="Consultation tools" class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-              @for (t of notesTabs; track t.key) {
+          <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-1">
+            <h3 id="call-tools-heading" tabindex="-1" class="font-sans text-body-sm font-semibold text-white outline-none">Consultation tools</h3>
+            <p class="font-sans text-caption text-white/70">{{ toolsHint() }}</p>
+          </div>
+          <ul class="ws-launchers" role="list">
+            @for (t of wsLaunchers; track t.key) {
+              @let s = launcherStatus()[t.key];
+              <li class="min-w-0">
                 <button
                   type="button"
-                  role="tab"
-                  [id]="'call-tab-' + t.key"
-                  class="relative min-h-11 max-w-[14rem] shrink-0 truncate whitespace-nowrap px-3 font-sans text-body-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost"
-                  [class]="notesTab() === t.key ? 'text-white' : 'text-white/70 hover:text-white'"
-                  [attr.aria-selected]="notesTab() === t.key"
-                  aria-controls="call-tools-panel"
-                  [attr.tabindex]="notesTab() === t.key ? 0 : -1"
-                  (click)="notesTab.set(t.key)"
-                  (keydown)="onTabKey($event, 'tools')"
+                  class="ws-launcher ws-ring rounded-2xl border border-white/10 bg-white/[0.04] transition-colors hover:bg-white/[0.08]"
+                  [attr.data-ws-launcher]="t.key"
+                  aria-haspopup="dialog"
+                  (click)="openWorkspace(t.key, $event.currentTarget)"
                 >
-                  {{ t.label }}
-                  @if (notesTab() === t.key) {
-                    <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
-                  }
+                  <span class="flex size-8 shrink-0 items-center justify-center rounded-xl bg-cerulean/15 text-frost" aria-hidden="true"><sd-icon [name]="t.icon" [size]="18" /></span>
+                  <span class="flex min-w-0 flex-col">
+                    <span class="ws-launcher-label font-sans font-semibold text-white">{{ t.label }}</span>
+                    <!-- Always rendered (one caption line reserved): a status appearing never changes the row's height. -->
+                    <span class="ws-launcher-status flex min-w-0 items-center gap-1 font-sans text-caption" [class]="s?.tone === 'warn' ? 'ws-launcher-status--warn' : 'text-white/70'">
+                      @if (s) {
+                        <span class="sr-only">, </span>
+                        @if (s.tone === 'live') {
+                          <span class="size-1.5 shrink-0 rounded-full bg-alert motion-safe:animate-pulse" aria-hidden="true"></span>
+                        }
+                        <span class="truncate">{{ s.text }}</span>
+                        @if (s.sr) {
+                          <span class="sr-only">{{ s.sr }}</span>
+                        }
+                      }
+                    </span>
+                  </span>
                 </button>
-              }
-            </div>
-          </div>
-
-            <!-- Desktop: scrolls inside the panel. Everywhere: height changes ease
-                 (sdSmoothHeight) and each tab fades in, instead of jumping. -->
-            <div id="call-tools-panel" role="tabpanel" class="relative" [class]="toolsBodyClass()" [attr.aria-labelledby]="'call-tab-' + notesTab()">
-              <div sdSmoothHeight>
-              <div>
-              <!-- Schedule follow-up (Follow-ups tab, above the care plan). Once opened
-                   it stays mounted for the rest of the call — hidden on the other
-                   tabs — so a half-chosen time and note survive a tab switch; it
-                   refreshes its slots and replies each time the tab shows again. -->
-              @if (followUpMounted() && rxAppointmentId(); as apptId) {
-                <div class="sd-tab-panel mb-4" [class.hidden]="notesTab() !== 'followup'">
-                  @if (!portalSignedIn()) {
-                    <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
-                      <span class="flex items-start gap-2 font-sans text-caption text-warning">
-                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
-                        <span>You are signed out of the doctor portal. Sign in again in a new tab (this call keeps going) to propose or withdraw a follow-up, or edit the care plan.</span>
-                      </span>
-                      <button
-                        type="button"
-                        class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
-                        (click)="openPortalSignIn()"
-                      >
-                        <sd-icon name="external-link" [size]="14" /> Sign in again
-                      </button>
-                    </div>
-                  }
-                  <!-- Light "paper" surface: the follow-up planner uses the portal palette. The call is a
-                       confirmed consultation; its start says whether a follow-up can be proposed yet (a past one never blocks). -->
-                  <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4">
-                    <doc-follow-up-planner
-                      [appointmentId]="apptId"
-                      parentStatus="confirmed"
-                      [parentScheduledAt]="info()?.scheduled_at ?? ''"
-                      [active]="notesTab() === 'followup'"
-                      [newTab]="true"
-                    />
-                  </div>
-                </div>
-              }
-              <!-- Keyed (not tracked by identity): each tab remounts its panel for the fade, without the NG0956 dev warning. -->
-              @for (shown of [notesTab()]; track 'tab:' + shown) {
-              <div class="sd-tab-panel">
-              @switch (notesTab()) {
-                @case ('notes') {
-                  <!-- Documentation header: status + auto-save + finalize -->
-                  <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="font-sans text-body-sm font-semibold text-white">SOAP Note</span>
-                      @if (noteFinalized()) {
-                        <span class="flex items-center gap-1 rounded-pill bg-success/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-success">
-                          <sd-icon name="lock" [size]="11" /> Signed &amp; locked
-                        </span>
-                      } @else {
-                        <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/50">Draft</span>
-                      }
-                    </div>
-                    <div class="flex items-center gap-3">
-                      @if (noteSaved()) {
-                        <span class="font-sans text-caption text-white/45">{{ noteSaved() }}</span>
-                      }
-                      @if (!noteFinalized() && canDocument()) {
-                        <button
-                          type="button"
-                          class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                          [disabled]="finalizing() || noteLoad() !== 'ready'"
-                          (click)="finalizeNote()"
-                        >
-                          {{ finalizing() ? 'Finalizing…' : 'Finalize & sign' }}
-                        </button>
-                      }
-                    </div>
-                  </div>
-
-                  @if (!canDocument()) {
-                    <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="status">
-                      <span class="flex items-start gap-2 font-sans text-caption text-warning">
-                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
-                        @if (noteEditable()) {
-                          <span>
-                            You are signed out of the doctor portal. Keep writing — the note is kept on this device and
-                            saved to the record when you sign in again (in a new tab — this call keeps going).
-                          </span>
-                        } @else {
-                          <span>Sign in to the doctor portal to document this consultation.</span>
-                        }
-                      </span>
-                      <button
-                        type="button"
-                        class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
-                        (click)="openPortalSignIn()"
-                      >
-                        <sd-icon name="external-link" [size]="14" /> Sign in
-                      </button>
-                    </div>
-                  }
-                  @if (noteLoad() === 'loading') {
-                    <p class="mb-3 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
-                      <span class="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70"></span>
-                      Loading the saved note…
-                    </p>
-                  } @else if (noteLoad() === 'error') {
-                    <!-- Editing stays locked: a blank editor would auto-save over the real note. -->
-                    <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
-                      <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
-                        <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
-                        <span>{{ noteError() }} Editing is paused so the saved note is not overwritten.</span>
-                      </span>
-                      <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
-                        (click)="retryLoadNote()"
-                      >
-                        <sd-icon name="refresh-cw" [size]="13" /> Try again
-                      </button>
-                    </div>
-                  } @else if (noteError()) {
-                    <p class="mb-3 font-sans text-caption text-alert">{{ noteError() }}</p>
-                  }
-
-                  <div class="grid gap-4 lg:grid-cols-2">
-                    <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption font-semibold text-white/60">Subjective</span>
-                      <textarea
-                        rows="3"
-                        placeholder="Patient-reported symptoms and history…"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
-                        [value]="subjective()"
-                        [readOnly]="!noteEditable()"
-                        (input)="subjective.set($any($event.target).value); scheduleSave()"
-                      ></textarea>
-                    </label>
-                    <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption font-semibold text-white/60">Objective</span>
-                      <textarea
-                        rows="3"
-                        placeholder="Examination findings, vitals…"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
-                        [value]="objective()"
-                        [readOnly]="!noteEditable()"
-                        (input)="objective.set($any($event.target).value); scheduleSave()"
-                      ></textarea>
-                    </label>
-                    <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption font-semibold text-white/60">Assessment</span>
-                      <textarea
-                        rows="3"
-                        placeholder="Diagnosis, differential…"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
-                        [value]="assessment()"
-                        [readOnly]="!noteEditable()"
-                        (input)="assessment.set($any($event.target).value); scheduleSave()"
-                      ></textarea>
-                    </label>
-                    <label class="flex flex-col gap-1.5">
-                      <span class="font-sans text-caption font-semibold text-white/60">Plan</span>
-                      <textarea
-                        rows="3"
-                        placeholder="Treatment, investigations, follow-up…"
-                        class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
-                        [value]="plan()"
-                        [readOnly]="!noteEditable()"
-                        (input)="plan.set($any($event.target).value); scheduleSave()"
-                      ></textarea>
-                    </label>
-                  </div>
-
-                  <div class="mt-4">
-                    <p id="call-tools-label" class="mb-2 font-sans text-caption font-semibold text-white/70">Tools</p>
-                    <div class="flex flex-wrap gap-2" role="group" aria-labelledby="call-tools-label">
-                      @for (tool of tools; track tool.label) {
-                        <button
-                          type="button"
-                          class="inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-white/10 bg-white/[0.04] px-3 font-sans text-caption text-white/85 transition-colors hover:bg-white/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
-                          (click)="useTool(tool.label)"
-                        >
-                          <sd-icon [name]="tool.icon" [size]="16" class="text-frost" />{{ tool.label }}
-                        </button>
-                      }
-                    </div>
-                    @if (toolNote()) {
-                      <p class="mt-2 font-sans text-caption text-white/45">{{ toolNote() }}</p>
-                    }
-                  </div>
-                }
-                @case ('prescriptions') {
-                  <!-- Once mounted, the prescribing panel lives outside this @switch (below). -->
-                  @if (!rxMounted()) {
-                  @if (!portalSignedIn()) {
-                    <!-- Opened from an emailed join link without a portal session. -->
-                    <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
-                      <span class="flex size-14 items-center justify-center rounded-full bg-white/[0.06] text-frost">
-                        <sd-icon name="lock" [size]="24" />
-                      </span>
-                      <p class="max-w-sm font-sans text-body-sm font-semibold text-white">
-                        Sign in to the doctor portal to write prescriptions
-                      </p>
-                      <p class="max-w-sm font-sans text-caption text-white/50">
-                        The sign-in page opens in a new tab, so this call keeps going. Come back to this tab when you have signed in.
-                      </p>
-                      <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
-                        (click)="openPortalSignIn()"
-                      >
-                        <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
-                      </button>
-                    </div>
-                  } @else if (rxPatientError()) {
-                    <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
-                      <sd-icon name="circle-alert" [size]="26" class="text-alert" />
-                      <p class="max-w-sm font-sans text-body-sm text-alert">{{ rxPatientError() }}</p>
-                      <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
-                        (click)="retryRxPatient()"
-                      >
-                        <sd-icon name="refresh-cw" [size]="14" /> Try again
-                      </button>
-                    </div>
-                  } @else if (status() === 'error' && !info()) {
-                    <p class="py-6 text-center font-sans text-body-sm text-white/50">
-                      Prescriptions are available once this consultation's details have loaded.
-                    </p>
-                  } @else {
-                    <div class="flex flex-col gap-2" aria-busy="true">
-                      <span class="sr-only">Loading prescriptions…</span>
-                      <div class="sd-shimmer h-14 rounded-2xl bg-white/[0.04]"></div>
-                      <div class="sd-shimmer h-14 rounded-2xl bg-white/[0.04]"></div>
-                    </div>
-                  }
-                  }
-                }
-                @case ('labs') {
-                  <!-- Lab requests: "New lab request" opens the composer in a new tab, so this call stays connected. -->
-                  <doc-call-lab-requests
-                    [appointmentId]="rxAppointmentId()"
-                    [patientId]="rxPatientId()"
-                    [signedIn]="portalSignedIn()"
-                    [tone]="theme()"
-                    [narrow]="layout() === 'narrow'"
-                  />
-                }
-                @case ('followup') {
-                  @if (!followUpMounted()) {
-                    @if (!portalSignedIn()) {
-                      <!-- Opened from an emailed join link without a portal session. -->
-                      <div class="mb-4 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                        <span class="flex items-start gap-2 font-sans text-caption text-warning">
-                          <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
-                          <span>Sign in to the doctor portal to schedule a follow-up or build a care plan. The sign-in page opens in a new tab, so this call keeps going.</span>
-                        </span>
-                        <button
-                          type="button"
-                          class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
-                          (click)="openPortalSignIn()"
-                        >
-                          <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
-                        </button>
-                      </div>
-                    } @else {
-                      <p class="mb-4 font-sans text-caption text-white/50">
-                        Scheduling a follow-up is available once this consultation's details have loaded.
-                      </p>
-                    }
-                  } @else if (!canDocument() && portalSignedIn()) {
-                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
-                      Sign in to the doctor portal to build a care plan.
-                    </p>
-                  }
-                  <div class="mb-2 flex items-center justify-between">
-                    <span class="font-sans text-body-sm font-semibold text-white">Care Plan</span>
-                    @if (carePlanSaved()) {
-                      <span class="font-sans text-caption text-white/45">{{ carePlanSaved() }}</span>
-                    }
-                  </div>
-                  @if (carePlanLoad() === 'loading') {
-                    <p class="mb-2 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
-                      <span class="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70"></span>
-                      Loading the care plan…
-                    </p>
-                  } @else if (carePlanLoad() === 'error') {
-                    <!-- Publishing stays locked: an empty editor would replace the real plan. -->
-                    <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
-                      <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
-                        <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
-                        <span>{{ carePlanError() }} Editing is paused so the published plan is not overwritten.</span>
-                      </span>
-                      <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
-                        (click)="retryLoadCarePlan()"
-                      >
-                        <sd-icon name="refresh-cw" [size]="13" /> Try again
-                      </button>
-                    </div>
-                  }
-                  <div class="flex flex-col gap-2">
-                    @for (item of carePlanItems(); track $index) {
-                      <div class="flex items-center gap-2">
-                        <sd-icon name="circle-check" [size]="16" class="shrink-0 text-sage" />
-                        <input
-                          placeholder="e.g. Monitor blood pressure daily"
-                          class="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
-                          [value]="item"
-                          [readOnly]="!carePlanEditable()"
-                          (input)="updateCareItem($index, $any($event.target).value)"
-                        />
-                        @if (carePlanItems().length > 1 && carePlanEditable()) {
-                          <button
-                            type="button"
-                            class="shrink-0 text-white/40 transition-colors hover:text-alert"
-                            aria-label="Remove item"
-                            (click)="removeCareItem($index)"
-                          >
-                            <sd-icon name="trash-2" [size]="15" />
-                          </button>
-                        }
-                      </div>
-                    }
-                    <div class="mt-1 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
-                        [disabled]="!carePlanEditable()"
-                        (click)="addCareItem()"
-                      >
-                        <sd-icon name="plus" [size]="14" /> Add item
-                      </button>
-                      <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                        [disabled]="carePlanBusy() || !carePlanEditable()"
-                        (click)="saveCarePlan()"
-                      >
-                        <sd-icon name="check" [size]="14" /> Save &amp; publish
-                      </button>
-                    </div>
-                    @if (carePlanError() && carePlanLoad() !== 'error') {
-                      <p class="font-sans text-caption text-alert">{{ carePlanError() }}</p>
-                    }
-                  </div>
-
-                  <!-- Referral -->
-                  <div id="call-referral" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
-                    <p class="mb-2 font-sans text-body-sm font-semibold text-white">Referral</p>
-                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <select
-                        class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
-                        [value]="refType()"
-                        (change)="refType.set($any($event.target).value)"
-                      >
-                        <option value="specialist" class="bg-ink">Specialist</option>
-                        <option value="hospital" class="bg-ink">Hospital</option>
-                        <option value="laboratory" class="bg-ink">Laboratory</option>
-                        <option value="imaging" class="bg-ink">Imaging</option>
-                      </select>
-                      <input placeholder="Target (e.g. Cardiology)"
-                        class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                        [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
-                    </div>
-                    <input placeholder="Reason for referral"
-                      class="mt-2 w-full min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                      [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
-                    <div class="mt-2 flex items-center gap-2">
-                      <select
-                        class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white focus:border-cerulean focus:outline-none"
-                        [value]="refPriority()" (change)="refPriority.set($any($event.target).value)"
-                      >
-                        <option value="routine" class="bg-ink">Routine</option>
-                        <option value="urgent" class="bg-ink">Urgent</option>
-                      </select>
-                      <button type="button"
-                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                        [disabled]="refBusy() || !canDocument()" (click)="createReferral()">
-                        <sd-icon name="check" [size]="14" /> {{ refBusy() ? 'Creating…' : 'Create referral' }}
-                      </button>
-                    </div>
-                    @if (refError()) {
-                      <p class="mt-1 font-sans text-caption text-alert">{{ refError() }}</p>
-                    }
-                    @if (referrals().length) {
-                      <ul class="mt-3 flex flex-col gap-2">
-                        @for (r of referrals(); track r.id) {
-                          <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
-                            <p class="font-sans text-body-sm text-white/85">
-                              <span class="capitalize">{{ r.referral_type }}</span> → {{ r.target }}
-                              @if (r.priority === 'urgent') {
-                                <span class="ml-1 rounded-pill bg-alert/15 px-1.5 py-0.5 font-sans text-[10px] text-alert">Urgent</span>
-                              }
-                            </p>
-                            <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
-                          </li>
-                        }
-                      </ul>
-                    }
-                  </div>
-
-                  <!-- Certificate -->
-                  <div id="call-certificate" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
-                    <p class="mb-2 font-sans text-body-sm font-semibold text-white">Medical Certificate</p>
-                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <select
-                        class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
-                        [value]="certType()" (change)="certType.set($any($event.target).value)"
-                      >
-                        <option value="sick_leave" class="bg-ink">Sick leave</option>
-                        <option value="fitness" class="bg-ink">Fitness / return to work</option>
-                        <option value="general" class="bg-ink">General</option>
-                      </select>
-                      <input placeholder="Diagnosis (optional)"
-                        class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                        [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
-                    </div>
-                    @if (certType() === 'sick_leave') {
-                      <div class="mt-2 grid grid-cols-2 gap-2">
-                        <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">From</span>
-                          <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [min]="certMinFrom()" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
-                        <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">To</span>
-                          <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [min]="certFrom() || certMinFrom()" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
-                      </div>
-                    }
-                    <textarea rows="2" placeholder="Certifying statement (e.g. unfit for work and requires rest)"
-                      class="mt-2 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                      [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
-                    <div class="mt-2 flex items-center gap-2">
-                      <button type="button"
-                        class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                        [disabled]="certBusy() || !canDocument()" (click)="issueCertificate()">
-                        <sd-icon name="check" [size]="14" /> {{ certBusy() ? 'Issuing…' : 'Issue certificate' }}
-                      </button>
-                    </div>
-                    @if (certError()) {
-                      <p class="mt-1 font-sans text-caption text-alert">{{ certError() }}</p>
-                    }
-                    @if (issuedCerts().length) {
-                      <ul class="mt-3 flex flex-col gap-2">
-                        @for (c of issuedCerts(); track c.id) {
-                          <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
-                            <p class="font-sans text-body-sm text-white/85">{{ c.type_label }}</p>
-                            @if (c.from_date && c.to_date) {
-                              <p class="font-sans text-caption text-white/50">{{ c.from_date }} → {{ c.to_date }}</p>
-                            }
-                          </li>
-                        }
-                      </ul>
-                    }
-                  </div>
-                }
-                @case ('copilot') {
-                  <!-- Live transcription -->
-                  <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <span class="font-sans text-body-sm font-semibold text-white">Live transcription</span>
-                    <button
-                      type="button"
-                      class="flex items-center gap-1.5 rounded-field px-3 py-1.5 font-sans text-caption font-semibold transition-colors disabled:opacity-50"
-                      [class]="transcribing() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-cerulean text-white hover:bg-cerulean-dark'"
-                      [disabled]="!canDocument() || (!transcribing() && (!aiConsent() || !speechSupported()))"
-                      (click)="toggleTranscription()"
-                    >
-                      <span class="size-2 rounded-full" [class]="transcribing() ? 'animate-pulse bg-alert' : 'bg-white/70'"></span>
-                      {{ transcribing() ? 'Stop' : 'Start' }} transcription
-                    </button>
-                  </div>
-                  @if (consentsError()) {
-                    <p class="mb-3 font-sans text-caption text-alert">{{ consentsError() }}</p>
-                  } @else if (!aiConsent()) {
-                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
-                      Live transcription needs the patient's AI‑transcription consent.
-                    </p>
-                  } @else if (!speechSupported()) {
-                    <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
-                      This browser doesn't support speech recognition (try Chrome).
-                    </p>
-                  }
-
-                  <div class="max-h-52 overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                    @for (seg of transcript(); track seg.id) {
-                      <p class="mb-1.5 font-sans text-body-sm">
-                        <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-sage'">{{ seg.role }}:</span>
-                        <span class="text-white/80"> {{ seg.text }}</span>
-                      </p>
-                    } @empty {
-                      <p class="py-4 text-center font-sans text-caption text-white/40">
-                        Transcript appears here once transcription starts.
-                      </p>
-                    }
-                  </div>
-
-                  <!-- AI copilot -->
-                  <div class="mt-4 border-t border-white/10 pt-3">
-                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <span class="flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
-                        <sd-icon name="sparkles" [size]="15" class="text-frost" /> AI copilot
-                      </span>
-                      @if (copilotConfigured()) {
-                        <button
-                          type="button"
-                          class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
-                          [disabled]="copilotBusy() || !aiConsent()"
-                          (click)="generateDraft()"
-                        >
-                          {{ copilotBusy() ? 'Generating…' : 'Generate AI draft' }}
-                        </button>
-                      }
-                    </div>
-                    @if (!copilotConfigured()) {
-                      <p class="rounded-2xl bg-white/[0.04] px-3 py-2 font-sans text-caption text-white/50">
-                        AI drafting isn't enabled on this environment.
-                      </p>
-                    }
-                    @if (copilotError()) {
-                      <p class="mt-1 font-sans text-caption text-alert">{{ copilotError() }}</p>
-                    }
-                    @if (copilotDraft(); as d) {
-                      <div class="mt-2 rounded-2xl border border-frost/30 bg-frost/5 p-3">
-                        <p class="mb-2 flex items-center gap-1.5 font-sans text-caption font-semibold text-frost">
-                          <sd-icon name="sparkles" [size]="12" /> AI DRAFT — review before saving
-                        </p>
-                        @if (d.summary) {
-                          <p class="mb-2 font-sans text-body-sm text-white/80">{{ d.summary }}</p>
-                        }
-                        <div class="grid gap-2 sm:grid-cols-2">
-                          @if (d.assessment) {
-                            <div>
-                              <p class="font-sans text-caption font-semibold text-white/60">Assessment</p>
-                              <p class="font-sans text-body-sm text-white/75">{{ d.assessment }}</p>
-                            </div>
-                          }
-                          @if (d.plan) {
-                            <div>
-                              <p class="font-sans text-caption font-semibold text-white/60">Plan</p>
-                              <p class="font-sans text-body-sm text-white/75">{{ d.plan }}</p>
-                            </div>
-                          }
-                        </div>
-                        @if (d.diagnoses.length || d.medications.length) {
-                          <div class="mt-2 flex flex-wrap gap-1.5">
-                            @for (x of d.diagnoses; track x) {
-                              <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/70">{{ x }}</span>
-                            }
-                            @for (x of d.medications; track x) {
-                              <span class="rounded-pill bg-sky/15 px-2 py-0.5 font-sans text-[10px] text-sky">{{ x }}</span>
-                            }
-                          </div>
-                        }
-                        <button
-                          type="button"
-                          class="mt-3 flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/85 transition-colors hover:bg-white/10 disabled:opacity-50"
-                          [disabled]="!noteEditable()"
-                          (click)="useDraftInNote()"
-                        >
-                          <sd-icon name="arrow-right" [size]="14" /> Use in SOAP note
-                        </button>
-                      </div>
-                    }
-                  </div>
-                }
-              }
-              </div>
-              }
-
-              <!-- Prescribing panel. Once opened it stays mounted for the rest of
-                   the call — hidden on the other tabs, kept while the portal
-                   session is signed out — so a half-written prescription is
-                   never thrown away by a tab switch or a re-sign-in. -->
-              @if (rxMounted() && rxPatientId(); as pid) {
-                <div class="sd-tab-panel" [class.hidden]="notesTab() !== 'prescriptions'">
-                  @if (!portalSignedIn()) {
-                    <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
-                      <span class="flex items-start gap-2 font-sans text-caption text-warning">
-                        <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
-                        <span>
-                          You are signed out of the doctor portal. Your prescription is kept here —
-                          sign in again in a new tab (this call keeps going), then come back to save or send it.
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
-                        (click)="openPortalSignIn()"
-                      >
-                        <sd-icon name="external-link" [size]="14" /> Sign in again
-                      </button>
-                    </div>
-                  }
-                  <!-- Light "paper" surface: the prescribing components use the portal palette. -->
-                  <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4">
-                    <doc-rx-panel
-                      [patientId]="pid"
-                      [appointmentId]="rxAppointmentId()"
-                      [compact]="true"
-                      [disabled]="!portalSignedIn()"
-                    />
-                  </div>
-                </div>
-              }
-              </div>
-              </div>
-            </div>
+              </li>
+            }
+          </ul>
         </section>
 
         <!-- ===================== SIDE: chart, records, participants =====================
@@ -1538,8 +1009,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             @if (info()?.patient?.id) {
               <button
                 type="button"
-                class="flex min-h-11 items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
-                (click)="openRecord()"
+                class="ws-ring flex min-h-11 items-center justify-center gap-2 rounded-field border border-white/15 py-2.5 font-sans text-body-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
+                aria-haspopup="dialog"
+                data-ws-launcher="record"
+                (click)="openWorkspace('record', $event.currentTarget)"
               >
                 <sd-icon name="file-text" [size]="16" /> View Full EMR
               </button>
@@ -1729,6 +1202,666 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       </main>
     </div>
 
+    <!-- The consultation tools and the Full EMR, in one large modal over the cockpit (the
+         call band on top, the patient's live video as its picture-in-picture). The panels
+         stay declared here and are projected into it: each is mounted the first time it
+         shows, then only hidden, so closing it destroys no draft, list or drill-in. -->
+    <doc-call-workspace
+      #ws
+      [open]="wsOpen()"
+      [(tab)]="wsTab"
+      [tabs]="wsTabs"
+      [band]="viewerBar"
+      [peer]="workspacePeer"
+      [peerName]="patientName()"
+      [patientName]="patientName()"
+      [meta]="patientMeta()"
+      [allergies]="allergyNames()"
+      [sharing]="screenOn()"
+      [recording]="recordingActive()"
+      [shareBanner]="screenOn() && !(wsTab() === 'record' && recordCovered())"
+      [tone]="theme()"
+      [flags]="{ prescriptions: rxUnsaved() ? 'unsaved' : undefined, copilot: transcribing() ? 'live' : undefined }"
+      (closed)="closeWorkspace()"
+      (afterClose)="onWorkspaceClosed()"
+      (stopSharing)="stopSharingFromWorkspace()"
+    >
+      @if (wsSeen().has('notes')) {
+        <div docWsPanel="notes">
+          <!-- Documentation header: status + auto-save + finalize -->
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="font-sans text-body-sm font-semibold text-white">SOAP Note</span>
+              @if (noteFinalized()) {
+                <span class="flex items-center gap-1 rounded-pill bg-success/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-success">
+                  <sd-icon name="lock" [size]="11" /> Signed &amp; locked
+                </span>
+              } @else {
+                <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/50">Draft</span>
+              }
+            </div>
+            <div class="flex items-center gap-3">
+              @if (noteSaved()) {
+                <span class="font-sans text-caption text-white/45">{{ noteSaved() }}</span>
+              }
+              @if (!noteFinalized() && canDocument()) {
+                <button
+                  type="button"
+                  class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                  [disabled]="finalizing() || noteLoad() !== 'ready'"
+                  (click)="finalizeNote()"
+                >
+                  {{ finalizing() ? 'Finalizing…' : 'Finalize & sign' }}
+                </button>
+              }
+            </div>
+          </div>
+
+          @if (!canDocument()) {
+            <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="status">
+              <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                @if (noteEditable()) {
+                  <span>
+                    You are signed out of the doctor portal. Keep writing — the note is kept on this device and
+                    saved to the record when you sign in again (in a new tab — this call keeps going).
+                  </span>
+                } @else {
+                  <span>Sign in to the doctor portal to document this consultation.</span>
+                }
+              </span>
+              <button
+                type="button"
+                class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                (click)="openPortalSignIn()"
+              >
+                <sd-icon name="external-link" [size]="14" /> Sign in
+              </button>
+            </div>
+          }
+          @if (noteLoad() === 'loading') {
+            <p class="mb-3 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
+              <span class="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70"></span>
+              Loading the saved note…
+            </p>
+          } @else if (noteLoad() === 'error') {
+            <!-- Editing stays locked: a blank editor would auto-save over the real note. -->
+            <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
+              <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
+                <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                <span>{{ noteError() }} Editing is paused so the saved note is not overwritten.</span>
+              </span>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
+                (click)="retryLoadNote()"
+              >
+                <sd-icon name="refresh-cw" [size]="13" /> Try again
+              </button>
+            </div>
+          } @else if (noteError()) {
+            <p class="mb-3 font-sans text-caption text-alert">{{ noteError() }}</p>
+          }
+
+          <div class="grid gap-4 lg:grid-cols-2">
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-white/60">Subjective</span>
+              <textarea
+                rows="5"
+                placeholder="Patient-reported symptoms and history…"
+                class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                [value]="subjective()"
+                [readOnly]="!noteEditable()"
+                (input)="subjective.set($any($event.target).value); scheduleSave()"
+              ></textarea>
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-white/60">Objective</span>
+              <textarea
+                rows="5"
+                placeholder="Examination findings, vitals…"
+                class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                [value]="objective()"
+                [readOnly]="!noteEditable()"
+                (input)="objective.set($any($event.target).value); scheduleSave()"
+              ></textarea>
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-white/60">Assessment</span>
+              <textarea
+                rows="5"
+                placeholder="Diagnosis, differential…"
+                class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                [value]="assessment()"
+                [readOnly]="!noteEditable()"
+                (input)="assessment.set($any($event.target).value); scheduleSave()"
+              ></textarea>
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span class="font-sans text-caption font-semibold text-white/60">Plan</span>
+              <textarea
+                rows="5"
+                placeholder="Treatment, investigations, follow-up…"
+                class="resize-y rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                [value]="plan()"
+                [readOnly]="!noteEditable()"
+                (input)="plan.set($any($event.target).value); scheduleSave()"
+              ></textarea>
+            </label>
+          </div>
+
+          <div class="mt-4">
+            <p id="call-tools-label" class="mb-2 font-sans text-caption font-semibold text-white/70">Tools</p>
+            <div class="flex flex-wrap gap-2" role="group" aria-labelledby="call-tools-label">
+              @for (tool of tools; track tool.label) {
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-white/10 bg-white/[0.04] px-3 font-sans text-caption text-white/85 transition-colors hover:bg-white/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+                  (click)="useTool(tool.label)"
+                >
+                  <sd-icon [name]="tool.icon" [size]="16" class="text-frost" />{{ tool.label }}
+                </button>
+              }
+            </div>
+            @if (toolNote()) {
+              <p class="mt-2 font-sans text-caption text-white/45">{{ toolNote() }}</p>
+            }
+          </div>
+        </div>
+      }
+      @if (wsSeen().has('prescriptions')) {
+        <div docWsPanel="prescriptions">
+          <!-- Until the prescribing panel is mounted: why, or that it is on its way. -->
+          @if (!rxMounted()) {
+          @if (!portalSignedIn()) {
+            <!-- Opened from an emailed join link without a portal session. -->
+            <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
+              <span class="flex size-14 items-center justify-center rounded-full bg-white/[0.06] text-frost">
+                <sd-icon name="lock" [size]="24" />
+              </span>
+              <p class="max-w-sm font-sans text-body-sm font-semibold text-white">
+                Sign in to the doctor portal to write prescriptions
+              </p>
+              <p class="max-w-sm font-sans text-caption text-white/50">
+                The sign-in page opens in a new tab, so this call keeps going. Come back to this tab when you have signed in.
+              </p>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                (click)="openPortalSignIn()"
+              >
+                <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
+              </button>
+            </div>
+          } @else if (rxPatientError()) {
+            <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
+              <sd-icon name="circle-alert" [size]="26" class="text-alert" />
+              <p class="max-w-sm font-sans text-body-sm text-alert">{{ rxPatientError() }}</p>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                (click)="retryRxPatient()"
+              >
+                <sd-icon name="refresh-cw" [size]="14" /> Try again
+              </button>
+            </div>
+          } @else if (status() === 'error' && !info()) {
+            <p class="py-6 text-center font-sans text-body-sm text-white/50">
+              Prescriptions are available once this consultation's details have loaded.
+            </p>
+          } @else {
+            <div class="flex flex-col gap-2" aria-busy="true">
+              <span class="sr-only">Loading prescriptions…</span>
+              <div class="sd-shimmer h-14 rounded-2xl bg-white/[0.04]"></div>
+              <div class="sd-shimmer h-14 rounded-2xl bg-white/[0.04]"></div>
+            </div>
+          }
+          }
+          <!-- Prescribing panel. Once opened it stays mounted for the rest of
+               the call — hidden on the other tabs, kept while the portal
+               session is signed out — so a half-written prescription is
+               never thrown away by a tab switch or a re-sign-in. -->
+          @if (rxMounted() && rxPatientId(); as pid) {
+            <div>
+              @if (!portalSignedIn()) {
+                <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                  <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                    <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                    <span>
+                      You are signed out of the doctor portal. Your prescription is kept here —
+                      sign in again in a new tab (this call keeps going), then come back to save or send it.
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                    (click)="openPortalSignIn()"
+                  >
+                    <sd-icon name="external-link" [size]="14" /> Sign in again
+                  </button>
+                </div>
+              }
+              <!-- Light "paper" surface: the prescribing components use the portal palette. -->
+              <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4">
+                <doc-rx-panel
+                  [patientId]="pid"
+                  [appointmentId]="rxAppointmentId()"
+                  [compact]="ws.narrow()"
+                  [disabled]="!portalSignedIn()"
+                />
+              </div>
+            </div>
+          }
+        </div>
+      }
+      @if (wsSeen().has('labs')) {
+        <div docWsPanel="labs">
+          <!-- "New lab request" opens the composer in a new tab, so this call stays connected. -->
+          <doc-call-lab-requests
+            [appointmentId]="rxAppointmentId()"
+            [patientId]="rxPatientId()"
+            [signedIn]="portalSignedIn()"
+            [tone]="theme()"
+            [narrow]="layout() === 'narrow'"
+            [watermark]="watermark()"
+            [active]="wsOpen() && wsTab() === 'labs'"
+          />
+        </div>
+      }
+      @if (wsSeen().has('followup')) {
+        <div docWsPanel="followup">
+          @if (followUpMounted() && rxAppointmentId(); as apptId) {
+            <div class="mb-4">
+              @if (!portalSignedIn()) {
+                <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                  <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                    <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                    <span>You are signed out of the doctor portal. Sign in again in a new tab (this call keeps going) to propose or withdraw a follow-up, or edit the care plan.</span>
+                  </span>
+                  <button
+                    type="button"
+                    class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                    (click)="openPortalSignIn()"
+                  >
+                    <sd-icon name="external-link" [size]="14" /> Sign in again
+                  </button>
+                </div>
+              }
+              <!-- Light "paper" surface: the follow-up planner uses the portal palette. The call is a
+                   confirmed consultation; its start says whether a follow-up can be proposed yet (a past one never blocks). -->
+              <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4">
+                <doc-follow-up-planner
+                  [appointmentId]="apptId"
+                  parentStatus="confirmed"
+                  [parentScheduledAt]="info()?.scheduled_at ?? ''"
+                  [active]="wsOpen() && wsTab() === 'followup'"
+                  [newTab]="true"
+                />
+              </div>
+            </div>
+          }
+          @if (!followUpMounted()) {
+            @if (!portalSignedIn()) {
+              <!-- Opened from an emailed join link without a portal session. -->
+              <div class="mb-4 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                  <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                  <span>Sign in to the doctor portal to schedule a follow-up or build a care plan. The sign-in page opens in a new tab, so this call keeps going.</span>
+                </span>
+                <button
+                  type="button"
+                  class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                  (click)="openPortalSignIn()"
+                >
+                  <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
+                </button>
+              </div>
+            } @else {
+              <p class="mb-4 font-sans text-caption text-white/50">
+                Scheduling a follow-up is available once this consultation's details have loaded.
+              </p>
+            }
+          } @else if (!canDocument() && portalSignedIn()) {
+            <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+              Sign in to the doctor portal to build a care plan.
+            </p>
+          }
+          <div class="mb-2 flex items-center justify-between">
+            <span class="font-sans text-body-sm font-semibold text-white">Care Plan</span>
+            @if (carePlanSaved()) {
+              <span class="font-sans text-caption text-white/45">{{ carePlanSaved() }}</span>
+            }
+          </div>
+          @if (carePlanLoad() === 'loading') {
+            <p class="mb-2 flex items-center gap-2 font-sans text-caption text-white/60" role="status">
+              <span class="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70"></span>
+              Loading the care plan…
+            </p>
+          } @else if (carePlanLoad() === 'error') {
+            <!-- Publishing stays locked: an empty editor would replace the real plan. -->
+            <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
+              <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
+                <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
+                <span>{{ carePlanError() }} Editing is paused so the published plan is not overwritten.</span>
+              </span>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
+                (click)="retryLoadCarePlan()"
+              >
+                <sd-icon name="refresh-cw" [size]="13" /> Try again
+              </button>
+            </div>
+          }
+          <div class="flex flex-col gap-2">
+            @for (item of carePlanItems(); track $index) {
+              <div class="flex items-center gap-2">
+                <sd-icon name="circle-check" [size]="16" class="shrink-0 text-sage" />
+                <input
+                  placeholder="e.g. Monitor blood pressure daily"
+                  class="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                  [value]="item"
+                  [readOnly]="!carePlanEditable()"
+                  (input)="updateCareItem($index, $any($event.target).value)"
+                />
+                @if (carePlanItems().length > 1 && carePlanEditable()) {
+                  <button
+                    type="button"
+                    class="shrink-0 text-white/40 transition-colors hover:text-alert"
+                    aria-label="Remove item"
+                    (click)="removeCareItem($index)"
+                  >
+                    <sd-icon name="trash-2" [size]="15" />
+                  </button>
+                }
+              </div>
+            }
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
+                [disabled]="!carePlanEditable()"
+                (click)="addCareItem()"
+              >
+                <sd-icon name="plus" [size]="14" /> Add item
+              </button>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                [disabled]="carePlanBusy() || !carePlanEditable()"
+                (click)="saveCarePlan()"
+              >
+                <sd-icon name="check" [size]="14" /> Save &amp; publish
+              </button>
+            </div>
+            @if (carePlanError() && carePlanLoad() !== 'error') {
+              <p class="font-sans text-caption text-alert">{{ carePlanError() }}</p>
+            }
+          </div>
+
+          <!-- Referral -->
+          <div id="call-referral" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
+            <p data-ws-focus tabindex="-1" class="mb-2 font-sans text-body-sm font-semibold text-white outline-none">Referral</p>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <select
+                class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
+                [value]="refType()"
+                (change)="refType.set($any($event.target).value)"
+              >
+                <option value="specialist" class="bg-ink">Specialist</option>
+                <option value="hospital" class="bg-ink">Hospital</option>
+                <option value="laboratory" class="bg-ink">Laboratory</option>
+                <option value="imaging" class="bg-ink">Imaging</option>
+              </select>
+              <input placeholder="Target (e.g. Cardiology)"
+                class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
+            </div>
+            <input placeholder="Reason for referral"
+              class="mt-2 w-full min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+              [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
+            <div class="mt-2 flex items-center gap-2">
+              <select
+                class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white focus:border-cerulean focus:outline-none"
+                [value]="refPriority()" (change)="refPriority.set($any($event.target).value)"
+              >
+                <option value="routine" class="bg-ink">Routine</option>
+                <option value="urgent" class="bg-ink">Urgent</option>
+              </select>
+              <button type="button"
+                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                [disabled]="refBusy() || !canDocument()" (click)="createReferral()">
+                <sd-icon name="check" [size]="14" /> {{ refBusy() ? 'Creating…' : 'Create referral' }}
+              </button>
+            </div>
+            @if (refError()) {
+              <p class="mt-1 font-sans text-caption text-alert">{{ refError() }}</p>
+            }
+            @if (referrals().length) {
+              <ul class="mt-3 flex flex-col gap-2">
+                @for (r of referrals(); track r.id) {
+                  <li class="flex flex-wrap items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2">
+                    <div class="min-w-0 flex-1">
+                      <p class="font-sans text-body-sm text-white/85">
+                        <span class="capitalize">{{ r.referral_type }}</span> → {{ r.target }}
+                        @if (r.priority === 'urgent') {
+                          <span class="ml-1 rounded-pill bg-alert/15 px-1.5 py-0.5 font-sans text-[10px] text-alert">Urgent</span>
+                        }
+                      </p>
+                      <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
+                    </div>
+                    <button type="button" class="${ALERT_BUTTON}" [attr.aria-label]="'View PDF of the referral to ' + r.target" (click)="openClinicalDoc('referral', r, $event.currentTarget)">
+                      <sd-icon name="file-text" [size]="14" />View PDF
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+
+          <!-- Certificate -->
+          <div id="call-certificate" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
+            <p data-ws-focus tabindex="-1" class="mb-2 font-sans text-body-sm font-semibold text-white outline-none">Medical Certificate</p>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <select
+                class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
+                [value]="certType()" (change)="certType.set($any($event.target).value)"
+              >
+                <option value="sick_leave" class="bg-ink">Sick leave</option>
+                <option value="fitness" class="bg-ink">Fitness / return to work</option>
+                <option value="general" class="bg-ink">General</option>
+              </select>
+              <input placeholder="Diagnosis (optional)"
+                class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+                [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
+            </div>
+            @if (certType() === 'sick_leave') {
+              <div class="mt-2 grid grid-cols-2 gap-2">
+                <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">From</span>
+                  <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [min]="certMinFrom()" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
+                <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">To</span>
+                  <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [min]="certFrom() || certMinFrom()" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
+              </div>
+            }
+            <textarea rows="2" placeholder="Certifying statement (e.g. unfit for work and requires rest)"
+              class="mt-2 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
+              [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
+            <div class="mt-2 flex items-center gap-2">
+              <button type="button"
+                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                [disabled]="certBusy() || !canDocument()" (click)="issueCertificate()">
+                <sd-icon name="check" [size]="14" /> {{ certBusy() ? 'Issuing…' : 'Issue certificate' }}
+              </button>
+            </div>
+            @if (certError()) {
+              <p class="mt-1 font-sans text-caption text-alert">{{ certError() }}</p>
+            }
+            @if (issuedCerts().length) {
+              <ul class="mt-3 flex flex-col gap-2">
+                @for (c of issuedCerts(); track c.id) {
+                  <li class="flex flex-wrap items-center gap-2 rounded-2xl bg-white/[0.04] px-3 py-2">
+                    <div class="min-w-0 flex-1">
+                      <p class="font-sans text-body-sm text-white/85">{{ c.type_label }}</p>
+                      @if (c.from_date && c.to_date) {
+                        <p class="font-sans text-caption text-white/50">{{ c.from_date }} → {{ c.to_date }}</p>
+                      }
+                    </div>
+                    <button type="button" class="${ALERT_BUTTON}" [attr.aria-label]="'View PDF of ' + c.type_label" (click)="openClinicalDoc('certificate', c, $event.currentTarget)">
+                      <sd-icon name="file-text" [size]="14" />View PDF
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </div>
+      }
+      @if (wsSeen().has('copilot')) {
+        <div docWsPanel="copilot">
+          <!-- Live transcription -->
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <span class="font-sans text-body-sm font-semibold text-white">Live transcription</span>
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded-field px-3 py-1.5 font-sans text-caption font-semibold transition-colors disabled:opacity-50"
+              [class]="transcribing() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-cerulean text-white hover:bg-cerulean-dark'"
+              [disabled]="!canDocument() || (!transcribing() && (!aiConsent() || !speechSupported()))"
+              (click)="toggleTranscription()"
+            >
+              <span class="size-2 rounded-full" [class]="transcribing() ? 'animate-pulse bg-alert' : 'bg-white/70'"></span>
+              {{ transcribing() ? 'Stop' : 'Start' }} transcription
+            </button>
+          </div>
+          @if (consentsError()) {
+            <p class="mb-3 font-sans text-caption text-alert">{{ consentsError() }}</p>
+          } @else if (!aiConsent()) {
+            <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+              Live transcription needs the patient's AI‑transcription consent.
+            </p>
+          } @else if (!speechSupported()) {
+            <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
+              This browser doesn't support speech recognition (try Chrome).
+            </p>
+          }
+
+          <div data-ws-keep-scroll="transcript" class="ws-transcript overflow-y-auto rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            @for (seg of transcript(); track seg.id) {
+              <p class="mb-1.5 font-sans text-body-sm">
+                <span class="font-semibold capitalize" [class]="seg.role === 'doctor' ? 'text-frost' : 'text-sage'">{{ seg.role }}:</span>
+                <span class="text-white/80"> {{ seg.text }}</span>
+              </p>
+            } @empty {
+              <p class="py-4 text-center font-sans text-caption text-white/40">
+                Transcript appears here once transcription starts.
+              </p>
+            }
+          </div>
+
+          <!-- AI copilot -->
+          <div class="mt-4 border-t border-white/10 pt-3">
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span class="flex items-center gap-1.5 font-sans text-body-sm font-semibold text-white">
+                <sd-icon name="sparkles" [size]="15" class="text-frost" /> AI copilot
+              </span>
+              @if (copilotConfigured()) {
+                <button
+                  type="button"
+                  class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                  [disabled]="copilotBusy() || !aiConsent()"
+                  (click)="generateDraft()"
+                >
+                  {{ copilotBusy() ? 'Generating…' : 'Generate AI draft' }}
+                </button>
+              }
+            </div>
+            @if (!copilotConfigured()) {
+              <p class="rounded-2xl bg-white/[0.04] px-3 py-2 font-sans text-caption text-white/50">
+                AI drafting isn't enabled on this environment.
+              </p>
+            }
+            @if (copilotError()) {
+              <p class="mt-1 font-sans text-caption text-alert">{{ copilotError() }}</p>
+            }
+            @if (copilotDraft(); as d) {
+              <div class="mt-2 rounded-2xl border border-frost/30 bg-frost/5 p-3">
+                <p class="mb-2 flex items-center gap-1.5 font-sans text-caption font-semibold text-frost">
+                  <sd-icon name="sparkles" [size]="12" /> AI DRAFT — review before saving
+                </p>
+                @if (d.summary) {
+                  <p class="mb-2 font-sans text-body-sm text-white/80">{{ d.summary }}</p>
+                }
+                <div class="grid gap-2 sm:grid-cols-2">
+                  @if (d.assessment) {
+                    <div>
+                      <p class="font-sans text-caption font-semibold text-white/60">Assessment</p>
+                      <p class="font-sans text-body-sm text-white/75">{{ d.assessment }}</p>
+                    </div>
+                  }
+                  @if (d.plan) {
+                    <div>
+                      <p class="font-sans text-caption font-semibold text-white/60">Plan</p>
+                      <p class="font-sans text-body-sm text-white/75">{{ d.plan }}</p>
+                    </div>
+                  }
+                </div>
+                @if (d.diagnoses.length || d.medications.length) {
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    @for (x of d.diagnoses; track x) {
+                      <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/70">{{ x }}</span>
+                    }
+                    @for (x of d.medications; track x) {
+                      <span class="rounded-pill bg-sky/15 px-2 py-0.5 font-sans text-[10px] text-sky">{{ x }}</span>
+                    }
+                  </div>
+                }
+                <button
+                  type="button"
+                  class="mt-3 flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/85 transition-colors hover:bg-white/10 disabled:opacity-50"
+                  [disabled]="!noteEditable()"
+                  (click)="useDraftInNote()"
+                >
+                  <sd-icon name="arrow-right" [size]="14" /> Use in SOAP note
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      }
+      @if (wsSeen().has('record')) {
+        <div docWsPanel="record">
+          <!-- Covered while the doctor shares their screen, like a view-only document. -->
+          @if (recordCovered()) {
+            <div class="mx-auto mt-6 flex max-w-md flex-col items-center gap-3 rounded-card border border-white/10 bg-white/[0.04] px-6 py-6 text-center" role="group" aria-labelledby="ws-cover-title">
+              <sd-icon name="eye-off" [size]="28" class="text-white/70" />
+              <p id="ws-cover-title" class="font-sans text-body-sm font-semibold text-white">{{ shareCoverTitle }}</p>
+              <p class="font-sans text-caption text-white/70">{{ shareCover(recordingActive()) }}</p>
+              <div class="flex flex-wrap justify-center gap-2">
+                <button type="button" class="ws-ring min-h-11 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white hover:bg-cerulean-dark" (click)="stopSharingFromWorkspace()">{{ stopSharingLabel }}</button>
+                <button type="button" class="ws-ring min-h-11 rounded-field border border-white/15 px-4 font-sans text-body-sm font-semibold text-white hover:bg-white/10" (click)="revealRecord()">{{ showAnyway }}</button>
+              </div>
+            </div>
+          }
+          <div [hidden]="recordCovered()">
+            <doc-call-patient-record
+              [patientId]="rxPatientId() ?? null"
+              [currentAppointmentId]="rxAppointmentId()"
+              [signedIn]="portalSignedIn()"
+              [active]="wsOpen() && wsTab() === 'record'"
+              [documents]="allSharedDocs()"
+              [documentsState]="recordDocsState()"
+              [patientError]="rxPatientError()"
+              [detailsFailed]="status() === 'error' && !info()"
+              (openDocument)="openPatientDoc($event.doc, $event.opener, allSharedDocs())"
+              (retryDocuments)="retryDocumentAccess()"
+              (retryPatient)="retryRxPatient()"
+              (goTo)="selectWorkspaceTab($event)"
+              (signIn)="openPortalSignIn()"
+            />
+          </div>
+        </div>
+      }
+    </doc-call-workspace>
+
     <!-- The one live region for documents ("Request sent.", "Ada shared a new document…").
          Outside every panel that can be hidden (the records aside at mid and narrow), so it
          is always read out — except under the document viewer (a modal: the page is inert),
@@ -1744,17 +1877,18 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       </div>
     }
 
-    <!-- The call band of the shared document viewer (registered with it in afterNextRender):
-         the viewer renders it above the document while this call page lives, always dark
-         (.sd-call[data-theme=dark]). Under the modal the cockpit is inert and its live
-         regions silent, so this mirrors every call-level banner and live region, with its
-         action. Back to call, then who and how long, Mute and End, then the alerts row. -->
+    <!-- The call band of the workspace and of the shared document viewer (registered with it
+         in afterNextRender): rendered above their content while this call page lives, always
+         dark (.sd-dock in the workspace, .sd-call[data-theme=dark] in the viewer). Under a modal
+         the cockpit is inert and its live regions silent, so this mirrors every call-level
+         banner and live region, with its action. Back to call, then who and how long, Mute and
+         End, then the alerts row. -->
     <ng-template #viewerBar>
       <button
         type="button"
-        class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-field px-2 font-sans text-body-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-frost"
+        class="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-field px-2 font-sans text-body-sm font-semibold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-frost"
         aria-label="Back to call"
-        (click)="viewer.close()"
+        (click)="backToCall()"
       >
         <sd-icon name="arrow-left" [size]="18" /><span class="hidden sm:inline" data-band-label>Back to call</span>
       </button>
@@ -1898,12 +2032,23 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       }
       <!-- Live regions (sr-only: out of the band's layout). -->
       <p class="sr-only" role="status">{{ peerLeft() ? patientName() + ' left the call' : '' }}</p>
+      <p class="sr-only" role="status">{{ bandPresenceNote() }}</p>
       <p class="sr-only" aria-live="polite">{{ docAnnounce() }}</p>
     </ng-template>
 
     <!-- The patient's live video in the viewer's picture-in-picture (handed over, never in two places). -->
     <ng-template #viewerPeer>
-      <sd-call-peer-tile [tile]="peerTile()" [track]="viewerPeerTrack()" />
+      <sd-call-peer-tile [tile]="peerTile()" [track]="peer.holder() === 'viewer' ? peer.track() : null" />
+    </ng-template>
+
+    <!-- ... and in the workspace's. -->
+    <ng-template #workspacePeer>
+      @if (peer.holder() === 'workspace') {
+        <sd-call-peer-tile [tile]="peerTile()" [track]="peer.track()" />
+      } @else {
+        <!-- The tile is with the viewer above, or going: initials, never a black box. -->
+        <div class="ws-peer-wait" aria-hidden="true"><span class="font-heading text-body font-semibold">{{ patientInitials() }}</span></div>
+      }
     </ng-template>
 
     <!-- The participants list (wide: a disclosure in the records; mid: the People tab;
@@ -2170,7 +2315,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   /** Mid: which side panel shows. */
   protected readonly sideTab = signal<SideTab>('patient');
   protected readonly sectionTabs: ReadonlyArray<{ key: CallSection; label: string; panel: string }> = [
-    { key: 'notes', label: 'Notes', panel: 'call-tools' },
+    { key: 'notes', label: 'Tools', panel: 'call-tools' },
     { key: 'patient', label: 'Patient', panel: 'call-chart' },
     { key: 'documents', label: 'Documents', panel: 'call-records' },
     { key: 'people', label: 'People', panel: 'call-people' },
@@ -2188,11 +2333,11 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   protected readonly gridClass = computed(() => {
     switch (this.layout()) {
-      // The dock's row is as tall as its video size asks, but never leaves the tools row under 8rem.
+      // The dock's row is as tall as its video size asks, but never takes the launcher card's height from the tools row.
       case 'wide':
-        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[272px_minmax(0,1fr)_336px] 2xl:grid-cols-[300px_minmax(0,1fr)_380px] grid-rows-[minmax(0,auto)_minmax(8rem,1fr)] [grid-template-areas:'chart_dock_records''chart_tools_records']";
+        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[272px_minmax(0,1fr)_336px] 2xl:grid-cols-[300px_minmax(0,1fr)_380px] grid-rows-[minmax(0,auto)_minmax(auto,1fr)] [grid-template-areas:'chart_dock_records''chart_tools_records']";
       case 'mid':
-        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[minmax(0,1fr)_340px] grid-rows-[minmax(0,auto)_minmax(8rem,1fr)] [grid-template-areas:'dock_side''tools_side']";
+        return "grid min-h-0 flex-1 gap-4 p-4 grid-cols-[minmax(0,1fr)_340px] grid-rows-[minmax(0,auto)_minmax(auto,1fr)] [grid-template-areas:'dock_side''tools_side']";
       default:
         return 'flex flex-col gap-3 p-3';
     }
@@ -2246,8 +2391,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   );
   /** The new-document alert floats at the bottom (narrow, held upright). */
   protected readonly floatAlert = computed(() => this.layout() === 'narrow' && !this.rail());
-  protected readonly toolsClass = computed(() => (this.layout() === 'narrow' ? '' : 'min-h-0 [grid-area:tools]'));
-  protected readonly toolsBodyClass = computed(() => (this.layout() === 'narrow' ? 'p-4' : 'min-h-0 flex-1 overflow-y-auto p-4'));
+  protected readonly toolsClass = computed(() => (this.layout() === 'narrow' ? 'ws-tools-narrow' : '[grid-area:tools] ws-tools-start'));
   protected readonly sideClass = computed(() =>
     this.layout() === 'mid' ? 'flex min-h-0 min-w-0 flex-col gap-3 [grid-area:side]' : 'contents',
   );
@@ -2389,11 +2533,58 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly viewerBarTpl = viewChild.required<TemplateRef<unknown>>('viewerBar');
   private readonly viewerPeerTpl = viewChild.required<TemplateRef<unknown>>('viewerPeer');
   /** The view-only watermark: the doctor's name and the call's zone. */
-  private readonly watermark = computed(() => viewerWatermark(this.clock, { displayName: () => this.doctorName() }, this.callZone()));
-  /** The viewer holds the patient's video (its picture-in-picture): the patient's stage attaches go to its tile instead. */
-  private readonly viewerHasPeer = signal(false);
-  /** The patient's track for the viewer's tile (the source of truth stays Agora's `remoteUsers`). */
-  protected readonly viewerPeerTrack = signal<CallVideoTrack | null>(null);
+  protected readonly watermark = computed(() => viewerWatermark(this.clock, { displayName: () => this.doctorName() }, this.callZone()));
+  /** Who plays the patient's video (the stage, the workspace or the viewer): one at a time. */
+  protected readonly peer = new PeerHandover({
+    peerUid: () => this.patientUid(),
+    remoteVideo: (uid) => this.remoteVideo(uid),
+    stageAttach: (uid, t) => this.stage().attach(uid, t),
+    stageDetach: (uid) => this.stage().detach(uid),
+    workspaceOpen: () => this.wsOpen(),
+    left: () => this.left(),
+    afterNextRender: (fn) => afterNextRender(fn, { injector: this.injector }),
+  });
+
+  // ---- The workspace: the five tools and the Full EMR in one modal over the call ----
+  protected readonly wsTabs = WS_TABS;
+  /** The five launchers under the video (the user's five tools; the Full EMR opens from "View Full EMR"). */
+  protected readonly wsLaunchers = WS_LAUNCHERS;
+  protected readonly wsOpen = signal(false);
+  protected readonly wsTab = signal<WorkspaceTab>('notes');
+  /** The panels shown so far (each mounted on first show, then only hidden, until the page goes). */
+  protected readonly wsSeen = signal<ReadonlySet<WorkspaceTab>>(new Set());
+  private readonly workspace = viewChild(CallWorkspace);
+  private wsOpener: HTMLElement | null = null;
+  /** "Show anyway" on the covered Full EMR while sharing (forgotten when sharing stops, the tab changes or the workspace closes). */
+  protected readonly recordRevealed = signal(false);
+  protected readonly recordCovered = computed(() => this.screenOn() && !this.recordRevealed());
+  protected readonly shareCoverTitle = SHARE_COVER_TITLE;
+  protected readonly shareCover = shareCoverText;
+  protected readonly stopSharingLabel = STOP_SHARING;
+  protected readonly showAnyway = SHOW_ANYWAY;
+  /** For the call band's live region: "{name} joined the call." (and a guest's "left"). */
+  protected readonly bandPresenceNote = signal('');
+  /** Every document shared for this consultation, newest first (the EMR's Documents sub-tab). sortedDocs() is narrowed by the cockpit Records' filter; this is not. */
+  protected readonly allSharedDocs = computed(() => [...this.patientDocs()].sort(byNewestShare));
+  /** The cockpit Records' load state, for the EMR's Documents sub-tab. */
+  protected readonly recordDocsState = computed<'loading' | 'failed' | 'ready'>(() =>
+    this.docsLoading() && !this.docAccess()
+      ? 'loading'
+      : this.docsFailed() || this.callDocBanner()?.access?.state === 'unavailable'
+        ? 'failed'
+        : 'ready',
+  );
+  protected readonly toolsHint = computed(() => WS_TOOLS_HINT(this.patientFirstName()));
+  /** What a launcher says under its label, from typed state (never from display strings). */
+  protected readonly launcherStatus = computed<Partial<Record<WorkspaceTab, LauncherStatus>>>(() => ({
+    notes: this.noteLauncherStatus(),
+    prescriptions: this.rxUnsaved() ? { ...WS_STATUS.unsaved, tone: 'warn' } : undefined,
+    copilot: this.transcribing()
+      ? { ...WS_STATUS.live, tone: 'live' }
+      : this.copilotDraft()
+        ? { ...WS_STATUS.draftReady, tone: 'muted' }
+        : undefined,
+  }));
 
   // ---- The patient chart's disclosures (remembered per device) ----
   protected readonly chartOpen = signal<ReadonlySet<string>>(readChartOpen());
@@ -2423,6 +2614,23 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   });
   protected readonly allergyNames = computed(() => (this.info()?.patient?.allergies ?? []).map((a) => a.allergen).filter(Boolean));
   private readonly patientFirstName = computed(() => this.patientName().split(/\s+/)[0] ?? '');
+
+  private noteLauncherStatus(): LauncherStatus | undefined {
+    const load = this.noteLoad();
+    if (load === 'loading') return { ...WS_STATUS.loading, tone: 'muted' };
+    if (load === 'error') return { ...WS_STATUS.noteNotLoaded, tone: 'warn' };
+    if (this.noteFinalized()) return { ...WS_STATUS.signed, tone: 'muted' };
+    switch (this.noteIssue()) {
+      case 'failed':
+        return { ...WS_STATUS.saveFailed, tone: 'warn' };
+      case 'device':
+        return { ...WS_STATUS.onDevice, tone: 'warn' };
+      case 'signed-out':
+        return { ...WS_STATUS.signedOut, tone: 'warn' };
+      default:
+        return undefined;
+    }
+  }
 
   /**
    * A media query as a signal (its listener goes with the page). `wrap` runs
@@ -2509,10 +2717,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   }
 
   // ---- Tabs (APG: arrows, Home, End move and select) ----
-  protected onTabKey(e: KeyboardEvent, list: 'section' | 'side' | 'tools'): void {
-    const keys: readonly string[] =
-      list === 'section' ? this.sectionTabs.map((t) => t.key) : list === 'side' ? this.sideTabs.map((t) => t.key) : this.notesTabs.map((t) => t.key);
-    const current = list === 'section' ? this.section() : list === 'side' ? this.sideTab() : this.notesTab();
+  protected onTabKey(e: KeyboardEvent, list: 'section' | 'side'): void {
+    const keys: readonly string[] = list === 'section' ? this.sectionTabs.map((t) => t.key) : this.sideTabs.map((t) => t.key);
+    const current = list === 'section' ? this.section() : this.sideTab();
     let i = keys.indexOf(current);
     if (e.key === 'ArrowRight') i = (i + 1) % keys.length;
     else if (e.key === 'ArrowLeft') i = (i - 1 + keys.length) % keys.length;
@@ -2522,9 +2729,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     e.preventDefault();
     const next = keys[i];
     if (list === 'section') this.section.set(next as CallSection);
-    else if (list === 'side') this.sideTab.set(next as SideTab);
-    else this.notesTab.set(next as NotesTab);
-    const prefix = list === 'section' ? 'call-section-' : list === 'side' ? 'call-side-' : 'call-tab-';
+    else this.sideTab.set(next as SideTab);
+    const prefix = list === 'section' ? 'call-section-' : 'call-side-';
     afterNextRender(() => document.getElementById(prefix + next)?.focus(), { injector: this.injector });
   }
 
@@ -2715,12 +2921,17 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    * Labs), so ‹ / › move through it. View-only: watermarked, every print
    * recorded first, never downloadable; fetched with `X-SD-Viewer` and
    * recorded (over the portal session, never a raw token). Focus goes back to
-   * the row or alert button, else to the Medical Records heading.
+   * the row or alert button, else to the Medical Records heading (over the
+   * workspace: to its selected tab). `list`: what ‹ / › walk through (the EMR's
+   * Documents sub-tab passes its own, not narrowed by the Records' filter).
    */
-  protected openPatientDoc(doc: DoctorSharedDocumentDto, opener?: EventTarget | null): void {
+  protected openPatientDoc(
+    doc: DoctorSharedDocumentDto,
+    opener?: EventTarget | null,
+    list: readonly DoctorSharedDocumentDto[] = this.sortedDocs(),
+  ): void {
     this.markSeen(doc.id);
     if (this.docAlert()?.doc?.id === doc.id) this.dismissAlert(false);
-    const list = this.sortedDocs();
     const at = list.findIndex((d) => d.id === doc.id);
     const docs = at < 0 ? [doc] : list;
     const zone = this.callZone();
@@ -2730,8 +2941,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       {
         index: Math.max(0, at),
         opener: opener instanceof HTMLElement ? opener : null,
-        // The heading may be behind another side tab or section: choose it, then focus it.
+        // Over the workspace: its selected tab. Else the heading, which may be behind another side tab or section: choose it, then focus it.
         fallbackFocus: () => {
+          if (this.wsOpen()) return document.getElementById('ws-tab-' + this.wsTab());
           this.focusRecordsHeading();
           return null;
         },
@@ -2739,6 +2951,86 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         listLabel: 'shared documents',
       },
     );
+  }
+
+  /** A referral letter or certificate of this consultation in the viewer: Print, no Download (D13). */
+  protected openClinicalDoc(kind: 'referral' | 'certificate', d: ReferralDto | MedicalCertificateDto, opener: EventTarget | null): void {
+    const doc = {
+      id: d.id,
+      label: kind === 'referral' ? (d as ReferralDto).target : (d as MedicalCertificateDto).type_label,
+      issued_at: d.created_at,
+    };
+    this.viewer.open(clinicalDocumentSource(this.doctorApi, this.appointmentId, kind, doc, this.callZone()), {
+      opener: opener instanceof HTMLElement ? opener : null,
+    });
+  }
+
+  // ---- The workspace ----
+
+  protected openWorkspace(tab: WorkspaceTab, opener?: EventTarget | null): void {
+    if (this.left()) return;
+    this.wsTab.set(tab);
+    this.wsOpener = opener instanceof HTMLElement ? opener : null;
+    if (this.wsOpen()) return;
+    this.wsOpen.set(true);
+    this.peer.workspaceOpened();
+  }
+
+  /** Esc, ✕, the scrim, Back to call: nothing is destroyed, so nothing is asked. Never under a tool's open dialog. */
+  protected closeWorkspace(): void {
+    if (!this.wsOpen() || this.workspace()?.hasOpenNestedDialog()) return;
+    this.wsOpen.set(false);
+    this.recordRevealed.set(false);
+    this.peer.workspaceClosed();
+  }
+
+  /** The band's first button, in the workspace and in the viewer: back to the cockpit. */
+  protected backToCall(): void {
+    const viewerOpen = this.viewer.isOpen();
+    // A viewer opened from a tool's dialog inside the workspace (the rx Send dialog's View PDF):
+    // leave only the document. Closing the workspace would detach that dialog while it is modal.
+    if (viewerOpen && this.workspace()?.hasOpenNestedDialog()) {
+      this.viewer.close();
+      return;
+    }
+    this.closeWorkspace();
+    if (viewerOpen) this.viewer.close();
+  }
+
+  /** After the workspace's exit: focus the opener, else this tab's launcher, else the tools heading (only when focus was lost). */
+  protected onWorkspaceClosed(): void {
+    setTimeout(() => {
+      if (this.wsOpen()) return;
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      const usable = (el: HTMLElement | null) => !!el?.isConnected && el.getClientRects().length > 0;
+      const launcher = document.querySelector<HTMLElement>(`[data-ws-launcher="${this.wsTab()}"]`);
+      (usable(this.wsOpener) ? this.wsOpener : usable(launcher) ? launcher : document.getElementById('call-tools-heading'))?.focus();
+    });
+  }
+
+  /**
+   * A tool inside the workspace picked another tab (quick tools, "Use in SOAP note",
+   * the EMR's jumps). The button that was pressed is now inside a hidden panel, so
+   * focus must move: to `targetId`'s element (scrolled into view; its
+   * `[data-ws-focus]` heading, else itself), else to the selected tab. The shell does
+   * it after render, and an explicit target wins over the tab's remembered scroll.
+   */
+  protected selectWorkspaceTab(key: WorkspaceTab, targetId?: string): void {
+    const ws = this.workspace();
+    if (ws) ws.showTab(key, targetId); // writes the `tab` model (two-way bound to wsTab)
+    else this.wsTab.set(key);
+  }
+
+  /** The share banner's and the EMR cover's Stop sharing (never starts a share). */
+  protected stopSharingFromWorkspace(): void {
+    if (this.screenOn()) void this.toggleScreen();
+  }
+
+  /** "Show anyway" on the covered Full EMR. */
+  protected revealRecord(): void {
+    this.recordRevealed.set(true);
+    this.announceDocs(WS_RECORD_SHOWN);
   }
 
   /** "Back to call" is the viewer's own; these band actions leave its full screen first (their prompts aren't in it). */
@@ -2768,51 +3060,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     void this.leave('schedule');
   }
 
-  // ---- The patient's video, handed between the stage and the viewer (§3.4) ----
+  // ---- The patient's video, handed between the stage, the workspace and the viewer (see PeerHandover) ----
 
   /** Agora's current video track of a remote uid (never a copy kept here). */
   private remoteVideo(uid: CallUid): CallVideoTrack | null {
     return this.client?.remoteUsers.find((u) => String(u.uid) === String(uid))?.videoTrack ?? null;
   }
 
-  /** While the viewer is open its tile plays the patient's video: the stage must not. */
-  private viewerOwnsPeer(uid: CallUid): boolean {
-    return this.viewerHasPeer() && String(uid) === String(this.patientUid());
-  }
-
-  /**
-   * The one gate for every stage attach / detach of a remote (published,
-   * unpublished, left, rejoin): the patient's track goes to the viewer's tile
-   * while it owns it, everyone else's (and the patient's otherwise) to the stage.
-   */
-  private routeRemoteVideo(uid: CallUid, track: CallVideoTrack | null): void {
-    if (this.viewerOwnsPeer(uid)) {
-      this.viewerPeerTrack.set(track);
-      return;
-    }
-    if (track) this.stage().attach(uid, track);
-    else this.stage().detach(uid);
-  }
-
-  /** The viewer opened (every check passed): stop the patient's video on the stage first, then hand it to the tile. */
-  private handPeerToViewer(): void {
-    const uid = this.patientUid();
-    this.viewerHasPeer.set(true);
-    this.stage().detach(uid);
-    this.viewerPeerTrack.set(this.remoteVideo(uid));
-  }
-
-  /** The viewer closed and its tile has stopped the track: the stage plays the patient's CURRENT video again. */
-  private takePeerBack(): void {
-    this.viewerHasPeer.set(false);
-    this.viewerPeerTrack.set(null);
-    if (this.left()) return;
-    const uid = this.patientUid();
-    const track = this.remoteVideo(uid);
-    if (track) this.stage().attach(uid, track);
-  }
-
-  /** The patient (for the viewer's tile): their stage tile, or initials until they are in the call. */
+  /** The patient (for the viewer's and the workspace's tile): their stage tile, or initials until they are in the call. */
   protected readonly peerTile = computed<CallTile>(() => {
     const uid = this.patientUid();
     return (
@@ -3087,7 +3342,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     return '';
   });
 
-  protected readonly notesTab = signal<NotesTab>('notes');
   protected readonly recordsTab = signal<RecordsTab>('documents');
   protected readonly subjective = signal('');
   protected readonly objective = signal('');
@@ -3098,6 +3352,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   // Clinical-note persistence state.
   protected readonly noteStatus = signal<'draft' | 'finalized'>('draft');
   protected readonly noteSaved = signal('');
+  /** Whether that line signals a problem (typed: the launcher never parses the words). */
+  private readonly noteIssue = signal<NoteIssue>('');
   /** The real reason a note load/save/finalize failed (shown under the header). */
   protected readonly noteError = signal('');
   protected readonly finalizing = signal(false);
@@ -3155,9 +3411,11 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly rxMounted = computed(
     () =>
       this.rxKeep() ||
-      (this.notesTab() === 'prescriptions' && this.portalSignedIn() && !!this.rxPatientId()),
+      (this.wsOpen() && this.wsTab() === 'prescriptions' && this.portalSignedIn() && !!this.rxPatientId()),
   );
   private readonly rxPanel = viewChild(RxPanel);
+  /** A half-written prescription (the composer stays mounted, so closing the workspace loses nothing). */
+  protected readonly rxUnsaved = computed(() => !!this.rxPanel()?.hasUnsavedChanges());
   /** Latches true once the follow-up planner has been shown (see `followUpMounted`). */
   private readonly followUpKeep = signal(false);
   /**
@@ -3169,7 +3427,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly followUpMounted = computed(
     () =>
       this.followUpKeep() ||
-      (this.notesTab() === 'followup' && this.portalSignedIn() && !!this.rxAppointmentId()),
+      (this.wsOpen() && this.wsTab() === 'followup' && this.portalSignedIn() && !!this.rxAppointmentId()),
   );
   /** "Leave the call?" / "…with an unsaved prescription?" and the clinical confirmations (rendered by the app's outlet). */
   private readonly dialogs = inject(DialogService);
@@ -3306,13 +3564,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   protected readonly info = signal<JoinInfoDto | null>(null);
 
-  protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
-    { key: 'notes', label: 'Consultation Notes' },
-    { key: 'prescriptions', label: 'Prescriptions' },
-    { key: 'labs', label: 'Lab requests' },
-    { key: 'followup', label: 'Follow-ups' },
-    { key: 'copilot', label: 'Transcript & AI' },
-  ];
   protected readonly recordsTabs: ReadonlyArray<{ key: RecordsTab; label: string }> = [
     { key: 'documents', label: 'Documents' },
     { key: 'imaging', label: 'Imaging' },
@@ -3466,8 +3717,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.restoreTitle();
     });
 
-    // While this page lives, every document opened anywhere (records, prescriptions) gets
-    // the call band and the patient's video (§3). The templates exist after the first render.
+    // While this page lives, every document opened anywhere (records, prescriptions, the
+    // workspace) gets the call band and the patient's video (§3). The templates exist after the first render.
     afterNextRender(() => {
       const unregister = this.viewer.registerCall({
         bar: this.viewerBarTpl(),
@@ -3480,16 +3731,61 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         stopSharing: () => {
           if (this.screenOn()) void this.toggleScreen();
         },
-        willOpen: () => this.handPeerToViewer(),
-        didClose: () => this.takePeerBack(),
+        willOpen: () => this.peer.viewerWillOpen(),
+        didClose: () => this.peer.viewerDidClose(),
       });
       this.destroyRef.onDestroy(unregister);
     });
 
-    // The call is over for this doctor (teardown): the viewer closes (the page then navigates).
-    // The API closing the call (callClosed) keeps it open: its band says so.
+    // The call is over for this doctor (teardown): the workspace and the viewer close (the page then
+    // navigates). callLeft first, so the viewer's didClose finds the stage and does nothing.
+    // The API closing the call (callClosed) keeps them open: their band says so.
     effect(() => {
-      if (this.left()) untracked(() => this.viewer.close());
+      if (this.left()) {
+        untracked(() => {
+          this.peer.callLeft();
+          this.wsOpen.set(false);
+          this.viewer.close();
+        });
+      }
+    });
+
+    // Each workspace panel is mounted the first time it shows, then only hidden.
+    effect(() => {
+      if (!this.wsOpen()) return;
+      const t = this.wsTab();
+      untracked(() => {
+        if (!this.wsSeen().has(t)) this.wsSeen.set(new Set([...this.wsSeen(), t]));
+      });
+    });
+
+    // "Show anyway" on the covered Full EMR is forgotten when sharing stops or the tab changes (closing resets it too).
+    effect(() => {
+      this.wsTab();
+      this.screenOn();
+      untracked(() => this.recordRevealed.set(false));
+    });
+
+    // Who joined, for the band's live region: the tiles' own region is inert under a modal, and
+    // the workspace stays open for long stretches. The same rules as the tiles; the patient's "left"
+    // is already the band's own line (peerLeft), so it only clears the note: no stale "joined" beside
+    // it, and their return changes the region again. A live region reads changes, never a repeat.
+    let presence: Map<string, { readonly name: string; readonly role: string }> | null = null;
+    effect(() => {
+      const tiles = this.tiles();
+      const current = new Map(tiles.filter((t) => !t.self).map((t) => [String(t.uid), { name: t.name, role: t.role }] as const));
+      const before = presence;
+      presence = current;
+      if (!before || !tiles.length) return;
+      const went = [...before].filter(([k]) => !current.has(k)).map(([, p]) => p);
+      const text = [
+        ...[...current].filter(([k]) => !before.has(k)).map(([, p]) => `${p.name} joined the call.`),
+        ...went.filter((p) => p.role !== 'patient').map((p) => `${p.name} left the call.`),
+      ].join(' ');
+      untracked(() => {
+        if (text) this.bandPresenceNote.update((was) => (was === text ? `${text}\u00a0` : text));
+        else if (went.length) this.bandPresenceNote.set('');
+      });
     });
 
     // The patient has been here: from now on the band can say they left.
@@ -3687,15 +3983,15 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
           return; // they left (or unpublished) in the meantime
         }
         if (this.left()) return;
-        // The stage, or the viewer's picture-in-picture while it holds the patient's video.
-        if (mediaType === 'video' && user.videoTrack) this.routeRemoteVideo(user.uid, user.videoTrack);
+        // The stage, or the tile (workspace, viewer) that holds the patient's video.
+        if (mediaType === 'video' && user.videoTrack) this.peer.route(user.uid, user.videoTrack);
         else if (mediaType === 'audio') user.audioTrack?.play();
       });
       // One person's camera going off (or them leaving) only touches their own tile.
       client.on('user-unpublished', (user, mediaType) => {
-        if (mediaType === 'video') this.routeRemoteVideo(user.uid, null);
+        if (mediaType === 'video') this.peer.route(user.uid, null);
       });
-      client.on('user-left', (user) => this.routeRemoteVideo(user.uid, null));
+      client.on('user-left', (user) => this.peer.route(user.uid, null));
       client.on('user-joined', (user) => this.labelNewcomer(user.uid));
       client.on('token-privilege-will-expire', () => void this.renewToken());
       client.on('token-privilege-did-expire', () => void this.rejoin());
@@ -3812,9 +4108,9 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       if (data.participants) this.freshRoster.set(data.participants);
       if (!data.configured || !data.app_id || !data.channel) throw fetchError(0, null);
       await client.leave().catch(() => undefined);
-      // Through the gate: the viewer's tile drops the patient's dead track too (the
+      // Through the gate: the holding tile drops the patient's dead track too (the
       // re-published one reaches it through user-published).
-      for (const r of this.remotes.list()) this.routeRemoteVideo(r.uid, null);
+      for (const r of this.remotes.list()) this.peer.route(r.uid, null);
       this.remotes.clear();
       // The same uid as before, so the doctor's own tile (keyed by it) stays put.
       const uid = typeof this.selfUid === 'number' ? this.selfUid : data.uid ? data.uid : null;
@@ -3942,10 +4238,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.joinStanding.set(standing);
     this.callRefused(
       null,
-      message ||
-        (standing === 'terms_required'
-          ? 'Accept the updated practitioner terms to continue consultations.'
-          : 'Your account can no longer take consultations.'),
+      message || (standing === 'terms_required' ? STANDING_TERMS : STANDING_REFUSED),
     );
   }
 
@@ -4015,12 +4308,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected useTool(label: string): void {
     if (label === 'ePrescription') {
       this.toolNote.set('');
-      this.showToolsTab('prescriptions');
+      this.selectWorkspaceTab('prescriptions');
       return;
     }
     if (label === 'Lab request') {
       this.toolNote.set('');
-      this.showToolsTab('labs');
+      this.selectWorkspaceTab('labs');
       return;
     }
     if (label === 'Referral') {
@@ -4038,32 +4331,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
 
   /** The Follow-ups tab, scrolled to one of its tools (they sit below Schedule follow-up and the care plan). */
   private openFollowUpSection(id: string): void {
-    this.showToolsTab('followup');
-    afterNextRender(
-      () => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
-      { injector: this.injector },
-    );
-  }
-
-  /**
-   * A tool picked a tools tab: select it and scroll the tab strip sideways
-   * (only the strip, never the page) so the chosen tab shows in full — on a
-   * phone "Lab requests" sat past the edge as "Lab requ…".
-   */
-  private showToolsTab(key: NotesTab): void {
-    this.notesTab.set(key);
-    afterNextRender(
-      () => {
-        const tab = document.getElementById('call-tab-' + key);
-        const strip = tab?.parentElement;
-        if (!tab || !strip) return;
-        const s = strip.getBoundingClientRect();
-        const t = tab.getBoundingClientRect();
-        if (t.left < s.left) strip.scrollLeft -= s.left - t.left;
-        else if (t.right > s.right) strip.scrollLeft += t.right - s.right;
-      },
-      { injector: this.injector },
-    );
+    this.selectWorkspaceTab('followup', id);
   }
 
   // ---- Documents the patient shares (in-call review) ----
@@ -4337,6 +4605,12 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     return firstValueFrom(this.api.request<unknown>(init.method ?? 'GET', path, body, options));
   }
 
+  /** The note's save line and, typed, whether it signals a problem (the launcher reads the type, never the words). */
+  private setNoteStatus(text: string, issue: NoteIssue = ''): void {
+    this.noteSaved.set(text);
+    this.noteIssue.set(issue);
+  }
+
   private notePayload(): NoteDraftPayload {
     return {
       subjective: this.subjective(),
@@ -4362,7 +4636,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.assessment.set(n.assessment ?? '');
       this.plan.set(n.plan ?? '');
       this.noteStatus.set(n.status === 'finalized' ? 'finalized' : 'draft');
-      if (n.updated_at) this.noteSaved.set('Saved');
+      if (n.updated_at) this.setNoteStatus('Saved');
       this.noteSub.set(sub);
       this.noteLoad.set('ready');
       this.restoreDraft(sub, n.updated_at ?? null);
@@ -4397,7 +4671,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     this.objective.set(kept.objective);
     this.assessment.set(kept.assessment);
     this.plan.set(kept.plan);
-    this.noteSaved.set('Saving the note kept on this device…');
+    this.setNoteStatus('Saving the note kept on this device…');
     void this.saveNote();
   }
 
@@ -4411,7 +4685,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    */
   protected scheduleSave(): void {
     if (!this.noteEditable()) return;
-    this.noteSaved.set('Saving…');
+    this.setNoteStatus('Saving…');
     if (this.noteSaveTimer) clearTimeout(this.noteSaveTimer);
     this.noteSaveTimer = setTimeout(() => void this.saveNote(), 1200);
   }
@@ -4430,14 +4704,14 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
         { method: 'PUT', body: JSON.stringify(this.notePayload()) },
       );
       this.drafts.clear(this.appointmentId);
-      this.noteSaved.set('Saved');
+      this.setNoteStatus('Saved');
       this.noteError.set('');
     } catch (err: unknown) {
       if (isSessionEndError(err) || !this.auth.isAuthenticated()) {
         this.keepNoteOnDevice();
         return;
       }
-      this.noteSaved.set('Save failed — retry');
+      this.setNoteStatus('Save failed — retry', 'failed');
       this.noteError.set(apiErrorMessage(err, 'Could not save the note.'));
     }
   }
@@ -4446,11 +4720,11 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private keepNoteOnDevice(): void {
     const sub = this.noteSub() ?? this.auth.subject();
     if (sub && this.drafts.save(this.appointmentId, sub, this.notePayload())) {
-      this.noteSaved.set(NOTE_KEPT_ON_DEVICE);
+      this.setNoteStatus(NOTE_KEPT_ON_DEVICE, 'device');
       this.noteError.set('');
       return;
     }
-    this.noteSaved.set('Not saved — sign in to save');
+    this.setNoteStatus('Not saved — sign in to save', 'signed-out');
     this.noteError.set('Sign in to the doctor portal (new tab) to save this note — keep this page open until then.');
   }
 
@@ -4470,10 +4744,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       );
       this.noteStatus.set(body.data?.status === 'finalized' ? 'finalized' : 'draft');
       this.drafts.clear(this.appointmentId);
-      this.noteSaved.set('Finalized & locked');
+      this.setNoteStatus('Finalized & locked');
       this.noteError.set('');
     } catch (err: unknown) {
-      this.noteSaved.set('Could not finalize — retry');
+      this.setNoteStatus('Could not finalize — retry', 'failed');
       this.noteError.set(apiErrorMessage(err, 'Could not finalize the note.'));
     } finally {
       this.finalizing.set(false);
@@ -4818,12 +5092,6 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     }
   }
 
-  /** Open the patient's full record in a NEW tab — without leaving the live call. */
-  protected openRecord(): void {
-    const id = this.info()?.patient?.id;
-    if (id) window.open('/patients/' + encodeURIComponent(id), '_blank', 'noopener');
-  }
-
   /**
    * Report an RTC quality sample every 15s for back-office monitoring — a
    * background request (passive): it never keeps the session alive.
@@ -4998,7 +5266,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (d.objective) this.objective.set(d.objective);
     if (d.assessment) this.assessment.set(d.assessment);
     if (d.plan) this.plan.set(d.plan);
-    this.notesTab.set('notes');
+    this.selectWorkspaceTab('notes');
     this.scheduleSave();
   }
 

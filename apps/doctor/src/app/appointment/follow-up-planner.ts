@@ -381,7 +381,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
                   role="group"
                   [attr.aria-labelledby]="uid + '-wd-title'"
                   [attr.aria-describedby]="uid + '-wd-desc'"
-                  (keydown.escape)="keepProposal(f)"
+                  (keydown.escape)="$event.preventDefault(); keepProposal(f)"
                 >
                   <p #withdrawTitle tabindex="-1" class="font-sans text-body-sm font-semibold text-ink outline-none" [id]="uid + '-wd-title'">Withdraw this proposal?</p>
                   <p class="${CLINICAL_HINT}" [id]="uid + '-wd-desc'">The patient is told it was withdrawn, and {{ when(f.scheduled_at) }} opens again on your schedule.</p>

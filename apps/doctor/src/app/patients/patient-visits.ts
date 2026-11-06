@@ -1,4 +1,4 @@
-import { inject, ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { inject, ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { AppointmentDto } from '@supadoc/models';
 import { EmptyStateComponent, IconComponent } from '@supadoc/ui';
@@ -48,14 +48,29 @@ import { DoctorClock } from '../doctor-clock';
               <div class="flex flex-col gap-1 lg:w-36">
                 <doc-visit-status-badge [status]="r.key" [label]="r.label" />
                 @if (r.detail) { <span class="font-sans text-caption text-slate">{{ r.detail }}</span> }
+                @if (chartMode() === 'drill' && r.visit.id === currentId()) {
+                  <span class="w-fit rounded-pill bg-frost px-2.5 py-0.5 font-sans text-caption font-medium text-cerulean-dark">This consultation</span>
+                }
               </div>
-              <a
-                [routerLink]="['/appointments', r.visit.id]"
-                class="inline-flex shrink-0 items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-                [attr.aria-label]="'Open chart for ' + r.visit.type_label + ' on ' + r.day"
-              >
-                Open chart <sd-icon name="chevron-right" [size]="14" />
-              </a>
+              @if (chartMode() === 'drill') {
+                <button
+                  type="button"
+                  [attr.data-visit-id]="r.visit.id"
+                  class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                  [attr.aria-label]="'View visit: ' + r.visit.type_label + ' on ' + r.day"
+                  (click)="openVisit.emit(r.visit)"
+                >
+                  View visit <sd-icon name="chevron-right" [size]="14" />
+                </button>
+              } @else {
+                <a
+                  [routerLink]="['/appointments', r.visit.id]"
+                  class="inline-flex shrink-0 items-center gap-1 rounded-field border border-haze bg-white px-4 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                  [attr.aria-label]="'Open chart for ' + r.visit.type_label + ' on ' + r.day"
+                >
+                  Open chart <sd-icon name="chevron-right" [size]="14" />
+                </a>
+              }
             </div>
           </li>
         }
@@ -68,6 +83,11 @@ export class PatientVisits {
   protected readonly clock = inject(DoctorClock);
   /** The patient's visits with this doctor, newest first. */
   readonly visits = input.required<AppointmentDto[]>();
+  /** 'link': "Open chart" router links (the /patients/:id page). 'drill': "View visit" buttons that emit (the call's EMR). */
+  readonly chartMode = input<'link' | 'drill'>('link');
+  readonly openVisit = output<AppointmentDto>();
+  /** Drill mode: the consultation this call is (its row says "This consultation"). */
+  readonly currentId = input<string | null>(null);
 
   protected readonly rows = computed(() => {
     const now = Date.now();

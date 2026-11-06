@@ -1,11 +1,11 @@
-import { ApplicationRef, type EmbeddedViewRef, signal, type WritableSignal } from '@angular/core';
+import { ApplicationRef, computed, type EmbeddedViewRef, signal, type WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { Observable, of, Subject, timer } from 'rxjs';
+import { NEVER, Observable, of, Subject, throwError, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { SessionTimeoutService, StaffAuthService } from '@supadoc/auth';
-import { ApiService, DoctorApi, LabRequestsApi } from '@supadoc/data-access';
+import { API_CONFIG, ApiService, DoctorApi, LabRequestsApi } from '@supadoc/data-access';
 import type { DoctorDocumentAccessDto, DoctorSharedDocumentDto } from '@supadoc/models';
 import {
   CallControlsComponent,
@@ -17,7 +17,9 @@ import {
 import { DocumentViewerService, type ViewerCallContext, type ViewerOpenOptions, type ViewerSession, type ViewerSource } from '@supadoc/viewer';
 import { NOT_SHARED } from './appointment/document-access';
 import { NoteDraftStore } from './appointment/note-draft';
+import { WS_EMR_NO_DETAILS, WS_RECORD_SHOWN, wsShareBanner } from './call-workspace/call-workspace-copy';
 import { DoctorCall } from './doctor-call';
+import { RxPanel } from './prescriptions/rx-panel';
 
 /** Agora, faked: a client that joins and keeps its event handlers (the nudge arrives on 'stream-message'). */
 const agora = vi.hoisted(() => {
@@ -83,6 +85,14 @@ const JOIN = {
   token: 'rtc',
 };
 
+/** The Full EMR's read. */
+const EMR_RECORD = {
+  patient: { id: 'p1', name: 'Bola Ade', email: 'bola@example.test', phone: null, gender: 'female', date_of_birth: '1990-05-01' },
+  medical: { allergies: [], conditions: [], medications: [], history: [] },
+  appointments: [],
+  visit_count: 0,
+};
+
 function doc(id: string, over: Partial<DoctorSharedDocumentDto> = {}): DoctorSharedDocumentDto {
   return {
     id,
@@ -143,7 +153,7 @@ interface CallInternals {
   readonly joinStanding: WritableSignal<string | null>;
   readonly errorMessage: WritableSignal<string>;
   readonly docAnnounce: WritableSignal<string>;
-  readonly viewerPeerTrack: () => unknown;
+  readonly peer: { track(): unknown; holder(): string; route(uid: number | string, track: unknown): void };
   readonly newDocIds: () => ReadonlySet<string>;
   loadDocumentAccess(mode: 'load' | 'refresh' | 'poll' | 'nudge'): void;
   rejoin(): Promise<void>;
@@ -163,6 +173,7 @@ function fakeViewer() {
   });
   const viewer = {
     session,
+    isOpen: computed(() => session() !== null),
     ctx: () => ctx,
     unregister,
     registerCall: vi.fn((c: ViewerCallContext) => {
@@ -196,6 +207,8 @@ describe('DoctorCall — documents in the call', () => {
   let t0: number;
   let viewer: ReturnType<typeof fakeViewer>;
   let dialogConfirm: ReturnType<typeof vi.fn>;
+  /** What the follow-up planner lists. */
+  let followUps: unknown[] = [];
   /** Every portal request made through ApiService.request (the clinical panels, transcript, metrics). */
   let portal: { method: string; path: string; passive: boolean }[];
   let session: { hold: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
@@ -218,6 +231,7 @@ describe('DoctorCall — documents in the call', () => {
   };
 
   async function setup(docs: DoctorSharedDocumentDto[] = [doc('a')]) {
+    followUps = [];
     reads = [];
     portal = [];
     session = { hold: vi.fn(), release: vi.fn() };
@@ -240,6 +254,7 @@ describe('DoctorCall — documents in the call', () => {
       providers: [
         provideRouter([]),
         provideSupadocIcons(),
+        { provide: API_CONFIG, useValue: { baseUrl: 'http://api.test' } },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ token: 'tok' }) } } },
         {
           provide: StaffAuthService,
@@ -248,6 +263,7 @@ describe('DoctorCall — documents in the call', () => {
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ data: [] }),
             request: (method: string, path: string, _body?: unknown, opts?: { passive?: boolean }) => {
               portal.push({ method: method.toUpperCase(), path, passive: !!opts?.passive });
               return of({ data: {} });
@@ -267,6 +283,14 @@ describe('DoctorCall — documents in the call', () => {
             getProfile: () => of({ data: { id: 'd1', name: 'Dr Ada Obi', timezone: 'Africa/Lagos', timezone_source: 'manual' } }),
             complete: () => of({}),
             listLabOrders: () => of({ data: [] }),
+            patient: () => of({ data: EMR_RECORD }),
+            listPrescriptions: () => of({ data: [] }),
+            allPrescriptions: () => of({ data: [], meta: { total: 0 } }),
+            prescriptionOptions: () => of({ data: { readings: [], limits: {}, routes: [], reading_sources: {}, pregnancy: {}, follow_up_modes: {}, has_signature: true } }),
+            clinicalSummary: () => NEVER,
+            followUps: () => of({ data: followUps }),
+            calendar: () => NEVER,
+            documentPdf: () => of(new Blob(['x'])),
           },
         },
         // The Lab requests tab lists this consultation's requests.
@@ -539,12 +563,17 @@ describe('DoctorCall — documents in the call', () => {
       el.querySelector<HTMLButtonElement>('[data-doc-id="b"]')?.click();
       await tick();
       expect(viewer.open).toHaveBeenCalledTimes(1);
-      const tabs = Array.from(el.querySelectorAll('[role="tablist"][aria-label="Consultation tools"] [role="tab"]')).map((t) => t.textContent?.trim());
-      expect(tabs).toEqual(['Consultation Notes', 'Prescriptions', 'Lab requests', 'Follow-ups', 'Transcript & AI']);
+      // The cockpit holds launchers, no inline tablist; the workspace holds the six tabs.
+      expect(el.querySelector('[role="tablist"][aria-label="Consultation tools"]')).toBeNull();
       expect(el.querySelector('[aria-label="Close document"]')).toBeNull();
       expect(el.querySelector('doc-protected-document-viewer, sd-document-viewer')).toBeNull();
       expect(el.querySelector('.fixed.inset-0.z-50')).toBeNull();
       expect(el.querySelector('[inert]')).toBeNull();
+      el.querySelector<HTMLButtonElement>('[data-ws-launcher="notes"]')?.click();
+      await tick();
+      const tabs = Array.from(el.querySelectorAll('[role="tablist"][aria-label="Consultation tools"] [role="tab"]')).map((t) => t.textContent?.trim());
+      expect(tabs).toEqual(['Consultation Notes', 'Prescriptions', 'Lab requests', 'Follow-ups', 'Transcript & AI', 'Full EMR']);
+      expect(el.querySelector('.fixed.inset-0.z-50')).toBeNull();
       fixture.destroy();
       el.remove();
       TestBed.resetTestingModule();
@@ -553,23 +582,17 @@ describe('DoctorCall — documents in the call', () => {
     }
   });
 
-  it('the Lab request tool selects Lab requests and scrolls only the tab strip so the tab shows in full', async () => {
+  it('the Lab request tool in the workspace’s notes selects Lab requests, focus on its tab', async () => {
     await setup([doc('a')]);
-    const strip = el.querySelector<HTMLElement>('[role="tablist"][aria-label="Consultation tools"]');
-    const tab = el.querySelector<HTMLElement>('#call-tab-labs');
-    if (!strip || !tab) throw new Error('no tools tab strip');
-    // A phone-width strip (300 px) with Lab requests starting 20 px before its right edge.
-    let left = 0;
-    Object.defineProperty(strip, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => (left = v) });
-    strip.getBoundingClientRect = () => ({ left: 10, right: 310 }) as DOMRect;
-    tab.getBoundingClientRect = () => ({ left: 290 - left, right: 390 - left }) as DOMRect;
-    const tool = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Lab request');
+    el.querySelector<HTMLButtonElement>('[data-ws-launcher="notes"]')?.click();
+    await tick();
+    const tool = Array.from(el.querySelectorAll('#ws-panel-notes button')).find((b) => b.textContent?.trim() === 'Lab request') as HTMLButtonElement | undefined;
     if (!tool) throw new Error('no Lab request tool');
+    tool.focus();
     tool.click();
     await tick();
-    expect(tab.getAttribute('aria-selected')).toBe('true');
-    expect(left).toBe(80);
-    expect(tab.getBoundingClientRect().right).toBe(310);
+    expect(el.querySelector('#ws-tab-labs')?.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement?.id).toBe('ws-tab-labs');
   });
 
   it('a document of the open viewer that stops being shared is revoked in place (NOT_SHARED), not closed', async () => {
@@ -676,13 +699,13 @@ describe('DoctorCall — documents in the call', () => {
       expect(radio('size', 's').getAttribute('aria-checked')).toBe('true');
     });
 
-    it('wide and mid: the stage fills the tools column’s width, its height giving way before the tools row’s 8rem', async () => {
+    it('wide and mid: the stage fills the tools column’s width, its height giving way before the launcher card’s', async () => {
       media(WIDE);
       await setup([doc('a')]);
       const tools = el.querySelector<HTMLElement>('#call-tools');
       expect(dock()?.className).toContain('[grid-area:dock]');
       expect(tools?.className).toContain('[grid-area:tools]');
-      expect(el.querySelector('main')?.className).toContain('grid-rows-[minmax(0,auto)_minmax(8rem,1fr)]');
+      expect(el.querySelector('main')?.className).toContain('grid-rows-[minmax(0,auto)_minmax(auto,1fr)]');
       expect(dock()?.className).toContain('min-h-0');
       expect(stage()?.className.split(/\s+/)).toEqual(expect.arrayContaining(['w-full', 'min-h-0', 'h-[var(--stage-h)]']));
       expect(stage()?.className).not.toContain('shrink-0');
@@ -785,12 +808,12 @@ describe('DoctorCall — documents in the call', () => {
       const stage = tilesCmp();
       const order: string[] = [];
       vi.spyOn(stage, 'detach').mockImplementation((uid) => {
-        order.push(`detach:${uid}:${call.viewerPeerTrack() ? 'tile-has-track' : 'tile-empty'}`);
+        order.push(`detach:${uid}:${call.peer.track() ? 'tile-has-track' : 'tile-empty'}`);
       });
       el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
-      order.push(`tile:${(call.viewerPeerTrack() as { name?: string } | null)?.name ?? 'none'}`);
+      order.push(`tile:${(call.peer.track() as { name?: string } | null)?.name ?? 'none'}`);
       expect(order).toEqual(['detach:1:tile-empty', 'tile:v1']);
-      expect(call.viewerPeerTrack()).toBe(track);
+      expect(call.peer.track()).toBe(track);
     });
 
     it('closing takes it back: the tile’s track cleared, the CURRENT track re-read from Agora, attached with no config', async () => {
@@ -804,10 +827,10 @@ describe('DoctorCall — documents in the call', () => {
       const attach = vi.spyOn(stage, 'attach');
       const order: string[] = [];
       attach.mockImplementation((uid) => {
-        order.push(`attach:${uid}:${call.viewerPeerTrack() === null ? 'tile-cleared' : 'tile-still-set'}`);
+        order.push(`attach:${uid}:${call.peer.track() === null ? 'tile-cleared' : 'tile-still-set'}`);
       });
       viewer.close();
-      expect(call.viewerPeerTrack()).toBeNull();
+      expect(call.peer.track()).toBeNull();
       expect(order).toEqual(['attach:1:tile-cleared']);
       expect(attach).toHaveBeenCalledWith(1, fresh);
       expect(attach.mock.calls[0]).toHaveLength(2);
@@ -822,10 +845,10 @@ describe('DoctorCall — documents in the call', () => {
       const detach = vi.spyOn(stage, 'detach');
       const again = remoteTrack('v2');
       await client().handlers['user-published']?.({ uid: 1, videoTrack: again }, 'video');
-      expect(call.viewerPeerTrack()).toBe(again);
+      expect(call.peer.track()).toBe(again);
       expect(attach).not.toHaveBeenCalled();
       await client().handlers['user-unpublished']?.({ uid: 1 }, 'video');
-      expect(call.viewerPeerTrack()).toBeNull();
+      expect(call.peer.track()).toBeNull();
       expect(detach).not.toHaveBeenCalled();
       const guest = remoteTrack('g');
       await client().handlers['user-published']?.({ uid: 3, videoTrack: guest }, 'video');
@@ -838,18 +861,18 @@ describe('DoctorCall — documents in the call', () => {
       await setup([doc('a')]);
       await patientJoins(remoteTrack('v1'));
       el.querySelector<HTMLButtonElement>('[data-doc-id="a"]')?.click();
-      expect(call.viewerPeerTrack()).not.toBeNull();
+      expect(call.peer.track()).not.toBeNull();
       const stage = tilesCmp();
       const detach = vi.spyOn(stage, 'detach');
       const rejoined = call.rejoin();
       await tick();
       await rejoined;
-      expect(call.viewerPeerTrack()).toBeNull();
+      expect(call.peer.track()).toBeNull();
       expect(detach).not.toHaveBeenCalledWith(1);
       const back = remoteTrack('v3');
       client().remoteUsers = [{ uid: 1, videoTrack: back }];
       await client().handlers['user-published']?.({ uid: 1, videoTrack: back }, 'video');
-      expect(call.viewerPeerTrack()).toBe(back);
+      expect(call.peer.track()).toBe(back);
     });
 
     it('the band: Back to call, who and how long, Mute and End while live — and every call banner with its action', async () => {
@@ -1009,6 +1032,686 @@ describe('DoctorCall — documents in the call', () => {
       await setup([doc('a')]);
       ctx().stopSharing();
       expect(agora.module.createScreenVideoTrack).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the consultation workspace', () => {
+    /** A remote video track that logs where it plays and when it stops. */
+    const log: string[] = [];
+    const where = (el: HTMLElement) => (el.closest('.ws-pip') ? 'workspace' : el.closest('[data-viewer-pip]') ? 'viewer' : 'stage');
+    const fakeTrack = (name: string) => ({
+      name,
+      play: vi.fn((e: HTMLElement) => log.push(`play:${name}:${where(e)}`)),
+      stop: vi.fn(() => log.push(`stop:${name}`)),
+    });
+    const launcher = (key: string) => el.querySelector<HTMLButtonElement>(`[data-ws-launcher="${key}"]`);
+    const wsDialog = () => el.querySelector<HTMLDialogElement>('dialog.sd-dialog--viewer');
+    /** The page's component CSS: jsdom has no layout, the real render checks what these rules do. */
+    const callStyles = () => (DoctorCall as unknown as { ɵcmp: { styles: string[] } }).ɵcmp.styles.join('');
+    const internals = () =>
+      call as unknown as CallInternals & {
+        wsOpen: WritableSignal<boolean>;
+        wsTab: WritableSignal<string>;
+        noteSaved: WritableSignal<string>;
+        subjective: WritableSignal<string>;
+        copilotDraft: WritableSignal<unknown>;
+        recordRevealed: WritableSignal<boolean>;
+        recordsTab: WritableSignal<string>;
+        setNoteStatus(text: string, issue?: string): void;
+        openWorkspace(tab: string, opener?: EventTarget | null): void;
+        closeWorkspace(): void;
+        backToCall(): void;
+        canLeave(): boolean | Promise<boolean>;
+        toggleScreen(): Promise<void>;
+        teardown(): Promise<void>;
+        remoteList: WritableSignal<Array<{ uid: number; hasVideo: boolean; hasAudio: boolean; speaking: boolean }>>;
+        freshRoster: WritableSignal<unknown>;
+        referrals: WritableSignal<unknown[]>;
+        docAlert: WritableSignal<unknown>;
+        sortedDocs(): DoctorSharedDocumentDto[];
+      };
+    const patientJoins = async (track = fakeTrack('v1')) => {
+      client().remoteUsers = [{ uid: 1, videoTrack: track }];
+      await client().handlers['user-joined']?.({ uid: 1 });
+      await client().handlers['user-published']?.({ uid: 1, videoTrack: track }, 'video');
+      await tick();
+      return track;
+    };
+    /** Opens it through its launcher and lets the timers and renders settle. */
+    const openWs = async (key = 'notes') => {
+      launcher(key)?.click();
+      await tick();
+      await tick();
+    };
+    const closeIt = async () => {
+      internals().closeWorkspace();
+      await tick();
+      await tick();
+    };
+    const esc = (target: Element | null) => target?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    beforeEach(() => {
+      log.length = 0;
+    });
+
+    afterEach(() => {
+      localStorage.removeItem('videomed.call.theme');
+    });
+
+    describe('launchers', () => {
+      it('five in the card, plus View Full EMR, each opening its tab; no tool content while closed; window.open never', async () => {
+        const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+        await setup([doc('a')]);
+        const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>('#call-tools [data-ws-launcher]'));
+        expect(buttons.map((b) => b.textContent?.trim())).toEqual(['Consultation Notes', 'Prescriptions', 'Lab requests', 'Follow-ups', 'Transcript & AI']);
+        expect(buttons.every((b) => b.getAttribute('aria-haspopup') === 'dialog')).toBe(true);
+        expect(launcher('record')?.textContent).toContain('View Full EMR');
+        expect(launcher('record')?.getAttribute('aria-haspopup')).toBe('dialog');
+        expect(el.querySelector('textarea, doc-rx-panel, doc-call-lab-requests')).toBeNull();
+        for (const key of ['notes', 'prescriptions', 'labs', 'followup', 'copilot', 'record']) {
+          await openWs(key);
+          expect(internals().wsTab()).toBe(key);
+          expect(el.querySelector('#ws-tab-' + key)?.getAttribute('aria-selected')).toBe('true');
+          await closeIt();
+        }
+        expect(opened).not.toHaveBeenCalled();
+        opened.mockRestore();
+      });
+
+      it('statuses come from typed state, never the words', async () => {
+        await setup([doc('a')]);
+        await tick();
+        internals().setNoteStatus('Save failed — retry', 'failed');
+        await tick();
+        expect(launcher('notes')?.textContent).toContain('Not saved');
+        expect(launcher('notes')?.textContent).toContain('open the note to retry');
+        internals().setNoteStatus('Saved');
+        // Only the words: no status.
+        internals().noteSaved.set('Save failed — retry');
+        await tick();
+        expect(launcher('notes')?.textContent).not.toContain('Not saved');
+        internals().copilotDraft.set({ diagnoses: [], medications: [] });
+        await tick();
+        expect(launcher('copilot')?.textContent).toContain('Draft ready');
+      });
+    });
+
+    it('narrow: the switcher reads Tools · Patient · Documents · People, Tools’ panel the launcher card', async () => {
+      await setup([doc('a')]);
+      const tabs = Array.from(el.querySelectorAll('[role="tablist"][aria-label="Sections"] [role="tab"]')).map((t) => t.textContent?.trim());
+      expect(tabs).toEqual(['Tools', 'Patient', 'Documents', 'People']);
+      const tools = el.querySelector('#call-section-notes');
+      expect(tools?.getAttribute('aria-controls')).toBe('call-tools');
+      expect(el.querySelector('#call-tools')?.getAttribute('aria-labelledby')).toBe('call-section-notes');
+      expect(el.querySelector('#call-tools')?.getAttribute('role')).toBe('tabpanel');
+    });
+
+    it('narrow: room under the launcher card, so the fixed Feedback button never sits on a launcher', async () => {
+      await setup([doc('a')]);
+      expect(el.querySelector('#call-tools')?.classList.contains('ws-tools-narrow')).toBe(true);
+      expect(callStyles()).toMatch(/\.ws-tools-narrow[^{]*\{[^}]*margin-bottom/);
+    });
+
+    it('no patient id, the look-up failed: the Full EMR shows it and its Try again re-runs the look-up, as the Prescriptions tab', async () => {
+      await setup([doc('a')]);
+      await openWs('record');
+      const c = internals() as unknown as {
+        rxPatientId: () => string | null;
+        rxPatientError: WritableSignal<string>;
+        lookedUpPatientId: WritableSignal<string | null>;
+        info: WritableSignal<{ patient?: { id?: string } } | null>;
+      };
+      const api = TestBed.inject(DoctorApi) as unknown as { appointment: () => Observable<unknown> };
+      const working = api.appointment;
+      api.appointment = () => throwError(() => new Error('boom'));
+      const info = c.info();
+      c.info.set({ ...info, patient: { ...info?.patient, id: '' } });
+      c.lookedUpPatientId.set(null);
+      await tick();
+      expect(c.rxPatientId()).toBeFalsy();
+      const panel = el.querySelector('#ws-panel-record');
+      expect(panel?.querySelector('[role="alert"]')?.textContent).toContain('boom');
+      expect(panel?.textContent).not.toContain('Loading the patient…');
+      api.appointment = working;
+      Array.from(panel?.querySelectorAll('button') ?? []).find((b) => b.textContent?.includes('Try again'))?.click();
+      await tick();
+      expect(c.rxPatientError()).toBe('');
+      expect(c.lookedUpPatientId()).toBe('p1');
+    });
+
+    it('the join failed with no details: the Full EMR says so instead of loading for ever', async () => {
+      await setup([doc('a')]);
+      await openWs('record');
+      const c = internals() as unknown as { info: WritableSignal<unknown>; lookedUpPatientId: WritableSignal<string | null> };
+      c.info.set(null);
+      c.lookedUpPatientId.set(null);
+      internals().status.set('error');
+      await tick();
+      const panel = el.querySelector('#ws-panel-record');
+      expect(panel?.textContent).toContain(WS_EMR_NO_DETAILS);
+      expect(panel?.textContent).not.toContain('Loading the patient…');
+    });
+
+    it('no lost drafts: typed, closed with Esc, the autosave fires anyway; reopened, the same field with the text', async () => {
+      await setup([doc('a')]);
+      await tick();
+      await openWs('notes');
+      const field = el.querySelector<HTMLTextAreaElement>('#ws-panel-notes textarea');
+      if (!field) throw new Error('no field');
+      field.value = 'Headache for 3 days';
+      field.dispatchEvent(new Event('input'));
+      await tick();
+      esc(field);
+      await tick();
+      expect(internals().wsOpen()).toBe(false);
+      expect(el.querySelector('#ws-panel-notes')).toBeNull();
+      portal = [];
+      await tick(1300);
+      expect(portal.some((r) => r.method === 'PUT' && r.path.endsWith('/note'))).toBe(true);
+      await openWs('notes');
+      const again = el.querySelector<HTMLTextAreaElement>('#ws-panel-notes textarea');
+      expect(again).toBe(field);
+      expect(again?.value).toBe('Headache for 3 days');
+      // And across a tab switch.
+      el.querySelector<HTMLButtonElement>('#ws-tab-labs')?.click();
+      await tick();
+      el.querySelector<HTMLButtonElement>('#ws-tab-notes')?.click();
+      await tick();
+      expect(el.querySelector('#ws-panel-notes textarea')).toBe(field);
+    });
+
+    it('a half-written prescription: closing asks nothing, the launcher and the tab say so, the same composer comes back; End and canLeave ask', async () => {
+      const confirmLeave = vi.fn(async () => true);
+      await setup([doc('a')]);
+      TestBed.inject(DialogService).confirmLeave = confirmLeave as never;
+      await openWs('prescriptions');
+      const panel = fixture.debugElement.query(By.directive(RxPanel)).componentInstance as RxPanel;
+      Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-prescriptions button')).find((b) => b.textContent?.includes('New prescription'))?.click();
+      await tick();
+      await tick();
+      const field = el.querySelector<HTMLTextAreaElement>('#ws-panel-prescriptions doc-rx-composer textarea');
+      if (!field) throw new Error('no composer field');
+      field.value = 'Asthma flare';
+      field.dispatchEvent(new Event('input'));
+      await tick();
+      expect(panel.hasUnsavedChanges()).toBe(true);
+      expect(el.querySelector('#ws-tab-prescriptions')?.textContent).toContain(', unsaved changes');
+      await closeIt();
+      expect(confirmLeave).not.toHaveBeenCalled();
+      expect(internals().wsOpen()).toBe(false);
+      // Its name: the label, then the status, the rest for screen readers.
+      expect(launcher('prescriptions')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Prescriptions, Unsaved changes');
+      await openWs('prescriptions');
+      expect(fixture.debugElement.query(By.directive(RxPanel)).componentInstance).toBe(panel);
+      expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer textarea')).toBe(field);
+      expect(field.value).toBe('Asthma flare');
+      await closeIt();
+      await call.askEnd();
+      expect(confirmLeave).toHaveBeenCalledTimes(1);
+      await internals().canLeave();
+      expect(confirmLeave).toHaveBeenCalledTimes(2);
+    });
+
+    describe('one live tile (the real CallPeerTileComponent)', () => {
+      it('stage → workspace → viewer → workspace → stage: every hand-over a stop before a play', async () => {
+        await setup([doc('a')]);
+        const track = await patientJoins();
+        expect(log).toEqual(['play:v1:stage']);
+        log.length = 0;
+        await openWs('notes');
+        expect(log).toEqual(['stop:v1', 'play:v1:workspace']);
+        expect(el.querySelector('.ws-pip sd-call-peer-tile')).not.toBeNull();
+        expect(el.querySelectorAll('sd-call-peer-tile').length).toBe(1);
+
+        log.length = 0;
+        // A document from the workspace: its tile goes with the render (the fake viewer has no tile of its own here).
+        el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+        await tick();
+        expect(log).toEqual(['stop:v1']);
+        expect(call.peer.holder()).toBe('viewer');
+        expect(call.peer.track()).toBe(track);
+        expect(el.querySelector('.ws-pip sd-call-peer-tile')).toBeNull();
+        expect(el.querySelector('.ws-pip .ws-peer-wait')).not.toBeNull();
+
+        log.length = 0;
+        viewer.close();
+        await tick();
+        expect(call.peer.holder()).toBe('workspace');
+        expect(log).toEqual(['play:v1:workspace']);
+
+        log.length = 0;
+        const stage = fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+        const attach = vi.spyOn(stage, 'attach');
+        await closeIt();
+        expect(log).toEqual(['stop:v1', 'play:v1:stage']);
+        expect(call.peer.holder()).toBe('stage');
+        expect(attach).toHaveBeenCalledTimes(1);
+      });
+
+      it('close and reopen in one turn: the stage never plays', async () => {
+        await setup([doc('a')]);
+        await patientJoins();
+        await openWs('notes');
+        log.length = 0;
+        internals().closeWorkspace();
+        internals().openWorkspace('notes');
+        await tick();
+        await tick();
+        expect(log.some((l) => l.endsWith(':stage'))).toBe(false);
+        expect(call.peer.holder()).toBe('workspace');
+      });
+
+      it('a rejoin while held: the tile gets nothing (initials), then the re-published track; the stage never the patient', async () => {
+        await setup([doc('a')]);
+        await patientJoins();
+        await openWs('notes');
+        const stage = fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+        const attach = vi.spyOn(stage, 'attach');
+        log.length = 0;
+        const rejoined = call.rejoin();
+        await tick();
+        await rejoined;
+        await tick();
+        expect(call.peer.track()).toBeNull();
+        expect(log).toEqual(['stop:v1']);
+        const back = fakeTrack('v2');
+        client().remoteUsers = [{ uid: 1, videoTrack: back }];
+        await client().handlers['user-published']?.({ uid: 1, videoTrack: back }, 'video');
+        await tick();
+        expect(log).toEqual(['stop:v1', 'play:v2:workspace']);
+        expect(attach).not.toHaveBeenCalledWith(1, expect.anything());
+      });
+
+      it('the patient leaves while held: initials, and the band says so', async () => {
+        await setup([doc('a')]);
+        await patientJoins();
+        await openWs('notes');
+        client().remoteUsers = [];
+        await client().handlers['user-left']?.({ uid: 1 });
+        await tick();
+        expect(call.peer.track()).toBeNull();
+        expect(el.querySelector('.ws-band')?.textContent).toContain('Bola Ade left the call');
+      });
+    });
+
+    describe('Esc and focus', () => {
+      it('Esc closes the workspace only (the call goes on); focus on the launcher', async () => {
+        await setup([doc('a')]);
+        launcher('labs')?.focus();
+        await openWs('labs');
+        expect(document.activeElement?.id).toBe('ws-tab-labs');
+        esc(document.activeElement);
+        await tick();
+        await tick();
+        expect(internals().wsOpen()).toBe(false);
+        expect(call.status()).toBe('in-call');
+        expect(client().leave).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(launcher('labs'));
+      });
+
+      it('over the viewer the workspace stays on its tab; Esc then closes it', async () => {
+        await setup([doc('a')]);
+        await openWs('record');
+        el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+        await tick();
+        viewer.close();
+        await tick();
+        expect(internals().wsOpen()).toBe(true);
+        expect(internals().wsTab()).toBe('record');
+      });
+
+      it('an opener gone after the viewer closes: over the workspace, its selected tab', async () => {
+        await setup([doc('a')]);
+        await openWs('labs');
+        el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+        const [, options] = viewer.open.mock.calls[0] as [ViewerSource[], ViewerOpenOptions];
+        expect(options.fallbackFocus?.()?.id).toBe('ws-tab-labs');
+      });
+    });
+
+    describe('Back to call', () => {
+      const back = () => Array.from(el.querySelectorAll<HTMLButtonElement>('.ws-band [aria-label="Back to call"]'))[0];
+
+      it('from the workspace’s band: closed', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        back()?.click();
+        await tick();
+        expect(internals().wsOpen()).toBe(false);
+      });
+
+      it('with the viewer over it: both closed, then one stage play', async () => {
+        await setup([doc('a')]);
+        await patientJoins();
+        await openWs('notes');
+        el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+        await tick();
+        log.length = 0;
+        internals().backToCall();
+        await tick();
+        await tick();
+        expect(internals().wsOpen()).toBe(false);
+        expect(viewer.session()).toBeNull();
+        expect(call.peer.holder()).toBe('stage');
+        expect(log).toEqual(['play:v1:stage']);
+      });
+
+      it('over a tool’s own dialog: only the viewer goes; the workspace closes once that dialog has', async () => {
+        await setup([doc('a')]);
+        await openWs('prescriptions');
+        const stand = document.createElement('dialog');
+        stand.setAttribute('open', '');
+        el.querySelector('#ws-panel-prescriptions')?.appendChild(stand);
+        el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+        await tick();
+        internals().backToCall();
+        await tick();
+        expect(viewer.session()).toBeNull();
+        expect(internals().wsOpen()).toBe(true);
+        // Nor does anything else close it under that dialog.
+        internals().closeWorkspace();
+        expect(internals().wsOpen()).toBe(true);
+        stand.removeAttribute('open');
+        stand.remove();
+        internals().backToCall();
+        expect(internals().wsOpen()).toBe(false);
+        await tick();
+        await tick();
+        expect(document.documentElement.style.overflow).not.toBe('hidden');
+      });
+    });
+
+    describe('sharing the screen', () => {
+      it('a banner on the tool tabs (Stop sharing only when on), the Full EMR covered; Show anyway reveals and says so; stopping forgets it', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        const screen = { kind: 'video', enabled: true, play: vi.fn(), stop: vi.fn(), close: vi.fn(), on: vi.fn(), setEnabled: vi.fn(async () => undefined) };
+        agora.module.createScreenVideoTrack.mockResolvedValueOnce(screen);
+        await internals().toggleScreen();
+        await tick();
+        expect(call.screenOn()).toBe(true);
+        const banner = () => el.querySelector('.ws-share');
+        expect(banner()?.textContent).toContain(wsShareBanner(false));
+        el.querySelector<HTMLButtonElement>('#ws-tab-record')?.click();
+        await tick();
+        // Its own cover says it: no banner over it.
+        expect(banner()).toBeNull();
+        const panel = () => el.querySelector('#ws-panel-record');
+        expect(panel()?.textContent).toContain('Hidden while you share your screen');
+        const inner = panel()?.querySelector('doc-call-patient-record')?.parentElement;
+        expect(inner?.hidden).toBe(true);
+        const anyway = Array.from(panel()?.querySelectorAll('button') ?? []).find((b) => b.textContent?.includes('Show anyway'));
+        anyway?.click();
+        await tick(100);
+        expect(inner?.hidden).toBe(false);
+        expect(banner()?.textContent).toContain(wsShareBanner(false));
+        expect(call.docAnnounce()).toBe(WS_RECORD_SHOWN);
+        // Closing forgets it: reopened while still sharing, covered again.
+        await closeIt();
+        await openWs('record');
+        expect(panel()?.textContent).toContain('Hidden while you share your screen');
+        Array.from(panel()?.querySelectorAll('button') ?? []).find((b) => b.textContent?.includes('Show anyway'))?.click();
+        await tick();
+        expect(internals().recordRevealed()).toBe(true);
+        // Stopping sharing forgets it too, and takes the banner away.
+        call.screenOn.set(false);
+        await tick();
+        expect(internals().recordRevealed()).toBe(false);
+        expect(banner()).toBeNull();
+      });
+
+      it('Stop sharing never starts a share', async () => {
+        await setup([doc('a')]);
+        agora.module.createScreenVideoTrack.mockClear();
+        const c = call as unknown as { stopSharingFromWorkspace(): void };
+        c.stopSharingFromWorkspace();
+        expect(agora.module.createScreenVideoTrack).not.toHaveBeenCalled();
+      });
+    });
+
+    it('teardown closes the workspace and the viewer; nothing attaches to the stage after', async () => {
+      await setup([doc('a')]);
+      await patientJoins();
+      await openWs('notes');
+      el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+      await tick();
+      const stage = fixture.debugElement.query(By.directive(CallTilesComponent)).componentInstance as CallTilesComponent;
+      const attach = vi.spyOn(stage, 'attach');
+      await internals().teardown();
+      await tick();
+      await tick();
+      expect(internals().wsOpen()).toBe(false);
+      expect(viewer.session()).toBeNull();
+      expect(attach).not.toHaveBeenCalled();
+    });
+
+    it('signing out while open: the workspace stays, the EMR asks to sign in and has dropped its data, the viewer closed', async () => {
+      await setup([doc('a')]);
+      await openWs('record');
+      await tick();
+      expect(el.querySelector('#ws-panel-record')?.textContent).toContain('bola@example.test');
+      el.querySelector<HTMLElement>('[data-doc-id="a"]')?.click();
+      await tick();
+      signedIn.set(false);
+      await tick();
+      await tick();
+      expect(internals().wsOpen()).toBe(true);
+      expect(viewer.session()).toBeNull();
+      const text = el.querySelector('#ws-panel-record')?.textContent ?? '';
+      expect(text).not.toContain('bola@example.test');
+      expect(text).toContain('Sign in to the doctor portal');
+    });
+
+    describe('quick tools move focus', () => {
+      const tool = (label: string) => Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-notes button')).find((b) => b.textContent?.trim() === label);
+
+      it('ePrescription: the Prescriptions tab', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        tool('ePrescription')?.focus();
+        tool('ePrescription')?.click();
+        await tick();
+        expect(document.activeElement?.id).toBe('ws-tab-prescriptions');
+      });
+
+      it('Referral: the Follow-ups tab, #call-referral scrolled into view, focus on its heading', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        const spy = vi.fn();
+        const scroll = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = spy;
+        try {
+          tool('Referral')?.click();
+          await tick();
+          await tick();
+          expect(internals().wsTab()).toBe('followup');
+          expect(spy).toHaveBeenCalled();
+          expect(document.activeElement?.closest('#call-referral')).not.toBeNull();
+          expect(document.activeElement?.hasAttribute('data-ws-focus')).toBe(true);
+          expect(document.activeElement?.closest('[hidden]')).toBeNull();
+        } finally {
+          Element.prototype.scrollIntoView = scroll;
+        }
+      });
+
+      it('Use in SOAP note: the Consultation Notes tab', async () => {
+        await setup([doc('a')]);
+        await tick();
+        internals().copilotDraft.set({ diagnoses: [], medications: [], assessment: 'A', plan: 'P' });
+        await openWs('copilot');
+        const use = Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-copilot button')).find((b) => b.textContent?.includes('Use in SOAP note'));
+        expect(use).toBeTruthy();
+        expect(use?.disabled).toBe(false);
+        use?.focus();
+        use?.click();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('notes');
+        expect(document.activeElement?.id).toBe('ws-tab-notes');
+      });
+    });
+
+    it('Esc in the Follow-ups withdraw confirm closes the confirm; the workspace stays', async () => {
+      vi.stubGlobal('CSS', { escape: (id: string) => id });
+      await setup([doc('a')]);
+      followUps = [
+        {
+          id: 'f1',
+          patient_id: 'p1',
+          patient_name: 'Bola Ade',
+          specialist: { id: 'd1', name: 'Dr Ada Obi' },
+          scheduled_at: '2026-12-01T10:00:00Z',
+          expires_at: '2026-11-20T10:00:00Z',
+          type: 'video',
+          type_label: 'Video follow-up',
+          status: 'proposed',
+          status_label: 'Proposed',
+          amount: '0',
+          proposed_by: 'doctor',
+          created_at: '2026-11-01T10:00:00Z',
+        },
+      ];
+      await openWs('followup');
+      await tick();
+      const withdraw = Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-followup button')).find((b) => /withdraw/i.test(b.textContent ?? ''));
+      withdraw?.click();
+      await tick();
+      const group = el.querySelector('#ws-panel-followup [role="group"]');
+      expect(group?.textContent).toContain('Withdraw this proposal?');
+      esc(group?.querySelector('p') ?? null);
+      await tick();
+      expect(el.querySelector('#ws-panel-followup [role="group"]')?.textContent ?? '').not.toContain('Withdraw this proposal?');
+      expect(internals().wsOpen()).toBe(true);
+    });
+
+    it('Follow-ups: a referral’s View PDF opens it in the viewer, Print only', async () => {
+      await setup([doc('a')]);
+      await tick();
+      internals().referrals.set([{ id: 'r1', referral_type: 'specialist', target: 'Cardiology', reason: 'Palpitations', priority: 'routine', created_at: '2026-11-01T10:00:00Z' }]);
+      await openWs('followup');
+      el.querySelector<HTMLButtonElement>('[aria-label="View PDF of the referral to Cardiology"]')?.click();
+      expect(viewer.open).toHaveBeenCalledTimes(1);
+      const [source] = viewer.open.mock.calls[0] as [ViewerSource];
+      expect(source.key).toBe('referral:r1');
+      expect(source.policy).toBe('authored_print');
+    });
+
+    describe('announcements in the band', () => {
+      it('a new document: the band’s live region inside the dialog', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        answer = () => of({ data: access([doc('b', { title: 'Lab report' }), doc('a')]) });
+        call.loadDocumentAccess('refresh');
+        await tick(100);
+        const region = wsDialog()?.querySelector('.ws-band [aria-live="polite"]');
+        expect(region?.textContent).toContain('Bola shared a new document');
+        // The cockpit's copy is outside the dialog.
+        const cockpit = Array.from(el.querySelectorAll('[aria-live="polite"]')).filter((p) => !p.closest('dialog') && p.textContent?.includes('Bola shared'));
+        expect(cockpit.length).toBe(1);
+      });
+
+      it('joined, and a guest’s left; the patient’s left is said once, by its own line', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        const live = () => Array.from(wsDialog()?.querySelectorAll('.ws-band .sr-only[role="status"]') ?? []).map((p) => p.textContent).join(' | ');
+        const list = (...uids: number[]) => uids.map((uid) => ({ uid, hasVideo: false, hasAudio: true, speaking: false }));
+        internals().freshRoster.set([
+          { uid: 1, role: 'patient', name: 'Bola Ade' },
+          { uid: 3, role: 'guest', name: 'Tunde', consented: true, id: 'g1' },
+        ]);
+        await tick();
+        internals().remoteList.set(list(1));
+        await tick();
+        expect(live()).toContain('Bola Ade joined the call.');
+        internals().remoteList.set(list(1, 3));
+        await tick();
+        expect(live()).toContain('Tunde joined the call.');
+        internals().remoteList.set(list(1));
+        await tick();
+        expect(live()).toContain('Tunde left the call.');
+        internals().remoteList.set(list());
+        await tick();
+        // Said by the band's own line; the presence note has not changed to a second copy.
+        expect(live()).toContain('Bola Ade left the call');
+        expect(live().match(/Bola Ade left the call/g)?.length).toBe(1);
+      });
+
+      it('the patient coming back is said again; no "joined" lingers beside their "left"', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        const live = () => Array.from(wsDialog()?.querySelectorAll('.ws-band .sr-only[role="status"]') ?? []).map((p) => p.textContent).join(' | ');
+        const list = (...uids: number[]) => uids.map((uid) => ({ uid, hasVideo: false, hasAudio: true, speaking: false }));
+        internals().freshRoster.set([{ uid: 1, role: 'patient', name: 'Bola Ade' }]);
+        await tick();
+        for (let round = 0; round < 2; round++) {
+          internals().remoteList.set(list(1));
+          await tick();
+          expect(live()).toContain('Bola Ade joined the call.');
+          expect(live()).not.toContain('left the call');
+          internals().remoteList.set(list());
+          await tick();
+          expect(live()).toContain('Bola Ade left the call');
+          expect(live()).not.toContain('joined the call');
+        }
+      });
+
+      it('the very same line again (back under a new uid in one tick) still changes the region, so it is read out', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        const note = () => Array.from(wsDialog()?.querySelectorAll('.ws-band .sr-only[role="status"]') ?? []).find((p) => p.textContent?.includes('joined the call'));
+        const list = (...uids: number[]) => uids.map((uid) => ({ uid, hasVideo: false, hasAudio: true, speaking: false }));
+        internals().freshRoster.set([
+          { uid: 1, role: 'patient', name: 'Bola Ade' },
+          { uid: 4, role: 'patient', name: 'Bola Ade' },
+        ]);
+        await tick();
+        internals().remoteList.set(list(1));
+        await tick();
+        const first = note()?.textContent;
+        expect(first).toContain('Bola Ade joined the call.');
+        internals().remoteList.set(list(4));
+        await tick();
+        expect(note()?.textContent).toContain('Bola Ade joined the call.');
+        expect(note()?.textContent).not.toBe(first);
+      });
+    });
+
+    it('labs: closed, a focus reads nothing; reopened, one active read; a focus then, a passive one', async () => {
+      const list = vi.fn<(q: unknown, o?: { passive?: boolean }) => Observable<{ data: never[] }>>(() => of({ data: [] }));
+      await setup([doc('a')]);
+      TestBed.inject(LabRequestsApi).list = list as never;
+      await openWs('labs');
+      expect(list).toHaveBeenCalledTimes(1);
+      await closeIt();
+      list.mockClear();
+      window.dispatchEvent(new Event('focus'));
+      await tick();
+      expect(list).not.toHaveBeenCalled();
+      await openWs('labs');
+      expect(list).toHaveBeenCalledTimes(1);
+      expect(list.mock.calls[0]?.[1]).toBeUndefined();
+      window.dispatchEvent(new Event('focus'));
+      await tick();
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(list.mock.calls[1]?.[1]).toEqual({ passive: true });
+    });
+
+    it('the Full EMR’s Documents ignore the cockpit’s filter', async () => {
+      await setup([doc('a', { document_type: 'xray_report' }), doc('b')]);
+      internals().recordsTab.set('imaging');
+      await tick();
+      await openWs('record');
+      await tick();
+      el.querySelector<HTMLButtonElement>('#ws-emr-tab-documents')?.click();
+      await tick();
+      const views = Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-emr-panel-documents [data-doc-id]'));
+      expect(views.map((b) => b.getAttribute('data-doc-id')).sort()).toEqual(['a', 'b']);
+      views.find((b) => b.getAttribute('data-doc-id') === 'b')?.click();
+      expect(viewer.open).toHaveBeenCalledTimes(1);
+      const [sources, options] = viewer.open.mock.calls[0] as [ViewerSource[], ViewerOpenOptions];
+      expect(sources.map((s) => s.key).sort()).toEqual(['doc:a', 'doc:b']);
+      expect(sources.every((s) => s.policy === 'view_only')).toBe(true);
+      expect(options.watermark).toBeTruthy();
     });
   });
 
