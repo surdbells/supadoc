@@ -162,7 +162,9 @@ export const WS_CSS = `
   imports: [DialogComponent, IconComponent, NgTemplateOutlet],
   providers: [provideWorkspaceIcons()],
   styles: [WS_CSS],
-  host: { class: 'contents' },
+  // `title` is an input: drop the attribute a static `title="…"` leaves on the
+  // host, or the browser shows it as a tooltip anywhere over the workspace.
+  host: { class: 'contents', '[attr.title]': 'null' },
   template: `
     <sd-dialog
       [open]="open()"

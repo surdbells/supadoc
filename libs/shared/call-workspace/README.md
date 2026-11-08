@@ -27,4 +27,13 @@ app's initial `styles.css`. `bundle-guard.spec.ts` keeps out the patterns that g
 lazy code (a `[style]` map binding, rxjs's timer, a namespace import used as a value, an eased
 timing keyword in a CSS string).
 
+## Its lint guard
+
+The lib runs inside the doctor's call page, but the doctor app's download guard
+(`apps/doctor/eslint.config.mjs`) covers `apps/doctor` only. So `eslint.config.mjs` here carries
+it too, with the viewer's no-window / no-HTML rules: no window opening, no HTML writing, no object
+URLs, no `saveBlob`, no `patientDocumentBlob` or old open-in-a-tab helpers, no view-only routes
+(`patientDocumentView`, `viewResult`) and no `@supadoc/viewer/embed` (copy comes from the light
+entry, `@supadoc/viewer`). Documents open in the call page's shared viewer.
+
 Run `pnpm nx test shared-call-workspace` and `pnpm nx lint shared-call-workspace`.

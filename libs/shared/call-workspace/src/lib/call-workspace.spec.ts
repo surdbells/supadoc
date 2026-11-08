@@ -118,6 +118,17 @@ class Host {
   }
 }
 
+/** A page that writes its title statically (title="…"), as sd-dialog's callers do. */
+@Component({
+  imports: [CallWorkspace],
+  template: `<sd-call-workspace [open]="open()" [(tab)]="tab" [tabs]="tabs" title="Dr Ade" kicker="Consultation tools" closeLabel="Close consultation tools" />`,
+})
+class StaticTitleHost {
+  readonly open = signal(false);
+  readonly tab = signal<Key>('notes');
+  readonly tabs = TABS;
+}
+
 describe('CallWorkspace (the shell)', () => {
   let fixture: ComponentFixture<Host>;
   let host: Host;
@@ -261,6 +272,30 @@ describe('CallWorkspace (the shell)', () => {
       expect(q('.ws-share')).not.toBeNull();
       expect(q('.ws-head')?.textContent).toContain('Female · 34 yrs');
       expect(q('.ws-head')?.textContent).toContain('Allergies: Penicillin');
+    });
+
+    it('a static title="…" stays off the host element (no tooltip over the whole workspace)', async () => {
+      TestBed.configureTestingModule({ imports: [StaticTitleHost], providers: [provideSupadocIcons()] });
+      const f = TestBed.createComponent(StaticTitleHost);
+      const el = f.nativeElement as HTMLElement;
+      document.body.appendChild(el);
+      try {
+        f.detectChanges();
+        f.componentInstance.open.set(true);
+        f.detectChanges();
+        TestBed.inject(ApplicationRef).tick();
+        await new Promise((r) => setTimeout(r));
+        f.detectChanges();
+        const d = dialog();
+        expect(d?.open).toBe(true);
+        expect(el.querySelector('sd-call-workspace')?.hasAttribute('title')).toBe(false);
+        expect(d?.closest('[title]')).toBeNull();
+        const names = (d?.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent?.trim());
+        expect(names).toEqual([KICKER, 'Dr Ade']);
+      } finally {
+        f.destroy();
+        el.remove();
+      }
     });
   });
 
