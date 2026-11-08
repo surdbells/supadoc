@@ -24,15 +24,17 @@ import {
 import { LUCIDE_ICONS, type LucideIconData } from '@lucide/angular';
 import { DialogComponent, IconComponent } from '@supadoc/ui';
 import { DETAILS_HIDDEN, HIDE_VIDEO, moveVideoLabel, SHOW_VIDEO, STOP_SHARING, videoMoved } from '@supadoc/viewer';
-import { WS_CLOSE, WS_KICKER, type WorkspaceTab, type WorkspaceTabDef, wsShareBanner } from './call-workspace-copy';
+import type { WorkspaceFlag, WorkspaceTabDef } from './workspace-types';
 
 /*
- * The doctor's call workspace (§1-§3 of its spec): one large modal over the
- * cockpit holding the five consultation tools and the Full EMR, with the call
- * band on top and the patient's live video as its picture-in-picture, like the
- * shared document viewer. A presentational shell: the panels are declared in
- * `doc-call`'s template and projected here, so they live with the call page and
- * closing the modal destroys none of their state.
+ * A call page's workspace: one large modal over the call cockpit holding the
+ * page's tools (the doctor's: the five consultation tools and the Full EMR),
+ * with the call band on top and the peer's live video as its
+ * picture-in-picture, like the shared document viewer. A presentational shell:
+ * the panels are declared in the call page's template and projected here
+ * (`[sdWsPanel]`), so they live with the page and closing the modal destroys
+ * none of their state. Apart from the viewer's own copy, every word it shows
+ * comes from its inputs (kicker, title, close label, share text, tabs, marks).
  */
 
 /** The layouts: `desktop` ≥ 1024 px, `tablet` 640–1023, `phone` < 640, `compact` a phone held sideways, whatever its width. */
@@ -94,11 +96,13 @@ const STICKY_BAR_GAP = 8;
 
 /*
  * Component styles (never new Tailwind utilities: those land in the initial
- * styles.css), with the theme variables the doctor build emits. The literal
+ * styles.css), with the theme variables the app builds emit. The literal
  * colours are the viewer's own values, so the two bands and PiPs match.
+ * Its emitted stylesheet stays under 4,000 bytes (the component budget): a
+ * byte added here is offset in the same change.
  */
 export const WS_CSS = `
-@media print { doc-call-workspace dialog { display: none !important; } }
+@media print { sd-call-workspace dialog { display: none !important; } }
 .ws-frame { --ws-ring: var(--color-frost); --ws-pip-w: 224px; --ws-pip-h: 168px; --ws-inset: 16px; }
 .ws-frame[data-tone='light'] { --ws-ring: var(--color-cerulean); }
 /* The shell's OWN chrome only: the projected panels keep their own focus styles (frost is about 1.3:1 on the glacier paper zones). */
@@ -149,9 +153,9 @@ export const WS_CSS = `
 @media (prefers-reduced-motion: reduce) { .ws-frame * { transition: none !important; } }
 `;
 
-/** The shell itself: see the file's comment. */
+/** The shell itself: see the file's comment. `K` is the call page's tab keys. */
 @Component({
-  selector: 'doc-call-workspace',
+  selector: 'sd-call-workspace',
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Styles the band template's nodes ([data-band-label]) and the PiP placeholder; every class is ws-prefixed.
   encapsulation: ViewEncapsulation.None,
@@ -215,7 +219,7 @@ export const WS_CSS = `
                     <span class="sr-only">Allergies: {{ allergies().join(', ') }}</span>
                   </span>
                 }
-                <button type="button" class="ws-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field" [attr.aria-label]="c$.WS_CLOSE" (click)="closed.emit()">
+                <button type="button" class="ws-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field" [attr.aria-label]="closeLabel()" (click)="closed.emit()">
                   <sd-icon name="x" [size]="22" />
                 </button>
               }
@@ -228,8 +232,8 @@ export const WS_CSS = `
                   </span>
                 }
                 <div class="min-w-0 flex-1">
-                  <p [id]="kickerId" class="font-sans text-caption font-semibold uppercase tracking-wide text-white/70" [class.sr-only]="phone()">{{ c$.WS_KICKER }}</p>
-                  <h2 [id]="titleId" class="truncate font-heading text-body-lg font-semibold text-white" [attr.title]="patientName()">{{ patientName() }}</h2>
+                  <p [id]="kickerId" class="font-sans text-caption font-semibold uppercase tracking-wide text-white/70" [class.sr-only]="phone()">{{ kicker() }}</p>
+                  <h2 [id]="titleId" class="truncate font-heading text-body-lg font-semibold text-white" [attr.title]="title()">{{ title() }}</h2>
                   <p [id]="metaId" class="truncate font-sans text-caption text-white/70">{{ sharing() ? c$.DETAILS_HIDDEN : meta() }}</p>
                 </div>
                 @if (allergies().length && !sharing()) {
@@ -248,20 +252,20 @@ export const WS_CSS = `
                     <span class="sr-only">Allergies: {{ allergies().join(', ') }}</span>
                   </span>
                 }
-                <button type="button" class="ws-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field transition-colors hover:bg-white/10" [attr.aria-label]="c$.WS_CLOSE" (click)="closed.emit()">
+                <button type="button" class="ws-hbtn inline-flex size-11 shrink-0 items-center justify-center rounded-field transition-colors hover:bg-white/10" [attr.aria-label]="closeLabel()" (click)="closed.emit()">
                   <sd-icon name="x" [size]="22" />
                 </button>
               </header>
             } @else {
               <!-- Compact: the same kicker, title and meta, sr-only (they still name and describe the dialog). -->
               <div class="sr-only">
-                <p [id]="kickerId">{{ c$.WS_KICKER }}</p>
-                <h2 [id]="titleId">{{ patientName() }}</h2>
+                <p [id]="kickerId">{{ kicker() }}</p>
+                <h2 [id]="titleId">{{ title() }}</h2>
                 <p [id]="metaId">{{ sharing() ? c$.DETAILS_HIDDEN : meta() }}</p>
               </div>
             }
             <div class="ws-tabs flex border-b border-white/10 px-2">
-              <div #strip role="tablist" aria-label="Consultation tools" class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+              <div #strip role="tablist" [attr.aria-label]="tablistLabel() || kicker()" class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
                 @for (t of tabs(); track t.key) {
                   <button
                     type="button"
@@ -277,11 +281,20 @@ export const WS_CSS = `
                     (keydown)="onTabKey($event)"
                   >
                     <sd-icon [name]="t.icon" [size]="16" class="shrink-0" />{{ t.label }}
-                    @if (flags()[t.key] === 'unsaved') {
-                      <span class="ws-flag-unsaved size-1.5 rounded-full" aria-hidden="true"></span><span class="sr-only">, unsaved changes</span>
-                    }
-                    @if (flags()[t.key] === 'live') {
-                      <span class="size-1.5 rounded-full bg-alert motion-safe:animate-pulse" aria-hidden="true"></span><span class="sr-only">, transcribing</span>
+                    @if (flags()[t.key]; as f) {
+                      <!-- The dot by mark (.ws-flag-unsaved is the warning dot); the app's own words after it. -->
+                      @switch (f.mark) {
+                        @case ('warn') {
+                          <span class="ws-flag-unsaved size-1.5 rounded-full" aria-hidden="true"></span>
+                        }
+                        @case ('live') {
+                          <span class="size-1.5 rounded-full bg-alert motion-safe:animate-pulse" aria-hidden="true"></span>
+                        }
+                        @case ('new') {
+                          <span class="size-1.5 rounded-full bg-cerulean" aria-hidden="true"></span>
+                        }
+                      }
+                      <span class="sr-only">{{ f.sr }}</span>
                     }
                     @if (tab() === t.key) {
                       <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
@@ -320,29 +333,39 @@ export const WS_CSS = `
     </sd-dialog>
   `,
 })
-export class CallWorkspace {
+export class CallWorkspace<K extends string = string> {
   private readonly doc = inject(DOCUMENT);
   private readonly injector = inject(Injector);
 
   readonly open = input(false);
-  readonly tab = model.required<WorkspaceTab>();
-  readonly tabs = input.required<readonly WorkspaceTabDef[]>();
+  readonly tab = model.required<K>();
+  readonly tabs = input.required<readonly WorkspaceTabDef<K>[]>();
   /** The call page's band template (#viewerBar). */
   readonly band = input<TemplateRef<unknown> | null>(null);
   /** The call page's tile template (#workspacePeer). */
   readonly peer = input<TemplateRef<unknown> | null>(null);
+  /** The peer's name (the PiP's Move label). */
   readonly peerName = input('');
-  readonly patientName = input('');
-  /** "Female · 34 yrs". */
+  /** The dialog's title (the doctor: the patient's name). */
+  readonly title = input('');
+  /** The small line above the title; with the title, it names the dialog ("Consultation tools"). */
+  readonly kicker = input.required<string>();
+  /** The ✕ button's name ("Close consultation tools"). */
+  readonly closeLabel = input.required<string>();
+  /** The tab strip's name; the kicker when empty. */
+  readonly tablistLabel = input('');
+  /** Under the title, e.g. "Female · 34 yrs". */
   readonly meta = input('');
   readonly allergies = input<readonly string[]>([]);
+  /** Hides the meta and the allergies (the page shares its screen and they are private). */
   readonly sharing = input(false);
-  readonly recording = input(false);
+  /** The share banner's words (the page's own, e.g. with the recording). */
+  readonly shareText = input('');
   /** The share banner shows (false while the Full EMR shows its own cover). */
   readonly shareBanner = input(false);
   readonly tone = input<'dark' | 'light'>('dark');
-  /** Small marks on tabs: 'unsaved' (prescriptions), 'live' (transcribing). */
-  readonly flags = input<Partial<Record<WorkspaceTab, 'unsaved' | 'live'>>>({});
+  /** Small marks on tabs, each with the app's own screen-reader words (see WorkspaceFlag). */
+  readonly flags = input<Partial<Record<K, WorkspaceFlag>>>({});
 
   readonly closed = output<void>();
   readonly afterClose = output<void>();
@@ -355,8 +378,8 @@ export class CallWorkspace {
   protected readonly compact = computed(() => this.layout() === 'compact');
   protected readonly phone = computed(() => this.layout() === 'phone');
 
-  /** The copy the template reads, by name (no namespace object: the viewer's bundle rule). */
-  protected readonly c$ = { DETAILS_HIDDEN, HIDE_VIDEO, moveVideoLabel, SHOW_VIDEO, STOP_SHARING, WS_CLOSE, WS_KICKER } as const;
+  /** The viewer's copy the template reads, by name (no namespace object: the viewer's bundle rule). */
+  protected readonly c$ = { DETAILS_HIDDEN, HIDE_VIDEO, moveVideoLabel, SHOW_VIDEO, STOP_SHARING } as const;
   protected readonly kickerId = `ws-kicker-${++nextId}`;
   protected readonly titleId = `ws-title-${nextId}`;
   protected readonly metaId = `ws-meta-${nextId}`;
@@ -368,9 +391,8 @@ export class CallWorkspace {
   protected readonly pipHidden = signal(false);
   protected readonly drag = signal<string | null>(null);
   protected readonly announcement = signal('');
-  protected readonly shareText = computed(() => wsShareBanner(this.recording()));
-  /** Registered by docWsPanel. */
-  protected readonly panels = signal<ReadonlySet<WorkspaceTab>>(new Set());
+  /** Registered by sdWsPanel. */
+  protected readonly panels = signal<ReadonlySet<string>>(new Set());
 
   private readonly frame = viewChild<ElementRef<HTMLElement>>('frame');
   private readonly bandEl = viewChild<ElementRef<HTMLElement>>('bandEl');
@@ -379,14 +401,14 @@ export class CallWorkspace {
   private readonly pipEl = viewChild<ElementRef<HTMLElement>>('pip');
   private readonly showVideoBtn = viewChild<ElementRef<HTMLElement>>('showVideoBtn');
   /** `.ws-scroll`'s offset per tab, and each `[data-ws-keep-scroll]` element's by key. */
-  private readonly scrollMemory = new Map<WorkspaceTab, number>();
+  private readonly scrollMemory = new Map<K, number>();
   private readonly keptScroll = new Map<string, number>();
   /** An explicit target for the next tab change (showTab): wins over the remembered scroll. */
   private pendingTarget: { readonly id?: string } | null = null;
   private dragFrom: { x: number; y: number } | null = null;
   /** The call-band control focus is on (null once focus has moved elsewhere). */
   private bandFocus: HTMLElement | null = null;
-  private lastTab: WorkspaceTab | null = null;
+  private lastTab: K | null = null;
 
   constructor() {
     // Before sd-dialog's first focus (after render), so the selected tab is there to take it.
@@ -441,7 +463,7 @@ export class CallWorkspace {
    * `targetId` inside the frame, else focus the tab (the button that was pressed
    * is now in a hidden panel, and focus would fall to `<body>` inside a modal).
    */
-  showTab(key: WorkspaceTab, targetId?: string): void {
+  showTab(key: K, targetId?: string): void {
     this.pendingTarget = targetId === undefined ? {} : { id: targetId };
     if (this.tab() === key) {
       afterNextRender(() => this.afterTabChange(key), { injector: this.injector });
@@ -450,11 +472,11 @@ export class CallWorkspace {
     this.tab.set(key);
   }
 
-  registerPanel(key: WorkspaceTab): void {
+  registerPanel(key: string): void {
     this.panels.update((s) => new Set([...s, key]));
   }
 
-  unregisterPanel(key: WorkspaceTab): void {
+  unregisterPanel(key: string): void {
     this.panels.update((s) => new Set([...s].filter((k) => k !== key)));
   }
 
@@ -470,7 +492,7 @@ export class CallWorkspace {
 
   // ----- tabs -----
 
-  protected select(key: WorkspaceTab): void {
+  protected select(key: K): void {
     this.tab.set(key);
   }
 
@@ -489,11 +511,11 @@ export class CallWorkspace {
     afterNextRender(() => this.tabEl(next)?.focus(), { injector: this.injector });
   }
 
-  private tabEl(key: WorkspaceTab): HTMLElement | null {
+  private tabEl(key: K): HTMLElement | null {
     return this.doc.getElementById('ws-tab-' + key);
   }
 
-  private afterTabChange(key: WorkspaceTab): void {
+  private afterTabChange(key: K): void {
     this.revealTab(key);
     const pending = this.pendingTarget;
     this.pendingTarget = null;
@@ -511,7 +533,7 @@ export class CallWorkspace {
   }
 
   /** Only the strip scrolls sideways (never the page), so the selected tab shows in full. */
-  private revealTab(key: WorkspaceTab): void {
+  private revealTab(key: K): void {
     const strip = this.strip()?.nativeElement;
     const tab = this.tabEl(key);
     if (!strip || !tab) return;
@@ -673,12 +695,14 @@ export class CallWorkspace {
 }
 
 /**
- * One projected panel of the workspace (`<div docWsPanel="notes">`, declared in
- * `doc-call`'s template): a tabpanel, only hidden while another tab shows.
- * `.sd-tab-panel` is styled by `doc-call`'s component CSS (the host is an element of its template).
+ * One projected panel of the workspace (`<div sdWsPanel="notes">`, declared in
+ * the call page's template): a tabpanel, only hidden while another tab shows.
+ * `.sd-tab-panel` is styled by the call page's component CSS (the host is an
+ * element of its template). Not generic: a static attribute value gives the
+ * compiler nothing to infer a key type from, and the shell registers strings.
  */
 @Directive({
-  selector: '[docWsPanel]',
+  selector: '[sdWsPanel]',
   host: {
     role: 'tabpanel',
     class: 'sd-tab-panel block',
@@ -688,7 +712,7 @@ export class CallWorkspace {
   },
 })
 export class WorkspacePanel {
-  readonly key = input.required<WorkspaceTab>({ alias: 'docWsPanel' });
+  readonly key = input.required<string>({ alias: 'sdWsPanel' });
   /** Projected content injects the shell it is projected into. */
   protected readonly ws = inject(CallWorkspace);
 

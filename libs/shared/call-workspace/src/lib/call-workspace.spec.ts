@@ -1,21 +1,46 @@
-import { ApplicationRef, Component, signal, viewChild } from '@angular/core';
+import { ApplicationRef, Component, computed, output, signal, viewChild } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideSupadocIcons } from '@supadoc/ui';
-import { RxCancelForm } from '../prescriptions/rx-cancel-form';
-import { DoctorApi } from '@supadoc/data-access';
 import { CallWorkspace, WorkspacePanel, WS_CSS } from './call-workspace';
-import { WS_CLOSE, WS_TABS, type WorkspaceTab, wsShareBanner } from './call-workspace-copy';
+import type { WorkspaceFlag, WorkspaceTabDef } from './workspace-types';
+
+/** A call page's tabs and words (the doctor's, as an example: the shell holds none of them). */
+type Key = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot' | 'record';
+const TABS: readonly WorkspaceTabDef<Key>[] = [
+  { key: 'notes', label: 'Consultation Notes', icon: 'square-pen' },
+  { key: 'prescriptions', label: 'Prescriptions', icon: 'pill' },
+  { key: 'labs', label: 'Lab requests', icon: 'flask-conical' },
+  { key: 'followup', label: 'Follow-ups', icon: 'calendar-clock' },
+  { key: 'copilot', label: 'Transcript & AI', icon: 'sparkles' },
+  { key: 'record', label: 'Full EMR', icon: 'clipboard-list' },
+];
+const KICKER = 'Consultation tools';
+const CLOSE = 'Close consultation tools';
+const shareWords = (recording: boolean) => (recording ? 'You are sharing your screen and recording.' : 'You are sharing your screen.');
+const UNSAVED: WorkspaceFlag = { mark: 'warn', sr: ', unsaved changes' };
+const LIVE: WorkspaceFlag = { mark: 'live', sr: ', transcribing' };
+/** WS_CSS's length at 88f505a (5,128) minus the one byte of the print rule's rename (plan X2). */
+const WS_CSS_MAX = 5127;
 
 let projectedCreated = 0;
 
 /** A projected component, to tell whether closing destroys it. */
-@Component({ selector: 'doc-fake-tool', template: `<input id="fake-field" />` })
+@Component({ selector: 'sd-fake-tool', template: `<input id="fake-field" />` })
 class FakeTool {
   readonly stamp = ++projectedCreated;
 }
 
+/** A tool's inline form whose Esc dismisses the form only (it prevents the event, as the doctor's RxCancelForm does). */
 @Component({
-  imports: [CallWorkspace, WorkspacePanel, FakeTool, RxCancelForm],
+  selector: 'sd-fake-form',
+  template: `<form (keydown.escape)="$event.preventDefault(); dismissed.emit()"><input id="fake-form-field" /></form>`,
+})
+class FakeForm {
+  readonly dismissed = output<void>();
+}
+
+@Component({
+  imports: [CallWorkspace, WorkspacePanel, FakeTool, FakeForm],
   template: `
     <button id="launcher" type="button">Launcher</button>
     <ng-template #bandTpl>
@@ -25,25 +50,28 @@ class FakeTool {
       }
     </ng-template>
     <ng-template #peerTpl><div id="fake-peer"></div></ng-template>
-    <doc-call-workspace
+    <sd-call-workspace
       [open]="open()"
       [(tab)]="tab"
       [tabs]="tabs"
       [band]="bandTpl"
       [peer]="hasPeer() ? peerTpl : null"
       peerName="Bola Ade"
-      patientName="Bola Ade"
+      [title]="title()"
+      [kicker]="kicker()"
+      [closeLabel]="closeLabel"
+      [tablistLabel]="tablistLabel()"
       meta="Female · 34 yrs"
       [allergies]="allergies()"
       [sharing]="sharing()"
-      [recording]="recording()"
-      [shareBanner]="sharing()"
+      [shareText]="shareText()"
+      [shareBanner]="banner() ?? sharing()"
       [flags]="flags()"
       (closed)="onClosed()"
       (stopSharing)="stops = stops + 1"
     >
-      <div docWsPanel="notes" id="notes-panel-host">
-        <doc-fake-tool />
+      <div sdWsPanel="notes" id="notes-panel-host">
+        <sd-fake-tool />
         <div data-ws-keep-scroll="transcript" id="kept"></div>
         <button id="in-notes" type="button">In notes</button>
         <div id="target"><p data-ws-focus tabindex="-1" id="target-heading">Target</p></div>
@@ -54,24 +82,31 @@ class FakeTool {
           <div id="sticky-bar" class="sticky bottom-0"><button id="in-bar" type="button">Save</button></div>
         }
       </div>
-      <div docWsPanel="labs">
-        <doc-rx-cancel-form prescriptionId="rx1" number="RX-1" (dismissed)="cancels = cancels + 1" />
+      <div sdWsPanel="labs">
+        <sd-fake-form (dismissed)="cancels = cancels + 1" />
       </div>
-    </doc-call-workspace>
+    </sd-call-workspace>
   `,
 })
 class Host {
   readonly open = signal(false);
-  readonly tab = signal<WorkspaceTab>('notes');
-  readonly tabs = WS_TABS;
+  readonly tab = signal<Key>('notes');
+  readonly tabs = TABS;
+  readonly title = signal('Bola Ade');
+  readonly kicker = signal(KICKER);
+  readonly closeLabel = CLOSE;
+  readonly tablistLabel = signal('');
   readonly hasPeer = signal(true);
   readonly sharing = signal(false);
   readonly recording = signal(false);
+  readonly shareText = computed(() => shareWords(this.recording()));
+  /** The share banner on its own (null: it follows sharing, as the doctor binds it). */
+  readonly banner = signal<boolean | null>(null);
   readonly bandExtra = signal(false);
   readonly nested = signal(false);
   readonly stickyBar = signal(false);
   readonly allergies = signal<readonly string[]>(['Penicillin']);
-  readonly flags = signal<Partial<Record<WorkspaceTab, 'unsaved' | 'live'>>>({});
+  readonly flags = signal<Partial<Record<Key, WorkspaceFlag>>>({});
   readonly tool = viewChild(FakeTool);
   readonly ws = viewChild.required(CallWorkspace);
   closes = 0;
@@ -111,7 +146,7 @@ describe('CallWorkspace (the shell)', () => {
   function setup() {
     TestBed.configureTestingModule({
       imports: [Host],
-      providers: [provideSupadocIcons(), { provide: DoctorApi, useValue: {} }],
+      providers: [provideSupadocIcons()],
     });
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
@@ -121,7 +156,7 @@ describe('CallWorkspace (the shell)', () => {
 
   const q = <T extends Element = HTMLElement>(sel: string) => document.querySelector<T>(sel);
   const dialog = () => q<HTMLDialogElement>('dialog.sd-dialog--viewer');
-  const tabEl = (key: WorkspaceTab) => q<HTMLButtonElement>('#ws-tab-' + key);
+  const tabEl = (key: Key) => q<HTMLButtonElement>('#ws-tab-' + key);
   const key = (el: Element | null, k: string, init: KeyboardEventInit = {}) => {
     const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
     el?.dispatchEvent(ev);
@@ -146,7 +181,7 @@ describe('CallWorkspace (the shell)', () => {
       expect(dialog()).toBeNull();
       expect(projectedCreated).toBe(before + 1);
       expect(host.tool()).toBeTruthy();
-      expect(q('doc-fake-tool')).toBeNull();
+      expect(q('sd-fake-tool')).toBeNull();
     });
 
     it('open: a modal named by the kicker and the title, focus on the selected tab, the band before the header', async () => {
@@ -168,14 +203,14 @@ describe('CallWorkspace (the shell)', () => {
       setup();
       await openIt();
       const tool = host.tool();
-      q<HTMLButtonElement>(`[aria-label="${WS_CLOSE}"]`)?.click();
+      q<HTMLButtonElement>(`[aria-label="${CLOSE}"]`)?.click();
       expect(host.closes).toBe(1);
       await settle();
       expect(dialog()).toBeNull();
-      expect(q('doc-fake-tool')).toBeNull();
+      expect(q('sd-fake-tool')).toBeNull();
       await openIt();
       expect(host.tool()).toBe(tool);
-      expect(q('doc-fake-tool')).not.toBeNull();
+      expect(q('sd-fake-tool')).not.toBeNull();
       key(document.activeElement, 'Escape');
       expect(host.closes).toBe(2);
     });
@@ -189,6 +224,83 @@ describe('CallWorkspace (the shell)', () => {
       d.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }));
       d.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }));
       expect(host.closes).toBe(1);
+    });
+  });
+
+  describe('its words come from the page', () => {
+    it('kicker, title and closeLabel name the dialog and ✕; the tablist is named by the kicker unless tablistLabel is set', async () => {
+      setup();
+      host.kicker.set('Consultation notes');
+      host.title.set('Dr Ade');
+      await openIt();
+      const d = dialog();
+      const names = (d?.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent?.trim());
+      expect(names).toEqual(['Consultation notes', 'Dr Ade']);
+      expect(q('.ws-head h2')?.getAttribute('title')).toBe('Dr Ade');
+      expect(document.querySelectorAll(`.ws-head [aria-label="${CLOSE}"]`).length).toBe(1);
+      expect(q('[role="tablist"]')?.getAttribute('aria-label')).toBe('Consultation notes');
+      host.tablistLabel.set('Notes');
+      await settle();
+      expect(q('[role="tablist"]')?.getAttribute('aria-label')).toBe('Notes');
+    });
+
+    it('shareText is the banner’s words', async () => {
+      setup();
+      host.sharing.set(true);
+      await openIt();
+      expect(q('.ws-share')?.textContent).toContain('You are sharing your screen.');
+      host.recording.set(true);
+      await settle();
+      expect(q('.ws-share')?.textContent).toContain('You are sharing your screen and recording.');
+    });
+
+    it('with sharing unbound, the meta and the allergies stay while the banner shows', async () => {
+      setup();
+      host.banner.set(true);
+      await openIt();
+      expect(q('.ws-share')).not.toBeNull();
+      expect(q('.ws-head')?.textContent).toContain('Female · 34 yrs');
+      expect(q('.ws-head')?.textContent).toContain('Allergies: Penicillin');
+    });
+  });
+
+  describe('tab marks ({ mark, sr }, the words the page’s own)', () => {
+    const dots = (k: Key) => Array.from(tabEl(k)?.querySelectorAll('span.rounded-full') ?? []).filter((s) => s.getAttribute('aria-hidden') === 'true');
+    const words = (k: Key) => Array.from(tabEl(k)?.querySelectorAll('.sr-only') ?? []).map((s) => s.textContent);
+
+    it('warn: the warning dot (.ws-flag-unsaved) and exactly the given words', async () => {
+      setup();
+      host.flags.set({ prescriptions: UNSAVED });
+      await openIt();
+      expect(dots('prescriptions').map((d) => d.classList.contains('ws-flag-unsaved'))).toEqual([true]);
+      expect(words('prescriptions')).toEqual([', unsaved changes']);
+    });
+
+    it('live: a pulsing alert dot; new: a cerulean dot', async () => {
+      setup();
+      host.flags.set({ copilot: LIVE, labs: { mark: 'new', sr: ', new' } });
+      await openIt();
+      const live = dots('copilot');
+      expect(live.length).toBe(1);
+      expect(live[0]?.classList.contains('bg-alert')).toBe(true);
+      expect(live[0]?.classList.contains('motion-safe:animate-pulse')).toBe(true);
+      expect(words('copilot')).toEqual([', transcribing']);
+      const fresh = dots('labs');
+      expect(fresh.length).toBe(1);
+      expect(fresh[0]?.classList.contains('bg-cerulean')).toBe(true);
+      expect(fresh[0]?.classList.contains('ws-flag-unsaved')).toBe(false);
+      expect(words('labs')).toEqual([', new']);
+    });
+
+    it('another app’s warn words need no shell change; an undefined entry renders nothing', async () => {
+      setup();
+      host.flags.set({ labs: { mark: 'warn', sr: ', not sent' }, notes: undefined });
+      await openIt();
+      expect(dots('labs').map((d) => d.classList.contains('ws-flag-unsaved'))).toEqual([true]);
+      expect(words('labs')).toEqual([', not sent']);
+      expect(dots('notes')).toEqual([]);
+      expect(words('notes')).toEqual([]);
+      expect(tabEl('notes')?.textContent?.trim()).toBe('Consultation Notes');
     });
   });
 
@@ -238,7 +350,7 @@ describe('CallWorkspace (the shell)', () => {
 
     it('marks say unsaved and transcribing in words too', async () => {
       setup();
-      host.flags.set({ prescriptions: 'unsaved', copilot: 'live' });
+      host.flags.set({ prescriptions: UNSAVED, copilot: LIVE });
       await openIt();
       expect(tabEl('prescriptions')?.textContent).toContain(', unsaved changes');
       expect(tabEl('copilot')?.textContent).toContain(', transcribing');
@@ -459,11 +571,11 @@ describe('CallWorkspace (the shell)', () => {
   });
 
   describe('Esc', () => {
-    it('inside a projected real RxCancelForm: dismissed, not closed; the dialog stays open', async () => {
+    it('inside a projected form that prevents it (a tool’s inline form): dismissed, not closed; the dialog stays open', async () => {
       setup();
       host.tab.set('labs');
       await openIt();
-      const form = q('doc-rx-cancel-form form');
+      const form = q('sd-fake-form form');
       expect(form).not.toBeNull();
       key(form, 'Escape');
       await settle();
@@ -552,10 +664,10 @@ describe('CallWorkspace (the shell)', () => {
       await settle();
       const banner = q('.ws-share');
       expect(banner?.getAttribute('role')).toBe('status');
-      expect(banner?.textContent).toContain(wsShareBanner(false));
+      expect(banner?.textContent).toContain(shareWords(false));
       host.recording.set(true);
       await settle();
-      expect(banner?.textContent).toContain(wsShareBanner(true));
+      expect(banner?.textContent).toContain(shareWords(true));
       expect(q('.ws-head')?.textContent).toContain('Details hidden while you share your screen.');
       expect(q('.ws-head')?.textContent).not.toContain('Female');
       expect(q('.ws-head')?.textContent).not.toContain('Penicillin');
@@ -593,7 +705,7 @@ describe('CallWorkspace (the shell)', () => {
       await openIt();
       expect(q('.ws-head')).toBeNull();
       const band = q('.ws-band');
-      expect(band?.querySelector(`[aria-label="${WS_CLOSE}"]`)).not.toBeNull();
+      expect(band?.querySelector(`[aria-label="${CLOSE}"]`)).not.toBeNull();
       expect(band?.textContent).toContain('Allergies: Penicillin');
       expect(band?.querySelector('.rounded-pill')?.classList.contains('text-white')).toBe(true);
       const d = dialog();
@@ -629,7 +741,13 @@ describe('CallWorkspace (the shell)', () => {
     });
 
     it('never prints the workspace', () => {
-      expect(WS_CSS).toContain('@media print { doc-call-workspace dialog { display: none !important; } }');
+      expect(WS_CSS).toContain('@media print { sd-call-workspace dialog { display: none !important; } }');
+    });
+
+    it('frozen size (plan X2): no longer than at 88f505a less the print rule rename; the new mark adds no rule', () => {
+      expect(WS_CSS.length).toBeLessThanOrEqual(WS_CSS_MAX);
+      expect(WS_CSS).not.toContain('.ws-flag-new');
+      expect(WS_CSS).not.toContain('doc-call-workspace');
     });
   });
 });

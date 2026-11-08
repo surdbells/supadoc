@@ -1,15 +1,14 @@
+import type { WorkspaceTabDef as LibTabDef } from '@supadoc/call-workspace';
+
 /*
- * The call workspace's tabs and every string it shows. Plain text: rendered with
- * Angular interpolation, never as HTML.
+ * The call workspace's tabs and every string it shows (the shared shell,
+ * `@supadoc/call-workspace`, holds none of the doctor's words). Plain text:
+ * rendered with Angular interpolation, never as HTML.
  */
 
 export type WorkspaceTab = 'notes' | 'prescriptions' | 'labs' | 'followup' | 'copilot' | 'record';
 
-export interface WorkspaceTabDef {
-  readonly key: WorkspaceTab;
-  readonly label: string;
-  readonly icon: string;
-}
+export type WorkspaceTabDef = LibTabDef<WorkspaceTab>;
 
 export const WS_TABS: readonly WorkspaceTabDef[] = [
   { key: 'notes', label: 'Consultation Notes', icon: 'square-pen' },
@@ -25,6 +24,9 @@ export const WS_LAUNCHERS: readonly WorkspaceTabDef[] = WS_TABS.filter((t) => t.
 
 export const WS_KICKER = 'Consultation tools';
 export const WS_CLOSE = 'Close consultation tools';
+/** The tab marks' screen-reader words, read after the tab's label (the shell draws the dots). */
+export const WS_TAB_UNSAVED = ', unsaved changes';
+export const WS_TAB_LIVE = ', transcribing';
 export const WS_TOOLS_HINT = (first: string) => `Open over the call. ${first || 'The patient'} stays in view.`;
 export const wsShareBanner = (recording: boolean) =>
   recording

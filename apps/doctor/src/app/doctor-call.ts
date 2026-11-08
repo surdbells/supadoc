@@ -92,6 +92,7 @@ import {
   shortDayLabel,
 } from '@supadoc/ui';
 import { CallPeerTileComponent, DocumentViewerService, SHARE_COVER_TITLE, shareCoverText, SHOW_ANYWAY, STOP_SHARING } from '@supadoc/viewer';
+import { CallWorkspace, PeerHandover, type WorkspaceFlag, WorkspacePanel } from '@supadoc/call-workspace';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import {
@@ -125,18 +126,21 @@ import { FollowUpPlanner } from './appointment/follow-up-planner';
 import { RequestAccessDialog } from './appointment/request-access-dialog';
 import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointment/note-draft';
 import { CallPatientRecord } from './call-workspace/call-patient-record';
-import { CallWorkspace, WorkspacePanel } from './call-workspace/call-workspace';
 import {
   STANDING_REFUSED,
   STANDING_TERMS,
+  WS_CLOSE,
+  WS_KICKER,
   WS_LAUNCHERS,
   WS_RECORD_SHOWN,
   WS_STATUS,
+  WS_TAB_LIVE,
+  WS_TAB_UNSAVED,
   WS_TABS,
   WS_TOOLS_HINT,
   type WorkspaceTab,
+  wsShareBanner,
 } from './call-workspace/call-workspace-copy';
-import { PeerHandover } from './call-workspace/peer-handover';
 import { callHoldWanted, FIRST_WAIT_HOLD_MS } from './call-hold';
 import { DoctorClock } from './doctor-clock';
 import { focusAfterDialogs } from './focus-after-dialog';
@@ -1206,7 +1210,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          call band on top, the patient's live video as its picture-in-picture). The panels
          stay declared here and are projected into it: each is mounted the first time it
          shows, then only hidden, so closing it destroys no draft, list or drill-in. -->
-    <doc-call-workspace
+    <sd-call-workspace
       #ws
       [open]="wsOpen()"
       [(tab)]="wsTab"
@@ -1214,20 +1218,22 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       [band]="viewerBar"
       [peer]="workspacePeer"
       [peerName]="patientName()"
-      [patientName]="patientName()"
+      [title]="patientName()"
+      [kicker]="wsKicker"
+      [closeLabel]="wsClose"
       [meta]="patientMeta()"
       [allergies]="allergyNames()"
       [sharing]="screenOn()"
-      [recording]="recordingActive()"
+      [shareText]="wsShareText()"
       [shareBanner]="screenOn() && !(wsTab() === 'record' && recordCovered())"
       [tone]="theme()"
-      [flags]="{ prescriptions: rxUnsaved() ? 'unsaved' : undefined, copilot: transcribing() ? 'live' : undefined }"
+      [flags]="wsFlags()"
       (closed)="closeWorkspace()"
       (afterClose)="onWorkspaceClosed()"
       (stopSharing)="stopSharingFromWorkspace()"
     >
       @if (wsSeen().has('notes')) {
-        <div docWsPanel="notes">
+        <div sdWsPanel="notes">
           <!-- Documentation header: status + auto-save + finalize -->
           <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
@@ -1370,7 +1376,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </div>
       }
       @if (wsSeen().has('prescriptions')) {
-        <div docWsPanel="prescriptions">
+        <div sdWsPanel="prescriptions">
           <!-- Until the prescribing panel is mounted: why, or that it is on its way. -->
           @if (!rxMounted()) {
           @if (!portalSignedIn()) {
@@ -1455,7 +1461,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </div>
       }
       @if (wsSeen().has('labs')) {
-        <div docWsPanel="labs">
+        <div sdWsPanel="labs">
           <!-- "New lab request" opens the composer in a new tab, so this call stays connected. -->
           <doc-call-lab-requests
             [appointmentId]="rxAppointmentId()"
@@ -1469,7 +1475,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </div>
       }
       @if (wsSeen().has('followup')) {
-        <div docWsPanel="followup">
+        <div sdWsPanel="followup">
           @if (followUpMounted() && rxAppointmentId(); as apptId) {
             <div class="mb-4">
               @if (!portalSignedIn()) {
@@ -1717,7 +1723,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </div>
       }
       @if (wsSeen().has('copilot')) {
-        <div docWsPanel="copilot">
+        <div sdWsPanel="copilot">
           <!-- Live transcription -->
           <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <span class="font-sans text-body-sm font-semibold text-white">Live transcription</span>
@@ -1828,7 +1834,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </div>
       }
       @if (wsSeen().has('record')) {
-        <div docWsPanel="record">
+        <div sdWsPanel="record">
           <!-- Covered while the doctor shares their screen, like a view-only document. -->
           @if (recordCovered()) {
             <div class="mx-auto mt-6 flex max-w-md flex-col items-center gap-3 rounded-card border border-white/10 bg-white/[0.04] px-6 py-6 text-center" role="group" aria-labelledby="ws-cover-title">
@@ -1860,7 +1866,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </div>
         </div>
       }
-    </doc-call-workspace>
+    </sd-call-workspace>
 
     <!-- The one live region for documents ("Request sent.", "Ada shared a new document…").
          Outside every panel that can be hidden (the records aside at mid and narrow), so it
@@ -2551,6 +2557,15 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly wsLaunchers = WS_LAUNCHERS;
   protected readonly wsOpen = signal(false);
   protected readonly wsTab = signal<WorkspaceTab>('notes');
+  /** The shell's words (the shared shell holds none of the doctor's copy). */
+  protected readonly wsKicker = WS_KICKER;
+  protected readonly wsClose = WS_CLOSE;
+  protected readonly wsShareText = computed(() => wsShareBanner(this.recordingActive()));
+  /** The tabs' marks: a warning dot while the prescription has unsaved changes, a live dot while transcribing. */
+  protected readonly wsFlags = computed<Partial<Record<WorkspaceTab, WorkspaceFlag>>>(() => ({
+    prescriptions: this.rxUnsaved() ? { mark: 'warn', sr: WS_TAB_UNSAVED } : undefined,
+    copilot: this.transcribing() ? { mark: 'live', sr: WS_TAB_LIVE } : undefined,
+  }));
   /** The panels shown so far (each mounted on first show, then only hidden, until the page goes). */
   protected readonly wsSeen = signal<ReadonlySet<WorkspaceTab>>(new Set());
   private readonly workspace = viewChild(CallWorkspace);

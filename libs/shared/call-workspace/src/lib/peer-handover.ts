@@ -1,11 +1,11 @@
 import { signal } from '@angular/core';
 import type { CallUid, CallVideoTrack } from '@supadoc/ui';
 
-/** Who plays the patient's video: the cockpit's stage, the workspace's tile, the document viewer's tile, or nobody for one render (the workspace's tile is going). */
+/** Who plays the peer's video (the other side of the call): the cockpit's stage, the workspace's tile, the document viewer's tile, or nobody for one render (the workspace's tile is going). */
 export type PeerHolder = 'stage' | 'workspace' | 'viewer' | 'returning';
 
 export interface PeerHandoverHost {
-  /** The patient's uid now (the roster's, else the emailed link's). */
+  /** The peer's uid now (e.g. the roster's, else the emailed link's). */
   peerUid(): CallUid;
   /** Agora's CURRENT video track of a uid (never a stored copy). */
   remoteVideo(uid: CallUid): CallVideoTrack | null;
@@ -20,7 +20,7 @@ export interface PeerHandoverHost {
 }
 
 /**
- * One owner of the patient's video at a time (an Agora track plays in one
+ * One owner of the peer's video at a time (an Agora track plays in one
  * element: stopping one playback stops the other). A tile that gives the video
  * up is DESTROYED in the update phase of a tick (its `DestroyRef` stops the track
  * synchronously), and a receiving tile only plays in `afterRenderEffect`, which
@@ -33,7 +33,7 @@ export class PeerHandover {
   private readonly holderState = signal<PeerHolder>('stage');
   readonly holder = this.holderState.asReadonly();
   private readonly trackState = signal<CallVideoTrack | null>(null);
-  /** The patient's track for the tile that holds it (workspace or viewer); null while the stage holds it. */
+  /** The peer's track for the tile that holds it (workspace or viewer); null while the stage holds it. */
   readonly track = this.trackState.asReadonly();
   private pending: { destroy(): void } | null = null;
 
@@ -76,7 +76,7 @@ export class PeerHandover {
       this.holderState.set('stage');
       if (this.host.left()) return;
       const uid = this.host.peerUid();
-      const t = this.host.remoteVideo(uid); // re-read: the patient may have re-published or left
+      const t = this.host.remoteVideo(uid); // re-read: the peer may have re-published or left
       if (t) this.host.stageAttach(uid, t);
     });
   }
@@ -109,7 +109,7 @@ export class PeerHandover {
     if (t) this.host.stageAttach(uid, t);
   }
 
-  /** The doctor left (teardown): nothing is handed anywhere again. */
+  /** This side left the call (teardown): nothing is handed anywhere again. */
   callLeft(): void {
     this.cancelPending();
     this.holderState.set('stage');

@@ -27,7 +27,8 @@
       "@supadoc/data-access": ["./libs/shared/data-access/src/index.ts"],
       "@supadoc/auth": ["./libs/shared/auth/src/index.ts"],
       "@supadoc/viewer": ["./libs/shared/viewer/src/index.ts"],
-      "@supadoc/viewer/embed": ["./libs/shared/viewer/src/embed.ts"]
+      "@supadoc/viewer/embed": ["./libs/shared/viewer/src/embed.ts"],
+      "@supadoc/call-workspace": ["./libs/shared/call-workspace/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

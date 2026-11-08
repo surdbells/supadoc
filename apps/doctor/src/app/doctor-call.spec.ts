@@ -1134,6 +1134,21 @@ describe('DoctorCall — documents in the call', () => {
         await tick();
         expect(launcher('copilot')?.textContent).toContain('Draft ready');
       });
+
+      it('the shared shell (sd-call-workspace) hosts the panels; the launcher card and its CSS are as before', async () => {
+        await setup([doc('a')]);
+        expect(el.querySelector('sd-call-workspace')).not.toBeNull();
+        expect(el.querySelector('doc-call-workspace')).toBeNull();
+        expect(el.querySelectorAll('#call-tools ul.ws-launchers > li > button.ws-launcher[data-ws-launcher]').length).toBe(5);
+        expect(el.querySelectorAll('#call-tools .ws-launcher .ws-launcher-label').length).toBe(5);
+        expect(el.querySelectorAll('#call-tools .ws-launcher .ws-launcher-status').length).toBe(5);
+        expect(callStyles()).toContain('.ws-launchers');
+        expect(callStyles()).toMatch(/\.ws-launcher-status[^{]*\{[^}]*min-height/);
+        await openWs('prescriptions');
+        expect(el.querySelector('sd-call-workspace dialog.sd-dialog--viewer #ws-panel-prescriptions')).not.toBeNull();
+        expect(el.querySelector('dialog.sd-dialog--viewer [role="tablist"]')?.getAttribute('aria-label')).toBe('Consultation tools');
+        await closeIt();
+      });
     });
 
     it('narrow: the switcher reads Tools · Patient · Documents · People, Tools’ panel the launcher card', async () => {
