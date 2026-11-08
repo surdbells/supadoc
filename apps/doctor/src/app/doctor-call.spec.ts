@@ -1135,15 +1135,22 @@ describe('DoctorCall — documents in the call', () => {
         expect(launcher('copilot')?.textContent).toContain('Draft ready');
       });
 
-      it('the shared shell (sd-call-workspace) hosts the panels; the launcher card and its CSS are as before', async () => {
+      it('the shared shell (sd-call-workspace) hosts the panels; the shared launcher list (sd-call-launchers) is the card, its CSS gone from the page', async () => {
         await setup([doc('a')]);
         expect(el.querySelector('sd-call-workspace')).not.toBeNull();
         expect(el.querySelector('doc-call-workspace')).toBeNull();
-        expect(el.querySelectorAll('#call-tools ul.ws-launchers > li > button.ws-launcher[data-ws-launcher]').length).toBe(5);
-        expect(el.querySelectorAll('#call-tools .ws-launcher .ws-launcher-label').length).toBe(5);
-        expect(el.querySelectorAll('#call-tools .ws-launcher .ws-launcher-status').length).toBe(5);
-        expect(callStyles()).toContain('.ws-launchers');
-        expect(callStyles()).toMatch(/\.ws-launcher-status[^{]*\{[^}]*min-height/);
+        expect(el.querySelector('#call-tools sd-call-launchers')).not.toBeNull();
+        expect(el.querySelectorAll('#call-tools sd-call-launchers ul.ws-launchers > li > button.ws-launcher[data-ws-launcher]').length).toBe(5);
+        expect(el.querySelector('#call-tools sd-call-launchers')?.getAttribute('data-tone')).toBe('dark');
+        // A status line only where there is a status (its height reserved otherwise: item 3).
+        expect(el.querySelectorAll('#call-tools .ws-launcher-status').length).toBe(el.querySelectorAll('#call-tools .ws-launcher-text:not(.ws-launcher-text--bare)').length);
+        // The page keeps only its own rules (the launcher CSS lives in the shared component).
+        expect(callStyles()).not.toContain('.ws-launchers');
+        expect(callStyles()).not.toContain('.ws-launcher-status');
+        expect(callStyles()).not.toContain('container: tools');
+        expect(callStyles()).toMatch(/\.ws-ring\S*:focus-visible/);
+        expect(callStyles()).toMatch(/\.ws-tools-start/);
+        expect(callStyles()).toMatch(/\.ws-transcript/);
         await openWs('prescriptions');
         expect(el.querySelector('sd-call-workspace dialog.sd-dialog--viewer #ws-panel-prescriptions')).not.toBeNull();
         expect(el.querySelector('dialog.sd-dialog--viewer [role="tablist"]')?.getAttribute('aria-label')).toBe('Consultation tools');

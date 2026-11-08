@@ -16,3 +16,21 @@ export interface WorkspaceFlag {
   readonly mark: 'warn' | 'live' | 'new';
   readonly sr: string;
 }
+
+/**
+ * What a launcher says under its label: short visible words (`text`), the rest
+ * for screen readers (`sr`), and a tone: `muted` a plain caption, `warn` the
+ * warning colour, `live` a pulsing alert dot, `new` a dot in the "new" colour.
+ * The words are the app's own; a launcher's height never changes with it.
+ */
+export interface LauncherStatus {
+  readonly text: string;
+  readonly sr?: string;
+  readonly tone: 'muted' | 'warn' | 'live' | 'new';
+}
+
+/** A launcher was pressed: which tab, and the button (focus returns to it when the workspace closes). */
+export interface LauncherOpen<K extends string = string> {
+  readonly key: K;
+  readonly opener: HTMLElement;
+}

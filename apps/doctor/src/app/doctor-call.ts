@@ -92,7 +92,7 @@ import {
   shortDayLabel,
 } from '@supadoc/ui';
 import { CallPeerTileComponent, DocumentViewerService, SHARE_COVER_TITLE, shareCoverText, SHOW_ANYWAY, STOP_SHARING } from '@supadoc/viewer';
-import { CallWorkspace, PeerHandover, type WorkspaceFlag, WorkspacePanel } from '@supadoc/call-workspace';
+import { CallLaunchers, CallWorkspace, type LauncherStatus, PeerHandover, type WorkspaceFlag, WorkspacePanel } from '@supadoc/call-workspace';
 import { environment } from '../environments/environment';
 import { CERTIFICATE_BACKDATE_DAYS } from './appointment/clinical/clinical-certificates';
 import {
@@ -161,12 +161,6 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 /** Whether the note's save line signals a problem (the launcher reads the type, never the words). */
 type NoteIssue = '' | 'failed' | 'device' | 'signed-out';
-/** A launcher's status under its label: short visible words, the rest for screen readers. */
-interface LauncherStatus {
-  readonly text: string;
-  readonly sr?: string;
-  readonly tone: 'muted' | 'warn' | 'live';
-}
 /** Narrow screens: the section under the video. */
 type CallSection = 'notes' | 'patient' | 'documents' | 'people';
 /** Mid screens: the side panel's tab. */
@@ -381,6 +375,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
     FollowUpPlanner,
     CallPatientRecord,
     CallPeerTileComponent,
+    CallLaunchers,
     CallWorkspace,
     WorkspacePanel,
     IconComponent,
@@ -423,35 +418,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       :host([data-theme='light']) .sd-badge,
       :host([data-theme='light']) .bg-cerulean.text-white { color: #ffffff; }
 
-      /* The launcher card under the video: its own height in the grid's tools row. */
-      #call-tools { container: tools / inline-size; }
+      /* The launcher card under the video (sd-call-launchers): its own height in the grid's tools row. */
       .ws-tools-start { align-self: start; }
-      /* The launchers, "View Full EMR" and the Full EMR cover's buttons. theme.css has no light remap for the frost outline: about 1.3:1 on the light cockpit. */
+      /* "View Full EMR" and the Full EMR cover's buttons. theme.css has no light remap for the frost outline: about 1.3:1 on the light cockpit. */
       .ws-ring:focus-visible { outline: 2px solid var(--color-frost); outline-offset: 2px; }
       :host([data-theme='light']) .ws-ring:focus-visible { outline-color: var(--color-cerulean); }
-      /* Phones (container < 32rem): two columns, icon above, body-sm labels; an odd last one spans both. */
-      .ws-launchers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
-      .ws-launchers > li:last-child:nth-child(odd) { grid-column: 1 / -1; }
-      .ws-launcher { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; width: 100%; height: 100%; padding: 0.5rem 0.75rem; text-align: left; }
-      .ws-launcher-label {
-        font-size: var(--text-body-sm); line-height: var(--text-body-sm--line-height); letter-spacing: var(--text-body-sm--letter-spacing);
-        display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: normal;
-      }
-      .ws-launcher-status { min-height: var(--text-caption--line-height); }
-      .ws-launcher-status--warn { color: var(--color-warning); }
-      :host([data-theme='light']) .ws-launcher-status--warn { color: var(--color-warning-ink); }
-      /* 32–51.99rem: ONE ROW of five, icon above, caption labels (2 lines at most, broken at spaces only). */
-      @container tools (min-width: 32rem) {
-        .ws-launchers { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-        .ws-launchers > li:last-child:nth-child(odd) { grid-column: auto; }
-        .ws-launcher { padding: 0.5rem 0.375rem; }
-        .ws-launcher-label { font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); }
-      }
-      /* From 52rem: one row of five, icon beside the text, body-sm labels. */
-      @container tools (min-width: 52rem) {
-        .ws-launcher { flex-direction: row; align-items: center; gap: 0.5rem; padding: 0.625rem 0.75rem; }
-        .ws-launcher-label { font-size: var(--text-body-sm); line-height: var(--text-body-sm--line-height); letter-spacing: var(--text-body-sm--letter-spacing); }
-      }
       /* Narrow pages scroll: room under the launchers for the fixed Feedback button (index.html). */
       .ws-tools-narrow { margin-bottom: 3rem; }
       /* The transcript in the workspace: its box scrolls, its offset is kept (data-ws-keep-scroll). */
@@ -760,38 +731,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             <h3 id="call-tools-heading" tabindex="-1" class="font-sans text-body-sm font-semibold text-white outline-none">Consultation tools</h3>
             <p class="font-sans text-caption text-white/70">{{ toolsHint() }}</p>
           </div>
-          <ul class="ws-launchers" role="list">
-            @for (t of wsLaunchers; track t.key) {
-              @let s = launcherStatus()[t.key];
-              <li class="min-w-0">
-                <button
-                  type="button"
-                  class="ws-launcher ws-ring rounded-2xl border border-white/10 bg-white/[0.04] transition-colors hover:bg-white/[0.08]"
-                  [attr.data-ws-launcher]="t.key"
-                  aria-haspopup="dialog"
-                  (click)="openWorkspace(t.key, $event.currentTarget)"
-                >
-                  <span class="flex size-8 shrink-0 items-center justify-center rounded-xl bg-cerulean/15 text-frost" aria-hidden="true"><sd-icon [name]="t.icon" [size]="18" /></span>
-                  <span class="flex min-w-0 flex-col">
-                    <span class="ws-launcher-label font-sans font-semibold text-white">{{ t.label }}</span>
-                    <!-- Always rendered (one caption line reserved): a status appearing never changes the row's height. -->
-                    <span class="ws-launcher-status flex min-w-0 items-center gap-1 font-sans text-caption" [class]="s?.tone === 'warn' ? 'ws-launcher-status--warn' : 'text-white/70'">
-                      @if (s) {
-                        <span class="sr-only">, </span>
-                        @if (s.tone === 'live') {
-                          <span class="size-1.5 shrink-0 rounded-full bg-alert motion-safe:animate-pulse" aria-hidden="true"></span>
-                        }
-                        <span class="truncate">{{ s.text }}</span>
-                        @if (s.sr) {
-                          <span class="sr-only">{{ s.sr }}</span>
-                        }
-                      }
-                    </span>
-                  </span>
-                </button>
-              </li>
-            }
-          </ul>
+          <!-- The shared launcher list: a status line only when there is one, its height reserved
+               otherwise, so each label sits centred on its icon and the row never jumps. -->
+          <sd-call-launchers [items]="wsLaunchers" [statuses]="launcherStatus()" [tone]="theme()" (opened)="openWorkspace($event.key, $event.opener)" />
         </section>
 
         <!-- ===================== SIDE: chart, records, participants =====================

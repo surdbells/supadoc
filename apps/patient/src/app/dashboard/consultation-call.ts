@@ -53,7 +53,9 @@ import {
   type DocumentGrantDto,
   type DocumentShareResultDto,
   type HealthProfileDto,
+  type ClinicalDocumentKind,
   type LabOrderDto,
+  type MedicalCertificateDto,
   type MedicalDocumentDto,
   type MedicationRow,
   type PatientCarePlanDto,
@@ -85,28 +87,60 @@ import {
   type CallUid,
   type CallVideoPlayConfig,
   type CallVideoTrack,
+  callTileInitials,
   IconComponent,
   type RemoteParticipant,
   RemoteParticipants,
-  SmoothHeightDirective,
   type CallTile,
 } from '@supadoc/ui';
 import { CallPeerTileComponent, DocumentViewerService } from '@supadoc/viewer';
+import {
+  CallLaunchers,
+  CallWorkspace,
+  type LauncherStatus,
+  PeerHandover,
+  type WorkspaceFlag,
+  WorkspacePanel,
+} from '@supadoc/call-workspace';
 import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call-helpers';
 import { openLocalMedia } from '../call/call-media';
 import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
+import {
+  BAND_ENDED,
+  count,
+  DOC_REQUEST,
+  NEWS,
+  NOTES_CLOSE,
+  NOTES_HINT_AFTER,
+  NOTES_KICKER,
+  NOTES_STATUS,
+  NOTES_TAB_NEW,
+  NOTES_TABS,
+  notesHint,
+  notesShareBanner,
+  type NotesTab,
+} from './call-notes-copy';
 import { doctorTimeLabel } from './doctor-time';
 import { drLast, isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
 import { DocumentUploadDialog } from './document-upload-dialog';
 import { isOpenProposal, whenLabel } from './follow-up';
 import { InviteGuestDialog } from './invite-guest-dialog';
 import { labChip, testsLabel } from './lab-ui';
+import { hasLabPdf, myLabRequestPdfSource } from './lab-viewer-sources';
 import { ShareConfirmSheet } from './share-confirm-sheet';
 import { ShareDialog } from './share-dialog';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
-import { deviceZone, myDocumentSource, myPrescriptionSource, openerOf } from './viewer-sources';
+import { SeenIds } from './seen-ids';
+import {
+  deviceZone,
+  myClinicalDocumentSource,
+  myDocumentSource,
+  myPrescriptionSource,
+  openerOf,
+  type ViewerClinicalDocument,
+  viewerDate,
+} from './viewer-sources';
 
-type NotesTab = 'notes' | 'prescriptions' | 'labs' | 'followup';
 type DocsTab = 'all' | 'labs' | 'imaging' | 'reports';
 
 /** Idle-timer hold key while a consultation is actually going on. */
@@ -192,6 +226,11 @@ const FIT_OPTIONS = [
   { value: 'cover', label: 'Fill', ariaLabel: 'Fill the frame' },
 ] as const;
 
+/** A referral letter or medical certificate in the Follow-up Plan tab (opened in the viewer). */
+interface FollowupDocument extends ViewerClinicalDocument {
+  readonly kind: ClinicalDocumentKind;
+}
+
 /** A record shown in the right-hand Documents & Records panel. */
 interface RecordItem {
   readonly title: string;
@@ -236,23 +275,25 @@ interface RecordItem {
   imports: [
     ApproveRequestDialog,
     ButtonComponent,
+    CallLaunchers,
     CallPeerTileComponent,
     CallControlsComponent,
     CallQualityComponent,
     CallSelfTileComponent,
     CallTilesComponent,
+    CallWorkspace,
     DocumentUploadDialog,
     IconComponent,
     InviteGuestDialog,
     NgTemplateOutlet,
     ShareConfirmSheet,
     ShareDialog,
-    SmoothHeightDirective,
+    WorkspacePanel,
   ],
   host: { class: 'block' },
   styles: [
     `
-      /* Tab panels fade in softly when switched (replays when re-rendered). */
+      /* The workspace's panels fade in softly when their tab is shown (replays on un-hide). */
       .sd-tab-panel { animation: sdTabIn 200ms cubic-bezier(0.2, 0, 0, 1); }
       @keyframes sdTabIn {
         from { opacity: 0; transform: translateY(6px); }
@@ -261,14 +302,17 @@ interface RecordItem {
       @media (prefers-reduced-motion: reduce) {
         .sd-tab-panel { animation: none; }
       }
+      /* The rx "Active" chip in the DARK cockpit: #00a328 is 4.07:1 on its success/15 tint over the row; the portal's dark tone (styles.css) is 7.98:1. */
+      .sd-call[data-theme='dark'] .sd-share .text-success { color: #6fdc8c; }
     `,
   ],
   template: `
-    <!-- The document viewer's call band (§3.3). Any document opened while this page lives opens
-         in the shared viewer, a modal over the call: the viewer renders this band above its
-         header, always cockpit-dark (.sd-call[data-theme=dark]). The cockpit is inert behind
-         the modal, so the band mirrors its call-level live regions and banners, with their
-         actions, and keeps Mute and End in reach. -->
+    <!-- The call band of the document viewer (§3.3) and of the notes workspace. Any document
+         opened while this page lives opens in the shared viewer, a modal over the call: the viewer
+         renders this band above its header, always cockpit-dark (.sd-call[data-theme=dark]); the
+         workspace renders it on top too. The cockpit is inert behind either modal, so the band
+         mirrors its call-level live regions and banners, with their actions, and keeps Mute and
+         End in reach. -->
     <ng-template #viewerBar>
       <button
         type="button"
@@ -321,11 +365,46 @@ interface RecordItem {
           </button>
         </span>
       }
+      <!-- The call is over: the notes stay readable in the workspace, without the doctor's video. -->
+      @if (bandEnded(); as ended) {
+        <p class="basis-full font-sans text-caption text-white/80" role="status">{{ ended }}</p>
+      }
+      <!-- The doctor's request to see the patient's documents (the cockpit's own row is inert under a modal). -->
+      @if (pendingDocRequest(); as pr) {
+        <span class="flex basis-full flex-wrap items-center gap-2 font-sans text-caption text-white" role="status">
+          <sd-icon name="key-round" [size]="14" class="shrink-0" />{{ docRequestText() }}
+          <button
+            type="button"
+            class="inline-flex min-h-9 items-center rounded-field px-2.5 font-semibold text-frost transition-colors hover:bg-white/10 hover:text-white"
+            (click)="reviewDocRequest.set(pr)"
+          >
+            Review
+          </button>
+          <button
+            type="button"
+            class="inline-flex min-h-9 items-center rounded-field px-2.5 font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            (click)="dismissedRequest.set(pr.id)"
+          >
+            Not now
+          </button>
+        </span>
+      }
+      <p class="sr-only" role="status">{{ bandPresenceNote() }}</p>
+      <span class="sr-only" aria-live="polite" aria-atomic="true">{{ clinicalNote() }}</span>
       <span class="sr-only" aria-live="polite" aria-atomic="true">{{ docShareLive() }}</span>
     </ng-template>
-    <!-- The doctor's live video as the viewer's picture-in-picture (handed over from the stage, §3.4). -->
+    <!-- The doctor's live video as the viewer's picture-in-picture (handed over, never in two places, §3.4). -->
     <ng-template #viewerPeer>
-      <sd-call-peer-tile [tile]="viewerPeerTile()" [track]="viewerPeerTrack()" />
+      <sd-call-peer-tile [tile]="viewerPeerTile()" [track]="peer.holder() === 'viewer' ? peer.track() : null" />
+    </ng-template>
+    <!-- ... and the notes workspace's. -->
+    <ng-template #workspacePeer>
+      @if (peer.holder() === 'workspace') {
+        <sd-call-peer-tile [tile]="viewerPeerTile()" [track]="peer.track()" />
+      } @else {
+        <!-- The tile is with the viewer above, or going: initials, never a black box. -->
+        <div class="ws-peer-wait" aria-hidden="true"><span class="font-heading text-body font-semibold">{{ peerInitials() }}</span></div>
+      }
     </ng-template>
 
     <!-- New prescription notice (says who sent it and its number — never the medicines).
@@ -802,301 +881,15 @@ interface RecordItem {
             }
           </section>
 
-          <!-- Consultation notes (APG tabs: arrows, Home / End; a "New" pill, not colour alone) -->
-          <section
-            class="rounded-card border border-white/10 bg-white/[0.03] lg:min-h-[8rem] lg:flex-1 lg:overflow-y-auto"
-            aria-label="Consultation notes"
-          >
-            <div class="flex gap-1 overflow-x-auto border-b border-white/10 px-2" role="tablist" aria-label="Consultation notes">
-              @for (t of notesTabs; track t.key) {
-                <button
-                  type="button"
-                  role="tab"
-                  class="relative inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap px-3 py-3 font-sans text-body-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frost"
-                  [class]="notesTab() === t.key ? 'text-white' : 'text-white/70 hover:text-white'"
-                  [id]="'call-notes-tab-' + t.key"
-                  [attr.aria-selected]="notesTab() === t.key"
-                  [attr.aria-controls]="'call-notes-panel'"
-                  [tabIndex]="notesTab() === t.key ? 0 : -1"
-                  (click)="openNotesTab(t.key)"
-                  (keydown)="onNotesTabKey($event)"
-                >
-                  {{ t.label }}
-                  @if (t.key === 'prescriptions' && newRx()) {
-                    <span class="rounded-pill bg-cerulean/15 px-1.5 py-0.5 font-sans text-caption font-semibold text-frost">New<span class="sr-only"> prescription</span></span>
-                  }
-                  @if (notesTab() === t.key) {
-                    <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean" aria-hidden="true"></span>
-                  }
-                </button>
-              }
+          <!-- Consultation notes: four launchers, each opening the notes workspace (a modal over the
+               call, the doctor's video in its corner) on its tab. Its own height: the stage gives way. -->
+          <section id="call-notes" class="shrink-0 rounded-card border border-white/10 bg-white/[0.03] p-3" aria-labelledby="call-notes-heading">
+            <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-1">
+              <h2 id="call-notes-heading" tabindex="-1" class="font-sans text-body-sm font-semibold text-white outline-none">Consultation notes</h2>
+              <p class="font-sans text-caption text-white/70">{{ notesHint() }}</p>
             </div>
-
-            <!-- Height changes ease and each tab fades in, instead of jumping. -->
-            <div
-              id="call-notes-panel"
-              class="p-4"
-              role="tabpanel"
-              tabindex="0"
-              [attr.aria-labelledby]="'call-notes-tab-' + notesTab()"
-              sdSmoothHeight
-            >
-              <div>
-              <!-- Keyed (not tracked by identity): each tab remounts its panel for the fade, without the NG0956 dev warning. -->
-              @for (shown of [notesTab()]; track 'tab:' + shown) {
-              <div class="sd-tab-panel">
-              @switch (notesTab()) {
-                @case ('notes') {
-                  <div class="grid gap-5 sm:grid-cols-2">
-                    <div class="flex flex-col gap-4">
-                      <div>
-                        <h2 class="font-sans text-body-sm font-semibold text-white">
-                          Today’s Visit Summary
-                        </h2>
-                        <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
-                          {{ visitSummary() }}
-                        </p>
-                        @if (summaryReady() && summary()?.author) {
-                          <p class="mt-1 font-sans text-caption text-white/60">
-                            Finalized by {{ summary()?.author }}
-                          </p>
-                        }
-                      </div>
-                      @if (assessmentText()) {
-                        <div>
-                          <h2 class="font-sans text-body-sm font-semibold text-white">Assessment</h2>
-                          <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
-                            {{ assessmentText() }}
-                          </p>
-                        </div>
-                      } @else if (conditions().length) {
-                        <div>
-                          <h2 class="font-sans text-body-sm font-semibold text-white">Assessment</h2>
-                          <ul class="mt-1.5 flex flex-col gap-1">
-                            @for (c of conditions(); track c.condition) {
-                              <li class="font-sans text-body-sm text-white/60">
-                                {{ c.condition }}
-                                <span class="text-white/60">– {{ c.status || 'noted' }}</span>
-                              </li>
-                            }
-                          </ul>
-                        </div>
-                      }
-                    </div>
-
-                    <div class="flex flex-col gap-4">
-                      <div>
-                        <h2 class="font-sans text-body-sm font-semibold text-white">Next Steps</h2>
-                        <ul class="mt-1.5 flex list-disc flex-col gap-1 pl-4">
-                          @for (s of nextSteps(); track s) {
-                            <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
-                          }
-                        </ul>
-                      </div>
-                      <button
-                        type="button"
-                        class="flex items-center justify-between gap-3 rounded-2xl border border-cerulean/40 bg-cerulean/10 px-4 py-3 text-left transition-colors hover:bg-cerulean/20"
-                        (click)="goAppointments()"
-                      >
-                        <span class="flex items-center gap-3">
-                          <sd-icon name="calendar-clock" [size]="20" class="text-frost" />
-                          <span class="flex flex-col">
-                            <span class="font-sans text-body-sm font-medium text-white">
-                              {{ scheduledLabel() }}
-                            </span>
-                            <span class="font-sans text-caption text-white/50">
-                              {{ appointment()?.type_label || 'Consultation' }}
-                            </span>
-                          </span>
-                        </span>
-                        <sd-icon name="chevron-right" [size]="18" class="text-white/50" />
-                      </button>
-                    </div>
-                  </div>
-                }
-                @case ('prescriptions') {
-                  @if (issuedRx().length) {
-                    <div class="flex flex-col gap-3">
-                      @for (p of issuedRx(); track p.id) {
-                        <div
-                          class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div class="flex min-w-0 items-start gap-3">
-                            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
-                              <sd-icon name="pill" [size]="18" />
-                            </span>
-                            <div class="flex min-w-0 flex-col gap-1">
-                              <div class="flex flex-wrap items-center gap-2">
-                                <span class="font-sans text-body-sm font-semibold text-white">{{ p.number }}</span>
-                                <span
-                                  class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
-                                  [class]="rxStatus(p.status).cls"
-                                >
-                                  <sd-icon [name]="rxStatus(p.status).icon" [size]="12" />{{ rxStatus(p.status).label }}
-                                </span>
-                              </div>
-                              <span class="font-sans text-caption text-white/60">
-                                {{ doctorLabel(p) }}@if (p.valid_until) { · Valid until {{ shortDate(p.valid_until) }} }
-                              </span>
-                              <span class="font-sans text-[11px] text-white/60">
-                                {{ itemsLabel(p) }}@if (p.sent_at) { · Sent {{ rxDate(p.sent_at) }} }
-                              </span>
-                            </div>
-                          </div>
-                          <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
-                            <!-- The document viewer, a modal over the call (the call keeps running behind it). -->
-                            <button
-                              type="button"
-                              class="inline-flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:opacity-60"
-                              [attr.aria-label]="'View prescription ' + p.number"
-                              (click)="viewRx(p, $event)"
-                            >
-                              <sd-icon name="eye" [size]="14" />View
-                            </button>
-                          </div>
-                        </div>
-                      }
-                      <!-- The details page needs the portal session, which a new tab may not have
-                           (sessionStorage sign-ins), and opening it here would end the call. -->
-                      <p class="flex items-start gap-2 font-sans text-caption text-white/50">
-                        <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
-                        Full details are in Prescriptions after your call.
-                      </p>
-                    </div>
-                  } @else if (rxLoadError()) {
-                    <p class="flex items-start justify-center gap-2 py-6 text-center font-sans text-body-sm text-alert" role="alert">
-                      <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxLoadError() }}
-                    </p>
-                  } @else {
-                    <p class="py-5 text-center font-sans text-body-sm text-white/60">
-                      No prescriptions yet. If your doctor sends one during this consultation, it will appear here.
-                    </p>
-                    @if (medications().length) {
-                      <h2 class="mt-1 font-sans text-caption font-semibold uppercase tracking-wide text-white/50">
-                        Medicines you told us you take
-                      </h2>
-                      <ul class="flex flex-col divide-y divide-white/10">
-                        @for (m of medications(); track $index) {
-                          <li class="flex items-center gap-3 py-3">
-                            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
-                              <sd-icon [name]="isHerbal(m.herbal) ? 'leaf' : 'pill'" [size]="18" />
-                            </span>
-                            <span class="flex min-w-0 flex-col">
-                              <span class="font-sans text-body-sm font-medium text-white">{{ m.name }}</span>
-                              <span class="font-sans text-caption text-white/50">
-                                {{ m.dosage }}@if (m.frequency) { · {{ m.frequency }} }@if (m.reason) { · for {{ m.reason }} }
-                              </span>
-                            </span>
-                          </li>
-                        }
-                      </ul>
-                    }
-                  }
-                }
-                @case ('labs') {
-                  @if (labRequests().length || labs().length) {
-                    <ul class="flex flex-col gap-2">
-                      <!-- Lab requests: answered after the call, in Lab Tests (no navigation from the call) -->
-                      @for (lr of labRequests(); track lr.id) {
-                        <li class="rounded-2xl bg-white/[0.04] p-3" data-testid="call-lab-request">
-                          <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm font-medium text-white">
-                              <sd-icon name="flask-conical" [size]="16" class="shrink-0 text-frost" />
-                              <span class="break-all">{{ lr.number }}</span>
-                            </span>
-                            <span class="inline-flex shrink-0 items-center gap-1 rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85">
-                              <sd-icon [name]="labChipOf(lr).icon" [size]="12" />{{ labChipOf(lr).label }}
-                            </span>
-                          </div>
-                          <p class="mt-1 font-sans text-caption text-white/70">{{ labTests(lr.items_count) }}</p>
-                        </li>
-                      }
-                      @for (o of labs(); track o.id) {
-                        <li class="rounded-2xl bg-white/[0.04] p-3">
-                          <div class="flex items-center justify-between">
-                            <span class="flex items-center gap-2 font-sans text-body-sm font-medium text-white">
-                              <sd-icon name="clipboard-list" [size]="16" class="text-frost" /> Lab order
-                            </span>
-                            <!-- Legacy orders are read-only: never the raw stored status. -->
-                            <span class="rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85" data-testid="call-lab-order-status">
-                              Ordered
-                            </span>
-                          </div>
-                          <p class="mt-1 font-sans text-body-sm text-white/70">{{ o.tests.join(', ') }}</p>
-                          @if (o.author) {
-                            <p class="mt-1 font-sans text-caption text-white/60">Ordered by {{ o.author }}</p>
-                          }
-                        </li>
-                      }
-                    </ul>
-                    @if (labRequests().length) {
-                      <p class="mt-3 flex items-start gap-2 font-sans text-caption text-white/60">
-                        <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
-                        Open Lab Tests after your call to review and accept.
-                      </p>
-                    }
-                  } @else {
-                    <p class="py-6 text-center font-sans text-body-sm text-white/60">
-                      No lab requests for this consultation yet.
-                    </p>
-                  }
-                }
-                @case ('followup') {
-                  <!-- The doctor proposed a follow-up from this call: answered after it -->
-                  @for (fu of proposedFollowUps(); track fu.id) {
-                    <div class="mb-4 rounded-2xl border border-teal-bright/40 bg-teal-bright/10 px-3 py-3">
-                      <p class="flex items-start gap-2 font-sans text-body-sm text-white">
-                        <sd-icon name="calendar-plus" [size]="16" class="mt-0.5 shrink-0 text-teal-bright" />
-                        Your doctor proposed a follow-up on {{ proposalWhen(fu) }}.
-                      </p>
-                      <p class="mt-1 pl-6 font-sans text-caption text-white/60">
-                        After the call, accept it or choose another time in My Appointments.
-                      </p>
-                    </div>
-                  }
-                  @if (carePlan()?.available && (carePlan()?.items?.length ?? 0) > 0) {
-                    <div>
-                      <h2 class="font-sans text-body-sm font-semibold text-white">Your Care Plan</h2>
-                      <ul class="mt-2 flex flex-col gap-1.5">
-                        @for (item of carePlan()?.items ?? []; track $index) {
-                          <li class="flex items-start gap-2 font-sans text-body-sm text-white/70">
-                            <sd-icon name="circle-check" [size]="16" class="mt-0.5 shrink-0 text-sage" />
-                            {{ item }}
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  } @else {
-                    <div class="flex flex-col gap-3">
-                      <h2 class="font-sans text-body-sm font-semibold text-white">Follow-up Plan</h2>
-                      <ul class="flex list-disc flex-col gap-1 pl-4">
-                        @for (s of nextSteps(); track s) {
-                          <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
-                        }
-                      </ul>
-                    </div>
-                  }
-                  @if (referrals().length) {
-                    <div class="mt-4 border-t border-white/10 pt-3">
-                      <h2 class="mb-2 font-sans text-body-sm font-semibold text-white">Referrals</h2>
-                      <ul class="flex flex-col gap-2">
-                        @for (r of referrals(); track r.id) {
-                          <li class="rounded-2xl bg-white/[0.04] px-3 py-2">
-                            <p class="font-sans text-body-sm text-white/85">
-                              <span class="capitalize">{{ r.referral_type }}</span> — {{ r.target }}
-                            </p>
-                            <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
-                }
-              }
-              </div>
-              }
-              </div>
-            </div>
+            <sd-call-launchers [items]="wsTabs" [statuses]="launcherStatus()" [tone]="theme()" (opened)="openWorkspace($event.key, $event.opener)" />
+            <p class="sr-only" aria-live="polite" aria-atomic="true">{{ clinicalNote() }}</p>
           </section>
         </div>
 
@@ -1377,6 +1170,339 @@ interface RecordItem {
       </div>
       }
 
+      <!-- The consultation notes, in one large modal over the cockpit (the call band on top, the
+           doctor's live video as its picture-in-picture). The four panels are declared here and
+           projected into it, read-only: nothing in them leaves the call, and documents open in
+           the shared viewer over it. Inside .sd-call, so the cockpit's light theme applies. -->
+      <sd-call-workspace
+        [open]="wsOpen()"
+        [(tab)]="wsTab"
+        [tabs]="wsTabs"
+        [band]="viewerBar"
+        [peer]="wsPeerShown() ? workspacePeer : null"
+        [peerName]="viewerPeerName()"
+        [title]="wsTitle()"
+        [kicker]="notesKicker"
+        [closeLabel]="notesClose"
+        [meta]="doctorSpecialty()"
+        [shareBanner]="screenOn()"
+        [shareText]="notesShareText()"
+        [tone]="theme()"
+        [flags]="wsFlags()"
+        (closed)="closeWorkspace()"
+        (afterClose)="onWorkspaceClosed()"
+        (stopSharing)="stopSharingFromWorkspace()"
+      >
+        <!-- sd-share: the bright accents take their ink tones in the light cockpit (styles.css). -->
+        <div sdWsPanel="notes" class="sd-share">
+          <div class="grid gap-5 lg:grid-cols-2">
+            <div class="flex flex-col gap-4">
+              <div>
+                <h3 class="font-sans text-body-sm font-semibold text-white">
+                  Today’s Visit Summary
+                </h3>
+                <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
+                  {{ visitSummary() }}
+                </p>
+                @if (summaryReady() && summary()?.author) {
+                  <p class="mt-1 font-sans text-caption text-white/60">
+                    Finalized by {{ summary()?.author }}
+                  </p>
+                }
+              </div>
+              @if (assessmentText()) {
+                <div>
+                  <h3 class="font-sans text-body-sm font-semibold text-white">Assessment</h3>
+                  <p class="mt-1.5 font-sans text-body-sm leading-relaxed text-white/60">
+                    {{ assessmentText() }}
+                  </p>
+                </div>
+              } @else if (conditions().length) {
+                <div>
+                  <h3 class="font-sans text-body-sm font-semibold text-white">Assessment</h3>
+                  <ul class="mt-1.5 flex flex-col gap-1">
+                    @for (c of conditions(); track c.condition) {
+                      <li class="font-sans text-body-sm text-white/60">
+                        {{ c.condition }}
+                        <span class="text-white/60">– {{ c.status || 'noted' }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+            </div>
+
+            <div class="flex flex-col gap-4">
+              <div>
+                <h3 class="font-sans text-body-sm font-semibold text-white">Next Steps</h3>
+                <ul class="mt-1.5 flex list-disc flex-col gap-1 pl-4">
+                  @for (s of nextSteps(); track s) {
+                    <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
+                  }
+                </ul>
+              </div>
+              <!-- This consultation (plain text: nothing here leaves the call). -->
+              <div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                <sd-icon name="calendar-clock" [size]="20" class="shrink-0 text-frost" />
+                <span class="flex min-w-0 flex-col">
+                  <span class="font-sans text-body-sm font-medium text-white">
+                    {{ scheduledLabel() }}
+                  </span>
+                  <span class="font-sans text-caption text-white/60">
+                    {{ appointment()?.type_label || 'Consultation' }}
+                  </span>
+                </span>
+              </div>
+              @if (proposedFollowUps().length) {
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 w-fit items-center gap-1.5 rounded-field border border-white/15 px-3 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10"
+                  (click)="selectWorkspaceTab('followup', 'pat-ws-proposals')"
+                >
+                  <sd-icon name="calendar-plus" [size]="14" />See your follow-up plan
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+
+        <div sdWsPanel="prescriptions" class="sd-share">
+          @if (issuedRx().length) {
+            <div class="flex flex-col gap-3">
+              @for (p of issuedRx(); track p.id) {
+                <div
+                  class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div class="flex min-w-0 items-start gap-3">
+                    <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
+                      <sd-icon name="pill" [size]="18" />
+                    </span>
+                    <div class="flex min-w-0 flex-col gap-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="font-sans text-body-sm font-semibold text-white">{{ p.number }}</span>
+                        <span
+                          class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
+                          [class]="rxStatus(p.status).cls"
+                        >
+                          <sd-icon [name]="rxStatus(p.status).icon" [size]="12" />{{ rxStatus(p.status).label }}
+                        </span>
+                      </div>
+                      <span class="font-sans text-caption text-white/60">
+                        {{ doctorLabel(p) }}@if (p.valid_until) { · Valid until {{ shortDate(p.valid_until) }} }
+                      </span>
+                      <span class="font-sans text-caption text-white/60">
+                        {{ itemsLabel(p) }}@if (p.sent_at) { · Sent {{ rxDate(p.sent_at) }} }
+                      </span>
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                    <!-- The document viewer, a modal over the workspace (the call keeps running behind both). -->
+                    <button
+                      type="button"
+                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-white/15 px-3 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:opacity-60"
+                      [attr.aria-label]="'View prescription ' + p.number"
+                      (click)="viewRx(p, $event)"
+                    >
+                      <sd-icon name="eye" [size]="14" />View
+                    </button>
+                  </div>
+                </div>
+              }
+              <!-- The details page needs the portal session, which a new tab may not have
+                   (sessionStorage sign-ins), and opening it here would end the call. -->
+              <p class="flex items-start gap-2 font-sans text-caption text-white/50">
+                <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                Full details are in Prescriptions after your call.
+              </p>
+            </div>
+          } @else if (rxLoadError()) {
+            <p class="flex items-start justify-center gap-2 py-6 text-center font-sans text-body-sm text-alert" role="alert">
+              <sd-icon name="triangle-alert" [size]="16" class="mt-0.5 shrink-0" />{{ rxLoadError() }}
+            </p>
+          } @else {
+            <p class="py-5 text-center font-sans text-body-sm text-white/60">
+              No prescriptions yet. If your doctor sends one during this consultation, it will appear here.
+            </p>
+            @if (medications().length) {
+              <h3 class="mt-1 font-sans text-caption font-semibold uppercase tracking-wide text-white/50">
+                Medicines you told us you take
+              </h3>
+              <ul class="flex flex-col divide-y divide-white/10">
+                @for (m of medications(); track $index) {
+                  <li class="flex items-center gap-3 py-3">
+                    <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-sky/15 text-sky">
+                      <sd-icon [name]="isHerbal(m.herbal) ? 'leaf' : 'pill'" [size]="18" />
+                    </span>
+                    <span class="flex min-w-0 flex-col">
+                      <span class="font-sans text-body-sm font-medium text-white">{{ m.name }}</span>
+                      <span class="font-sans text-caption text-white/50">
+                        {{ m.dosage }}@if (m.frequency) { · {{ m.frequency }} }@if (m.reason) { · for {{ m.reason }} }
+                      </span>
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+          }
+        </div>
+
+        <div sdWsPanel="labs" class="sd-share">
+          @if (labRequests().length || labs().length) {
+            <ul class="flex flex-col gap-2">
+              <!-- Lab requests: answered after the call, in Lab Tests (no navigation from the call);
+                   an accepted one's PDF opens in the viewer. -->
+              @for (lr of labRequests(); track lr.id) {
+                <li class="rounded-2xl bg-white/[0.04] p-3" data-testid="call-lab-request">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm font-medium text-white">
+                      <sd-icon name="flask-conical" [size]="16" class="shrink-0 text-frost" />
+                      <span class="break-all">{{ lr.number }}</span>
+                    </span>
+                    <span class="inline-flex shrink-0 items-center gap-1 rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85">
+                      <sd-icon [name]="labChipOf(lr).icon" [size]="12" />{{ labChipOf(lr).label }}
+                    </span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <p class="font-sans text-caption text-white/70">{{ labTests(lr.items_count) }}</p>
+                    @if (hasLabPdf(lr)) {
+                      <button
+                        type="button"
+                        class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-field border border-white/15 px-3 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10"
+                        [attr.aria-label]="'View lab request ' + lr.number"
+                        (click)="viewLabPdf(lr, $event)"
+                      >
+                        <sd-icon name="eye" [size]="14" />View
+                      </button>
+                    }
+                  </div>
+                </li>
+              }
+              @for (o of labs(); track o.id) {
+                <li class="rounded-2xl bg-white/[0.04] p-3">
+                  <div class="flex items-center justify-between">
+                    <span class="flex items-center gap-2 font-sans text-body-sm font-medium text-white">
+                      <sd-icon name="clipboard-list" [size]="16" class="text-frost" /> Lab order
+                    </span>
+                    <!-- Legacy orders are read-only: never the raw stored status. -->
+                    <span class="rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85" data-testid="call-lab-order-status">
+                      Ordered
+                    </span>
+                  </div>
+                  <p class="mt-1 font-sans text-body-sm text-white/70">{{ o.tests.join(', ') }}</p>
+                  @if (o.author) {
+                    <p class="mt-1 font-sans text-caption text-white/60">Ordered by {{ o.author }}</p>
+                  }
+                </li>
+              }
+            </ul>
+            @if (labAwaitingAnswer()) {
+              <p class="mt-3 flex items-start gap-2 font-sans text-caption text-white/60">
+                <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
+                Open Lab Tests after your call to review and accept.
+              </p>
+            }
+          } @else {
+            <p class="py-6 text-center font-sans text-body-sm text-white/60">
+              No lab requests for this consultation yet.
+            </p>
+          }
+        </div>
+
+        <div sdWsPanel="followup" class="sd-share">
+          <!-- The doctor proposed a follow-up from this call: answered after it -->
+          @if (proposedFollowUps().length) {
+            <div id="pat-ws-proposals">
+              @for (fu of proposedFollowUps(); track fu.id) {
+                <div class="mb-4 rounded-2xl border border-teal-bright/40 bg-teal-bright/10 px-3 py-3">
+                  <p
+                    class="flex items-start gap-2 font-sans text-body-sm text-white"
+                    [class.outline-none]="$first"
+                    [attr.data-ws-focus]="$first ? '' : null"
+                    [attr.tabindex]="$first ? -1 : null"
+                  >
+                    <sd-icon name="calendar-plus" [size]="16" class="mt-0.5 shrink-0 text-teal-bright" />
+                    Your doctor proposed a follow-up on {{ proposalWhen(fu) }}.
+                  </p>
+                  <p class="mt-1 pl-6 font-sans text-caption text-white/85">
+                    After the call, accept it or choose another time in My Appointments.
+                  </p>
+                </div>
+              }
+            </div>
+          }
+          @if (carePlan()?.available && (carePlan()?.items?.length ?? 0) > 0) {
+            <div>
+              <h3 class="font-sans text-body-sm font-semibold text-white">Your Care Plan</h3>
+              <ul class="mt-2 flex flex-col gap-1.5">
+                @for (item of carePlan()?.items ?? []; track $index) {
+                  <li class="flex items-start gap-2 font-sans text-body-sm text-white/70">
+                    <sd-icon name="circle-check" [size]="16" class="mt-0.5 shrink-0 text-sage" />
+                    {{ item }}
+                  </li>
+                }
+              </ul>
+            </div>
+          } @else {
+            <div class="flex flex-col gap-3">
+              <h3 class="font-sans text-body-sm font-semibold text-white">Follow-up Plan</h3>
+              <ul class="flex list-disc flex-col gap-1 pl-4">
+                @for (s of nextSteps(); track s) {
+                  <li class="font-sans text-body-sm text-white/60">{{ s }}</li>
+                }
+              </ul>
+            </div>
+          }
+          @if (referrals().length) {
+            <div class="mt-4 border-t border-white/10 pt-3">
+              <h3 class="mb-2 font-sans text-body-sm font-semibold text-white">Referrals</h3>
+              <ul class="flex flex-col gap-2">
+                @for (r of referrals(); track r.id) {
+                  <li class="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.04] px-3 py-2">
+                    <div class="min-w-0">
+                      <p class="font-sans text-body-sm text-white/85">
+                        <span class="capitalize">{{ r.referral_type }}</span> — {{ r.target }}
+                      </p>
+                      <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
+                    </div>
+                    <button
+                      type="button"
+                      class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-field border border-white/15 px-3 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10"
+                      [attr.aria-label]="'View referral letter to ' + r.target"
+                      (click)="viewFollowupDocument('referral', r.id, $event)"
+                    >
+                      <sd-icon name="eye" [size]="14" />View
+                    </button>
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+          @if (certificates().length) {
+            <div class="mt-4 border-t border-white/10 pt-3">
+              <h3 class="mb-2 font-sans text-body-sm font-semibold text-white">Medical certificates</h3>
+              <ul class="flex flex-col gap-2">
+                @for (c of certificates(); track c.id) {
+                  <li class="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.04] px-3 py-2" data-testid="call-certificate">
+                    <div class="min-w-0">
+                      <p class="font-sans text-body-sm text-white/85">{{ c.type_label }}</p>
+                      <p class="font-sans text-caption text-white/60">{{ certificateDates(c) }}</p>
+                    </div>
+                    <button
+                      type="button"
+                      class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-field border border-white/15 px-3 font-sans text-caption font-semibold text-white/85 transition-colors hover:bg-white/10"
+                      [attr.aria-label]="'View ' + c.type_label"
+                      (click)="viewFollowupDocument('certificate', c.id, $event)"
+                    >
+                      <sd-icon name="eye" [size]="14" />View
+                    </button>
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+        </div>
+      </sd-call-workspace>
+
       <!-- In-call Upload & share: that doctor, no end date, only what they can open in VideoMed -->
       @if (uploadOpen() && docAccess(); as da) {
         <pat-document-upload-dialog
@@ -1465,6 +1591,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** The viewer's call band and picture-in-picture (registered with the viewer, §3.2). */
   private readonly viewerBarTpl = viewChild.required('viewerBar', { read: TemplateRef });
   private readonly viewerPeerTpl = viewChild.required('viewerPeer', { read: TemplateRef });
+  /** The notes workspace's shell (its showTab and nested-dialog check). */
+  private readonly workspace = viewChild(CallWorkspace);
   private readonly previewVideo = viewChild<ElementRef<HTMLVideoElement>>('previewVideo');
   /** The stage's video tiles (rendered once the patient enters the call). */
   private readonly stageTiles = viewChild(CallTilesComponent);
@@ -1847,34 +1975,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** Notes tabs (APG): arrows move and select, Home / End the ends. */
-  protected onNotesTabKey(event: KeyboardEvent): void {
-    const keys = this.notesTabs.map((t) => t.key);
-    const at = keys.indexOf(this.notesTab());
-    let next: number;
-    switch (event.key) {
-      case 'ArrowRight':
-        next = (at + 1) % keys.length;
-        break;
-      case 'ArrowLeft':
-        next = (at - 1 + keys.length) % keys.length;
-        break;
-      case 'Home':
-        next = 0;
-        break;
-      case 'End':
-        next = keys.length - 1;
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-    this.openNotesTab(keys[next]);
-    afterNextRender(() => this.document.getElementById(`call-notes-tab-${keys[next]}`)?.focus(), {
-      injector: this.injector,
-    });
-  }
-
   /**
    * Keeps the focused element clear of the sticky dock and the bottom toast
    * (WCAG 2.4.11): `scroll-padding` on the page, from their sizes. Nothing
@@ -1929,8 +2029,69 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     return Number.isFinite(gap) ? gap : 0;
   }
 
+  // ---- The consultation notes: four launchers, one workspace (a modal over the call) ----
+  protected readonly wsTabs = NOTES_TABS;
+  protected readonly wsOpen = signal(false);
+  protected readonly wsTab = signal<NotesTab>('notes');
+  /** The launcher (or other control) that opened the workspace: focus returns to it. */
+  private wsOpener: HTMLElement | null = null;
+  /** The shell's words (the shared shell holds none of the page's copy). */
+  protected readonly notesKicker = NOTES_KICKER;
+  protected readonly notesClose = NOTES_CLOSE;
+  protected readonly notesShareText = computed(() => notesShareBanner(this.recordingActive()));
+  /** The dialog's title: the doctor, "Dr Ada Obi". */
+  protected readonly wsTitle = computed(() => {
+    const n = this.appointment()?.specialist?.name?.trim();
+    return n ? doctorTitle(n) : 'Your doctor';
+  });
+  /** The doctor's video is the workspace's picture-in-picture while the call is on (none once it has ended). */
+  protected readonly wsPeerShown = computed(() => this.status() === 'in-call' || this.status() === 'loading');
+  /** The card's hint follows the call: "stays in view" only while the doctor's video can. */
+  protected readonly notesHint = computed(() => (this.wsPeerShown() ? notesHint(this.viewerPeerName()) : NOTES_HINT_AFTER));
+  /** The tabs' marks: a "new" dot (and words) on a tab something arrived on while it wasn't showing. */
+  protected readonly wsFlags = computed<Partial<Record<NotesTab, WorkspaceFlag>>>(() => ({
+    prescriptions: this.newRx() ? NOTES_TAB_NEW : undefined,
+    labs: this.newLab() ? NOTES_TAB_NEW : undefined,
+    followup: this.newFollowUp() ? NOTES_TAB_NEW : undefined,
+  }));
+  /** What a launcher says under its label, from typed state (never from display strings). */
+  protected readonly launcherStatus = computed<Partial<Record<NotesTab, LauncherStatus>>>(() => {
+    const rx = this.issuedRx().length;
+    const labs = this.labRequests().length + this.labs().length;
+    return {
+      notes: this.summaryReady() ? { ...NOTES_STATUS.finalized, tone: 'muted' } : undefined,
+      prescriptions: this.newRx()
+        ? { ...NOTES_STATUS.newRx, tone: 'new' }
+        : this.rxLoadError() && !rx
+          ? { ...NOTES_STATUS.rxNotLoaded, tone: 'warn' }
+          : rx
+            ? { text: count(rx, 'prescription', 'prescriptions'), tone: 'muted' }
+            : undefined,
+      labs: this.newLab()
+        ? { ...NOTES_STATUS.newLab, tone: 'new' }
+        : labs
+          ? { text: count(labs, 'request', 'requests'), tone: 'muted' }
+          : undefined,
+      followup: this.proposedFollowUps().length
+        ? { ...NOTES_STATUS.proposed, tone: 'new' }
+        : this.newFollowUp()
+          ? { ...NOTES_STATUS.newPlan, tone: 'new' }
+          : undefined,
+    };
+  });
+  /** What arrived (a lab request, a proposal, a plan item, the summary), for the card's and the band's live regions. */
+  protected readonly clinicalNote = signal('');
+  /** For the call band's live region: "{name} joined the call." (and a guest's "left"). */
+  protected readonly bandPresenceNote = signal('');
+  /** The band's line once the call is over. */
+  protected readonly bandEnded = computed(() => (this.status() === 'ended' ? BAND_ENDED[this.endedReason()] : ''));
+  protected readonly docRequestText = computed(() => DOC_REQUEST(this.viewerPeerName()));
+  /** A lab request still waits for the patient's answer (given after the call, in Lab Tests). */
+  protected readonly labAwaitingAnswer = computed(() => this.labRequests().some((r) => r.status === 'awaiting_consent'));
+  /** The request PDF exists for the patient (accepted, in one of these states). */
+  protected readonly hasLabPdf = hasLabPdf;
+
   // ---- Panels ----
-  protected readonly notesTab = signal<NotesTab>('notes');
   protected readonly docsTab = signal<DocsTab>('all');
   protected readonly rating = signal(0);
   /** The star rating, sent as a review once the doctor has completed the visit. */
@@ -1938,12 +2099,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** The thanks / "already rated" / error line under the stars. */
   protected readonly reviewNote = signal('');
 
-  protected readonly notesTabs: ReadonlyArray<{ key: NotesTab; label: string }> = [
-    { key: 'notes', label: 'Consultation Notes' },
-    { key: 'prescriptions', label: 'Prescriptions' },
-    { key: 'labs', label: 'Lab requests' },
-    { key: 'followup', label: 'Follow-up Plan' },
-  ];
   protected readonly docsTabs: ReadonlyArray<{ key: DocsTab; label: string }> = [
     { key: 'all', label: 'All' },
     { key: 'labs', label: 'Lab Results' },
@@ -1980,12 +2135,29 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly labTests = testsLabel;
   protected readonly carePlan = signal<PatientCarePlanDto | null>(null);
   protected readonly referrals = signal<ReferralDto[]>([]);
+  /** Medical certificates the doctor issued for this consultation (Follow-up Plan, with a View). */
+  protected readonly certificates = signal<MedicalCertificateDto[]>([]);
   /** Follow-ups the doctor proposed from this call, waiting for the patient's answer. */
   protected readonly proposedFollowUps = signal<AppointmentDto[]>([]);
   /** This is a follow-up proposal the patient hasn't accepted — there is no call to join yet. */
   protected readonly awaitingAcceptance = signal(false);
-  /** A prescription arrived during the call while the patient was on another tab. */
+  /** A prescription arrived during the call while the patient wasn't looking at the Prescriptions tab. */
   protected readonly newRx = signal(false);
+  /** A lab request (or order) arrived while the Lab requests tab wasn't showing. */
+  protected readonly newLab = signal(false);
+  /** A proposal, referral, certificate or plan arrived while the Follow-up Plan tab wasn't showing. */
+  protected readonly newFollowUp = signal(false);
+  /**
+   * One baseline per API read (its first success is not "new"), fed only after
+   * that read succeeds: a shared one would flag the next read's items on page load.
+   */
+  private readonly seenLabRequests = new SeenIds();
+  private readonly seenLabOrders = new SeenIds();
+  private readonly seenReferrals = new SeenIds();
+  private readonly seenCertificates = new SeenIds();
+  private readonly seenPlan = new SeenIds();
+  private readonly seenProposals = new SeenIds();
+  private readonly seenSummary = new SeenIds();
   /** Guards the newRx badge so the first (baseline) fetch never flags pre-existing scripts. */
   private rxInitialized = false;
   /** Prescription ids already seen, so only genuinely new ones are announced. */
@@ -2358,13 +2530,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** Agora is retrying a lost connection (the viewer's band says so; the cockpit shows the stage). */
   protected readonly reconnecting = signal(false);
 
-  // ---- The document viewer's picture-in-picture (§3.4) ----
-  /** The viewer holds the doctor's video (between willOpen and didClose). */
-  private readonly viewerHasPeer = signal(false);
-  /** The doctor's uid as it was when the viewer took their video. */
-  private viewerPeerUid: string | null = null;
-  /** The doctor's current video track, played by the viewer's tile (never also on the stage). */
-  protected readonly viewerPeerTrack = signal<CallVideoTrack | null>(null);
+  // ---- The doctor's video: on the stage, or the workspace's or the viewer's picture-in-picture (§3.4) ----
   /** The peer is the doctor (guests never are). */
   private readonly peerUid = computed(() => this.roster().find((p) => p.role === 'doctor')?.uid ?? DOCTOR_CALL_UID);
   /** "Dr Ade" in the band and the PiP's Move label. */
@@ -2380,6 +2546,22 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     const full = this.appointment()?.specialist?.name?.trim();
     const name = full ? doctorTitle(full) : this.viewerPeerName();
     return tile ? { ...tile, name } : { uid, name, role: 'doctor', hasVideo: false, muted: false };
+  });
+  /** "BA" while the workspace's tile is with the viewer (never a black box). */
+  protected readonly peerInitials = computed(() => callTileInitials(this.viewerPeerTile().name));
+  /**
+   * One holder of the doctor's video: the stage, the workspace's tile or the
+   * viewer's (an Agora track plays in one element at a time). Every remote
+   * video change goes through it (showVideo / hideVideo).
+   */
+  protected readonly peer = new PeerHandover({
+    peerUid: () => this.peerUid(),
+    remoteVideo: (uid) => this.videos.get(String(uid))?.track ?? null,
+    stageAttach: (uid, t) => this.stageTiles()?.attach(uid, t, this.videos.get(String(uid))?.config),
+    stageDetach: (uid) => this.stageTiles()?.detach(uid),
+    workspaceOpen: () => this.wsOpen(),
+    left: () => this.left(),
+    afterNextRender: (fn) => afterNextRender(fn, { injector: this.injector }),
   });
 
   // ---- Is a consultation actually going on? (drives the idle-timer hold) ----
@@ -2422,25 +2604,58 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         sharingScreen: this.screenOn,
         recording: this.recordingActive,
         stopSharing: () => void this.toggleScreen(),
-        willOpen: () => this.handPeerToViewer(),
-        didClose: () => this.takePeerBack(),
+        willOpen: () => this.peer.viewerWillOpen(),
+        didClose: () => this.peer.viewerDidClose(),
       });
       this.destroyRef.onDestroy(unregister);
     });
     // The call is over (the other side ended it, the connection dropped, or the patient left):
-    // the viewer closes with it. When the call ended under an open viewer, focus goes to the
-    // ended screen (§3.5), even though the opener (a record row, the Prescriptions tab's View)
-    // is still on the page: the screen appeared while the page was inert behind the modal, so
-    // nothing announced it. The patient leaving navigates away instead.
+    // the workspace and the viewer close with it. When the call ended under either, focus goes
+    // to the ended screen (§3.5), even though the opener (a launcher, a record row) is still on
+    // the page: the screen appeared while the page was inert behind the modal, so nothing
+    // announced it. The patient leaving navigates away instead (callLeft first, so nothing is
+    // handed to the stage again). The launchers still open the workspace after the end.
     effect(() => {
       const ended = this.status() === 'ended';
       if (!ended && !this.left()) return;
       untracked(() => {
-        const wasOpen = this.viewer.isOpen();
+        const wasOpen = this.viewer.isOpen() || this.wsOpen();
+        if (this.left()) {
+          this.peer.callLeft();
+          this.wsOpen.set(false);
+        } else this.closeWorkspace();
         this.viewer.close();
-        // After the render that closes the dialog natively (the browser hands focus back to
+        // After the render that closes the dialogs natively (the browser hands focus back to
         // the opener then); sd-dialog's and the viewer's own restores only act on lost focus.
         if (ended && wasOpen) afterNextRender(() => this.focusEndedScreen(), { injector: this.injector });
+      });
+    });
+
+    // A tab's "new" mark goes once the open workspace shows that tab (opened on it, or switched to).
+    effect(() => {
+      if (!this.wsOpen()) return;
+      const t = this.wsTab();
+      untracked(() => this.clearNew(t));
+    });
+
+    // Who joined, for the band's live region: the tiles' own region is inert under a modal, and
+    // the workspace stays open for long stretches. A "left" only while someone else remains (the
+    // band's own line says when everyone has gone). A live region reads changes, never a repeat.
+    let presence: Map<string, { readonly name: string }> | null = null;
+    effect(() => {
+      const tiles = this.tiles();
+      const current = new Map(tiles.filter((t) => !t.self).map((t) => [String(t.uid), { name: t.name }] as const));
+      const before = presence;
+      presence = current;
+      if (!before || !tiles.length) return;
+      const went = [...before].filter(([k]) => !current.has(k)).map(([, p]) => p);
+      const text = [
+        ...[...current].filter(([k]) => !before.has(k)).map(([, p]) => `${p.name} joined the call.`),
+        ...(current.size ? went.map((p) => `${p.name} left the call.`) : []),
+      ].join(' ');
+      untracked(() => {
+        if (text) this.bandPresenceNote.update((was) => (was === text ? `${text}\u00a0` : text));
+        else if (went.length) this.bandPresenceNote.set('');
       });
     });
 
@@ -2866,73 +3081,39 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    */
   private showVideo(uid: CallUid, track: CallVideoTrack, config?: CallVideoPlayConfig): void {
     this.videos.set(String(uid), { uid, track, config });
-    // The document viewer holds the doctor's video: its picture-in-picture plays it, never the stage too.
-    if (this.viewerOwnsPeer(uid)) {
-      this.viewerPeerTrack.set(track);
+    if (String(uid) === String(this.selfUid())) {
+      this.selfVideo.set({ track, config });
+      if (this.selfMode() === 'pip') this.stageTiles()?.attach(uid, track, config);
+      else this.stageTiles()?.detach(uid);
       return;
     }
-    const self = String(uid) === String(this.selfUid());
-    if (self) this.selfVideo.set({ track, config });
-    if (!self || this.selfMode() === 'pip') this.stageTiles()?.attach(uid, track, config);
-    else this.stageTiles()?.detach(uid);
+    // The doctor's video goes wherever it is held now (the stage, the workspace's or the viewer's tile).
+    this.peer.route(uid, track);
   }
 
   private hideVideo(uid: CallUid): void {
     this.videos.delete(String(uid));
-    if (this.viewerOwnsPeer(uid)) {
-      this.viewerPeerTrack.set(null);
+    if (String(uid) === String(this.selfUid())) {
+      this.selfVideo.set(null);
+      this.stageTiles()?.detach(uid);
       return;
     }
-    if (String(uid) === String(this.selfUid())) this.selfVideo.set(null);
-    this.stageTiles()?.detach(uid);
+    this.peer.route(uid, null);
   }
 
   /**
    * Play every video handed over so far on (re-created) stage tiles. Your own
    * only while it is their picture-in-picture (else the row tile has it); the
-   * doctor's not while the document viewer's picture-in-picture plays it.
+   * doctor's not while the workspace's or the viewer's picture-in-picture holds it.
    */
   private replayOnStage(tiles: Pick<CallTilesComponent, 'attach'>): void {
     const self = String(this.selfUid());
+    const doctor = String(this.peerUid());
     for (const v of this.videos.values()) {
       if (String(v.uid) === self && this.selfMode() !== 'pip') continue;
-      if (this.viewerOwnsPeer(v.uid)) continue;
+      if (String(v.uid) === doctor && this.peer.holder() !== 'stage') continue;
       tiles.attach(v.uid, v.track, v.config);
     }
-  }
-
-  // ---- The document viewer's picture-in-picture (§3.4) ----
-
-  /** The one gate for every stage attach / detach of a remote: the viewer holds the doctor's video. */
-  private viewerOwnsPeer(uid: CallUid): boolean {
-    return this.viewerHasPeer() && String(uid) === this.viewerPeerUid;
-  }
-
-  /**
-   * The viewer opened (every check passed): stop the doctor's video on the
-   * stage first, then give it to the picture-in-picture, which plays it once
-   * rendered — so it never plays in two places.
-   */
-  private handPeerToViewer(): void {
-    const uid = String(this.peerUid());
-    this.viewerPeerUid = uid;
-    this.viewerHasPeer.set(true);
-    this.stageTiles()?.detach(uid);
-    this.viewerPeerTrack.set(this.videos.get(uid)?.track ?? null);
-  }
-
-  /**
-   * The viewer closed, and its picture-in-picture is gone (its tile stopped the
-   * track): play the doctor's current video on the stage again — re-read, as
-   * they may have re-published, or left, meanwhile.
-   */
-  private takePeerBack(): void {
-    const uid = this.viewerPeerUid;
-    this.viewerHasPeer.set(false);
-    this.viewerPeerTrack.set(null);
-    this.viewerPeerUid = null;
-    const v = uid ? this.videos.get(uid) : undefined;
-    if (v) this.stageTiles()?.attach(v.uid, v.track, v.config);
   }
 
   /**
@@ -3055,10 +3236,11 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   /**
    * Re-fetch the clinical artefacts the doctor issues during the visit
-   * (prescriptions, lab orders, care plan, referrals, summary). Polled while the
-   * call is live so the patient sees a new prescription in place — without the
-   * page reload that would tear down the call. Flags a badge on the Prescriptions
-   * tab when a new script arrives and the patient isn't already looking at it.
+   * (prescriptions, lab orders and requests, care plan, referrals, certificates,
+   * follow-ups, summary). Polled while the call is live so the patient sees them
+   * in place — without the page reload that would tear down the call. Something
+   * new (after each read's own baseline) marks its tab "New" unless the
+   * workspace shows that tab, and is announced once per run, never by name.
    * `passive` for every re-read but the page's first load (the poll, Agora's
    * events, the call ending): background reads never extend the idle session.
    */
@@ -3084,42 +3266,95 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
         this.rxLoadError.set(apiErrorMessage(err, 'Could not load your prescriptions.'));
       }
     }
+    // What arrived since each read's baseline (the first success of that read).
+    let labNew = false;
+    let proposalNew = false;
+    let planNew = false;
+    let summaryNew = false;
     try {
       const lo = await firstValueFrom(this.appointments.labOrders(id, options));
-      this.labs.set(lo.data ?? []);
+      const list = lo.data ?? [];
+      this.labs.set(list);
+      labNew = this.seenLabOrders.fresh(list.map((o) => o.id)) || labNew;
     } catch {
       /* none */
     }
     try {
       const lr = await firstValueFrom(this.labApi.mine({ appointment_id: id, per_page: 50 }, options));
-      this.labRequests.set(lr.data ?? []);
+      const list = lr.data ?? [];
+      this.labRequests.set(list);
+      labNew = this.seenLabRequests.fresh(list.map((r) => r.id)) || labNew;
     } catch {
       /* none (a failed poll keeps the list shown) */
     }
     try {
       const cp = await firstValueFrom(this.appointments.carePlan(id, options));
       this.carePlan.set(cp.data);
+      // 200 { available: false } until it is published: the plan is "new" once, when it appears.
+      planNew = this.seenPlan.fresh(cp.data?.available && cp.data.items?.length ? ['plan'] : []) || planNew;
     } catch {
       /* not published */
     }
     try {
       const rf = await firstValueFrom(this.appointments.referrals(id, options));
-      this.referrals.set(rf.data ?? []);
+      const list = rf.data ?? [];
+      this.referrals.set(list);
+      planNew = this.seenReferrals.fresh(list.map((r) => r.id)) || planNew;
     } catch {
       /* none */
     }
     try {
+      const mc = await firstValueFrom(this.appointments.certificates(id, options));
+      const list = mc.data ?? [];
+      this.certificates.set(list);
+      planNew = this.seenCertificates.fresh(list.map((c) => c.id)) || planNew;
+    } catch {
+      /* none (a failed poll keeps the list shown) */
+    }
+    try {
       const fu = await firstValueFrom(this.appointments.followUps(id, options));
-      this.proposedFollowUps.set((fu.data ?? []).filter((a) => isOpenProposal(a)));
+      const open = (fu.data ?? []).filter((a) => isOpenProposal(a));
+      this.proposedFollowUps.set(open);
+      proposalNew = this.seenProposals.fresh(open.map((a) => a.id));
     } catch {
       /* none */
     }
     try {
       const s = await firstValueFrom(this.appointments.consultationSummary(id, options));
       this.summary.set(s.data);
+      // 200 { available: false } until the doctor finalizes it.
+      summaryNew = this.seenSummary.fresh(s.data?.available ? ['summary'] : []);
     } catch {
       /* summary not finalized yet */
     }
+    if (labNew && !this.showing('labs')) this.newLab.set(true);
+    if ((proposalNew || planNew) && !this.showing('followup')) this.newFollowUp.set(true);
+    // One announcement per run (two arrivals in one poll never overwrite each other); never what it is.
+    const dr = this.viewerPeerName();
+    const news = [
+      labNew ? NEWS.lab(dr) : '',
+      proposalNew ? NEWS.proposal(dr) : '',
+      planNew ? NEWS.plan(dr) : '',
+      summaryNew ? NEWS.summary : '',
+    ].filter(Boolean);
+    if (news.length) this.sayClinical(news.join(' '));
+  }
+
+  /** The workspace is open on this tab (so nothing on it is "new" to the patient). */
+  private showing(tab: NotesTab): boolean {
+    return this.wsOpen() && this.wsTab() === tab;
+  }
+
+  /** A tab was seen: its "new" mark goes. */
+  private clearNew(tab: NotesTab): void {
+    if (tab === 'prescriptions') this.newRx.set(false);
+    else if (tab === 'labs') this.newLab.set(false);
+    else if (tab === 'followup') this.newFollowUp.set(false);
+  }
+
+  /** The polite live regions (the card's, and the band's under a modal); a repeat still changes the text. */
+  private sayClinical(text: string): void {
+    this.clinicalNote.update((was) => (was === text ? `${text}\u00a0` : text));
   }
 
   /**
@@ -3128,7 +3363,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * medicines or the reason.
    */
   private announceRx(fresh: PrescriptionDto[]): void {
-    if (this.notesTab() !== 'prescriptions') this.newRx.set(true);
+    if (!this.showing('prescriptions')) this.newRx.set(true);
     // The most recently sent one (patients only ever see sent prescriptions).
     const newest = fresh.reduce((a, b) => ((b.sent_at ?? '') > (a.sent_at ?? '') ? b : a));
     const text =
@@ -3145,21 +3380,24 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.rxToast.set(null);
   }
 
-  /** Toast "Show in call notes": open the Prescriptions tab. */
+  /** Toast "Show in call notes": the notes workspace on Prescriptions (focus later falls back to its launcher). */
   protected showRxTab(): void {
     this.dismissRxToast();
-    this.openNotesTab('prescriptions');
+    this.openWorkspace('prescriptions', null);
   }
 
   /**
-   * "View prescription" (the toast, or the viewer's band while it is open):
-   * the prescription in the document viewer — replacing the document on
-   * screen when the viewer is open — and its row in the Prescriptions tab.
+   * "View prescription" (the toast, or the band while the viewer or the
+   * workspace is open): the prescription in the document viewer — replacing the
+   * document on screen when the viewer is open. It was seen, so its "New" goes.
+   * An open workspace moves to Prescriptions under it (a model write: no focus
+   * move to fight the viewer opening); a closed one stays closed.
    */
   protected viewRxFromToast(rx: PrescriptionDto): void {
     this.viewRx(rx);
     this.dismissRxToast();
-    this.openNotesTab('prescriptions');
+    this.newRx.set(false);
+    if (this.wsOpen()) this.wsTab.set('prescriptions');
   }
 
   /**
@@ -3176,10 +3414,53 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       {
         index: Math.max(0, list.findIndex((p) => p.id === rx.id)),
         opener: openerOf(event),
-        fallbackFocus: () => this.viewerFallbackFocus('call-notes-tab-prescriptions'),
+        fallbackFocus: () => this.toolFallback('prescriptions'),
         listLabel: 'your prescriptions',
       },
     );
+  }
+
+  /** A lab request's View: the viewer over this visit's request PDFs (only the ones the patient has: P6). */
+  protected viewLabPdf(lr: PatientLabRequestSummaryDto, event?: Event): void {
+    const list = this.labRequests().filter(hasLabPdf);
+    const zone = deviceZone();
+    this.viewer.open(
+      list.map((r) => myLabRequestPdfSource(this.labApi, r, () => void this.refreshClinical(true), zone)),
+      {
+        index: Math.max(0, list.findIndex((r) => r.id === lr.id)),
+        opener: openerOf(event),
+        fallbackFocus: () => this.toolFallback('labs'),
+        listLabel: 'your lab requests',
+      },
+    );
+  }
+
+  /** The Follow-up Plan tab's documents, as the viewer lists them: referrals, then certificates. */
+  private readonly followupDocuments = computed<FollowupDocument[]>(() => [
+    ...this.referrals().map((r) => ({ kind: 'referral' as const, id: r.id, title: `Referral · ${r.target}`, issued_at: r.created_at })),
+    ...this.certificates().map((c) => ({ kind: 'certificate' as const, id: c.id, title: c.type_label, issued_at: c.created_at })),
+  ]);
+
+  /** A referral's or certificate's View: the viewer over this tab's documents, at the row pressed. */
+  protected viewFollowupDocument(kind: ClinicalDocumentKind, id: string, event?: Event): void {
+    const docs = this.followupDocuments();
+    const zone = deviceZone();
+    this.viewer.open(
+      docs.map((d) => myClinicalDocumentSource(this.appointments, this.appointmentId, d.kind, d, zone)),
+      {
+        index: Math.max(0, docs.findIndex((d) => d.kind === kind && d.id === id)),
+        opener: openerOf(event),
+        fallbackFocus: () => this.toolFallback('followup'),
+        listLabel: 'your referrals and certificates',
+      },
+    );
+  }
+
+  /** A certificate row's dates: "12 Nov 2026 – 14 Nov 2026", else when it was issued (never its statement or diagnosis). */
+  protected certificateDates(c: MedicalCertificateDto): string {
+    if (c.from_date && c.to_date) return `${this.shortDate(c.from_date)} – ${this.shortDate(c.to_date)}`;
+    const issued = viewerDate(c.created_at, deviceZone());
+    return issued ? `Issued ${issued}` : '';
   }
 
   /**
@@ -3220,8 +3501,83 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.document.querySelector<HTMLElement>('[data-testid="call-ended"]')?.focus();
   }
 
-  /** The band's "Back to call": close the viewer (focus goes back to what opened it). */
+  /**
+   * Where the viewer's focus goes when its opener is gone: the ended screen,
+   * else the tab inside the open workspace, else its launcher, else the card's heading.
+   */
+  private toolFallback(key: NotesTab): HTMLElement | null {
+    if (this.status() === 'ended') {
+      const ended = this.document.querySelector<HTMLElement>('[data-testid="call-ended"]');
+      if (ended) return ended;
+    }
+    if (this.wsOpen()) {
+      const tab = this.document.getElementById('ws-tab-' + key);
+      if (tab) return tab;
+    }
+    return this.document.querySelector<HTMLElement>(`[data-ws-launcher="${key}"]`) ?? this.document.getElementById('call-notes-heading');
+  }
+
+  // ---- The notes workspace ----
+
+  /** A launcher (or the toast): the workspace on that tab, focus on the tab (the shell's autofocus). */
+  protected openWorkspace(tab: NotesTab, opener?: EventTarget | null): void {
+    if (this.left()) return;
+    this.wsTab.set(tab);
+    this.wsOpener = opener instanceof HTMLElement ? opener : null;
+    if (this.wsOpen()) return;
+    this.wsOpen.set(true);
+    this.peer.workspaceOpened();
+  }
+
+  /** Esc, ✕, the scrim, Back to call: nothing is lost (the panels are read-only), so nothing is asked. */
+  protected closeWorkspace(): void {
+    if (!this.wsOpen() || this.workspace()?.hasOpenNestedDialog()) return;
+    this.wsOpen.set(false);
+    this.peer.workspaceClosed();
+  }
+
+  /** After the workspace's exit: focus the opener, else this tab's launcher, else the card's heading (only when focus was lost). */
+  protected onWorkspaceClosed(): void {
+    setTimeout(() => {
+      if (this.wsOpen()) return;
+      const active = this.document.activeElement;
+      if (active && active !== this.document.body) return;
+      const usable = (el: HTMLElement | null) => !!el?.isConnected && el.getClientRects().length > 0;
+      const launcher = this.document.querySelector<HTMLElement>(`[data-ws-launcher="${this.wsTab()}"]`);
+      (usable(this.wsOpener) ? this.wsOpener : usable(launcher) ? launcher : this.document.getElementById('call-notes-heading'))?.focus();
+    });
+  }
+
+  /**
+   * A control inside the workspace picked another tab ("See your follow-up
+   * plan"): the button pressed is now in a hidden panel, so focus moves to
+   * `targetId`'s element (scrolled into view; its `[data-ws-focus]`, else
+   * itself), else the selected tab. The shell does it after render.
+   */
+  protected selectWorkspaceTab(key: NotesTab, targetId?: string): void {
+    const ws = this.workspace();
+    if (ws) ws.showTab(key, targetId);
+    else this.wsTab.set(key);
+  }
+
+  /** The workspace's share banner's Stop sharing (never starts a share). */
+  protected stopSharingFromWorkspace(): void {
+    if (this.screenOn()) void this.toggleScreen();
+  }
+
+  /**
+   * The band's "Back to call", in the workspace and in the viewer: back to the
+   * cockpit (the stage plays the doctor again). A viewer opened over a dialog
+   * inside the workspace leaves only the document.
+   */
   protected backToCall(): void {
+    const viewerOpen = this.viewer.isOpen();
+    if (viewerOpen && this.workspace()?.hasOpenNestedDialog()) {
+      this.viewer.close();
+      return;
+    }
+    this.closeWorkspace();
+    // A no-op when no document is open.
     this.viewer.close();
   }
 
@@ -3352,12 +3708,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       void this.refreshClinical(true);
       void this.checkConsultationClosed();
     }, 15000);
-  }
-
-  /** Open a Notes-panel tab, clearing the "new prescription" badge when relevant. */
-  protected openNotesTab(tab: NotesTab): void {
-    this.notesTab.set(tab);
-    if (tab === 'prescriptions') this.newRx.set(false);
   }
 
   /** Report an RTC quality sample every 15s so the back-office can monitor calls. */
@@ -3589,10 +3939,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   protected goProfile(): void {
     void this.router.navigate(['/dashboard/profile']);
-  }
-
-  protected goAppointments(): void {
-    void this.router.navigate(['/dashboard/appointments']);
   }
 
   /** In the live call right now — leaving drops the patient from it. */

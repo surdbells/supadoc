@@ -46,6 +46,7 @@ describe('bundle guard (lazy code that would grow the initial bundles)', () => {
 
   it('finds the lib sources', () => {
     expect(sources.some((s) => s.file.endsWith('call-workspace.ts'))).toBe(true);
+    expect(sources.some((s) => s.file.endsWith('call-launchers.ts'))).toBe(true);
     expect(sources.some((s) => s.file.endsWith('peer-handover.ts'))).toBe(true);
   });
 

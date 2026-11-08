@@ -21,7 +21,6 @@ import {
   tap,
 } from 'rxjs';
 import {
-  apiErrorCode,
   apiErrorMessage,
   DocumentsApi,
   LabRequestsApi,
@@ -45,8 +44,6 @@ import {
   DocumentViewerService,
   safeFilename,
   saveSignedLink,
-  signedLinkSource,
-  type ViewerSource,
 } from '@supadoc/viewer';
 import { LabAcceptDialog } from './lab-accept-dialog';
 import {
@@ -68,13 +65,15 @@ import {
   resultCaption,
   uploadOutcomeMessage,
 } from './lab-ui';
+import {
+  httpStatus,
+  myLabRequestPdfSource,
+  statusChanged,
+} from './lab-viewer-sources';
 import { myLabResultSource, openerOf } from './viewer-sources';
 
 /** The PDF couldn't be fetched (the page's error line). */
 export const LAB_PDF_ERROR = "Couldn't open the PDF. Please try again.";
-/** The viewer's copy when the request changed under it (409 `status_changed`). */
-export const LAB_PDF_CHANGED =
-  'This request has changed. Close the viewer to see its status.';
 export const LAB_ACCEPTED =
   'Request accepted. You can now download your request.';
 /** Under "Your request PDF" once a result is in (other tests may still be outstanding). */
@@ -86,64 +85,6 @@ export const LAB_STAT_ALERT =
 /** STAT once the sample is given: "go to a lab" no longer applies, the emergency sentence still does. */
 export const LAB_STAT_ALERT_IN_LAB =
   'Your doctor marked this request STAT (most urgent). If you feel very unwell, go to the nearest emergency department now.';
-
-/** HTTP status from either error shape (normalised `ApiError.statusCode` or raw `status`). */
-function httpStatus(err: unknown): number | undefined {
-  if (!err || typeof err !== 'object') return undefined;
-  const e = err as { statusCode?: unknown; status?: unknown };
-  if (typeof e.statusCode === 'number') return e.statusCode;
-  if (typeof e.status === 'number') return e.status;
-  return undefined;
-}
-
-/** A 409 `status_changed`: the request isn't (or is no longer) in a state that has a PDF. */
-function statusChanged(err: unknown): boolean {
-  return httpStatus(err) === 409 && apiErrorCode(err) === 'status_changed';
-}
-
-/**
- * The request PDF in the shared viewer (owner policy: View, Print, Download).
- * A signed link per open (one `lab_request.viewed` row); Download mints a
- * download link (one `lab_request.downloaded` row). A 409 `status_changed`
- * (not accepted yet, or cancelled / expired meanwhile) is not retryable: the
- * viewer says so and `onGone` reloads the request.
- */
-export function myLabRequestPdfSource(
-  api: LabRequestsApi,
-  r: Pick<PatientLabRequestDto, 'id' | 'number' | 'sent_at'>,
-  onGone: () => void,
-  zone = viewerTimeZone(),
-): ViewerSource {
-  const title = 'Lab request ' + r.number;
-  const sent = labDay(r.sent_at, zone);
-  return signedLinkSource({
-    key: 'lab:' + r.id,
-    policy: 'owner',
-    title,
-    typeLabel: 'Lab request',
-    extension: 'pdf',
-    meta: sent ? [`Sent ${sent}`] : [],
-    link: (download) =>
-      api
-        .myLink(r.id, download)
-        .pipe(
-          map((res) => ({
-            url: res.data.url,
-            filename: res.data.filename || safeFilename(title, 'pdf'),
-          })),
-        ),
-    fetch: (url) => api.fileBlob({ url } as LabRequestLinkDto),
-    mapError: (err) =>
-      statusChanged(err)
-        ? {
-            state: 'gone',
-            text: apiErrorMessage(err, LAB_PDF_CHANGED),
-            retry: false,
-          }
-        : null,
-    onGone,
-  });
-}
 
 /**
  * One lab request (spec §4.4) — what the doctor asked for, how to get ready,
