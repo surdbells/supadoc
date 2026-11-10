@@ -106,6 +106,7 @@ import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call
 import { openLocalMedia } from '../call/call-media';
 import { type ApproveOutcome, approveOutcomeLine, ApproveRequestDialog } from './approve-request-dialog';
 import {
+  BAND_BACK,
   BAND_ENDED,
   count,
   DOC_REQUEST,
@@ -319,7 +320,7 @@ interface RecordItem {
         class="inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-field px-2.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/10"
         (click)="backToCall()"
       >
-        <sd-icon name="arrow-left" [size]="18" /><span class="max-sm:sr-only" data-band-label>Back to call</span>
+        <sd-icon name="arrow-left" [size]="18" /><span class="max-sm:sr-only" data-band-label>{{ bandBackLabel() }}</span>
       </button>
       <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ viewerPeerName() }} · {{ elapsedLabel() }}</span>
       <span class="inline-flex shrink-0 empty:hidden" role="status">@if (recordingActive()) {<span class="inline-flex items-center gap-1.5 rounded-pill bg-alert-ink px-2.5 py-1 font-sans text-caption font-medium text-white"><span class="size-2 shrink-0 rounded-full bg-white" aria-hidden="true"></span>Recording</span>}</span>
@@ -369,24 +370,27 @@ interface RecordItem {
       @if (bandEnded(); as ended) {
         <p class="basis-full font-sans text-caption text-white/80" role="status">{{ ended }}</p>
       }
-      <!-- The doctor's request to see the patient's documents (the cockpit's own row is inert under a modal). -->
+      <!-- The doctor's request to see the patient's documents (the cockpit's own row is inert under a modal).
+           The two actions stay together: where the row is too narrow they go under the words, side by side. -->
       @if (pendingDocRequest(); as pr) {
-        <span class="flex basis-full flex-wrap items-center gap-2 font-sans text-caption text-white" role="status">
-          <sd-icon name="key-round" [size]="14" class="shrink-0" />{{ docRequestText() }}
-          <button
-            type="button"
-            class="inline-flex min-h-9 items-center rounded-field px-2.5 font-semibold text-frost transition-colors hover:bg-white/10 hover:text-white"
-            (click)="reviewDocRequest.set(pr)"
-          >
-            Review
-          </button>
-          <button
-            type="button"
-            class="inline-flex min-h-9 items-center rounded-field px-2.5 font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-            (click)="dismissedRequest.set(pr.id)"
-          >
-            Not now
-          </button>
+        <span class="flex basis-full flex-wrap items-center gap-x-2 gap-y-1 font-sans text-caption text-white" role="status">
+          <span class="flex min-w-0 items-center gap-2"><sd-icon name="key-round" [size]="14" class="shrink-0" />{{ docRequestText() }}</span>
+          <span class="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              class="inline-flex min-h-11 items-center rounded-field px-2.5 font-semibold text-frost transition-colors hover:bg-white/10 hover:text-white"
+              (click)="reviewDocRequest.set(pr)"
+            >
+              Review
+            </button>
+            <button
+              type="button"
+              class="inline-flex min-h-11 items-center rounded-field px-2.5 font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+              (click)="dismissedRequest.set(pr.id)"
+            >
+              Not now
+            </button>
+          </span>
         </span>
       }
       <p class="sr-only" role="status">{{ bandPresenceNote() }}</p>
@@ -1562,7 +1566,7 @@ interface RecordItem {
         />
       }
       @if (reviewDocRequest(); as rq) {
-        <pat-approve-request-dialog [request]="rq" theme="call" (done)="docRequestAnswered($event)" (closed)="reviewDocRequest.set(null)" />
+        <pat-approve-request-dialog [request]="rq" theme="call" (done)="docRequestAnswered($event)" (closed)="docRequestClosed()" />
       }
     </div>
   `,
@@ -2085,6 +2089,10 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly bandPresenceNote = signal('');
   /** The band's line once the call is over. */
   protected readonly bandEnded = computed(() => (this.status() === 'ended' ? BAND_ENDED[this.endedReason()] : ''));
+  /** The band's first button: "Back to call", or once the call has ended, what it closes (backToCall either way). */
+  protected readonly bandBackLabel = computed(() =>
+    this.status() !== 'ended' ? BAND_BACK.live : this.wsOpen() ? BAND_BACK.notes : BAND_BACK.document,
+  );
   protected readonly docRequestText = computed(() => DOC_REQUEST(this.viewerPeerName()));
   /** A lab request still waits for the patient's answer (given after the call, in Lab Tests). */
   protected readonly labAwaitingAnswer = computed(() => this.labRequests().some((r) => r.status === 'awaiting_consent'));
@@ -2422,6 +2430,27 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     if (line) this.docSay(line);
     void this.loadDocAccess();
     if (outcome.kind === 'approved') sendCallNudge(this.client, 'docs');
+  }
+
+  /**
+   * The approve dialog has gone. An answer removes the Review that opened it (in
+   * the band or the Documents card), so focus fell to the page: it goes to the
+   * open document's title, else the workspace's tab, else the Documents heading
+   * (the ended screen once the call is over). After sd-dialog's own restore,
+   * which already ran: the dialog emits this once its exit has finished.
+   */
+  protected docRequestClosed(): void {
+    this.reviewDocRequest.set(null);
+    setTimeout(() => {
+      const active = this.document.activeElement;
+      if (active && active !== this.document.body) return;
+      const target = this.viewer.isOpen()
+        ? this.document.querySelector<HTMLElement>('.sd-viewer-frame [data-autofocus]')
+        : this.wsOpen()
+          ? this.document.getElementById('ws-tab-' + this.wsTab())
+          : this.viewerFallbackFocus('call-docs-title');
+      target?.focus();
+    });
   }
 
   /**

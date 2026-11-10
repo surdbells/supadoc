@@ -82,6 +82,7 @@ export const LAUNCHER_CSS = `
             type="button"
             class="ws-launcher rounded-2xl border border-white/10 bg-white/[0.04] transition-colors hover:bg-white/[0.08]"
             [attr.data-ws-launcher]="t.key"
+            [attr.aria-label]="nameWith(t.label, s)"
             aria-haspopup="dialog"
             (click)="open(t.key, $event)"
           >
@@ -116,6 +117,16 @@ export class CallLaunchers<K extends string = string> {
   /** The cockpit's tone: the focus ring, the hover and the coloured statuses follow it. */
   readonly tone = input<'dark' | 'light'>('dark');
   readonly opened = output<LauncherOpen<K>>();
+
+  /**
+   * With a status, the name is given outright: "Prescriptions, New prescription".
+   * Built from the content, browsers put a space between the label and the
+   * status line (two blocks in the flex column): "Prescriptions , New …".
+   * The same words stay in the content. No status: the content (the label) names it.
+   */
+  protected nameWith(label: string, s: LauncherStatus | undefined): string | null {
+    return s ? `${label}, ${s.text}${s.sr ?? ''}` : null;
+  }
 
   protected statusClass(tone: LauncherStatus['tone']): string {
     return tone === 'warn' ? 'ws-launcher-status--warn' : tone === 'new' ? 'ws-launcher-status--new' : 'text-white/70';

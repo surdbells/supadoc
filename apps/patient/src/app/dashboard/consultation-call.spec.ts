@@ -34,7 +34,7 @@ import {
   provideSupadocIcons,
 } from '@supadoc/ui';
 import { CallPeerTileComponent, DocumentViewerService, type ViewerCallContext, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
-import { BAND_ENDED, NOTES_HINT_AFTER, notesHint, notesShareBanner } from './call-notes-copy';
+import { BAND_BACK, BAND_ENDED, NOTES_HINT_AFTER, notesHint, notesShareBanner } from './call-notes-copy';
 import { ConsultationCall } from './consultation-call';
 
 /** Agora, faked: a client that joins, publishes and records what it sends. */
@@ -1694,6 +1694,15 @@ describe('ConsultationCall (the dock)', () => {
       expect(el.querySelector('.ws-pip')).toBeNull();
       const ended = Array.from(el.querySelectorAll('.ws-band [role="status"]')).find((n) => n.textContent?.trim() === BAND_ENDED.completed);
       expect(ended).toBeTruthy();
+      // There is no call to go back to: the band's first button says what it closes (and still just closes).
+      expect(bandButton(BAND_BACK.live)).toBeUndefined();
+      const close = bandButton(BAND_BACK.notes);
+      expect(close.querySelector('[data-band-label]')?.textContent?.trim()).toBe('Close notes');
+      close.click();
+      await settle();
+      expect(isOpen()).toBe(false);
+      // A document open alone after the call: "Close document".
+      expect(sig<string>('bandBackLabel')()).toBe(BAND_BACK.document);
     });
 
     it('8b. the patient leaving: the hand-over stops (callLeft) and the workspace closes for good', async () => {
@@ -1763,6 +1772,60 @@ describe('ConsultationCall (the dock)', () => {
       labRequests = [lab('lr-1')];
       await refresh();
       expect(sig<string>('clinicalNote')()).toBe('Dr Ade sent you a lab request.');
+    });
+
+    it('10c. the request answered from the band: its Review is gone, so focus goes to the open document, else the tab, else the Documents heading', async () => {
+      issued = [rx('1')];
+      await create();
+      await enter();
+      const request = { id: 'req-1', status: 'pending', kind: 'documents', message: null, created_at: '2026-11-04T15:00:00Z', expires_at: '2099-01-01T00:00:00Z' } as unknown as DocumentAccessRequestDto;
+      sig<AppointmentDto | null>('appointment').set({ ...appointment, pending_document_request: request } as AppointmentDto);
+      await openTab('prescriptions');
+      // Review and Not now stay together (one group, under the words where the row is narrow), each ≥ 44 px.
+      const review = bandButton('Review');
+      const notNow = bandButton('Not now');
+      expect(review.parentElement).toBe(notNow.parentElement);
+      expect(review.parentElement?.classList).toContain('shrink-0');
+      expect(review.className).toContain('min-h-11');
+      expect(notNow.className).toContain('min-h-11');
+      const closed = () => cmp()['docRequestClosed']();
+      const lose = () => (document.activeElement as HTMLElement | null)?.blur();
+      // Approved or declined in the dialog: the row (and its Review) is gone; the dialog then closes, focus on the page.
+      sig<string | null>('dismissedRequest').set('req-1');
+      await settle();
+      expect(bandButton('Review')).toBeUndefined();
+      lose();
+      closed();
+      await settle();
+      expect(document.activeElement?.id).toBe('ws-tab-prescriptions');
+      expect(sig<unknown>('reviewDocRequest')()).toBeNull();
+      // Focus the dialog's closing already placed somewhere stays there.
+      bandButton(BAND_BACK.live).focus();
+      closed();
+      await settle();
+      expect(document.activeElement).toBe(bandButton(BAND_BACK.live));
+      // A document open over the workspace: its title.
+      panel('prescriptions').querySelector<HTMLButtonElement>('button[aria-label="View prescription GVM-RX-1"]')?.click();
+      await settle();
+      const frame = document.createElement('div');
+      frame.className = 'sd-viewer-frame';
+      const title = document.createElement('h2');
+      title.tabIndex = -1;
+      title.setAttribute('data-autofocus', '');
+      frame.append(title);
+      document.body.append(frame);
+      lose();
+      closed();
+      await settle();
+      expect(document.activeElement).toBe(title);
+      frame.remove();
+      viewer.close();
+      await closeWs();
+      // In the cockpit (the Documents card's own Review is gone too): the Documents heading.
+      lose();
+      closed();
+      await settle();
+      expect(document.activeElement?.id).toBe('call-docs-title');
     });
 
     it('12. the panels’ markup: h3 headings, one proposals block with one focus target, neutral appointment card, readable captions, no certificate content', async () => {

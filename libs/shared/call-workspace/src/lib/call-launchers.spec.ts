@@ -57,6 +57,7 @@ describe('CallLaunchers', () => {
   it('no status: the name is the label exactly, no status line, its line reserved (--bare)', () => {
     for (const t of FOUR) {
       expect(launcher(t.key).textContent?.trim()).toBe(t.label);
+      expect(launcher(t.key).hasAttribute('aria-label')).toBe(false);
       expect(launcher(t.key).querySelector('.ws-launcher-status')).toBeNull();
       expect(launcher(t.key).querySelector('.ws-launcher-text')?.classList.contains('ws-launcher-text--bare')).toBe(true);
     }
@@ -74,6 +75,12 @@ describe('CallLaunchers', () => {
     expect(name('prescriptions')).toBe('Prescriptions, New prescription');
     expect(name('labs')).toBe('Lab requests, Not loaded — open to see why');
     expect(name('followup')).toBe('Follow-up Plan, Live');
+    // The name is given outright (a browser's name from content puts a space between the label and the
+    // status line, two blocks: "Prescriptions , New …"); it starts with the visible label (2.5.3).
+    expect(launcher('notes').getAttribute('aria-label')).toBe('Consultation Notes, Finalized — your visit summary is ready');
+    expect(launcher('prescriptions').getAttribute('aria-label')).toBe('Prescriptions, New prescription');
+    expect(launcher('labs').getAttribute('aria-label')).toBe('Lab requests, Not loaded — open to see why');
+    expect(launcher('followup').getAttribute('aria-label')).toBe('Follow-up Plan, Live');
     for (const key of ['notes', 'prescriptions', 'labs', 'followup']) {
       expect(launcher(key).querySelector('.ws-launcher-text')?.classList.contains('ws-launcher-text--bare')).toBe(false);
     }
@@ -101,9 +108,11 @@ describe('CallLaunchers', () => {
     await render();
     expect(el.querySelectorAll('.ws-launcher-status').length).toBe(1);
     expect(el.querySelectorAll('.ws-launcher-text--bare').length).toBe(3);
+    expect(el.querySelectorAll('[aria-label]').length).toBe(1);
     host().statuses.set({});
     await render();
     expect(el.querySelectorAll('.ws-launcher-status').length).toBe(0);
+    expect(el.querySelectorAll('[aria-label]').length).toBe(0);
     expect(el.querySelectorAll('.ws-launcher-text--bare').length).toBe(4);
   });
 

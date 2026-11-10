@@ -58,5 +58,11 @@ export const BAND_ENDED = {
   dropped: 'You were disconnected from the call.',
 } as const;
 
+/**
+ * The band's first button: back to the call, or once it has ended, what it then
+ * does (it closes the notes, and a document open over them; or the document alone).
+ */
+export const BAND_BACK = { live: 'Back to call', notes: 'Close notes', document: 'Close document' } as const;
+
 /** The band's row for the doctor's request to see the patient's documents. */
 export const DOC_REQUEST = (dr: string) => `${dr} asked to see your documents`;
