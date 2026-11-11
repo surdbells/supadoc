@@ -60,6 +60,10 @@ export function aboveRangeAlert(
   if (key === 'weight' && !max) {
     return `${name} gives a BMI higher than readings usually go. Please check your weight and height were entered correctly.`;
   }
+  if (key === 'bmi') {
+    // Worked out, never measured: ask about what was typed, as the form does.
+    return `${name} is higher than readings usually go${max ? ` (up to ${upTo(max, unit)})` : ''}. Please check your weight and height were entered correctly.`;
+  }
   return max
     ? `${name} is higher than readings usually go (up to ${upTo(max, unit)}). Please check it was measured and entered correctly.`
     : `${name} is higher than readings usually go. Please check it was measured and entered correctly.`;

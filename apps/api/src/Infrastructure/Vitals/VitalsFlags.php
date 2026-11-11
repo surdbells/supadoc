@@ -69,7 +69,7 @@ final class VitalsFlags
         $value = trim($value);
         if (VitalsForm::isAboveRange($key, $value)) {
             if (in_array($key, self::CHECK_ONLY, true)) {
-                return self::checkReading($key, (float) $value, $heightCm);
+                return self::checkReading($key);
             }
 
             return [
@@ -204,19 +204,17 @@ final class VitalsFlags
     /**
      * Height, weight or BMI above its usual range: kept and marked
      * `out_of_range` with its `usual_max`, so screens ask to check it — but
-     * no advice and never critical. A BMI keeps its own level ("High"); a
-     * weight is judged by the BMI it gives when there is a height on file;
-     * otherwise (height, a weight with no height) "High".
+     * no advice and never critical. Always "High": a BMI above its range is
+     * High anyway, and a weight above its own range stays High whatever BMI
+     * a (possibly mistyped) height gives it — never "Low" or "Elevated", which
+     * would read oddly beside "Check reading" and drop it from the patient's
+     * alert list.
      *
      * @return array{level: string, label: string, advice: ?string, out_of_range: bool, usual_max: ?string}
      */
-    private static function checkReading(string $key, float $n, ?string $heightCm): array
+    private static function checkReading(string $key): array
     {
-        $flag = match ($key) {
-            'bmi'    => self::bmi($n),
-            'weight' => self::weight($n, $heightCm),
-            default  => null,
-        } ?? self::make(self::HIGH);
+        $flag                 = self::make(self::HIGH);
         $flag['advice']       = null;
         $flag['out_of_range'] = true;
         $flag['usual_max']    = VitalsForm::usualMax($key);

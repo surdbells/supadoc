@@ -180,6 +180,9 @@ final class VitalsFlagsTest extends TestCase
         yield 'height 9999' => ['height', '9999', '180', '250'];
         yield 'weight 401, no height' => ['weight', '401', null, '400'];
         yield 'weight 401, with height' => ['weight', '401', '180', '400'];
+        // A mistyped tall height gives an ordinary or low BMI; the weight is still High, never "Elevated"/"Low".
+        yield 'weight 410, height 400 (BMI 25.6)' => ['weight', '410', '400', '400'];
+        yield 'weight 410, height 500 (BMI 16.4)' => ['weight', '410', '500', '400'];
         yield 'bmi 95' => ['bmi', '95', null, '90'];
         yield 'bmi 90.1' => ['bmi', '90.1', null, '90'];
     }

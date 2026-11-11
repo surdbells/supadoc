@@ -749,7 +749,7 @@ interface SectionCard {
                         />
                         <!-- The space before "(" is inside the span: Angular drops whitespace-only text between elements -->
                         <span
-                          ><span class="text-alert" [class.font-semibold]="a.critical">{{
+                          ><span class="text-alert-ink" [class.font-semibold]="a.critical">{{
                             a.text
                           }}</span
                           >@if (a.advice) {<span class="text-slate"> ({{ a.advice }})</span>}</span
@@ -3184,6 +3184,8 @@ export class MyProfile implements HasUnsavedChanges {
     const ids = [
       this.vitalFieldError(f) || this.vitalHint(f) ? `vt-hint-${f.key}` : '',
       this.vitalAbove(f) ? `vt-warn-${f.key}` : '',
+      // The worked-out BMI is not focusable: weight and height carry its warning.
+      (f.key === 'weight' || f.key === 'height') && this.bmiAbove() ? 'vt-warn-bmi' : '',
     ].filter(Boolean);
     return ids.length ? ids.join(' ') : null;
   }

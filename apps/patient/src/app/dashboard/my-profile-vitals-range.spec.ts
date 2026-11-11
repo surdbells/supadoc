@@ -325,6 +325,12 @@ describe('MyProfile › Vitals › Above the usual range', () => {
       'This BMI is higher than readings usually go (up to 90 kg/m²)',
     );
     expect(bmi.toLowerCase()).not.toContain('urgent');
+    // The worked-out BMI is not focusable: weight and height point at its warning.
+    expect(el.querySelector('#vt-weight')?.getAttribute('aria-describedby')).toContain('vt-warn-bmi');
+    expect(el.querySelector('#vt-height')?.getAttribute('aria-describedby')).toContain('vt-warn-bmi');
+    type('#vt-weight', '80');
+    expect(el.querySelector('#vt-warn-bmi')).toBeNull();
+    expect(el.querySelector('#vt-weight')?.getAttribute('aria-describedby') ?? '').not.toContain('vt-warn-bmi');
   });
 
   it('asks to check a height or weight above the range, without urgent-care advice', async () => {

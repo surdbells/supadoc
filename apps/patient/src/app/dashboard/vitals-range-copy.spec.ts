@@ -51,6 +51,10 @@ describe('vitals range copy (patient)', () => {
     expect(aboveRangeAlert('Weight', null, 'kg', 'weight')).toBe(
       'Weight gives a BMI higher than readings usually go. Please check your weight and height were entered correctly.',
     );
+    // A BMI is worked out, not measured.
+    expect(aboveRangeAlert('BMI', '90', 'kg/m²', 'bmi')).toBe(
+      'BMI is higher than readings usually go (up to 90 kg/m²). Please check your weight and height were entered correctly.',
+    );
     expect(aboveRangeAlert('Weight', null, 'kg')).toBe(
       'Weight is higher than readings usually go. Please check it was measured and entered correctly.',
     );

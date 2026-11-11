@@ -39,8 +39,9 @@ describe('vitals range copy (doctor)', () => {
     expect(chartAboveRange('45', '°C')).toBe(
       'Above the expected range (max 45 °C) — confirm the reading.',
     );
-    expect(chartAboveRange(null, '°C')).toBe(
-      'Above the expected range — confirm the reading.',
+    // No usual_max: a weight within range whose BMI is above range.
+    expect(chartAboveRange(null, 'kg')).toBe(
+      'Gives a BMI above the expected range — confirm weight and height.',
     );
     expect(RX_PAGE_ABOVE_RANGE).toBe('Above expected range — verify');
   });

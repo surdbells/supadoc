@@ -39,14 +39,18 @@ export function rxAboveRangeSend(list: readonly string[]): string {
     : '';
 }
 
-/** The side panel and the call's chart: under a flagged reading. */
+/**
+ * The side panel and the call's chart: under a flagged reading. A flag with no
+ * `usual_max` is a weight within its own range whose BMI is above range (the
+ * height is the usual suspect), so it names the BMI, not the weight.
+ */
 export function chartAboveRange(
   max: string | null | undefined,
   unit: string,
 ): string {
   return max
     ? `Above the expected range (max ${maxWithUnit(max, unit)}) — confirm the reading.`
-    : 'Above the expected range — confirm the reading.';
+    : 'Gives a BMI above the expected range — confirm weight and height.';
 }
 
 /**
