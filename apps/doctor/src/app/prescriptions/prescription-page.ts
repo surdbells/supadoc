@@ -37,11 +37,14 @@ import {
 import type { CanLeave } from '@supadoc/auth';
 import { UNSAVED_RX_LEAVE } from './rx-shared';
 import { DoctorClock } from '../doctor-clock';
+import { RX_PAGE_ABOVE_RANGE } from '../vitals-range-copy';
 
 interface ReadingLine {
   readonly key: string;
   readonly label: string;
   readonly value: string;
+  /** Above its usual entry range (the API's `readings_above_range`): "verify". */
+  readonly above: boolean;
 }
 
 const READING_ORDER: ReadingKey[] = [
@@ -253,6 +256,11 @@ const DD = 'font-sans text-body-sm text-ink break-words';
                   <div class="flex flex-col gap-0.5 rounded-field bg-glacier px-3 py-2">
                     <dt class="${DT}">{{ l.label }}</dt>
                     <dd class="${DD} font-semibold">{{ l.value }}</dd>
+                    @if (l.above) {
+                      <dd class="flex items-start gap-1 font-sans text-caption text-alert-ink" data-above-range>
+                        <sd-icon name="triangle-alert" [size]="12" class="mt-0.5 shrink-0" aria-hidden="true" />{{ abovePageNote }}
+                      </dd>
+                    }
                   </div>
                 }
               </dl>
@@ -367,6 +375,8 @@ export class PrescriptionPage implements CanLeave {
   protected currentId = '';
   private sub: Subscription | null = null;
 
+  protected readonly abovePageNote = RX_PAGE_ABOVE_RANGE;
+
   protected readonly readingLines = computed<ReadingLine[]>(() => {
     const r = this.rx();
     if (!r) return [];
@@ -378,7 +388,7 @@ export class PrescriptionPage implements CanLeave {
       const f = fields?.find((x) => x.key === key);
       const label = f?.label ?? RX_READING_LABELS[key].label;
       const unit = f?.unit ?? RX_READING_LABELS[key].unit;
-      lines.push({ key, label, value: withUnit(String(value), unit) });
+      lines.push({ key, label, value: withUnit(String(value), unit), above: !!r.readings_above_range?.includes(key) });
     }
     return lines;
   });

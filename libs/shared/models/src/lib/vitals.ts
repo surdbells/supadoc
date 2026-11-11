@@ -24,12 +24,21 @@ export type VitalFlagLevel = 'normal' | 'low' | 'elevated' | 'high' | 'critical'
  * thing. `label` is "Normal" | "Low" | "Elevated" | "High" | "Very high" |
  * "Very low" (pain: "None" | "Mild" | "Moderate" | "Severe"). `advice` is set
  * for high ("Seek medical attention") and critical ("Seek urgent medical
- * attention") readings — never for weight/BMI or pain.
+ * attention") readings — never for pain, nor for weight/BMI unless the
+ * reading is above its usual range.
  */
 export interface VitalFlagDto {
   level: VitalFlagLevel;
   label: string;
   advice: 'Seek medical attention' | 'Seek urgent medical attention' | null;
+  /**
+   * The reading is above its usual entry range (it was still saved): screens
+   * ask to check it. Always "Very high" + urgent advice. Absent on older APIs —
+   * treat as false.
+   */
+  out_of_range?: boolean;
+  /** The usual maximum, e.g. "45" or (blood pressure) "260/160"; set only when `out_of_range`. */
+  usual_max?: string | null;
 }
 
 /** The newest reading of one type. */
@@ -67,11 +76,16 @@ export interface VitalFieldDto {
   label: string;
   unit: string;
   min: number | null;
+  /** The usual entry maximum (above it: saved, with a warning, when `accepts_above`). */
   max: number | null;
   step: number | null;
+  /** The most the API accepts; null for blood pressure (see `systolic` / `diastolic`). Absent on older APIs: use `max`. */
+  max_hard?: number | null;
+  /** False for oxygen and pain: `max` is also the ceiling. Absent on older APIs: false. */
+  accepts_above?: boolean;
   /** Blood pressure only: the bounds of each number. */
-  systolic?: { min: number; max: number };
-  diastolic?: { min: number; max: number };
+  systolic?: { min: number; max: number; max_hard?: number };
+  diastolic?: { min: number; max: number; max_hard?: number };
   /** BMI: worked out from weight and height, never typed. */
   derived?: boolean;
   /** The typical adult band the flags use, e.g. "36.0–37.5" (null: none, e.g. weight, height). */

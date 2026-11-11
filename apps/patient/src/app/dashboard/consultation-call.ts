@@ -132,6 +132,7 @@ import { ShareConfirmSheet } from './share-confirm-sheet';
 import { ShareDialog } from './share-dialog';
 import { isAlreadyReviewed, rememberReviewed, wasReviewed } from './review-memory';
 import { SeenIds } from './seen-ids';
+import { ABOVE_RANGE_CALL_NOTE } from './vitals-range-copy';
 import {
   deviceZone,
   myClinicalDocumentSource,
@@ -1135,6 +1136,9 @@ interface RecordItem {
                     <p class="font-sans text-[10px] text-white/60">{{ v.unit }}</p>
                     @if (v.stale) {
                       <p class="mt-1 font-sans text-[10px] text-warning">May be out of date</p>
+                    }
+                    @if (v.flag?.out_of_range) {
+                      <p class="mt-1 font-sans text-[10px] text-warning">{{ aboveRangeCallNote }}</p>
                     }
                   </div>
                 }
@@ -2313,6 +2317,8 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   // Vitals: the patient's latest reading of each type (GET /api/portal/me/vitals,
   // loaded once in-call) — never fabricated values.
   protected readonly vitals = signal<VitalReadingDto[]>([]);
+  /** Under a reading above its usual range (the API's `flag.out_of_range`). */
+  protected readonly aboveRangeCallNote = ABOVE_RANGE_CALL_NOTE;
   protected readonly vitalsAsOf = computed(() => {
     const times = this.vitals()
       .map((v) => Date.parse(v.taken_at ?? ''))

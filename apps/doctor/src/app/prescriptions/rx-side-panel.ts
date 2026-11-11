@@ -15,6 +15,7 @@ import { IconComponent } from '@supadoc/ui';
 import { Subscription } from 'rxjs';
 import { rxShortDateTime, withUnit } from './rx-shared';
 import { DoctorClock } from '../doctor-clock';
+import { chartAboveRange } from '../vitals-range-copy';
 
 interface SeverityMeta {
   readonly label: string;
@@ -164,6 +165,9 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                     @if (v.flag.advice) {
                       <span class="font-sans text-caption text-ink">{{ v.flag.advice }}</span>
                     }
+                    @if (v.flag.out_of_range) {
+                      <span class="font-sans text-caption text-ink" data-above-range>{{ aboveRange(v.flag.usual_max, v.unit) }}</span>
+                    }
                   }
                   @if (v.stale) {
                     <span
@@ -197,6 +201,8 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
 export class RxSidePanel {
   /** The doctor's clock (their profile time zone): every time shown here. */
   protected readonly clock = inject(DoctorClock);
+  /** Under a reading above its usual range (`flag.out_of_range`). */
+  protected readonly aboveRange = chartAboveRange;
   private readonly api = inject(DoctorApi);
   private readonly destroyRef = inject(DestroyRef);
 

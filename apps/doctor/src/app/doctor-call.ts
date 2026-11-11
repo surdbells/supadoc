@@ -156,6 +156,7 @@ import {
   STOP_RECORDING_PROMPT,
 } from './appointment/clinical/clinical-prompts';
 import { clinicalDocumentSource, patientDocumentSource, revokeUnshared, viewerWatermark } from './viewer/doctor-viewer-sources';
+import { chartAboveRange } from './vitals-range-copy';
 
 /** Load state of something the editor must not overwrite before it has loaded. */
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -868,6 +869,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                               }
                             </p>
                           }
+                          @if (v.flag?.out_of_range) {
+                            <p class="font-sans text-caption text-white/80" data-above-range>{{ aboveRange(v.flag.usual_max, v.unit) }}</p>
+                          }
                         </div>
                       }
                     </div>
@@ -876,7 +880,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                         @for (v of vitalAlerts(); track v.key) {
                           <li class="flex items-start gap-1.5 font-sans text-caption text-alert">
                             <sd-icon [name]="v.flag?.level === 'critical' ? 'triangle-alert' : 'circle-alert'" [size]="12" class="mt-0.5 shrink-0" />
-                            <span>{{ v.label }} is {{ v.flag?.label }} <span class="text-white/70">({{ v.flag?.advice }})</span></span>
+                            <span>{{ v.label }} is {{ v.flag?.label }}@if (v.flag?.out_of_range) { — {{ aboveRange(v.flag.usual_max, v.unit) }}}<span class="text-white/70"> ({{ v.flag?.advice }})</span></span>
                           </li>
                         }
                       </ul>
@@ -3669,12 +3673,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       .filter((v) => !!v.flag?.advice)
       .sort((a, b) => Number(b.flag?.level === 'critical') - Number(a.flag?.level === 'critical')),
   );
+  /** Under a reading above its usual range (`flag.out_of_range`). */
+  protected readonly aboveRange = chartAboveRange;
   protected vitalTitle(v: VitalReadingDto): string {
     // On the doctor's clock (profile zone), e.g. "Wed 4 Nov 2026, 9:00 AM CST".
     const when = v.taken_at
       ? `${formatInZone(v.taken_at, this.callZone(), 'date')}, ${timeLabel(v.taken_at, this.callZone())}`
       : 'time not recorded';
-    return `${v.label}: ${v.value} ${v.unit} · ${v.source_label ?? (v.recorded_by === 'patient' ? 'Self-reported' : 'Recorded by a doctor')} · ${when}`;
+    return `${v.label}: ${v.value} ${v.unit} · ${v.source_label ?? (v.recorded_by === 'patient' ? 'Self-reported' : 'Recorded by a doctor')} · ${when}${
+      v.flag?.out_of_range ? ' · above the expected range' : ''
+    }`;
   }
 
   // ---- Derived ----

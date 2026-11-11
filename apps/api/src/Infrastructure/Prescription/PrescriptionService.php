@@ -545,7 +545,8 @@ final class PrescriptionService
             'limits'            => PrescriptionForm::LIMITS,
             'routes'            => DrugRoute::ALL,
             'readings'          => array_map(
-                static fn (array $r, string $k): array => ['key' => $k, 'label' => $r[0], 'unit' => $r[1], 'min' => $r[2], 'max' => $r[3]],
+                static fn (array $r, string $k): array => ['key' => $k, 'label' => $r[0], 'unit' => $r[1], 'min' => $r[2], 'max' => $r[3]]
+                    + self::readingLimits($k),
                 PrescriptionForm::READINGS,
                 array_keys(PrescriptionForm::READINGS),
             ),
@@ -553,6 +554,26 @@ final class PrescriptionService
             'pregnancy'         => PrescriptionForm::PREGNANCY,
             'follow_up_modes'   => PrescriptionForm::FOLLOW_UP_MODES,
         ];
+    }
+
+    /**
+     * What the form needs beyond the usual range: the most the API accepts and
+     * whether a higher value is saved (with a warning) — blood pressure per number.
+     *
+     * @return array<string,mixed>
+     */
+    private static function readingLimits(string $key): array
+    {
+        $limits = [
+            'max_hard'      => $key === 'blood_pressure' ? null : VitalsForm::hardMax($key),
+            'accepts_above' => VitalsForm::acceptsAbove($key),
+        ];
+        if ($key === 'blood_pressure') {
+            $limits['systolic']  = ['min' => VitalsForm::SYSTOLIC[0], 'max' => VitalsForm::SYSTOLIC[1], 'max_hard' => VitalsForm::BP_HARD_MAX];
+            $limits['diastolic'] = ['min' => VitalsForm::DIASTOLIC[0], 'max' => VitalsForm::DIASTOLIC[1], 'max_hard' => VitalsForm::BP_HARD_MAX];
+        }
+
+        return $limits;
     }
 
     // ----- signature management -----

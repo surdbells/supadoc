@@ -287,7 +287,7 @@ final class VitalsService
                 'source_label' => VitalsForm::SOURCES[$source] ?? null,
                 'recorded_by'  => self::recordedBy($v),
                 'stale'        => $at === null || $at < $staleBefore,
-                'flag'         => $key === 'bmi' && !$judgeBmi ? null : VitalsFlags::flag($key, (string) $v['value'], $height),
+                'flag'         => $key === 'bmi' && !$judgeBmi && !VitalsForm::isAboveRange('bmi', (string) $v['value']) ? null : VitalsFlags::flag($key, (string) $v['value'], $height),
             ];
         }
 
@@ -436,7 +436,7 @@ final class VitalsService
             'source_label' => VitalsForm::SOURCES[$r->getSource()] ?? null,
             'recorded_by'  => $r->getRecordedByType(),
             'stale'        => $r->getTakenAt() < $now->modify('-' . self::STALE_AFTER_DAYS . ' days'),
-            'flag'         => $r->getKey() === 'bmi' && $height === null ? null : VitalsFlags::flag($r->getKey(), $r->getValue(), $height),
+            'flag'         => $r->getKey() === 'bmi' && $height === null && !VitalsForm::isAboveRange('bmi', $r->getValue()) ? null : VitalsFlags::flag($r->getKey(), $r->getValue(), $height),
             'created_at'   => $r->getCreatedAt()->format(DATE_ATOM),
         ];
     }

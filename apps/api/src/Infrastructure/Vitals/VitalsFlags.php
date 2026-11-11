@@ -47,12 +47,26 @@ final class VitalsFlags
      * unflagged without a height on file or once it is older than the latest
      * weight or height.
      *
+     * A reading above its usual entry range (accepted, but worth a second
+     * look — {@see VitalsForm::isAboveRange()}) is always "Very high" with
+     * urgent advice, and carries `out_of_range: true` and the `usual_max`
+     * so every screen can say "check the reading".
+     *
      * @param ?string $heightCm the patient's latest height — weight is judged by the BMI it gives
-     * @return array{level: string, label: string, advice: ?string}|null
+     * @return array{level: string, label: string, advice: ?string, out_of_range: bool, usual_max: ?string}|null
      */
     public static function flag(string $key, string $value, ?string $heightCm = null): ?array
     {
         $value = trim($value);
+        if (VitalsForm::isAboveRange($key, $value)) {
+            return [
+                'level'        => self::CRITICAL,
+                'label'        => 'Very high',
+                'advice'       => self::SEEK_URGENT_ATTENTION,
+                'out_of_range' => true,
+                'usual_max'    => VitalsForm::usualMax($key),
+            ];
+        }
         if ($key === 'blood_pressure') {
             return self::bloodPressure($value);
         }
@@ -157,9 +171,10 @@ final class VitalsFlags
     }
 
     /**
-     * kg/m²: <18.5 low · 18.5–24.9 normal · 25–29.9 elevated · ≥30 high. Never
-     * "seek medical attention" — a BMI is something to talk over with the
-     * doctor, not an alarm.
+     * kg/m²: <18.5 low · 18.5–24.9 normal · 25–29.9 elevated · ≥30 high ·
+     * >90 (above the usual range) very high. Otherwise never "seek medical
+     * attention" — a BMI is something to talk over with the doctor, not an
+     * alarm.
      */
     private static function bmi(float $bmi): array
     {
@@ -167,9 +182,12 @@ final class VitalsFlags
             $bmi < 18.5 => self::make(self::LOW),
             $bmi < 25   => self::make(self::NORMAL),
             $bmi < 30   => self::make(self::ELEVATED),
+            $bmi > (float) VitalsForm::READINGS['bmi'][3] => self::make(self::CRITICAL, 'Very high'),
             default     => self::make(self::HIGH),
         };
-        $flag['advice'] = null;
+        if ($flag['level'] !== self::CRITICAL) {
+            $flag['advice'] = null;
+        }
 
         return $flag;
     }
@@ -192,11 +210,11 @@ final class VitalsFlags
             $score <= 0 => self::make(self::NORMAL, 'None'),
             $score < 4  => self::make(self::NORMAL, 'Mild'),
             $score < 7  => self::make(self::ELEVATED, 'Moderate'),
-            default     => ['level' => self::HIGH, 'label' => 'Severe', 'advice' => null],
+            default     => ['level' => self::HIGH, 'label' => 'Severe', 'advice' => null, 'out_of_range' => false, 'usual_max' => null],
         };
     }
 
-    /** @return array{level: string, label: string, advice: ?string} */
+    /** @return array{level: string, label: string, advice: ?string, out_of_range: bool, usual_max: ?string} */
     private static function make(string $level, ?string $label = null): array
     {
         return [
@@ -212,6 +230,8 @@ final class VitalsFlags
                 self::CRITICAL => self::SEEK_URGENT_ATTENTION,
                 default        => null,
             },
+            'out_of_range' => false,
+            'usual_max'    => null,
         ];
     }
 }

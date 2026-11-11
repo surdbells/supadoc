@@ -42,9 +42,25 @@ final class VitalsForm
         'pain_score'        => 1,
     ];
 
-    /** Systolic / diastolic bounds; the diastolic must also be below the systolic. */
+    /**
+     * Systolic / diastolic bounds; the diastolic must also be below the systolic.
+     * The upper bound is the usual entry maximum: a higher number is saved but
+     * flagged as above the usual range (see {@see self::isAboveRange()}).
+     */
     public const SYSTOLIC  = [50, 260];
     public const DIASTOLIC = [30, 160];
+
+    /** Readings with a physical ceiling: their entry maximum is also the hard maximum. */
+    public const BOUNDED = ['oxygen_saturation', 'pain_score'];
+
+    /** Technical sanity ceiling for every other number (at most 4 digits before the decimal). */
+    public const HARD_MAX = 9999;
+
+    /** Ceiling for each blood-pressure number (keeps the 2–3 digit shape). */
+    public const BP_HARD_MAX = 999;
+
+    public const BP_FORMAT_ERROR  = 'Enter blood pressure as systolic/diastolic, e.g. 120/80';
+    public const BP_CEILING_ERROR = "Blood pressure numbers can't be more than 999. Check the reading.";
 
     /** Where a patient's own readings come from. */
     public const PATIENT_SOURCES = [
@@ -67,7 +83,10 @@ final class VitalsForm
 
     /**
      * Range-check a set of readings. Blank boxes are skipped; BMI is worked out
-     * from weight and height when it is not given. Errors are keyed by the
+     * from weight and height when it is not given. A value below a reading's
+     * minimum is rejected; one above its usual maximum is accepted (and flagged
+     * as above the usual range) unless the reading is physically bounded
+     * ({@see self::BOUNDED}) or the value passes the sanity ceiling. Errors are keyed by the
      * reading key (or `source` / `taken_at`) — the caller adds any prefix.
      *
      * @param array<string,mixed>  $raw     reading key => value, plus optional `source` / `taken_at`
@@ -79,22 +98,30 @@ final class VitalsForm
     {
         $errors   = [];
         $readings = [];
-        foreach (self::READINGS as $key => [$label, , $min, $max]) {
+        foreach (self::READINGS as $key => [$label, $unit, $min, $max]) {
             $value = trim((string) (is_scalar($raw[$key] ?? null) ? $raw[$key] : ''));
             if ($value === '') {
                 continue;
             }
             if ($key === 'blood_pressure') {
-                $bp = self::bloodPressure($value);
-                if ($bp === null) {
-                    $errors[$key] = 'Enter blood pressure as systolic/diastolic, e.g. 120/80';
+                $error = self::bloodPressureError($value);
+                if ($error !== null) {
+                    $errors[$key] = $error;
                     continue;
                 }
-                $readings[$key] = $bp;
+                $readings[$key] = (string) self::bloodPressure($value);
                 continue;
             }
-            if (!is_numeric($value) || (float) $value < $min || (float) $value > $max) {
-                $errors[$key] = sprintf('%s must be a number between %s and %s', $label, $min, $max);
+            if (!self::acceptsAbove($key)) {
+                if (!is_numeric($value) || (float) $value < $min || (float) $value > $max) {
+                    $errors[$key] = sprintf('%s must be a number between %s and %s', $label, $min, $max);
+                    continue;
+                }
+            } elseif (!is_numeric($value) || (float) $value < $min) {
+                $errors[$key] = sprintf('%s must be a number of at least %s %s', $label, $min, $unit);
+                continue;
+            } elseif (!is_finite((float) $value) || (float) $value > self::HARD_MAX) {
+                $errors[$key] = sprintf("%s can't be more than %s %s. Check the reading.", $label, self::HARD_MAX, $unit);
                 continue;
             }
             $readings[$key] = self::number((float) $value);
@@ -126,22 +153,43 @@ final class VitalsForm
         return [$readings, $errors];
     }
 
-    /** "120 / 80" → "120/80"; null when malformed or out of range. */
+    /**
+     * "120 / 80" → "120/80"; null when malformed, below the minimums, beyond the
+     * sanity ceiling or the diastolic is not below the systolic. Numbers above
+     * the usual maximum (260/160) are accepted.
+     */
     public static function bloodPressure(string $value): ?string
     {
-        if (preg_match('/^(\d{2,3})\s*\/\s*(\d{2,3})$/', trim($value), $m) !== 1) {
-            return null;
-        }
-        [$sys, $dia] = [(int) $m[1], (int) $m[2]];
-        if ($sys < self::SYSTOLIC[0] || $sys > self::SYSTOLIC[1]
-            || $dia < self::DIASTOLIC[0] || $dia > self::DIASTOLIC[1] || $dia >= $sys) {
+        if (self::bloodPressureError($value) !== null
+            || preg_match('/^(\d+)\s*\/\s*(\d+)$/', trim($value), $m) !== 1) {
             return null;
         }
 
-        return $sys . '/' . $dia;
+        return (int) $m[1] . '/' . (int) $m[2];
     }
 
-    /** BMI (kg/m², one decimal) from weight in kg and height in cm; null when outside the BMI range. */
+    /** Why a blood pressure is rejected, or null when it is accepted. */
+    public static function bloodPressureError(string $value): ?string
+    {
+        if (preg_match('/^(\d+)\s*\/\s*(\d+)$/', trim($value), $m) !== 1) {
+            return self::BP_FORMAT_ERROR;
+        }
+        if (strlen(ltrim($m[1], '0')) > 3 || strlen(ltrim($m[2], '0')) > 3) {
+            return self::BP_CEILING_ERROR;
+        }
+        [$sys, $dia] = [(int) $m[1], (int) $m[2]];
+        if ($sys < self::SYSTOLIC[0] || $dia < self::DIASTOLIC[0] || $dia >= $sys) {
+            return self::BP_FORMAT_ERROR;
+        }
+
+        return null;
+    }
+
+    /**
+     * BMI (kg/m², one decimal) from weight in kg and height in cm; null when
+     * below the BMI minimum or beyond the sanity ceiling. A BMI above the usual
+     * maximum (90) is worked out and flagged as above the usual range.
+     */
     public static function bmi(float $weightKg, float $heightCm): ?string
     {
         if ($weightKg <= 0 || $heightCm <= 0) {
@@ -149,14 +197,63 @@ final class VitalsForm
         }
         $metres = $heightCm / 100;
         $bmi    = round($weightKg / ($metres * $metres), 1);
-        [, , $min, $max] = self::READINGS['bmi'];
 
-        return $bmi >= $min && $bmi <= $max ? self::number($bmi) : null;
+        return $bmi >= self::READINGS['bmi'][2] && $bmi <= self::HARD_MAX ? self::number($bmi) : null;
+    }
+
+    /** The most a reading may be before it is rejected (blood pressure: each number). */
+    public static function hardMax(string $key): int|float
+    {
+        if ($key === 'blood_pressure') {
+            return self::BP_HARD_MAX;
+        }
+
+        return in_array($key, self::BOUNDED, true) ? (self::READINGS[$key][3] ?? 0) : self::HARD_MAX;
+    }
+
+    /** Whether a value above the usual maximum is accepted (false for oxygen and pain). */
+    public static function acceptsAbove(string $key): bool
+    {
+        return isset(self::READINGS[$key]) && !in_array($key, self::BOUNDED, true);
+    }
+
+    /** Whether a stored reading is above its usual entry range (still saved — "check the reading"). */
+    public static function isAboveRange(string $key, string $value): bool
+    {
+        if (!self::acceptsAbove($key)) {
+            return false;
+        }
+        $value = trim($value);
+        if ($key === 'blood_pressure') {
+            if (preg_match('/^(\d{2,3})\s*\/\s*(\d{2,3})$/', $value, $m) !== 1) {
+                return false;
+            }
+
+            return (int) $m[1] > self::SYSTOLIC[1] || (int) $m[2] > self::DIASTOLIC[1];
+        }
+
+        return is_numeric($value) && (float) $value > (float) self::READINGS[$key][3];
+    }
+
+    /** The usual maximum as people see it ("45", blood pressure "260/160"); null for bounded readings. */
+    public static function usualMax(string $key): ?string
+    {
+        if (!self::acceptsAbove($key)) {
+            return null;
+        }
+        if ($key === 'blood_pressure') {
+            return self::SYSTOLIC[1] . '/' . self::DIASTOLIC[1];
+        }
+
+        return self::number((float) self::READINGS[$key][3]);
     }
 
     /**
      * The catalogue as the API serves it, for building a form. `normal_range`
      * is the typical adult band the flags use (null where there is none).
+     * `max` is the usual entry maximum; `max_hard` the most the API accepts
+     * (null for blood pressure — see `systolic` / `diastolic`) and
+     * `accepts_above` whether a value above `max` is saved, with a warning.
      *
      * @return list<array<string,mixed>>
      */
@@ -165,17 +262,19 @@ final class VitalsForm
         $fields = [];
         foreach (self::READINGS as $key => [$label, $unit, $min, $max]) {
             $field = [
-                'key'          => $key,
-                'label'        => $label,
-                'unit'         => $unit,
-                'min'          => $min,
-                'max'          => $max,
-                'step'         => self::STEPS[$key] ?? null,
-                'normal_range' => VitalsFlags::NORMAL_RANGES[$key] ?? null,
+                'key'           => $key,
+                'label'         => $label,
+                'unit'          => $unit,
+                'min'           => $min,
+                'max'           => $max,
+                'step'          => self::STEPS[$key] ?? null,
+                'normal_range'  => VitalsFlags::NORMAL_RANGES[$key] ?? null,
+                'max_hard'      => $key === 'blood_pressure' ? null : self::hardMax($key),
+                'accepts_above' => self::acceptsAbove($key),
             ];
             if ($key === 'blood_pressure') {
-                $field['systolic']  = ['min' => self::SYSTOLIC[0], 'max' => self::SYSTOLIC[1]];
-                $field['diastolic'] = ['min' => self::DIASTOLIC[0], 'max' => self::DIASTOLIC[1]];
+                $field['systolic']  = ['min' => self::SYSTOLIC[0], 'max' => self::SYSTOLIC[1], 'max_hard' => self::BP_HARD_MAX];
+                $field['diastolic'] = ['min' => self::DIASTOLIC[0], 'max' => self::DIASTOLIC[1], 'max_hard' => self::BP_HARD_MAX];
             }
             if ($key === 'bmi') {
                 $field['derived'] = true; // worked out from weight and height

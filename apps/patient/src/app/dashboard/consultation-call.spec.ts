@@ -582,6 +582,27 @@ describe('ConsultationCall (the dock)', () => {
     });
   });
 
+  it('asks to check a latest reading above its usual range on the vitals tiles', async () => {
+    await create();
+    await enter();
+    (cmp()['vitals'] as unknown as { set: (v: unknown[]) => void }).set([
+      {
+        key: 'temperature', label: 'Temperature', value: '46', unit: '°C', taken_at: new Date().toISOString(),
+        source: 'self_reported', source_label: 'Self-reported', recorded_by: 'patient', stale: false,
+        flag: { level: 'critical', label: 'Very high', advice: 'Seek urgent medical attention', out_of_range: true, usual_max: '45' },
+      },
+      {
+        key: 'heart_rate', label: 'Heart rate', value: '72', unit: 'beats/min', taken_at: new Date().toISOString(),
+        source: 'self_reported', source_label: 'Self-reported', recorded_by: 'patient', stale: false,
+        flag: { level: 'normal', label: 'Normal', advice: null, out_of_range: false, usual_max: null },
+      },
+    ]);
+    await settle();
+    const section = el.querySelector('[aria-labelledby="call-vitals-title"]');
+    expect(section?.textContent).toContain('46');
+    expect(section?.textContent?.match(/Higher than usual — please check/g)?.length).toBe(1);
+  });
+
   it('announces recording in words from a status region that is always there', async () => {
     await create();
     await enter();

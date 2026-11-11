@@ -137,6 +137,11 @@ export interface PrescriptionSummaryDto {
 /** The full prescription (prescriber, patient, authorised staff). */
 export interface PrescriptionDto extends PrescriptionSummaryDto {
   readings: PrescriptionReadings;
+  /**
+   * Readings above their usual entry range (saved, but to be verified), in
+   * catalogue order. Absent on older APIs — treat as none.
+   */
+  readings_above_range?: ReadingKey[];
   reason: string | null;
   icd_code: string | null;
   /**
@@ -226,7 +231,15 @@ export interface PrescriptionReadingField {
   label: string;
   unit: string;
   min: number | null;
+  /** The usual entry maximum (above it: saved, with a warning, when `accepts_above`). */
   max: number | null;
+  /** The most the API accepts; null for blood pressure (see `systolic` / `diastolic`). Absent on older APIs: use `max`. */
+  max_hard?: number | null;
+  /** False for oxygen and pain: `max` is also the ceiling. Absent on older APIs: false. */
+  accepts_above?: boolean;
+  /** Blood pressure only: the bounds of each number. */
+  systolic?: { min: number; max: number; max_hard?: number };
+  diastolic?: { min: number; max: number; max_hard?: number };
 }
 
 /** GET /api/doctor/prescriptions/options */

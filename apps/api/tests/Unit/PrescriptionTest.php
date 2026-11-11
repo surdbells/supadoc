@@ -81,7 +81,7 @@ final class PrescriptionTest extends TestCase
         $this->assertSame('148/92', $clean['readings']['blood_pressure']);
         $this->assertSame('25.5', $clean['readings']['bmi']);
 
-        [, $errors] = PrescriptionForm::normalize(['readings' => ['temperature' => '60', 'blood_pressure' => '80/120', 'source' => 'tv']], $this->catalogue(), $this->today());
+        [, $errors] = PrescriptionForm::normalize(['readings' => ['temperature' => '29', 'blood_pressure' => '80/120', 'source' => 'tv']], $this->catalogue(), $this->today());
         $this->assertArrayHasKey('readings.temperature', $errors);
         $this->assertArrayHasKey('readings.blood_pressure', $errors);
         $this->assertArrayHasKey('readings.source', $errors);
@@ -225,6 +225,53 @@ final class PrescriptionTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $pdf);
         $this->assertLessThan(1024 * 1024, strlen($pdf));
         $this->assertSame(2, preg_match_all('#/Type /Page\b#', $pdf));
+    }
+
+    public function testReadingsAboveTheUsualRangeAreMarked(): void
+    {
+        $rx = new Prescription('p-1', 's-1', 'a-1', 'GVM-RX-20261105-00002', new DateTimeImmutable('2026-12-05'));
+        $rx->initTimestamps();
+        $rx->setReadings(['temperature' => '46', 'heart_rate' => '80', 'blood_pressure' => '300/170', 'source' => 'video']);
+        $this->assertSame(['temperature', 'blood_pressure'], $rx->readingsAboveRange());
+        $this->assertSame(['temperature', 'blood_pressure'], $rx->toArray()['readings_above_range']);
+
+        $rx->setReadings(['temperature' => '37', 'blood_pressure' => '120/80']);
+        $this->assertSame([], $rx->toArray()['readings_above_range']);
+    }
+
+    public function testFormOptionsDescribeWhichReadingsAcceptHigherValues(): void
+    {
+        $service = (new \ReflectionClass(PrescriptionService::class))->newInstanceWithoutConstructor();
+        $limits  = new \ReflectionMethod(PrescriptionService::class, 'readingLimits');
+        $this->assertSame(['max_hard' => 9999, 'accepts_above' => true], $limits->invoke($service, 'temperature'));
+        $this->assertSame(['max_hard' => 100, 'accepts_above' => false], $limits->invoke($service, 'oxygen_saturation'));
+        $bp = $limits->invoke($service, 'blood_pressure');
+        $this->assertNull($bp['max_hard']);
+        $this->assertSame(['min' => 50, 'max' => 260, 'max_hard' => 999], $bp['systolic']);
+    }
+
+    public function testPdfMarksReadingsAboveTheUsualRange(): void
+    {
+        $render = function (array $readings): string {
+            $rx = new Prescription('p-1', 's-1', 'a-1', 'GVM-RX-20261105-00003', new DateTimeImmutable('2026-12-05'));
+            $rx->setItems(array_fill(0, 7, $this->row(['name' => 'amoxicillin 500 MG Oral Capsule', 'route' => 'Oral'])));
+            $rx->setReadings($readings);
+            $rx->setConsultation('Acute sinusitis', 'CA01', null, 'no');
+            $rx->send(['name' => 'Dr. Grace Bell'], ['name' => 'Amaka Okafor'], 'saved', null, new DateTimeImmutable('2026-11-05T09:00:00Z'));
+
+            return (new PrescriptionPdfRenderer())->render($rx, ['name' => 'Amaka Okafor'], ['name' => 'Dr. Grace Bell'], null, 'https://example.test/check-prescription');
+        };
+
+        $above = $render(['temperature' => '46', 'heart_rate' => '80', 'source' => 'video']);
+        $text  = self::pdfText($above);
+        $this->assertStringContainsString('Above the usual entry range', $text);
+        $this->assertStringContainsString('(*) Tj', $text);
+        $this->assertSame(2, preg_match_all('#/Type /Page\b#', $above), 'still two pages');
+        $this->assertLessThan(1024 * 1024, strlen($above));
+
+        $normal = self::pdfText($render(['temperature' => '37', 'heart_rate' => '80', 'source' => 'video']));
+        $this->assertStringNotContainsString('Above the usual entry range', $normal);
+        $this->assertStringNotContainsString('(*) Tj', $normal);
     }
 
     public function testPdfPrintsMedicinesAlreadyTakenOnlyOnPrescriptionsThatHaveThem(): void

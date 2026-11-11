@@ -104,7 +104,7 @@ final class VitalsFlagsTest extends TestCase
         yield 'rr 29' => ['respiratory_rate', '29', 'high', 'High', self::ATTENTION];
         yield 'rr 30' => ['respiratory_rate', '30', 'critical', 'Very high', self::URGENT];
 
-        // BMI (kg/m²) — never "seek medical attention"
+        // BMI (kg/m²) — never "seek medical attention" within its usual range
         yield 'bmi 18.4' => ['bmi', '18.4', 'low', 'Low', null];
         yield 'bmi 18.5' => ['bmi', '18.5', 'normal', 'Normal', null];
         yield 'bmi 24.9' => ['bmi', '24.9', 'normal', 'Normal', null];
@@ -126,7 +126,7 @@ final class VitalsFlagsTest extends TestCase
     #[DataProvider('boundaries')]
     public function testEachBoundary(string $key, string $value, string $level, string $label, ?string $advice): void
     {
-        $this->assertSame(['level' => $level, 'label' => $label, 'advice' => $advice], VitalsFlags::flag($key, $value));
+        $this->assertSame(['level' => $level, 'label' => $label, 'advice' => $advice, 'out_of_range' => false, 'usual_max' => null], VitalsFlags::flag($key, $value));
     }
 
     public function testWeightIsJudgedByItsBmiWithTheLatestHeight(): void
@@ -137,7 +137,7 @@ final class VitalsFlagsTest extends TestCase
         $this->assertSame('normal', VitalsFlags::flag('weight', '68', '175')['level']);
         $this->assertSame('elevated', VitalsFlags::flag('weight', '76.6', '175')['level']);
         $high = VitalsFlags::flag('weight', '92', '175');
-        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => null], $high, 'never "seek medical attention" for weight');
+        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => null, 'out_of_range' => false, 'usual_max' => null], $high, 'never "seek medical attention" for weight');
 
         $this->assertNull(VitalsFlags::flag('weight', '68'), 'no height on file — no flag');
         $this->assertNull(VitalsFlags::flag('weight', '68', 'tall'));
@@ -151,8 +151,73 @@ final class VitalsFlagsTest extends TestCase
         $this->assertNull(VitalsFlags::flag('mood', '5'));
     }
 
+    /** @return iterable<string, array{string, string, ?string, string}> key, value, height, usual max */
+    public static function aboveRange(): iterable
+    {
+        yield 'temp 46' => ['temperature', '46', null, '45'];
+        yield 'temp 45.1' => ['temperature', '45.1', null, '45'];
+        yield 'hr 260' => ['heart_rate', '260', null, '250'];
+        yield 'rr 61' => ['respiratory_rate', '61', null, '60'];
+        yield 'sugar 41' => ['blood_sugar', '41', null, '40'];
+        yield 'bp 300/170' => ['blood_pressure', '300/170', null, '260/160'];
+        yield 'bp 261/80' => ['blood_pressure', '261/80', null, '260/160'];
+        yield 'bp 200/161' => ['blood_pressure', '200/161', null, '260/160'];
+        yield 'height 251' => ['height', '251', null, '250'];
+        yield 'weight 401, no height' => ['weight', '401', null, '400'];
+        yield 'weight 401, with height' => ['weight', '401', '180', '400'];
+        yield 'bmi 95' => ['bmi', '95', null, '90'];
+    }
+
+    #[DataProvider('aboveRange')]
+    public function testReadingsAboveTheUsualRangeAreVeryHighWithAMarker(string $key, string $value, ?string $height, string $usualMax): void
+    {
+        $this->assertSame(
+            ['level' => 'critical', 'label' => 'Very high', 'advice' => self::URGENT, 'out_of_range' => true, 'usual_max' => $usualMax],
+            VitalsFlags::flag($key, $value, $height),
+        );
+    }
+
+    public function testBoundedReadingsNeverCarryTheMarker(): void
+    {
+        $this->assertFalse(VitalsFlags::flag('oxygen_saturation', '100')['out_of_range']);
+        $this->assertFalse(VitalsFlags::flag('pain_score', '10')['out_of_range']);
+        $this->assertFalse(VitalsFlags::flag('temperature', '45')['out_of_range'], 'the usual maximum itself is in range');
+        $this->assertNull(VitalsFlags::flag('temperature', '45')['usual_max']);
+    }
+
+    public function testAWeightGivingABmiAbove90IsVeryHighButNotOutOfRange(): void
+    {
+        // 200 kg at 140 cm is a BMI of 102: the weight itself is within its range.
+        $weight = VitalsFlags::flag('weight', '200', '140');
+        $this->assertSame(['level' => 'critical', 'label' => 'Very high', 'advice' => self::URGENT, 'out_of_range' => false, 'usual_max' => null], $weight);
+
+        $at   = '2026-10-13T08:00:00+00:00';
+        $row  = static fn (string $value): array => ['value' => $value, 'unit' => '', 'taken_at' => $at, 'source' => 'video', 'recorded_by' => 'doctor'];
+        $list = array_column(VitalsService::latestList(['weight' => $row('200'), 'height' => $row('140'), 'bmi' => $row('102')], $this->now()), null, 'key');
+        $this->assertSame('critical', $list['weight']['flag']['level']);
+        $this->assertSame('critical', $list['bmi']['flag']['level'], 'weight and BMI cards agree');
+        $this->assertSame($list['weight']['flag']['label'], $list['bmi']['flag']['label']);
+        $this->assertTrue($list['bmi']['flag']['out_of_range']);
+    }
+
+    public function testABmiAboveTheUsualRangeIsFlaggedEvenWithoutAHeight(): void
+    {
+        $at   = '2026-10-13T08:00:00+00:00';
+        $list = array_column(VitalsService::latestList(
+            ['bmi' => ['value' => '95', 'unit' => 'kg/m²', 'taken_at' => $at, 'source' => 'video', 'recorded_by' => 'doctor']],
+            $this->now(),
+        ), null, 'key');
+        $this->assertTrue($list['bmi']['flag']['out_of_range']);
+        $this->assertSame('90', $list['bmi']['flag']['usual_max']);
+
+        $reading = new VitalReading('00000000-0000-0000-0000-000000000000', 'bmi', '95', 'kg/m²', new DateTimeImmutable($at), 'self_reported', 'patient', null);
+        $row     = new \ReflectionMethod(VitalsService::class, 'readingRow');
+        $this->assertTrue($row->invoke(null, $reading, $this->now(), null)['flag']['out_of_range'], 'history too');
+    }
+
     public function testAdviceOnlyForHighAndCriticalReadings(): void
     {
+        // Within the usual range a BMI never advises; above it (> 90) every reading is urgent.
         foreach (self::boundaries() as $name => [$key, $value, $level, , $advice]) {
             $expected = match (true) {
                 in_array($key, ['bmi', 'pain_score'], true) => null,
@@ -173,7 +238,7 @@ final class VitalsFlagsTest extends TestCase
             'height'      => ['value' => '172', 'unit' => 'cm', 'taken_at' => '2025-01-01T08:00:00+00:00', 'source' => 'clinic'],
         ];
         $list = array_column(VitalsService::latestList($cache, $this->now()), null, 'key');
-        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => self::ATTENTION], $list['temperature']['flag']);
+        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => self::ATTENTION, 'out_of_range' => false, 'usual_max' => null], $list['temperature']['flag']);
         $this->assertSame('normal', $list['weight']['flag']['level'], '68 kg at 172 cm is a BMI of 23');
         $this->assertNull($list['height']['flag']);
 
@@ -246,7 +311,7 @@ final class VitalsFlagsTest extends TestCase
         $row     = new \ReflectionMethod(VitalsService::class, 'readingRow');
 
         $this->assertNull($row->invoke(null, $reading, $this->now(), null)['flag']);
-        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => null], $row->invoke(null, $reading, $this->now(), '175')['flag']);
+        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => null, 'out_of_range' => false, 'usual_max' => null], $row->invoke(null, $reading, $this->now(), '175')['flag']);
     }
 
     // ----- reminder: a consultation coming up -----

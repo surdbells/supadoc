@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domain\Entity;
 
 use App\Domain\Settings\ClinicTime;
+use App\Infrastructure\Vitals\VitalsForm;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Ramsey\Uuid\Uuid;
@@ -505,11 +506,28 @@ class Prescription
         ];
     }
 
+    /**
+     * The readings above their usual entry range (saved, but worth a second
+     * look), in catalogue order — the marker the screens and the PDF use.
+     *
+     * @return list<string>
+     */
+    public function readingsAboveRange(): array
+    {
+        $readings = $this->getReadings();
+
+        return array_values(array_filter(
+            array_keys(VitalsForm::READINGS),
+            static fn (string $k): bool => isset($readings[$k]) && VitalsForm::isAboveRange($k, (string) $readings[$k]),
+        ));
+    }
+
     /** Full record for the prescriber and the patient. */
     public function toArray(?DateTimeImmutable $today = null): array
     {
         return $this->toSummaryArray($today) + [
             'readings'            => (object) $this->getReadings(),
+            'readings_above_range' => $this->readingsAboveRange(),
             'reason'              => $this->reason,
             'icd_code'            => $this->icdCode,
             'current_medications' => $this->currentMedications,

@@ -49,6 +49,18 @@ import {
   warnBeforeUnload,
 } from '@supadoc/ui';
 import { afterDialogsClose } from '../dialog-helpers';
+import {
+  ABOVE_RANGE_CARD_DETAIL,
+  ABOVE_RANGE_CARD_NOTE,
+  aboveRangeAlert,
+  aboveRangeStaleAlert,
+  aboveRangeSummary,
+  aboveRangeWarning,
+  belowMinError,
+  bmiAboveRangeWarning,
+  bpCeilingError,
+  ceilingError,
+} from './vitals-range-copy';
 
 /** Allergy severity choices — the stored value is the lower-case key. */
 const SEVERITY_OPTIONS: readonly { value: AllergySeverity; label: string }[] = [
@@ -995,10 +1007,10 @@ interface SectionCard {
                             (input)="noteBadInput('systolic', $event)"
                             placeholder="e.g 118"
                             aria-label="Systolic (top number)"
-                            aria-describedby="vt-hint-blood_pressure"
+                            [attr.aria-describedby]="bpDescribedBy(f)"
                             [attr.aria-invalid]="bpError(f) ? true : null"
                             [min]="f.systolic?.min ?? null"
-                            [max]="f.systolic?.max ?? null"
+                            [max]="f.systolic?.max_hard ?? f.systolic?.max ?? null"
                             step="1"
                             [class]="bpInput"
                           />
@@ -1014,19 +1026,27 @@ interface SectionCard {
                             (input)="noteBadInput('diastolic', $event)"
                             placeholder="78"
                             aria-label="Diastolic (bottom number)"
-                            aria-describedby="vt-hint-blood_pressure"
+                            [attr.aria-describedby]="bpDescribedBy(f)"
                             [attr.aria-invalid]="bpError(f) ? true : null"
                             [min]="f.diastolic?.min ?? null"
-                            [max]="f.diastolic?.max ?? null"
+                            [max]="f.diastolic?.max_hard ?? f.diastolic?.max ?? null"
                             step="1"
                             [class]="bpInput"
                           />
                         </div>
-                        @if (bpError(f); as e) {
-                          <span id="vt-hint-blood_pressure" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                        } @else {
-                          <span id="vt-hint-blood_pressure" [class]="vitalHintClass">Systolic (top) | diastolic (bottom), in mmHg</span>
-                        }
+                        <!-- Polite: an above-range warning is advice, not an error (role=alert stays on errors) -->
+                        <div class="flex flex-col gap-1" aria-live="polite">
+                          @if (bpError(f); as e) {
+                            <span id="vt-hint-blood_pressure" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                          } @else {
+                            <span id="vt-hint-blood_pressure" [class]="vitalHintClass">Systolic (top) | diastolic (bottom), in mmHg</span>
+                            @if (bpAbove(f); as w) {
+                              <p id="vt-warn-blood_pressure" [class]="vitalWarnClass">
+                                <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" aria-hidden="true" /><span>{{ w }}</span>
+                              </p>
+                            }
+                          }
+                        </div>
                       </div>
                     } @else if (f.derived) {
                       <div class="flex w-full min-w-0 flex-col gap-1">
@@ -1041,7 +1061,14 @@ interface SectionCard {
                           aria-live="polite"
                           >{{ bmiPreview() ?? '—' }}</span
                         >
-                        <span [class]="vitalHintClass">{{ bmiHint() }}</span>
+                        <div class="flex flex-col gap-1" aria-live="polite">
+                          <span [class]="vitalHintClass">{{ bmiHint() }}</span>
+                          @if (bmiAbove(); as w) {
+                            <p id="vt-warn-bmi" [class]="vitalWarnClass">
+                              <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" aria-hidden="true" /><span>{{ w }}</span>
+                            </p>
+                          }
+                        </div>
                       </div>
                     } @else if (isNumberKey(f.key)) {
                       <div class="flex w-full min-w-0 flex-col gap-1">
@@ -1058,17 +1085,27 @@ interface SectionCard {
                           (input)="noteBadInput(f.key, $event)"
                           [placeholder]="placeholder(f.key)"
                           [min]="f.min"
-                          [max]="f.max"
+                          [max]="f.max_hard ?? f.max"
                           [attr.step]="f.step ?? 'any'"
                           [attr.aria-invalid]="vitalFieldError(f) ? true : null"
-                          [attr.aria-describedby]="vitalFieldError(f) || vitalHint(f) ? 'vt-hint-' + f.key : null"
+                          [attr.aria-describedby]="vitalDescribedBy(f)"
                           [class]="vitalFieldError(f) ? vitalInputInvalid : vitalInput"
                         />
-                        @if (vitalFieldError(f); as e) {
-                          <span [id]="'vt-hint-' + f.key" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                        } @else if (vitalHint(f); as hint) {
-                          <span [id]="'vt-hint-' + f.key" [class]="vitalHintClass">{{ hint }}</span>
-                        }
+                        <!-- Polite: an above-range warning is advice, not an error (role=alert stays on errors) -->
+                        <div class="flex flex-col gap-1" aria-live="polite">
+                          @if (vitalFieldError(f); as e) {
+                            <span [id]="'vt-hint-' + f.key" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                          } @else {
+                            @if (vitalHint(f); as hint) {
+                              <span [id]="'vt-hint-' + f.key" [class]="vitalHintClass">{{ hint }}</span>
+                            }
+                            @if (vitalAbove(f); as w) {
+                              <p [id]="'vt-warn-' + f.key" [class]="vitalWarnClass">
+                                <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" aria-hidden="true" /><span>{{ w }}</span>
+                              </p>
+                            }
+                          }
+                        </div>
                       </div>
                     }
                   }
@@ -1421,6 +1458,14 @@ interface SectionCard {
               role="alert"
             >
               {{ editError() }}
+            </p>
+          }
+          <!-- Readings above the usual range: a non-blocking reminder by Save. The live
+               region is always there (screen readers hear it change); the visible copy repeats it. -->
+          <p id="vitals-above-summary" class="sr-only" aria-live="polite">{{ vitalsAboveSummary() }}</p>
+          @if (vitalsAboveSummary(); as summary) {
+            <p [class]="vitalWarnClass" aria-hidden="true" data-testid="vitals-above-summary">
+              <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ summary }}
             </p>
           }
           <div class="flex flex-wrap gap-3">
@@ -2240,11 +2285,15 @@ export class MyProfile implements HasUnsavedChanges {
           return [
             {
               key: v.key,
-              text: `${name} was ${f.label}${on ? ` on ${on}` : ''}`,
+              text: f.out_of_range ? aboveRangeStaleAlert(name, on) : `${name} was ${f.label}${on ? ` on ${on}` : ''}`,
               advice: 'update your readings',
               critical: false,
             },
           ];
+        }
+        if (f.out_of_range) {
+          // Above the usual range: ask to check it first, then the API's urgent advice.
+          return [{ key: v.key, text: aboveRangeAlert(name, f.usual_max, v.unit), advice: f.advice, critical: true }];
         }
         return [{ key: v.key, text: `${name} is ${f.label}`, advice: f.advice, critical: f.level === 'critical' }];
       })
@@ -2502,6 +2551,8 @@ export class MyProfile implements HasUnsavedChanges {
   protected readonly bpInput =
     'w-full min-w-0 bg-transparent px-4 py-[13px] font-sans text-body text-ink placeholder:text-slate/60 [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
   protected readonly vitalHintClass = 'font-sans text-caption font-light text-slate';
+  /** An above-range warning: amber, AA-legible in both themes (`vt-amber`), never red. */
+  protected readonly vitalWarnClass = 'flex items-start gap-1.5 font-sans text-caption vt-amber';
 
   // Options for the searchable dropdowns (sd-search-select).
   protected readonly genderSelectOptions = ['Female', 'Male', 'Other'];
@@ -2992,6 +3043,8 @@ export class MyProfile implements HasUnsavedChanges {
       };
     }
     const on = v.flag && v.stale ? shortDate(v.taken_at) : '';
+    const above = !!v.flag?.out_of_range;
+    const from = on ? `from ${on}` : '';
     return {
       ...base,
       recorded: true,
@@ -3001,10 +3054,10 @@ export class MyProfile implements HasUnsavedChanges {
       status: v.flag ? v.flag.label : this.takenAgo(v.taken_at),
       statusIsWhen: !v.flag,
       statusTone: v.flag ? FLAG_TONE[v.flag.level] : 'text-slate',
-      staleNote: on ? `from ${on}` : '',
+      staleNote: above ? [ABOVE_RANGE_CARD_NOTE, from].filter(Boolean).join(' · ') : from,
       detail: `${this.takenAgo(v.taken_at)} · ${v.recorded_by === 'patient' ? 'Self-reported' : 'From your doctor'}${
         v.stale ? ' · may be out of date' : ''
-      }`,
+      }${above ? ` · ${ABOVE_RANGE_CARD_DETAIL}` : ''}`,
     };
   }
 
@@ -3063,9 +3116,73 @@ export class MyProfile implements HasUnsavedChanges {
     const c = this.vitalsForm.controls[f.key];
     if (!c.errors || (!c.dirty && !this.vitalsSubmitted())) return '';
     if (c.errors['min'] || c.errors['max']) {
+      // A reading that accepts higher values (oxygen and pain don't): only the minimum and the sanity ceiling stop it.
+      if (f.accepts_above) {
+        return c.errors['max']
+          ? ceilingError(f.label, f.max_hard ?? f.max ?? 0, f.unit)
+          : belowMinError(f.label, f.min, f.unit);
+      }
       return `${f.label} must be between ${f.min} and ${f.max} ${f.unit}`;
     }
     return `Enter a number for ${f.label.toLowerCase()}`;
+  }
+
+  /**
+   * The professional warning under a box whose number is above the usual
+   * range: it is still saved — the patient is asked to check it. '' otherwise
+   * (or while the box has an error). Shown as they type.
+   */
+  protected vitalAbove(f: VitalFieldDto): string {
+    if (!f.accepts_above || f.max == null || !isVitalNumberKey(f.key) || this.vitalFieldError(f)) return '';
+    const c = this.vitalsForm.controls[f.key];
+    const n = c.value;
+    if (c.errors || n === null || !Number.isFinite(n) || n <= f.max) return '';
+    return aboveRangeWarning(f.max, f.unit);
+  }
+
+  /** The same for blood pressure: either number above its usual maximum (and an otherwise valid pair). */
+  protected bpAbove(f: VitalFieldDto): string {
+    const s = f.systolic;
+    const d = f.diastolic;
+    if (!f.accepts_above || !s || !d || this.bpError(f)) return '';
+    const { systolic: sc, diastolic: dc } = this.vitalsForm.controls;
+    const sys = sc.value;
+    const dia = dc.value;
+    if (sc.errors || dc.errors || sys === null || dia === null || dia >= sys) return '';
+    return sys > s.max || dia > d.max ? aboveRangeWarning(`${s.max}/${d.max}`, f.unit) : '';
+  }
+
+  /** The same for the worked-out BMI. */
+  protected bmiAbove(): string {
+    const range = this.vitalFields().find((f) => f.key === 'bmi');
+    const bmi = this.bmiPreview();
+    if (!range?.accepts_above || range.max == null || bmi === null || Number(bmi) <= range.max) return '';
+    return bmiAboveRangeWarning(range.max);
+  }
+
+  /** How many boxes (blood pressure and BMI included) are warning right now. */
+  private vitalsAboveCount(): number {
+    return this.editFields().filter((f) =>
+      f.key === 'blood_pressure' ? !!this.bpAbove(f) : f.derived ? !!this.bmiAbove() : !!this.vitalAbove(f),
+    ).length;
+  }
+
+  /** The reminder by Save; '' when nothing is above range (it never blocks the save). */
+  protected vitalsAboveSummary(): string {
+    return this.vitalsState() === 'ready' ? aboveRangeSummary(this.vitalsAboveCount()) : '';
+  }
+
+  /** A number box describes itself by its hint or error, plus the warning when there is one. */
+  protected vitalDescribedBy(f: VitalFieldDto): string | null {
+    const ids = [
+      this.vitalFieldError(f) || this.vitalHint(f) ? `vt-hint-${f.key}` : '',
+      this.vitalAbove(f) ? `vt-warn-${f.key}` : '',
+    ].filter(Boolean);
+    return ids.length ? ids.join(' ') : null;
+  }
+
+  protected bpDescribedBy(f: VitalFieldDto): string {
+    return this.bpAbove(f) ? 'vt-hint-blood_pressure vt-warn-blood_pressure' : 'vt-hint-blood_pressure';
   }
 
   /** Blood pressure needs both numbers, each in range, the bottom one lower. */
@@ -3082,11 +3199,22 @@ export class MyProfile implements HasUnsavedChanges {
     if (sys === null || dia === null) return 'Enter both numbers, e.g. 120 / 80';
     const s = f.systolic;
     const d = f.diastolic;
-    if (sc.errors || (s && (sys < s.min || sys > s.max))) {
-      return `The top number must be between ${s?.min ?? 50} and ${s?.max ?? 260}`;
+    // An API that accepts higher numbers sends `max_hard` (the ceiling); an older one only `max`.
+    const sCap = s?.max_hard ?? s?.max;
+    const dCap = d?.max_hard ?? d?.max;
+    const sOver = !!sc.errors?.['max'] || (sCap != null && sys > sCap);
+    const dOver = !!dc.errors?.['max'] || (dCap != null && dia > dCap);
+    if (s?.max_hard != null && sOver) return bpCeilingError(s.max_hard);
+    if (d?.max_hard != null && dOver) return bpCeilingError(d.max_hard);
+    if (sc.errors || (s && (sys < s.min || sOver))) {
+      return s?.max_hard != null
+        ? `The top number must be at least ${s.min}`
+        : `The top number must be between ${s?.min ?? 50} and ${s?.max ?? 260}`;
     }
-    if (dc.errors || (d && (dia < d.min || dia > d.max))) {
-      return `The bottom number must be between ${d?.min ?? 30} and ${d?.max ?? 160}`;
+    if (dc.errors || (d && (dia < d.min || dOver))) {
+      return d?.max_hard != null
+        ? `The bottom number must be at least ${d.min}`
+        : `The bottom number must be between ${d?.min ?? 30} and ${d?.max ?? 160}`;
     }
     if (dia >= sys) return 'The bottom number must be lower than the top number';
     return '';
@@ -3098,7 +3226,9 @@ export class MyProfile implements HasUnsavedChanges {
     if (weight.invalid || height.invalid) return null;
     const bmi = bmiOf(weight.value, height.value ?? this.heightOnFile());
     const range = this.vitalFields().find((f) => f.key === 'bmi');
-    if (bmi === null || (range?.min != null && bmi < range.min) || (range?.max != null && bmi > range.max)) {
+    // Above the usual maximum it is still worked out (with a warning); only the API's ceiling drops it.
+    const cap = range ? (range.max_hard ?? range.max) : null;
+    if (bmi === null || (range?.min != null && bmi < range.min) || (cap != null && bmi > cap)) {
       return null;
     }
     return bmi.toFixed(1);

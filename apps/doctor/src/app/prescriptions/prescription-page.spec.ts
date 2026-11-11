@@ -113,3 +113,20 @@ describe('PrescriptionPage — medicines already taken', () => {
     expect(consultation(el)['Medicines already taken']).toBe('Metformin 500 mg twice daily');
   });
 });
+
+describe('PrescriptionPage — readings above the expected range', () => {
+  it('marks the tile of a reading the API lists as above range, and only that one', async () => {
+    const el = await render(
+      sent({ readings: { temperature: '46', heart_rate: '80' }, readings_above_range: ['temperature'] }),
+    );
+    const marks = el.querySelectorAll('[data-above-range]');
+    expect(marks.length).toBe(1);
+    expect(marks[0].textContent).toContain('Above expected range — verify');
+    expect(marks[0].closest('div')?.textContent).toContain('46');
+  });
+
+  it('says nothing for an older API without the marker', async () => {
+    const el = await render(sent({ readings: { temperature: '46' } }));
+    expect(el.querySelector('[data-above-range]')).toBeNull();
+  });
+});

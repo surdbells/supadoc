@@ -231,6 +231,7 @@ final class PrescriptionPdfRenderer
         $bw   = (self::W - ($cols - 1) * $gap) / $cols;
         $bh   = 9.6;
         $i = 0;
+        $above = $rx->readingsAboveRange();
         foreach (PrescriptionForm::READINGS as $key => [$label, $unit]) {
             $bx = self::M + ($i % $cols) * ($bw + $gap);
             $by = $y + intdiv($i, $cols) * ($bh + $gap);
@@ -245,6 +246,11 @@ final class PrescriptionPdfRenderer
                 $pdf->SetFont('Helvetica', 'B', 9.5);
                 $this->text($pdf, self::INK);
                 $pdf->Text($bx + 2, $by + 7.9, PrescriptionPdf::enc($value));
+                if (in_array($key, $above, true)) {
+                    // Above the usual entry range: a red asterisk, explained under the boxes.
+                    $this->text($pdf, self::ALERT);
+                    $pdf->Text($bx + 2 + $pdf->GetStringWidth(PrescriptionPdf::enc($value)) + 0.8, $by + 7.9, '*');
+                }
             }
             ++$i;
         }
@@ -262,6 +268,11 @@ final class PrescriptionPdfRenderer
         $this->text($pdf, self::SLATE);
         $pdf->Text(self::M, $y, PrescriptionPdf::enc('Where the readings came from: ' . ($source !== '' ? $source : '________________')
             . '      Time taken: ' . ($taken !== '' ? $taken : '________________')));
+        if ($above !== []) {
+            $y += 3.4;
+            $this->text($pdf, self::ALERT);
+            $pdf->Text(self::M, $y, PrescriptionPdf::enc('* Above the usual entry range — verify the reading before acting on it.'));
+        }
 
         return $y + 3.4;
     }

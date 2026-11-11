@@ -42,19 +42,113 @@ final class VitalsTest extends TestCase
         $this->assertSame('37.9', $clean['temperature'], 'one decimal place');
         $this->assertArrayNotHasKey('pain_score', $clean, 'blank boxes are skipped');
 
-        [, $errors] = VitalsForm::normalize(['temperature' => '60', 'heart_rate' => 'fast', 'oxygen_saturation' => '101'], $this->now());
-        $this->assertSame('Temperature must be a number between 30 and 45', $errors['temperature']);
+        [$clean, $errors] = VitalsForm::normalize(['temperature' => '60', 'heart_rate' => 'fast', 'oxygen_saturation' => '101'], $this->now());
+        $this->assertSame('60', $clean['temperature'], 'above the usual range is accepted');
+        $this->assertArrayNotHasKey('temperature', $errors);
         $this->assertArrayHasKey('heart_rate', $errors);
-        $this->assertArrayHasKey('oxygen_saturation', $errors);
+        $this->assertSame('Oxygen level must be a number between 50 and 100', $errors['oxygen_saturation']);
+
+        [, $errors] = VitalsForm::normalize(['temperature' => '29'], $this->now());
+        $this->assertSame('Temperature must be a number of at least 30 °C', $errors['temperature']);
     }
 
     public function testBloodPressureMustBeSystolicOverDiastolic(): void
     {
-        foreach (['80/120', '120', '120/80/60', '300/80', '120/20', '120-80', '90/90'] as $bad) {
+        foreach (['80/120', '120', '120/80/60', '120/20', '120-80', '90/90', '40/30', '170/180'] as $bad) {
             [, $errors] = VitalsForm::normalize(['blood_pressure' => $bad], $this->now());
-            $this->assertArrayHasKey('blood_pressure', $errors, "blood_pressure={$bad}");
+            $this->assertSame(VitalsForm::BP_FORMAT_ERROR, $errors['blood_pressure'] ?? null, "blood_pressure={$bad}");
         }
         $this->assertSame('120/80', VitalsForm::bloodPressure(' 120/ 80 '));
+        $this->assertSame('120/80', VitalsForm::bloodPressure('0120/080'), 'leading zeros are dropped');
+    }
+
+    public function testValuesAboveTheUsualRangeAreAccepted(): void
+    {
+        [$clean, $errors] = VitalsForm::normalize([
+            'temperature' => '46', 'heart_rate' => '260', 'respiratory_rate' => '61', 'blood_sugar' => '41.25',
+            'weight' => '401', 'height' => '251', 'blood_pressure' => '300 / 170',
+        ], $this->now());
+        $this->assertSame([], $errors);
+        $this->assertSame('46', $clean['temperature']);
+        $this->assertSame('260', $clean['heart_rate']);
+        $this->assertSame('61', $clean['respiratory_rate']);
+        $this->assertSame('41.3', $clean['blood_sugar']);
+        $this->assertSame('401', $clean['weight']);
+        $this->assertSame('251', $clean['height']);
+        $this->assertSame('300/170', $clean['blood_pressure']);
+    }
+
+    public function testTheSanityCeilingIsRejectedWithAClearMessage(): void
+    {
+        [$clean, $errors] = VitalsForm::normalize(['temperature' => '10000', 'heart_rate' => '1e400', 'weight' => '9999'], $this->now());
+        $this->assertSame("Temperature can't be more than 9999 °C. Check the reading.", $errors['temperature']);
+        $this->assertSame("Heart rate can't be more than 9999 beats/min. Check the reading.", $errors['heart_rate']);
+        $this->assertSame('9999', $clean['weight']);
+
+        foreach (['1000/80', '120/1000', '99999/80'] as $bad) {
+            [, $errors] = VitalsForm::normalize(['blood_pressure' => $bad], $this->now());
+            $this->assertSame("Blood pressure numbers can't be more than 999. Check the reading.", $errors['blood_pressure'] ?? null, $bad);
+        }
+        [$clean, $errors] = VitalsForm::normalize(['blood_pressure' => '999/998'], $this->now());
+        $this->assertSame([], $errors);
+        $this->assertSame('999/998', $clean['blood_pressure']);
+    }
+
+    public function testBoundedReadingsKeepTheirMaximum(): void
+    {
+        [, $errors] = VitalsForm::normalize(['oxygen_saturation' => '101', 'pain_score' => '11'], $this->now());
+        $this->assertSame('Oxygen level must be a number between 50 and 100', $errors['oxygen_saturation']);
+        $this->assertSame('Pain score must be a number between 0 and 10', $errors['pain_score']);
+        [$clean, $errors] = VitalsForm::normalize(['oxygen_saturation' => '100', 'pain_score' => '10'], $this->now());
+        $this->assertSame([], $errors);
+        $this->assertSame(['oxygen_saturation' => '100', 'pain_score' => '10'], $clean);
+    }
+
+    public function testIsAboveRangeAndUsualMax(): void
+    {
+        $this->assertTrue(VitalsForm::isAboveRange('temperature', '45.1'));
+        $this->assertFalse(VitalsForm::isAboveRange('temperature', '45'));
+        $this->assertTrue(VitalsForm::isAboveRange('blood_pressure', '261/80'));
+        $this->assertTrue(VitalsForm::isAboveRange('blood_pressure', '200/161'));
+        $this->assertFalse(VitalsForm::isAboveRange('blood_pressure', '260/160'));
+        $this->assertFalse(VitalsForm::isAboveRange('oxygen_saturation', '101'), 'bounded readings never are');
+        $this->assertFalse(VitalsForm::isAboveRange('temperature', 'hot'));
+        $this->assertFalse(VitalsForm::isAboveRange('mood', '99'));
+        $this->assertTrue(VitalsForm::isAboveRange('bmi', '90.1'));
+
+        $this->assertSame('45', VitalsForm::usualMax('temperature'));
+        $this->assertSame('260/160', VitalsForm::usualMax('blood_pressure'));
+        $this->assertSame('400', VitalsForm::usualMax('weight'));
+        $this->assertNull(VitalsForm::usualMax('pain_score'));
+
+        $this->assertSame(9999, VitalsForm::hardMax('temperature'));
+        $this->assertSame(100, VitalsForm::hardMax('oxygen_saturation'));
+        $this->assertSame(999, VitalsForm::hardMax('blood_pressure'));
+        $this->assertFalse(VitalsForm::acceptsAbove('pain_score'));
+        $this->assertTrue(VitalsForm::acceptsAbove('bmi'));
+    }
+
+    public function testDerivedBmiAbove90IsKept(): void
+    {
+        [$values] = VitalsService::validatePatientInput(['readings' => ['weight' => '300', 'height' => '150']], [], $this->now());
+        $this->assertSame('133.3', $values['bmi']);
+
+        $cache = ['height' => ['value' => '150', 'taken_at' => '2026-10-01T00:00:00+00:00']];
+        [$values] = VitalsService::validatePatientInput(['readings' => ['weight' => '300']], $cache, $this->now());
+        $this->assertSame('133.3', $values['bmi'], 'weight alone, with the height on file');
+    }
+
+    public function testPrescriptionFormAcceptsAboveRangeReadings(): void
+    {
+        [$clean, $errors] = PrescriptionForm::normalize(
+            ['readings' => ['temperature' => '46', 'blood_pressure' => '300/170']],
+            static fn (string $rxcui): ?Drug => null,
+            new DateTimeImmutable('2026-10-14'),
+        );
+        $this->assertArrayNotHasKey('readings.temperature', $errors);
+        $this->assertArrayNotHasKey('readings.blood_pressure', $errors);
+        $this->assertSame('46', $clean['readings']['temperature']);
+        $this->assertSame('300/170', $clean['readings']['blood_pressure']);
     }
 
     public function testSourceAndTakenAtAreChecked(): void
@@ -73,7 +167,9 @@ final class VitalsTest extends TestCase
     public function testBmiOutsideItsRangeIsNotWorkedOut(): void
     {
         $this->assertNull(VitalsForm::bmi(0.5, 250));
+        $this->assertNull(VitalsForm::bmi(9999, 30), 'beyond the sanity ceiling');
         $this->assertSame('22.9', VitalsForm::bmi(70, 175));
+        $this->assertSame('133.3', VitalsForm::bmi(300, 150), 'above the usual 90 is still worked out');
     }
 
     public function testPrescriptionFormKeepsItsReadingRules(): void
@@ -97,7 +193,17 @@ final class VitalsTest extends TestCase
         $fields = array_column(VitalsForm::fields(), null, 'key');
         $this->assertSame(array_keys(VitalsForm::READINGS), array_keys($fields));
         $this->assertSame('°C', $fields['temperature']['unit']);
-        $this->assertSame(['min' => 50, 'max' => 260], $fields['blood_pressure']['systolic']);
+        $this->assertSame(['min' => 50, 'max' => 260, 'max_hard' => 999], $fields['blood_pressure']['systolic']);
+        $this->assertSame(['min' => 30, 'max' => 160, 'max_hard' => 999], $fields['blood_pressure']['diastolic']);
+        $this->assertNull($fields['blood_pressure']['max_hard']);
+        $this->assertTrue($fields['blood_pressure']['accepts_above']);
+        $this->assertSame(45, $fields['temperature']['max'], 'max stays the usual entry maximum');
+        $this->assertSame(9999, $fields['temperature']['max_hard']);
+        $this->assertTrue($fields['temperature']['accepts_above']);
+        $this->assertSame(100, $fields['oxygen_saturation']['max_hard']);
+        $this->assertFalse($fields['oxygen_saturation']['accepts_above']);
+        $this->assertSame(10, $fields['pain_score']['max_hard']);
+        $this->assertFalse($fields['pain_score']['accepts_above']);
         $this->assertTrue($fields['bmi']['derived']);
         $this->assertSame(0.1, $fields['temperature']['step']);
     }
@@ -118,7 +224,7 @@ final class VitalsTest extends TestCase
     public function testPatientInputErrorsUseTheRequestFieldNames(): void
     {
         $errors = $this->patientErrors([
-            'readings' => ['temperature' => '50', 'mood' => 'great'],
+            'readings' => ['temperature' => '20', 'mood' => 'great'],
             'taken_at' => '2026-10-20T08:00:00+00:00',
             'source'   => 'lab',
         ]);

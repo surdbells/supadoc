@@ -59,6 +59,7 @@ import {
 import { RxSidePanel } from './rx-side-panel';
 import { SignaturePad } from './signature-pad';
 import { DoctorClock } from '../doctor-clock';
+import { rxAboveRange, rxAboveRangeSend, rxAboveRangeSummary } from '../vitals-range-copy';
 
 /** One medicine row in the composer (field names match the API's error keys). */
 interface RowState {
@@ -151,6 +152,8 @@ function isDialogKey(key: string): boolean {
 const LABEL = 'font-sans text-caption font-semibold text-ink';
 const HINT = 'font-sans text-caption text-slate';
 const ERR = 'font-sans text-caption text-alert';
+/** A reading above its usual range: a warning, never an error (it is saved and sent). */
+const WARN = 'flex items-start gap-1 font-sans text-caption text-warning-ink';
 const SECTION = 'flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card @lg:p-5';
 const H3 = 'flex items-center gap-2 font-heading text-body-lg text-ink';
 const RADIO_CARD =
@@ -332,14 +335,22 @@ function nullIfBlank(v: string): string | null {
                       [placeholder]="readingPlaceholder(f)"
                       [value]="reading(f.key)"
                       [attr.aria-invalid]="fe('readings.' + f.key) ? 'true' : null"
-                      [attr.aria-describedby]="fe('readings.' + f.key) ? id('r-' + f.key + '-err') : null"
+                      [attr.aria-describedby]="readingDescribedBy(f)"
                       (input)="setReading(f.key, $any($event.target).value)"
                     />
-                    <div class="pb-1.5">
+                    <!-- Polite: an above-range warning is advice, not an error -->
+                    <div class="flex flex-col gap-0.5 pb-1.5" aria-live="polite">
                       @if (fe('readings.' + f.key); as m) {
                         <p class="${ERR}" [id]="id('r-' + f.key + '-err')" data-rx-error>{{ m }}</p>
-                      } @else if (f.key === 'bmi' && bmiAuto() && reading('bmi')) {
-                        <span class="${HINT}">Worked out from weight and height</span>
+                      } @else {
+                        @if (readingAbove(f); as w) {
+                          <p class="${WARN}" [id]="id('r-' + f.key + '-warn')" data-rx-warning>
+                            <sd-icon name="triangle-alert" [size]="12" class="mt-0.5 shrink-0" aria-hidden="true" /><span>{{ w }}</span>
+                          </p>
+                        }
+                        @if (f.key === 'bmi' && bmiAuto() && reading('bmi')) {
+                          <span class="${HINT}">Worked out from weight and height</span>
+                        }
                       }
                     </div>
                   </div>
@@ -860,6 +871,14 @@ function nullIfBlank(v: string): string | null {
           } @else if (notice()) {
             <sd-alert tone="success">{{ notice() }}</sd-alert>
           }
+          <!-- Readings above the expected range: a reminder, never a block. The live region
+               is always there; the visible line repeats it. -->
+          <p class="sr-only" aria-live="polite">{{ locked() ? '' : readingsAboveSummary() }}</p>
+          @if (!locked() && readingsAboveSummary(); as summary) {
+            <p class="${WARN}" aria-hidden="true" data-rx-above-summary>
+              <sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ summary }}
+            </p>
+          }
           <!-- One row from a 32rem-wide form (short labels), full labels from 48rem;
                narrower: the status + Close line, then one row of actions. -->
           <div class="flex flex-col gap-2 @lg:flex-row @lg:items-center @lg:justify-between @lg:gap-3">
@@ -942,6 +961,9 @@ function nullIfBlank(v: string): string | null {
               </div>
             } @else {
               <div class="flex flex-col gap-5">
+                @if (readingsAboveSend(); as above) {
+                  <sd-alert tone="warning" data-rx-above-send>{{ above }}</sd-alert>
+                }
                 <fieldset class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
                   <legend class="mb-2 font-sans text-body-sm font-semibold text-ink">1. Before you send, confirm:</legend>
                   <label class="flex cursor-pointer items-start gap-3 rounded-field border border-cloud px-3 py-2.5 has-[:checked]:border-cerulean/50 has-[:checked]:bg-frost/30">
@@ -1433,6 +1455,50 @@ export class RxComposer {
     return '';
   }
 
+  /**
+   * The warning under a reading above its usual range (the API saves it): ''
+   * when it is within range, has an error, or isn't a number the API would take.
+   */
+  protected readingAbove(f: PrescriptionReadingField): string {
+    if (!f.accepts_above || this.fe('readings.' + f.key)) return '';
+    const raw = this.reading(f.key).trim();
+    if (!raw) return '';
+    if (f.key === 'blood_pressure') {
+      const m = /^(\d+)\s*\/\s*(\d+)$/.exec(raw);
+      const s = f.systolic;
+      const d = f.diastolic;
+      if (!m || !s || !d) return '';
+      const sys = Number(m[1]);
+      const dia = Number(m[2]);
+      if (dia >= sys || sys < s.min || dia < d.min || sys > (s.max_hard ?? s.max) || dia > (d.max_hard ?? d.max)) return '';
+      return sys > s.max || dia > d.max ? rxAboveRange(f.key, `${s.max}/${d.max}`, f.unit) : '';
+    }
+    const n = Number(raw);
+    if (f.max === null || !Number.isFinite(n) || n <= f.max || n > (f.max_hard ?? f.max)) return '';
+    return rxAboveRange(f.key, f.max, f.unit);
+  }
+
+  /** The box is described by its error, else its warning. */
+  protected readingDescribedBy(f: PrescriptionReadingField): string | null {
+    if (this.fe('readings.' + f.key)) return this.id('r-' + f.key + '-err');
+    return this.readingAbove(f) ? this.id('r-' + f.key + '-warn') : null;
+  }
+
+  /** "Temperature 46 °C" for each reading above its usual range. */
+  private readingsAboveList(): string[] {
+    return this.readingFields()
+      .filter((f) => !!this.readingAbove(f))
+      .map((f) => `${f.label} ${this.reading(f.key).trim()}${f.unit ? ` ${f.unit}` : ''}`);
+  }
+
+  protected readingsAboveSummary(): string {
+    return rxAboveRangeSummary(this.readingsAboveList().length);
+  }
+
+  protected readingsAboveSend(): string {
+    return rxAboveRangeSend(this.readingsAboveList());
+  }
+
   // ----- edits -----
 
   private clearErr(...keys: string[]): void {
@@ -1469,7 +1535,9 @@ export class RxComposer {
     const unit = this.readingFields().find((f) => f.key === 'height')?.unit ?? 'cm';
     const metres = unit === 'm' ? h : h / 100;
     const bmi = Math.round((w / (metres * metres)) * 10) / 10;
-    return Number.isFinite(bmi) && bmi > 0 && bmi < 1000 ? String(bmi) : '';
+    // Above the usual 90 it is still worked out (with a warning); only the API's ceiling drops it.
+    const cap = this.readingFields().find((f) => f.key === 'bmi')?.max_hard ?? 9999;
+    return Number.isFinite(bmi) && bmi > 0 && bmi <= cap ? String(bmi) : '';
   }
 
   protected setSource(value: string): void {
