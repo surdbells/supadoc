@@ -259,6 +259,21 @@ describe('CallPatientRecord (the Full EMR)', () => {
       expect(tab('documents')?.getAttribute('aria-selected')).toBe('true');
     });
 
+    it('pills (item 5): the tabs are M pills in a wrapping track, the state drives the look; the visit count is a count', () => {
+      setup();
+      const track = el.querySelector<HTMLElement>('[role="tablist"][aria-label="Patient record"]');
+      expect(track?.className).toBe('sd-track sd-track-wrap max-sm:gap-y-[14px] w-full');
+      for (const t of Array.from(track?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])) {
+        expect(t.className).toBe('sd-pill sd-pill-m sd-seg');
+      }
+      expect(tab('visits')?.querySelector('span[aria-hidden="true"]')?.className).toBe('sd-count');
+      // The summary chips: the standard chip with their own tone pair.
+      const chips = Array.from(el.querySelectorAll<HTMLElement>('ul[aria-label="Patient summary"] li'));
+      expect(chips.length).toBeGreaterThan(0);
+      for (const c of chips) expect(c.className).toMatch(/^sd-chip sd-tag bg-\S+ text-\S+$/);
+      expect(el.querySelector('.rounded-pill:not(.sd-shimmer)')).toBeNull();
+    });
+
     it('the Overview’s footer link: Medical history shows, focus on its tab', () => {
       setup();
       byText('View full medical history')?.click();

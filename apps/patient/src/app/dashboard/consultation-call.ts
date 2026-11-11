@@ -169,10 +169,10 @@ type CallEndReason = 'completed' | 'dropped';
  * Classes are the cockpit's dark-surface tones (remapped by the light theme).
  */
 const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: string }> = {
-  draft: { label: 'Draft', icon: 'pen-line', cls: 'bg-warning/15 text-warning' },
-  active: { label: 'Active', icon: 'circle-check', cls: 'bg-success/15 text-success' },
-  expired: { label: 'Expired', icon: 'hourglass', cls: 'bg-white/10 text-white/70' },
-  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'bg-alert/15 text-alert' },
+  draft: { label: 'Draft', icon: 'pen-line', cls: 'sd-tone-warning' },
+  active: { label: 'Active', icon: 'circle-check', cls: 'sd-tone-success' },
+  expired: { label: 'Expired', icon: 'hourglass', cls: 'sd-tone-neutral' },
+  cancelled: { label: 'Cancelled', icon: 'circle-x', cls: 'sd-tone-danger' },
 };
 
 /** In-call notice for a newly sent prescription — never names medicines. */
@@ -323,7 +323,7 @@ interface RecordItem {
         <sd-icon name="arrow-left" [size]="18" /><span class="max-sm:sr-only" data-band-label>{{ bandBackLabel() }}</span>
       </button>
       <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ viewerPeerName() }} · {{ elapsedLabel() }}</span>
-      <span class="inline-flex shrink-0 empty:hidden" role="status">@if (recordingActive()) {<span class="inline-flex items-center gap-1.5 rounded-pill bg-alert-ink px-2.5 py-1 font-sans text-caption font-medium text-white"><span class="size-2 shrink-0 rounded-full bg-white" aria-hidden="true"></span>Recording</span>}</span>
+      <span class="inline-flex shrink-0 empty:hidden" role="status">@if (recordingActive()) {<span class="sd-chip bg-alert-ink text-white"><span class="size-2 shrink-0 rounded-full bg-white" aria-hidden="true"></span>Recording</span>}</span>
       @if (inLive()) {
         <span class="ml-auto flex shrink-0 items-center gap-1.5">
           <button
@@ -518,7 +518,7 @@ interface RecordItem {
                 </div>
                 <button
                   type="button"
-                  class="flex w-fit items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                  class="sd-pill sd-pill-c [--sd-fw:400] w-fit border border-white/15 text-white/80 hover:bg-white/10"
                   (click)="testSpeaker()"
                 >
                   <sd-icon name="headphones" [size]="14" /> Test speaker
@@ -611,7 +611,7 @@ interface RecordItem {
         }}</span>
         @if (recordingActive()) {
           <span
-            class="flex shrink-0 items-center gap-1.5 rounded-pill bg-alert-ink px-2.5 py-1 font-sans text-caption font-medium text-white"
+            class="sd-chip bg-alert-ink text-white"
             aria-hidden="true"
           >
             <span class="size-2 shrink-0 animate-pulse rounded-full bg-white motion-reduce:animate-none" aria-hidden="true"></span>
@@ -619,16 +619,26 @@ interface RecordItem {
             <span class="hidden sm:inline" aria-hidden="true">Recording</span>
           </span>
         }
-        <!-- In the dock's settings below sm -->
+        <!-- In the dock's settings below sm; an icon button up to xl, then the M pill with its label
+             (one is displayed at a time; two elements, so the pill base is not emitted again under xl:). -->
         <button
           type="button"
-          class="hidden min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-pill border border-white/15 px-3 font-sans text-body-sm text-white/85 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost sm:inline-flex"
+          class="hidden size-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/85 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost sm:inline-flex xl:hidden"
           aria-haspopup="dialog"
           aria-label="Invite someone to this call"
           (click)="invite()"
         >
           <sd-icon name="user-plus" [size]="16" />
-          <span class="hidden xl:inline" aria-hidden="true">Invite someone</span>
+        </button>
+        <button
+          type="button"
+          class="sd-pill sd-pill-m sd-action max-xl:hidden"
+          aria-haspopup="dialog"
+          aria-label="Invite someone to this call"
+          (click)="invite()"
+        >
+          <sd-icon name="user-plus" [size]="16" />
+          <span aria-hidden="true">Invite someone</span>
         </button>
         <button
           type="button"
@@ -806,20 +816,20 @@ interface RecordItem {
                 @if (status() === 'in-call') {
                   <div class="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2">
                     @if (stageMode() === 'spotlight' && hasRemoteTile()) {
-                      <div class="flex min-w-0 max-w-full items-center gap-1.5 rounded-pill bg-abyss/70 px-3 py-1.5 backdrop-blur">
+                      <div class="sd-chip sd-chip-lg sd-overlay">
                         @if (spotlight()?.muted) {
                           <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-alert text-white" aria-hidden="true">
                             <sd-icon name="mic-off" [size]="12" />
                           </span>
                         }
-                        <span class="truncate font-sans text-body-sm font-medium text-white">
+                        <span class="min-w-0 truncate">
                           {{ spotlight()?.name ?? doctorName() }}
                         </span>
                       </div>
                     }
                     @if (hasRemoteTile() && !doctorHere()) {
-                      <div class="flex min-w-0 max-w-full items-center rounded-pill bg-abyss/70 px-3 py-1.5 backdrop-blur" role="status">
-                        <span class="truncate font-sans text-caption text-white/85">Waiting for {{ doctorName() }}…</span>
+                      <div class="sd-chip sd-overlay" role="status">
+                        <span class="min-w-0 truncate">Waiting for {{ doctorName() }}…</span>
                       </div>
                     }
                   </div>
@@ -998,12 +1008,11 @@ interface RecordItem {
                 <sd-icon name="circle-check" [size]="14" class="mt-0.5 shrink-0" />{{ docShareNotice() }}
               </p>
             }
-            <div class="mb-3 flex gap-1 overflow-x-auto" role="group" aria-label="Show documents">
+            <div class="sd-pill-row-wrap mb-3" role="group" aria-label="Show documents">
               @for (t of docsTabs; track t.key) {
                 <button
                   type="button"
-                  class="min-h-9 whitespace-nowrap rounded-pill px-3 py-1.5 font-sans text-caption transition-colors"
-                  [class]="docsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/70 hover:bg-white/10'"
+                  class="sd-pill sd-pill-s sd-filter-solid"
                   [attr.aria-pressed]="docsTab() === t.key"
                   (click)="docsTab.set(t.key)"
                 >
@@ -1025,9 +1034,9 @@ interface RecordItem {
                           {{ r.date }}
                           @if (shareState(r); as st) {
                             @if (st === 'shared') {
-                              <span class="inline-flex items-center gap-1 rounded-pill bg-white/[0.06] px-2 py-0.5 text-frost"><sd-icon name="share-2" [size]="12" />Shared</span>
+                              <span class="sd-chip sd-chip-xs sd-tone-info"><sd-icon name="share-2" [size]="12" />Shared</span>
                             } @else {
-                              <span class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-white/60"><sd-icon name="lock" [size]="12" />Private</span>
+                              <span class="sd-chip sd-chip-xs sd-tone-neutral"><sd-icon name="lock" [size]="12" />Private</span>
                             }
                           }
                         </span>
@@ -1285,10 +1294,10 @@ interface RecordItem {
                       <div class="flex flex-wrap items-center gap-2">
                         <span class="font-sans text-body-sm font-semibold text-white">{{ p.number }}</span>
                         <span
-                          class="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-medium"
+                          class="sd-chip"
                           [class]="rxStatus(p.status).cls"
                         >
-                          <sd-icon [name]="rxStatus(p.status).icon" [size]="12" />{{ rxStatus(p.status).label }}
+                          <sd-icon [name]="rxStatus(p.status).icon" [size]="14" />{{ rxStatus(p.status).label }}
                         </span>
                       </div>
                       <span class="font-sans text-caption text-white/60">
@@ -1362,8 +1371,8 @@ interface RecordItem {
                       <sd-icon name="flask-conical" [size]="16" class="shrink-0 text-frost" />
                       <span class="break-all">{{ lr.number }}</span>
                     </span>
-                    <span class="inline-flex shrink-0 items-center gap-1 rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85">
-                      <sd-icon [name]="labChipOf(lr).icon" [size]="12" />{{ labChipOf(lr).label }}
+                    <span class="sd-chip sd-tone-neutral">
+                      <sd-icon [name]="labChipOf(lr).icon" [size]="14" />{{ labChipOf(lr).label }}
                     </span>
                   </div>
                   <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
@@ -1388,7 +1397,7 @@ interface RecordItem {
                       <sd-icon name="clipboard-list" [size]="16" class="text-frost" /> Lab order
                     </span>
                     <!-- Legacy orders are read-only: never the raw stored status. -->
-                    <span class="rounded-pill bg-white/10 px-2 py-0.5 font-sans text-caption text-white/85" data-testid="call-lab-order-status">
+                    <span class="sd-chip sd-tone-neutral" data-testid="call-lab-order-status">
                       Ordered
                     </span>
                   </div>

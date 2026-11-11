@@ -254,8 +254,8 @@ function nullIfBlank(v: string): string | null {
             @if (rx(); as r) {
               <doc-rx-status-badge [status]="r.status" />
             } @else {
-              <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate inset-ring inset-ring-current/20">
-                <sd-icon name="save" [size]="13" /> Not saved yet
+              <span class="sd-chip bg-cloud text-slate">
+                <sd-icon name="save" [size]="14" /> Not saved yet
               </span>
             }
           </div>
@@ -515,7 +515,7 @@ function nullIfBlank(v: string): string | null {
                         <p class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-semibold text-ink">
                           <span class="min-w-0 break-words">{{ row.name || 'Medicine not chosen' }}</span>
                           @if (row.no_substitute) {
-                            <span class="rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-ink inset-ring inset-ring-current/15">No substitute</span>
+                            <span class="sd-chip bg-warning/15 text-ink">No substitute</span>
                           }
                         </p>
                         @if (row.branded && row.generic_name) {
@@ -533,7 +533,7 @@ function nullIfBlank(v: string): string | null {
                         <div class="flex shrink-0 items-center gap-1">
                           <button
                             type="button"
-                            class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-cerulean transition-colors hover:bg-frost disabled:opacity-50"
+                            class="sd-pill sd-pill-c text-cerulean hover:bg-frost"
                             [attr.aria-label]="'Edit medicine ' + (i + 1)"
                             [attr.title]="draftDirty() && editingKey() !== row.key ? 'Finish or cancel the medicine in the form first' : null"
                             [disabled]="editingKey() === row.key || draftDirty()"
@@ -543,7 +543,7 @@ function nullIfBlank(v: string): string | null {
                           </button>
                           <button
                             type="button"
-                            class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-alert transition-colors hover:bg-alert/10"
+                            class="sd-pill sd-pill-c text-alert-ink hover:bg-alert/10"
                             [attr.aria-label]="'Remove medicine ' + (i + 1)"
                             (click)="removeRow(row.key)"
                           >

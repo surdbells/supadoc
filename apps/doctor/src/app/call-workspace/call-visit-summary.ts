@@ -186,7 +186,7 @@ const LOADING: SectionRead<never> = { status: 'loading', data: null, message: ''
                     <div class="flex min-w-0 flex-col gap-1">
                       <span class="font-sans text-body-sm font-semibold text-ink [overflow-wrap:anywhere]">@for (p of parts(lab.number); track $index) {<span>{{ p }}</span><wbr />}</span>
                       <span class="font-sans text-caption text-slate [overflow-wrap:anywhere]">{{ lab.tests_label }}</span>
-                      <span class="w-fit rounded-pill px-2 py-0.5 font-sans text-caption" [class]="chip(lab).cls">{{ chip(lab).label }}</span>
+                      <span class="sd-chip w-fit" [class]="chip(lab).cls">{{ chip(lab).label }}</span>
                     </div>
                     <button type="button" class="${ACTION}" [attr.aria-label]="'View PDF of ' + lab.number" (click)="viewLab(lab, $event.currentTarget)">
                       <sd-icon name="file-text" [size]="14" /> View PDF

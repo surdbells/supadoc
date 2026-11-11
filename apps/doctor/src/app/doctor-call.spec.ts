@@ -556,6 +556,32 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
     expect(document.activeElement?.id).toBe('call-records-heading');
   });
 
+  it('pills (item 5): the "Documents / Imaging / Labs" filter is the S pill with the solid look, state from aria-pressed; chips and counts follow the standard', async () => {
+    media(['(min-width: 1024px)']);
+    await setup([doc('a', { document_type: 'xray_report' }), doc('b')]);
+    (call as unknown as { sideTab: WritableSignal<string> }).sideTab.set('documents');
+    await tick();
+    const row = el.querySelector<HTMLElement>('#call-records [role="group"][aria-label="Show"]');
+    expect(row?.classList.contains('sd-pill-row-wrap')).toBe(true);
+    expect(row?.className).not.toMatch(/overflow-x-auto|\bgap-1\b/);
+    const pills = Array.from(row?.querySelectorAll<HTMLButtonElement>('button') ?? []);
+    expect(pills.length).toBeGreaterThan(1);
+    for (const p of pills) {
+      expect(p.className.split(/\s+/).sort()).toEqual(['sd-filter-solid', 'sd-pill', 'sd-pill-s']);
+    }
+    expect(pills.map((p) => p.getAttribute('aria-pressed'))).toEqual(pills.map((_, i) => String(i === 0)));
+    pills[1].click();
+    await tick();
+    expect(pills.map((p) => p.getAttribute('aria-pressed'))).toEqual(pills.map((_, i) => String(i === 1)));
+    // The badges and "new" chips are standard counts and chips; no stray pill shape is left on the page.
+    expect(el.querySelector('.sd-badge, .sd-new-pill, .rounded-pill')).toBeNull();
+    expect(el.querySelector('[role="timer"]')?.className).toBe('sd-chip sd-tone-neutral');
+    // The light-cockpit patches for the old pills are gone; the solid cerulean buttons keep white text.
+    const styles = (DoctorCall as unknown as { ɵcmp: { styles: string[] } }).ɵcmp.styles.join('');
+    expect(styles).not.toMatch(/sd-new-pill|sd-badge/);
+    expect(styles).toMatch(/\.bg-cerulean\.text-white[^{]*\{[^}]*#ffffff/);
+  });
+
   it('mid: new documents are announced from a live region outside every hideable panel and the cockpit', async () => {
     media(['(min-width: 1024px)']);
     await setup([doc('a')]);
@@ -1114,6 +1140,44 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
 
     afterEach(() => {
       localStorage.removeItem('videomed.call.theme');
+    });
+
+    describe('pills in the panels (item 5, LD2)', () => {
+      it('the look-alike buttons are C pills that keep their colours; the panel chips take the cockpit tones', async () => {
+        media(['(min-width: 1024px)']);
+        await setup();
+        await openWs('notes');
+        const byText = (t: string) =>
+          Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-notes button')).find((b) => b.textContent?.includes(t));
+        const finalize = byText('Finalize & sign');
+        expect(finalize?.className).toBe('sd-pill sd-pill-c bg-cerulean text-white hover:bg-cerulean-dark');
+        const draft = Array.from(el.querySelectorAll('#ws-panel-notes .sd-chip')).find((c) => c.textContent?.trim() === 'Draft');
+        expect(draft?.className).toBe('sd-chip sd-tone-neutral');
+        const tools = el.querySelector('#ws-panel-notes [role="group"][aria-labelledby="call-tools-label"]');
+        expect(tools?.classList.contains('sd-pill-row-wrap')).toBe(true);
+        for (const b of Array.from(tools?.querySelectorAll('button') ?? [])) {
+          expect(b.className).toBe('sd-pill sd-pill-c sd-action');
+        }
+        // No field-radius button of 26-32px is left in the panels (they would render as accidental pills).
+        const lookAlike = Array.from(el.querySelectorAll<HTMLElement>('[sdWsPanel] button, [sdwspanel] button')).filter(
+          (b) => b.classList.contains('rounded-field') && /\bpy-(1|1\.5)\b/.test(b.className) && !b.classList.contains('call-row-btn'),
+        );
+        expect(lookAlike).toEqual([]);
+      });
+
+      it('the transcription toggle stops on the danger tone (no text-alert on its tint)', async () => {
+        media(['(min-width: 1024px)']);
+        await setup();
+        await openWs('copilot');
+        const toggle = Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-copilot button')).find((b) => /transcription/.test(b.textContent ?? ''));
+        expect(toggle?.classList.contains('sd-pill')).toBe(true);
+        expect(toggle?.classList.contains('sd-pill-c')).toBe(true);
+        expect(toggle?.className).toContain('bg-cerulean');
+        (call as unknown as { transcribing: WritableSignal<boolean> }).transcribing.set(true);
+        await tick();
+        expect(toggle?.className).toContain('text-(--sd-tone-danger-fg)');
+        expect(toggle?.className).not.toMatch(/(^|\s)text-alert(\s|$)/);
+      });
     });
 
     describe('launchers', () => {

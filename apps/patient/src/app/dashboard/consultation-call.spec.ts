@@ -958,6 +958,23 @@ describe('ConsultationCall (the dock)', () => {
       expect(window.open).not.toHaveBeenCalled();
     });
 
+    it('pills (item 5): the "Show documents" filter is the S pill with the solid look, state from aria-pressed (the same pill as the doctor’s)', async () => {
+      library = [libDoc('d-1', 'Chest X-ray', 'xray_report'), libDoc('d-2', 'Blood count', 'blood_test_report')];
+      await create();
+      await enter();
+      const row = el.querySelector<HTMLElement>('[role="group"][aria-label="Show documents"]');
+      expect(row?.className).toBe('sd-pill-row-wrap mb-3');
+      const pills = Array.from(row?.querySelectorAll<HTMLButtonElement>('button') ?? []);
+      expect(pills.length).toBeGreaterThan(1);
+      for (const p of pills) expect(p.className.split(/\s+/).sort()).toEqual(['sd-filter-solid', 'sd-pill', 'sd-pill-s']);
+      expect(pills.map((p) => p.getAttribute('aria-pressed'))).toEqual(pills.map((_, i) => String(i === 0)));
+      pills[1].click();
+      await settle();
+      expect(pills.map((p) => p.getAttribute('aria-pressed'))).toEqual(pills.map((_, i) => String(i === 1)));
+      // The cockpit keeps no pill-radius element outside the standard (role f icon capsules use rounded-full).
+      expect(el.querySelector('.rounded-pill')).toBeNull();
+    });
+
     it('an older url-only booking attachment has no eye and says how to get a copy', async () => {
       legacyUrl = '/uploads/other/legacy.pdf';
       library = [libDoc('d-1', 'Chest X-ray', 'xray_report')];
@@ -1870,6 +1887,19 @@ describe('ConsultationCall (the dock)', () => {
     it('13. the dark cockpit’s "Active" chip rule is in the component’s styles', () => {
       const styles = (ConsultationCall as unknown as { ɵcmp: { styles: string[] } }).ɵcmp.styles.join('');
       expect(styles).toMatch(/\.sd-call\[data-theme=["']?dark["']?\]\S*\s+\.sd-share\S*\s+\.text-success[^{]*\{[^}]*#6fdc8c/);
+    });
+
+    it('15. pills (item 5): the rx status chip takes a cockpit tone; the lab chips are neutral chips', async () => {
+      issued = [rx('1'), { ...rx('2'), status: 'cancelled' } as PrescriptionDto];
+      await create();
+      await enter();
+      await openTab('prescriptions');
+      const chips = Array.from(panel('prescriptions').querySelectorAll<HTMLElement>('.sd-chip'));
+      const byLabel = (t: string) => chips.find((c) => c.textContent?.trim() === t);
+      expect(byLabel('Active')?.className).toBe('sd-chip sd-tone-success');
+      expect(byLabel('Cancelled')?.className).toBe('sd-chip sd-tone-danger');
+      // No raw colour pair or pill radius is left on a chip in the workspace (the tones resolve per cockpit tone).
+      expect(panel('prescriptions').querySelector('.rounded-pill, .text-success, .text-alert')).toBeNull();
     });
 
     it('14. the card’s hint follows the call', async () => {

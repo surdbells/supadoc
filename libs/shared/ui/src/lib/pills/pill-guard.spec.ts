@@ -5,11 +5,11 @@ import { join, relative, resolve } from 'node:path';
  * The pill guard: every pill in apps/** and libs/** templates follows the one
  * standard of tailwind/pills.css (wave 2 item 5).
  *
- * MODE: 'report' lists the offenders and fails only its self-tests (pills inside
- * the two call pages are converted by a later unit); 'fail' makes every offender
- * a failure. App templates are declared inputs of this test (project.json).
+ * MODE: 'report' lists the offenders and fails only its self-tests; 'fail' (since
+ * the two call pages were converted) makes every offender a failure. App templates
+ * are declared inputs of this test (project.json).
  */
-const MODE: 'report' | 'fail' = 'report';
+const MODE: 'report' | 'fail' = 'fail';
 
 const ROOT = resolve(__dirname, '../../../../../..');
 const SKIP_DIRS = new Set([
@@ -81,6 +81,39 @@ interface Offence {
   readonly at: string;
   readonly rule: string;
   readonly detail: string;
+}
+
+/**
+ * Allowed offences, each with its reason. An entry that matches nothing any more
+ * fails a self-test below, so the list never goes stale.
+ */
+const ALLOW: ReadonlyArray<{
+  readonly file: string;
+  readonly rule: string;
+  readonly detail: RegExp;
+  readonly why: string;
+}> = [
+  {
+    file: 'apps/patient/src/app/call/call-join.ts',
+    rule: 'rounded-pill',
+    detail: /\babsolute\b.*\bbg-abyss\/70\b.*\bbackdrop-blur\b/,
+    why: "the lobby preview's capsule of 44px icon buttons over the video: not a pill (spec-pills §8, role f-icon)",
+  },
+  {
+    file: 'apps/backoffice/src/app/applications/tabs/documents-tab.ts',
+    rule: 'owned-utility',
+    detail: /^focus(-visible)?:(outline-none|ring-\S+) in "sd-chip /,
+    why: 'the "Verified credential" link chip keeps the back office focus ring; outside the call-page unit, reported for a follow-up (spec-pills §4.6)',
+  },
+];
+const usedAllow = new Set<number>();
+function allowed(o: Offence): boolean {
+  const file = o.at.replace(/:\d+$/, '');
+  const i = ALLOW.findIndex(
+    (a) => a.file === file && a.rule === o.rule && a.detail.test(o.detail),
+  );
+  if (i >= 0) usedAllow.add(i);
+  return i >= 0;
 }
 
 /** Checks one class list (a static `class` attribute or a class-string constant). */
@@ -237,6 +270,11 @@ function checkSource(
       if (!aria && !navLink && !radioLabel)
         out.push({ at, rule: 'state-not-exposed', detail: stat });
     }
+    if (
+      /(^|[\s'"])sd-tone-/.test(bound) &&
+      !tokens.some((t) => t === 'sd-chip' || t === 'sd-count')
+    )
+      out.push({ at, rule: 'tone-off-chip', detail: `[class]="${bound}"` });
     if (bound && tokens.includes('sd-count')) {
       for (const lit of bound.matchAll(/'([^']*)'/g))
         for (const t of lit[1].split(/\s+/))
@@ -251,8 +289,11 @@ function checkSource(
     }
   }
   // 2. Class-string literals outside attributes (tokens, computed classes).
+  // A literal that is one tone alone is a tone value (a map entry or a [class] branch); the
+  // template pass checks that the element it lands on is a chip.
   for (const m of text.matchAll(/'([^'\n]*\bsd-[a-z][^'\n]*)'/g))
-    checkClassList(m[1], `${file}:${line(m.index ?? 0)}`, out);
+    if (!/^\s*sd-tone-[a-z]+\s*$/.test(m[1]))
+      checkClassList(m[1], `${file}:${line(m.index ?? 0)}`, out);
   // 3. rounded-pill in a single-quoted or one-line template literal (class attributes are pass 1's).
   for (const m of text.matchAll(
     /(['`])([^"'`\n]*\brounded-pill\b[^"'`\n]*)\1/g,
@@ -280,6 +321,7 @@ function scan(): Offence[] {
   // One offence per place and rule.
   const seen = new Set<string>();
   return out.filter((o) => {
+    if (allowed(o)) return false;
     const k = `${o.at}|${o.rule}|${o.detail}`;
     return seen.has(k) ? false : (seen.add(k), true);
   });
@@ -303,6 +345,12 @@ describe('pill guard', () => {
     }
     if (MODE === 'fail') expect(offences).toEqual([]);
     else expect(Array.isArray(offences)).toBe(true);
+  });
+
+  it('every allowlist entry still matches an offence (no stale entry)', () => {
+    expect(ALLOW.filter((_, i) => !usedAllow.has(i)).map((a) => a.file)).toEqual(
+      [],
+    );
   });
 
   it('lists, separately, what is left outside the call pages and the files their unit converts later', () => {
@@ -417,6 +465,20 @@ describe('pill guard', () => {
     expect(check("const CHIP = 'rounded-pill px-2';")).toEqual([
       'rounded-pill',
     ]);
+  });
+
+  it('accepts a tone bound on a chip or kept in a tone map, and catches one bound on a non-chip (self-test)', () => {
+    expect(
+      check(`<span class="sd-chip" [class]="on ? '${TONE}' : 'sd-tone-danger'">A</span>`),
+    ).toEqual([]);
+    expect(check(`const MAP = { a: { cls: '${TONE}' } };`)).toEqual([]);
+    // A tone's variables read by a look-less pill are not a tone utility.
+    expect(
+      check(`<b class="sd-pill sd-pill-c" [class]="on ? 'text-(--sd-tone-danger-fg)' : ''">A</b>`),
+    ).toEqual([]);
+    expect(
+      check(`<span class="px-2" [class]="on ? '${TONE}' : ''">A</span>`),
+    ).toEqual(['tone-off-chip']);
   });
 
   it("catches a tight track that clips its pills' bands and a nested scroller with no ring room (self-test)", () => {

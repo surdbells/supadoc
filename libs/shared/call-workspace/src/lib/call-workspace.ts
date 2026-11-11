@@ -212,10 +212,10 @@ export const WS_CSS = `
               </div>
               @if (compact()) {
                 <!-- The allergy chip (icon + count; full list sr-only) and ✕ join the 48px row. The band is
-                     always dark, so the chip always takes the dark variant here (text-white, re-asserted white
-                     by .sd-dock in the light cockpit). -->
+                     always dark, so the chip always takes the dark tone here (.ws-band sets the cockpit-dark
+                     tone variables, also in the light cockpit). -->
                 @if (allergies().length && !sharing()) {
-                  <span class="inline-flex shrink-0 items-center gap-1 rounded-pill border border-alert/60 bg-alert/15 px-2 py-1 font-sans text-caption font-semibold text-white">
+                  <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)]">
                     <sd-icon name="triangle-alert" [size]="14" class="shrink-0 text-alert" />
                     <span aria-hidden="true">{{ allergies().length }}</span>
                     <span class="sr-only">Allergies: {{ allergies().join(', ') }}</span>
@@ -240,11 +240,7 @@ export const WS_CSS = `
                 </div>
                 @if (allergies().length && !sharing()) {
                   <!-- The cockpit header's allergy pill, on the header's own surface (its tone switch applies); phones: icon + count. -->
-                  <span
-                    class="inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-pill border border-alert/60 bg-alert/15 px-2.5 py-1 font-sans text-caption font-semibold sm:max-w-[18rem]"
-                    [class.text-white]="tone() !== 'light'"
-                    [class.text-alert-ink]="tone() === 'light'"
-                  >
+                  <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)] min-w-0 max-w-[9rem] sm:max-w-[18rem]">
                     <sd-icon name="triangle-alert" [size]="14" class="shrink-0 text-alert" />
                     @if (phone()) {
                       <span aria-hidden="true">{{ allergies().length }}</span>

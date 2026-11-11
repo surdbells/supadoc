@@ -742,7 +742,10 @@ describe('CallWorkspace (the shell)', () => {
       const band = q('.ws-band');
       expect(band?.querySelector(`[aria-label="${CLOSE}"]`)).not.toBeNull();
       expect(band?.textContent).toContain('Allergies: Penicillin');
-      expect(band?.querySelector('.rounded-pill')?.classList.contains('text-white')).toBe(true);
+      // The band's chip takes the danger tone, which .ws-band resolves to the cockpit-dark pair (pills.css).
+      const chip = band?.querySelector('.sd-chip');
+      expect(chip?.classList.contains('sd-tone-danger')).toBe(true);
+      expect(chip?.classList.contains('rounded-pill')).toBe(false);
       const d = dialog();
       const names = (d?.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent?.trim());
       expect(names).toEqual(['Consultation tools', 'Bola Ade']);

@@ -834,7 +834,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                       <div class="flex shrink-0 pl-12 sm:pl-0">
                         <button
                           type="button"
-                          class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none"
+                          class="sd-pill sd-pill-c border border-haze bg-white text-cerulean shadow-control hover:border-cerulean active:shadow-none"
                           [attr.aria-label]="'View ' + res.document.title"
                           (click)="viewResult(i, $event)"
                         >

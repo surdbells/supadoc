@@ -428,13 +428,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
          turn its white-on-colour button text dark — keep it white there. */
       :host([data-theme='light']) ::ng-deep .sd-rx-zone .text-white { color: #ffffff; }
 
-      /* The light cockpit's "New" pill: cerulean-dark on its pale tint (AA). */
-      :host([data-theme='light']) .sd-new-pill { color: var(--color-cerulean-dark); }
-
-      /* White on cerulean (about 4.8:1) for the new-document badges and every solid
-         cerulean button outside the dock: the light theme's global .text-white rule
-         would make that text dark (about 2.6:1). */
-      :host([data-theme='light']) .sd-badge,
+      /* White on cerulean (about 4.8:1) for every solid cerulean button outside the dock:
+         the light theme's global .text-white rule would make that text dark (about 2.6:1). */
       :host([data-theme='light']) .bg-cerulean.text-white { color: #ffffff; }
 
       /* The launcher card under the video (sd-call-launchers): its own height in the grid's tools row. */
@@ -497,11 +492,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </p>
         <!-- Allergies: always in view (the full list for screen readers, truncated on screen). -->
         @if (allergyNames().length) {
-          <span
-            class="inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-pill border border-alert/60 bg-alert/15 px-2.5 py-1 font-sans text-caption font-semibold sm:max-w-[18rem]"
-            [class.text-white]="theme() !== 'light'"
-            [class.text-alert-ink]="theme() === 'light'"
-          >
+          <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)] min-w-0 max-w-[9rem] sm:max-w-[18rem]">
             <sd-icon name="triangle-alert" [size]="14" class="shrink-0 text-alert" />
             <span class="truncate" aria-hidden="true">Allergies: {{ allergyNames().join(', ') }}</span>
             <span class="sr-only">Allergies: {{ allergyNames().join(', ') }}</span>
@@ -509,7 +500,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         } @else if (info()?.patient) {
           <span class="shrink-0 font-sans text-caption text-white/70">No known allergies</span>
         }
-        <span role="timer" class="flex shrink-0 items-center gap-1.5 rounded-pill bg-white/5 px-3 py-1.5 font-sans text-caption text-white/80">
+        <span role="timer" class="sd-chip sd-tone-neutral">
           <span class="size-1.5 rounded-full bg-alert" aria-hidden="true"></span>
           @if (!rail()) {
             <span class="hidden sm:inline">Secure call ·</span>
@@ -526,7 +517,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           <button
             #peopleButton
             type="button"
-            class="flex min-h-11 items-center gap-1.5 rounded-pill bg-white/5 px-3 font-sans text-caption text-white/80 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+            class="sd-pill sd-pill-c sd-action"
             [attr.aria-expanded]="layout() === 'wide' ? peopleShown() : peopleOpen()"
             [attr.aria-controls]="layout() === 'wide' ? 'call-people-list' : (peopleOpen() ? 'call-people-popover' : null)"
             (click)="onPeopleButton()"
@@ -548,7 +539,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         <!-- The recording state in words (the dock's Record keeps its label). -->
         <span role="status" class="shrink-0">
           @if (recordingActive()) {
-            <span class="flex items-center gap-1.5 rounded-pill bg-alert/20 px-3 py-1.5 font-sans text-caption font-semibold text-white">
+            <span class="sd-chip bg-alert/20 text-white">
               <span class="size-2 rounded-full bg-alert motion-safe:animate-pulse"></span>Recording
             </span>
           }
@@ -741,7 +732,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               >
                 {{ s.label }}
                 @if (s.key === 'documents' && newDocCount()) {
-                  <span class="sd-badge min-w-5 rounded-pill bg-cerulean px-1.5 text-center font-sans text-caption font-semibold text-white">{{ newDocCount() }}<span class="sr-only"> new</span></span>
+                  <span class="sd-count">{{ newDocCount() }}<span class="sr-only"> new</span></span>
                 }
                 @if (section() === s.key) {
                   <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
@@ -792,7 +783,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 >
                   {{ s.label }}
                   @if (s.key === 'documents' && newDocCount()) {
-                    <span class="sd-badge min-w-5 rounded-pill bg-cerulean px-1.5 text-center font-sans text-caption font-semibold text-white">{{ newDocCount() }}<span class="sr-only"> new</span></span>
+                    <span class="sd-count">{{ newDocCount() }}<span class="sr-only"> new</span></span>
                   }
                   @if (sideTab() === s.key) {
                     <span class="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
@@ -865,15 +856,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                               <!-- Out of the typical adult range only; normal readings stay quiet. -->
                               @if (v.flag && v.flag.level !== 'normal') {
                                 <span
-                                  class="rounded-pill px-1.5 font-sans text-caption font-semibold"
-                                  [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'bg-alert/20 text-alert' : 'bg-warning/15 text-warning'"
+                                  class="sd-chip"
+                                  [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'sd-tone-danger' : 'sd-tone-warning'"
                                 >{{ v.flag.label }}</span>
                               }
                               @if (v.recorded_by === 'patient') {
-                                <span class="rounded-pill bg-sky/15 px-1.5 font-sans text-caption text-sky">Self-reported</span>
+                                <span class="sd-chip sd-tone-info">Self-reported</span>
                               }
                               @if (v.stale) {
-                                <span class="rounded-pill bg-warning/15 px-1.5 font-sans text-caption text-warning">Out of date</span>
+                                <span class="sd-chip sd-tone-warning">Out of date</span>
                               }
                             </p>
                           }
@@ -1015,7 +1006,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                      result, and when the viewer closes after its opener has gone. -->
                 <h3 #docsHeading id="call-records-heading" tabindex="-1" class="font-sans text-body font-semibold text-white outline-none">Medical Records</h3>
                 @if (newDocCount()) {
-                  <span class="sd-new-pill rounded-pill bg-cerulean/15 px-2 py-0.5 font-sans text-caption font-semibold text-frost">{{ newDocCount() }} new</span>
+                  <span class="sd-chip sd-tone-info">{{ newDocCount() }} new</span>
                   <button type="button" class="ml-auto min-h-11 rounded-field px-1 font-sans text-caption font-semibold text-frost underline-offset-2 hover:underline" (click)="markAllSeen()">Mark all seen</button>
                 }
               </div>
@@ -1066,12 +1057,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                     </div>
                   }
                 }
-                <div class="mb-3 mt-3 flex gap-1 overflow-x-auto" role="group" aria-label="Show">
+                <div class="sd-pill-row-wrap mb-3 mt-3" role="group" aria-label="Show">
                   @for (t of recordsTabs; track t.key) {
                     <button
                       type="button"
-                      class="min-h-11 whitespace-nowrap rounded-pill px-3 font-sans text-caption transition-colors"
-                      [class]="recordsTab() === t.key ? 'bg-cerulean text-white' : 'bg-white/[0.04] text-white/80 hover:bg-white/10'"
+                      class="sd-pill sd-pill-s sd-filter-solid"
                       [attr.aria-pressed]="recordsTab() === t.key"
                       (click)="recordsTab.set(t.key)"
                     >
@@ -1110,7 +1100,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                             <span class="flex min-w-0 items-center gap-1.5">
                               <span class="truncate font-sans text-body-sm text-white">{{ d.title }}</span>
                               @if (unseen) {
-                                <span class="sd-new-pill shrink-0 rounded-pill bg-cerulean/15 px-1.5 font-sans text-caption font-semibold text-frost">New</span>
+                                <span class="sd-chip sd-tone-info">New</span>
                               }
                             </span>
                             <span class="truncate font-sans text-caption text-white/70">{{ d.type_label }} · {{ d.extension.toUpperCase() }} · {{ d.size_label }}</span>
@@ -1119,7 +1109,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                               <span class="font-sans text-caption text-white/70">Preview not available</span>
                             }
                           </span>
-                          <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-caption" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage' : 'bg-frost/15 text-frost'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
+                          <span class="sd-chip" [class]="d.uploader_role === 'patient' ? 'sd-tone-success' : 'sd-tone-info'">{{ d.uploader_role === 'patient' ? 'Patient' : 'Clinician' }}</span>
                           <sd-icon name="eye" [size]="16" class="shrink-0 text-white/70" />
                         </button>
                       </li>
@@ -1215,11 +1205,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             <div class="flex items-center gap-2">
               <span class="font-sans text-body-sm font-semibold text-white">SOAP Note</span>
               @if (noteFinalized()) {
-                <span class="flex items-center gap-1 rounded-pill bg-success/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-success">
-                  <sd-icon name="lock" [size]="11" /> Signed &amp; locked
+                <span class="sd-chip sd-tone-success">
+                  <sd-icon name="lock" [size]="14" /> Signed &amp; locked
                 </span>
               } @else {
-                <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/50">Draft</span>
+                <span class="sd-chip sd-tone-neutral">Draft</span>
               }
             </div>
             <div class="flex items-center gap-3">
@@ -1229,7 +1219,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               @if (!noteFinalized() && canDocument()) {
                 <button
                   type="button"
-                  class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                  class="sd-pill sd-pill-c bg-cerulean text-white hover:bg-cerulean-dark"
                   [disabled]="finalizing() || noteLoad() !== 'ready'"
                   (click)="finalizeNote()"
                 >
@@ -1254,7 +1244,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </span>
               <button
                 type="button"
-                class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                class="sd-pill sd-pill-c w-fit shrink-0 bg-cerulean text-white hover:bg-cerulean-dark"
                 (click)="openPortalSignIn()"
               >
                 <sd-icon name="external-link" [size]="14" /> Sign in
@@ -1275,10 +1265,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </span>
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
+                class="sd-pill sd-pill-c [--sd-fw:400] border border-white/15 text-white/85 hover:bg-white/10"
                 (click)="retryLoadNote()"
               >
-                <sd-icon name="refresh-cw" [size]="13" /> Try again
+                <sd-icon name="refresh-cw" [size]="14" /> Try again
               </button>
             </div>
           } @else if (noteError()) {
@@ -1334,14 +1324,14 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
 
           <div class="mt-4">
             <p id="call-tools-label" class="mb-2 font-sans text-caption font-semibold text-white/70">Tools</p>
-            <div class="flex flex-wrap gap-2" role="group" aria-labelledby="call-tools-label">
+            <div class="sd-pill-row-wrap" role="group" aria-labelledby="call-tools-label">
               @for (tool of tools; track tool.label) {
                 <button
                   type="button"
-                  class="inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-white/10 bg-white/[0.04] px-3 font-sans text-caption text-white/85 transition-colors hover:bg-white/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost"
+                  class="sd-pill sd-pill-c sd-action"
                   (click)="useTool(tool.label)"
                 >
-                  <sd-icon [name]="tool.icon" [size]="16" class="text-frost" />{{ tool.label }}
+                  <sd-icon [name]="tool.icon" [size]="14" class="text-frost" />{{ tool.label }}
                 </button>
               }
             </div>
@@ -1381,7 +1371,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               <p class="max-w-sm font-sans text-body-sm text-alert">{{ rxPatientError() }}</p>
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10"
+                class="sd-pill sd-pill-c [--sd-fw:400] border border-white/15 text-white/80 hover:bg-white/10"
                 (click)="retryRxPatient()"
               >
                 <sd-icon name="refresh-cw" [size]="14" /> Try again
@@ -1416,7 +1406,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </span>
                   <button
                     type="button"
-                    class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                    class="sd-pill sd-pill-c w-fit shrink-0 bg-cerulean text-white hover:bg-cerulean-dark"
                     (click)="openPortalSignIn()"
                   >
                     <sd-icon name="external-link" [size]="14" /> Sign in again
@@ -1451,7 +1441,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 </span>
                 <button
                   type="button"
-                  class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                  class="sd-pill sd-pill-c w-fit shrink-0 bg-cerulean text-white hover:bg-cerulean-dark"
                   (click)="openPortalSignIn()"
                 >
                   <sd-icon name="external-link" [size]="14" /> Sign in again
@@ -1509,7 +1499,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   </span>
                   <button
                     type="button"
-                    class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                    class="sd-pill sd-pill-c w-fit shrink-0 bg-cerulean text-white hover:bg-cerulean-dark"
                     (click)="openPortalSignIn()"
                   >
                     <sd-icon name="external-link" [size]="14" /> Sign in again
@@ -1539,7 +1529,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 </span>
                 <button
                   type="button"
-                  class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                  class="sd-pill sd-pill-c w-fit shrink-0 bg-cerulean text-white hover:bg-cerulean-dark"
                   (click)="openPortalSignIn()"
                 >
                   <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
@@ -1575,10 +1565,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </span>
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1 font-sans text-caption text-white/85 transition-colors hover:bg-white/10"
+                class="sd-pill sd-pill-c [--sd-fw:400] border border-white/15 text-white/85 hover:bg-white/10"
                 (click)="retryLoadCarePlan()"
               >
-                <sd-icon name="refresh-cw" [size]="13" /> Try again
+                <sd-icon name="refresh-cw" [size]="14" /> Try again
               </button>
             </div>
           }
@@ -1606,10 +1596,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 }
               </div>
             }
-            <div class="mt-1 flex flex-wrap items-center gap-2">
+            <div class="sd-pill-row-wrap mt-1">
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/80 transition-colors hover:bg-white/10 disabled:opacity-50"
+                class="sd-pill sd-pill-c [--sd-fw:400] border border-white/15 text-white/80 hover:bg-white/10"
                 [disabled]="!carePlanEditable()"
                 (click)="addCareItem()"
               >
@@ -1617,7 +1607,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
               <button
                 type="button"
-                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                class="sd-pill sd-pill-c bg-cerulean text-white hover:bg-cerulean-dark"
                 [disabled]="carePlanBusy() || !carePlanEditable()"
                 (click)="saveCarePlan()"
               >
@@ -1689,7 +1679,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                       <p class="font-sans text-body-sm text-white/85">
                         <span class="capitalize">{{ r.referral_type }}</span> → {{ r.target }}
                         @if (r.priority === 'urgent') {
-                          <span class="ml-1 rounded-pill bg-alert/15 px-1.5 py-0.5 font-sans text-[10px] text-alert">Urgent</span>
+                          <span class="sd-chip sd-chip-xs sd-tone-danger ml-1">Urgent</span>
                         }
                       </p>
                       <p class="font-sans text-caption text-white/50">{{ r.reason }}</p>
@@ -1780,14 +1770,16 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           <!-- Live transcription -->
           <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <span class="font-sans text-body-sm font-semibold text-white">Live transcription</span>
+            <!-- "Stop" takes the danger tone's pair (pills.css): text-alert on alert/20 was 3.4:1 dark, 3.2:1 light. -->
             <button
               type="button"
-              class="flex items-center gap-1.5 rounded-field px-3 py-1.5 font-sans text-caption font-semibold transition-colors disabled:opacity-50"
-              [class]="transcribing() ? 'bg-alert/20 text-alert hover:bg-alert/30' : 'bg-cerulean text-white hover:bg-cerulean-dark'"
+              class="sd-pill sd-pill-c"
+              [class]="transcribing() ? 'bg-(--sd-tone-danger-bg) text-(--sd-tone-danger-fg) hover:bg-alert/20' : 'bg-cerulean text-white hover:bg-cerulean-dark'"
               [disabled]="!canDocument() || (!transcribing() && (!aiConsent() || !speechSupported()))"
               (click)="toggleTranscription()"
             >
-              <span class="size-2 rounded-full" [class]="transcribing() ? 'animate-pulse bg-alert' : 'bg-white/70'"></span>
+              <!-- The 8px dot in the pill's 14px icon slot, so the label sits as beside any icon. -->
+              <svg viewBox="0 0 14 14" aria-hidden="true" [class]="transcribing() ? 'animate-pulse text-alert' : 'opacity-70'"><circle cx="7" cy="7" r="4" fill="currentColor" /></svg>
               {{ transcribing() ? 'Stop' : 'Start' }} transcription
             </button>
           </div>
@@ -1825,7 +1817,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               @if (copilotConfigured()) {
                 <button
                   type="button"
-                  class="rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                  class="sd-pill sd-pill-c bg-cerulean text-white hover:bg-cerulean-dark"
                   [disabled]="copilotBusy() || !aiConsent()"
                   (click)="generateDraft()"
                 >
@@ -1866,16 +1858,16 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 @if (d.diagnoses.length || d.medications.length) {
                   <div class="mt-2 flex flex-wrap gap-1.5">
                     @for (x of d.diagnoses; track x) {
-                      <span class="rounded-pill bg-white/[0.06] px-2 py-0.5 font-sans text-[10px] text-white/70">{{ x }}</span>
+                      <span class="sd-chip sd-chip-xs sd-tag sd-tone-neutral">{{ x }}</span>
                     }
                     @for (x of d.medications; track x) {
-                      <span class="rounded-pill bg-sky/15 px-2 py-0.5 font-sans text-[10px] text-sky">{{ x }}</span>
+                      <span class="sd-chip sd-chip-xs sd-tag sd-tone-info">{{ x }}</span>
                     }
                   </div>
                 }
                 <button
                   type="button"
-                  class="mt-3 flex items-center gap-1.5 rounded-field border border-white/15 px-3 py-1.5 font-sans text-caption text-white/85 transition-colors hover:bg-white/10 disabled:opacity-50"
+                  class="sd-pill sd-pill-c [--sd-fw:400] mt-3 border border-white/15 text-white/85 hover:bg-white/10"
                   [disabled]="!noteEditable()"
                   (click)="useDraftInNote()"
                 >
@@ -1956,7 +1948,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ patientName() }} · <span class="font-label tabular-nums">{{ elapsedLabel() }}</span></span>
       <span role="status" class="shrink-0">
         @if (recordingActive()) {
-          <span class="flex items-center gap-1.5 rounded-pill bg-alert/20 px-3 py-1.5 font-sans text-caption font-semibold text-white">
+          <span class="sd-chip bg-alert/20 text-white">
             <span class="size-2 rounded-full bg-alert motion-safe:animate-pulse"></span>Recording
           </span>
         }

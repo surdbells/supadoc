@@ -175,7 +175,7 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
         <div class="flex min-w-0 items-center gap-2">
           @if (recordingActive() && stage() === 'in-call') {
             <span
-              class="flex shrink-0 items-center gap-1.5 rounded-pill bg-alert/90 px-3 py-1 font-sans text-caption font-medium text-white"
+              class="sd-chip bg-alert/90 text-white"
             >
               <span class="size-2 animate-pulse rounded-full bg-white" aria-hidden="true"></span>
               Recording

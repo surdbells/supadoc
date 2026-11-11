@@ -49,7 +49,8 @@ const SECONDARY_ACTION =
 const DOC_VIEW =
   'inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none ' +
   FOCUS_RING;
-const CHIP = 'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/15';
+/** An info chip (the 26px chip, tailwind/pills.css) + its own tone pair, as on /patients/:id. */
+const CHIP = 'sd-chip sd-tag';
 
 /**
  * The call's Full EMR, read-only: the `/patients/:id` components (Overview,
@@ -170,8 +171,9 @@ const CHIP = 'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans 
             </div>
           </section>
 
-          <!-- Sub-tabs: the page's pill bar, wrapping on phones. -->
-          <div class="flex w-full flex-wrap gap-1 rounded-card border border-haze bg-glacier p-1 shadow-bar" role="tablist" aria-label="Patient record">
+          <!-- Sub-tabs: the page's pill bar, wrapping when the workspace is narrow (a 14px row gap on phones,
+               so two wrapped rows' touch bands meet). -->
+          <div class="sd-track sd-track-wrap max-sm:gap-y-[14px] w-full" role="tablist" aria-label="Patient record">
             @for (t of sections; track t.key; let i = $index) {
               <button
                 type="button"
@@ -180,14 +182,13 @@ const CHIP = 'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans 
                 [attr.aria-selected]="section() === t.key"
                 [attr.aria-controls]="seen().has(t.key) ? 'ws-emr-panel-' + t.key : null"
                 [tabIndex]="section() === t.key ? 0 : -1"
-                class="flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition ${FOCUS_RING}"
-                [class]="section() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
+                class="sd-pill sd-pill-m sd-seg"
                 (click)="openSection(t.key, false)"
                 (keydown)="onTabKey($event, i)"
               >
                 {{ t.label }}
                 @if (t.key === 'visits' && r.visit_count > 0) {
-                  <span class="flex size-5 items-center justify-center rounded-full text-[11px] font-semibold" [class]="section() === t.key ? 'bg-cerulean text-white' : 'bg-cloud text-slate'" aria-hidden="true">{{ r.visit_count }}</span>
+                  <span class="sd-count" aria-hidden="true">{{ r.visit_count }}</span>
                 }
               </button>
             }
@@ -250,7 +251,7 @@ const CHIP = 'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans 
                               <span class="font-sans text-caption text-slate">Preview not available</span>
                             }
                           </div>
-                          <span class="shrink-0 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-frost text-cerulean-dark'">{{ origin(d) }}</span>
+                          <span class="sd-chip" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-frost text-cerulean-dark'">{{ origin(d) }}</span>
                           <button
                             type="button"
                             class="${DOC_VIEW}"
