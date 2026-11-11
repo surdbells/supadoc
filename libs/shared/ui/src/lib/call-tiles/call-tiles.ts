@@ -289,7 +289,7 @@ interface TileView {
             @case ('main') {
               @if (spotlightLabel()) {
                 <div
-                  class="absolute left-4 top-4 z-10 flex max-w-[calc(100%-7rem)] items-center gap-1.5 rounded-pill bg-abyss/60 px-3 py-1.5 backdrop-blur roomy:max-w-[calc(100%-8rem)]"
+                  class="sd-chip sd-chip-lg sd-overlay absolute left-4 top-4 z-10 max-w-[calc(100%-7rem)] roomy:max-w-[calc(100%-8rem)]"
                   aria-hidden="true"
                 >
                   @if (v.tile.muted) {
@@ -306,7 +306,7 @@ interface TileView {
             }
             @default {
               <span
-                class="absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-0.75rem)] items-center gap-1 rounded-pill bg-abyss/70 px-2 py-0.5 font-sans text-caption text-white backdrop-blur"
+                class="sd-chip sd-chip-xs sd-overlay absolute bottom-1.5 left-1.5 max-w-[calc(100%-0.75rem)]"
                 aria-hidden="true"
               >
                 @if (v.tile.muted) {

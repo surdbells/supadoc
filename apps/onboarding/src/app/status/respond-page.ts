@@ -76,7 +76,7 @@ const NOTE_MAX = 1000;
               (edit)="toggle(key)"
             >
               @if (info.sectionUpdated(key)) {
-                <span sectionTag class="inline-flex h-6 items-center rounded-pill bg-sage/10 px-2.5 font-sans text-caption text-sage-ink">Updated</span>
+                <span sectionTag class="sd-chip sd-tag bg-sage/10 text-sage-ink [--sd-h:24px]">Updated</span>
               }
               @if (open() === key) {
                 <div class="border-t-[0.5px] border-ash pb-4 pt-2" [id]="'onb-respond-' + key">

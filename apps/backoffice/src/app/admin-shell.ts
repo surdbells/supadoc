@@ -93,7 +93,7 @@ import { ReviewQueue } from './specialists/review-queue';
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
-          <span class="rounded-pill bg-ink/10 px-2.5 py-1 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/15">Admin</span>
+          <span class="sd-chip sd-tag bg-ink/10 text-ink">Admin</span>
         </a>
         <nav class="flex flex-col gap-1">
           @for (item of visibleNav(); track item.link) {
@@ -106,7 +106,7 @@ import { ReviewQueue } from './specialists/review-queue';
               <sd-icon [name]="item.icon" [size]="20" />{{ item.label }}
               @let n = count(item);
               @if (n > 0 && item.badge) {
-                <span class="ml-auto rounded-pill bg-warning/20 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-warning/40" [attr.title]="label(item.badge, n)">
+                <span class="sd-count sd-count-lg sd-count-warn ml-auto" [attr.title]="label(item.badge, n)">
                   {{ n }}<span class="sr-only"> {{ label(item.badge, n) }}</span>
                 </span>
               }

@@ -123,7 +123,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                   <span class="flex min-w-0 flex-col gap-1">
                     <span class="flex flex-wrap items-center gap-2">
                       <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
-                      <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="rxStatus(rx.status).cls">
+                      <span class="sd-chip" [class]="rxStatus(rx.status).cls">
                         <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
                       </span>
                     </span>
@@ -138,7 +138,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                 <div class="flex shrink-0 items-center gap-2 pl-[60px] sm:pl-0">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
+                    class="sd-pill sd-pill-c border border-haze bg-white text-cerulean shadow-control hover:border-cerulean active:shadow-none disabled:shadow-none"
                     [attr.aria-label]="'View prescription ' + rx.number"
                     (click)="viewRx(rx, $event)"
                   >
@@ -146,7 +146,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                   </button>
                   <a
                     [routerLink]="['/dashboard/prescriptions', rx.id]"
-                    class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:text-cerulean"
+                    class="sd-pill sd-pill-c text-slate hover:text-cerulean"
                     [attr.aria-label]="'Details for prescription ' + rx.number"
                   >
                     Details<sd-icon name="chevron-right" [size]="14" />
@@ -246,7 +246,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                   <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
                   <span class="font-sans text-caption uppercase text-slate">{{ d.extension }}. {{ d.size_label }}</span>
                   @if (chip(d); as c) {
-                    <span class="mt-1 inline-flex w-fit max-w-full items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20 md:hidden" [class]="c.cls">
+                    <span class="sd-chip mt-1 w-fit max-w-full md:hidden" [class]="c.cls">
                       <sd-icon [name]="c.icon" [size]="12" class="shrink-0" /><span class="truncate">{{ c.label }}</span>
                     </span>
                   }
@@ -254,14 +254,14 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
                 <span class="hidden min-w-0 flex-1 truncate font-sans text-body-sm text-ink sm:block">{{ d.type_label }}</span>
                 @if (chip(d); as c) {
                   <span class="hidden min-w-0 max-w-[13rem] flex-col items-start gap-0.5 md:flex">
-                    <span class="inline-flex max-w-full items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="c.cls">
+                    <span class="sd-chip max-w-full" [class]="c.cls">
                       <sd-icon [name]="c.icon" [size]="12" class="shrink-0" /><span class="truncate">{{ c.label }}</span>
                     </span>
                     @if (c.until) { <span class="font-sans text-caption text-slate">{{ c.until }}</span> }
                   </span>
                 }
                 <span class="hidden font-sans text-body-sm text-slate md:block">{{ date(d.created_at) }}</span>
-                <span class="hidden shrink-0 rounded-pill px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/15 sm:inline" [class]="badgeClass(d.uploader_role)">{{ badgeLabel(d.uploader_role) }}</span>
+                <span class="sd-chip hidden shrink-0 sm:inline-flex" [class]="badgeClass(d.uploader_role)">{{ badgeLabel(d.uploader_role) }}</span>
                 <!-- Figma's "open" chevron from sm up (at 375 px the row keeps its width for the title and chip) -->
                 <span class="hidden shrink-0 text-slate sm:inline-flex" aria-hidden="true"><sd-icon name="chevron-right" [size]="18" /></span>
               </button>

@@ -337,7 +337,7 @@ export interface LabUploadRefused {
                     >
                     @if (paused(d)) {
                       <span
-                        class="inline-flex w-fit items-center gap-1 rounded-pill bg-(--sd-dialog-warning-soft) px-2.5 py-0.5 font-sans text-caption font-medium text-(--sd-dialog-warning-text)"
+                        class="sd-chip w-fit bg-(--sd-dialog-warning-soft) text-(--sd-dialog-warning-text)"
                       >
                         <sd-icon name="hourglass" [size]="12" />Paused — not
                         practising on VideoMed right now

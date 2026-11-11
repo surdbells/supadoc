@@ -13,7 +13,9 @@
       "inputs": [
         "...",
         "{workspaceRoot}/tailwind/theme.css",
-        "{workspaceRoot}/apps/patient/src/styles.css"
+        "{workspaceRoot}/apps/patient/src/styles.css",
+        "{workspaceRoot}/tailwind/pills.css",
+        "{workspaceRoot}/apps/*/src/**/*"
       ]
     }
   }

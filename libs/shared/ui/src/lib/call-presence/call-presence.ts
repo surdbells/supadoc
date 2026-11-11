@@ -17,7 +17,7 @@ import type { CallPresenceDto } from '@supadoc/models';
   template: `
     @if (label(); as l) {
       <span
-        class="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-pill font-sans font-semibold"
+        class="sd-chip"
         [class]="pillClass()"
         [attr.title]="l"
       >
@@ -56,10 +56,10 @@ export class CallPresenceComponent {
     return '';
   });
 
+  /** The tone pair, plus the 30px chip for `md` (geometry: tailwind/pills.css). */
   protected readonly pillClass = computed(() => {
     const tone = this.otherIn() ? 'bg-success/10 text-success-ink' : 'bg-frost text-cerulean-dark';
-    const size = this.size() === 'md' ? 'px-3 py-1 text-body-sm' : 'px-2.5 py-0.5 text-caption';
-    return `${tone} ${size}`;
+    return this.size() === 'md' ? `${tone} sd-chip-lg` : tone;
   });
 
   protected readonly dotClass = computed(() => (this.otherIn() ? 'bg-success' : 'bg-cerulean'));

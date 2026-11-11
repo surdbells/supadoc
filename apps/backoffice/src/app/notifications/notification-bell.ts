@@ -47,7 +47,7 @@ export function bellBadge(unread: number): string {
       <sd-icon name="bell" [size]="22" />
       @if (count() > 0) {
         <span
-          class="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-pill bg-alert-ink px-1 font-sans text-[11px] font-semibold leading-none text-white ring-2 ring-glacier"
+          class="sd-count sd-count-lg sd-count-alert absolute -right-0.5 -top-0.5 ring-2 ring-glacier"
           aria-hidden="true"
           >{{ badge() }}</span
         >

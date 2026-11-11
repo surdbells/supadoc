@@ -64,18 +64,18 @@ const EMPTY_COUNTS: Record<LabListGroup, number> = {
       <!-- Consultation History › Lab tests -->
       <nav
         aria-label="Consultation history sections"
-        class="flex w-full items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit"
+        class="sd-track sd-track-tight w-full sm:w-fit"
       >
         <a
           routerLink="/dashboard/history"
-          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill px-2.5 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none sm:px-4"
+          class="sd-pill sd-pill-n sd-seg-solid grow sm:flex-none"
         >
           <sd-icon name="history" [size]="16" class="hidden sm:inline-flex" />
           Consultations
         </a>
         <a
           routerLink="/dashboard/prescriptions"
-          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill px-2.5 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none sm:px-4"
+          class="sd-pill sd-pill-n sd-seg-solid grow sm:flex-none"
         >
           <sd-icon name="pill" [size]="16" class="hidden sm:inline-flex" />
           Prescriptions
@@ -83,7 +83,7 @@ const EMPTY_COUNTS: Record<LabListGroup, number> = {
         <a
           routerLink="/dashboard/lab-requests"
           aria-current="page"
-          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill bg-cerulean px-2.5 py-2 font-sans text-body-sm font-medium text-white shadow-control inset-shadow-rim sm:flex-none sm:px-4"
+          class="sd-pill sd-pill-n sd-seg-solid grow sm:flex-none"
         >
           <sd-icon
             name="flask-conical"
@@ -97,19 +97,14 @@ const EMPTY_COUNTS: Record<LabListGroup, number> = {
       @if (counts().all > 0) {
         <!-- Status filter: wraps onto a second row on a phone (all four always in view, nothing to scroll). -->
         <div
-          class="flex flex-wrap items-center gap-1 rounded-[28px] border border-haze bg-glacier p-2 shadow-bar"
+          class="sd-track sd-track-loose sd-track-wrap flex-wrap"
           role="group"
           aria-label="Filter by status"
         >
           @for (f of filters; track f.key) {
             <button
               type="button"
-              class="flex shrink-0 items-center gap-1.5 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
-              [class]="
-                group() === f.key
-                  ? 'bg-frost font-medium text-cerulean-dark shadow-control'
-                  : 'text-slate hover:text-ink'
-              "
+              class="sd-pill sd-pill-f sd-seg"
               [attr.aria-pressed]="group() === f.key"
               (click)="setGroup(f.key)"
             >

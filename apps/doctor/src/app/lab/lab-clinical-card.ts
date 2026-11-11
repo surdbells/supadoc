@@ -217,13 +217,12 @@ const PREFILL_NOTE = "From the patient's record. Changes here don't update it.";
 
     <div class="flex flex-col gap-2">
       <span id="lab-alerts-q" class="font-sans text-body-sm text-ink">Infection alert</span>
-      <div role="group" aria-label="Infection alert" class="flex flex-wrap gap-2">
+      <div role="group" aria-label="Infection alert" class="sd-pill-row-wrap">
         @for (a of alerts(); track a.value) {
           @let on = s.infectionAlerts.includes(a.value);
           <button
             type="button"
-            class="rounded-2xl border-[0.5px] px-2 py-1 font-sans text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-            [class]="on ? 'border-cerulean bg-cerulean text-white' : 'border-slate bg-white text-slate hover:text-ink'"
+            class="sd-pill sd-pill-m sd-filter-solid [--sd-fw:400]"
             [attr.aria-pressed]="on"
             (click)="emit('alert', a.value)"
           >

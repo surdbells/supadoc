@@ -252,7 +252,7 @@ function pack(items: readonly ItemView[], height: number): ItemView[][] {
                         <button
                           type="button"
                           role="radio"
-                          [class]="segmentClass(o.checked)"
+                          [class]="segmentClass()"
                           [attr.aria-checked]="o.checked"
                           [attr.aria-label]="o.o.ariaLabel || null"
                           [attr.data-stop]="o.key"
@@ -295,7 +295,7 @@ function pack(items: readonly ItemView[], height: number): ItemView[][] {
                         <sd-icon [name]="it.c.icon" [size]="20" />
                         @if (it.badge > 0) {
                           <span
-                            class="absolute -right-1 -top-1 min-w-5 rounded-pill bg-cerulean px-1 text-center font-sans text-caption font-semibold text-white"
+                            class="sd-count sd-count-lg absolute -right-1 -top-1"
                             >{{ badgeText(it.badge) }}</span
                           >
                         }
@@ -456,8 +456,8 @@ export class CallControlsComponent {
   );
   protected readonly trackClass = computed(() =>
     this.layout() === 'rail'
-      ? 'flex min-w-11 flex-col items-stretch gap-0.5 rounded-[1.375rem] border border-white/15 p-[3px]'
-      : 'flex h-11 items-center gap-0.5 rounded-pill border border-white/15 p-[3px]',
+      ? 'flex min-w-11 flex-col items-stretch gap-0.5 rounded-[1.375rem] border border-white/15 p-[3px] [--sd-hit-y-max:1px]'
+      : 'sd-track-dock',
   );
 
   constructor() {
@@ -513,12 +513,10 @@ export class CallControlsComponent {
     return c.disabled ? `${tone} opacity-50` : tone;
   }
 
-  protected segmentClass(checked: boolean): string {
-    const base =
-      'flex h-9 min-w-9 items-center justify-center rounded-pill px-1.5 font-sans text-caption font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost motion-reduce:transition-none';
-    const tone = checked ? 'bg-white text-ink' : 'text-white/80 hover:bg-white/10 hover:text-white';
-    return this.layout() === 'rail' ? `${base} w-full ${tone}` : `${base} ${tone}`;
-  }
+  /** A segment: the 36px dock pill; `aria-checked` drives its look (tailwind/pills.css). */
+  protected readonly segmentClass = computed(() =>
+    this.layout() === 'rail' ? 'sd-pill sd-pill-dock w-full' : 'sd-pill sd-pill-dock',
+  );
 
   protected badgeText(n: number): string {
     return n > 99 ? '99+' : String(n);

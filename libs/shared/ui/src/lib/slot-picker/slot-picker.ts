@@ -30,12 +30,11 @@ const DAY_NAME = new Intl.DateTimeFormat('en-US', { weekday: 'long', day: 'numer
         </button>
       }
     </div>
-    <div class="flex flex-wrap gap-2" role="group" aria-label="Time">
+    <div class="sd-pill-row-wrap" role="group" aria-label="Time">
       @for (t of activeSlots(); track t.iso) {
         <button
           type="button"
-          class="rounded-field border px-3 py-1 font-sans text-caption transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-          [class]="value() === t.iso ? 'border-cerulean bg-cerulean text-white' : 'border-cloud bg-white text-slate hover:border-cerulean/50'"
+          class="sd-pill sd-pill-c sd-filter-solid [--sd-fw:400]"
           [attr.aria-pressed]="value() === t.iso"
           (click)="value.set(t.iso)"
         >

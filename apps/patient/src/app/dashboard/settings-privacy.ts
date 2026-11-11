@@ -54,7 +54,7 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
               </p>
             </div>
             @if (twoFaEnabled()) {
-              <span class="flex shrink-0 items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-semibold text-sage-ink">
+              <span class="sd-chip shrink-0 bg-sage/15 text-sage-ink">
                 <sd-icon name="circle-check" [size]="14" />On
               </span>
               <button type="button" class="shrink-0 rounded-field border border-alert px-4 py-2 font-sans text-body-sm font-semibold text-alert transition-colors hover:bg-alert/5" (click)="openDisable()">Disable</button>

@@ -27,8 +27,7 @@ export const CLINICAL_H3 = 'flex items-center gap-2 font-heading text-body font-
  * Small count pill next to a sub-heading — the same neutral pill as the
  * patient record's section counts (reads on both white cards and the page).
  */
-export const CLINICAL_COUNT =
-  'rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate';
+export const CLINICAL_COUNT = 'sd-chip bg-cloud text-slate';
 
 /** Field label above a control (the Edit Profile / sd-input label). */
 export const CLINICAL_LABEL = 'font-sans text-body font-semibold text-ink';
@@ -54,14 +53,13 @@ export const CLINICAL_INPUT_ICON =
 /** Multi-line field. */
 export const CLINICAL_TEXTAREA = `${FIELD_BASE} min-h-24 resize-y px-4 py-3 leading-relaxed`;
 
-/** Pill segmented control built from native radios (keyboard arrows work). */
-export const CLINICAL_SEGMENTED =
-  'flex w-full max-w-full gap-1 rounded-pill border border-haze bg-glacier p-1 sm:w-fit';
-export const CLINICAL_SEGMENT =
-  'flex flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2 ' +
-  'font-sans text-body-sm font-semibold text-slate transition hover:text-ink ' +
-  'has-[:checked]:bg-frost has-[:checked]:text-cerulean-dark has-[:checked]:shadow-control ' +
-  'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-cerulean/40';
+/**
+ * Pill segmented control built from native radios (keyboard arrows work): the
+ * 48px track (tailwind/pills.css). Each option is a `<label>` whose FIRST child is
+ * the radio: the checked radio selects the pill, its focus ring draws the outline.
+ */
+export const CLINICAL_SEGMENTED = 'sd-track w-full max-w-full sm:w-fit';
+export const CLINICAL_SEGMENT = 'sd-pill sd-pill-m sd-seg flex-1 cursor-pointer';
 
 /** Selectable option card built from a native radio. */
 export const CLINICAL_RADIO_CARD =
@@ -139,10 +137,10 @@ export class ClinicalHeader {
   host: { class: 'inline-flex shrink-0' },
   template: `
     <span
-      class="inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20"
+      class="sd-chip"
       [class]="toneClass()"
     >
-      <sd-icon [name]="icon()" [size]="13" [class]="pulse() ? 'motion-safe:animate-pulse' : ''" />
+      <sd-icon [name]="icon()" [size]="14" [class]="pulse() ? 'motion-safe:animate-pulse' : ''" />
       {{ label() }}
     </span>
   `,

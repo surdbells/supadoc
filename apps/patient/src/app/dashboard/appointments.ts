@@ -186,7 +186,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
             <sd-icon name="bell" [size]="18" class="text-teal" />
             Action needed
             <span
-              class="rounded-pill bg-teal/10 px-2 py-0.5 font-sans text-caption font-semibold text-teal-ink"
+              class="sd-chip bg-teal/10 text-teal-ink"
               >{{ proposals().length }}</span
             >
           </h2>
@@ -265,24 +265,19 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
 
       <!-- Tabs -->
       <div
-        class="flex items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-2 shadow-bar"
+        class="sd-track sd-track-loose"
       >
         @for (t of tabs; track t.key) {
           <button
             type="button"
-            class="flex shrink-0 items-center gap-2 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
-            [class]="
-              activeTab() === t.key
-                ? 'bg-frost font-medium text-cerulean-dark shadow-control'
-                : 'text-slate hover:text-ink'
-            "
+            class="sd-pill sd-pill-f sd-seg"
             [attr.aria-pressed]="activeTab() === t.key"
             (click)="activeTab.set(t.key)"
           >
             {{ t.label }}
             @if (countOf(t.key) > 0) {
               <span
-                class="flex h-4 min-w-4 items-center justify-center rounded-full bg-cerulean px-1 text-[10px] font-semibold text-white"
+                class="sd-count"
                 >{{ countOf(t.key) }}<span class="sr-only"> appointments</span></span
               >
             }

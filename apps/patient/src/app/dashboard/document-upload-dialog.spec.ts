@@ -224,7 +224,7 @@ describe('DocumentUploadDialog', () => {
     const req = nextUpload();
     const bar = () => el.querySelector('[role="progressbar"]') as HTMLElement;
     const live = () => el.querySelector('p.sr-only[aria-live="polite"]')?.textContent?.trim();
-    const pill = (i: number) => el.querySelectorAll('[aria-label="Upload progress"] li')[i]?.querySelector('span.rounded-pill')?.textContent?.trim();
+    const pill = (i: number) => el.querySelectorAll('[aria-label="Upload progress"] li')[i]?.querySelector('span.sd-chip')?.textContent?.trim();
     expect(live()).toBe('Uploading scan.pdf, 1 of 2.');
 
     req.event({ type: HttpEventType.UploadProgress, loaded: 250, total: 1000 });

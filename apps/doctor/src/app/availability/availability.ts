@@ -47,7 +47,7 @@ interface DayCell {
 const TIME_INPUT =
   'rounded-field border border-[#b8c6d4] bg-white px-3 py-2.5 font-sans text-body-sm text-ink shadow-control focus:border-cerulean focus:outline-none focus:ring-2 focus:ring-cerulean/20 disabled:bg-glacier disabled:text-slate';
 
-/** A pill in a segmented group (selected / not). */
+/** The Repeats option cards (12px radius, not pills: tailwind/pills.css draws the pills). */
 const PILL_ON = 'bg-frost text-cerulean-dark shadow-control';
 const PILL_OFF = 'text-slate';
 
@@ -220,9 +220,9 @@ function zoneChanged(err: unknown): string | null {
       }
 
       <!-- View toggle -->
-      <div class="flex w-fit rounded-pill border border-haze bg-glacier p-1 shadow-bar">
-        <button type="button" class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition" [class]="mode() === 'calendar' ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" [attr.aria-pressed]="mode() === 'calendar'" (click)="mode.set('calendar')">Calendar view</button>
-        <button type="button" class="rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition" [class]="mode() === 'list' ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate'" [attr.aria-pressed]="mode() === 'list'" (click)="mode.set('list')">List view</button>
+      <div class="sd-track sd-track-l w-fit" role="group" aria-label="View">
+        <button type="button" class="sd-pill sd-pill-l sd-seg" [attr.aria-pressed]="mode() === 'calendar'" (click)="mode.set('calendar')">Calendar view</button>
+        <button type="button" class="sd-pill sd-pill-l sd-seg" [attr.aria-pressed]="mode() === 'list'" (click)="mode.set('list')">List view</button>
       </div>
 
       <!-- What just happened (an add's counts, a time zone changed elsewhere). -->
@@ -372,9 +372,9 @@ function zoneChanged(err: unknown): string | null {
                   </div>
                   <div class="flex items-center gap-2">
                     @if (s.series_id) {
-                      <span class="flex items-center gap-1 rounded-pill bg-glacier px-2 py-0.5 font-sans text-caption text-slate inset-ring inset-ring-current/15"><sd-icon name="repeat" [size]="12" />Repeats</span>
+                      <span class="sd-chip bg-glacier text-slate"><sd-icon name="repeat" [size]="14" />Repeats</span>
                     }
-                    <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
+                    <span class="sd-chip" [class]="statusClass(s.status)">{{ statusLabel(s.status) }}</span>
                     @if (s.status !== 'booked' && !isSynthetic(s)) {
                       <button type="button" class="flex min-h-11 min-w-11 items-center justify-center rounded-field text-slate transition-colors hover:text-alert focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 disabled:opacity-50" [attr.aria-label]="'Remove ' + slotRange(s)" [disabled]="busyId() === s.id || !canRemove()" (click)="removeSlot(s)"><sd-icon name="trash-2" [size]="16" /></button>
                     }
@@ -406,9 +406,9 @@ function zoneChanged(err: unknown): string | null {
 
           <div class="flex flex-col gap-2">
             <span id="add-often-label" class="font-sans text-body font-semibold text-ink">How often</span>
-            <div class="flex rounded-pill border border-haze bg-glacier p-1" role="group" aria-labelledby="add-often-label">
-              <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="addRecurring() ? '${PILL_OFF}' : '${PILL_ON}'" [attr.aria-pressed]="!addRecurring()" (click)="setRecurring(false)">One-time</button>
-              <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="addRecurring() ? '${PILL_ON}' : '${PILL_OFF}'" [attr.aria-pressed]="addRecurring()" (click)="setRecurring(true)">Recurring</button>
+            <div class="sd-track" role="group" aria-labelledby="add-often-label">
+              <button type="button" class="sd-pill sd-pill-s sd-seg flex-1" [attr.aria-pressed]="!addRecurring()" (click)="setRecurring(false)">One-time</button>
+              <button type="button" class="sd-pill sd-pill-s sd-seg flex-1" [attr.aria-pressed]="addRecurring()" (click)="setRecurring(true)">Recurring</button>
             </div>
           </div>
 
@@ -426,8 +426,8 @@ function zoneChanged(err: unknown): string | null {
               @if (addRepeat() === 'days') {
                 <div class="flex flex-col gap-2" role="group" aria-label="Days">
                   <div class="flex gap-2">
-                    <button type="button" class="min-h-11 rounded-pill border border-haze px-4 font-sans text-caption font-semibold transition" [class]="daysAre([1, 2, 3, 4, 5]) ? '${PILL_ON}' : 'bg-white text-slate'" [attr.aria-pressed]="daysAre([1, 2, 3, 4, 5])" (click)="setDays([1, 2, 3, 4, 5])">Weekdays</button>
-                    <button type="button" class="min-h-11 rounded-pill border border-haze px-4 font-sans text-caption font-semibold transition" [class]="daysAre([0, 1, 2, 3, 4, 5, 6]) ? '${PILL_ON}' : 'bg-white text-slate'" [attr.aria-pressed]="daysAre([0, 1, 2, 3, 4, 5, 6])" (click)="setDays([0, 1, 2, 3, 4, 5, 6])">Every day</button>
+                    <button type="button" class="sd-pill sd-pill-s sd-filter" [attr.aria-pressed]="daysAre([1, 2, 3, 4, 5])" (click)="setDays([1, 2, 3, 4, 5])">Weekdays</button>
+                    <button type="button" class="sd-pill sd-pill-s sd-filter" [attr.aria-pressed]="daysAre([0, 1, 2, 3, 4, 5, 6])" (click)="setDays([0, 1, 2, 3, 4, 5, 6])">Every day</button>
                   </div>
                   <div class="grid grid-cols-7 gap-1">
                     @for (c of weekdayChips; track c.value) {
@@ -462,9 +462,9 @@ function zoneChanged(err: unknown): string | null {
 
           <div class="flex flex-col gap-2">
             <span id="add-duration-label" class="font-sans text-body font-semibold text-ink">Consultation duration</span>
-            <div class="flex rounded-pill border border-haze bg-glacier p-1" role="group" aria-labelledby="add-duration-label">
+            <div class="sd-track" role="group" aria-labelledby="add-duration-label">
               @for (d of durations; track d) {
-                <button type="button" class="min-h-11 flex-1 rounded-pill px-2 py-1.5 font-sans text-caption font-semibold transition" [class]="addDuration() === d ? '${PILL_ON}' : '${PILL_OFF}'" [attr.aria-pressed]="addDuration() === d" (click)="addDuration.set(d)">{{ d }} mins</button>
+                <button type="button" class="sd-pill sd-pill-s sd-seg flex-1" [attr.aria-pressed]="addDuration() === d" (click)="addDuration.set(d)">{{ d }} mins</button>
               }
             </div>
           </div>
@@ -475,7 +475,7 @@ function zoneChanged(err: unknown): string | null {
               <input type="time" aria-label="Start time" class="${TIME_INPUT} min-w-0 flex-1" [attr.min]="addDate() === today() && !addRecurring() ? nowTime() : null" [value]="addStart()" (input)="addStart.set($any($event.target).value)" />
               <span class="font-sans text-caption text-slate">to</span>
               <input type="time" aria-label="End time" class="${TIME_INPUT} min-w-0 flex-1" [disabled]="addMidnight()" [attr.min]="addStart() || null" [value]="addMidnight() ? '' : addEnd()" (input)="addEnd.set($any($event.target).value)" />
-              <button type="button" class="min-h-11 rounded-pill border px-3 font-sans text-caption font-semibold transition" [class]="addMidnight() ? 'border-cerulean bg-frost text-cerulean-dark' : 'border-haze bg-white text-slate hover:bg-glacier'" [attr.aria-pressed]="addMidnight()" (click)="addMidnight.set(!addMidnight())">Until midnight</button>
+              <button type="button" class="sd-pill sd-pill-s sd-filter" [attr.aria-pressed]="addMidnight()" (click)="addMidnight.set(!addMidnight())">Until midnight</button>
             </div>
             <p class="font-sans text-caption text-slate">Working overnight? Add two times: until midnight on the first day, then from midnight on the next.</p>
           </div>
@@ -499,9 +499,9 @@ function zoneChanged(err: unknown): string | null {
             <input type="date" class="${TIME_INPUT}" [min]="today()" [max]="maxDate()" [value]="blockDate()" (input)="blockDate.set($any($event.target).value)" />
           </label>
 
-          <div class="flex rounded-pill border border-haze bg-glacier p-1" role="group" aria-label="What to block">
-            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="blockEntire() ? '${PILL_ON}' : '${PILL_OFF}'" [attr.aria-pressed]="blockEntire()" (click)="blockEntire.set(true)">Entire day</button>
-            <button type="button" class="min-h-11 flex-1 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition" [class]="blockEntire() ? '${PILL_OFF}' : '${PILL_ON}'" [attr.aria-pressed]="!blockEntire()" (click)="blockEntire.set(false)">Specific time</button>
+          <div class="sd-track" role="group" aria-label="What to block">
+            <button type="button" class="sd-pill sd-pill-s sd-seg flex-1" [attr.aria-pressed]="blockEntire()" (click)="blockEntire.set(true)">Entire day</button>
+            <button type="button" class="sd-pill sd-pill-s sd-seg flex-1" [attr.aria-pressed]="!blockEntire()" (click)="blockEntire.set(false)">Specific time</button>
           </div>
 
           @if (!blockEntire()) {

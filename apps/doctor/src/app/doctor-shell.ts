@@ -157,7 +157,7 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
           <span
-            class="rounded-pill bg-cerulean/10 px-2.5 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-current/15"
+            class="sd-chip bg-cerulean/10 text-cerulean-dark"
             >Doctor</span
           >
         </a>

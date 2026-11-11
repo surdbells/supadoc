@@ -284,6 +284,31 @@ describe('DoctorAvailability — on the doctor’s profile zone', () => {
     ).toBe('Mon 9 Nov, 9:00 AM – 12:00 PM · 6 times');
   });
 
+  it('the view toggle and the dialog toggles are pills whose look follows aria-pressed', async () => {
+    await setup();
+    const cls = (b: HTMLElement | null) => [...(b?.classList ?? [])];
+    // Page-level view toggle: the Figma 66/40 bar (L).
+    expect(cls(button('Calendar view'))).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-l', 'sd-seg']));
+    expect(button('Calendar view')?.parentElement?.classList).toContain('sd-track-l');
+    expect([button('Calendar view')?.getAttribute('aria-pressed'), button('List view')?.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
+    await click(button('List view'));
+    expect([button('Calendar view')?.getAttribute('aria-pressed'), button('List view')?.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+    // No colour class decides the look any more: the ARIA state does (tailwind/pills.css).
+    expect(button('List view')?.className).not.toMatch(/bg-frost|text-cerulean-dark/);
+    await click(button('Calendar view'));
+
+    // Add-availability dialog: the 44/26 segmented toggles (S).
+    await openAdd('2026-11-09');
+    expect(cls(button('One-time'))).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-s', 'sd-seg']));
+    expect(button('One-time')?.parentElement?.classList).toContain('sd-track');
+    expect(button('One-time')?.getAttribute('aria-pressed')).toBe('true');
+    await click(button('Recurring'));
+    expect([button('One-time')?.getAttribute('aria-pressed'), button('Recurring')?.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+    expect(cls(button('30 mins'))).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-s', 'sd-seg']));
+    expect(cls(button('Until midnight'))).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-s', 'sd-filter']));
+    expect(button('Until midnight')?.className).not.toMatch(/min-h-11|border-cerulean/);
+  });
+
   it('Choose days: chips toggle aria-pressed, and an empty choice blocks Save', async () => {
     await setup();
     await openAdd('2026-11-09');

@@ -29,9 +29,8 @@ export interface BadgeMeta {
   readonly cls: string;
 }
 
-/** Shared pill-badge base (matches `doc-rx-status-badge`). */
-const BADGE =
-  'inline-flex w-fit shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20';
+/** Shared pill-badge base (matches `doc-rx-status-badge`): the 26px chip (tailwind/pills.css). */
+const BADGE = 'sd-chip w-fit';
 
 // ----- Allergies -----
 
@@ -327,7 +326,7 @@ export class MedicationItem {
         <span class="min-w-0 break-words">{{ heading() }}</span>
       </h3>
       @if (count() && !empty()) {
-        <span class="shrink-0 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate">
+        <span class="sd-chip bg-cloud text-slate">
           <span class="sr-only">{{ heading() }}: </span>{{ count() }}
         </span>
       }

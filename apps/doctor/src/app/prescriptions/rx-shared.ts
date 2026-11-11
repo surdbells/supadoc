@@ -207,10 +207,10 @@ export function withUnit(value: string, unit: string | null | undefined): string
   host: { class: 'inline-flex' },
   template: `
     <span
-      class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20"
+      class="sd-chip"
       [class]="meta().cls"
     >
-      <sd-icon [name]="meta().icon" [size]="13" />
+      <sd-icon [name]="meta().icon" [size]="14" />
       {{ meta().label }}
     </span>
   `,

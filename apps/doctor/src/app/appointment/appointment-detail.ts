@@ -14,6 +14,7 @@ import {
   signal,
   untracked,
   viewChild,
+  viewChildren,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -201,10 +202,8 @@ const TABS: Tab[] = [
   { key: 'ai', label: 'Transcript & AI', icon: 'sparkles' },
 ];
 
-/** A Clinical tools sub-tab button: the primary tabs' pill, stacked into a rail on desktop. */
-const SUB_TAB =
-  'flex shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition ' +
-  'focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 lg:rounded-field lg:py-2.5';
+/** A Clinical tools sub-tab button: the primary tabs' pill (M), stacked into a rail item on desktop. `aria-current` drives its look. */
+const SUB_TAB = 'sd-pill sd-pill-m sd-seg lg:h-auto lg:justify-start lg:rounded-field lg:py-2.5';
 
 /** Cancel pressed once a confirmed consultation has started (the API's own wording, plus what happens next). */
 const STARTED_NO_CANCEL = 'This consultation has started, so it can no longer be cancelled — it closes as completed or missed.';
@@ -323,12 +322,12 @@ function timeLeft(ms: number): TimeLeft | null {
               <span class="font-sans text-body-sm text-slate">Fee: <span class="font-semibold text-ink">{{ a.follow_up_pricing ? followUpPrice(a) : money(a.amount) }}</span></span>
               @if (a.status === 'proposed') {
                 <!-- Nothing is charged until the patient accepts. -->
-                <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate inset-ring inset-ring-current/20"><sd-icon name="hourglass" [size]="13" />{{ isFree(a.amount) ? 'Nothing to pay' : 'Paid when accepted' }}</span>
+                <span class="sd-chip bg-cloud text-slate"><sd-icon name="hourglass" [size]="14" />{{ isFree(a.amount) ? 'Nothing to pay' : 'Paid when accepted' }}</span>
               } @else if (a.payment_status === 'paid') {
-                <span class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-sage-ink inset-ring inset-ring-current/20"><sd-icon name="circle-check" [size]="13" />Paid</span>
+                <span class="sd-chip bg-sage/15 text-sage-ink"><sd-icon name="circle-check" [size]="14" />Paid</span>
               } @else if (!(a.status === 'cancelled' && a.proposed_by === 'doctor')) {
                 <!-- (A proposal that closed was never owed anything.) -->
-                <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"><sd-icon name="circle-alert" [size]="13" />Unpaid</span>
+                <span class="sd-chip bg-warning/15 text-ink"><sd-icon name="circle-alert" [size]="14" />Unpaid</span>
               }
             </div>
 
@@ -358,7 +357,7 @@ function timeLeft(ms: number): TimeLeft | null {
                 <span class="font-sans text-caption text-slate">Guests joining the call ({{ a.guests.length }}):</span>
                 <ul class="flex flex-wrap gap-2">
                   @for (g of a.guests; track g.id ?? $index) {
-                    <li class="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">
+                    <li class="sd-chip sd-tag max-w-full bg-glacier text-ink">
                       <sd-icon name="user-round" [size]="13" class="shrink-0 text-slate" />
                       <span class="truncate">{{ g.name }}</span>
                       @if (guestInCall(a.id, g.id)) {
@@ -604,15 +603,21 @@ function timeLeft(ms: number): TimeLeft | null {
           }
         </section>
 
-        <!-- Primary tabs -->
-        <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar">
-          @for (t of primaryTabs; track t.key) {
-            <button type="button" class="whitespace-nowrap rounded-pill px-5 py-2 font-sans text-body-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-              [class]="primary() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
-              (click)="setPrimary(t.key)">{{ t.label }}</button>
+        <!-- Primary tabs (WAI-ARIA tabs: arrows / Home / End move between them; aria-selected drives the pill's look) -->
+        <div class="sd-track w-fit max-w-full" role="tablist" aria-label="Appointment record">
+          @for (t of primaryTabs; track t.key; let i = $index) {
+            <button #primaryTab type="button" role="tab" class="sd-pill sd-pill-m sd-seg"
+              [id]="'ad-tab-' + t.key"
+              [attr.aria-selected]="primary() === t.key"
+              [attr.aria-controls]="primary() === t.key ? 'ad-panel' : null"
+              [tabIndex]="primary() === t.key ? 0 : -1"
+              (click)="setPrimary(t.key)"
+              (keydown)="onPrimaryKeydown($event, i)">{{ t.label }}</button>
           }
         </div>
 
+        <!-- One panel, labelled by the selected tab; every case renders one root, so the page's gap is unchanged. -->
+        <div role="tabpanel" id="ad-panel" [attr.aria-labelledby]="'ad-tab-' + primary()">
         @switch (primary()) {
           <!-- ===== Overview ===== -->
           @case ('overview') {
@@ -655,7 +660,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="18" class="text-cerulean" />Chronic Conditions</h3>
                   @if (conditions().length) {
                     <div class="flex flex-wrap gap-2">
-                      @for (c of conditions(); track $index) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">{{ c.condition }}</span> }
+                      @for (c of conditions(); track $index) { <span class="sd-chip sd-tag bg-frost text-cerulean-dark">{{ c.condition }}</span> }
                     </div>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
                 </section>
@@ -663,7 +668,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="triangle-alert" [size]="18" class="text-alert" />Allergies</h3>
                   @if (allergies().length) {
                     <div class="flex flex-wrap gap-2">
-                      @for (al of allergies(); track $index) { <span class="rounded-pill bg-alert/10 px-3 py-1 font-sans text-caption font-medium text-alert-ink inset-ring inset-ring-current/15">{{ al.allergen }}</span> }
+                      @for (al of allergies(); track $index) { <span class="sd-chip bg-alert/10 text-alert-ink">{{ al.allergen }}</span> }
                     </div>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
                 </section>
@@ -762,7 +767,7 @@ function timeLeft(ms: number): TimeLeft | null {
                               </div>
                               <span class="hidden font-sans text-body-sm text-slate sm:block">{{ d.type_label }}</span>
                               <span class="hidden font-sans text-caption text-slate md:block">{{ shortDate(d.created_at) }}</span>
-                              <span class="rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-warning-ink'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
+                              <span class="sd-chip" [class]="d.uploader_role === 'patient' ? 'bg-sage/15 text-sage-ink' : 'bg-warning/15 text-warning-ink'">{{ d.uploader_role === 'patient' ? 'Patient-upload' : 'Doctor-uploaded' }}</span>
                               <sd-icon name="chevron-right" [size]="20" class="shrink-0 text-slate" />
                             </button>
                           </li>
@@ -818,10 +823,9 @@ function timeLeft(ms: number): TimeLeft | null {
             <div class="grid grid-cols-1 gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:items-start">
               <!-- Sub-tabs: the primary tabs' pill bar (scrolls sideways on small screens), stacked into a rail on desktop. -->
               <nav class="min-w-0 lg:sticky lg:top-6" aria-label="Clinical tools">
-                <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar lg:w-full lg:flex-col lg:overflow-visible lg:rounded-card lg:bg-white lg:p-2 lg:shadow-card">
+                <div class="sd-track w-fit max-w-full lg:w-full lg:flex-col lg:items-stretch lg:gap-1 lg:overflow-visible lg:rounded-card lg:border lg:border-haze lg:bg-white lg:p-2 lg:shadow-card">
                   @for (t of tabs; track t.key) {
                     <button type="button" class="${SUB_TAB}"
-                      [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink lg:hover:bg-glacier'"
                       [attr.aria-current]="tab() === t.key ? 'true' : null"
                       (click)="select(t.key)">
                       <sd-icon [name]="t.icon" [size]="16" class="shrink-0" />{{ t.label }}
@@ -947,6 +951,7 @@ function timeLeft(ms: number): TimeLeft | null {
             </div>
           }
         }
+        </div>
 
         <!-- Ask the patient to share (or to keep sharing); kept mounted so it can animate out. -->
         <doc-request-access-dialog
@@ -1003,6 +1008,7 @@ export class DoctorAppointmentDetail implements OnInit {
     { key: 'clinical', label: 'Clinical tools' },
   ];
   protected readonly primary = signal<PrimaryTab>('overview');
+  private readonly primaryTabButtons = viewChildren<ElementRef<HTMLButtonElement>>('primaryTab');
   /** The prescribing panel (Clinical tools → Prescriptions), when it is on screen. */
   private readonly rxPanel = viewChild(RxPanel);
 
@@ -1586,6 +1592,22 @@ export class DoctorAppointmentDetail implements OnInit {
     if (key === 'documents' && !reading && this.docsLoadedAt > 0 && Date.now() - this.docsLoadedAt > DOCS_STALE_MS) {
       this.loadDocs('refresh');
     }
+  }
+
+  /** Arrow / Home / End keys move between the primary tabs (WAI-ARIA tabs pattern). */
+  protected async onPrimaryKeydown(event: KeyboardEvent, index: number): Promise<void> {
+    const last = this.primaryTabs.length - 1;
+    const next =
+      event.key === 'ArrowRight' ? (index === last ? 0 : index + 1)
+      : event.key === 'ArrowLeft' ? (index === 0 ? last : index - 1)
+      : event.key === 'Home' ? 0
+      : event.key === 'End' ? last
+      : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    const key = this.primaryTabs[next].key;
+    await this.setPrimary(key);
+    if (this.primary() === key) this.primaryTabButtons()[next]?.nativeElement.focus();
   }
 
   protected async select(tab: TabKey): Promise<void> {

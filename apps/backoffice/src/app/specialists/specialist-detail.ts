@@ -30,7 +30,6 @@ import {
   PAGE,
   PAGE_HEADER_DETAIL,
   PAGE_TITLE,
-  TAG,
 } from '../shared/layout';
 import { ReviewQueue } from './review-queue';
 import { SpecialistAppointmentsTab } from './tabs/appointments-tab';
@@ -52,7 +51,6 @@ import {
   dateOnly,
   doctorLicenceWording,
   type DoctorTab,
-  FOCUS_RING,
   licenceWording,
   licenceStateBadge,
   loginBadge,
@@ -142,7 +140,7 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
                 @if (d.application || wording().abroad) {
                   <div class="flex flex-wrap items-center justify-center gap-1.5 sm:justify-start">
                     @if (d.application; as app) {
-                      <a [routerLink]="['/applications', app.id]" class="${TAG} inline-flex min-h-8 items-center gap-1.5 transition-colors hover:bg-cerulean/15 ${FOCUS_RING}">
+                      <a [routerLink]="['/applications', app.id]" class="sd-pill sd-pill-c bg-frost text-cerulean-dark hover:bg-cerulean/15 [--sd-fw:500]">
                         <sd-icon name="clipboard-list" [size]="14" />From application <span class="font-mono">{{ app.reference }}</span>
                       </a>
                     }
@@ -214,7 +212,7 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
         </section>
 
         <div class="-mx-1 overflow-x-auto px-1 pb-1">
-          <div class="flex w-max min-w-full gap-1 rounded-pill border border-haze bg-glacier p-1 shadow-bar" role="tablist" aria-label="Doctor record">
+          <div class="sd-track w-max min-w-full" role="tablist" aria-label="Doctor record">
             @for (t of tabs; track t.key; let i = $index) {
               <button
                 #tabButton
@@ -224,14 +222,13 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
                 [attr.aria-selected]="tab() === t.key"
                 [attr.aria-controls]="tab() === t.key ? panelId(t.key) : null"
                 [tabIndex]="tab() === t.key ? 0 : -1"
-                class="inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition ${FOCUS_RING}"
-                [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
+                class="sd-pill sd-pill-m sd-seg"
                 (click)="selectTab(t.key)"
                 (keydown)="onTabKeydown($event, i)"
               >
                 {{ t.label }}
                 @if (tabCount(t.key); as n) {
-                  <span class="flex min-w-5 items-center justify-center rounded-full bg-warning/25 px-1.5 text-[11px] font-semibold text-ink">{{ n }}<span class="sr-only"> waiting</span></span>
+                  <span class="sd-count sd-count-warn">{{ n }}<span class="sr-only"> waiting</span></span>
                 }
               </button>
             }

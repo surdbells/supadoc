@@ -13,36 +13,6 @@ import { RouterLink } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink],
   host: { class: 'flex flex-col gap-6' },
-  styles: `
-    .plh-nav {
-      gap: 8px;
-      padding: 8px;
-    }
-    .plh-tab {
-      flex: 1 1 0%;
-      min-width: 0;
-      padding: 8px 12px;
-      font-size: var(--text-body-sm);
-      line-height: var(--text-body-sm--line-height);
-      letter-spacing: var(--text-body-sm--letter-spacing);
-      overflow-wrap: anywhere;
-    }
-    @media (min-width: 40rem) {
-      .plh-nav {
-        width: fit-content;
-        gap: 16px;
-        padding: 12px 24px;
-      }
-      .plh-tab {
-        flex: none;
-        padding: 8px 16px;
-        font-size: var(--text-body);
-        line-height: var(--text-body--line-height);
-        letter-spacing: var(--text-body--letter-spacing);
-        white-space: nowrap;
-      }
-    }
-  `,
   template: `
     <div class="flex flex-col gap-1">
       <h1 class="font-heading text-h2 text-ink">Prescriptions &amp; Lab</h1>
@@ -50,12 +20,12 @@ import { RouterLink } from '@angular/router';
         View and manage your patients' prescriptions and laboratory &amp; diagnostic requests.
       </p>
     </div>
-    <nav aria-label="Prescriptions and lab" class="plh-nav flex w-full rounded-[32px] border border-haze bg-snow shadow-bar">
+    <!-- The Figma 66/40 page tab bar (tailwind/pills.css). Below 40rem: two equal tabs whose labels may wrap (one line needs ≈378px). -->
+    <nav aria-label="Prescriptions and lab" class="sd-track sd-track-l w-full [--sd-track-bg:var(--color-snow)] sm:w-fit">
       @for (t of tabs; track t.key) {
         <a
           [routerLink]="t.link"
-          class="plh-tab flex items-center justify-center rounded-[24px] text-center font-sans font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-          [class]="active() === t.key ? 'bg-cerulean/10 text-cerulean-dark' : 'text-slate hover:text-ink'"
+          class="sd-pill sd-pill-l sd-seg max-sm:h-auto max-sm:min-h-[30px] max-sm:min-w-0 max-sm:flex-1 max-sm:self-stretch max-sm:whitespace-normal max-sm:py-1 max-sm:text-center"
           [attr.aria-current]="active() === t.key ? 'page' : null"
           >{{ t.label }}</a
         >

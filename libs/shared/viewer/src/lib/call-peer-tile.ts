@@ -23,7 +23,7 @@ sd-call-peer-tile{display:block;width:100%;height:100%}
 .sdv-peer-off{display:flex;align-items:center;justify-content:center}
 .sdv-peer-off span{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%}
 .sdv-peer-muted{position:absolute;right:6px;bottom:6px;display:flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#e53935}
-.sdv-peer-name{position:absolute;left:6px;bottom:6px;max-width:calc(100% - 12px);padding:2px 8px;border-radius:999px;background:var(--sd-viewer-pip-pill,rgb(10 22 40/.6));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdv-peer-name{position:absolute;left:6px;bottom:6px;max-width:calc(100% - 12px);height:20px;padding:2px 8px;border-radius:999px;font-size:12px;line-height:16px;background:var(--sd-viewer-pip-pill,rgb(10 22 40/.6));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 `;
 
 interface Playing {

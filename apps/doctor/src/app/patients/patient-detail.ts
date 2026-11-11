@@ -51,8 +51,8 @@ const SECONDARY_ACTION =
   'inline-flex items-center justify-center gap-2 rounded-field border border-haze bg-white px-5 py-3 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none ' +
   FOCUS_RING;
 
-const CHIP =
-  'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/15';
+/** An info chip (the 26px chip, tailwind/pills.css) + its own tone pair. */
+const CHIP = 'sd-chip sd-tag';
 
 /** A patient's record for the doctor (route `/patients/:id`). */
 @Component({
@@ -139,8 +139,8 @@ const CHIP =
           </div>
         </section>
 
-        <!-- Record tabs: a 2×2 grid on phones (all four visible), the pill bar from sm up. -->
-        <div class="grid w-full grid-cols-2 gap-1 rounded-card border border-haze bg-glacier p-1 shadow-bar sm:flex sm:w-fit sm:max-w-full sm:rounded-pill" role="tablist" aria-label="Patient record">
+        <!-- Record tabs: two per row on phones (all four visible; a 14px row gap so the touch bands meet), the pill bar from sm up. -->
+        <div class="sd-track max-sm:sd-track-wrap max-sm:gap-y-[14px] w-full sm:w-fit sm:max-w-full" role="tablist" aria-label="Patient record">
           @for (t of tabs; track t.key; let i = $index) {
             <button
               #tabButton
@@ -150,14 +150,13 @@ const CHIP =
               [attr.aria-selected]="tab() === t.key"
               [attr.aria-controls]="tab() === t.key || t.key === 'prescriptions' ? panelId(t.key) : null"
               [tabIndex]="tab() === t.key ? 0 : -1"
-              class="flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition sm:px-5 ${FOCUS_RING}"
-              [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
+              class="sd-pill sd-pill-m sd-seg max-sm:grow max-sm:basis-[calc(50%-4px)]"
               (click)="selectTab(t.key)"
               (keydown)="onTabKeydown($event, i)"
             >
               {{ t.label }}
               @if (t.key === 'visits' && r.visit_count > 0) {
-                <span class="flex size-5 items-center justify-center rounded-full text-[11px] font-semibold" [class]="tab() === t.key ? 'bg-cerulean text-white' : 'bg-cloud text-slate'" aria-hidden="true">{{ r.visit_count }}</span>
+                <span class="sd-count" aria-hidden="true">{{ r.visit_count }}</span>
               }
             </button>
           }

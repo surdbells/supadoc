@@ -169,7 +169,7 @@ interface ShareRequest {
             <span class="font-sans text-body font-semibold text-ink">{{ dr(d.specialist.name) }}</span>
             @if (d.specialist.specialty) { <span class="font-sans text-caption text-slate">{{ d.specialist.specialty }}</span> }
           </span>
-          <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="status(d).cls">
+          <span class="sd-chip" [class]="status(d).cls">
             <sd-icon [name]="status(d).icon" [size]="12" />{{ status(d).label }}
           </span>
         </div>
@@ -193,7 +193,7 @@ interface ShareRequest {
           <div class="flex flex-col gap-2 rounded-field bg-warning/15 px-4 py-3 font-sans text-body-sm text-warning-ink">
             <p class="flex items-start gap-2"><sd-icon name="calendar-clock" [size]="18" class="mt-0.5 shrink-0" />{{ endsBeforeText(d, next) }}</p>
             @if (next.after_options.after_24h) {
-              <button type="button" class="ml-6 min-h-11 w-fit rounded-pill border border-current/30 px-3 font-sans text-caption font-semibold disabled:opacity-60" [disabled]="busyId() === d.specialist.id" (click)="anchorToNext(d, next)">
+              <button type="button" class="sd-pill sd-pill-c sd-action-current ml-6 w-fit" [disabled]="busyId() === d.specialist.id" (click)="anchorToNext(d, next)">
                 Until 24 hours after that consultation
               </button>
             }

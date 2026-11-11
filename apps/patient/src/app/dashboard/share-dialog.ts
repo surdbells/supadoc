@@ -407,7 +407,7 @@ export function documentViewWarning(
                   <div class="flex flex-col gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().warn">
                     <p class="flex items-start gap-2"><sd-icon name="calendar-clock" [size]="18" class="mt-0.5 shrink-0" />{{ w.text }}</p>
                     @if (w.next) {
-                      <button type="button" class="ml-6 min-h-11 w-fit rounded-pill border border-current/30 px-3 font-sans text-caption font-semibold" (click)="anchorTo(w.id, w.next)">
+                      <button type="button" class="sd-pill sd-pill-c sd-action-current ml-6 w-fit" (click)="anchorTo(w.id, w.next)">
                         Until 24 hours after that consultation
                       </button>
                     }

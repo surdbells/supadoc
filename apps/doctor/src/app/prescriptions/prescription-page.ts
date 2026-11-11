@@ -295,13 +295,13 @@ const DD = 'font-sans text-body-sm text-ink break-words';
                       <span class="break-words font-sans text-body-sm font-semibold text-ink">{{ it.name || 'Medicine not chosen' }}</span>
                       <span class="flex flex-wrap items-center gap-1.5 font-sans text-caption text-slate">
                         @if (it.branded) {
-                          <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink inset-ring inset-ring-current/15">Brand</span>
+                          <span class="sd-chip bg-warning/20 text-ink">Brand</span>
                         }
                         @if (it.dose_form) { <span>{{ it.dose_form }}</span> }
                         @if (it.branded && it.generic_name) { <span>· {{ it.generic_name }}</span> }
                         @if (it.no_substitute) {
-                          <span class="inline-flex items-center gap-1 rounded-pill bg-alert/10 px-2 py-0.5 font-semibold text-alert-ink inset-ring inset-ring-current/15">
-                            <sd-icon name="lock" [size]="11" /> No substitute
+                          <span class="sd-chip bg-alert/10 text-alert-ink">
+                            <sd-icon name="lock" [size]="14" /> No substitute
                           </span>
                         }
                       </span>

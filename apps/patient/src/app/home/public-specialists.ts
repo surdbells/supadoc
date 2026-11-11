@@ -201,7 +201,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
             {{ sidebarOpen() ? 'Hide filters' : 'Filters' }}
             @if (activeFilterCount() > 0) {
               <span
-                class="flex size-5 items-center justify-center rounded-full bg-cerulean text-[10px] font-semibold text-white"
+                class="sd-count sd-count-lg"
                 >{{ activeFilterCount() }}</span
               >
             }
@@ -259,19 +259,21 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
               <span class="font-sans text-caption font-semibold text-slate"
                 >Consultation type</span
               >
-              <div class="flex rounded-field border border-haze bg-glacier p-1">
+              <!-- Text only: three S segments with icons need 266px, the sidebar gives 238. The S
+                   bands (44px) need more than the 5px inset, so the track does not clip them. -->
+              <div
+                class="sd-track sd-track-tight [--sd-track-overflow:visible]"
+                role="group"
+                aria-label="Consultation type"
+              >
                 @for (t of consultTypes; track t.value) {
                   <button
                     type="button"
-                    class="flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-pill px-2 py-1.5 font-sans text-caption transition-colors"
-                    [class]="
-                      mode() === t.value
-                        ? 'bg-frost font-medium text-cerulean-dark shadow-control'
-                        : 'text-slate hover:text-ink'
-                    "
+                    class="sd-pill sd-pill-s sd-seg flex-1"
+                    [attr.aria-pressed]="mode() === t.value"
                     (click)="mode.set(t.value)"
                   >
-                    <sd-icon [name]="t.icon" [size]="14" />{{ t.label }}
+                    {{ t.label }}
                   </button>
                 }
               </div>
@@ -500,9 +502,9 @@ export class PublicSpecialists implements OnInit {
   protected readonly moreError = signal('');
 
   protected readonly consultTypes = [
-    { value: 'any' as const, label: 'Any', icon: 'sparkles' },
-    { value: 'online' as const, label: 'Online', icon: 'video' },
-    { value: 'in_person' as const, label: 'In-person', icon: 'building-2' },
+    { value: 'any' as const, label: 'Any' },
+    { value: 'online' as const, label: 'Online' },
+    { value: 'in_person' as const, label: 'In-person' },
   ];
   protected readonly genderOptions = [
     { value: 'female', label: 'Female' },

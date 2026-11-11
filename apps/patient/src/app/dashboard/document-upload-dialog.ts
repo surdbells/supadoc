@@ -476,7 +476,7 @@ const CUSTOM_TYPE_MAX = 120;
                       <span class="font-sans text-caption" [class]="c().muted">Whole folder {{ folderUntilOf(d) }}</span>
                       @if (paused(d)) {
                         <!-- Paused shares resume (new files too) if the doctor is back within 30 days: opt in only. -->
-                        <span class="inline-flex w-fit items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="c().warn">
+                        <span class="sd-chip w-fit" [class]="c().warn">
                           <sd-icon name="hourglass" [size]="12" />Paused — not practising on VideoMed right now
                         </span>
                       }
@@ -524,7 +524,7 @@ const CUSTOM_TYPE_MAX = 120;
                       <span class="truncate font-sans text-body-sm font-semibold" [class]="c().heading" [title]="item.file.name">{{ item.file.name }}</span>
                       <span class="truncate font-sans text-caption" [class]="c().muted">{{ sizeLabel(item.file.size) }} · {{ typeLabel(item) }}</span>
                     </span>
-                    <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="uploadStatus(item.status).cls">
+                    <span class="sd-chip shrink-0" [class]="uploadStatus(item.status).cls">
                       <sd-icon [name]="uploadStatus(item.status).icon" [size]="12" [class.animate-spin]="item.status === 'uploading'" />{{ item.status === 'uploading' ? progressText(item.progress) : uploadStatus(item.status).label }}
                     </span>
                   </div>

@@ -90,8 +90,7 @@ const ROW_INPUT =
 const LOCKED_VALUE =
   'flex items-center gap-2 rounded-field border border-cloud bg-glacier px-4 py-3 font-sans text-body-sm text-ink';
 /** "Change pending" next to a verified field with a change waiting for review. */
-const PENDING_BADGE =
-  'inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20';
+const PENDING_BADGE = 'sd-chip bg-warning/15 text-ink';
 
 /**
  * The speciality field's one message in the dropdown: none chosen, or one the
@@ -232,7 +231,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                         <h2 class="font-heading text-h4 text-ink">{{ profile()?.name }}</h2>
                         @if (isPending('name')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
                         @if (profile()?.verified) {
-                          <span class="flex items-center gap-1 rounded-pill border border-cerulean/30 bg-frost px-2.5 py-1 font-sans text-caption font-semibold text-cerulean-dark">
+                          <span class="sd-chip bg-frost text-cerulean-dark">
                             <sd-icon name="circle-check" [size]="14" />Verified
                           </span>
                         }
@@ -366,7 +365,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-col gap-2 border-b border-cloud pb-4">
                       <span class="font-sans text-caption text-slate">Area of Expertise</span>
                       <div class="flex flex-wrap gap-2">
-                        @for (x of expertise(); track x) { <span class="rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">{{ x }}</span> }
+                        @for (x of expertise(); track x) { <span class="sd-chip sd-tag bg-frost text-cerulean-dark">{{ x }}</span> }
                       </div>
                     </div>
                   }
@@ -402,7 +401,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-col gap-2">
                       <span class="font-sans text-caption text-slate">Languages</span>
                       <div class="flex flex-wrap gap-2">
-                        @for (l of languages(); track l) { <span class="rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">{{ l }}</span> }
+                        @for (l of languages(); track l) { <span class="sd-chip sd-tag bg-glacier text-ink">{{ l }}</span> }
                       </div>
                     </div>
                   }
@@ -692,9 +691,9 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (expertise().length) {
                     <div class="flex flex-wrap gap-2">
                       @for (x of expertise(); track x; let i = $index) {
-                        <span class="flex items-center gap-1 rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">
+                        <span class="sd-chip sd-tag bg-frost text-cerulean-dark">
                           {{ x }}
-                          <button type="button" class="text-cerulean/70 transition-colors hover:text-alert" aria-label="Remove" (click)="removeExpertise(i)"><sd-icon name="x" [size]="14" /></button>
+                          <button type="button" class="sd-chip-x" [attr.aria-label]="'Remove ' + x" (click)="removeExpertise(i)"><sd-icon name="x" [size]="12" /></button>
                         </span>
                       }
                     </div>
@@ -713,9 +712,9 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                   @if (languages().length) {
                     <div class="flex flex-wrap gap-2">
                       @for (l of languages(); track l; let i = $index) {
-                        <span class="flex items-center gap-1 rounded-pill bg-glacier px-3 py-1 font-sans text-caption font-medium text-ink inset-ring inset-ring-current/15">
+                        <span class="sd-chip sd-tag bg-glacier text-ink">
                           {{ l }}
-                          <button type="button" class="text-slate transition-colors hover:text-alert" aria-label="Remove" (click)="removeLanguage(i)"><sd-icon name="x" [size]="14" /></button>
+                          <button type="button" class="sd-chip-x" [attr.aria-label]="'Remove ' + l" (click)="removeLanguage(i)"><sd-icon name="x" [size]="12" /></button>
                         </span>
                       }
                     </div>

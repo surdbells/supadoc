@@ -49,8 +49,8 @@ interface WhenVm {
     <article
       class="flex h-full flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card transition-colors duration-200 hover:border-cerulean/50 hover:bg-frost/20"
     >
-      <!-- Header -->
-      <div class="flex items-start justify-between gap-3">
+      <!-- Header: on a phone the status chip wraps under the name rather than truncating it. -->
+      <div class="flex items-start justify-between gap-3 max-sm:flex-wrap">
         <div class="flex min-w-0 items-center gap-3">
           @if (photoSrc(); as src) {
             <img
@@ -89,8 +89,9 @@ interface WhenVm {
               >{{ matchPercent() }}% Match</span
             >
           }
+          <!-- 500, as before the pill standard. -->
           <span
-            class="rounded-pill px-3 py-1 font-sans text-[10px] font-medium inset-ring inset-ring-current/20"
+            class="sd-chip sd-tag"
             [class]="badge().class"
           >
             {{ badge().label }}

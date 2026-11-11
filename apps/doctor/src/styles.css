@@ -4,6 +4,9 @@
 /* Shared Supadoc design tokens (colors, type, radii). */
 @import '../../../tailwind/theme.css';
 
+/* Pills: one geometry and state standard for every pill, chip, count and track. */
+@import '../../../tailwind/pills.css';
+
 /* Also scan the shared UI library so its utility classes are generated. */
 @source '../../../libs/shared/ui/src';
 @source '../../../libs/shared/auth/src';

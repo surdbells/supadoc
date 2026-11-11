@@ -86,7 +86,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
           />
         </div>
         <span
-          class="absolute right-6 top-6 flex items-center gap-1.5 rounded-pill bg-white/70 px-3 py-1 font-sans text-caption font-semibold text-sage-ink"
+          class="sd-chip absolute right-6 top-6 bg-white/70 text-sage-ink"
         >
           <span class="size-2 rounded-full bg-sage"></span> Active
         </span>

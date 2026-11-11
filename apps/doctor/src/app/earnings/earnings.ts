@@ -92,7 +92,7 @@ import { DoctorClock } from '../doctor-clock';
                         {{ t.patient_name }}
                         <!-- A missed consultation the patient didn't come to still earns the fee (less any refund). -->
                         @if (t.status === 'missed') {
-                          <span class="inline-flex items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"><sd-icon name="user-x" [size]="12" />Patient didn't join</span>
+                          <span class="sd-chip bg-warning/15 text-ink"><sd-icon name="user-x" [size]="14" />Patient didn't join</span>
                         }
                       </span>
                     </td>

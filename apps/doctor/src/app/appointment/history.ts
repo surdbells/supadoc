@@ -48,19 +48,20 @@ const FILTERS: Filter[] = [
       </header>
 
       <!-- Filter bar (scrolls sideways on a narrow phone rather than wrapping). -->
-      <div class="flex items-center gap-2 rounded-pill border border-haze bg-glacier px-1.5 py-1.5 shadow-bar sm:gap-4 sm:px-2">
-        <div class="-m-1 flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-pill p-1" role="group" aria-label="Filter by outcome">
+      <div class="sd-track">
+        <!-- -mx-2 px-2: room for the 4px focus ring and the 8px band inside the scroller. -->
+        <div class="sd-track-scroll -mx-2 min-w-0 flex-1 px-2" role="group" aria-label="Filter by outcome">
           @for (f of filters; track f.key) {
             <button type="button"
-              class="min-h-11 shrink-0 whitespace-nowrap rounded-pill px-3.5 py-2 font-sans text-body-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 sm:px-5"
-              [class]="active() === f.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
+              class="sd-pill sd-pill-m sd-seg"
               [attr.aria-pressed]="active() === f.key"
               (click)="select(f)">
               {{ f.label }}
             </button>
           }
         </div>
-        <button type="button" class="min-h-11 shrink-0 pr-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-40 sm:pr-3" [disabled]="active() === 'all'" (click)="clearAll()">Clear<span class="hidden sm:inline">&nbsp;all</span></button>
+        <!-- 44px target; the negative margin keeps the track at its 48px pill height. -->
+        <button type="button" class="-my-[7px] min-h-11 shrink-0 pr-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean disabled:opacity-40 sm:pr-3" [disabled]="active() === 'all'" (click)="clearAll()">Clear<span class="hidden sm:inline">&nbsp;all</span></button>
       </div>
 
       @if (loading() && items().length === 0) {
@@ -98,8 +99,8 @@ const FILTERS: Filter[] = [
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
                   @let label = statusLabel(a);
                   @let look = statusLook(a);
-                  <span class="inline-flex w-fit items-center gap-1 rounded-pill px-3 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="look.pill">
-                    <sd-icon [name]="look.icon" [size]="13" />{{ label }}
+                  <span class="sd-chip w-fit" [class]="look.pill">
+                    <sd-icon [name]="look.icon" [size]="14" />{{ label }}
                   </span>
                   <!-- Who didn't come, or why it never went ahead. -->
                   @if (detail(a, label); as d) {

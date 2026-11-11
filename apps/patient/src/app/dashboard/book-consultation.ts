@@ -560,7 +560,7 @@ function daysApart(a: string, b: string): number {
                     >Online</span
                   >
                   <span
-                    class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage-ink"
+                    class="sd-chip bg-sage/15 text-sage-ink"
                     >Recommended</span
                   >
                 </span>
@@ -583,7 +583,7 @@ function daysApart(a: string, b: string): number {
                     >In-person</span
                   >
                   <span
-                    class="rounded-pill bg-frost px-2.5 py-0.5 font-sans text-[10px] font-medium text-cerulean-dark"
+                    class="sd-chip sd-tag bg-frost text-cerulean-dark"
                     >Coming soon</span
                   >
                 </span>
@@ -786,7 +786,7 @@ function daysApart(a: string, b: string): number {
                         <span class="font-sans text-caption text-slate">{{ sizeLabel(a.file.size) }}</span>
                       </span>
                       <span
-                        class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium"
+                        class="sd-chip shrink-0"
                         [class]="attachStatus(a.status).cls"
                       >
                         <sd-icon

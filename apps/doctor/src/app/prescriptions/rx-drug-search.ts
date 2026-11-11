@@ -46,7 +46,7 @@ export interface RxChosenDrug {
           <span class="break-words font-sans text-body-sm font-semibold text-ink">{{ c.name }}</span>
           <span class="flex flex-wrap items-center gap-1.5 font-sans text-caption text-slate">
             @if (c.branded) {
-              <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink inset-ring inset-ring-current/15">Brand</span>
+              <span class="sd-chip bg-warning/20 text-ink">Brand</span>
             }
             @if (c.dose_form) {
               <span>{{ c.dose_form }}</span>
@@ -58,7 +58,7 @@ export interface RxChosenDrug {
         </div>
         <button
           type="button"
-          class="shrink-0 rounded-field px-2 py-1 font-sans text-caption font-semibold text-cerulean transition-colors hover:bg-frost/40 disabled:opacity-50"
+          class="sd-pill sd-pill-c shrink-0 text-cerulean hover:bg-frost/40"
           [disabled]="disabled()"
           [attr.aria-label]="'Change medicine: ' + c.name"
           (click)="change()"
@@ -140,7 +140,7 @@ export interface RxChosenDrug {
                   <span class="block font-sans text-body-sm text-ink">{{ d.name }}</span>
                   <span class="mt-0.5 flex flex-wrap items-center gap-1.5 font-sans text-caption text-slate">
                     @if (d.branded) {
-                      <span class="rounded-pill bg-warning/20 px-2 py-0.5 font-semibold text-ink inset-ring inset-ring-current/15">Brand</span>
+                      <span class="sd-chip bg-warning/20 text-ink">Brand</span>
                     }
                     @if (d.dose_form) {
                       <span>{{ d.dose_form }}</span>

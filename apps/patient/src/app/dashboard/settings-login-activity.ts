@@ -81,7 +81,7 @@ import { askSignOut, askSignOutDevice } from './sign-out';
                   }}</span>
                   @if (s.current) {
                     <span
-                      class="rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage-ink"
+                      class="sd-chip bg-sage/15 text-sage-ink"
                       >This device</span
                     >
                   }

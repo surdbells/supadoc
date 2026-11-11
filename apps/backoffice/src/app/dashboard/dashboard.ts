@@ -37,8 +37,6 @@ import {
   PAGE_TITLE,
   SECTION_GRID,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED,
   STAT_GRID,
 } from '../shared/layout';
@@ -119,7 +117,6 @@ type LoadResult =
               <button
                 type="button"
                 class="${SEGMENT}"
-                [class]="period() === p.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
                 [attr.aria-pressed]="period() === p.key"
                 (click)="setPeriod(p.key)"
               >{{ p.label }}</button>

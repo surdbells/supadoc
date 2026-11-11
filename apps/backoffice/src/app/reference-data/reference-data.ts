@@ -36,8 +36,6 @@ import {
   FIELD_INVALID,
   FIELD_STACK,
   FILTER_CHIP,
-  FILTER_CHIP_OFF,
-  FILTER_CHIP_ON,
   FILTER_CHIPS,
   FOCUS_RING,
   LABEL,
@@ -58,8 +56,6 @@ import {
   SECTION,
   SECTION_SUBTITLE,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED,
 } from '../shared/layout';
 import {
@@ -154,7 +150,6 @@ function byOrder(list: readonly ReferenceItemDto[]): ReferenceItemDto[] {
             [attr.aria-controls]="list().category === l.category ? 'bo-ref-panel' : null"
             [tabIndex]="list().category === l.category ? 0 : -1"
             class="${SEGMENT}"
-            [class]="list().category === l.category ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
             (click)="selectList(l)"
             (keydown)="onTabKeydown($event, i)"
           >
@@ -232,11 +227,10 @@ function byOrder(list: readonly ReferenceItemDto[]): ReferenceItemDto[] {
                   type="button"
                   [attr.aria-pressed]="show() === s.value"
                   class="${FILTER_CHIP}"
-                  [class]="show() === s.value ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'"
                   (click)="show.set(s.value)"
                 >
                   {{ s.label }}
-                  <span class="rounded-pill px-1.5 text-caption font-semibold" [class]="show() === s.value ? 'bg-white/20' : 'bg-glacier'">{{ s.count }}</span>
+                  <span class="sd-count">{{ s.count }}</span>
                 </button>
               }
             </div>

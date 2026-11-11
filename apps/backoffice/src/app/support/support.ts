@@ -41,8 +41,6 @@ import {
   SECTION,
   SECTION_TITLE,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED_WRAP,
   SEGMENT_FILL,
 } from '../shared/layout';
@@ -96,7 +94,7 @@ type Filter = 'all' | SupportStatus;
       @if (view() === 'list') {
         <div class="${SEGMENTED_WRAP}" role="group" aria-label="Ticket status">
           @for (f of filters; track f.key) {
-            <button type="button" class="${SEGMENT} ${SEGMENT_FILL}" [class]="filter() === f.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'" [attr.aria-pressed]="filter() === f.key" (click)="setFilter(f.key)">{{ f.label }}</button>
+            <button type="button" class="${SEGMENT} ${SEGMENT_FILL}" [attr.aria-pressed]="filter() === f.key" (click)="setFilter(f.key)">{{ f.label }}</button>
           }
         </div>
 

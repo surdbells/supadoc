@@ -46,7 +46,7 @@ const TIME_OPTIONS: readonly {
  * and "Time of day" chips, two-way bound as one {@link WhenFilter}. Each group
  * is a set of toggle buttons (aria-pressed); "Pick a date" reveals a native
  * date input limited to the booking window. `compact` uses the sidebar's
- * smaller labels.
+ * smaller labels and 12px pill padding (two Time-of-day pills per 238px row).
  */
 @Component({
   selector: 'pat-when-filter',
@@ -61,11 +61,12 @@ const TIME_OPTIONS: readonly {
         [attr.aria-labelledby]="whenId"
       >
         <span [id]="whenId" [class]="labelClass()">When</span>
-        <div class="flex flex-wrap gap-2">
+        <div class="sd-pill-row-wrap">
           @for (o of whenOptions; track o.value) {
             <button
               type="button"
-              [class]="chipClass(value().when === o.value)"
+              class="sd-pill sd-pill-f sd-filter"
+              [class]="pillKnobs()"
               [attr.aria-pressed]="value().when === o.value"
               (click)="setWhen(o.value)"
             >
@@ -100,11 +101,12 @@ const TIME_OPTIONS: readonly {
         [attr.aria-labelledby]="timeId"
       >
         <span [id]="timeId" [class]="labelClass()">Time of day</span>
-        <div class="flex flex-wrap gap-2">
+        <div class="sd-pill-row-wrap">
           @for (o of timeOptions; track o.value) {
             <button
               type="button"
-              [class]="chipClass(value().time === o.value)"
+              class="sd-pill sd-pill-f sd-filter"
+              [class]="pillKnobs()"
               [attr.aria-pressed]="value().time === o.value"
               (click)="setTime(o.value)"
             >
@@ -142,14 +144,10 @@ export class WhenFilterChips {
       ? 'font-sans text-caption font-semibold text-slate'
       : 'font-sans text-body-sm font-semibold text-ink',
   );
-
-  protected chipClass(active: boolean): string {
-    const base =
-      'inline-flex min-h-11 items-center gap-1.5 rounded-pill border px-4 font-sans text-body-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
-    return active
-      ? `${base} border-cerulean bg-frost font-medium text-cerulean-dark shadow-control`
-      : `${base} border-haze bg-white text-slate shadow-control hover:text-ink`;
-  }
+  /** F pills keep 16px padding, except in the 238px sidebar, where 12px keeps the rows 2 × 2. */
+  protected readonly pillKnobs = computed(() =>
+    this.compact() ? '[--sd-px:12px]' : '',
+  );
 
   protected setWhen(when: WhenChoice): void {
     const current = this.value();

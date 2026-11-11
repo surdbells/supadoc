@@ -75,7 +75,7 @@ const STATUS_LABEL: Record<string, string> = {
                     <span class="flex min-w-0 flex-1 flex-col gap-1">
                       <span class="flex items-center gap-2">
                         <span class="truncate font-sans text-body font-semibold text-ink">{{ t.subject }}</span>
-                        <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px] font-semibold inset-ring inset-ring-current/20" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
+                        <span class="sd-chip shrink-0" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
                       </span>
                       <span class="truncate font-sans text-caption text-slate">{{ t.last_message_role === 'staff' ? 'Support: ' : 'You: ' }}{{ t.last_message_preview }}</span>
                       <span class="font-sans text-caption text-slate">{{ when(t.last_message_at) }}</span>
@@ -124,7 +124,7 @@ const STATUS_LABEL: Record<string, string> = {
             <div class="flex flex-col gap-1 rounded-card border border-haze bg-white p-5 shadow-card">
               <div class="flex items-center gap-2">
                 <h2 class="font-heading text-body-lg text-ink">{{ t.subject }}</h2>
-                <span class="shrink-0 rounded-pill px-2 py-0.5 font-sans text-[10px] font-semibold inset-ring inset-ring-current/20" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
+                <span class="sd-chip shrink-0" [class]="statusClass(t.status)">{{ statusLabel(t.status) }}</span>
               </div>
               <p class="font-sans text-caption text-slate">Opened {{ when(t.created_at) }}</p>
             </div>

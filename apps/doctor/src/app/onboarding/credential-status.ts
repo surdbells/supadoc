@@ -24,7 +24,7 @@ const CHIPS: Record<CredentialChipState, { label: string; icon: string; tone: st
   imports: [IconComponent],
   host: { class: 'inline-flex shrink-0' },
   template: `
-    <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="chip().tone">
+    <span class="sd-chip" [class]="chip().tone">
       <sd-icon [name]="chip().icon" [size]="13" />{{ chip().label }}
     </span>
   `,

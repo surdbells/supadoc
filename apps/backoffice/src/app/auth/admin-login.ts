@@ -35,7 +35,7 @@ import { firstNavLink } from '../nav';
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
-          <span class="rounded-pill bg-ink/10 px-2.5 py-1 font-sans text-caption font-semibold text-ink">Admin</span>
+          <span class="sd-chip bg-ink/10 text-ink">Admin</span>
         </div>
         <h1 class="font-heading text-h4 text-ink">Back-office sign in</h1>
         <p class="mt-1 font-sans text-body-sm text-slate">

@@ -1,0 +1,171 @@
+[
+  {
+    "name": "gallery-light",
+    "url": "http://127.0.0.1:4311/tools/pill-audit/gallery.html",
+    "css": "dist/apps/patient/browser/styles-*.css",
+    "force": ["hover", "focus-visible"]
+  },
+  {
+    "name": "gallery-dark",
+    "url": "http://127.0.0.1:4311/tools/pill-audit/gallery.html?theme=dark",
+    "css": "dist/apps/patient/browser/styles-*.css",
+    "force": ["hover", "focus-visible"]
+  },
+
+  {
+    "name": "patient-history",
+    "url": "http://localhost:4201/dashboard/history",
+    "wait": 2500
+  },
+  {
+    "name": "patient-history-dark",
+    "url": "http://localhost:4201/dashboard/history",
+    "storage": { "videomed.theme": "dark" },
+    "wait": 2500
+  },
+  {
+    "name": "patient-prescriptions",
+    "url": "http://localhost:4201/dashboard/prescriptions",
+    "wait": 2500
+  },
+  {
+    "name": "patient-lab-requests",
+    "url": "http://localhost:4201/dashboard/lab-requests",
+    "wait": 2500
+  },
+  {
+    "name": "patient-appointments",
+    "url": "http://localhost:4201/dashboard/appointments",
+    "wait": 2500
+  },
+  {
+    "name": "patient-appointments-dark",
+    "url": "http://localhost:4201/dashboard/appointments",
+    "storage": { "videomed.theme": "dark" },
+    "wait": 2500
+  },
+  {
+    "name": "patient-notification",
+    "url": "http://localhost:4201/dashboard/notification",
+    "wait": 2500
+  },
+  {
+    "name": "patient-manage-sharing",
+    "url": "http://localhost:4201/dashboard/manage-sharing",
+    "wait": 2500
+  },
+  {
+    "name": "patient-find-specialist",
+    "url": "http://localhost:4201/dashboard/find-specialist",
+    "wait": 2500
+  },
+  {
+    "name": "patient-wallet-transactions",
+    "url": "http://localhost:4201/dashboard/wallet/transactions",
+    "wait": 2500
+  },
+  {
+    "name": "patient-wallet-transactions-dark",
+    "url": "http://localhost:4201/dashboard/wallet/transactions",
+    "storage": { "videomed.theme": "dark" },
+    "wait": 2500
+  },
+  { "name": "patient-home", "url": "http://localhost:4201/", "wait": 2500 },
+  {
+    "name": "patient-home-dark",
+    "url": "http://localhost:4201/",
+    "storage": { "videomed.theme": "dark" },
+    "wait": 2500
+  },
+  {
+    "name": "patient-home-filters",
+    "url": "http://localhost:4201/",
+    "setup": "[...document.querySelectorAll('button[aria-expanded]')].find((b) => b.textContent.trim().startsWith('Filters'))?.click()",
+    "wait": 2500
+  },
+  {
+    "name": "patient-home-filters-dark",
+    "url": "http://localhost:4201/",
+    "storage": {
+      "videomed.theme": "dark"
+    },
+    "setup": "[...document.querySelectorAll('button[aria-expanded]')].find((b) => b.textContent.trim().startsWith('Filters'))?.click()",
+    "wait": 2500
+  },
+  {
+    "name": "patient-specialists",
+    "url": "http://localhost:4201/specialists",
+    "wait": 2500
+  },
+  {
+    "name": "patient-specialists-dark",
+    "url": "http://localhost:4201/specialists",
+    "storage": {
+      "videomed.theme": "dark"
+    },
+    "wait": 2500
+  },
+
+  {
+    "name": "doctor-schedule",
+    "url": "http://localhost:4204/schedule",
+    "wait": 2500
+  },
+  {
+    "name": "doctor-availability",
+    "url": "http://localhost:4204/availability",
+    "wait": 2500
+  },
+  {
+    "name": "doctor-appointment",
+    "url": "http://localhost:4204/appointments/cf8c462b-eb23-48a5-92c2-bdb9bfc1faea",
+    "wait": 3000
+  },
+  {
+    "name": "doctor-prescriptions",
+    "url": "http://localhost:4204/prescriptions",
+    "wait": 2500
+  },
+  {
+    "name": "doctor-prescriptions-labs",
+    "url": "http://localhost:4204/prescriptions/labs",
+    "wait": 2500
+  },
+  {
+    "name": "doctor-lab-new",
+    "url": "http://localhost:4204/prescriptions/labs/new",
+    "wait": 2500
+  },
+  {
+    "name": "doctor-history",
+    "url": "http://localhost:4204/history",
+    "wait": 2500
+  },
+
+  {
+    "name": "backoffice-dashboard",
+    "url": "http://localhost:4202/dashboard",
+    "wait": 2500
+  },
+  {
+    "name": "backoffice-applications",
+    "url": "http://localhost:4202/applications",
+    "wait": 2500
+  },
+  {
+    "name": "backoffice-appointments",
+    "url": "http://localhost:4202/appointments",
+    "wait": 2500
+  },
+  {
+    "name": "backoffice-reference-data",
+    "url": "http://localhost:4202/reference-data",
+    "wait": 2500
+  },
+
+  {
+    "name": "onboarding-status",
+    "url": "http://localhost:4205/status",
+    "wait": 2500
+  }
+]

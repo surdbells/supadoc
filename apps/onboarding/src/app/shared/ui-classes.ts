@@ -53,14 +53,13 @@ export function onbButton(variant: OnbButtonVariant, inert = false): string {
 }
 
 /**
- * The status page's small pill buttons (28px tall, 12px text). An invisible
- * `before:` layer lifts the hit area to 40px without changing the look.
+ * The status page's small pill buttons: the standard 28px compact pill (C,
+ * tailwind/pills.css). On touch screens its invisible band lifts the target to
+ * 44px without changing the look.
  */
 export const ONB_PILL = {
-  primary:
-    "relative inline-flex h-7 items-center gap-1.5 rounded-pill bg-cerulean px-3 font-sans text-caption font-medium text-white transition-colors hover:bg-cerulean-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2 before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']",
-  neutral:
-    "relative inline-flex h-7 items-center gap-1.5 rounded-pill bg-white px-3 font-sans text-caption font-medium text-slate ring-1 ring-inset ring-ash transition-colors hover:bg-glacier focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2 before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']",
+  primary: 'sd-pill sd-pill-c sd-action-primary',
+  neutral: 'sd-pill sd-pill-c sd-action',
 } as const;
 
 /** Text-only link-style button (Cerulean, medium). */

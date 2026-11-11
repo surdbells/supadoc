@@ -246,11 +246,12 @@ const PER_SPECIALTY = 6;
             <div class="min-h-[220px] py-6">
               <!-- Step 1: body area (multi) -->
               @if (step() === 1) {
-                <div class="mx-auto grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="mx-auto grid max-w-xl grid-cols-2 gap-3 [--sd-hit-x:6px] sm:grid-cols-4">
                   @for (a of bodyAreas; track a.key) {
                     <button
                       type="button"
-                      [class]="chipClass(selectedAreaKeys().includes(a.key))"
+                      class="sd-pill sd-pill-f sd-filter-solid w-full"
+                      [attr.aria-pressed]="selectedAreaKeys().includes(a.key)"
                       (click)="toggleArea(a.key)"
                     >
                       {{ a.label }}
@@ -261,11 +262,12 @@ const PER_SPECIALTY = 6;
 
               <!-- Step 2: main issue (multi) -->
               @if (step() === 2) {
-                <div class="mx-auto flex max-w-xl flex-wrap justify-center gap-3">
+                <div class="mx-auto flex max-w-xl flex-wrap justify-center gap-3 [--sd-hit-x:6px]">
                   @for (i of availableIssues(); track i.label) {
                     <button
                       type="button"
-                      [class]="chipClass(mainIssues().includes(i.label))"
+                      class="sd-pill sd-pill-f sd-filter-solid"
+                      [attr.aria-pressed]="mainIssues().includes(i.label)"
                       (click)="toggle(mainIssues, i.label)"
                     >
                       {{ i.label }}
@@ -309,11 +311,12 @@ const PER_SPECIALTY = 6;
               <!-- Step 4: extras (optional) -->
               @if (step() === 4) {
                 <div class="mx-auto flex max-w-xl flex-col gap-5">
-                  <div class="flex flex-wrap justify-center gap-3">
+                  <div class="flex flex-wrap justify-center gap-3 [--sd-hit-x:6px]">
                     @for (f of extraFlags; track f) {
                       <button
                         type="button"
-                        [class]="chipClass(flags().includes(f))"
+                        class="sd-pill sd-pill-f sd-filter-solid"
+                        [attr.aria-pressed]="flags().includes(f)"
                         (click)="toggle(flags, f)"
                       >
                         {{ f }}
@@ -593,14 +596,6 @@ export class FindDoctorQuiz {
     if (d) s += `${s ? '. ' : ''}started ${this.durationPhrase(d)}`;
     return s;
   });
-
-  protected chipClass(active: boolean): string {
-    const base =
-      'rounded-pill border px-5 py-2.5 font-sans text-body-sm transition-colors';
-    return active
-      ? `${base} border-cerulean bg-cerulean text-white`
-      : `${base} border-cloud text-ink hover:border-cerulean/60`;
-  }
 
   protected toggle(sig: WritableSignal<string[]>, value: string): void {
     sig.update((list) =>

@@ -194,34 +194,26 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
 
       <!-- Tabs (they scroll sideways when they don't fit; "Mark all read" stays put) -->
       <div
-        class="flex items-center gap-2 rounded-pill border border-haze bg-glacier p-2 shadow-bar"
+        class="sd-track sd-track-loose"
       >
         <div
-          class="-mx-1 -my-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 py-1"
+          class="sd-track-scroll -mx-1 min-w-0 flex-1 px-1"
         >
           @for (t of tabs; track t.key) {
             @let c = tabCounts()[t.key];
             <button
               type="button"
-              class="flex shrink-0 items-center gap-2 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
-              [class]="
-                activeTab() === t.key
-                  ? 'bg-frost font-medium text-cerulean-dark shadow-control'
-                  : 'text-slate hover:text-ink'
-              "
+              class="sd-pill sd-pill-f sd-seg"
               [attr.aria-pressed]="activeTab() === t.key"
               [attr.aria-label]="tabAria(t.label, t.key, c)"
               (click)="selectTab(t.key)"
             >
               {{ t.label }}
               @if (c && c.total > 0) {
+                <!-- Unread: the count stays blue (on), as before; read only: it follows the tab. -->
                 <span
-                  class="flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums"
-                  [class]="
-                    c.unread > 0
-                      ? 'bg-cerulean text-white'
-                      : 'bg-cloud text-slate'
-                  "
+                  class="sd-count"
+                  [class]="c.unread > 0 ? 'sd-count-on' : ''"
                   aria-hidden="true"
                   >{{ c.total > 99 ? '99+' : c.total }}</span
                 >
@@ -292,7 +284,7 @@ function tally(notices: readonly Notice[]): Record<Type, Count> {
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
                   <div class="flex items-start justify-between gap-2">
                     <span
-                      class="rounded-pill px-2.5 py-0.5 font-sans text-[10px] font-medium"
+                      class="sd-chip"
                       [class]="type(n).tint"
                       >{{ type(n).label }}</span
                     >

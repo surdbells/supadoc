@@ -29,9 +29,8 @@ export const PAGE_HEADER_TEXT = 'flex min-w-0 flex-col gap-1';
 export const PAGE_TITLE_ROW = 'flex flex-wrap items-center gap-3';
 export const PAGE_TITLE = 'font-heading text-h3 text-ink';
 export const PAGE_SUBTITLE = 'font-sans text-body text-slate';
-/** "12 patients" beside the h1 (+ a 14px icon). */
-export const COUNT_BADGE =
-  'inline-flex items-center gap-1.5 rounded-pill bg-cerulean/10 px-3 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-cerulean/15';
+/** "12 patients" beside the h1 (+ a 14px icon). Pill geometry: tailwind/pills.css. */
+export const COUNT_BADGE = 'sd-chip bg-cerulean/10 text-cerulean-dark';
 /** Detail pages' Back link, right of the h1 (+ `chevron-right` 18, rotated 180°). */
 export const BACK_LINK =
   'flex min-h-11 shrink-0 items-center gap-1 rounded-field font-sans text-body text-slate transition-colors hover:text-cerulean ' +
@@ -60,7 +59,7 @@ export const SECTION_HEAD = 'flex flex-wrap items-start justify-between gap-3';
 /** A sub-heading inside a card (h3). */
 export const SUBSECTION_TITLE = 'flex items-center gap-2 font-heading text-body font-semibold text-ink';
 /** A count next to a heading. */
-export const COUNT_PILL = 'rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate';
+export const COUNT_PILL = 'sd-chip bg-cloud text-slate';
 export const SECTION_GRID = 'grid gap-6 lg:grid-cols-2';
 /** A card with a header bar, divided rows and a footer link (doctor "Today's Schedule"). */
 export const LIST_CARD = 'flex min-w-0 flex-col rounded-card border border-haze bg-white shadow-card';
@@ -226,27 +225,26 @@ export const SEARCH_INPUT =
 export const SEARCH_CLEAR =
   '-mr-1.5 flex size-8 shrink-0 items-center justify-center rounded-full text-slate transition-colors hover:bg-cloud hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40';
 export const SEARCH_RESULTS = 'font-sans text-body-sm text-slate';
-/** The one pill segmented control (filters, ranges). */
-export const SEGMENTED = 'flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar';
+/**
+ * Pills (tailwind/pills.css): geometry, focus, the touch band and the colours of
+ * every state come from the `sd-*` utilities. The look follows the ARIA state the
+ * button already binds (`aria-pressed` / `aria-selected`): no selected class.
+ */
+/** The one pill segmented control (filters, ranges): the Figma 48px track. */
+export const SEGMENTED = 'sd-track w-fit max-w-full';
 /** Many options: wraps into rows on phones (every option visible), one pill bar from sm up. Buttons add SEGMENT_FILL. */
-export const SEGMENTED_WRAP =
-  'flex w-full flex-wrap gap-1 rounded-card border border-haze bg-glacier p-1 shadow-bar sm:w-fit sm:max-w-full sm:flex-nowrap sm:overflow-x-auto sm:rounded-pill';
+export const SEGMENTED_WRAP = 'sd-track max-sm:sd-track-wrap max-sm:gap-y-[14px] w-full sm:w-fit sm:max-w-full';
 export const SEGMENT_FILL = 'flex-auto justify-center sm:flex-none';
-export const SEGMENT =
-  'flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition sm:px-5 ' +
-  FOCUS_RING;
-export const SEGMENT_ON = 'bg-frost text-cerulean-dark shadow-control';
-export const SEGMENT_OFF = 'text-slate hover:text-ink';
-export const SEGMENT_COUNT = 'flex size-5 items-center justify-center rounded-full text-[11px] font-semibold';
-export const SEGMENT_COUNT_ON = 'bg-cerulean text-white';
-export const SEGMENT_COUNT_OFF = 'bg-cloud text-slate';
-/** Filter chips (status filters with counts). */
-export const FILTER_CHIPS = 'flex flex-wrap gap-2';
-export const FILTER_CHIP =
-  'inline-flex min-h-11 items-center gap-1.5 rounded-pill px-3.5 py-2 font-sans text-body-sm transition ' + FOCUS_RING;
-export const FILTER_CHIP_ON = 'bg-cerulean text-white shadow-control inset-shadow-rim';
-export const FILTER_CHIP_OFF = 'bg-white text-slate ring-1 ring-haze shadow-control hover:text-ink hover:ring-cerulean/30';
-export const FILTER_CHIP_HOT = 'bg-warning/10 text-ink ring-1 ring-warning/40 shadow-control hover:bg-warning/20';
+/** A segment (M, 30px); selected = frost + a cerulean ring, from `aria-pressed` / `aria-selected`. */
+export const SEGMENT = 'sd-pill sd-pill-m sd-seg';
+/** A count inside a SEGMENT: its colours follow the segment's state. */
+export const SEGMENT_COUNT = 'sd-count';
+/** Filter chips (status filters with counts): a wrapping row. */
+export const FILTER_CHIPS = 'sd-pill-row-wrap';
+/** A filter chip (F, 34px); selected = solid cerulean, from `aria-pressed`. */
+export const FILTER_CHIP = 'sd-pill sd-pill-f sd-filter-solid';
+/** Add to a FILTER_CHIP that needs attention (warm rest look; its count turns warm too). */
+export const FILTER_CHIP_HOT = 'sd-filter-hot';
 
 // ----- Forms -----
 
@@ -315,16 +313,15 @@ export const BTN_ICON =
 
 // ----- Badges -----
 
-/** Status pill (+ a 13px icon). */
-export const PILL = 'inline-flex w-fit items-center gap-1 rounded-pill px-3 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20';
+/** Status pill (+ an icon, drawn at 14px): the 26px chip. */
+export const PILL = 'sd-chip w-fit';
 /** Info / role chip (+ a 14px icon). */
-export const CHIP = 'inline-flex w-fit items-center gap-1.5 rounded-pill px-3 py-1 font-sans text-caption font-medium inset-ring inset-ring-current/15';
-export const TAG = 'rounded-pill bg-frost px-3 py-1 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15';
+export const CHIP = 'sd-chip sd-tag w-fit';
+export const TAG = 'sd-chip sd-tag bg-frost text-cerulean-dark';
 
 // ----- Person chip (a secondary person column, e.g. Appointments "Specialist") -----
 
-export const PERSON_CHIP =
-  'inline-flex max-w-full items-center gap-2 rounded-pill border border-haze bg-white py-0.5 pl-0.5 pr-2.5 shadow-control';
+export const PERSON_CHIP = 'sd-chip sd-tag sd-person max-w-full bg-white shadow-control [--sd-chip-ring:var(--color-haze)]';
 export const PERSON_CHIP_AVATAR =
   'flex size-5 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-[9px] font-semibold text-cerulean-dark ring-2 ring-white';
 export const PERSON_CHIP_NAME = 'truncate font-sans text-body-sm font-semibold text-ink';

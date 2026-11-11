@@ -92,18 +92,17 @@ type Tab = 'doctors' | 'activity';
       } @else {
         <pat-access-requests-banner (handled)="answered($event)" />
 
-        <nav aria-label="Sharing sections" class="flex w-full items-center gap-1 rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit">
+        <nav aria-label="Sharing sections" class="sd-track sd-track-tight w-full sm:w-fit">
           <a
             routerLink="."
             [queryParams]="{ tab: null }"
             queryParamsHandling="merge"
             [attr.aria-current]="tab() === 'doctors' ? 'page' : null"
-            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-pill px-4 py-2 font-sans text-body-sm transition-colors sm:flex-none"
-            [class]="tab() === 'doctors' ? activeTab : idleTab"
+            class="sd-pill sd-pill-n sd-seg-solid flex-1 sm:flex-none"
           >
             <sd-icon name="users" [size]="16" />Doctors
             @if (activeDoctors() > 0) {
-              <span class="rounded-pill px-2 py-0.5 font-sans text-caption font-semibold" [class]="tab() === 'doctors' ? 'bg-white/20 text-white' : 'bg-frost text-cerulean-dark'" [attr.aria-label]="activeDoctors() + ' with access'">{{ activeDoctors() }}</span>
+              <span class="sd-count" [attr.aria-label]="activeDoctors() + ' with access'">{{ activeDoctors() }}</span>
             }
           </a>
           <a
@@ -111,8 +110,7 @@ type Tab = 'doctors' | 'activity';
             [queryParams]="{ tab: 'activity', doctor: null }"
             queryParamsHandling="merge"
             [attr.aria-current]="tab() === 'activity' ? 'page' : null"
-            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-pill px-4 py-2 font-sans text-body-sm transition-colors sm:flex-none"
-            [class]="tab() === 'activity' ? activeTab : idleTab"
+            class="sd-pill sd-pill-n sd-seg-solid flex-1 sm:flex-none"
           >
             <sd-icon name="history" [size]="16" />Activity
           </a>
@@ -145,8 +143,6 @@ export class ManageSharing {
   private readonly banner = viewChild(AccessRequestsBanner);
 
   protected readonly unavailableText = SHARING_UNAVAILABLE;
-  protected readonly activeTab = 'bg-cerulean font-medium text-white shadow-control inset-shadow-rim';
-  protected readonly idleTab = 'text-slate hover:text-ink';
 
   private readonly query = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
   protected readonly tab = computed<Tab>(() => (this.query().get('tab') === 'activity' ? 'activity' : 'doctors'));

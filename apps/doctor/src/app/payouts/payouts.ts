@@ -135,7 +135,7 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
                   <tr class="border-b border-cloud/60 font-sans text-body-sm text-ink">
                     <td class="px-4 py-3 text-slate">{{ date(p.requested_at) }}</td>
                     <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ money(p.amount) }}</td>
-                    <td class="px-4 py-3"><span class="rounded-pill px-2.5 py-0.5 text-caption inset-ring inset-ring-current/20" [class]="statusClass(p.status)">{{ p.status }}</span></td>
+                    <td class="px-4 py-3"><span class="sd-chip" [class]="statusClass(p.status)">{{ p.status }}</span></td>
                     <td class="px-4 py-3 text-slate">{{ p.reference || (p.admin_note || '—') }}</td>
                   </tr>
                 } @empty {

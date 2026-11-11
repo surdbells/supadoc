@@ -4,6 +4,9 @@
 /* Shared Supadoc design tokens (colors, type, radii). */
 @import '../../../tailwind/theme.css';
 
+/* Pills: one geometry and state standard for every pill, chip, count and track. */
+@import '../../../tailwind/pills.css';
+
 /* Also scan the shared UI library so its utility classes are generated. */
 @source '../../../libs/shared/ui/src';
 @source '../../../libs/shared/auth/src';
@@ -129,6 +132,41 @@ html[data-theme='dark'] .ring-glacier {
    (between page and card). In-card tracks have no `shadow-bar` and keep glacier. */
 html[data-theme='dark'] .bg-glacier.shadow-bar {
   background-color: #111a24;
+}
+
+/* Pills on dark (tailwind/pills.css reads these context variables; variables only, in
+   the components layer, so the unlayered rules here never fight them). Text on its
+   fill: rest 7.00 on the track / 6.63 on the card, selected #8cbcff on the frost
+   tint 6.83 (ring 8.98), counts 5.65, tones ≥ 5.65. The track takes the snow tier,
+   as `.bg-glacier.shadow-bar` above. */
+@layer components {
+  html[data-theme='dark'] {
+    --sd-pill-fg: #94a6b5;
+    --sd-pill-fg-hover: #e5edf4;
+    --sd-pill-action-fg: #e5edf4;
+    --sd-pill-hover-bg: rgb(255 255 255 / 0.06);
+    --sd-pill-rest-bg: #161f2b;
+    --sd-pill-rest-ring: #263445;
+    --sd-pill-hover-ring: rgb(140 188 255 / 0.5);
+    --sd-pill-on-bg: rgb(33 111 209 / 0.26);
+    --sd-pill-on-fg: #8cbcff;
+    --sd-pill-on-ring: #8cbcff;
+    --sd-pill-focus: #8cbcff;
+    --sd-track-bg: #111a24;
+    --sd-track-line: #263445;
+    --sd-count-off-bg: #212c39;
+    --sd-count-off-fg: #94a6b5;
+    --sd-tone-neutral-bg: #212c39;
+    --sd-tone-neutral-fg: #94a6b5;
+    --sd-tone-info-bg: rgb(33 111 209 / 0.26);
+    --sd-tone-info-fg: #8cbcff;
+    --sd-tone-success-fg: #81c784;
+    --sd-tone-warning-fg: #f2a900;
+    --sd-tone-danger-bg: rgb(229 57 53 / 0.15);
+    --sd-tone-danger-fg: #ff8a80;
+    --sd-tone-teal-bg: rgb(0 121 108 / 0.15);
+    --sd-tone-teal-fg: #4db6ac;
+  }
 }
 
 html[data-theme='dark'] body {

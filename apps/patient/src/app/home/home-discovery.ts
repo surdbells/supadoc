@@ -304,7 +304,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                       >
                     </span>
                     <span
-                      class="shrink-0 rounded-pill bg-frost/60 px-2.5 py-0.5 font-sans text-[10px] font-medium text-cerulean-dark"
+                      class="sd-chip sd-tag shrink-0 bg-frost/60 text-cerulean-dark"
                       >Doctor</span
                     >
                   </button>
@@ -331,7 +331,7 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
                       >
                     </span>
                     <span
-                      class="shrink-0 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-[10px] font-medium text-sage-ink"
+                      class="sd-chip sd-tag shrink-0 bg-sage/15 text-sage-ink"
                       >Specialty</span
                     >
                   </button>
@@ -381,17 +381,15 @@ const SYMPTOMS: { keyword: string; specialty: string }[] = [
         [class.lg:flex-nowrap]="!hero()"
       >
         <div
-          class="flex w-full shrink-0 rounded-field border border-cloud bg-white p-1.5 lg:w-auto"
+          class="sd-track sd-track-tight w-full shrink-0 [--sd-track-overflow:visible] [--sd-track-bg:var(--sd-pill-rest-bg)] [--sd-track-line:var(--sd-pill-rest-ring)] [--sd-track-shadow:0_0_#0000] lg:w-auto"
+          role="group"
+          aria-label="Consultation type"
         >
           @for (t of consultTypes; track t.value) {
             <button
               type="button"
-              class="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-2.5 font-sans text-body transition-colors lg:flex-none"
-              [class]="
-                consultationType() === t.value
-                  ? 'bg-frost font-medium text-cerulean'
-                  : 'text-slate hover:text-ink'
-              "
+              class="sd-pill sd-pill-l sd-seg flex-1 max-sm:[--sd-px:8px] lg:flex-none"
+              [attr.aria-pressed]="consultationType() === t.value"
               (click)="consultationType.set(t.value)"
             >
               <sd-icon [name]="t.icon" [size]="18" />{{ t.label }}

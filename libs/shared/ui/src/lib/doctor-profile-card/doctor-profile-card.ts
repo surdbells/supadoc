@@ -46,7 +46,7 @@ export interface PublicDoctorProfileData {
             <div class="flex flex-wrap items-center gap-2.5">
               <h2 class="font-heading text-h3 text-ink">{{ d.name }}</h2>
               @if (d.verified) {
-                <span class="flex items-center gap-1.5 rounded-pill border border-cloud bg-white px-3 py-1 font-sans text-body-sm font-semibold text-cerulean">
+                <span class="sd-chip bg-white text-cerulean [--sd-chip-icon:16px]">
                   <sd-icon name="badge-check" [size]="16" />Verified
                 </span>
               }
@@ -93,7 +93,7 @@ export interface PublicDoctorProfileData {
             <h3 class="flex items-center gap-2 font-heading text-h5 text-ink"><sd-icon name="sparkles" [size]="20" class="text-cerulean" />Area of expertise</h3>
             <div class="flex flex-wrap gap-2.5">
               @for (x of d.expertise ?? []; track x) {
-                <span class="rounded-pill bg-frost px-4 py-1.5 font-sans text-body-sm font-medium text-cerulean-dark">{{ x }}</span>
+                <span class="sd-chip sd-chip-lg sd-tag bg-frost text-cerulean-dark">{{ x }}</span>
               }
             </div>
           </div>

@@ -156,17 +156,13 @@ const COPIED_MS = 3000;
                         class="min-w-0 break-words font-sans text-body-sm font-semibold text-ink"
                         >{{ g.name }}</span
                       >
-                      <span
-                        class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-medium text-slate inset-ring inset-ring-current/20"
-                      >
+                      <span class="sd-chip bg-cloud text-slate">
                         <sd-icon [name]="statusOf(g).icon" [size]="12" />{{
                           statusOf(g).label
                         }}
                       </span>
                       @if (inCall(g)) {
-                        <span
-                          class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-0.5 font-sans text-caption font-medium text-sage-ink inset-ring inset-ring-current/20"
-                        >
+                        <span class="sd-chip bg-sage/15 text-sage-ink">
                           <span
                             class="size-1.5 rounded-full bg-sage"
                             aria-hidden="true"

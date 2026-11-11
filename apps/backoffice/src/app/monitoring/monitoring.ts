@@ -26,8 +26,6 @@ import {
   PAGE_TITLE,
   PILL,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED_WRAP,
   SEGMENT_FILL,
   TABLE,
@@ -65,7 +63,6 @@ type TabKey = 'consultations' | 'quality' | 'recordings';
           <button
             type="button"
             class="${SEGMENT} ${SEGMENT_FILL}"
-            [class]="tab() === t.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
             [attr.aria-pressed]="tab() === t.key"
             (click)="select(t.key)"
           >

@@ -122,7 +122,7 @@ const PER_PAGE = 24;
             <sd-icon name="filter" [size]="20" />
             @if (activeFilterCount() > 0) {
               <span
-                class="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-cerulean text-[10px] font-semibold text-white"
+                class="sd-count sd-count-lg absolute -right-1.5 -top-1.5"
                 >{{ activeFilterCount() }}</span
               >
             }
@@ -140,15 +140,10 @@ const PER_PAGE = 24;
             <span class="font-sans text-body-sm font-semibold text-ink"
               >Specialty</span
             >
-            <div class="flex flex-wrap gap-2">
+            <div class="sd-pill-row-wrap">
               <button
                 type="button"
-                class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
-                [class]="
-                  specialty() === ''
-                    ? 'border-cerulean bg-frost text-cerulean-dark shadow-control'
-                    : 'border-haze bg-white text-slate shadow-control hover:text-ink'
-                "
+                class="sd-pill sd-pill-f sd-filter"
                 [attr.aria-pressed]="specialty() === ''"
                 (click)="specialty.set('')"
               >
@@ -157,12 +152,7 @@ const PER_PAGE = 24;
               @for (s of specialties(); track s) {
                 <button
                   type="button"
-                  class="rounded-pill border px-4 py-1.5 font-sans text-body-sm transition-colors"
-                  [class]="
-                    specialty() === s
-                      ? 'border-cerulean bg-frost text-cerulean-dark shadow-control'
-                      : 'border-haze bg-white text-slate shadow-control hover:text-ink'
-                  "
+                  class="sd-pill sd-pill-f sd-filter"
                   [attr.aria-pressed]="specialty() === s"
                   (click)="specialty.set(s)"
                 >
@@ -180,17 +170,12 @@ const PER_PAGE = 24;
               >Consultation type</span
             >
             <div
-              class="flex w-fit rounded-field border border-haze bg-glacier p-1"
+              class="sd-track sd-track-tight w-fit"
             >
               @for (t of consultTypes; track t.value) {
                 <button
                   type="button"
-                  class="flex items-center gap-1.5 whitespace-nowrap rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
-                  [class]="
-                    mode() === t.value
-                      ? 'bg-frost font-medium text-cerulean-dark shadow-control'
-                      : 'text-slate hover:text-ink'
-                  "
+                  class="sd-pill sd-pill-f sd-seg"
                   [attr.aria-pressed]="mode() === t.value"
                   (click)="mode.set(t.value)"
                 >

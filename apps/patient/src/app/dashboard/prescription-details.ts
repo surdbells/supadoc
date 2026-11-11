@@ -319,7 +319,7 @@ function httpStatus(err: unknown): number | undefined {
                         </div>
                         @if (item.no_substitute) {
                           <span
-                            class="inline-flex shrink-0 items-center gap-1 rounded-pill bg-warning/15 px-2.5 py-0.5 font-sans text-caption font-medium text-ink"
+                            class="sd-chip shrink-0 bg-warning/15 text-ink"
                           >
                             <sd-icon name="badge-alert" [size]="14" />
                             No substitute

@@ -249,8 +249,10 @@ describe('CallControlsComponent', () => {
     ]);
     expect(radio('fit', 'cover').getAttribute('aria-checked')).toBe('true');
     expect(radio('fit', 'cover').getAttribute('aria-label')).toBe('Fill the frame');
-    expect(classes(radio('fit', 'cover'))).toEqual(expect.arrayContaining(['bg-white', 'text-ink']));
-    expect(classes(radio('fit', 'contain'))).toContain('text-white/80');
+    // The look comes from the dock pill and its ARIA state (tailwind/pills.css), not from colour classes.
+    expect(classes(radio('fit', 'cover'))).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-dock']));
+    expect(radio('fit', 'contain').getAttribute('aria-checked')).toBe('false');
+    expect(classes(radio('fit', 'contain'))).not.toContain('bg-white');
     // The group's caption follows the labels (screen-reader only below 34rem; the group is named anyway).
     const caption = size.nextElementSibling as HTMLElement;
     expect(caption.textContent?.trim()).toBe('Video size');

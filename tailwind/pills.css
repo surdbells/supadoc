@@ -1,0 +1,841 @@
+@source not '../tools';
+/* ^ The audit gallery (tools/pill-audit) must never add CSS to an app. */
+
+/*
+ * Supadoc pills: the ONE source of truth for pill geometry and pill state colours
+ * (wave 2 item 5). Imported by the patient, doctor, back-office and onboarding apps'
+ * styles.css, right after theme.css. Tailwind v4 `@utility`: emitted only when used,
+ * variants allowed.
+ *
+ * Rules for templates:
+ *  - Write `sd-pill sd-pill-<size>` (same variant prefix on both) on every interactive
+ *    pill, plus ONE look (`sd-seg`, `sd-seg-solid`, `sd-filter`, `sd-filter-solid`,
+ *    `sd-action*`). The look reads the ARIA state (aria-pressed / -selected / -checked /
+ *    -current, or a checked radio inside a label): never a selected/unselected class.
+ *  - Never put a second utility for a property an `sd-*` utility sets (Tailwind orders
+ *    utilities by property, not by source order). Knobs are CSS variables: `--sd-h`,
+ *    `--sd-fw` (weight), `--sd-px` (padding-inline; only where equal segments must fit),
+ *    `--sd-chip-ring`, `--sd-track-bg|line|shadow|overflow`, `--sd-hit-x`.
+ *  - A look-alike button converted to a pill (LD2) may carry no look and keep its own
+ *    colour, border and shadow classes; its weight is set only through `[--sd-fw:N]`.
+ *  - Scale (visual heights): count 16/20, chip 20/26/30, S 26, C 28, M 30, F 34,
+ *    dock 36, N 38, L 40 (30 below 40rem). On coarse pointers every interactive pill
+ *    gets an invisible 44px touch band (::before); the visual pill never grows.
+ */
+
+@property --sd-h {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-px {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-pis {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-gap {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-fs {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-lh {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-ls {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-fw {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-chip-icon {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-chip-ring {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-track-py {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-track-px {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-track-r {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-wrap-r {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-track-wrap {
+  syntax: '*';
+  inherits: false;
+}
+@property --sd-track-overflow {
+  syntax: '*';
+  inherits: false;
+}
+
+/* ---------- interactive pills: one shared base + sizes (size properties only) ---------- */
+/* The base and the sizes set disjoint properties, so Tailwind's property ordering
+   cannot make them fight. Never set `display` on the sd-icon host: `hidden
+   sm:inline-flex` on it must keep working; icon rules use :where() (no specificity). */
+@utility sd-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  border-radius: 9999px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 150ms,
+    background-color 150ms,
+    box-shadow 150ms;
+  & > :where(sd-icon) {
+    flex: none;
+  }
+  & > :where(sd-icon) > svg,
+  & > svg {
+    display: block;
+    width: var(--sd-icon);
+    height: var(--sd-icon);
+  }
+  &:focus-visible,
+  &:has(> input:focus-visible) {
+    outline: 2px solid var(--sd-pill-focus);
+    outline-offset: 2px;
+  }
+  &:disabled,
+  &[aria-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  @media (any-pointer: coarse) {
+    &::before {
+      content: '';
+      position: absolute;
+      inset-block: max(
+        calc(-1 * var(--sd-hit-y-max, 22px)),
+        min(0px, calc(50% - 22px))
+      );
+      inset-inline: calc(-1 * var(--sd-hit-x, 4px));
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+/* Weights read the --sd-fw knob (look-alike conversions keep their regular weight);
+   never set per state, so a label never changes width when the selection moves. */
+@utility sd-pill-s {
+  --sd-icon: 14px;
+  height: var(--sd-h, 26px);
+  padding-inline: var(--sd-px, 12px);
+  gap: 6px;
+  font: var(--sd-fw, 600) var(--text-caption) / var(--text-caption--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@utility sd-pill-c {
+  --sd-icon: 14px;
+  height: var(--sd-h, 28px);
+  padding-inline: var(--sd-px, 12px);
+  gap: 6px;
+  font: var(--sd-fw, 600) var(--text-caption) / var(--text-caption--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@utility sd-pill-m {
+  --sd-icon: 16px;
+  height: var(--sd-h, 30px);
+  padding-inline: var(--sd-px, 16px);
+  gap: 8px;
+  font: var(--sd-fw, 600) var(--text-body-sm) / var(--text-body-sm--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-body-sm--letter-spacing);
+}
+@utility sd-pill-f {
+  --sd-icon: 16px;
+  height: var(--sd-h, 34px);
+  padding-inline: var(--sd-px, 16px);
+  gap: 8px;
+  font: var(--sd-fw, 500) var(--text-body-sm) / var(--text-body-sm--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-body-sm--letter-spacing);
+}
+@utility sd-pill-n {
+  --sd-icon: 16px;
+  height: var(--sd-h, 38px);
+  padding-inline: var(--sd-px, 16px);
+  gap: 8px;
+  font: var(--sd-fw, 500) var(--text-body-sm) / var(--text-body-sm--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-body-sm--letter-spacing);
+  @media (width < 40rem) {
+    padding-inline: var(--sd-px, 10px);
+  }
+}
+@utility sd-pill-l {
+  --sd-icon: 20px;
+  height: var(--sd-h, 40px);
+  padding-inline: var(--sd-px, 16px);
+  gap: 8px;
+  font: var(--sd-fw, 600) var(--text-body) / var(--text-body--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-body--letter-spacing);
+  @media (width < 40rem) {
+    --sd-icon: 16px;
+    height: var(--sd-h, 30px);
+    padding-inline: var(--sd-px, 12px);
+    font: var(--sd-fw, 600) var(--text-body-sm) /
+      var(--text-body-sm--line-height) var(--font-sans);
+    letter-spacing: var(--text-body-sm--letter-spacing);
+  }
+}
+/* The call dock's segments (always dark): its own look built in. */
+@utility sd-pill-dock {
+  --sd-icon: 16px;
+  --sd-pill-focus: var(--color-frost);
+  height: 36px;
+  min-width: 36px;
+  padding-inline: 6px;
+  gap: 4px;
+  font: var(--sd-fw, 600) var(--text-caption) / var(--text-caption--line-height)
+    var(--font-sans);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: rgb(255 255 255 / 0.8);
+  background-color: transparent;
+  &[aria-checked='true'] {
+    background-color: var(--color-white);
+    color: var(--color-ink);
+  }
+  @media (hover: hover) {
+    &:not([aria-checked='true']):hover {
+      background-color: rgb(255 255 255 / 0.1);
+      color: #fff;
+    }
+  }
+}
+
+/* ---------- looks (colour + state), one per interactive pill ---------- */
+/* Selected = [aria-pressed|selected|checked='true'], [aria-current] (not "false"),
+   or (sd-seg) a label whose radio is checked. */
+@utility sd-seg {
+  background-color: transparent;
+  color: var(--sd-pill-fg);
+  &:is(
+    [aria-pressed='true'],
+    [aria-selected='true'],
+    [aria-checked='true'],
+    [aria-current]:not([aria-current='false'])
+  ),
+  &:has(> input:checked) {
+    background-color: var(--sd-pill-on-bg);
+    color: var(--sd-pill-on-fg);
+    box-shadow:
+      inset 0 0 0 1px var(--sd-pill-on-ring),
+      var(--sd-pill-on-shadow);
+  }
+  @media (hover: hover) {
+    &:not(
+        :is(
+          [aria-pressed='true'],
+          [aria-selected='true'],
+          [aria-checked='true'],
+          [aria-current]:not([aria-current='false'])
+        )
+      ):not(:has(> input:checked)):not(:disabled):hover {
+      color: var(--sd-pill-fg-hover);
+    }
+  }
+}
+@utility sd-seg-solid {
+  background-color: transparent;
+  color: var(--sd-pill-fg);
+  &:is(
+    [aria-pressed='true'],
+    [aria-selected='true'],
+    [aria-checked='true'],
+    [aria-current]:not([aria-current='false'])
+  ) {
+    background-color: var(--sd-pill-solid-bg);
+    color: var(--sd-pill-solid-fg);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      var(--sd-pill-on-shadow);
+  }
+  @media (hover: hover) {
+    &:is(
+        [aria-pressed='true'],
+        [aria-selected='true'],
+        [aria-checked='true'],
+        [aria-current]:not([aria-current='false'])
+      ):hover {
+      background-color: var(--sd-pill-solid-bg-hover);
+    }
+    &:not(
+        :is(
+          [aria-pressed='true'],
+          [aria-selected='true'],
+          [aria-checked='true'],
+          [aria-current]:not([aria-current='false'])
+        )
+      ):not(:disabled):hover {
+      color: var(--sd-pill-fg-hover);
+    }
+  }
+}
+@utility sd-filter {
+  background-color: var(--sd-pill-rest-bg);
+  color: var(--sd-pill-fg);
+  box-shadow: inset 0 0 0 1px var(--sd-pill-rest-ring);
+  &:is(
+    [aria-pressed='true'],
+    [aria-selected='true'],
+    [aria-checked='true'],
+    [aria-current]:not([aria-current='false'])
+  ) {
+    background-color: var(--sd-pill-on-bg);
+    color: var(--sd-pill-on-fg);
+    box-shadow:
+      inset 0 0 0 1px var(--sd-pill-on-ring),
+      var(--sd-pill-on-shadow);
+  }
+  @media (hover: hover) {
+    &:not(
+        :is(
+          [aria-pressed='true'],
+          [aria-selected='true'],
+          [aria-checked='true'],
+          [aria-current]:not([aria-current='false'])
+        )
+      ):not(:disabled):hover {
+      color: var(--sd-pill-fg-hover);
+      box-shadow: inset 0 0 0 1px var(--sd-pill-hover-ring);
+    }
+  }
+}
+@utility sd-filter-solid {
+  background-color: var(--sd-pill-rest-bg);
+  color: var(--sd-pill-fg);
+  box-shadow: inset 0 0 0 1px var(--sd-pill-rest-ring);
+  &:is(
+    [aria-pressed='true'],
+    [aria-selected='true'],
+    [aria-checked='true'],
+    [aria-current]:not([aria-current='false'])
+  ) {
+    background-color: var(--sd-pill-solid-bg);
+    color: var(--sd-pill-solid-fg);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      var(--sd-pill-on-shadow);
+  }
+  @media (hover: hover) {
+    &:is(
+        [aria-pressed='true'],
+        [aria-selected='true'],
+        [aria-checked='true'],
+        [aria-current]:not([aria-current='false'])
+      ):hover {
+      background-color: var(--sd-pill-solid-bg-hover);
+    }
+    &:not(
+        :is(
+          [aria-pressed='true'],
+          [aria-selected='true'],
+          [aria-checked='true'],
+          [aria-current]:not([aria-current='false'])
+        )
+      ):not(:disabled):hover {
+      color: var(--sd-pill-fg-hover);
+      box-shadow: inset 0 0 0 1px var(--sd-pill-hover-ring);
+    }
+  }
+}
+@utility sd-action {
+  background-color: var(--sd-pill-rest-bg);
+  color: var(--sd-pill-action-fg);
+  box-shadow: inset 0 0 0 1px var(--sd-pill-rest-ring);
+  @media (hover: hover) {
+    &:not(:disabled):hover {
+      background-color: var(--sd-pill-hover-bg);
+      box-shadow: inset 0 0 0 1px var(--sd-pill-hover-ring);
+    }
+  }
+}
+@utility sd-action-tonal {
+  background-color: var(--sd-pill-on-bg);
+  color: var(--sd-pill-on-fg);
+  box-shadow: inset 0 0 0 1px var(--sd-pill-on-ring);
+  @media (hover: hover) {
+    &:not(:disabled):hover {
+      background-color: color-mix(
+        in srgb,
+        var(--sd-pill-on-ring) 12%,
+        var(--sd-pill-on-bg)
+      );
+    }
+  }
+}
+@utility sd-action-primary {
+  background-color: var(--sd-pill-solid-bg);
+  color: var(--sd-pill-solid-fg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
+  @media (hover: hover) {
+    &:not(:disabled):hover {
+      background-color: var(--sd-pill-solid-bg-hover);
+    }
+  }
+}
+@utility sd-action-current {
+  background-color: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+  @media (hover: hover) {
+    &:not(:disabled):hover {
+      background-color: color-mix(in srgb, currentColor 8%, transparent);
+    }
+  }
+}
+/* Modifiers: set variables on the element, never colours. */
+/* Through the tone variables, so they read in every context (light: sage-ink / alert-ink). */
+@utility sd-seg-success {
+  --sd-pill-on-bg: var(--sd-tone-success-bg);
+  --sd-pill-on-fg: var(--sd-tone-success-fg);
+  --sd-pill-on-ring: var(--sd-tone-success-fg);
+}
+@utility sd-seg-danger {
+  --sd-pill-on-bg: var(--sd-tone-danger-bg);
+  --sd-pill-on-fg: var(--sd-tone-danger-fg);
+  --sd-pill-on-ring: var(--sd-tone-danger-fg);
+}
+/* Needs attention: a warm rest fill; the label takes the strongest text of the context (ink on light). */
+@utility sd-filter-hot {
+  --sd-pill-rest-bg: rgb(242 169 0 / 0.1);
+  --sd-pill-rest-ring: rgb(242 169 0 / 0.4);
+  --sd-pill-fg: var(--sd-pill-fg-hover);
+}
+
+/* ---------- rows and tracks ---------- */
+/* A free-standing row of pills: wraps, never scrolls (a scroller would clip the touch
+   band). On touch the row gap opens to 18px so two wrapped rows' 44px bands meet. */
+@utility sd-pill-row-wrap {
+  --sd-hit-x: 4px;
+  --sd-hit-y-max: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  @media (any-pointer: coarse) {
+    row-gap: 18px;
+  }
+}
+/* Tracks are pills too: radius = height / 2, an inset 1px hairline (box-shadow, so
+   nothing inside is clipped by a border). Insets ≥ the touch band's growth. */
+@utility sd-track {
+  --sd-hit-x: 8px;
+  --sd-wrap-r: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: var(--sd-track-py, 9px) var(--sd-track-px, 17px);
+  flex-wrap: var(--sd-track-wrap, nowrap);
+  overflow-x: var(--sd-track-overflow, auto);
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: var(--sd-track-px, 17px);
+  border-radius: var(--sd-track-r, 9999px);
+  background-color: var(--sd-track-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--sd-track-line),
+    var(--sd-track-shadow);
+  @media (width < 40rem) {
+    --sd-hit-x: 4px;
+    gap: 8px;
+    padding-inline: 9px;
+    scroll-padding-inline: 9px;
+  }
+}
+/* A modifier of sd-track (knobs only): write `sd-track sd-track-l`. */
+@utility sd-track-l {
+  --sd-track-py: 13px;
+  --sd-track-px: 25px;
+  @media (width < 40rem) {
+    --sd-track-py: 9px;
+    --sd-track-px: 9px;
+  }
+}
+@utility sd-track-loose {
+  --sd-hit-x: 2px;
+  --sd-wrap-r: 26px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 9px;
+  flex-wrap: var(--sd-track-wrap, nowrap);
+  overflow-x: var(--sd-track-overflow, auto);
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 9px;
+  border-radius: var(--sd-track-r, 9999px);
+  background-color: var(--sd-track-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--sd-track-line),
+    var(--sd-track-shadow);
+}
+/* Its 5px inset holds the bands of N (3), F (5) and L (2). A tight track of S, C, M or
+   the phone L (growth 9 / 8 / 7 / 7) must not clip: it sets
+   `[--sd-track-overflow:visible]`, and its pills must then fit (it no longer scrolls). */
+@utility sd-track-tight {
+  --sd-hit-x: 2px;
+  --sd-wrap-r: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  flex-wrap: var(--sd-track-wrap, nowrap);
+  overflow-x: var(--sd-track-overflow, auto);
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 5px;
+  border-radius: var(--sd-track-r, 9999px);
+  background-color: var(--sd-track-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--sd-track-line),
+    var(--sd-track-shadow);
+}
+@utility sd-track-wrap {
+  --sd-track-wrap: wrap;
+  --sd-track-overflow: visible;
+  --sd-track-r: var(--sd-wrap-r);
+}
+/* A scroller nested in a track: the touch band stays inside its padding box. Its inline
+   room is the template's (`-mx-2 px-2` in an sd-track, `-mx-1 px-1` in a loose one): at
+   least the 4px focus ring, at most the track's inline inset. */
+@utility sd-track-scroll {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-block: 9px;
+  margin-block: -9px;
+}
+@utility sd-track-dock {
+  --sd-hit-x: 1px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  padding: 4px;
+  border-radius: 9999px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15);
+}
+
+/* ---------- chips and counts ---------- */
+/* Non-interactive labels. Colours: one allowed bg/text pair on portal surfaces, one
+   `sd-tone-*` on cockpit surfaces. Dynamic text goes in an inner `min-w-0 truncate`. */
+@utility sd-chip {
+  --sd-icon: var(--sd-chip-icon, 14px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--sd-h, 26px);
+  padding-inline: var(--sd-pis, var(--sd-px, 10px)) var(--sd-px, 10px);
+  gap: var(--sd-gap, 4px);
+  border-radius: 9999px;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-family: var(--font-sans);
+  font-weight: var(--sd-fw, 600);
+  font-size: var(--sd-fs, var(--text-caption));
+  line-height: var(--sd-lh, var(--text-caption--line-height));
+  letter-spacing: var(--sd-ls, var(--text-caption--letter-spacing));
+  outline: 1px solid
+    var(--sd-chip-ring, color-mix(in srgb, currentColor 20%, transparent));
+  outline-offset: -1px;
+  & > :where(sd-icon) {
+    flex: none;
+  }
+  & > :where(sd-icon) > svg,
+  & > svg {
+    display: block;
+    width: var(--sd-icon);
+    height: var(--sd-icon);
+  }
+}
+@utility sd-chip-lg {
+  --sd-h: 30px;
+  --sd-px: 12px;
+  --sd-gap: 6px;
+  --sd-chip-icon: 16px;
+  --sd-fs: var(--text-body-sm);
+  --sd-lh: var(--text-body-sm--line-height);
+  --sd-ls: var(--text-body-sm--letter-spacing);
+}
+@utility sd-chip-xs {
+  --sd-h: 20px;
+  --sd-px: 8px;
+  --sd-lh: 16px;
+  --sd-chip-icon: 12px;
+}
+@utility sd-tag {
+  --sd-fw: 500;
+}
+/* A person chip: a 20px avatar 3px from the start, a body-sm name. */
+@utility sd-person {
+  --sd-pis: 3px;
+  --sd-gap: 8px;
+  --sd-fs: var(--text-body-sm);
+  --sd-lh: var(--text-body-sm--line-height);
+  --sd-ls: var(--text-body-sm--letter-spacing);
+}
+@utility sd-overlay {
+  --sd-chip-ring: transparent;
+  background-color: rgb(10 22 40 / 0.7);
+  color: #fff;
+  backdrop-filter: blur(8px);
+}
+@utility sd-tone-neutral {
+  background-color: var(--sd-tone-neutral-bg);
+  color: var(--sd-tone-neutral-fg);
+}
+@utility sd-tone-info {
+  background-color: var(--sd-tone-info-bg);
+  color: var(--sd-tone-info-fg);
+}
+@utility sd-tone-success {
+  background-color: var(--sd-tone-success-bg);
+  color: var(--sd-tone-success-fg);
+}
+@utility sd-tone-warning {
+  background-color: var(--sd-tone-warning-bg);
+  color: var(--sd-tone-warning-fg);
+}
+@utility sd-tone-danger {
+  background-color: var(--sd-tone-danger-bg);
+  color: var(--sd-tone-danger-fg);
+}
+@utility sd-tone-teal {
+  background-color: var(--sd-tone-teal-bg);
+  color: var(--sd-tone-teal-fg);
+}
+/* A removable chip's trailing ✕: 16px circle, 24px target. */
+@utility sd-chip-x {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: -4px;
+  border-radius: 9999px;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+  }
+  & > :where(sd-icon) > svg {
+    display: block;
+    width: 12px;
+    height: 12px;
+  }
+  @media (hover: hover) {
+    &:hover {
+      opacity: 1;
+      background-color: color-mix(in srgb, currentColor 12%, transparent);
+    }
+  }
+  &:focus-visible {
+    outline: 2px solid var(--sd-pill-focus);
+    outline-offset: 1px;
+  }
+}
+@utility sd-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: var(--sd-h, 16px);
+  min-width: var(--sd-h, 16px);
+  padding-inline: var(--sd-px, 4px);
+  border-radius: 9999px;
+  font: 600 var(--sd-fs, 10px) / var(--sd-h, 16px) var(--font-sans);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  background-color: var(--sd-count-bg);
+  color: var(--sd-count-fg);
+}
+@utility sd-count-lg {
+  --sd-h: 20px;
+  --sd-px: 6px;
+  --sd-fs: 12px;
+}
+/* A count that must read as "on" whatever its pill's state (e.g. unread). */
+@utility sd-count-on {
+  --sd-count-bg: var(--sd-count-on-bg);
+  --sd-count-fg: var(--sd-count-on-fg);
+}
+@utility sd-count-warn {
+  --sd-count-bg: rgb(242 169 0 / 0.25);
+  --sd-count-fg: var(--sd-pill-fg-hover);
+}
+@utility sd-count-alert {
+  --sd-count-bg: var(--color-alert-ink);
+  --sd-count-fg: #fff;
+}
+
+/* ---------- contexts (variables only, never properties) ---------- */
+/* Resolved by inheritance: the nearest ancestor that sets them wins. The patient's
+   dark portal block lives in apps/patient/src/styles.css (only that app has one). */
+@layer components {
+  :root,
+  .sd-call[data-theme='light'],
+  .sd-call .sd-rx-zone {
+    --sd-pill-fg: var(--color-slate);
+    --sd-pill-fg-hover: var(--color-ink);
+    --sd-pill-action-fg: var(--color-ink);
+    --sd-pill-hover-bg: var(--color-glacier);
+    --sd-pill-rest-bg: var(--color-white);
+    --sd-pill-rest-ring: var(--color-haze);
+    --sd-pill-hover-ring: rgb(11 98 228 / 0.4);
+    --sd-pill-on-bg: var(--color-frost);
+    --sd-pill-on-fg: var(--color-cerulean-dark);
+    --sd-pill-on-ring: var(--color-cerulean);
+    --sd-pill-on-shadow: var(--sd-elev-control);
+    --sd-pill-solid-bg: var(--color-cerulean);
+    --sd-pill-solid-bg-hover: var(--color-cerulean-dark);
+    --sd-pill-solid-fg: var(--color-white);
+    --sd-pill-focus: var(--color-cerulean);
+    --sd-track-bg: var(--color-glacier);
+    --sd-track-line: var(--color-haze);
+    --sd-track-shadow: var(--sd-elev-bar);
+    --sd-count-bg: var(--color-cerulean);
+    --sd-count-fg: var(--color-white);
+    --sd-count-on-bg: var(--color-cerulean);
+    --sd-count-on-fg: var(--color-white);
+    --sd-count-off-bg: var(--color-cloud);
+    --sd-count-off-fg: var(--color-slate);
+    --sd-tone-neutral-bg: var(--color-cloud);
+    --sd-tone-neutral-fg: var(--color-slate);
+    --sd-tone-info-bg: var(--color-frost);
+    --sd-tone-info-fg: var(--color-cerulean-dark);
+    --sd-tone-success-bg: rgb(67 160 71 / 0.15);
+    --sd-tone-success-fg: var(--color-sage-ink);
+    --sd-tone-warning-bg: rgb(242 169 0 / 0.15);
+    --sd-tone-warning-fg: var(--color-warning-ink);
+    --sd-tone-danger-bg: rgb(229 57 53 / 0.1);
+    --sd-tone-danger-fg: var(--color-alert-ink);
+    --sd-tone-teal-bg: rgb(0 121 108 / 0.1);
+    --sd-tone-teal-fg: var(--color-teal-ink);
+  }
+  .sd-call,
+  .sd-call :is(.sd-stage, .sd-dock),
+  .ws-band {
+    --sd-pill-fg: rgb(255 255 255 / 0.8);
+    --sd-pill-fg-hover: #fff;
+    --sd-pill-action-fg: rgb(255 255 255 / 0.85);
+    --sd-pill-hover-bg: rgb(255 255 255 / 0.08);
+    --sd-pill-rest-bg: rgb(255 255 255 / 0.04);
+    --sd-pill-rest-ring: rgb(255 255 255 / 0.15);
+    --sd-pill-hover-ring: rgb(255 255 255 / 0.3);
+    --sd-pill-on-bg: rgb(11 98 228 / 0.15);
+    --sd-pill-on-fg: var(--color-frost);
+    --sd-pill-on-ring: var(--color-frost);
+    --sd-pill-on-shadow: 0 0 #0000;
+    --sd-pill-solid-bg: var(--color-cerulean);
+    --sd-pill-solid-fg: #fff;
+    --sd-pill-focus: var(--color-frost);
+    --sd-track-bg: rgb(255 255 255 / 0.04);
+    --sd-track-line: rgb(255 255 255 / 0.1);
+    --sd-track-shadow: 0 0 #0000;
+    --sd-count-fg: #fff;
+    --sd-count-on-fg: #fff;
+    --sd-count-off-bg: rgb(255 255 255 / 0.1);
+    --sd-count-off-fg: rgb(255 255 255 / 0.85);
+    --sd-tone-neutral-bg: rgb(255 255 255 / 0.1);
+    --sd-tone-neutral-fg: rgb(255 255 255 / 0.85);
+    --sd-tone-info-bg: rgb(11 98 228 / 0.15);
+    --sd-tone-info-fg: var(--color-frost);
+    --sd-tone-success-bg: rgb(67 160 71 / 0.15);
+    --sd-tone-success-fg: #81c784;
+    --sd-tone-warning-bg: rgb(242 169 0 / 0.15);
+    --sd-tone-warning-fg: #f2a900;
+    --sd-tone-danger-bg: rgb(229 57 53 / 0.15);
+    --sd-tone-danger-fg: #ff8a80;
+    --sd-tone-teal-bg: rgb(0 121 108 / 0.15);
+    --sd-tone-teal-fg: #4db6ac;
+  }
+  /* The light cockpit and the paper zone take the :root list above: its specificity
+     (0,2,0) beats `.sd-call` (0,1,0) on the cockpit root; the dock, the band and the
+     paper zone are their own elements, so each resolves by inheritance. */
+  .sd-call[data-theme='light'] {
+    --sd-pill-rest-bg: #f1f9ff;
+    --sd-pill-rest-ring: #d9e2e6;
+    --sd-pill-hover-bg: #e8eef2;
+  }
+  /* Literals, not var(--color-haze) / var(--sd-elev-*): the patient's dark theme
+     re-points those on <html>, and a light cockpit inside the dark portal must keep
+     light hairlines and soft shadows. */
+  .sd-call[data-theme='light'],
+  .sd-call .sd-rx-zone {
+    --sd-track-line: #d9e2e6;
+    --sd-track-shadow: 0 0 #0000;
+    --sd-pill-on-shadow: 0 1px 2px rgb(10 22 40 / 0.05);
+  }
+
+  /* Counts follow the state of the pill they sit in (zero specificity, so the
+     sd-count-* modifiers, which are utilities, win). Source order matters: the
+     selected rules come last. */
+  :where(.sd-seg, .sd-filter, .sd-seg-solid, .sd-filter-solid)
+    :where(.sd-count) {
+    --sd-count-bg: var(--sd-count-off-bg);
+    --sd-count-fg: var(--sd-count-off-fg);
+  }
+  :where(.sd-filter-hot) :where(.sd-count) {
+    --sd-count-bg: rgb(242 169 0 / 0.25);
+    --sd-count-fg: var(--sd-pill-fg-hover);
+  }
+  :where(.sd-seg, .sd-filter):where(
+      [aria-pressed='true'],
+      [aria-selected='true'],
+      [aria-checked='true'],
+      [aria-current]:not([aria-current='false'])
+    )
+    :where(.sd-count) {
+    --sd-count-bg: var(--sd-count-on-bg);
+    --sd-count-fg: var(--sd-count-on-fg);
+  }
+  :where(.sd-seg-solid, .sd-filter-solid):where(
+      [aria-pressed='true'],
+      [aria-selected='true'],
+      [aria-checked='true'],
+      [aria-current]:not([aria-current='false'])
+    )
+    :where(.sd-count) {
+    --sd-count-bg: var(--color-white);
+    --sd-count-fg: var(--color-cerulean-dark);
+  }
+}

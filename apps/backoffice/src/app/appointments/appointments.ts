@@ -30,8 +30,6 @@ import {
   COUNT_BADGE,
   EMPTY_FRAME,
   FILTER_CHIP,
-  FILTER_CHIP_OFF,
-  FILTER_CHIP_ON,
   FILTER_CHIPS,
   FOCUS_RING,
   INLINE_ERROR,
@@ -52,8 +50,6 @@ import {
   ROW_CUE,
   SEGMENT,
   SEGMENT_FILL,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED_WRAP,
   TABLE,
   TABLE_ROW_LINK,
@@ -158,7 +154,6 @@ interface Row {
             <button
               type="button"
               class="${SEGMENT} ${SEGMENT_FILL}"
-              [class]="when() === f.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
               [attr.aria-pressed]="when() === f.key"
               (click)="setWhen(f.key)"
             >
@@ -167,7 +162,7 @@ interface Row {
               }
               {{ f.label }}
               @if (f.key === 'attention' && attentionCount(); as n) {
-                <span class="flex min-w-5 items-center justify-center rounded-full bg-warning/25 px-1.5 text-[11px] font-semibold text-ink">{{ n }}<span class="sr-only"> waiting</span></span>
+                <span class="sd-count sd-count-warn">{{ n }}<span class="sr-only"> waiting</span></span>
               }
             </button>
           }
@@ -177,7 +172,6 @@ interface Row {
             <button
               type="button"
               class="${FILTER_CHIP}"
-              [class]="status() === f.key ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'"
               [attr.aria-pressed]="status() === f.key"
               (click)="setStatus(f.key)"
             >

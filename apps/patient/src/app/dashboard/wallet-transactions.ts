@@ -1,10 +1,14 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   inject,
+  Injector,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
@@ -49,14 +53,15 @@ const FILTERS: Filter[] = [
 
       <!-- Filter pills -->
       <div
-        class="flex items-center justify-between gap-4 rounded-[32px] border border-[#d1e9fd] bg-glacier px-6 py-3 shadow-[0_2px_1.5px_rgba(33,150,243,0.3)]"
+        class="sd-track sd-track-l justify-between"
       >
-        <div class="flex flex-wrap items-center gap-4">
+        <!-- One row, never wraps: on a phone the track scrolls sideways (a wrapped group would draw a tall capsule). -->
+        <div #filterGroup class="flex shrink-0 items-center gap-4 max-sm:gap-2" role="group" aria-label="Filter transactions">
           @for (f of filters; track f.key) {
             <button
               type="button"
-              class="rounded-[24px] px-4 py-2 font-sans text-body font-semibold transition-colors"
-              [class]="active() === f.key ? 'bg-cerulean/30 text-cerulean' : 'text-slate hover:bg-frost/40'"
+              class="sd-pill sd-pill-l sd-seg"
+              [attr.aria-pressed]="active() === f.key"
               (click)="select(f)"
             >
               {{ f.label }}
@@ -122,6 +127,9 @@ const FILTERS: Filter[] = [
 export class WalletTransactions implements OnInit {
   private readonly api = inject(WalletApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
+  private readonly filterGroup =
+    viewChild<ElementRef<HTMLElement>>('filterGroup');
 
   protected readonly filters = FILTERS;
   protected readonly active = signal('all');
@@ -141,6 +149,24 @@ export class WalletTransactions implements OnInit {
     if (this.active() === f.key) return;
     this.active.set(f.key);
     this.reload();
+    // The selected pill is scrolled into view in its track (tailwind/pills.css): on a
+    // phone the track scrolls, and "Clear all" selects "All", which may be out of sight.
+    afterNextRender(
+      () => {
+        const pill = this.filterGroup()?.nativeElement.querySelector<HTMLElement>(
+          '[aria-pressed="true"]',
+        );
+        const still =
+          typeof matchMedia === 'function' &&
+          matchMedia('(prefers-reduced-motion: reduce)').matches;
+        pill?.scrollIntoView?.({
+          block: 'nearest',
+          inline: 'nearest',
+          behavior: still ? 'auto' : 'smooth',
+        });
+      },
+      { injector: this.injector },
+    );
   }
 
   protected reload(): void {

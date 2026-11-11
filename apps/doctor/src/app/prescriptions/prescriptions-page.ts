@@ -56,20 +56,17 @@ const PER_PAGE = 20;
       </div>
 
       <!-- Status filter -->
-      <div class="overflow-x-auto rounded-pill border border-haze bg-glacier px-2 py-1.5 shadow-bar" role="group" aria-label="Filter by status">
-        <div class="flex w-max gap-1">
-          @for (f of filters; track f.key) {
-            <button
-              type="button"
-              class="shrink-0 rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition sm:px-5"
-              [class]="active() === f.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
-              [attr.aria-pressed]="active() === f.key"
-              (click)="select(f)"
-            >
-              {{ f.label }}
-            </button>
-          }
-        </div>
+      <div class="sd-track" role="group" aria-label="Filter by status">
+        @for (f of filters; track f.key) {
+          <button
+            type="button"
+            class="sd-pill sd-pill-m sd-seg"
+            [attr.aria-pressed]="active() === f.key"
+            (click)="select(f)"
+          >
+            {{ f.label }}
+          </button>
+        }
       </div>
 
       @if (loading() && items().length === 0) {

@@ -43,8 +43,6 @@ import {
   FIELD_WITH_ICON,
   FILTER_CHIP,
   FILTER_CHIP_HOT,
-  FILTER_CHIP_OFF,
-  FILTER_CHIP_ON,
   FILTER_CHIPS,
   PAGE,
   PAGE_HEADER,
@@ -264,7 +262,7 @@ const EMPTY_DRAFT: Draft = {
             type="button"
             [attr.aria-pressed]="filter() === f.value"
             class="${FILTER_CHIP}"
-            [class]="filter() === f.value ? '${FILTER_CHIP_ON}' : (f.hot ? '${FILTER_CHIP_HOT}' : '${FILTER_CHIP_OFF}')"
+            [class]="f.hot ? '${FILTER_CHIP_HOT}' : ''"
             (click)="setFilter(f.value)"
           >
             @if (filter() === f.value) {
@@ -272,7 +270,7 @@ const EMPTY_DRAFT: Draft = {
             }
             {{ f.label }}
             @if (f.count !== null) {
-              <span class="rounded-pill px-1.5 text-caption font-semibold" [class]="filter() === f.value ? 'bg-white/20' : (f.hot ? 'bg-warning/20' : 'bg-glacier')">{{ f.count }}</span>
+              <span class="sd-count">{{ f.count }}</span>
             }
           </button>
         }

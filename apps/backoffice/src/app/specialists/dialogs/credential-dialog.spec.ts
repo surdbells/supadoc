@@ -134,6 +134,22 @@ describe('CredentialDialog', () => {
     expect(submit.disabled).toBe(false);
   });
 
+  it('the Verify / Reject segments are pills whose look follows aria-pressed (one pressed at a time)', async () => {
+    await setup(() => of(new Blob()), () => Promise.resolve(StubViewer));
+    await openAs('verify');
+    const group = el.querySelector('[role="group"][aria-label="Decision"]') as HTMLElement;
+    expect(group.classList).toContain('sd-track');
+    const [verify, reject] = [...group.querySelectorAll('button')];
+    expect([...verify.classList]).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-s', 'sd-seg', 'sd-seg-success']));
+    expect([...reject.classList]).toEqual(expect.arrayContaining(['sd-pill', 'sd-pill-s', 'sd-seg', 'sd-seg-danger']));
+    // No colour class decides the look: the ARIA state does (tailwind/pills.css).
+    for (const b of [verify, reject]) expect(b.className).not.toMatch(/\b(bg|text)-(sage|alert|slate)/);
+    expect([verify.getAttribute('aria-pressed'), reject.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
+    reject.click();
+    await render();
+    expect([verify.getAttribute('aria-pressed'), reject.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+  });
+
   it('reject mode: the reason field and its submit are there', async () => {
     await setup(() => of(new Blob()), () => Promise.resolve(StubViewer));
     await openAs('reject');

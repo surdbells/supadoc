@@ -89,7 +89,7 @@ const TYPE_AHEAD_MS = 500;
       >
         <span class="min-w-0 flex-1 truncate" [class.ls-pr]="showRemove()">{{ display() }}</span>
         @if (variant() === 'pill' && badge() !== null) {
-          <span class="flex size-4 shrink-0 items-center justify-center rounded-full bg-cerulean font-sans text-[10px] font-semibold text-white" aria-hidden="true">{{ badge() }}</span>
+          <span class="sd-count" aria-hidden="true">{{ badge() }}</span>
         }
         <sd-icon name="chevron-down" [size]="20" class="shrink-0 text-slate transition-transform" [class.rotate-180]="open()" />
       </div>

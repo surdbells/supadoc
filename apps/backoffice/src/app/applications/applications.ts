@@ -35,8 +35,6 @@ import {
   FIELD_WITH_ICON,
   FILTER_CHIP,
   FILTER_CHIP_HOT,
-  FILTER_CHIP_OFF,
-  FILTER_CHIP_ON,
   FILTER_CHIPS,
   FOCUS_RING,
   PAGE,
@@ -59,8 +57,6 @@ import {
   SEARCH_INPUT,
   SEARCH_WRAP,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED,
 } from '../shared/layout';
 import { pageWindow } from '../shared/pager';
@@ -164,7 +160,6 @@ function urlKey(s: ListState): string {
               <button
                 type="button"
                 class="${SEGMENT}"
-                [class]="route() === r.value ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
                 [attr.aria-pressed]="route() === r.value"
                 (click)="setRoute(r.value)"
               >{{ r.label }}</button>
@@ -197,7 +192,7 @@ function urlKey(s: ListState): string {
             type="button"
             [attr.aria-pressed]="filter() === f.value"
             class="${FILTER_CHIP}"
-            [class]="filter() === f.value ? '${FILTER_CHIP_ON}' : (f.hot ? '${FILTER_CHIP_HOT}' : '${FILTER_CHIP_OFF}')"
+            [class]="f.hot ? '${FILTER_CHIP_HOT}' : ''"
             (click)="setFilter(f.value)"
           >
             @if (filter() === f.value) {
@@ -205,7 +200,7 @@ function urlKey(s: ListState): string {
             }
             {{ f.label }}
             @if (f.count !== null) {
-              <span class="rounded-pill px-1.5 text-caption font-semibold" [class]="filter() === f.value ? 'bg-white/20' : (f.hot ? 'bg-warning/20' : 'bg-glacier')">{{ f.count }}</span>
+              <span class="sd-count">{{ f.count }}</span>
             }
           </button>
         }

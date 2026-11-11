@@ -45,18 +45,16 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
       }
 
       <!-- Tabs (scroll sideways on a narrow phone) -->
-      <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar" role="group" aria-label="Schedule views">
+      <div class="sd-track sd-track-l w-fit max-w-full" role="group" aria-label="Schedule views">
         @for (t of visibleTabs(); track t.key) {
           <button type="button"
-            class="flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-4 py-2 font-sans text-body-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 sm:px-5"
-            [class]="tab() === t.key ? 'bg-frost text-cerulean-dark shadow-control' : 'text-slate hover:text-ink'"
+            class="sd-pill sd-pill-l sd-seg"
             [attr.aria-pressed]="tab() === t.key"
             (click)="tab.set(t.key)">
-            @if (t.key === 'attention') { <sd-icon name="circle-alert" [size]="16" class="shrink-0" /> }
+            @if (t.key === 'attention') { <sd-icon name="circle-alert" [size]="20" /> }
             {{ t.label }}
             @if (count(t.key) > 0) {
-              <span class="flex size-5 items-center justify-center rounded-full text-[11px] font-semibold"
-                [class]="tab() === t.key ? 'bg-cerulean text-white' : 'bg-cloud text-slate'">{{ count(t.key) }}</span>
+              <span class="sd-count">{{ count(t.key) }}</span>
             }
           </button>
         }
@@ -122,8 +120,8 @@ type TabKey = 'upcoming' | 'today' | 'pending' | 'attention';
                   <span class="flex items-center gap-2 font-sans text-body-sm text-ink"><sd-icon name="video" [size]="16" class="text-slate" />Video Consultation</span>
                   <!-- Status + who is in the call; wraps rather than overflowing on narrow rows. -->
                   <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="inline-flex w-fit items-center gap-1 rounded-pill px-3 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20" [class]="look.pill">
-                      <sd-icon [name]="look.icon" [size]="13" />{{ label }}
+                    <span class="sd-chip w-fit" [class]="look.pill">
+                      <sd-icon [name]="look.icon" [size]="14" />{{ label }}
                     </span>
                     <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" />
                   </div>

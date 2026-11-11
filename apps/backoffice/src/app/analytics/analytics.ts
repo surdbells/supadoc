@@ -23,8 +23,6 @@ import {
   SECTION,
   SECTION_TITLE,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED,
   STAT_GRID_4,
   STAT_LABEL,
@@ -85,7 +83,6 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
             <button
               type="button"
               class="${SEGMENT}"
-              [class]="range() === r.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'"
               [attr.aria-pressed]="range() === r.key"
               (click)="setRange(r.key)"
             >{{ r.label }}</button>

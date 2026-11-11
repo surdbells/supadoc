@@ -21,8 +21,6 @@ import {
   AVATAR_SM,
   CARD_RAISED,
   FILTER_CHIP,
-  FILTER_CHIP_OFF,
-  FILTER_CHIP_ON,
   FILTER_CHIPS,
   INLINE_ERROR,
   LIST_CARD_EMPTY,
@@ -71,7 +69,6 @@ const PAYMENT: Record<string, string> = {
               type="button"
               [attr.aria-pressed]="view() === v.key"
               class="${FILTER_CHIP}"
-              [class]="view() === v.key ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'"
               (click)="setView(v.key)"
             >
               @if (view() === v.key) { <sd-icon name="check" [size]="14" /> }{{ v.label }}

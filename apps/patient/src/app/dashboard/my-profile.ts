@@ -878,7 +878,7 @@ interface SectionCard {
                         <div class="col-span-full">
                           <dt class="sr-only">Type</dt>
                           <dd
-                            class="inline-flex items-center gap-1 rounded-pill bg-sage/15 px-2.5 py-1 font-sans text-caption font-medium text-sage-ink"
+                            class="sd-chip bg-sage/15 text-sage-ink"
                           >
                             <sd-icon name="leaf" [size]="14" />Herbal or traditional medicine
                           </dd>

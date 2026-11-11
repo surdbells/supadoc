@@ -47,7 +47,7 @@ const ROW =
         <div class="flex flex-wrap items-center gap-3">
           <h1 class="font-heading text-h3 text-ink">Patients</h1>
           @if (allTotal(); as n) {
-            <span class="inline-flex items-center gap-1.5 rounded-pill bg-cerulean/10 px-3 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-cerulean/15">
+            <span class="sd-chip bg-cerulean/10 text-cerulean-dark">
               <sd-icon name="users" [size]="14" />{{ countLabel(n, 'patient') }}
             </span>
           }
@@ -172,7 +172,7 @@ const ROW =
                 </a>
 
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-2 md:contents">
-                  <span class="inline-flex w-fit items-center gap-1.5 rounded-pill bg-frost/60 px-3 py-1 font-sans text-caption font-semibold text-cerulean-dark inset-ring inset-ring-cerulean/15">
+                  <span class="sd-chip w-fit bg-frost/60 text-cerulean-dark">
                     <sd-icon name="stethoscope" [size]="14" />{{ visitsLabel(p.visit_count) }}
                   </span>
                   <span class="flex min-w-0 items-center gap-2 font-sans text-body-sm text-ink">

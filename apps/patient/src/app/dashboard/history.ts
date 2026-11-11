@@ -128,26 +128,26 @@ function toConsultation(a: AppointmentDto): Consultation {
       <!-- Consultation History › Consultations | Prescriptions | Lab tests -->
       <nav
         aria-label="Consultation history sections"
-        class="flex w-full items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-1 shadow-bar sm:w-fit"
+        class="sd-track sd-track-tight w-full sm:w-fit"
       >
         <a
           routerLink="/dashboard/history"
           aria-current="page"
-          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill bg-cerulean px-2.5 py-2 font-sans text-body-sm font-medium text-white shadow-control inset-shadow-rim sm:flex-none sm:px-4"
+          class="sd-pill sd-pill-n sd-seg-solid grow sm:flex-none"
         >
           <sd-icon name="history" [size]="16" class="hidden sm:inline-flex" />
           Consultations
         </a>
         <a
           routerLink="/dashboard/prescriptions"
-          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill px-2.5 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none sm:px-4"
+          class="sd-pill sd-pill-n sd-seg-solid grow sm:flex-none"
         >
           <sd-icon name="pill" [size]="16" class="hidden sm:inline-flex" />
           Prescriptions
         </a>
         <a
           routerLink="/dashboard/lab-requests"
-          class="flex shrink-0 grow items-center justify-center gap-2 rounded-pill px-2.5 py-2 font-sans text-body-sm text-slate transition-colors hover:text-ink sm:flex-none sm:px-4"
+          class="sd-pill sd-pill-n sd-seg-solid grow sm:flex-none"
         >
           <sd-icon
             name="flask-conical"
@@ -160,19 +160,14 @@ function toConsultation(a: AppointmentDto): Consultation {
 
       <!-- Filters -->
       <div
-        class="flex items-center gap-1 overflow-x-auto rounded-pill border border-haze bg-glacier p-2 shadow-bar"
+        class="sd-track sd-track-loose"
         role="group"
         aria-label="Filter consultations"
       >
         @for (t of tabs; track t.key) {
           <button
             type="button"
-            class="shrink-0 rounded-pill px-4 py-1.5 font-sans text-body-sm transition-colors"
-            [class]="
-              activeTab() === t.key
-                ? 'bg-frost font-medium text-cerulean-dark shadow-control'
-                : 'text-slate hover:text-ink'
-            "
+            class="sd-pill sd-pill-f sd-seg"
             [attr.aria-pressed]="activeTab() === t.key"
             (click)="activeTab.set(t.key)"
           >

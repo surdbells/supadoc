@@ -71,11 +71,7 @@ const toOptions = (items: readonly LabCatalogueItem[], text: (i: LabCatalogueIte
     .ic-tabs-wrap {
       container-type: inline-size;
     }
-    /* Never wider than the pill: on a narrow card the tabs tighten, and as a last resort (320 px) the row scrolls inside it. */
-    .ic-tabs {
-      height: 48px;
-      overflow-x: auto;
-    }
+    /* Never wider than the track (sd-track, 48px, scrolls sideways as a last resort at 320 px): on a narrow card the tabs tighten. */
     @container (max-width: 22rem) {
       .ic-tab {
         padding-inline: 4px;
@@ -93,7 +89,7 @@ const toOptions = (items: readonly LabCatalogueItem[], text: (i: LabCatalogueIte
     </div>
 
     <div class="ic-tabs-wrap">
-      <div role="tablist" aria-label="Investigation type" class="ic-tabs flex gap-1 rounded-[32px] border border-haze bg-snow p-1 shadow-bar">
+      <div role="tablist" aria-label="Investigation type" class="ic-tabs sd-track [--sd-track-bg:var(--color-snow)]">
       @for (t of tabs; track t.kind) {
         @let n = count(t.kind);
         <button
@@ -105,14 +101,13 @@ const toOptions = (items: readonly LabCatalogueItem[], text: (i: LabCatalogueIte
           [attr.aria-selected]="s.tab === t.kind"
           [attr.aria-label]="n ? t.label + ', ' + n + (n === 1 ? ' test' : ' tests') : null"
           [tabIndex]="s.tab === t.kind ? 0 : -1"
-          class="ic-tab flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[24px] px-2 font-sans text-body-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-          [class]="s.tab === t.kind ? 'bg-cerulean/10 text-cerulean-dark' : 'text-slate hover:text-ink'"
+          class="ic-tab sd-pill sd-pill-m sd-seg flex-1"
           (click)="setTab(t.kind)"
           (keydown)="onTabKey($event)"
         >
           {{ t.label }}
           @if (n) {
-            <span class="flex size-4 items-center justify-center rounded-full bg-cerulean font-sans text-[10px] font-semibold text-white" aria-hidden="true">{{ n }}</span>
+            <span class="sd-count" aria-hidden="true">{{ n }}</span>
           }
         </button>
       }

@@ -28,8 +28,6 @@ import {
   EMPTY_FRAME,
   FIELD,
   FILTER_CHIP,
-  FILTER_CHIP_OFF,
-  FILTER_CHIP_ON,
   FOCUS_RING,
   LABEL,
   LIST_BODY,
@@ -249,9 +247,9 @@ const COLUMNS = 'md:grid-cols-[minmax(0,1fr)_10rem_10rem_2.5rem] xl:grid-cols-[m
 
           <div class="flex flex-col gap-2">
             <span class="${LABEL}">Roles</span>
-            <div class="flex flex-wrap gap-2">
+            <div class="sd-pill-row-wrap">
               @for (r of roleOptions(); track r.value) {
-                <button type="button" class="${FILTER_CHIP}" [class]="hasRole(r.value) ? '${FILTER_CHIP_ON}' : '${FILTER_CHIP_OFF}'" [attr.aria-pressed]="hasRole(r.value)" (click)="toggleRole(r.value)">
+                <button type="button" class="${FILTER_CHIP}" [attr.aria-pressed]="hasRole(r.value)" (click)="toggleRole(r.value)">
                   @if (hasRole(r.value)) { <sd-icon name="check" [size]="14" /> }{{ r.label }}
                 </button>
               }

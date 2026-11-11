@@ -119,7 +119,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         <section class="${SECTION} !gap-4" aria-labelledby="bo-rv-check-title">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h2 id="bo-rv-check-title" class="${SECTION_TITLE}"><sd-icon name="clipboard-list" [size]="20" class="text-cerulean" />Onboarding checklist</h2>
-            <span class="rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-semibold text-slate">{{ detail().completed }} of {{ detail().total }} done</span>
+            <span class="sd-chip bg-cloud text-slate">{{ detail().completed }} of {{ detail().total }} done</span>
           </div>
           <ul class="flex flex-col gap-2">
             @for (c of checklist(); track c.key) {

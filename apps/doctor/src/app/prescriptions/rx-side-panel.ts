@@ -107,10 +107,10 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                     >{{ a.substance }}{{ a.reaction ? ' — ' + a.reaction : '' }}</span
                   >
                   <span
-                    class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold inset-ring inset-ring-current/20"
+                    class="sd-chip w-fit"
                     [class]="severity(a.severity).cls"
                   >
-                    <sd-icon [name]="severity(a.severity).icon" [size]="12" />
+                    <sd-icon [name]="severity(a.severity).icon" [size]="14" />
                     {{ severity(a.severity).label }}
                   </span>
                 </li>
@@ -149,22 +149,27 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
                   <!-- Out-of-range readings only (typical adult ranges); normal ones stay quiet. -->
                   @if (v.flag && v.flag.level !== 'normal') {
                     <span
-                      class="inline-flex w-fit items-center gap-1 rounded-pill px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"
+                      class="sd-chip w-fit text-ink"
                       [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'bg-alert/10' : 'bg-warning/15'"
+                      [attr.title]="v.flag.label"
                     >
                       <sd-icon
                         [name]="v.flag.level === 'critical' ? 'triangle-alert' : 'circle-alert'"
-                        [size]="12"
+                        [size]="14"
                         [class]="v.flag.level === 'high' || v.flag.level === 'critical' ? 'text-alert' : 'text-warning'"
                       />
-                      {{ v.flag.label }}@if (v.flag.advice) { · {{ v.flag.advice }} }
+                      <span class="min-w-0 truncate">{{ v.flag.label }}</span>
                     </span>
+                    <!-- The advice is never cut: it wraps under the chip. -->
+                    @if (v.flag.advice) {
+                      <span class="font-sans text-caption text-ink">{{ v.flag.advice }}</span>
+                    }
                   }
                   @if (v.stale) {
                     <span
-                      class="inline-flex w-fit items-center gap-1 rounded-pill bg-warning/15 px-2 py-0.5 font-sans text-caption font-semibold text-ink inset-ring inset-ring-current/20"
+                      class="sd-chip w-fit bg-warning/15 text-ink"
                     >
-                      <sd-icon name="hourglass" [size]="12" class="text-warning" /> May be out of date
+                      <sd-icon name="hourglass" [size]="14" class="text-warning" /> May be out of date
                     </span>
                   }
                 </li>
@@ -180,7 +185,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
             </h3>
             <ul class="flex flex-wrap gap-1.5">
               @for (c of s.conditions; track $index) {
-                <li class="rounded-pill bg-glacier px-2.5 py-1 font-sans text-caption text-ink inset-ring inset-ring-current/15">{{ c }}</li>
+                <li class="sd-chip bg-glacier text-ink">{{ c }}</li>
               }
             </ul>
           </div>

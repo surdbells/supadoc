@@ -140,7 +140,7 @@ const DRAFT_LISTS: ReadonlyArray<{ readonly key: DraftListKey; readonly label: s
                   <dd>
                     <ul class="flex flex-wrap gap-2">
                       @for (item of listItems(d, l.key); track $index) {
-                        <li class="rounded-pill bg-white px-3 py-1 font-sans text-caption font-medium text-ink ring-1 ring-inset ring-cloud">{{ item }}</li>
+                        <li class="sd-chip sd-tag bg-white text-ink [--sd-chip-ring:var(--color-cloud)]">{{ item }}</li>
                       }
                     </ul>
                   </dd>

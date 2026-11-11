@@ -32,7 +32,7 @@ import { IconComponent } from '@supadoc/ui';
             }}</span>
             @if (row.state === 'current') {
               <span
-                class="ml-2 inline-flex h-6 items-center rounded-pill px-2.5 font-sans text-caption"
+                class="sd-chip sd-tag ml-2 [--sd-h:24px]"
                 [class]="row.key === 'rejected' ? 'bg-alert/10 text-alert-ink' : 'bg-cerulean/10 text-cerulean-dark'"
               >
                 Current status

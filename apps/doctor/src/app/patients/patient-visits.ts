@@ -49,7 +49,7 @@ import { DoctorClock } from '../doctor-clock';
                 <doc-visit-status-badge [status]="r.key" [label]="r.label" />
                 @if (r.detail) { <span class="font-sans text-caption text-slate">{{ r.detail }}</span> }
                 @if (chartMode() === 'drill' && r.visit.id === currentId()) {
-                  <span class="w-fit rounded-pill bg-frost px-2.5 py-0.5 font-sans text-caption font-medium text-cerulean-dark">This consultation</span>
+                  <span class="sd-chip sd-tag w-fit bg-frost text-cerulean-dark">This consultation</span>
                 }
               </div>
               @if (chartMode() === 'drill') {

@@ -273,7 +273,7 @@ const FROM_APPLICATION: ReadonlySet<OnboardingItemKey> = new Set(['bio', 'qualif
                     <span class="flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-body-sm font-semibold text-ink">
                       {{ item.label }}<span class="sr-only">{{ done ? ' — done' : ' — to do' }}</span>
                       @if (fromApplication(item)) {
-                        <span class="inline-flex items-center gap-1 rounded-pill bg-frost px-2 py-0.5 font-sans text-caption font-medium text-cerulean-dark inset-ring inset-ring-cerulean/15">
+                        <span class="sd-chip sd-tag bg-frost text-cerulean-dark">
                           <sd-icon name="clipboard-list" [size]="12" />From your application
                         </span>
                       }

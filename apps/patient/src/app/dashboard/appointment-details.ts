@@ -848,7 +848,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                               <sd-icon name="file-text" [size]="20" class="shrink-0 text-slate" />
                               <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ d.title }}</span>
                             </button>
-                            <span class="inline-flex items-center gap-1 rounded-pill bg-cloud px-2.5 py-0.5 font-sans text-caption font-medium text-slate inset-ring inset-ring-current/20">
+                            <span class="sd-chip bg-cloud text-slate">
                               <sd-icon name="lock" [size]="12" />Private
                             </span>
                             <button
@@ -934,7 +934,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                           <span class="flex flex-wrap items-center gap-2">
                             <span class="font-sans text-body-sm font-semibold text-ink">Prescription {{ rx.number }}</span>
                             <span
-                              class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20"
+                              class="sd-chip"
                               [class]="rxStatus(rx.status).cls"
                             >
                               <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
@@ -948,7 +948,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                       <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
                         <button
                           type="button"
-                          class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
+                          class="sd-pill sd-pill-c border border-haze bg-white text-cerulean shadow-control hover:border-cerulean active:shadow-none disabled:shadow-none"
                           [attr.aria-label]="'View prescription ' + rx.number"
                           (click)="viewRx(rx, $event)"
                         >
@@ -956,7 +956,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                         </button>
                         <a
                           [routerLink]="['/dashboard/prescriptions', rx.id]"
-                          class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:text-cerulean"
+                          class="sd-pill sd-pill-c text-slate hover:text-cerulean"
                           [attr.aria-label]="'Details for prescription ' + rx.number"
                         >
                           Details<sd-icon name="chevron-right" [size]="14" />

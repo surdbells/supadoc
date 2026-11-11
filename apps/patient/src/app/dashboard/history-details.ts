@@ -355,7 +355,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           <span class="flex min-w-0 flex-col gap-1">
                             <span class="flex flex-wrap items-center gap-2">
                               <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
-                              <span class="inline-flex items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="rxStatus(rx.status).cls">
+                              <span class="sd-chip" [class]="rxStatus(rx.status).cls">
                                 <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
                               </span>
                             </span>
@@ -367,7 +367,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                         <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
                           <button
                             type="button"
-                            class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-3 py-1.5 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:opacity-60 disabled:shadow-none"
+                            class="sd-pill sd-pill-c border border-haze bg-white text-cerulean shadow-control hover:border-cerulean active:shadow-none disabled:shadow-none"
                             [attr.aria-label]="'View prescription ' + rx.number"
                             (click)="viewRx(a.id, rx, $event)"
                           >
@@ -375,7 +375,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           </button>
                           <a
                             [routerLink]="['/dashboard/prescriptions', rx.id]"
-                            class="inline-flex items-center gap-1 rounded-field px-2 py-1.5 font-sans text-caption font-semibold text-slate transition-colors hover:text-cerulean"
+                            class="sd-pill sd-pill-c text-slate hover:text-cerulean"
                             [attr.aria-label]="'Details for prescription ' + rx.number"
                           >
                             Details<sd-icon name="chevron-right" [size]="14" />
@@ -403,7 +403,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                         >
                           <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink" aria-hidden="true"><sd-icon name="flask-conical" [size]="18" /></span>
                           <span class="min-w-0 flex-1 break-all font-sans text-body-sm font-semibold text-ink">Lab request {{ lr.number }}</span>
-                          <span class="inline-flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-0.5 font-sans text-caption font-medium inset-ring inset-ring-current/20" [class]="labChip(lr).cls">
+                          <span class="sd-chip shrink-0" [class]="labChip(lr).cls">
                             <sd-icon [name]="labChip(lr).icon" [size]="12" />{{ labChip(lr).label }}
                           </span>
                           <sd-icon name="chevron-right" [size]="16" class="shrink-0 text-cerulean" />

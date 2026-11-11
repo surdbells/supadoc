@@ -41,7 +41,7 @@ describe('BookConsultation supporting documents', () => {
   };
   const text = () => el.textContent?.replace(/\s+/g, ' ') ?? '';
   const bar = () => el.querySelector('[aria-label="Attached documents"] [role="progressbar"]') as HTMLElement | null;
-  const pill = () => el.querySelector('[aria-label="Attached documents"] li span.rounded-pill')?.textContent?.trim();
+  const pill = () => el.querySelector('[aria-label="Attached documents"] li span.sd-chip')?.textContent?.trim();
   const live = () => el.querySelector('p.sr-only[aria-live="polite"][aria-atomic="true"]')?.textContent?.trim();
   const upload = (): TestRequest => http.expectOne((r) => r.method === 'POST' && r.url === UPLOAD);
 

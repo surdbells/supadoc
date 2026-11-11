@@ -31,8 +31,6 @@ import {
   PAGE_TITLE,
   PILL,
   SEGMENT,
-  SEGMENT_OFF,
-  SEGMENT_ON,
   SEGMENTED_WRAP,
   SEGMENT_FILL,
   TABLE,
@@ -89,7 +87,7 @@ const STATUS: Record<string, { label: string; icon: string; cls: string }> = {
 
       <div class="${SEGMENTED_WRAP}" role="group" aria-label="Payout status">
         @for (f of filters; track f.key) {
-          <button type="button" class="${SEGMENT} ${SEGMENT_FILL}" [class]="active() === f.key ? '${SEGMENT_ON}' : '${SEGMENT_OFF}'" [attr.aria-pressed]="active() === f.key" (click)="select(f)">{{ f.label }}</button>
+          <button type="button" class="${SEGMENT} ${SEGMENT_FILL}" [attr.aria-pressed]="active() === f.key" (click)="select(f)">{{ f.label }}</button>
         }
       </div>
 
