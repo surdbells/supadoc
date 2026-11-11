@@ -33,6 +33,7 @@ import type {
   ReadingSource,
   SendPrescriptionInput,
 } from '@supadoc/models';
+import { storedReadingValue } from '@supadoc/models';
 import {
   AlertComponent,
   ButtonComponent,
@@ -59,7 +60,14 @@ import {
 import { RxSidePanel } from './rx-side-panel';
 import { SignaturePad } from './signature-pad';
 import { DoctorClock } from '../doctor-clock';
-import { rxAboveRange, rxAboveRangeSend, rxAboveRangeSummary } from '../vitals-range-copy';
+import {
+  rxAboveRange,
+  rxAboveRangeSend,
+  rxAboveRangeSummary,
+  rxBpTooLarge,
+  rxOutOfBounds,
+  rxTooLarge,
+} from '../vitals-range-copy';
 
 /** One medicine row in the composer (field names match the API's error keys). */
 interface RowState {
@@ -334,7 +342,7 @@ function nullIfBlank(v: string): string | null {
                       [attr.inputmode]="f.key === 'blood_pressure' ? 'text' : 'decimal'"
                       [placeholder]="readingPlaceholder(f)"
                       [value]="reading(f.key)"
-                      [attr.aria-invalid]="fe('readings.' + f.key) ? 'true' : null"
+                      [attr.aria-invalid]="fe('readings.' + f.key) || readingTooHigh(f) ? 'true' : null"
                       [attr.aria-describedby]="readingDescribedBy(f)"
                       (input)="setReading(f.key, $any($event.target).value)"
                     />
@@ -342,6 +350,8 @@ function nullIfBlank(v: string): string | null {
                     <div class="flex flex-col gap-0.5 pb-1.5" aria-live="polite">
                       @if (fe('readings.' + f.key); as m) {
                         <p class="${ERR}" [id]="id('r-' + f.key + '-err')" data-rx-error>{{ m }}</p>
+                      } @else if (readingTooHigh(f); as m) {
+                        <p class="${ERR}" [id]="id('r-' + f.key + '-err')" data-rx-limit>{{ m }}</p>
                       } @else {
                         @if (readingAbove(f); as w) {
                           <p class="${WARN}" [id]="id('r-' + f.key + '-warn')" data-rx-warning>
@@ -962,7 +972,15 @@ function nullIfBlank(v: string): string | null {
             } @else {
               <div class="flex flex-col gap-5">
                 @if (readingsAboveSend(); as above) {
-                  <sd-alert tone="warning" data-rx-above-send>{{ above }}</sd-alert>
+                  <!-- sd-alert's warning tone is role=alert; this is a reminder, not an error, so the
+                       same look without a live role (it is in the dialog's reading order before the checks) -->
+                  <div
+                    class="flex items-start gap-2.5 rounded-field bg-warning/10 px-4 py-3 font-sans text-body-sm text-warning-ink inset-ring inset-ring-current/15"
+                    data-rx-above-send
+                  >
+                    <sd-icon name="triangle-alert" [size]="18" class="mt-0.5 shrink-0" aria-hidden="true" />
+                    <span class="min-w-0 flex-1">{{ above }}</span>
+                  </div>
                 }
                 <fieldset class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
                   <legend class="mb-2 font-sans text-body-sm font-semibold text-ink">1. Before you send, confirm:</legend>
@@ -1474,13 +1492,36 @@ export class RxComposer {
       return sys > s.max || dia > d.max ? rxAboveRange(f.key, `${s.max}/${d.max}`, f.unit) : '';
     }
     const n = Number(raw);
-    if (f.max === null || !Number.isFinite(n) || n <= f.max || n > (f.max_hard ?? f.max)) return '';
+    // Compared as the API stores it (one decimal), so 45.04 isn't counted as above 45.
+    if (f.max === null || !Number.isFinite(n) || storedReadingValue(n) <= f.max || n > (f.max_hard ?? f.max)) return '';
     return rxAboveRange(f.key, f.max, f.unit);
   }
 
-  /** The box is described by its error, else its warning. */
+  /**
+   * A number the API will reject for being too high — past the sanity ceiling,
+   * or above the maximum of a bounded reading (oxygen, pain) — said as it is
+   * typed rather than only after Save or Send. It mirrors the API's message;
+   * the API's own error (after a round-trip) wins. '' otherwise.
+   */
+  protected readingTooHigh(f: PrescriptionReadingField): string {
+    if (this.fe('readings.' + f.key)) return '';
+    const raw = this.reading(f.key).trim();
+    if (!raw) return '';
+    if (f.key === 'blood_pressure') {
+      const m = /^(\d+)\s*\/\s*(\d+)$/.exec(raw);
+      const cap = Math.min(f.systolic?.max_hard ?? Infinity, f.diastolic?.max_hard ?? Infinity);
+      return m && Number.isFinite(cap) && (Number(m[1]) > cap || Number(m[2]) > cap) ? rxBpTooLarge(cap) : '';
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || f.max === null) return '';
+    if (f.accepts_above) return f.max_hard != null && n > f.max_hard ? rxTooLarge(f.label) : '';
+    // A bounded reading (or an older API, which sends no accepts_above): its maximum is the limit.
+    return n > f.max ? rxOutOfBounds(f.label, f.min, f.max) : '';
+  }
+
+  /** The box is described by its error (the API's, else the too-high check), else its warning. */
   protected readingDescribedBy(f: PrescriptionReadingField): string | null {
-    if (this.fe('readings.' + f.key)) return this.id('r-' + f.key + '-err');
+    if (this.fe('readings.' + f.key) || this.readingTooHigh(f)) return this.id('r-' + f.key + '-err');
     return this.readingAbove(f) ? this.id('r-' + f.key + '-warn') : null;
   }
 

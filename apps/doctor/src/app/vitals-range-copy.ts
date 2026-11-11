@@ -49,5 +49,26 @@ export function chartAboveRange(
     : 'Above the expected range — confirm the reading.';
 }
 
+/**
+ * Typed past what the API accepts (mirrors its messages, so the wording does
+ * not change when the API's own error replaces it after Save or Send).
+ */
+export function rxTooLarge(label: string): string {
+  return `${label} is too large to be a reading. Check what you entered.`;
+}
+
+export function rxBpTooLarge(hardMax: number): string {
+  return `Each blood pressure number must be ${String(hardMax).length} digits or fewer. Check what you entered.`;
+}
+
+/** A bounded reading (oxygen, pain) above its maximum. */
+export function rxOutOfBounds(
+  label: string,
+  min: number | null,
+  max: number,
+): string {
+  return `${label} must be a number between ${min ?? 0} and ${max}`;
+}
+
 /** A saved prescription's reading tile. */
 export const RX_PAGE_ABOVE_RANGE = 'Above expected range — verify';

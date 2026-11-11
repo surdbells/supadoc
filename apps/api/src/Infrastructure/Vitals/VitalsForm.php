@@ -60,7 +60,10 @@ final class VitalsForm
     public const BP_HARD_MAX = 999;
 
     public const BP_FORMAT_ERROR  = 'Enter blood pressure as systolic/diastolic, e.g. 120/80';
-    public const BP_CEILING_ERROR = "Blood pressure numbers can't be more than 999. Check the reading.";
+    public const BP_CEILING_ERROR = 'Each blood pressure number must be 3 digits or fewer. Check what you entered.';
+
+    /** Beyond the sanity ceiling: unit-free, since "9999 °C" is no limit anyone would recognise. */
+    public const CEILING_ERROR = '%s is too large to be a reading. Check what you entered.';
 
     /** Where a patient's own readings come from. */
     public const PATIENT_SOURCES = [
@@ -121,7 +124,7 @@ final class VitalsForm
                 $errors[$key] = sprintf('%s must be a number of at least %s %s', $label, $min, $unit);
                 continue;
             } elseif (!is_finite((float) $value) || (float) $value > self::HARD_MAX) {
-                $errors[$key] = sprintf("%s can't be more than %s %s. Check the reading.", $label, self::HARD_MAX, $unit);
+                $errors[$key] = sprintf(self::CEILING_ERROR, $label);
                 continue;
             }
             $readings[$key] = self::number((float) $value);

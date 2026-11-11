@@ -81,13 +81,13 @@ final class VitalsTest extends TestCase
     public function testTheSanityCeilingIsRejectedWithAClearMessage(): void
     {
         [$clean, $errors] = VitalsForm::normalize(['temperature' => '10000', 'heart_rate' => '1e400', 'weight' => '9999'], $this->now());
-        $this->assertSame("Temperature can't be more than 9999 °C. Check the reading.", $errors['temperature']);
-        $this->assertSame("Heart rate can't be more than 9999 beats/min. Check the reading.", $errors['heart_rate']);
+        $this->assertSame('Temperature is too large to be a reading. Check what you entered.', $errors['temperature']);
+        $this->assertSame('Heart rate is too large to be a reading. Check what you entered.', $errors['heart_rate']);
         $this->assertSame('9999', $clean['weight']);
 
         foreach (['1000/80', '120/1000', '99999/80'] as $bad) {
             [, $errors] = VitalsForm::normalize(['blood_pressure' => $bad], $this->now());
-            $this->assertSame("Blood pressure numbers can't be more than 999. Check the reading.", $errors['blood_pressure'] ?? null, $bad);
+            $this->assertSame('Each blood pressure number must be 3 digits or fewer. Check what you entered.', $errors['blood_pressure'] ?? null, $bad);
         }
         [$clean, $errors] = VitalsForm::normalize(['blood_pressure' => '999/998'], $this->now());
         $this->assertSame([], $errors);

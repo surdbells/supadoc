@@ -218,6 +218,46 @@ describe('RxComposer — readings above the expected range', () => {
     expect(el.querySelector('[data-rx-above-summary]')).toBeNull();
   });
 
+  it('says as it is typed when a number is too high for the API, and drops the warning', async () => {
+    const { fixture, el, box, type } = setup();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    type('heart_rate', '9000');
+    expect(el.querySelector('[data-rx-warning]')).toBeTruthy();
+    type('heart_rate', '99999');
+    expect(el.querySelector('[data-rx-warning]')).toBeNull();
+    const limit = el.querySelector('[data-rx-limit]') as HTMLElement;
+    expect(limit.textContent).toContain(
+      'Heart rate is too large to be a reading. Check what you entered.',
+    );
+    expect(box('heart_rate')?.getAttribute('aria-invalid')).toBe('true');
+    expect(box('heart_rate')?.getAttribute('aria-describedby')).toBe(limit.id);
+
+    type('heart_rate', '');
+    type('oxygen_saturation', '101');
+    expect(el.querySelector('[data-rx-limit]')?.textContent).toContain(
+      'Oxygen level must be a number between 50 and 100',
+    );
+    type('oxygen_saturation', '98');
+    type('blood_pressure', '1000/80');
+    expect(el.querySelector('[data-rx-limit]')?.textContent).toContain(
+      'Each blood pressure number must be 3 digits or fewer.',
+    );
+    type('blood_pressure', '120/80');
+    expect(el.querySelector('[data-rx-limit]')).toBeNull();
+  });
+
+  it('compares the value as it will be stored (one decimal), like the API', async () => {
+    const { fixture, el, type } = setup();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    type('temperature', '45.04');
+    expect(el.querySelector('[data-rx-warning]')).toBeNull();
+    expect(el.querySelector('[data-rx-above-summary]')).toBeNull();
+    type('temperature', '45.05');
+    expect(el.querySelector('[data-rx-warning]')).toBeTruthy();
+  });
+
   it('works a BMI above 90 out (no longer dropped) and asks to confirm weight and height', async () => {
     const { fixture, c, el, type } = setup();
     await fixture.whenStable();
@@ -237,9 +277,13 @@ describe('RxComposer — readings above the expected range', () => {
     type('temperature', '46');
     c.sendOpen.set(true);
     fixture.detectChanges();
-    expect(el.querySelector('[data-rx-above-send]')?.textContent).toContain(
+    const sendNote = el.querySelector('[data-rx-above-send]') as HTMLElement;
+    expect(sendNote.textContent).toContain(
       'Above the expected range: Temperature 46 °C. Confirm the readings before issuing.',
     );
+    // A reminder, not an error: no assertive alert role.
+    expect(sendNote.closest('[role="alert"]')).toBeNull();
+    expect(sendNote.querySelector('[role="alert"]')).toBeNull();
     c.checkAllergies.set(true);
     c.checkDoses.set(true);
     c.checkPatient.set(true);

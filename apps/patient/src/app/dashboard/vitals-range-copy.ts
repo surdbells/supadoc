@@ -34,12 +34,20 @@ export function aboveRangeSummary(count: number): string {
     : `${count} readings are higher than readings usually go. Please check them before you save.`;
 }
 
-/** Medical Information's alert line for a current reading (the API's advice follows it). */
+/**
+ * Medical Information's alert line for a current reading (the API's advice
+ * follows it). A weight with no maximum of its own is flagged because of the
+ * BMI it gives, so it asks to check the weight and height.
+ */
 export function aboveRangeAlert(
   name: string,
   max: string | null | undefined,
   unit: string,
+  key?: string,
 ): string {
+  if (key === 'weight' && !max) {
+    return `${name} gives a BMI higher than readings usually go. Please check your weight and height were entered correctly.`;
+  }
   return max
     ? `${name} is higher than readings usually go (up to ${upTo(max, unit)}). Please check it was measured and entered correctly.`
     : `${name} is higher than readings usually go. Please check it was measured and entered correctly.`;
@@ -60,17 +68,17 @@ export const ABOVE_RANGE_CARD_DETAIL =
 /** Under a reading on the in-call vitals tiles. */
 export const ABOVE_RANGE_CALL_NOTE = 'Higher than usual — please check';
 
-/** Beyond the API's sanity ceiling (mirrors its message). */
-export function ceilingError(
-  label: string,
-  hardMax: number,
-  unit: string,
-): string {
-  return `${label} can't be more than ${upTo(hardMax, unit)}. Check the reading.`;
+/**
+ * Beyond the API's sanity ceiling (mirrors its message). Unit-free: the
+ * ceiling is a technical limit, not one anyone would recognise as a reading.
+ */
+export function ceilingError(label: string): string {
+  return `${label} is too large to be a reading. Check what you entered.`;
 }
 
+/** Blood pressure numbers past their ceiling (the API's 999: 3 digits). */
 export function bpCeilingError(hardMax: number): string {
-  return `Blood pressure numbers can't be more than ${hardMax}. Check the reading.`;
+  return `Each blood pressure number must be ${String(hardMax).length} digits or fewer. Check what you entered.`;
 }
 
 /** Below the minimum of a reading that accepts higher values. */

@@ -712,6 +712,12 @@ html[data-theme='dark'] .sd-call .sd-rx-card .text-teal {
 html .sd-call[data-theme='light'] .sd-share .text-warning {
   color: #8a5a00; /* warning-ink: 5.35 on the cockpit page, 4.87 / 5.33 on warning/15 over page / white */
 }
+/* The in-call Latest Vitals tiles' notes ("May be out of date", "Higher than
+ * usual — please check") are bright warning too, which is 2.0 on the light
+ * cockpit's white tiles. Same ink, scoped to that section only. */
+html .sd-call[data-theme='light'] [aria-labelledby='call-vitals-title'] .text-warning {
+  color: #8a5a00; /* warning-ink: 5.93 on the white tiles */
+}
 html .sd-call[data-theme='light'] .sd-share .text-sky {
   color: #0a4fbf; /* cerulean-dark: 6.57 on the page, 6.22 / 5.74 on the white/10 and white/15 fills */
 }

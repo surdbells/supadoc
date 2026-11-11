@@ -37,6 +37,7 @@ import type {
   VitalFlagLevel,
   VitalReadingDto,
 } from '@supadoc/models';
+import { storedReadingValue } from '@supadoc/models';
 import {
   ButtonComponent,
   DialogComponent,
@@ -1034,11 +1035,13 @@ interface SectionCard {
                             [class]="bpInput"
                           />
                         </div>
-                        <!-- Polite: an above-range warning is advice, not an error (role=alert stays on errors) -->
+                        <!-- The error (role=alert) sits outside the polite region, so it is announced once;
+                             an above-range warning is advice, not an error: polite -->
+                        @if (bpError(f); as e) {
+                          <span id="vt-hint-blood_pressure" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                        }
                         <div class="flex flex-col gap-1" aria-live="polite">
-                          @if (bpError(f); as e) {
-                            <span id="vt-hint-blood_pressure" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                          } @else {
+                          @if (!bpError(f)) {
                             <span id="vt-hint-blood_pressure" [class]="vitalHintClass">Systolic (top) | diastolic (bottom), in mmHg</span>
                             @if (bpAbove(f); as w) {
                               <p id="vt-warn-blood_pressure" [class]="vitalWarnClass">
@@ -1091,11 +1094,13 @@ interface SectionCard {
                           [attr.aria-describedby]="vitalDescribedBy(f)"
                           [class]="vitalFieldError(f) ? vitalInputInvalid : vitalInput"
                         />
-                        <!-- Polite: an above-range warning is advice, not an error (role=alert stays on errors) -->
+                        <!-- The error (role=alert) sits outside the polite region, so it is announced once;
+                             an above-range warning is advice, not an error: polite -->
+                        @if (vitalFieldError(f); as e) {
+                          <span [id]="'vt-hint-' + f.key" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
+                        }
                         <div class="flex flex-col gap-1" aria-live="polite">
-                          @if (vitalFieldError(f); as e) {
-                            <span [id]="'vt-hint-' + f.key" class="font-sans text-caption text-alert" role="alert">{{ e }}</span>
-                          } @else {
+                          @if (!vitalFieldError(f)) {
                             @if (vitalHint(f); as hint) {
                               <span [id]="'vt-hint-' + f.key" [class]="vitalHintClass">{{ hint }}</span>
                             }
@@ -2293,7 +2298,7 @@ export class MyProfile implements HasUnsavedChanges {
         }
         if (f.out_of_range) {
           // Above the usual range: ask to check it first, then the API's urgent advice.
-          return [{ key: v.key, text: aboveRangeAlert(name, f.usual_max, v.unit), advice: f.advice, critical: true }];
+          return [{ key: v.key, text: aboveRangeAlert(name, f.usual_max, v.unit, v.key), advice: f.advice, critical: true }];
         }
         return [{ key: v.key, text: `${name} is ${f.label}`, advice: f.advice, critical: f.level === 'critical' }];
       })
@@ -3119,7 +3124,7 @@ export class MyProfile implements HasUnsavedChanges {
       // A reading that accepts higher values (oxygen and pain don't): only the minimum and the sanity ceiling stop it.
       if (f.accepts_above) {
         return c.errors['max']
-          ? ceilingError(f.label, f.max_hard ?? f.max ?? 0, f.unit)
+          ? ceilingError(f.label)
           : belowMinError(f.label, f.min, f.unit);
       }
       return `${f.label} must be between ${f.min} and ${f.max} ${f.unit}`;
@@ -3136,7 +3141,8 @@ export class MyProfile implements HasUnsavedChanges {
     if (!f.accepts_above || f.max == null || !isVitalNumberKey(f.key) || this.vitalFieldError(f)) return '';
     const c = this.vitalsForm.controls[f.key];
     const n = c.value;
-    if (c.errors || n === null || !Number.isFinite(n) || n <= f.max) return '';
+    // Compared as the API stores it (one decimal), so 45.04 isn't warned about as above 45.
+    if (c.errors || n === null || !Number.isFinite(n) || storedReadingValue(n) <= f.max) return '';
     return aboveRangeWarning(f.max, f.unit);
   }
 

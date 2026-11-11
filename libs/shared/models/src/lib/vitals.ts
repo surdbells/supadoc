@@ -37,7 +37,10 @@ export interface VitalFlagDto {
    * treat as false.
    */
   out_of_range?: boolean;
-  /** The usual maximum, e.g. "45" or (blood pressure) "260/160"; set only when `out_of_range`. */
+  /**
+   * The usual maximum, e.g. "45" or (blood pressure) "260/160"; set only when
+   * `out_of_range`, and null even then for a weight flagged by the BMI it gives.
+   */
   usual_max?: string | null;
 }
 
@@ -125,4 +128,15 @@ export interface RecordVitalsInput {
   /** ISO 8601; defaults to now on the server and may not be in the future. */
   taken_at?: string;
   source?: 'self_reported' | 'patient_device';
+}
+
+/**
+ * A number as the API stores a reading: one decimal place (`VitalsForm::number`,
+ * PHP's half-up rounding). Compare this — not the raw typed number — with a
+ * reading's usual maximum, so 45.04 °C (stored "45") isn't warned about as
+ * above the usual range when the saved reading won't be.
+ */
+export function storedReadingValue(n: number): number {
+  // toPrecision(15) undoes binary noise first (45.05 × 10 = 450.49999…), as PHP's pre-rounding does.
+  return Math.round(Number((n * 10).toPrecision(15))) / 10;
 }

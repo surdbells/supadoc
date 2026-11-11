@@ -266,12 +266,24 @@ final class PrescriptionPdfRenderer
         }
         $pdf->SetFont('Helvetica', '', 7.6);
         $this->text($pdf, self::SLATE);
-        $pdf->Text(self::M, $y, PrescriptionPdf::enc('Where the readings came from: ' . ($source !== '' ? $source : '________________')
-            . '      Time taken: ' . ($taken !== '' ? $taken : '________________')));
+        $sourceLine = PrescriptionPdf::enc('Where the readings came from: ' . ($source !== '' ? $source : '________________')
+            . '      Time taken: ' . ($taken !== '' ? $taken : '________________'));
+        $pdf->Text(self::M, $y, $sourceLine);
         if ($above !== []) {
-            $y += 3.4;
+            // The asterisk's note shares the source line (right-aligned) so the
+            // page-1 cap above the signature still holds; it only drops to a
+            // line of its own if the two would ever touch.
+            $sourceWidth = $pdf->GetStringWidth($sourceLine);
+            $note        = PrescriptionPdf::enc('* Above the usual entry range — verify the reading.');
+            $pdf->SetFont('Helvetica', 'B', 6.6);
             $this->text($pdf, self::ALERT);
-            $pdf->Text(self::M, $y, PrescriptionPdf::enc('* Above the usual entry range — verify the reading before acting on it.'));
+            $noteWidth = $pdf->GetStringWidth($note);
+            if ($sourceWidth + 4 + $noteWidth <= self::W) {
+                $pdf->Text(self::M + self::W - $noteWidth, $y, $note);
+            } else {
+                $y += 3.4;
+                $pdf->Text(self::M, $y, $note);
+            }
         }
 
         return $y + 3.4;

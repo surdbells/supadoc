@@ -185,11 +185,15 @@ final class VitalsFlagsTest extends TestCase
         $this->assertNull(VitalsFlags::flag('temperature', '45')['usual_max']);
     }
 
-    public function testAWeightGivingABmiAbove90IsVeryHighButNotOutOfRange(): void
+    public function testAWeightGivingABmiAbove90AsksToCheckTheReading(): void
     {
-        // 200 kg at 140 cm is a BMI of 102: the weight itself is within its range.
+        // 200 kg at 140 cm is a BMI of 102: the weight itself is within its
+        // range, so it has no usual maximum of its own, but it is still marked
+        // "check the reading" like the BMI card.
         $weight = VitalsFlags::flag('weight', '200', '140');
-        $this->assertSame(['level' => 'critical', 'label' => 'Very high', 'advice' => self::URGENT, 'out_of_range' => false, 'usual_max' => null], $weight);
+        $this->assertSame(['level' => 'critical', 'label' => 'Very high', 'advice' => self::URGENT, 'out_of_range' => true, 'usual_max' => null], $weight);
+        // A BMI of 90 or below stays an ordinary flag.
+        $this->assertFalse(VitalsFlags::flag('weight', '170', '140')['out_of_range']);
 
         $at   = '2026-10-13T08:00:00+00:00';
         $row  = static fn (string $value): array => ['value' => $value, 'unit' => '', 'taken_at' => $at, 'source' => 'video', 'recorded_by' => 'doctor'];
@@ -198,6 +202,7 @@ final class VitalsFlagsTest extends TestCase
         $this->assertSame('critical', $list['bmi']['flag']['level'], 'weight and BMI cards agree');
         $this->assertSame($list['weight']['flag']['label'], $list['bmi']['flag']['label']);
         $this->assertTrue($list['bmi']['flag']['out_of_range']);
+        $this->assertTrue($list['weight']['flag']['out_of_range']);
     }
 
     public function testABmiAboveTheUsualRangeIsFlaggedEvenWithoutAHeight(): void

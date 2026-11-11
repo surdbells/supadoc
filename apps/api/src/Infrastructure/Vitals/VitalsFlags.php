@@ -192,15 +192,27 @@ final class VitalsFlags
         return $flag;
     }
 
-    /** Weight is judged by the BMI it gives with the latest height; no height, no flag. */
+    /**
+     * Weight is judged by the BMI it gives with the latest height; no height,
+     * no flag. A BMI above its usual range (often a mistyped height) marks the
+     * weight `out_of_range` too — with no `usual_max` of its own — so the
+     * weight card asks to check the reading, as the BMI card does.
+     */
     private static function weight(float $kg, ?string $heightCm): ?array
     {
         if ($heightCm === null || !is_numeric(trim($heightCm))) {
             return null;
         }
         $bmi = VitalsForm::bmi($kg, (float) trim($heightCm));
+        if ($bmi === null) {
+            return null;
+        }
+        $flag = self::bmi((float) $bmi);
+        if (VitalsForm::isAboveRange('bmi', $bmi)) {
+            $flag['out_of_range'] = true;
+        }
 
-        return $bmi !== null ? self::bmi((float) $bmi) : null;
+        return $flag;
     }
 
     /** 0–10: 0 none · 1–3 mild · 4–6 moderate · 7–10 severe (no advice — the patient knows their pain). */

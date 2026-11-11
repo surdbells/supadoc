@@ -36,6 +36,9 @@ describe('vitals range copy (patient)', () => {
     expect(aboveRangeAlert('Temperature', '45', '°C')).toBe(
       'Temperature is higher than readings usually go (up to 45 °C). Please check it was measured and entered correctly.',
     );
+    expect(aboveRangeAlert('Weight', null, 'kg', 'weight')).toBe(
+      'Weight gives a BMI higher than readings usually go. Please check your weight and height were entered correctly.',
+    );
     expect(aboveRangeAlert('Weight', null, 'kg')).toBe(
       'Weight is higher than readings usually go. Please check it was measured and entered correctly.',
     );
@@ -45,11 +48,11 @@ describe('vitals range copy (patient)', () => {
   });
 
   it('mirrors the API errors', () => {
-    expect(ceilingError('Temperature', 9999, '°C')).toBe(
-      "Temperature can't be more than 9999 °C. Check the reading.",
+    expect(ceilingError('Temperature')).toBe(
+      'Temperature is too large to be a reading. Check what you entered.',
     );
     expect(bpCeilingError(999)).toBe(
-      "Blood pressure numbers can't be more than 999. Check the reading.",
+      'Each blood pressure number must be 3 digits or fewer. Check what you entered.',
     );
     expect(belowMinError('Temperature', 30, '°C')).toBe(
       'Temperature must be at least 30 °C',

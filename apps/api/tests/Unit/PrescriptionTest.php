@@ -274,6 +274,30 @@ final class PrescriptionTest extends TestCase
         $this->assertStringNotContainsString('(*) Tj', $normal);
     }
 
+    public function testPdfAboveRangeNoteTakesNoExtraHeight(): void
+    {
+        // Page 1 is capped so its content never reaches the signature block;
+        // the "verify" note must share the source line rather than add one.
+        $sectionEnd = function (array $readings): float {
+            $rx = new Prescription('p-1', 's-1', 'a-1', 'GVM-RX-20261105-00004', new DateTimeImmutable('2026-12-05'));
+            $rx->setReadings($readings);
+            $renderer = new PrescriptionPdfRenderer();
+            $tz       = new \ReflectionProperty($renderer, 'tz');
+            $tz->setValue($renderer, new \DateTimeZone('Asia/Kolkata'));
+            $pdf = new \App\Infrastructure\Prescription\PrescriptionPdf('P', 'mm', 'A4');
+            $pdf->SetAutoPageBreak(false);
+            $pdf->AddPage();
+
+            return (new \ReflectionMethod($renderer, 'readings'))->invoke($renderer, $pdf, $rx, 100.0);
+        };
+        $base = ['source' => 'patient_device', 'taken_at' => '2026-11-30T12:59:00+05:30'];
+
+        $this->assertSame(
+            $sectionEnd($base + ['temperature' => '37', 'blood_pressure' => '120/80']),
+            $sectionEnd($base + ['temperature' => '46', 'blood_pressure' => '300/170', 'weight' => '450']),
+        );
+    }
+
     public function testPdfPrintsMedicinesAlreadyTakenOnlyOnPrescriptionsThatHaveThem(): void
     {
         $render = function (?string $taken): string {

@@ -240,6 +240,16 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     );
   });
 
+  it('compares the value as it will be stored (one decimal), like the API', async () => {
+    await mount();
+    await openEditor();
+    type('#vt-temperature', '45.04');
+    expect(el.querySelector('#vt-warn-temperature')).toBeNull();
+    expect(summary()).toBe('');
+    type('#vt-temperature', '45.05');
+    expect(el.querySelector('#vt-warn-temperature')).toBeTruthy();
+  });
+
   it('saves the above-range reading (the warning never blocks)', async () => {
     await mount();
     await openEditor();
@@ -257,9 +267,11 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     type('#vt-temperature', '10000');
     let err = el.querySelector('#vt-hint-temperature') as HTMLElement;
     expect(err.textContent).toContain(
-      "Temperature can't be more than 9999 °C. Check the reading.",
+      'Temperature is too large to be a reading. Check what you entered.',
     );
     expect(err.getAttribute('role')).toBe('alert');
+    // Assertive once: the error is not inside the polite region as well.
+    expect(err.closest('[aria-live="polite"]')).toBeNull();
     expect(el.querySelector('#vt-warn-temperature')).toBeNull();
 
     type('#vt-temperature', '29');
@@ -292,7 +304,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
     type(sys, '1000');
     expect(el.querySelector('#vt-hint-blood_pressure')?.textContent).toContain(
-      "Blood pressure numbers can't be more than 999. Check the reading.",
+      'Each blood pressure number must be 3 digits or fewer. Check what you entered.',
     );
     type(sys, '170');
     type(dia, '180');
