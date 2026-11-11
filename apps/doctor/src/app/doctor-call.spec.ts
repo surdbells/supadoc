@@ -1735,6 +1735,18 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
         await tick();
         const certAlert = panel().querySelector('#call-certificate p[role="alert"].call-error');
         expect(certAlert?.textContent?.trim()).toBe('Add a certifying statement.');
+        // The empty required fields are marked invalid and described by their section's error.
+        for (const [id, err] of [['call-ref-target', 'call-ref-error'], ['call-ref-reason', 'call-ref-error'], ['call-cert-statement', 'call-cert-error']]) {
+          const f = panel().querySelector(`#${id}`) as HTMLElement;
+          expect(f.getAttribute('aria-invalid')).toBe('true');
+          expect(f.getAttribute('aria-describedby')).toBe(err);
+          expect(panel().querySelector(`#${err}`)?.getAttribute('role')).toBe('alert');
+        }
+        for (const d of Array.from(panel().querySelectorAll('#call-certificate input[type="date"]'))) {
+          expect(d.getAttribute('aria-invalid')).toBe('true');
+          expect(d.getAttribute('aria-describedby')).toBe('call-cert-error');
+        }
+        expect(panel().querySelector('#call-cert-diagnosis')?.hasAttribute('aria-invalid')).toBe(false);
         expect(portal.filter((r) => r.method === 'POST')).toEqual([]);
         expect(dialogConfirm).not.toHaveBeenCalled();
       });

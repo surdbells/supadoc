@@ -1651,12 +1651,14 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               <div class="flex min-w-0 flex-col gap-2">
                 <label for="call-ref-target" class="${CALL_LABEL}">Refer to <span aria-hidden="true">*</span></label>
                 <input id="call-ref-target" aria-required="true" placeholder="e.g. Cardiology" class="${CALL_FIELD}"
+                  [attr.aria-invalid]="refError() && !refTarget().trim() ? 'true' : null" [attr.aria-describedby]="refError() ? 'call-ref-error' : null"
                   [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
               </div>
             </div>
             <div class="mt-3 flex min-w-0 flex-col gap-2">
               <label for="call-ref-reason" class="${CALL_LABEL}">Reason for referral <span aria-hidden="true">*</span></label>
               <input id="call-ref-reason" aria-required="true" placeholder="e.g. Persistent chest pain" class="${CALL_FIELD} w-full"
+                [attr.aria-invalid]="refError() && !refReason().trim() ? 'true' : null" [attr.aria-describedby]="refError() ? 'call-ref-error' : null"
                 [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
             </div>
             <div class="mt-3 flex flex-wrap items-end gap-2">
@@ -1677,7 +1679,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
             </div>
             @if (refError()) {
-              <p role="alert" class="mt-1 ${CALL_ERROR}">{{ refError() }}</p>
+              <p id="call-ref-error" role="alert" class="mt-1 ${CALL_ERROR}">{{ refError() }}</p>
             }
             @if (referrals().length) {
               <ul class="mt-3 flex flex-col gap-2">
@@ -1728,9 +1730,11 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 <legend class="${CALL_LABEL}">Leave period <span aria-hidden="true">*</span></legend>
                 <div class="mt-2 grid grid-cols-2 gap-3">
                   <label class="flex min-w-0 flex-col gap-2"><span class="${CALL_LABEL}">From</span>
-                    <input type="date" aria-required="true" class="${CALL_FIELD}" [min]="certMinFrom()" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
+                    <input type="date" aria-required="true" class="${CALL_FIELD}" [min]="certMinFrom()"
+                      [attr.aria-invalid]="certError() && !certFrom() ? 'true' : null" [attr.aria-describedby]="certError() ? 'call-cert-error' : null" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
                   <label class="flex min-w-0 flex-col gap-2"><span class="${CALL_LABEL}">To</span>
-                    <input type="date" aria-required="true" class="${CALL_FIELD}" [min]="certFrom() || certMinFrom()" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
+                    <input type="date" aria-required="true" class="${CALL_FIELD}" [min]="certFrom() || certMinFrom()"
+                      [attr.aria-invalid]="certError() && !certTo() ? 'true' : null" [attr.aria-describedby]="certError() ? 'call-cert-error' : null" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
                 </div>
               </fieldset>
             }
@@ -1738,6 +1742,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               <label for="call-cert-statement" class="${CALL_LABEL}">Certifying statement <span aria-hidden="true">*</span></label>
               <textarea id="call-cert-statement" rows="2" aria-required="true" placeholder="e.g. Unfit for work and requires rest"
                 class="${CALL_FIELD} w-full resize-y"
+                [attr.aria-invalid]="certError() && !certStatement().trim() ? 'true' : null" [attr.aria-describedby]="certError() ? 'call-cert-error' : null"
                 [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
             </div>
             <div class="mt-3 flex items-center gap-2">
@@ -1748,7 +1753,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
             </div>
             @if (certError()) {
-              <p role="alert" class="mt-1 ${CALL_ERROR}">{{ certError() }}</p>
+              <p id="call-cert-error" role="alert" class="mt-1 ${CALL_ERROR}">{{ certError() }}</p>
             }
             @if (issuedCerts().length) {
               <ul class="mt-3 flex flex-col gap-2">
