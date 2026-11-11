@@ -385,6 +385,41 @@
   color: #bbdefb;
 }
 
+/* ===== Native pickers follow their surface =====
+ * NP1. Options never carry colour: no class, [class], [ngClass] or style on an
+ *      <option> or <optgroup> (the native-select-guard specs enforce it). The base
+ *      rule at the end of this file paints every dropdown list Canvas/CanvasText,
+ *      the user agent's own pair for the select's colour scheme.
+ * NP2. The element that paints a surface declares its color-scheme (below; the
+ *      dialogs in sd-dialog, the guest lobby in pat-call-join). That sets the list's
+ *      tone and the date pickers, checkboxes and spinners. A new surface with its
+ *      own palette adds its own color-scheme line on the element that sets its
+ *      background.
+ * NP3. The closed control is the design-system select field: appearance-none, a
+ *      drawn chevron-down (20px, 8px from the right), the surface's own field
+ *      tokens and a visible label.
+ * NP4. A native <select> for short fixed lists (up to about 7 options, no search);
+ *      sd-search-select for long or searchable ones; the light-only lab and drug
+ *      pickers only on light surfaces (in the call: inside .sd-rx-zone). */
+/* NP2: native pickers (select lists, date pickers, checkboxes) follow the surface they sit on.
+   The stage and dock come after the light pair: equal specificity, so they win by order. */
+.sd-call,
+.sd-call .bg-abyss {
+  color-scheme: dark;
+}
+.sd-call[data-theme='light'],
+.sd-call[data-theme='light'] .bg-abyss {
+  color-scheme: light;
+}
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock),
+.sd-call[data-theme='light'] :is(.sd-stage, .sd-dock) .bg-abyss {
+  color-scheme: dark;
+}
+/* The light "paper" zones in the doctor cockpit (prescriptions, lab requests, follow-up planner, Full EMR). */
+.sd-rx-zone {
+  color-scheme: light;
+}
+
 /* ===== No visible scrollbars =====
  * Product rule (2026-10): no horizontal or vertical scrollbar is ever shown in
  * the web apps. Every scroll container still scrolls with the wheel, trackpad,
@@ -424,5 +459,16 @@
    * like any other block; a min-w-* utility still wins. */
   fieldset {
     min-inline-size: 0;
+  }
+
+  /* NP1: a dropdown's list is always Canvas/CanvasText for its colour scheme, so it can never
+     be same-on-same, whatever the select's own text colour or a tone remap does. */
+  select:not([multiple], [size]) option,
+  select:not([multiple], [size]) optgroup {
+    background-color: Canvas;
+    color: CanvasText;
+  }
+  select:not([multiple], [size]) option:disabled {
+    color: GrayText;
   }
 }

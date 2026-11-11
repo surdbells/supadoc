@@ -197,4 +197,10 @@ describe('CallJoin (a join link)', () => {
     expect(replace).not.toHaveBeenCalled();
     expect(joinInfo).not.toHaveBeenCalled();
   });
+
+  it('declares the dark colour scheme on its always-dark host, so the device lists and checkbox are dark (NP2)', () => {
+    // The pickers' options carry no colour (the patient native-select guard checks the markup).
+    const css = (CallJoin as unknown as { ɵcmp: { styles: string[] } }).ɵcmp.styles.join('').replace(/\s+/g, '');
+    expect(css).toContain('color-scheme:dark');
+  });
 });

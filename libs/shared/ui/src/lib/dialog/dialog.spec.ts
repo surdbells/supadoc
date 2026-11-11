@@ -410,6 +410,13 @@ describe('DialogComponent (sd-dialog)', () => {
     expect(d?.classList.contains('sd-dialog--md')).toBe(true);
     custom.destroy();
   });
+
+  it('declares its own colour scheme: light by default, dark on the dark page (native pickers follow the surface, NP2)', () => {
+    // The compiled styles, not the source text: the source has several `.sd-dialog {` blocks.
+    const css = (DialogComponent as unknown as { ɵcmp: { styles: string[] } }).ɵcmp.styles.join('').replace(/\s+/g, '');
+    expect(css).toMatch(/\.sd-dialog\[_ngcontent-%COMP%\]\{[^}]*--sd-dialog-surface:#ffffff[^}]*color-scheme:light/);
+    expect(css).toMatch(/html\[data-theme=['"]?dark['"]?\][^{]*\.sd-dialog\[_ngcontent-%COMP%\]\{[^}]*--sd-dialog-surface:#161f2b[^}]*color-scheme:dark/);
+  });
 });
 
 @Component({

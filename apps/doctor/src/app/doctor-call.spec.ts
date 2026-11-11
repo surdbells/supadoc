@@ -215,7 +215,7 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
   /** What the follow-up planner lists. */
   let followUps: unknown[] = [];
   /** Every portal request made through ApiService.request (the clinical panels, transcript, metrics). */
-  let portal: { method: string; path: string; passive: boolean }[];
+  let portal: { method: string; path: string; passive: boolean; body?: unknown }[];
   let session: { hold: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
   const signedIn = signal(true);
   const realMatchMedia = window.matchMedia;
@@ -269,8 +269,8 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
           provide: ApiService,
           useValue: {
             get: () => of({ data: [] }),
-            request: (method: string, path: string, _body?: unknown, opts?: { passive?: boolean }) => {
-              portal.push({ method: method.toUpperCase(), path, passive: !!opts?.passive });
+            request: (method: string, path: string, body?: unknown, opts?: { passive?: boolean }) => {
+              portal.push({ method: method.toUpperCase(), path, passive: !!opts?.passive, body });
               return of({ data: {} });
             },
           },
@@ -1634,6 +1634,169 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
       const [source] = viewer.open.mock.calls[0] as [ViewerSource];
       expect(source.key).toBe('referral:r1');
       expect(source.policy).toBe('authored_print');
+    });
+
+    describe('Follow-ups fields', () => {
+      const panel = () => el.querySelector('#ws-panel-followup') as HTMLElement;
+      const field = <T extends HTMLElement>(id: string) => panel().querySelector<T>('#' + id) as T;
+      /** A field's visible label, without the aria-hidden required mark. */
+      const labelOf = (id: string) => {
+        const label = (field<HTMLInputElement>(id).labels?.[0]?.cloneNode(true) ?? null) as HTMLElement | null;
+        label?.querySelectorAll('[aria-hidden="true"]').forEach((m) => m.remove());
+        return label?.textContent?.trim();
+      };
+      const button = (label: string) => Array.from(panel().querySelectorAll('button')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement;
+      const set = (id: string, value: string, event: 'input' | 'change') => {
+        const f = field<HTMLInputElement>(id);
+        f.value = value;
+        f.dispatchEvent(new Event(event, { bubbles: true }));
+      };
+
+      it('every field is labelled, the required ones marked; the leave dates are a group; the sections are h3 headings', async () => {
+        await setup([doc('a')]);
+        await openWs('followup');
+        expect(panel().querySelectorAll('option').length).toBe(9);
+        // NP1: the lists are painted by the theme's Canvas/CanvasText rule, never by option classes.
+        expect(Array.from(panel().querySelectorAll('option')).filter((o) => o.hasAttribute('class'))).toEqual([]);
+        expect(['call-ref-type', 'call-ref-priority', 'call-cert-type'].map((id) => field(id).tagName + ' ' + labelOf(id))).toEqual([
+          'SELECT Referral type',
+          'SELECT Priority',
+          'SELECT Certificate type',
+        ]);
+        expect(['call-ref-target', 'call-ref-reason', 'call-cert-diagnosis', 'call-cert-statement'].map(labelOf)).toEqual([
+          'Refer to',
+          'Reason for referral',
+          'Diagnosis (optional)',
+          'Certifying statement',
+        ]);
+        for (const id of ['call-ref-target', 'call-ref-reason', 'call-cert-statement']) expect(field(id).getAttribute('aria-required')).toBe('true');
+        expect(field('call-cert-diagnosis').hasAttribute('aria-required')).toBe(false);
+        // The asterisk is decoration: the attribute says "required".
+        expect(field<HTMLInputElement>('call-ref-target').labels?.[0]?.querySelector('[aria-hidden="true"]')?.textContent).toBe('*');
+        const dates = Array.from(panel().querySelectorAll<HTMLInputElement>('input[type="date"]'));
+        expect(dates.length).toBe(2);
+        const group = dates[0].closest('fieldset');
+        expect(group?.querySelector('legend')?.textContent?.trim().startsWith('Leave period')).toBe(true);
+        expect(dates.every((d) => d.closest('fieldset') === group && d.getAttribute('aria-required') === 'true')).toBe(true);
+        expect(dates.map((d) => d.closest('label')?.querySelector('span')?.textContent?.trim())).toEqual(['From', 'To']);
+        const items = Array.from(panel().querySelectorAll<HTMLInputElement>('input[placeholder="e.g. Monitor blood pressure daily"]'));
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.map((i) => i.getAttribute('aria-label'))).toEqual(items.map((_, n) => `Care plan item ${n + 1}`));
+        const headings = Array.from(panel().querySelectorAll('h3')).map((h) => h.textContent?.trim());
+        expect(headings).toEqual(expect.arrayContaining(['Care Plan', 'Referral', 'Medical Certificate']));
+        for (const id of ['call-referral', 'call-certificate']) {
+          const h = panel().querySelector(`#${id} > h3`);
+          expect(h?.hasAttribute('data-ws-focus')).toBe(true);
+          expect(h?.getAttribute('tabindex')).toBe('-1');
+        }
+      });
+
+      it('the fields: the call-field box and ws-ring, no dimming or placeholder utilities; drawn chevrons; container columns', async () => {
+        await setup([doc('a')]);
+        await openWs('followup');
+        const fields = Array.from(panel().querySelectorAll<HTMLElement>('.call-field'));
+        // 3 selects, 4 text fields, the 2 dates, at least one Care Plan item.
+        expect(fields.length).toBeGreaterThanOrEqual(10);
+        for (const f of fields) {
+          const cls = Array.from(f.classList);
+          expect(cls.filter((c) => c.startsWith('read-only:') || c.startsWith('placeholder:') || c.includes('opacity') || c === 'focus:outline-none')).toEqual([]);
+          expect(cls).toContain('ws-ring');
+        }
+        for (const id of ['call-ref-type', 'call-ref-priority', 'call-cert-type']) {
+          const s = field<HTMLSelectElement>(id);
+          for (const c of ['block', 'appearance-none', 'call-field', 'ws-ring']) expect(s.classList.contains(c)).toBe(true);
+          const chevron = s.nextElementSibling;
+          expect(chevron?.matches('sd-icon[name="chevron-down"][aria-hidden="true"]')).toBe(true);
+        }
+        for (const id of ['call-referral', 'call-certificate']) {
+          const section = panel().querySelector(`#${id}`) as HTMLElement;
+          expect(section.classList.contains('@container')).toBe(true);
+          const grid = section.querySelector(':scope > .grid') as HTMLElement;
+          expect(grid.classList.contains('@md:grid-cols-2')).toBe(true);
+          expect(section.querySelector('.sm\\:grid-cols-2')).toBeNull();
+        }
+        expect(button('Create referral').classList.contains('call-row-btn')).toBe(true);
+        expect(button('Issue certificate').classList.contains('call-row-btn')).toBe(true);
+        const css = callStyles().replace(/\s+/g, '');
+        for (const s of ['.call-field', 'min-height:38px', '::placeholder', ':read-only:not(select)', '.call-error', '#ff8a80', 'var(--color-alert-ink)', '.call-row-btn']) {
+          expect(css).toContain(s);
+        }
+      });
+
+      it('empty required fields: an announced error naming them by their labels, and nothing sent', async () => {
+        await setup([doc('a')]);
+        await openWs('followup');
+        portal = [];
+        button('Create referral').click();
+        await tick();
+        const refAlert = panel().querySelector('#call-referral p[role="alert"].call-error');
+        expect(refAlert?.textContent?.trim()).toBe('Add who to refer to and the reason for referral.');
+        button('Issue certificate').click();
+        await tick();
+        const certAlert = panel().querySelector('#call-certificate p[role="alert"].call-error');
+        expect(certAlert?.textContent?.trim()).toBe('Add a certifying statement.');
+        expect(portal.filter((r) => r.method === 'POST')).toEqual([]);
+        expect(dialogConfirm).not.toHaveBeenCalled();
+      });
+
+      it('the chosen type and priority are what is sent; the priority resets to Routine afterwards', async () => {
+        await setup([doc('a')]);
+        await openWs('followup');
+        set('call-ref-type', 'imaging', 'change');
+        set('call-ref-priority', 'urgent', 'change');
+        set('call-ref-target', 'Radiology', 'input');
+        set('call-ref-reason', 'Chest X-ray', 'input');
+        await tick();
+        portal = [];
+        button('Create referral').click();
+        await tick();
+        await tick();
+        const post = portal.find((r) => r.method === 'POST' && r.path.endsWith('/referrals'));
+        expect(post?.body).toMatchObject({ referral_type: 'imaging', priority: 'urgent', target: 'Radiology', reason: 'Chest X-ray' });
+        expect(field<HTMLSelectElement>('call-ref-priority').value).toBe('routine');
+      });
+
+      it('the leave period shows for a sick-leave certificate only', async () => {
+        await setup([doc('a')]);
+        await openWs('followup');
+        set('call-cert-type', 'general', 'change');
+        await tick();
+        expect(panel().querySelectorAll('#call-certificate input[type="date"]').length).toBe(0);
+        expect(panel().querySelector('#call-certificate fieldset')).toBeNull();
+        set('call-cert-type', 'sick_leave', 'change');
+        await tick();
+        expect(panel().querySelectorAll('#call-certificate fieldset input[type="date"]').length).toBe(2);
+      });
+
+      it('the planner in the call has no record link (LD6): the visit type shows in the row instead', async () => {
+        vi.stubGlobal('CSS', { escape: (id: string) => id });
+        const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+        await setup([doc('a')]);
+        followUps = [
+          {
+            id: 'f1',
+            patient_id: 'p1',
+            patient_name: 'Bola Ade',
+            specialist: { id: 'd1', name: 'Dr Ada Obi' },
+            scheduled_at: '2026-12-01T10:00:00Z',
+            expires_at: '2026-11-20T10:00:00Z',
+            type: 'video',
+            type_label: 'Video follow-up',
+            status: 'proposed',
+            status_label: 'Proposed',
+            amount: '0',
+            proposed_by: 'doctor',
+            created_at: '2026-11-01T10:00:00Z',
+          },
+        ];
+        await openWs('followup');
+        await tick();
+        const planner = panel().querySelector('doc-follow-up-planner') as HTMLElement;
+        expect(planner.querySelector('li')?.textContent).toContain('Video follow-up');
+        expect(planner.querySelectorAll('a[target="_blank"], a[href]').length).toBe(0);
+        expect(opened).not.toHaveBeenCalled();
+        opened.mockRestore();
+      });
     });
 
     describe('announcements in the band', () => {

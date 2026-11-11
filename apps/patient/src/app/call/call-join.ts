@@ -163,6 +163,8 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CallControlsComponent, CallSelfTileComponent, CallTilesComponent, IconComponent],
   host: { class: 'block min-h-dvh bg-abyss' },
+  // Always dark and never inside .sd-call: the device lists and the consent checkbox follow it (NP2, tailwind/theme.css).
+  styles: [':host { color-scheme: dark; }'],
   template: `
     <div class="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 p-4">
       <!-- Brand + who -->
@@ -292,9 +294,9 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
                         (change)="pickCamera($any($event.target).value)"
                       >
                         @for (d of cameras(); track d.id) {
-                          <option class="bg-white text-ink" [value]="d.id" [selected]="d.id === cameraId()">{{ d.label }}</option>
+                          <option [value]="d.id" [selected]="d.id === cameraId()">{{ d.label }}</option>
                         } @empty {
-                          <option class="bg-white text-ink" value="">No camera found</option>
+                          <option value="">No camera found</option>
                         }
                       </select>
                     </label>
@@ -306,9 +308,9 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
                         (change)="pickMicrophone($any($event.target).value)"
                       >
                         @for (d of microphones(); track d.id) {
-                          <option class="bg-white text-ink" [value]="d.id" [selected]="d.id === microphoneId()">{{ d.label }}</option>
+                          <option [value]="d.id" [selected]="d.id === microphoneId()">{{ d.label }}</option>
                         } @empty {
-                          <option class="bg-white text-ink" value="">No microphone found</option>
+                          <option value="">No microphone found</option>
                         }
                       </select>
                     </label>

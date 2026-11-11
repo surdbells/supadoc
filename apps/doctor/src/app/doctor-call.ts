@@ -269,6 +269,24 @@ const CHART_TOGGLE =
 const ALERT_BUTTON =
   'inline-flex min-h-11 items-center gap-1.5 rounded-field bg-white/10 px-3 font-sans text-caption font-semibold text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost';
 
+/** Follow-ups field label (Figma "Label": caption, 8px above the box, as doc-lab-select's label). Light: ink (theme.css remaps text-white/85). */
+const CALL_LABEL = 'font-sans text-caption text-white/85';
+/**
+ * A Follow-ups field in the cockpit palette: the Figma select-field box (call-field: 38px, ≥3:1 edge,
+ * AA placeholder), AA text, the ws-ring focus ring. NO `read-only:` variant here: a <select> always
+ * matches :read-only (HTML: only mutable input/textarea and editing hosts are :read-write), so
+ * `read-only:opacity-70` would dim every dropdown permanently. NO `placeholder:` utility: the
+ * placeholder colour is a component rule (call-field), because white/35 is 3.19:1 dark and 3.00:1 light.
+ */
+const CALL_FIELD =
+  'call-field ws-ring min-w-0 rounded-lg border bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white';
+/** …as a native select: block (no line-box slack under it), no UA arrow (the chevron icon is drawn), room for it (8 + 20 + 8 = 36px). Options carry no class (NP1, tailwind/theme.css). */
+const CALL_SELECT = `${CALL_FIELD} block w-full cursor-pointer appearance-none pr-9`;
+/** The 20px chevron, 8px from the right, centred; decorative. */
+const CALL_CHEVRON = 'pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-white/70';
+/** A Follow-ups validation or API error line: AA in both tones (call-error), announced (role="alert" in the markup). */
+const CALL_ERROR = 'call-error font-sans text-caption';
+
 /** Minimal Web Speech API surface (not in lib.dom types). */
 interface SpeechRec {
   continuous: boolean;
@@ -428,6 +446,21 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       .ws-tools-narrow { margin-bottom: 3rem; }
       /* The transcript in the workspace: its box scrolls, its offset is kept (data-ws-keep-scroll). */
       .ws-transcript { max-height: min(24rem, 45dvh); }
+
+      /* Follow-ups fields: the Figma select field's 38px box; a >=3:1 edge in both tones (white/45 over
+         the field's 4% fill: 4.38 on the field, 4.81 on abyss; light #78909c: 3.35 / 3.02); example
+         placeholders at AA (white/60 6.71; slate 5.40). Unlayered: a min-h-* utility here would lose. */
+      .call-field { min-height: 38px; border-color: rgb(255 255 255 / 0.45); }
+      .call-field::placeholder { color: rgb(255 255 255 / 0.6); }
+      :host([data-theme='light']) .call-field { border-color: #78909c; }
+      :host([data-theme='light']) .call-field::placeholder { color: #546e7a; }
+      /* A read-only Care Plan item: no fill, full-contrast text and edge (never opacity). Not a select: it is always :read-only. */
+      .call-field:read-only:not(select) { background-color: transparent; }
+      /* Error lines: 7.94 on abyss; alert-ink 5.92 on the light frame (text-alert is 4.29 / 3.81). */
+      .call-error { color: #ff8a80; }
+      :host([data-theme='light']) .call-error { color: var(--color-alert-ink); }
+      /* "Create referral" / "Issue certificate": the field's height, so each lines up with the field beside it. */
+      .call-row-btn { min-height: 38px; }
     `,
   ],
   template: `
@@ -1491,7 +1524,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   parentStatus="confirmed"
                   [parentScheduledAt]="info()?.scheduled_at ?? ''"
                   [active]="wsOpen() && wsTab() === 'followup'"
-                  [newTab]="true"
+                  [linkRecord]="false"
                 />
               </div>
             </div>
@@ -1523,7 +1556,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             </p>
           }
           <div class="mb-2 flex items-center justify-between">
-            <span class="font-sans text-body-sm font-semibold text-white">Care Plan</span>
+            <h3 class="font-sans text-body-sm font-semibold text-white">Care Plan</h3>
             @if (carePlanSaved()) {
               <span class="font-sans text-caption text-white/45">{{ carePlanSaved() }}</span>
             }
@@ -1555,7 +1588,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 <sd-icon name="circle-check" [size]="16" class="shrink-0 text-sage" />
                 <input
                   placeholder="e.g. Monitor blood pressure daily"
-                  class="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 read-only:opacity-70 focus:border-cerulean focus:outline-none"
+                  class="${CALL_FIELD} flex-1"
+                  [attr.aria-label]="'Care plan item ' + ($index + 1)"
                   [value]="item"
                   [readOnly]="!carePlanEditable()"
                   (input)="updateCareItem($index, $any($event.target).value)"
@@ -1591,47 +1625,59 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
             </div>
             @if (carePlanError() && carePlanLoad() !== 'error') {
-              <p class="font-sans text-caption text-alert">{{ carePlanError() }}</p>
+              <p role="alert" class="${CALL_ERROR}">{{ carePlanError() }}</p>
             }
           </div>
 
           <!-- Referral -->
-          <div id="call-referral" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
-            <p data-ws-focus tabindex="-1" class="mb-2 font-sans text-body-sm font-semibold text-white outline-none">Referral</p>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <select
-                class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
-                [value]="refType()"
-                (change)="refType.set($any($event.target).value)"
-              >
-                <option value="specialist" class="bg-ink">Specialist</option>
-                <option value="hospital" class="bg-ink">Hospital</option>
-                <option value="laboratory" class="bg-ink">Laboratory</option>
-                <option value="imaging" class="bg-ink">Imaging</option>
-              </select>
-              <input placeholder="Target (e.g. Cardiology)"
-                class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
+          <!-- Every field is labelled (Figma select field: label, 8px, then the 38px box); options carry no
+               class (NP1). Two fields share a row only when the section is 28rem wide (its own width, not
+               the viewport's: the PiP gutter narrows the panel). -->
+          <div id="call-referral" class="@container mt-4 scroll-mt-4 border-t border-white/10 pt-3">
+            <h3 data-ws-focus tabindex="-1" class="mb-2 font-sans text-body-sm font-semibold text-white outline-none">Referral</h3>
+            <div class="grid grid-cols-1 gap-x-6 gap-y-3 @md:grid-cols-2">
+              <div class="flex min-w-0 flex-col gap-2">
+                <label for="call-ref-type" class="${CALL_LABEL}">Referral type</label>
+                <div class="relative">
+                  <select id="call-ref-type" class="${CALL_SELECT}" [value]="refType()" (change)="refType.set($any($event.target).value)">
+                    <option value="specialist">Specialist</option>
+                    <option value="hospital">Hospital</option>
+                    <option value="laboratory">Laboratory</option>
+                    <option value="imaging">Imaging</option>
+                  </select>
+                  <sd-icon name="chevron-down" [size]="20" aria-hidden="true" class="${CALL_CHEVRON}" />
+                </div>
+              </div>
+              <div class="flex min-w-0 flex-col gap-2">
+                <label for="call-ref-target" class="${CALL_LABEL}">Refer to <span aria-hidden="true">*</span></label>
+                <input id="call-ref-target" aria-required="true" placeholder="e.g. Cardiology" class="${CALL_FIELD}"
+                  [value]="refTarget()" (input)="refTarget.set($any($event.target).value)" />
+              </div>
             </div>
-            <input placeholder="Reason for referral"
-              class="mt-2 w-full min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-              [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
-            <div class="mt-2 flex items-center gap-2">
-              <select
-                class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-caption text-white focus:border-cerulean focus:outline-none"
-                [value]="refPriority()" (change)="refPriority.set($any($event.target).value)"
-              >
-                <option value="routine" class="bg-ink">Routine</option>
-                <option value="urgent" class="bg-ink">Urgent</option>
-              </select>
+            <div class="mt-3 flex min-w-0 flex-col gap-2">
+              <label for="call-ref-reason" class="${CALL_LABEL}">Reason for referral <span aria-hidden="true">*</span></label>
+              <input id="call-ref-reason" aria-required="true" placeholder="e.g. Persistent chest pain" class="${CALL_FIELD} w-full"
+                [value]="refReason()" (input)="refReason.set($any($event.target).value)" />
+            </div>
+            <div class="mt-3 flex flex-wrap items-end gap-2">
+              <div class="flex w-40 flex-col gap-2">
+                <label for="call-ref-priority" class="${CALL_LABEL}">Priority</label>
+                <div class="relative">
+                  <select id="call-ref-priority" class="${CALL_SELECT}" [value]="refPriority()" (change)="refPriority.set($any($event.target).value)">
+                    <option value="routine">Routine</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                  <sd-icon name="chevron-down" [size]="20" aria-hidden="true" class="${CALL_CHEVRON}" />
+                </div>
+              </div>
               <button type="button"
-                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                class="call-row-btn flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
                 [disabled]="refBusy() || !canDocument()" (click)="createReferral()">
                 <sd-icon name="check" [size]="14" /> {{ refBusy() ? 'Creating…' : 'Create referral' }}
               </button>
             </div>
             @if (refError()) {
-              <p class="mt-1 font-sans text-caption text-alert">{{ refError() }}</p>
+              <p role="alert" class="mt-1 ${CALL_ERROR}">{{ refError() }}</p>
             }
             @if (referrals().length) {
               <ul class="mt-3 flex flex-col gap-2">
@@ -1656,41 +1702,53 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </div>
 
           <!-- Certificate -->
-          <div id="call-certificate" class="mt-4 scroll-mt-4 border-t border-white/10 pt-3">
-            <p data-ws-focus tabindex="-1" class="mb-2 font-sans text-body-sm font-semibold text-white outline-none">Medical Certificate</p>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <select
-                class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none"
-                [value]="certType()" (change)="certType.set($any($event.target).value)"
-              >
-                <option value="sick_leave" class="bg-ink">Sick leave</option>
-                <option value="fitness" class="bg-ink">Fitness / return to work</option>
-                <option value="general" class="bg-ink">General</option>
-              </select>
-              <input placeholder="Diagnosis (optional)"
-                class="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-                [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
+          <div id="call-certificate" class="@container mt-4 scroll-mt-4 border-t border-white/10 pt-3">
+            <h3 data-ws-focus tabindex="-1" class="mb-2 font-sans text-body-sm font-semibold text-white outline-none">Medical Certificate</h3>
+            <div class="grid grid-cols-1 gap-x-6 gap-y-3 @md:grid-cols-2">
+              <div class="flex min-w-0 flex-col gap-2">
+                <label for="call-cert-type" class="${CALL_LABEL}">Certificate type</label>
+                <div class="relative">
+                  <select id="call-cert-type" class="${CALL_SELECT}" [value]="certType()" (change)="certType.set($any($event.target).value)">
+                    <option value="sick_leave">Sick leave</option>
+                    <option value="fitness">Fitness / return to work</option>
+                    <option value="general">General</option>
+                  </select>
+                  <sd-icon name="chevron-down" [size]="20" aria-hidden="true" class="${CALL_CHEVRON}" />
+                </div>
+              </div>
+              <div class="flex min-w-0 flex-col gap-2">
+                <label for="call-cert-diagnosis" class="${CALL_LABEL}">Diagnosis (optional)</label>
+                <input id="call-cert-diagnosis" placeholder="e.g. Acute bronchitis" class="${CALL_FIELD}"
+                  [value]="certDiagnosis()" (input)="certDiagnosis.set($any($event.target).value)" />
+              </div>
             </div>
             @if (certType() === 'sick_leave') {
-              <div class="mt-2 grid grid-cols-2 gap-2">
-                <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">From</span>
-                  <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [min]="certMinFrom()" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
-                <label class="flex flex-col gap-1"><span class="font-sans text-[10px] text-white/45">To</span>
-                  <input type="date" class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white focus:border-cerulean focus:outline-none" [min]="certFrom() || certMinFrom()" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
-              </div>
+              <!-- Named like the portal's form and the error "Set the leave period."; two columns at every width. -->
+              <fieldset class="mt-3">
+                <legend class="${CALL_LABEL}">Leave period <span aria-hidden="true">*</span></legend>
+                <div class="mt-2 grid grid-cols-2 gap-3">
+                  <label class="flex min-w-0 flex-col gap-2"><span class="${CALL_LABEL}">From</span>
+                    <input type="date" aria-required="true" class="${CALL_FIELD}" [min]="certMinFrom()" [value]="certFrom()" (input)="certFrom.set($any($event.target).value)" /></label>
+                  <label class="flex min-w-0 flex-col gap-2"><span class="${CALL_LABEL}">To</span>
+                    <input type="date" aria-required="true" class="${CALL_FIELD}" [min]="certFrom() || certMinFrom()" [value]="certTo()" (input)="certTo.set($any($event.target).value)" /></label>
+                </div>
+              </fieldset>
             }
-            <textarea rows="2" placeholder="Certifying statement (e.g. unfit for work and requires rest)"
-              class="mt-2 w-full resize-y rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-sans text-body-sm text-white placeholder:text-white/35 focus:border-cerulean focus:outline-none"
-              [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
-            <div class="mt-2 flex items-center gap-2">
+            <div class="mt-3 flex min-w-0 flex-col gap-2">
+              <label for="call-cert-statement" class="${CALL_LABEL}">Certifying statement <span aria-hidden="true">*</span></label>
+              <textarea id="call-cert-statement" rows="2" aria-required="true" placeholder="e.g. Unfit for work and requires rest"
+                class="${CALL_FIELD} w-full resize-y"
+                [value]="certStatement()" (input)="certStatement.set($any($event.target).value)"></textarea>
+            </div>
+            <div class="mt-3 flex items-center gap-2">
               <button type="button"
-                class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
+                class="call-row-btn flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark disabled:opacity-50"
                 [disabled]="certBusy() || !canDocument()" (click)="issueCertificate()">
                 <sd-icon name="check" [size]="14" /> {{ certBusy() ? 'Issuing…' : 'Issue certificate' }}
               </button>
             </div>
             @if (certError()) {
-              <p class="mt-1 font-sans text-caption text-alert">{{ certError() }}</p>
+              <p role="alert" class="mt-1 ${CALL_ERROR}">{{ certError() }}</p>
             }
             @if (issuedCerts().length) {
               <ul class="mt-3 flex flex-col gap-2">
@@ -4882,7 +4940,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected async createReferral(): Promise<void> {
     if (!this.appointmentId || !this.portalSignedIn() || this.refBusy()) return;
     if (this.refTarget().trim() === '' || this.refReason().trim() === '') {
-      this.refError.set('Target and reason are required.');
+      this.refError.set('Add who to refer to and the reason for referral.');
       return;
     }
     this.refError.set('');

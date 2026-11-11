@@ -336,6 +336,10 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
                 <div class="flex min-w-0 flex-col gap-1">
                   <span class="font-heading text-body font-semibold text-ink">{{ when(f.scheduled_at) }}</span>
                   <p class="${CLINICAL_META}">
+                    @if (!linkRecord()) {
+                      <!-- In the call there is no record link: the visit type shows here instead (LD6). -->
+                      <span class="inline-flex items-center gap-1"><sd-icon name="video" [size]="13" />{{ f.type_label }}</span>
+                    }
                     <span class="inline-flex items-center gap-1"><sd-icon name="banknote" [size]="13" />{{ priceLabel(f) }}</span>
                     @if (s.open) {
                       <span class="inline-flex items-center gap-1"><sd-icon name="hourglass" [size]="13" />Patient can reply until {{ when(f.expires_at) }}</span>
@@ -350,31 +354,32 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
               @if (f.follow_up_note) {
                 <p class="whitespace-pre-wrap break-words font-sans text-body-sm text-ink"><span class="font-semibold text-slate">Your note:</span> {{ f.follow_up_note }}</p>
               }
+              @if (!linkRecord() && f.notes) {
+                <!-- The record page's own label for the patient's reason (LD6: shown here, since the call has no link to it). -->
+                <p class="whitespace-pre-wrap break-words font-sans text-body-sm text-ink"><span class="font-semibold text-slate">Reason for consultation:</span> {{ f.notes }}</p>
+              }
               @if (f.decline_reason) {
                 <p class="whitespace-pre-wrap break-words font-sans text-body-sm text-ink"><span class="font-semibold text-slate">Patient's reason:</span> {{ f.decline_reason }}</p>
               }
-              <div class="flex flex-wrap gap-2">
-                <a
-                  [routerLink]="['/appointments', f.id]"
-                  [target]="newTab() ? '_blank' : '_self'"
-                  [attr.rel]="newTab() ? 'noopener' : null"
-                  class="${CLINICAL_LINK_BUTTON} min-h-11"
-                >
-                  Open record
-                  @if (newTab()) { <sd-icon name="external-link" [size]="14" /><span class="sr-only">(opens in a new tab)</span> }
-                  @else { <sd-icon name="chevron-right" [size]="14" /> }
-                </a>
-                @if (s.open && confirmId() !== f.id) {
-                  <button
-                    type="button"
-                    [id]="uid + '-withdraw-' + f.id"
-                    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-3 py-2 font-sans text-[14px] font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
-                    (click)="askWithdraw(f)"
-                  >
-                    <sd-icon name="undo-2" [size]="16" />Withdraw
-                  </button>
-                }
-              </div>
+              @if (linkRecord() || (s.open && confirmId() !== f.id)) {
+                <div class="flex flex-wrap gap-2">
+                  @if (linkRecord()) {
+                    <a [routerLink]="['/appointments', f.id]" class="${CLINICAL_LINK_BUTTON} min-h-11">
+                      Open record <sd-icon name="chevron-right" [size]="14" />
+                    </a>
+                  }
+                  @if (s.open && confirmId() !== f.id) {
+                    <button
+                      type="button"
+                      [id]="uid + '-withdraw-' + f.id"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-3 py-2 font-sans text-[14px] font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
+                      (click)="askWithdraw(f)"
+                    >
+                      <sd-icon name="undo-2" [size]="16" />Withdraw
+                    </button>
+                  }
+                </div>
+              }
               @if (confirmId() === f.id) {
                 <div
                   class="flex flex-col gap-3 rounded-field border border-cloud bg-glacier p-3"
@@ -427,8 +432,11 @@ export class FollowUpPlanner {
   readonly parentScheduledAt = input('');
   /** On screen. The call keeps this mounted while hidden, and it refreshes each time it shows again. */
   readonly active = input(true);
-  /** Open follow-up records in a new tab (the call cockpit must never navigate away). */
-  readonly newTab = input(false);
+  /**
+   * Show "Open record" on each row (same tab). The call passes false: nothing in a call opens a tab
+   * or navigates (LD6), so each row shows the visit type and the reason for consultation instead.
+   */
+  readonly linkRecord = input(true);
 
   protected readonly uid = `follow-up-${++nextUid}`;
   protected readonly maxNote = MAX_NOTE;

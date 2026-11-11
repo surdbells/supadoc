@@ -132,6 +132,7 @@ const FOCUSABLE =
       --sd-dialog-info-text: #0b62e4;
       --sd-dialog-success-soft: rgb(0 163 40 / 0.12);
       --sd-dialog-success-text: #00792a;
+      color-scheme: light;
 
       box-sizing: border-box;
       /* The UA's :modal placement, kept while the closed dialog animates out. */
