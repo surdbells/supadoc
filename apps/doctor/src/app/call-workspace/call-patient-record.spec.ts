@@ -51,6 +51,8 @@ describe('CallPatientRecord (the Full EMR)', () => {
   let patient: ReturnType<typeof vi.fn>;
   let answer: () => Observable<{ data: DoctorPatientRecordDto }>;
   let goTo: WorkspaceTab[];
+  let writePrescription: number;
+  let newLabRequest: number;
   let getNote: ReturnType<typeof vi.fn>;
   let allPrescriptions: ReturnType<typeof vi.fn>;
 
@@ -92,6 +94,10 @@ describe('CallPatientRecord (the Full EMR)', () => {
     fixture = TestBed.createComponent(CallPatientRecord);
     goTo = [];
     fixture.componentInstance.goTo.subscribe((t) => goTo.push(t));
+    writePrescription = 0;
+    newLabRequest = 0;
+    fixture.componentInstance.writePrescription.subscribe(() => writePrescription++);
+    fixture.componentInstance.newLabRequest.subscribe(() => newLabRequest++);
     for (const [k, v] of Object.entries(inputs)) fixture.componentRef.setInput(k, v);
     el = fixture.nativeElement;
     document.body.appendChild(el);
@@ -261,11 +267,15 @@ describe('CallPatientRecord (the Full EMR)', () => {
       expect(document.activeElement).toBe(tab('history'));
     });
 
-    it('"Write prescription" and "New lab request" emit goTo; no link anywhere', () => {
+    it('"Write prescription" and "New lab request" ask the host to open their composers (no goTo); no link anywhere', () => {
       setup();
       byText('Write prescription')?.click();
+      expect(writePrescription).toBe(1);
+      expect(newLabRequest).toBe(0);
       byText('New lab request')?.click();
-      expect(goTo).toEqual(['prescriptions', 'labs']);
+      expect(newLabRequest).toBe(1);
+      expect(writePrescription).toBe(1);
+      expect(goTo).toEqual([]);
       expect(el.querySelector('a')).toBeNull();
     });
 

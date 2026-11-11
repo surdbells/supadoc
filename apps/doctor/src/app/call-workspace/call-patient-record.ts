@@ -156,10 +156,10 @@ const CHIP = 'inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-sans 
               </dl>
             </div>
             <div class="flex w-full flex-col gap-2 border-t border-cloud pt-4 lg:w-64 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-              <button type="button" class="${PRIMARY_ACTION}" (click)="goTo.emit('prescriptions')">
+              <button type="button" class="${PRIMARY_ACTION}" (click)="writePrescription.emit()">
                 <sd-icon name="pill" [size]="18" /> Write prescription
               </button>
-              <button type="button" class="${SECONDARY_ACTION}" (click)="goTo.emit('labs')">
+              <button type="button" class="${SECONDARY_ACTION}" (click)="newLabRequest.emit()">
                 <sd-icon name="microscope" [size]="18" /> New lab request
               </button>
               @if (latestVisit(); as v) {
@@ -304,7 +304,12 @@ export class CallPatientRecord {
   readonly patientError = input('');
   /** No patient id, and the consultation's details never loaded: nothing can find it. */
   readonly detailsFailed = input(false);
+  /** The visit summary's jumps to another tab. */
   readonly goTo = output<WorkspaceTab>();
+  /** "Write prescription": the host opens the prescription composer (one being written is kept). */
+  readonly writePrescription = output<void>();
+  /** "New lab request": the host opens the lab request composer (one being written is kept). */
+  readonly newLabRequest = output<void>();
   readonly signIn = output<void>();
   readonly openDocument = output<{ readonly doc: DoctorSharedDocumentDto; readonly opener: HTMLElement | null }>();
   readonly retryDocuments = output<void>();

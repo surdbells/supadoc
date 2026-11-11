@@ -1,3 +1,4 @@
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { DoctorApi, PrescriptionsApi } from '@supadoc/data-access';
@@ -8,7 +9,7 @@ import type {
 } from '@supadoc/models';
 import { provideSupadocIcons } from '@supadoc/ui';
 import { DocumentViewerService, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
-import { firstValueFrom, Observable, of, throwError } from 'rxjs';
+import { firstValueFrom, Observable, of, Subject, throwError } from 'rxjs';
 import { RxComposer } from './rx-composer';
 import { RxFiles } from './rx-files';
 import { RX_PREGNANCY_LABELS, RX_SOURCE_LABELS, RX_FOLLOW_UP_LABELS } from './rx-shared';
@@ -131,6 +132,85 @@ function setup(opts: {
 }
 
 describe('RxComposer', () => {
+  describe('the title, and focusTitleOnReady (the call’s Full EMR "Write prescription")', () => {
+    const ready = new Subject<unknown>();
+    function mount(focusTitle: boolean | null, options?: () => Observable<unknown>) {
+      TestBed.configureTestingModule({
+        imports: [RxComposer],
+        providers: [
+          provideRouter([]),
+          provideSupadocIcons(),
+          { provide: RxFiles, useValue: {} },
+          {
+            provide: DoctorApi,
+            useValue: {
+              prescriptionOptions: options ?? (() => of({ data: OPTIONS })),
+              clinicalSummary: () => of({ data: summary() }),
+              searchDrugs: () => of({ data: [] }),
+            },
+          },
+        ],
+      });
+      const fixture = TestBed.createComponent(RxComposer);
+      fixture.componentRef.setInput('patientId', 'p1');
+      fixture.componentRef.setInput('appointmentId', 'a1');
+      if (focusTitle !== null) fixture.componentRef.setInput('focusTitleOnReady', focusTitle);
+      document.body.appendChild(fixture.nativeElement);
+      return fixture;
+    }
+    const render = async (fixture: ReturnType<typeof mount>) => {
+      fixture.detectChanges();
+      TestBed.inject(ApplicationRef).tick();
+      await fixture.whenStable();
+    };
+    afterEach(() => document.querySelectorAll('doc-rx-composer, #outside').forEach((n) => n.remove()));
+
+    it('the title is #rx-compose-title, focusable by script only', async () => {
+      const fixture = mount(null);
+      await render(fixture);
+      const title = (fixture.nativeElement as HTMLElement).querySelector('h2');
+      expect(title?.id).toBe('rx-compose-title');
+      expect(title?.getAttribute('tabindex')).toBe('-1');
+      expect(title?.textContent?.trim()).toBe('New prescription');
+    });
+
+    it('true: focused once the form has loaded (focus was on the page), and only once', async () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const fixture = mount(true, () => ready);
+      await render(fixture);
+      expect(document.getElementById('rx-compose-title')).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+      ready.next({ data: OPTIONS });
+      ready.complete();
+      await render(fixture);
+      await render(fixture);
+      const title = document.getElementById('rx-compose-title');
+      expect(document.activeElement).toBe(title);
+      title?.blur();
+      await render(fixture);
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('true, but the doctor moved on meanwhile (focus elsewhere): not focused', async () => {
+      const outside = document.createElement('button');
+      outside.id = 'outside';
+      document.body.appendChild(outside);
+      outside.focus();
+      const fixture = mount(true);
+      await render(fixture);
+      await render(fixture);
+      expect(document.activeElement).toBe(outside);
+    });
+
+    it('without the input (the standalone pages): nothing is focused', async () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const fixture = mount(null);
+      await render(fixture);
+      await render(fixture);
+      expect(document.activeElement).toBe(document.body);
+    });
+  });
+
   it('warns up front when the patient has no date of birth on file', async () => {
     const { fixture, text } = setup({ summary: summary({}, null) });
     await fixture.whenStable();

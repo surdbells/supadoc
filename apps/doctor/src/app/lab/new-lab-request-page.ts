@@ -2,26 +2,17 @@ import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { type CanLeave, StaffAuthService } from '@supadoc/auth';
-import { apiErrorCode, apiErrorFields, LabRequestsApi } from '@supadoc/data-access';
+import { LabRequestsApi } from '@supadoc/data-access';
 import type { LabOptionsDto, LabPatientPickDto, LabRequestContextDto, LabRequestDto } from '@supadoc/models';
-import { DialogService, EmptyStateComponent, IconComponent, type LeaveCopy, warnBeforeUnload } from '@supadoc/ui';
+import { DialogService, EmptyStateComponent, IconComponent, warnBeforeUnload } from '@supadoc/ui';
 import { catchError, forkJoin, map, type Observable, of, type Subscription } from 'rxjs';
-import { LabComposer, NOT_CONSULTED } from './lab-composer';
+import { LabComposer, labOpenRefusal, OPEN_ERROR, UNSAVED_LAB_LEAVE } from './lab-composer';
 import { LabPatientPicker } from './lab-patient-picker';
 import { LabSentDialog } from './lab-sent-dialog';
-import { firstName, httpStatusOf } from './lab-ui';
+import { firstName } from './lab-ui';
 
-/** "Leave without sending?" for a lab request with unsent selections. */
-export const UNSAVED_LAB_LEAVE: LeaveCopy = {
-  tone: 'warning',
-  title: 'Leave this request?',
-  message: 'Nothing has been sent. If you leave now, your selections will be lost.',
-  confirmLabel: 'Leave without sending',
-  cancelLabel: 'Keep editing',
-};
-
-const OPEN_ERROR = "Couldn't open the request form. Please try again.";
-const OTHER_PATIENT = 'This consultation is with another patient.';
+/** "Leave without sending?" (now shared with the call's composer; kept exported here for the page's importers). */
+export { UNSAVED_LAB_LEAVE } from './lab-composer';
 
 interface Ready {
   readonly context: LabRequestContextDto;
@@ -216,10 +207,8 @@ export class NewLabRequestPage implements CanLeave {
         });
       },
       error: (err: unknown) => {
-        const unprocessable = httpStatusOf(err) === 422;
-        const appointment = apiErrorFields(err)['appointment_id'];
-        if (unprocessable && apiErrorCode(err) === 'not_consulted') this.refusal.set(NOT_CONSULTED);
-        else if (unprocessable && appointment) this.refusal.set(appointment || OTHER_PATIENT);
+        const refusal = labOpenRefusal(err);
+        if (refusal) this.refusal.set(refusal);
         else this.error.set(OPEN_ERROR);
       },
     });

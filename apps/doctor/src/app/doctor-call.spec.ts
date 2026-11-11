@@ -20,6 +20,10 @@ import { NoteDraftStore } from './appointment/note-draft';
 import { WS_EMR_NO_DETAILS, WS_RECORD_SHOWN, wsShareBanner } from './call-workspace/call-workspace-copy';
 import { DoctorCall } from './doctor-call';
 import { RxPanel } from './prescriptions/rx-panel';
+import { RxComposer } from './prescriptions/rx-composer';
+import { CallLabComposer } from './lab/call-lab-composer';
+import { UNSAVED_LAB_LEAVE } from './lab/lab-composer';
+import { labContext, labOptions, labRequest } from './lab/testing/lab-fixtures';
 
 /** Agora, faked: a client that joins and keeps its event handlers (the nudge arrives on 'stream-message'). */
 const agora = vi.hoisted(() => {
@@ -198,7 +202,8 @@ function fakeViewer() {
   return viewer;
 }
 
-describe('DoctorCall — documents in the call', () => {
+// A first test compiles the whole component tree (JIT): beyond the 5 s default on a busy machine.
+describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
   let fixture: ComponentFixture<DoctorCall>;
   let call: CallInternals;
   let el: HTMLElement;
@@ -293,8 +298,18 @@ describe('DoctorCall — documents in the call', () => {
             documentPdf: () => of(new Blob(['x'])),
           },
         },
-        // The Lab requests tab lists this consultation's requests.
-        { provide: LabRequestsApi, useValue: { list: () => of({ data: [] }) } },
+        // The Lab requests tab lists this consultation's requests, and composes and opens them in place.
+        {
+          provide: LabRequestsApi,
+          useValue: {
+            list: () => of({ data: [] }),
+            options: () => of({ data: labOptions() }),
+            context: () => of({ data: labContext() }),
+            create: () => of({ data: labRequest({ id: 'new1', number: 'GVM-REQ-20261105-00001' }) }),
+            get: (id: string) => of({ data: labRequest({ id }) }),
+            cancel: () => NEVER,
+          },
+        },
         { provide: SessionTimeoutService, useValue: session },
         { provide: NoteDraftStore, useValue: { take: () => null, clear: () => undefined, save: () => true } },
         {
@@ -1069,6 +1084,9 @@ describe('DoctorCall — documents in the call', () => {
         referrals: WritableSignal<unknown[]>;
         docAlert: WritableSignal<unknown>;
         sortedDocs(): DoctorSharedDocumentDto[];
+        endOpen: WritableSignal<boolean>;
+        openRxComposer(): void;
+        selectWorkspaceTab(key: string, targetId?: string): void;
       };
     const patientJoins = async (track = fakeTrack('v1')) => {
       client().remoteUsers = [{ uid: 1, videoTrack: track }];
@@ -1716,6 +1734,222 @@ describe('DoctorCall — documents in the call', () => {
       await tick();
       expect(list).toHaveBeenCalledTimes(2);
       expect(list.mock.calls[1]?.[1]).toEqual({ passive: true });
+    });
+
+    describe('lab requests in the workspace (item 2) and the Full EMR’s composers (LD3)', () => {
+      const labComposer = () => fixture.debugElement.query(By.directive(CallLabComposer))?.componentInstance as CallLabComposer | undefined;
+      const labField = () => document.getElementById('lab-question') as HTMLInputElement | null;
+      const typeIn = async (field: HTMLInputElement | HTMLTextAreaElement | null, value: string) => {
+        if (!field) throw new Error('no field');
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+        await tick();
+      };
+      const newLabRequest = async () => {
+        await openWs('labs');
+        el.querySelector<HTMLButtonElement>('#call-lab-new button')?.click();
+        await tick();
+        await tick();
+      };
+      const emrButton = (label: string) => Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-record button')).find((b) => b.textContent?.trim() === label);
+      const toEmr = async () => {
+        el.querySelector<HTMLButtonElement>('#ws-tab-record')?.click();
+        await tick();
+        await tick();
+      };
+      const fillValid = async () => {
+        document.getElementById('lab-quick')?.click();
+        await tick();
+        Array.from(document.querySelectorAll<HTMLElement>('#lab-quick-listbox [role="option"]')).find((o) => o.textContent?.trim() === 'FBC')?.click();
+        await tick();
+        await typeIn(labField(), 'Suspected iron-deficiency anaemia');
+      };
+      const openPreview = async () => {
+        document.getElementById('lab-preview-button')?.click();
+        await tick();
+        await tick();
+      };
+      const openDialogs = () => Array.from(el.querySelectorAll<HTMLDialogElement>('#ws-panel-labs dialog')).filter((d) => d.open);
+
+      it('a lab request in progress: closing asks nothing, the launcher and the tab say "Not sent", the same composer comes back; End and canLeave ask once', async () => {
+        const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+        const confirmLeave = vi.fn<(copy?: unknown) => Promise<boolean>>(async () => true);
+        await setup([doc('a')]);
+        TestBed.inject(DialogService).confirmLeave = confirmLeave as never;
+        await newLabRequest();
+        expect(el.querySelector('#ws-panel-labs .sd-rx-zone doc-call-lab-requests doc-call-lab-composer')).not.toBeNull();
+        expect(document.activeElement?.id).toBe('call-lab-compose-title');
+        const instance = labComposer();
+        await typeIn(labField(), 'Fatigue for 3 weeks');
+        expect(el.querySelector('#ws-tab-labs')?.textContent).toContain(', not sent');
+        expect(el.querySelector('#ws-tab-labs .ws-flag-unsaved')).not.toBeNull();
+        await closeIt();
+        expect(confirmLeave).not.toHaveBeenCalled();
+        expect(internals().wsOpen()).toBe(false);
+        expect(launcher('labs')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Lab requests, Not sent — lab request in progress');
+        await openWs('labs');
+        expect(labComposer()).toBe(instance);
+        expect(labField()?.value).toBe('Fatigue for 3 weeks');
+        await closeIt();
+        await call.askEnd();
+        expect(confirmLeave).toHaveBeenCalledTimes(1);
+        expect(confirmLeave).toHaveBeenLastCalledWith(UNSAVED_LAB_LEAVE);
+        internals().endOpen.set(false);
+        await tick();
+        await internals().canLeave();
+        expect(confirmLeave).toHaveBeenCalledTimes(2);
+        expect(confirmLeave.mock.calls[1]?.[0]).toMatchObject({ title: 'Leave the call with an unsent lab request?', confirmLabel: 'Leave without sending' });
+        expect(opened).not.toHaveBeenCalled();
+        opened.mockRestore();
+      });
+
+      it('sent, or closed: the tab mark and the launcher status go', async () => {
+        const confirmLeave = vi.fn<(copy?: unknown) => Promise<boolean>>(async () => true);
+        await setup([doc('a')]);
+        TestBed.inject(DialogService).confirmLeave = confirmLeave as never;
+        await newLabRequest();
+        await typeIn(labField(), 'Fatigue');
+        expect(el.querySelector('#ws-tab-labs')?.textContent).toContain(', not sent');
+        Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-labs button')).find((b) => b.textContent?.trim() === 'Cancel')?.click();
+        await tick();
+        await tick();
+        expect(confirmLeave).toHaveBeenCalledTimes(1);
+        expect(el.querySelector('#ws-tab-labs')?.textContent).not.toContain(', not sent');
+        expect(launcher('labs')?.textContent).not.toContain('Not sent');
+      });
+
+      it('a prescription and a lab request both unsaved: canLeave asks exactly once, naming both', async () => {
+        const confirmLeave = vi.fn<(copy?: unknown) => Promise<boolean>>(async () => false);
+        await setup([doc('a')]);
+        TestBed.inject(DialogService).confirmLeave = confirmLeave as never;
+        await openWs('prescriptions');
+        Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-prescriptions button')).find((b) => b.textContent?.includes('New prescription'))?.click();
+        await tick();
+        await tick();
+        await typeIn(el.querySelector<HTMLTextAreaElement>('#ws-panel-prescriptions doc-rx-composer textarea'), 'Asthma flare');
+        await newLabRequest();
+        await typeIn(labField(), 'Fatigue');
+        expect(await internals().canLeave()).toBe(false);
+        expect(confirmLeave).toHaveBeenCalledTimes(1);
+        expect(confirmLeave.mock.calls[0]?.[0]).toMatchObject({ title: 'Leave the call with unsaved work?', confirmLabel: 'Leave anyway', cancelLabel: 'Stay in the call' });
+      });
+
+      it('a lab request on its way: Leave stays without a prompt, End opens nothing; its preview dialog keeps the workspace open', async () => {
+        const confirmLeave = vi.fn<(copy?: unknown) => Promise<boolean>>(async () => true);
+        await setup([doc('a')]);
+        TestBed.inject(DialogService).confirmLeave = confirmLeave as never;
+        const reply = new Subject<unknown>();
+        TestBed.inject(LabRequestsApi).create = (() => reply) as never;
+        await newLabRequest();
+        await fillValid();
+        await openPreview();
+        expect(openDialogs().length).toBe(1);
+        // A nested dialog: neither Esc's close nor the band's Back to call closes the workspace.
+        internals().closeWorkspace();
+        await tick();
+        internals().backToCall();
+        await tick();
+        expect(internals().wsOpen()).toBe(true);
+        (document.getElementById('lab-attest') as HTMLInputElement | null)?.click();
+        await tick();
+        Array.from(openDialogs()[0]?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((b) => b.textContent?.trim() === 'Send to Patient')?.click();
+        await tick();
+        expect(labComposer()?.sending()).toBe(true);
+        expect(await internals().canLeave()).toBe(false);
+        await call.askEnd();
+        expect(internals().endOpen()).toBe(false);
+        expect(confirmLeave).not.toHaveBeenCalled();
+        reply.complete();
+      });
+
+      it('the Full EMR’s "New lab request": the composer on the Lab requests tab, focus on its title; again with a draft, the same one, focus on the tab', async () => {
+        await setup([doc('a')]);
+        await openWs('record');
+        await tick();
+        emrButton('New lab request')?.click();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('labs');
+        expect(labComposer()).toBeDefined();
+        expect(document.activeElement?.id).toBe('call-lab-compose-title');
+        const instance = labComposer();
+        await typeIn(labField(), 'Fatigue');
+        await toEmr();
+        emrButton('New lab request')?.click();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('labs');
+        expect(labComposer()).toBe(instance);
+        expect(labField()?.value).toBe('Fatigue');
+        expect(document.activeElement?.id).toBe('ws-tab-labs');
+      });
+
+      it('signed out: composing keeps the zone with the banner above it; not composing, the placeholder and the zone hidden; the tab stays mounted', async () => {
+        await setup([doc('a')]);
+        await newLabRequest();
+        signedIn.set(false);
+        await tick();
+        const panel = () => el.querySelector<HTMLElement>('#ws-panel-labs');
+        const zone = () => panel()?.querySelector<HTMLElement>('.sd-rx-zone');
+        expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain('Your lab request is kept here');
+        expect(zone()?.hidden).toBe(false);
+        expect(labComposer()).toBeDefined();
+        panel()?.querySelector<HTMLButtonElement>('[aria-label="Back to lab requests"]')?.click();
+        await tick();
+        await tick();
+        expect(labComposer()).toBeUndefined();
+        expect(zone()?.hidden).toBe(true);
+        expect(panel()?.textContent).toContain('Sign in to the doctor portal to request lab tests');
+        expect(panel()?.querySelector('doc-call-lab-requests')).not.toBeNull();
+        expect(document.activeElement?.id).toBe('ws-tab-labs');
+      });
+
+      it('(LD3) the Full EMR’s "Write prescription": a new prescription, focus on its title; again with one being written, the same composer, focus on the tab', async () => {
+        const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+        await setup([doc('a')]);
+        const path = location.pathname;
+        await openWs('record');
+        await tick();
+        emrButton('Write prescription')?.click();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('prescriptions');
+        const composer = fixture.debugElement.query(By.directive(RxComposer))?.componentInstance;
+        expect(composer).toBeDefined();
+        expect(document.activeElement?.id).toBe('rx-compose-title');
+        await typeIn(el.querySelector<HTMLTextAreaElement>('#ws-panel-prescriptions doc-rx-composer textarea'), 'Asthma flare');
+        await toEmr();
+        emrButton('Write prescription')?.click();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('prescriptions');
+        expect(fixture.debugElement.queryAll(By.directive(RxComposer)).length).toBe(1);
+        expect(fixture.debugElement.query(By.directive(RxComposer))?.componentInstance).toBe(composer);
+        expect(el.querySelector<HTMLTextAreaElement>('#ws-panel-prescriptions doc-rx-composer textarea')?.value).toBe('Asthma flare');
+        expect(document.activeElement?.id).toBe('ws-tab-prescriptions');
+        expect(opened).not.toHaveBeenCalled();
+        expect(location.pathname).toBe(path);
+        opened.mockRestore();
+      });
+
+      it('(LD3) signed out: no composer, the placeholder, focus on the tab; signing in later opens nothing', async () => {
+        await setup([doc('a')]);
+        await openWs('notes');
+        signedIn.set(false);
+        await tick();
+        internals().openRxComposer();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('prescriptions');
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer')).toBeNull();
+        expect(el.querySelector('#ws-panel-prescriptions')?.textContent).toContain('Sign in to the doctor portal to write prescriptions');
+        expect(document.activeElement?.id).toBe('ws-tab-prescriptions');
+        signedIn.set(true);
+        await tick();
+        await tick();
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-panel')).not.toBeNull();
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer')).toBeNull();
+      });
     });
 
     it('the Full EMR’s Documents ignore the cockpit’s filter', async () => {

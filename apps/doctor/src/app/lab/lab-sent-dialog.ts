@@ -68,7 +68,7 @@ const KINDS = [
               class="sd-btn rounded-field bg-cerulean px-4 font-sans text-body-sm font-medium text-white transition-colors hover:bg-cerulean-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
               (click)="back.emit()"
             >
-              Back to Laboratory &amp; Diagnostics
+              {{ backLabel() }}
             </button>
           </div>
         </div>
@@ -81,9 +81,11 @@ export class LabSentDialog {
 
   readonly open = input(false);
   readonly request = input<LabRequestDto | null>(null);
+  /** The second button's words (the call says where it goes back to). */
+  readonly backLabel = input('Back to Laboratory & Diagnostics');
   /** "+ New Request". */
   readonly newRequest = output<void>();
-  /** "Back to Laboratory & Diagnostics" (also Esc). */
+  /** "Back to Laboratory & Diagnostics" (or the given `backLabel`; also Esc). */
   readonly back = output<void>();
 
   protected readonly priority = computed(() => {

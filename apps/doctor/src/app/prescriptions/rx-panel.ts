@@ -71,6 +71,7 @@ import { DoctorClock } from '../doctor-clock';
         [prescriptionId]="composerId()"
         [compact]="compact()"
         [disabled]="disabled()"
+        [focusTitleOnReady]="focusTitle()"
         (saved)="onSaved()"
         (sent)="onSent()"
         (closed)="closeComposer()"
@@ -241,6 +242,13 @@ export class RxPanel implements CanLeave {
    * so nothing is lost; actions come back once this turns false again.
    */
   readonly disabled = input(false);
+  /**
+   * Bumped by a host to open a new prescription (the call's Full EMR "Write
+   * prescription"): the composer opens and its title takes focus once the form
+   * is ready. A prescription already being written is kept as it is; a request
+   * while paused is dropped, never replayed. 0 = never asked.
+   */
+  readonly composeRequest = input(0);
 
   /** Something was saved, sent, cancelled or deleted. */
   readonly changed = output<void>();
@@ -252,6 +260,11 @@ export class RxPanel implements CanLeave {
   protected readonly notice = signal('');
   protected readonly busy = signal('');
   protected readonly composing = signal(false);
+  /** The composer is open (new, or a draft being edited). */
+  readonly composerOpen = this.composing.asReadonly();
+  /** Only a host's compose request moves focus to the composer's title (the list's own buttons keep today's focus). */
+  protected readonly focusTitle = signal(false);
+  private handledCompose = 0;
   protected readonly composerId = signal<string | null>(null);
   protected readonly cancelFor = signal<string | null>(null);
   protected readonly emptyText = computed(() =>
@@ -270,6 +283,16 @@ export class RxPanel implements CanLeave {
       // Paused (e.g. signed out): reload once actions come back.
       if (this.disabled()) return;
       untracked(() => this.refresh());
+    });
+    effect(() => {
+      const n = this.composeRequest();
+      untracked(() => {
+        if (n <= this.handledCompose) return;
+        this.handledCompose = n;
+        if (this.composing() || this.disabled()) return;
+        this.openComposer(null);
+        this.focusTitle.set(true);
+      });
     });
     this.destroyRef.onDestroy(() => this.sub?.unsubscribe());
   }
@@ -327,6 +350,7 @@ export class RxPanel implements CanLeave {
 
   protected openComposer(id: string | null): void {
     if (this.disabled()) return;
+    this.focusTitle.set(false);
     this.actionError.set('');
     this.notice.set('');
     this.cancelFor.set(null);
@@ -336,6 +360,7 @@ export class RxPanel implements CanLeave {
 
   protected closeComposer(): void {
     this.composing.set(false);
+    this.focusTitle.set(false);
     this.composerId.set(null);
     if (!this.disabled()) this.refresh();
   }
@@ -347,6 +372,7 @@ export class RxPanel implements CanLeave {
 
   protected onSent(): void {
     this.composing.set(false);
+    this.focusTitle.set(false);
     this.composerId.set(null);
     this.notice.set('Sent — the patient has been notified.');
     this.refresh();

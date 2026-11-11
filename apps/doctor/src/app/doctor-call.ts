@@ -125,6 +125,7 @@ import {
 import { FollowUpPlanner } from './appointment/follow-up-planner';
 import { RequestAccessDialog } from './appointment/request-access-dialog';
 import { draftIsNewer, type NoteDraftPayload, NoteDraftStore } from './appointment/note-draft';
+import { discardDraftsCopy, leaveCallCopy } from './call-workspace/call-leave-copy';
 import { CallPatientRecord } from './call-workspace/call-patient-record';
 import {
   STANDING_REFUSED,
@@ -136,6 +137,7 @@ import {
   WS_STATUS,
   WS_TAB_LIVE,
   WS_TAB_UNSAVED,
+  WS_TAB_UNSENT,
   WS_TABS,
   WS_TOOLS_HINT,
   type WorkspaceTab,
@@ -146,7 +148,6 @@ import { DoctorClock } from './doctor-clock';
 import { focusAfterDialogs } from './focus-after-dialog';
 import { CallLabRequests } from './lab/call-lab-requests';
 import { RxPanel } from './prescriptions/rx-panel';
-import { UNSAVED_RX_LEAVE } from './prescriptions/rx-shared';
 import {
   certificatePrompt,
   finalizeNotePrompt,
@@ -1396,6 +1397,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                   [appointmentId]="rxAppointmentId()"
                   [compact]="ws.narrow()"
                   [disabled]="!portalSignedIn()"
+                  [composeRequest]="rxComposeSeq()"
                 />
               </div>
             </div>
@@ -1404,16 +1406,62 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       }
       @if (wsSeen().has('labs')) {
         <div sdWsPanel="labs">
-          <!-- "New lab request" opens the composer in a new tab, so this call stays connected. -->
-          <doc-call-lab-requests
-            [appointmentId]="rxAppointmentId()"
-            [patientId]="rxPatientId()"
-            [signedIn]="portalSignedIn()"
-            [tone]="theme()"
-            [narrow]="layout() === 'narrow'"
-            [watermark]="watermark()"
-            [active]="wsOpen() && wsTab() === 'labs'"
-          />
+          @if (!portalSignedIn()) {
+            @if (labComposing()) {
+              <div class="mb-3 flex flex-col gap-2 rounded-2xl bg-warning/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                <span class="flex items-start gap-2 font-sans text-caption text-warning">
+                  <sd-icon name="lock" [size]="14" class="mt-0.5 shrink-0" />
+                  <span>
+                    You are signed out of the doctor portal. Your lab request is kept here —
+                    sign in again in a new tab (this call keeps going), then come back to send it.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  class="flex w-fit shrink-0 items-center gap-1.5 rounded-field bg-cerulean px-3 py-1.5 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                  (click)="openPortalSignIn()"
+                >
+                  <sd-icon name="external-link" [size]="14" /> Sign in again
+                </button>
+              </div>
+            } @else {
+              <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
+                <span class="flex size-14 items-center justify-center rounded-full bg-white/[0.06] text-frost">
+                  <sd-icon name="lock" [size]="24" />
+                </span>
+                <p class="max-w-sm font-sans text-body-sm font-semibold text-white">
+                  Sign in to the doctor portal to request lab tests
+                </p>
+                <p class="max-w-sm font-sans text-caption text-white/50">
+                  The sign-in page opens in a new tab, so this call keeps going. Come back to this tab when you have signed in.
+                </p>
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 rounded-field bg-cerulean px-4 py-2 font-sans text-caption font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                  (click)="openPortalSignIn()"
+                >
+                  <sd-icon name="external-link" [size]="14" /> Sign in to the doctor portal
+                </button>
+              </div>
+            }
+          }
+          <!-- Light "paper" surface, as Prescriptions: the list, the composer (in place, never a new
+               tab), its dialogs and the drill-in use the portal palette. Mounted for the rest of the
+               call once shown; hidden (never destroyed) while signed out without a request in progress. -->
+          <div class="sd-rx-zone rounded-card bg-glacier p-3 text-ink sm:p-4" [hidden]="!portalSignedIn() && !labComposing()">
+            <doc-call-lab-requests
+              [appointmentId]="rxAppointmentId()"
+              [patientId]="rxPatientId() ?? null"
+              [patientError]="rxPatientError()"
+              [detailsFailed]="status() === 'error' && !info()"
+              [signedIn]="portalSignedIn()"
+              [watermark]="watermark()"
+              [sharing]="screenOn()"
+              [active]="wsOpen() && wsTab() === 'labs'"
+              [composeRequest]="labComposeSeq()"
+              (retryPatient)="retryRxPatient()"
+            />
+          </div>
         </div>
       }
       @if (wsSeen().has('followup')) {
@@ -1803,6 +1851,8 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               (retryDocuments)="retryDocumentAccess()"
               (retryPatient)="retryRxPatient()"
               (goTo)="selectWorkspaceTab($event)"
+              (writePrescription)="openRxComposer()"
+              (newLabRequest)="openLabComposer()"
               (signIn)="openPortalSignIn()"
             />
           </div>
@@ -2503,9 +2553,10 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly wsKicker = WS_KICKER;
   protected readonly wsClose = WS_CLOSE;
   protected readonly wsShareText = computed(() => wsShareBanner(this.recordingActive()));
-  /** The tabs' marks: a warning dot while the prescription has unsaved changes, a live dot while transcribing. */
+  /** The tabs' marks: a warning dot while the prescription has unsaved changes or a lab request is not sent, a live dot while transcribing. */
   protected readonly wsFlags = computed<Partial<Record<WorkspaceTab, WorkspaceFlag>>>(() => ({
     prescriptions: this.rxUnsaved() ? { mark: 'warn', sr: WS_TAB_UNSAVED } : undefined,
+    labs: this.labUnsent() ? { mark: 'warn', sr: WS_TAB_UNSENT } : undefined,
     copilot: this.transcribing() ? { mark: 'live', sr: WS_TAB_LIVE } : undefined,
   }));
   /** The panels shown so far (each mounted on first show, then only hidden, until the page goes). */
@@ -2536,6 +2587,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly launcherStatus = computed<Partial<Record<WorkspaceTab, LauncherStatus>>>(() => ({
     notes: this.noteLauncherStatus(),
     prescriptions: this.rxUnsaved() ? { ...WS_STATUS.unsaved, tone: 'warn' } : undefined,
+    labs: this.labUnsent() ? { ...WS_STATUS.labUnsent, tone: 'warn' } : undefined,
     copilot: this.transcribing()
       ? { ...WS_STATUS.live, tone: 'live' }
       : this.copilotDraft()
@@ -3373,6 +3425,16 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   private readonly rxPanel = viewChild(RxPanel);
   /** A half-written prescription (the composer stays mounted, so closing the workspace loses nothing). */
   protected readonly rxUnsaved = computed(() => !!this.rxPanel()?.hasUnsavedChanges());
+  /** Bumped by the Full EMR's "Write prescription" (the panel opens its composer). */
+  protected readonly rxComposeSeq = signal(0);
+  /** The Lab requests tab (mounted on first show, then only hidden, like the prescribing panel). */
+  private readonly labPanel = viewChild(CallLabRequests);
+  /** A lab request is being written in the tab (the zone stays visible while signed out). */
+  protected readonly labComposing = computed(() => !!this.labPanel()?.composing());
+  /** A lab request being written and not sent (launcher, tab, Leave / End). */
+  protected readonly labUnsent = computed(() => !!this.labPanel()?.unsent());
+  /** Bumped by the Full EMR's "New lab request" (the tab opens its composer). */
+  protected readonly labComposeSeq = signal(0);
   /** Latches true once the follow-up planner has been shown (see `followUpMounted`). */
   private readonly followUpKeep = signal(false);
   /**
@@ -3876,6 +3938,28 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     if (sub !== null && sub === this.noteSub() && this.drafts.take(this.appointmentId, sub)) {
       void this.saveNote();
     }
+  }
+
+  /** The Full EMR's "New lab request": the composer on the Lab requests tab, focus on its title; one being written is kept. */
+  protected openLabComposer(): void {
+    const already = this.labComposing();
+    this.labComposeSeq.update((n) => n + 1);
+    this.selectWorkspaceTab('labs', already ? undefined : 'call-lab-compose-title');
+  }
+
+  /**
+   * The Full EMR's "Write prescription": the composer on the Prescriptions tab
+   * (focus on its title once the form is ready); one being written is kept.
+   * Signed out, or without the patient yet, it only shows the tab.
+   */
+  protected openRxComposer(): void {
+    if (!this.portalSignedIn() || !this.rxPatientId()) {
+      this.selectWorkspaceTab('prescriptions');
+      return;
+    }
+    const already = !!this.rxPanel()?.composerOpen();
+    this.rxComposeSeq.update((n) => n + 1);
+    this.selectWorkspaceTab('prescriptions', already ? undefined : 'rx-compose-title');
   }
 
   /** Open the portal sign-in in a NEW tab, so the live call is not interrupted. */
@@ -4924,7 +5008,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
    */
   protected async askEnd(): Promise<void> {
     if (this.endOpen() || this.asking > 0 || this.left()) return;
-    if (!(await this.confirmDiscardPrescription())) return;
+    if (!(await this.confirmDiscardDrafts())) return;
     if (this.endOpen() || this.left()) return;
     this.endError.set('');
     this.endOpen.set(true);
@@ -4997,46 +5081,36 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     return this.inLive();
   }
 
-  /**
-   * One question before leaving — never two stacked: "Leave the call?" while
-   * in it (the visit stays open, they can rejoin), worded for an unsaved
-   * prescription too when there is one; just the prescription question once
-   * the call is over. True to leave.
-   */
-  private confirmLeaveCall(): boolean | Promise<boolean> {
-    if (this.left()) return true;
-    const rx = !!this.rxPanel()?.hasUnsavedChanges();
-    if (!this.inLiveCall()) return rx ? this.ask(UNSAVED_RX_LEAVE) : true;
-    return this.ask(
-      rx
-        ? {
-            tone: 'danger',
-            icon: 'phone-off',
-            title: 'Leave the call with an unsaved prescription?',
-            message:
-              "Your latest changes to the prescription haven't been saved, and leaving loses them. The visit stays open — you can rejoin from the appointment page.",
-            confirmLabel: 'Leave without saving',
-            cancelLabel: 'Stay in the call',
-          }
-        : {
-            tone: 'warning',
-            icon: 'door-open',
-            title: 'Leave the call?',
-            message: `The visit stays open — you can rejoin from the appointment page while ${this.patientName()} is still there.`,
-            confirmLabel: 'Leave call',
-            cancelLabel: 'Stay',
-          },
-    );
+  /** What a leave would lose: a prescription with unsaved changes, a lab request not sent. */
+  private unsavedWork(): { readonly rx: boolean; readonly lab: boolean } {
+    return { rx: !!this.rxPanel()?.hasUnsavedChanges(), lab: this.labUnsent() };
   }
 
   /**
-   * True when it is fine to destroy the prescribing panel (End): nothing
-   * unsaved, or the doctor chose to leave anyway. Asked by the cockpit, as the
-   * panel itself may be hidden behind another tab.
+   * One question before leaving — never two stacked: "Leave the call?" while
+   * in it (the visit stays open, they can rejoin), worded for whatever is at
+   * risk (an unsaved prescription, an unsent lab request, or both); once the
+   * call is over, only a question about what is at risk. While a lab request
+   * is on its way it stays without asking (it may already be on the server;
+   * the Sent dialog, or the error, follows). True to leave.
    */
-  private confirmDiscardPrescription(): boolean | Promise<boolean> {
-    if (!this.rxPanel()?.hasUnsavedChanges()) return true;
-    return this.ask(UNSAVED_RX_LEAVE);
+  private confirmLeaveCall(): boolean | Promise<boolean> {
+    if (this.left()) return true;
+    if (this.labPanel()?.sending()) return false;
+    const copy = leaveCallCopy(this.unsavedWork(), this.inLiveCall(), this.patientName());
+    return copy ? this.ask(copy) : true;
+  }
+
+  /**
+   * True when it is fine to destroy the drafts (End): nothing at risk, or the
+   * doctor chose to leave anyway — one question naming the prescription, the
+   * lab request or both. Asked by the cockpit, as the panels may be hidden
+   * behind another tab. Never while a lab request is on its way.
+   */
+  private confirmDiscardDrafts(): boolean | Promise<boolean> {
+    if (this.labPanel()?.sending()) return false;
+    const copy = discardDraftsCopy(this.unsavedWork());
+    return copy ? this.ask(copy) : true;
   }
 
   /** A leave question through the app's dialog outlet (a newer one answers an older one "stay"). */

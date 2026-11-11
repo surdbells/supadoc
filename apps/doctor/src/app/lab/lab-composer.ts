@@ -10,14 +10,14 @@ import {
   signal,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
-import { apiErrorCode, apiErrorMessage, LabRequestsApi } from '@supadoc/data-access';
+import { apiErrorCode, apiErrorFields, apiErrorMessage, LabRequestsApi } from '@supadoc/data-access';
 import type {
   CreateLabRequestInput,
   LabOptionsDto,
   LabRequestContextDto,
   LabRequestDto,
 } from '@supadoc/models';
-import { AlertComponent, IconComponent } from '@supadoc/ui';
+import { AlertComponent, IconComponent, type LeaveCopy } from '@supadoc/ui';
 import type { Subscription } from 'rxjs';
 import { DoctorClock } from '../doctor-clock';
 import { type LabClinicalEdit, LabClinicalCard } from './lab-clinical-card';
@@ -58,6 +58,26 @@ export const NOT_CONSULTED = 'You can request tests only for patients you have c
 export const CATALOGUE_CHANGED = 'The test list was updated. Check the request and preview it again.';
 export const IDEMPOTENCY_CONFLICT = 'This form was already sent with different details. Check it and send again.';
 
+/** "Leave without sending?" for a lab request with unsent selections (the page and the call). */
+export const UNSAVED_LAB_LEAVE: LeaveCopy = {
+  tone: 'warning',
+  title: 'Leave this request?',
+  message: 'Nothing has been sent. If you leave now, your selections will be lost.',
+  confirmLabel: 'Leave without sending',
+  cancelLabel: 'Keep editing',
+};
+
+export const OPEN_ERROR = "Couldn't open the request form. Please try again.";
+export const OTHER_PATIENT = 'This consultation is with another patient.';
+
+/** The form's 422 refusals on open (the page's rules, shared with the call): the refusal text, or null. */
+export function labOpenRefusal(err: unknown): string | null {
+  if (httpStatusOf(err) !== 422) return null;
+  if (apiErrorCode(err) === 'not_consulted') return NOT_CONSULTED;
+  const appointment = apiErrorFields(err)['appointment_id'];
+  return appointment ? appointment || OTHER_PATIENT : null;
+}
+
 /** Appended when the same announcement repeats, so screen readers say it again (a no-break space). */
 const REPEAT = String.fromCharCode(0xa0);
 
@@ -68,6 +88,11 @@ const REPEAT = String.fromCharCode(0xa0);
  * (`aria-disabled`) and opens the validation modal; Preview signs and sends.
  * State is one `LabFormState` signal changed only through the pure functions
  * of `lab-composer-state.ts`. The page around it asks before leaving.
+ *
+ * `embedded` (the call's Lab requests tab): no header of its own (the host
+ * has one), a layout from the composer's own width (container queries, not
+ * the viewport) and a footer contained in the paper zone. `disabled`
+ * (signed out): edits stay possible; Preview and Send do nothing.
  */
 @Component({
   selector: 'doc-lab-composer',
@@ -82,7 +107,7 @@ const REPEAT = String.fromCharCode(0xa0);
     LabPreviewDialog,
     LabPriorityCard,
   ],
-  host: { class: 'flex flex-col' },
+  host: { class: 'flex flex-col', '[class.lc-embedded]': 'embedded()' },
   styles: `
     .cp-footer {
       box-shadow: 0 -4px 6px 4px rgba(21, 101, 192, 0.1);
@@ -128,32 +153,120 @@ const REPEAT = String.fromCharCode(0xa0);
         flex: none;
       }
     }
+    /* Embedded (the call's paper zone): laid out by the composer's own width. */
+    :host(.lc-embedded) {
+      container: lab-composer / inline-size;
+    }
+    .cpe-top {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    .cpe-cards {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+      gap: 1.5rem;
+    }
+    @container lab-composer (min-width: 54rem) {
+      .cpe-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container lab-composer (min-width: 56rem) {
+      .cpe-top {
+        flex-direction: row;
+        align-items: flex-start;
+      }
+      .cpe-patient {
+        width: 456px;
+        flex: none;
+      }
+    }
+    /*
+     * A contained bar: the page's bleed would overflow the zone (and scroll the
+     * workspace sideways), and no room is kept for the TestLoop button (the
+     * workspace modal covers it). (0,4,0) beats the :host-context rules' (0,3,2).
+     */
+    :host(.lc-embedded) .cp-footer {
+      margin-inline: 0;
+      padding: 16px;
+      gap: 16px;
+      flex-wrap: wrap;
+      border: 1px solid var(--color-haze);
+      border-radius: var(--radius-card);
+    }
+    @media (max-width: 39.99rem) {
+      :host(.lc-embedded) .cp-footer {
+        padding: 12px;
+        gap: 12px;
+      }
+    }
+    .cp-signed-out {
+      flex: 1 0 100%;
+    }
+    /*
+     * The priority tiles' radios are sr-only: sized to their tile, so a focused
+     * tile is scrolled (and kept clear of the footer) whole. Not positioned, the
+     * 1px input would sit outside the workspace's scroller and stay put.
+     */
+    :host(.lc-embedded) ::ng-deep doc-lab-priority-card label {
+      position: relative;
+    }
+    :host(.lc-embedded) ::ng-deep doc-lab-priority-card label > input[type='radio'] {
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+    /*
+     * Narrow (a tablet held upright): one column for the cards' viewport sm:
+     * grids. Unlayered, so it beats the layered utilities. Attribute
+     * selectors: no escapes for this template literal to swallow.
+     */
+    @container lab-composer (max-width: 29.99rem) {
+      :host(.lc-embedded) ::ng-deep doc-lab-priority-card [class~='sm:grid-cols-3'],
+      :host(.lc-embedded) ::ng-deep doc-lab-investigations-card [class~='sm:grid-cols-2'] {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      /* A span of 2 in a one-column grid would add an implicit column. */
+      :host(.lc-embedded) ::ng-deep doc-lab-investigations-card [class~='sm:col-span-2'] {
+        grid-column: auto;
+      }
+      /* Two 160px buttons no longer fit side by side: they share the row, as on a phone. */
+      :host(.lc-embedded) .cp-btn {
+        flex: 1 1 0%;
+        min-width: 0;
+      }
+    }
   `,
   template: `
     @let s = state();
     @let ctx = context();
     <div class="flex flex-col gap-10 pb-6">
-      <div class="flex items-center justify-between gap-4">
-        <h1 class="font-heading text-h2 text-ink">New request</h1>
-        <button
-          type="button"
-          class="flex items-center gap-1 rounded-field font-sans text-h5 font-medium text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
-          (click)="back.emit()"
-        >
-          <sd-icon name="arrow-left" [size]="24" /> Back
-        </button>
-      </div>
+      @if (!embedded()) {
+        <div class="flex items-center justify-between gap-4">
+          <h1 class="font-heading text-h2 text-ink">New request</h1>
+          <button
+            type="button"
+            class="flex items-center gap-1 rounded-field font-sans text-h5 font-medium text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+            (click)="back.emit()"
+          >
+            <sd-icon name="arrow-left" [size]="24" /> Back
+          </button>
+        </div>
+      }
 
       @if (droppedNotice()) {
         <sd-alert tone="info">{{ droppedNotice() }}</sd-alert>
       }
 
-      <div class="flex flex-col gap-8 lg:flex-row lg:items-start">
-        <doc-lab-patient-card class="cp-patient" [patient]="ctx.patient" [stat]="s.priority === 'stat'" />
+      <div [class]="embedded() ? 'cpe-top' : 'flex flex-col gap-8 lg:flex-row lg:items-start'">
+        <doc-lab-patient-card [class]="embedded() ? 'cpe-patient' : 'cp-patient'" [patient]="ctx.patient" [stat]="s.priority === 'stat'" />
         <doc-lab-priority-card class="min-w-0 flex-1" [priorities]="opts().priorities" [value]="s.priority" (valueChange)="patch({ priority: $event })" />
       </div>
 
-      <div class="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">
+      <div [class]="embedded() ? 'cpe-cards' : 'grid grid-cols-1 items-start gap-6 xl:grid-cols-2'">
         <doc-lab-clinical-card
           [state]="s"
           [askPregnancy]="ctx.ask_pregnancy"
@@ -177,6 +290,11 @@ const REPEAT = String.fromCharCode(0xa0);
     </div>
 
     <div class="cp-footer sticky bottom-0 z-10 flex justify-end border-t border-haze bg-snow">
+      @if (disabled()) {
+        <p id="lab-signed-out-note" class="cp-signed-out flex items-start gap-2 rounded-field bg-warning/10 px-3 py-2.5 font-sans text-body-sm text-ink" role="status">
+          <sd-icon name="lock" [size]="16" class="mt-0.5 shrink-0 text-warning" /> You are signed out. Your selections are kept here — sign in again to preview and send.
+        </p>
+      }
       <button
         type="button"
         class="cp-btn rounded-field border-[0.5px] border-ash bg-white px-4 font-sans text-body-sm font-medium text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
@@ -188,9 +306,9 @@ const REPEAT = String.fromCharCode(0xa0);
         type="button"
         id="lab-preview-button"
         class="cp-btn rounded-field px-4 font-sans text-body-sm font-medium text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
-        [class]="issues().length ? 'bg-cerulean/40' : 'bg-cerulean hover:bg-cerulean-dark'"
-        [attr.aria-disabled]="issues().length ? true : null"
-        [attr.aria-describedby]="issues().length ? 'lab-preview-missing' : null"
+        [class]="issues().length || disabled() ? 'bg-cerulean/40' : 'bg-cerulean hover:bg-cerulean-dark'"
+        [attr.aria-disabled]="issues().length || disabled() ? true : null"
+        [attr.aria-describedby]="disabled() ? 'lab-signed-out-note' : issues().length ? 'lab-preview-missing' : null"
         (click)="requestPreview()"
       >
         Preview Request
@@ -210,6 +328,7 @@ const REPEAT = String.fromCharCode(0xa0);
       [busy]="sending()"
       [error]="sendError()"
       [notice]="previewNotice()"
+      [disabled]="disabled()"
       (send)="send($event)"
       (closed)="closePreview()"
     />
@@ -227,6 +346,10 @@ export class LabComposer {
   readonly appointmentId = input<string | null>(null);
   /** Duplicate: the request to copy (already checked to be this patient's). */
   readonly duplicate = input<LabRequestDto | null>(null);
+  /** Inside the call's workspace: no header, a container-query layout, a contained footer. */
+  readonly embedded = input(false);
+  /** Signed out (the call keeps the form): edits stay possible; Preview Request and Send do nothing. */
+  readonly disabled = input(false);
 
   /** "Back": the page asks "Change patient?" when there is something to lose. */
   readonly back = output<void>();
@@ -378,6 +501,7 @@ export class LabComposer {
   // ----- preflight / preview / send -----
 
   protected requestPreview(): void {
+    if (this.disabled()) return;
     if (this.issues().length) {
       this.attempted.set(true);
       this.preflightOpen.set(true);
@@ -451,7 +575,7 @@ export class LabComposer {
   }
 
   protected send(signature: CreateLabRequestInput['signature']): void {
-    if (this.sending()) return;
+    if (this.sending() || this.disabled()) return;
     const body = toCreateBody(
       this.state(),
       this.context(),

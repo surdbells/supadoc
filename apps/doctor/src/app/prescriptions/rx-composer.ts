@@ -245,7 +245,7 @@ function nullIfBlank(v: string): string | null {
         <header class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card @lg:flex-row @lg:items-start @lg:justify-between @lg:p-5">
           <div class="flex min-w-0 flex-col gap-1">
             <span class="${HINT}">Prescription</span>
-            <h2 class="break-all font-heading text-h5 text-ink">{{ rx()?.number ?? 'New prescription' }}</h2>
+            <h2 id="rx-compose-title" tabindex="-1" class="break-all font-heading text-h5 text-ink outline-none">{{ rx()?.number ?? 'New prescription' }}</h2>
             <p class="flex items-center gap-1.5 ${HINT}">
               <sd-icon name="file-text" [size]="14" class="shrink-0" /> {{ pageHint() }}
             </p>
@@ -1062,6 +1062,12 @@ export class RxComposer {
    * signed out). The form stays as it is so nothing is lost.
    */
   readonly disabled = input(false);
+  /**
+   * Move focus to the title once the form is ready (the call's Full EMR "Write
+   * prescription"), once, and only if the doctor has not moved on meanwhile
+   * (focus still on the page, the Prescriptions tab, or inside its panel).
+   */
+  readonly focusTitleOnReady = input(false);
 
   /** A draft was created or saved (also fires when "Preview PDF" saves first). */
   readonly saved = output<PrescriptionDto>();
@@ -1085,6 +1091,8 @@ export class RxComposer {
   // ----- load state -----
   protected readonly loading = signal(true);
   protected readonly loadError = signal('');
+  /** focusTitleOnReady has been honoured (once per composer). */
+  private titleFocused = false;
   protected readonly options = signal<PrescriptionOptionsDto | null>(null);
   protected readonly rx = signal<PrescriptionDto | null>(null);
   protected readonly summary = signal<ClinicalSummaryDto | null>(null);
@@ -1256,6 +1264,18 @@ export class RxComposer {
           ...e,
           pregnancy_status: 'Answer the pregnant or breastfeeding question for this patient',
         }));
+      });
+    });
+    effect(() => {
+      if (!this.focusTitleOnReady() || this.loading() || this.loadError()) return;
+      untracked(() => {
+        if (this.titleFocused) return;
+        this.titleFocused = true;
+        this.afterRender(() => {
+          const active = document.activeElement;
+          const free = !active || active === document.body || active.id === 'ws-tab-prescriptions' || !!active.closest('#ws-panel-prescriptions');
+          if (free) this.host.nativeElement.querySelector<HTMLElement>('#rx-compose-title')?.focus();
+        });
       });
     });
     this.destroyRef.onDestroy(() => this.loadSub?.unsubscribe());

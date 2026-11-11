@@ -11,7 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { CreateLabRequestInput } from '@supadoc/models';
-import { AlertComponent, DialogComponent } from '@supadoc/ui';
+import { AlertComponent, DialogComponent, IconComponent } from '@supadoc/ui';
 import { SignaturePad } from '../prescriptions/signature-pad';
 import { LabRequestSummary, type LabSummaryView } from './lab-request-summary';
 import { drName } from './lab-ui';
@@ -26,7 +26,7 @@ import { drName } from './lab-ui';
 @Component({
   selector: 'doc-lab-preview-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AlertComponent, DialogComponent, LabRequestSummary, SignaturePad],
+  imports: [AlertComponent, DialogComponent, IconComponent, LabRequestSummary, SignaturePad],
   styles: `
     .pv-btn {
       min-width: 154px;
@@ -85,6 +85,11 @@ import { drName } from './lab-ui';
           @if (error()) {
             <p role="alert" class="rounded-field bg-alert/10 px-4 py-3 font-sans text-body-sm text-alert-ink">{{ error() }}</p>
           }
+          @if (disabled()) {
+            <p class="flex items-start gap-2 rounded-field bg-warning/10 px-3 py-2.5 font-sans text-body-sm text-ink" role="status">
+              <sd-icon name="lock" [size]="16" class="mt-0.5 shrink-0 text-warning" /> You are signed out. Sign in again to send — your selections are kept here.
+            </p>
+          }
 
           <div class="flex flex-col-reverse items-center justify-center gap-4 sm:flex-row">
             <button
@@ -98,8 +103,8 @@ import { drName } from './lab-ui';
             <button
               type="button"
               class="pv-btn rounded-field px-4 font-sans text-body-sm font-medium text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40 focus-visible:ring-offset-2"
-              [class]="ready() && !busy() ? 'bg-cerulean hover:bg-cerulean-dark' : 'bg-cerulean/40'"
-              [disabled]="busy()"
+              [class]="ready() && !busy() && !disabled() ? 'bg-cerulean hover:bg-cerulean-dark' : 'bg-cerulean/40'"
+              [disabled]="busy() || disabled()"
               [attr.aria-disabled]="!ready() || null"
               (click)="trySend()"
             >
@@ -123,6 +128,8 @@ export class LabPreviewDialog {
   readonly error = input<string | null>(null);
   /** A message at the top (e.g. the test list was updated). */
   readonly notice = input<string | null>(null);
+  /** Signed out (the call keeps the form): Send to Patient does nothing, and says why. */
+  readonly disabled = input(false);
 
   readonly send = output<CreateLabRequestInput['signature']>();
   readonly closed = output<void>();
@@ -152,7 +159,7 @@ export class LabPreviewDialog {
   }
 
   protected trySend(): void {
-    if (this.busy()) return;
+    if (this.busy() || this.disabled()) return;
     if (!this.attested()) {
       this.attestBox()?.nativeElement.focus();
       return;

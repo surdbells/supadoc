@@ -26,6 +26,8 @@ export const WS_KICKER = 'Consultation tools';
 export const WS_CLOSE = 'Close consultation tools';
 /** The tab marks' screen-reader words, read after the tab's label (the shell draws the dots). */
 export const WS_TAB_UNSAVED = ', unsaved changes';
+/** A lab request being written and not sent (nothing is saved before sending). */
+export const WS_TAB_UNSENT = ', not sent';
 export const WS_TAB_LIVE = ', transcribing';
 export const WS_TOOLS_HINT = (first: string) => `Open over the call. ${first || 'The patient'} stays in view.`;
 export const wsShareBanner = (recording: boolean) =>
@@ -55,6 +57,7 @@ export const WS_STATUS = {
   onDevice: { text: 'On this device', sr: ' — sign in to sync' },
   signedOut: { text: 'Not saved', sr: ' — sign in to save' },
   unsaved: { text: 'Unsaved', sr: ' changes' },
+  labUnsent: { text: 'Not sent', sr: ' — lab request in progress' },
   live: { text: 'Live', sr: ' — transcribing' },
   draftReady: { text: 'Draft ready', sr: ' — AI draft' },
 } as const;
