@@ -96,7 +96,7 @@ const CARD_BTN =
             <sd-icon name="wifi-off" [size]="32" class="text-alert" />
             <p class="font-sans text-body-sm text-slate">{{ message() }}</p>
             <div class="flex flex-wrap justify-center gap-2">
-              <button type="button" class="${CARD_BTN}" (click)="load()">
+              <button type="button" class="${CARD_BTN}" (click)="retry()">
                 <sd-icon name="refresh-cw" [size]="16" /> Try again
               </button>
               <button type="button" class="${CARD_BTN}" (click)="closed.emit()">
@@ -227,6 +227,18 @@ export class CallLabComposer implements OnInit {
         this.state.set(refusal ? { kind: 'refused', text: refusal } : { kind: 'error', text: OPEN_ERROR });
       },
     });
+  }
+
+  /** The error card's Try again: the card (and the pressed button) gives way to the shimmer, so focus goes to the title. */
+  protected retry(): void {
+    this.load();
+    afterNextRender(
+      () => {
+        const active = this.doc.activeElement;
+        if (!active || active === this.doc.body) this.doc.getElementById('call-lab-compose-title')?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   /** Back and the footer's Cancel: nothing while sending; an unsent request is asked about first. */

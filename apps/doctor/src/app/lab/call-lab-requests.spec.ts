@@ -2,9 +2,9 @@ import { ApplicationRef, Component, signal } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { DoctorApi, LabRequestsApi } from '@supadoc/data-access';
 import type { LabOrderDto, LabRequestSummaryDto } from '@supadoc/models';
-import { DialogService, provideSupadocIcons } from '@supadoc/ui';
+import { type ConfirmOptions, DialogService, provideSupadocIcons } from '@supadoc/ui';
 import { DocumentViewerService, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
-import { type Observable, of, Subject, throwError } from 'rxjs';
+import { firstValueFrom, isObservable, type Observable, of, Subject, throwError } from 'rxjs';
 import { WS_RESULTS_NOT_SHARED } from '../call-workspace/call-workspace-copy';
 import { CallLabComposer } from './call-lab-composer';
 import { CallLabRequestDetail } from './call-lab-request-detail';
@@ -57,7 +57,7 @@ const page = (data: LabRequestSummaryDto[]) => ({
       [composeRequest]="seq()"
       [detailsFailed]="failed()"
       [patientError]="patientError()"
-      (retryPatient)="retries = retries + 1"
+      (retryPatient)="retries = retries + 1; patientError.set('')"
     />
   `,
 })
@@ -222,14 +222,18 @@ describe('CallLabRequests (the call’s Lab requests tab)', { timeout: 20_000 },
       expect(newRequest().disabled).toBe(true);
     });
 
-    it('the patient not found: the error with Try again (asks the host); details failed: the line', async () => {
+    it('the patient not found: the error with Try again (asks the host; focus to the title as the alert goes); details failed: the line', async () => {
       await setup();
       host.patientError.set('Could not find the patient for this consultation.');
       await settle();
       expect(text()).toContain('Could not find the patient for this consultation.');
-      must(button('Try again'), 'Try again').click();
+      const retry = must(button('Try again'), 'Try again');
+      retry.focus();
+      retry.click();
       expect(host.retries).toBe(1);
-      host.patientError.set('');
+      await settle();
+      expect(button('Try again')).toBeNull();
+      expect(document.activeElement?.id).toBe('call-lab-list-title');
       host.failed.set(true);
       await settle();
       expect(text()).toContain("Lab requests are available once this consultation's details have loaded.");
@@ -283,6 +287,28 @@ describe('CallLabRequests (the call’s Lab requests tab)', { timeout: 20_000 },
       refreshBtn().click();
       await settle();
       expect(el.querySelector('[aria-busy="true"] .sd-shimmer')).not.toBeNull();
+    });
+
+    it('the error card’s Try again: reads again; the card (and the pressed button) gives way to the shimmer, focus on the title', async () => {
+      await setup({ rows: [] });
+      api.list.mockImplementation(() => throwError(() => ({ statusCode: 500 })));
+      refreshBtn().click();
+      await settle();
+      expect(text()).toContain('Could not load the lab requests.');
+      const pending = new Subject<unknown>();
+      api.list.mockImplementation(() => pending);
+      const retry = must(button('Try again'), 'Try again');
+      retry.focus();
+      retry.click();
+      await settle();
+      expect(button('Try again')).toBeNull();
+      expect(el.querySelector('[aria-busy="true"] .sd-shimmer')).not.toBeNull();
+      expect(document.activeElement?.id).toBe('call-lab-list-title');
+      pending.next(page([labSummary()]));
+      pending.complete();
+      await settle();
+      expect(el.querySelectorAll('[data-lab-open]').length).toBe(1);
+      expect(document.activeElement?.id).toBe('call-lab-list-title');
     });
 
     it('sharing: a result-ready abnormal request reads "Result ready", otherwise "Result ready · Abnormal"', async () => {
@@ -468,15 +494,62 @@ describe('CallLabRequests (the call’s Lab requests tab)', { timeout: 20_000 },
       expect(document.activeElement?.id).toBe('ws-tab-labs');
     });
 
-    it('in the drill-in: back to the list, the drill-in destroyed', async () => {
+    it('in the drill-in: back to the list, the drill-in destroyed, focus on the Lab requests tab (never <body>)', async () => {
       await setup();
       must(el.querySelector<HTMLButtonElement>('[data-lab-open]'), 'Open').click();
       await settle();
       expect(el.querySelector('doc-call-lab-request-detail')).not.toBeNull();
+      must(el.querySelector<HTMLButtonElement>('[aria-label="Refresh this lab request"]'), 'Refresh').focus();
       host.signedIn.set(false);
       await settle();
       expect(el.querySelector('doc-call-lab-request-detail')).toBeNull();
       expect(tab().view()).toBe('list');
+      expect(document.activeElement?.id).toBe('ws-tab-labs');
+    });
+
+    it('in the drill-in, focus elsewhere (the workspace on another tab): focus is left where it is', async () => {
+      await setup();
+      must(el.querySelector<HTMLButtonElement>('[data-lab-open]'), 'Open').click();
+      await settle();
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      host.signedIn.set(false);
+      await settle();
+      expect(document.activeElement).toBe(outside);
+      outside.remove();
+    });
+
+    it('with the drill-in’s Cancel prompt open: the prompt closes with the drill-in; its action refuses, nothing is posted; then focus on the tab', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined); // no <sd-dialog-outlet> here
+      await setup();
+      const dialogs = TestBed.inject(DialogService);
+      const confirm = vi.spyOn(dialogs, 'confirm');
+      must(el.querySelector<HTMLButtonElement>('[data-lab-open]'), 'Open').click();
+      await settle();
+      const cancel = must(button('Cancel request'), 'Cancel request');
+      cancel.focus();
+      cancel.click();
+      await settle();
+      const opts = confirm.mock.calls[0]?.[0] as ConfirmOptions;
+      const [request] = dialogs.requests();
+      expect(must(request, 'prompt').options).toBe(opts);
+      // The session ends while the prompt is open (in the app's outlet, outliving the drill-in).
+      host.signedIn.set(false);
+      await settle();
+      expect(el.querySelector('doc-call-lab-request-detail')).toBeNull();
+      expect(request.open()).toBe(false);
+      expect(dialogs.requests().length).toBe(0);
+      let caught: unknown = null;
+      try {
+        const run = must(opts.action, 'action')('Not needed');
+        await (isObservable(run) ? firstValueFrom(run) : run);
+      } catch (e) {
+        caught = e;
+      }
+      expect(must(opts.errorMessage, 'errorMessage')(caught)).toBe('Sign in again to cancel this request.');
+      expect(api.cancel).not.toHaveBeenCalled();
+      expect(document.activeElement?.id).toBe('ws-tab-labs');
     });
 
     it('with the Sent dialog open: it closes into the list, no notice, focus on the Lab requests tab', async () => {

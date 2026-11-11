@@ -1932,6 +1932,86 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
         opened.mockRestore();
       });
 
+      it('(LD3) a saved draft opened with Continue, then "Write prescription": the same composer and draft, its edits kept, focus on the tab', async () => {
+        await setup([doc('a')]);
+        const doctorApi = TestBed.inject(DoctorApi) as unknown as Record<string, unknown>;
+        doctorApi['listPrescriptions'] = () =>
+          of({
+            data: [
+              {
+                id: 'rx-d1',
+                number: 'GVM-RX-20261104-00007',
+                status: 'draft',
+                appointment_id: 'ap-1',
+                patient_id: 'p1',
+                prescriber: 'Dr Ada Obi',
+                patient_name: 'Bola Ade',
+                items_count: 0,
+                valid_until: null,
+                allows_repeats: false,
+                sent_at: null,
+                cancelled_at: null,
+                created_at: '2026-11-04T14:00:00Z',
+              },
+            ],
+          });
+        doctorApi['getPrescription'] = (id: string) =>
+          of({ data: { id, number: 'GVM-RX-20261104-00007', status: 'draft', items: [], readings: {}, reason: '' } });
+        await openWs('prescriptions');
+        Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-prescriptions button')).find((b) => b.textContent?.trim() === 'Continue')?.click();
+        await tick();
+        await tick();
+        const composer = fixture.debugElement.query(By.directive(RxComposer))?.componentInstance;
+        expect(composer).toBeDefined();
+        expect(el.querySelector('#rx-compose-title')?.textContent?.trim()).toBe('GVM-RX-20261104-00007');
+        await typeIn(el.querySelector<HTMLTextAreaElement>('#ws-panel-prescriptions doc-rx-composer textarea'), 'Asthma flare');
+        await toEmr();
+        emrButton('Write prescription')?.click();
+        await tick();
+        await tick();
+        expect(internals().wsTab()).toBe('prescriptions');
+        expect(fixture.debugElement.queryAll(By.directive(RxComposer)).length).toBe(1);
+        expect(fixture.debugElement.query(By.directive(RxComposer))?.componentInstance).toBe(composer);
+        expect(el.querySelector('#rx-compose-title')?.textContent?.trim()).toBe('GVM-RX-20261104-00007');
+        expect(el.querySelector<HTMLTextAreaElement>('#ws-panel-prescriptions doc-rx-composer textarea')?.value).toBe('Asthma flare');
+        expect(document.activeElement?.id).toBe('ws-tab-prescriptions');
+      });
+
+      it('(LD3) the panel’s own rules: a compose request while paused is consumed (signing in opens nothing); after an EMR compose, the list’s own "New prescription" does not take focus to the title', async () => {
+        await setup([doc('a')]);
+        await openWs('prescriptions');
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-panel')).not.toBeNull();
+        signedIn.set(false);
+        await tick();
+        // Straight to the panel (doc-call itself never bumps while signed out).
+        (call as unknown as { rxComposeSeq: WritableSignal<number> }).rxComposeSeq.update((n) => n + 1);
+        await tick();
+        await tick();
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer')).toBeNull();
+        signedIn.set(true);
+        await tick();
+        await tick();
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer')).toBeNull();
+        // The EMR path focuses the title once…
+        await toEmr();
+        emrButton('Write prescription')?.click();
+        await tick();
+        await tick();
+        expect(document.activeElement?.id).toBe('rx-compose-title');
+        Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-prescriptions doc-rx-composer button')).find((b) => b.textContent?.trim() === 'Close')?.click();
+        await tick();
+        await tick();
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer')).toBeNull();
+        // …the list's own button keeps today's behaviour.
+        const newRx = Array.from(el.querySelectorAll<HTMLButtonElement>('#ws-panel-prescriptions button')).find((b) => b.textContent?.includes('New prescription'));
+        newRx?.focus();
+        newRx?.click();
+        await tick();
+        await tick();
+        expect(el.querySelector('#ws-panel-prescriptions doc-rx-composer')).not.toBeNull();
+        expect(document.activeElement?.id).not.toBe('rx-compose-title');
+      });
+
       it('(LD3) signed out: no composer, the placeholder, focus on the tab; signing in later opens nothing', async () => {
         await setup([doc('a')]);
         await openWs('notes');

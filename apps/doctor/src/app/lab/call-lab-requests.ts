@@ -106,7 +106,7 @@ export type CallLabView = 'list' | 'compose' | 'detail';
           @if (patientError()) {
             <sd-alert tone="error">
               {{ patientError() }}
-              <button type="button" class="ml-1 font-semibold underline underline-offset-2" (click)="retryPatient.emit()">Try again</button>
+              <button type="button" class="ml-1 font-semibold underline underline-offset-2" (click)="retryPatientLookup()">Try again</button>
             </sd-alert>
           } @else if (detailsFailed()) {
             <p class="font-sans text-body-sm text-slate">Lab requests are available once this consultation's details have loaded.</p>
@@ -131,7 +131,7 @@ export type CallLabView = 'list' | 'compose' | 'detail';
               <div class="flex flex-col items-center gap-3 rounded-card border border-haze bg-white px-4 py-10 text-center shadow-card">
                 <sd-icon name="wifi-off" [size]="30" class="text-alert" />
                 <p class="font-sans text-body-sm text-slate">{{ error() }}</p>
-                <sd-button variant="secondary" size="sm" (click)="refresh()">
+                <sd-button variant="secondary" size="sm" (click)="retry()">
                   <sd-icon name="refresh-cw" [size]="16" /> Try again
                 </sd-button>
               </div>
@@ -279,7 +279,12 @@ export class CallLabRequests {
         if (!signedIn || !id) {
           this.clear();
           // The drill-in holds nothing to lose and shows patient details. A request being written is kept.
-          if (view === 'detail') this.viewState.set('list');
+          if (view === 'detail') {
+            this.viewState.set('list');
+            // Its focused control went with it (and the zone is hidden): L16's target, once any prompt it
+            // left behind (its Cancel request) has closed.
+            focusAfterDialogs(this.injector, () => (this.focusWasHere() ? this.landing() : null));
+          }
         } else if (active && view === 'list') {
           this.refresh();
         } else {
@@ -340,10 +345,36 @@ export class CallLabRequests {
       return;
     }
     // Closed by a sign-out: the list is cleared and hidden. Focus only if it was in here (or lost).
-    this.focusAfterRender(() => {
-      const active = this.doc.activeElement;
-      return !active || active === this.doc.body || this.host.nativeElement.contains(active) ? this.doc.getElementById('ws-tab-labs') : null;
-    });
+    this.focusAfterRender(() => (this.focusWasHere() ? this.doc.getElementById('ws-tab-labs') : null));
+  }
+
+  /** Focus was lost with a control that went away (it is on <body>). */
+  private focusLost(): boolean {
+    const active = this.doc.activeElement;
+    return !active || active === this.doc.body;
+  }
+
+  /** Focus is in this tab, or lost. */
+  private focusWasHere(): boolean {
+    const active = this.doc.activeElement;
+    return this.focusLost() || (!!active && this.host.nativeElement.contains(active));
+  }
+
+  /** Where focus lands in the list (L16): its title, or the tab itself while signed out (the zone is hidden). */
+  private landing(): HTMLElement | null {
+    return this.signedIn() ? this.doc.getElementById('call-lab-list-title') : this.doc.getElementById('ws-tab-labs');
+  }
+
+  /** The list's Try again: the error card (and the pressed button) gives way to the shimmer. */
+  protected retry(): void {
+    this.refresh();
+    this.focusAfterRender(() => (this.focusLost() ? this.landing() : null));
+  }
+
+  /** The patient's Try again: its alert goes while the patient is looked up again. */
+  protected retryPatientLookup(): void {
+    this.retryPatient.emit();
+    this.focusAfterRender(() => (this.focusLost() ? this.landing() : null));
   }
 
   protected onDetailBack(): void {

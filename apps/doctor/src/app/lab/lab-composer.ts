@@ -233,6 +233,13 @@ const REPEAT = String.fromCharCode(0xa0);
       :host(.lc-embedded) ::ng-deep doc-lab-investigations-card [class~='sm:col-span-2'] {
         grid-column: auto;
       }
+      /* Fasting? beside Pregnant?'s 220px column squeezed Fasting's radios under Pregnant's: stacked. */
+      :host(.lc-embedded) ::ng-deep doc-lab-clinical-card [class~='sm:flex-row'] {
+        flex-direction: column;
+      }
+      :host(.lc-embedded) ::ng-deep doc-lab-clinical-card .cc-preg {
+        width: auto;
+      }
       /* Two 160px buttons no longer fit side by side: they share the row, as on a phone. */
       :host(.lc-embedded) .cp-btn {
         flex: 1 1 0%;

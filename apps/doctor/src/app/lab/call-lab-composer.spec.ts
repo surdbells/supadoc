@@ -157,11 +157,19 @@ describe('CallLabComposer (the lab request composer inside the call)', { timeout
       expect(buttons('Try again').length).toBe(0);
     });
 
-    it('500: OPEN_ERROR with Try again, which reads again', async () => {
+    it('500: OPEN_ERROR with Try again, which reads again; the pressed button goes with the card, so focus goes to the title', async () => {
       await setup({ context: () => throwError(() => ({ statusCode: 500 })) });
       expect(text()).toContain(OPEN_ERROR);
-      api.context.mockImplementation(() => of({ data: labContext() }));
-      button('Try again').click();
+      const pending = new Subject<unknown>();
+      api.context.mockImplementation(() => pending);
+      const retry = button('Try again');
+      retry.focus();
+      retry.click();
+      await settle();
+      expect(buttons('Try again').length).toBe(0);
+      expect(document.activeElement?.id).toBe('call-lab-compose-title');
+      pending.next({ data: labContext() });
+      pending.complete();
       await settle();
       expect(api.options).toHaveBeenCalledTimes(2);
       expect(api.context).toHaveBeenCalledTimes(2);
@@ -336,6 +344,10 @@ describe('CallLabComposer (the lab request composer inside the call)', { timeout
       expect(css).toContain('cp-footer');
       expect(css).toContain('doc-lab-priority-card');
       expect(css).toContain('cp-btn');
+      // Narrow: Fasting? and Pregnant? stacked (side by side, Pregnant's radios sat over Fasting's "No").
+      const narrow = css.slice(css.search(/@container lab-composer \(max-width: ?29\.99rem\)/));
+      expect(narrow).toMatch(/doc-lab-clinical-card \[class~=["']?sm:flex-row["']?\] ?\{ ?flex-direction: ?column/);
+      expect(narrow).toMatch(/doc-lab-clinical-card \.cc-preg ?\{ ?width: ?auto/);
     });
 
     it('page mode (embedded false): the original classes and the header', () => {

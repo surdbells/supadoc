@@ -1,5 +1,6 @@
 import { DOCUMENT } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -16,7 +17,7 @@ import {
 } from '@angular/core';
 import { apiErrorMessage, LabRequestsApi } from '@supadoc/data-access';
 import type { DoctorLabResultDto, LabRequestDto } from '@supadoc/models';
-import { DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
+import { type ConfirmOptions, DialogService, EmptyStateComponent, IconComponent } from '@supadoc/ui';
 import { DocumentViewerService, type ViewerWatermark } from '@supadoc/viewer';
 import { map, type Subscription, tap, throwError } from 'rxjs';
 import { DoctorClock } from '../doctor-clock';
@@ -50,6 +51,7 @@ const BTN_DANGER =
 const SIGNED_OUT = Symbol('signed-out');
 /** Appended when the same announcement repeats, so screen readers say it again (a no-break space). */
 const REPEAT = String.fromCharCode(0xa0);
+const SHARING_NOTE = 'Review outcomes are hidden while you share your screen.';
 
 /**
  * One lab request inside the call's Lab requests tab (the "Open" drill-in):
@@ -174,7 +176,7 @@ const REPEAT = String.fromCharCode(0xa0);
           <section class="flex flex-col gap-4 rounded-2xl border border-haze bg-snow p-4 shadow-card" aria-labelledby="call-lab-detail-results">
             <h3 #resultsHeading id="call-lab-detail-results" tabindex="-1" class="font-sans text-body-lg font-semibold text-ink outline-none">Results</h3>
             @if (sharing() && r.results.length) {
-              <p class="font-sans text-caption text-slate">Review outcomes are hidden while you share your screen.</p>
+              <p class="font-sans text-caption text-slate">{{ sharingNote }}</p>
             }
             @if (r.results.length === 0) {
               <p class="font-sans text-body-sm text-slate">No results yet. The patient adds results here after their test.</p>
@@ -280,7 +282,7 @@ const REPEAT = String.fromCharCode(0xa0);
           <button
             type="button"
             class="inline-flex items-center gap-1.5 rounded-field border border-haze bg-white px-4 py-2 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean"
-            (click)="load()"
+            (click)="retry()"
           >
             <sd-icon name="refresh-cw" [size]="16" /> Try again
           </button>
@@ -307,6 +309,7 @@ export class CallLabRequestDetail {
   /** The doctor's clock (their profile time zone): every time shown here. */
   protected readonly clock = inject(DoctorClock);
   protected readonly numberParts = numberParts;
+  protected readonly sharingNote = SHARING_NOTE;
   private readonly api = inject(LabRequestsApi);
   private readonly files = inject(LabFiles);
   private readonly viewer = inject(DocumentViewerService);
@@ -324,7 +327,7 @@ export class CallLabRequestDetail {
   readonly active = input(true);
   /** The doctor shares their screen: no "Abnormal" anywhere here. */
   readonly sharing = input(false);
-  /** Signed in as this call's doctor. The parent destroys the drill-in on sign-out; this guards prompts that outlive it. */
+  /** Signed in as this call's doctor. The parent destroys the drill-in on sign-out (see `gone`). */
   readonly signedIn = input(false);
   readonly back = output<void>();
   readonly duplicate = output<LabRequestDto>();
@@ -348,6 +351,14 @@ export class CallLabRequestDetail {
   private loadSub: Subscription | null = null;
   private loadedId: string | null = null;
   private wasActive: boolean | null = null;
+  /**
+   * Destroyed: the parent swapped this drill-in for the list (a sign-out, or
+   * another doctor signing in). Its inputs are frozen from then on — the last
+   * `signedIn` it got is still true — so nothing it started may act.
+   */
+  private gone = false;
+  /** The open "Cancel this request?" prompt's options (it lives in the app's outlet). */
+  private cancelPrompt: ConfirmOptions | null = null;
 
   constructor() {
     // The first read, then a quiet one each time the tab shows again (results may arrive during the call).
@@ -366,11 +377,28 @@ export class CallLabRequestDetail {
         this.wasActive = active;
       });
     });
-    // Sharing starts while a review is open: its Normal / Abnormal choice leaves the screen.
+    // Sharing starts while a review is open: its Normal / Abnormal choice leaves the screen. Its opener
+    // (Review / Change review) is hidden while sharing, so focus would fall to <body> inside the workspace.
     effect(() => {
-      if (this.sharing() && untracked(this.reviewOpen)) untracked(() => this.reviewOpen.set(false));
+      if (!this.sharing() || !untracked(this.reviewOpen)) return;
+      untracked(() => {
+        this.reviewOpen.set(false);
+        this.say(SHARING_NOTE);
+        this.focusIfLost(() => this.resultsHeading()?.nativeElement);
+      });
     });
-    this.destroyRef.onDestroy(() => this.loadSub?.unsubscribe());
+    this.destroyRef.onDestroy(() => {
+      this.gone = true;
+      this.loadSub?.unsubscribe();
+      // The cancel prompt goes with the drill-in it belongs to — unless its POST is already on its way
+      // (sent while signed in): that one finishes, and shows how it went. Untracked: this runs while the
+      // parent's @switch swaps views, inside its template.
+      const prompt = this.cancelPrompt;
+      if (!prompt) return;
+      untracked(() => {
+        for (const r of this.dialogs.requests()) if (r.options === prompt && !r.busy()) r.dismiss();
+      });
+    });
   }
 
   /** Load (or, `quiet`, refresh in place) the request. */
@@ -394,6 +422,27 @@ export class CallLabRequestDetail {
         else this.error.set(apiErrorMessage(err, 'Could not load this lab request. Please try again.'));
       },
     });
+  }
+
+  /** The error card's Try again: the card (and the pressed button) gives way to the shimmer, so focus goes to the title. */
+  protected retry(): void {
+    this.load();
+    this.focusIfLost(() => this.doc.getElementById('call-lab-detail-title'));
+  }
+
+  /**
+   * After the next render, focus `target` — only if focus was lost meanwhile, never taken from elsewhere. Lost:
+   * on <body>, or still on a control of a dialog that has just closed (the browser moves it to <body> a moment later).
+   */
+  private focusIfLost(target: () => HTMLElement | null | undefined): void {
+    afterNextRender(
+      () => {
+        const active = this.doc.activeElement;
+        const closedDialog = active?.closest('dialog');
+        if (!active || active === this.doc.body || (closedDialog && !closedDialog.open)) target()?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   // ----- labels -----
@@ -513,7 +562,7 @@ export class CallLabRequestDetail {
   }
 
   protected async cancelRequest(r: LabRequestDto): Promise<void> {
-    const { confirmed } = await this.dialogs.confirm({
+    const prompt: ConfirmOptions = {
       title: 'Cancel this request?',
       message: `${r.patient.name} will be told it was cancelled. You can duplicate it later if needed.`,
       tone: 'danger',
@@ -522,8 +571,9 @@ export class CallLabRequestDetail {
       cancelLabel: 'Keep request',
       size: 'md',
       action: (reason) => {
-        // The prompt lives in the app's outlet and outlives this drill-in: never post under another session.
-        if (!this.signedIn()) return throwError(() => SIGNED_OUT);
+        // The prompt lives in the app's outlet and can outlive this drill-in (a sign-out destroys it, and its
+        // `signedIn` stays frozen at true): never post under another session, or none.
+        if (this.gone || !this.signedIn()) return throwError(() => SIGNED_OUT);
         return this.api.cancel(r.id, reason ?? '').pipe(
           tap({
             next: (res) => this.dto.set(res.data),
@@ -536,8 +586,12 @@ export class CallLabRequestDetail {
         );
       },
       errorMessage: (e) => (e === SIGNED_OUT ? 'Sign in again to cancel this request.' : apiErrorMessage(e)),
-    });
-    if (!confirmed) return;
+    };
+    this.cancelPrompt = prompt;
+    const { confirmed } = await this.dialogs.confirm(prompt);
+    if (this.cancelPrompt === prompt) this.cancelPrompt = null;
+    // Gone meanwhile: the list's own focus rule applies (L16), nothing here is on screen any more.
+    if (!confirmed || this.gone) return;
     this.say('Request cancelled.');
     // Cancel request (the prompt's opener) is gone: focus would fall to <body> inside the workspace modal.
     focusAfterDialogs(this.injector, () => this.doc.getElementById('call-lab-detail-title'));

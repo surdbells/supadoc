@@ -4,7 +4,7 @@ import { LabRequestsApi } from '@supadoc/data-access';
 import type { DoctorLabResultDto, LabRequestDto } from '@supadoc/models';
 import { type ConfirmOptions, DialogService, provideSupadocIcons } from '@supadoc/ui';
 import { DocumentViewerService, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
-import { firstValueFrom, isObservable, type Observable, of, throwError } from 'rxjs';
+import { firstValueFrom, isObservable, type Observable, of, Subject, throwError } from 'rxjs';
 import { CallLabRequestDetail } from './call-lab-request-detail';
 import { LabFiles } from './lab-files';
 import { LAB_RESULT_KEY } from './lab-viewer-sources';
@@ -28,19 +28,23 @@ function result(over: Partial<DoctorLabResultDto> = {}): DoctorLabResultDto {
 @Component({
   imports: [CallLabRequestDetail],
   template: `
-    <doc-call-lab-request-detail
-      labId="lr1"
-      [patientId]="pid()"
-      [watermark]="watermark()"
-      [active]="active()"
-      [sharing]="sharing()"
-      [signedIn]="signedIn()"
-      (back)="backs = backs + 1"
-      (duplicate)="dups.push($event)"
-    />
+    @if (shown()) {
+      <doc-call-lab-request-detail
+        labId="lr1"
+        [patientId]="pid()"
+        [watermark]="watermark()"
+        [active]="active()"
+        [sharing]="sharing()"
+        [signedIn]="signedIn()"
+        (back)="backs = backs + 1"
+        (duplicate)="dups.push($event)"
+      />
+    }
   `,
 })
 class Host {
+  /** False: the parent swapped the drill-in for the list (what a sign-out does). */
+  readonly shown = signal(true);
   readonly pid = signal<string | null>('p1');
   readonly watermark = signal<{ viewerName: string; timeZone: string } | null>({ viewerName: 'Dr Ada Obi', timeZone: 'Africa/Lagos' });
   readonly active = signal(true);
@@ -59,7 +63,33 @@ describe('CallLabRequestDetail (a lab request inside the call)', { timeout: 20_0
   let view: ReturnType<typeof vi.fn>;
   let open: ReturnType<typeof vi.fn>;
   let confirm: ReturnType<typeof vi.fn>;
+  /** What the app's dialog outlet shows (DialogService.requests()). */
+  let requests: ReturnType<typeof signal<FakeRequest[]>>;
   let dto: LabRequestDto;
+
+  interface FakeRequest {
+    readonly options: ConfirmOptions;
+    readonly busy: ReturnType<typeof signal<boolean>>;
+    readonly dismiss: ReturnType<typeof vi.fn>;
+  }
+
+  /** The prompt stays open (as in the outlet) until dismissed, which resolves it as not confirmed. */
+  function openPrompts(busy = false) {
+    confirm.mockImplementation(
+      (options: ConfirmOptions) =>
+        new Promise((resolve) => {
+          const request: FakeRequest = {
+            options,
+            busy: signal(busy),
+            dismiss: vi.fn(() => {
+              requests.update((list) => list.filter((r) => r !== request));
+              resolve({ confirmed: false });
+            }),
+          };
+          requests.update((list) => [...list, request]);
+        }),
+    );
+  }
 
   async function setup(o: { dto?: LabRequestDto; get?: () => Observable<unknown> } = {}) {
     dto = o.dto ?? labRequest({ appointment_id: 'ap-1', results: [result()] });
@@ -73,6 +103,7 @@ describe('CallLabRequestDetail (a lab request inside the call)', { timeout: 20_0
     view = vi.fn();
     open = vi.fn();
     confirm = vi.fn(async () => ({ confirmed: true }));
+    requests = signal<FakeRequest[]>([]);
     TestBed.configureTestingModule({
       imports: [Host],
       providers: [
@@ -80,7 +111,7 @@ describe('CallLabRequestDetail (a lab request inside the call)', { timeout: 20_0
         { provide: LabRequestsApi, useValue: api },
         { provide: LabFiles, useValue: { view } },
         { provide: DocumentViewerService, useValue: { open } },
-        { provide: DialogService, useValue: { confirm, confirmLeave: async () => true, requests: signal([]) } },
+        { provide: DialogService, useValue: { confirm, confirmLeave: async () => true, requests } },
       ],
     });
     fixture = TestBed.createComponent(Host);
@@ -246,6 +277,43 @@ describe('CallLabRequestDetail (a lab request inside the call)', { timeout: 20_0
       expect(must(opts.errorMessage, 'errorMessage')(caught)).toBe('Sign in again to cancel this request.');
       expect(api.cancel).not.toHaveBeenCalled();
     });
+
+    // A sign-out destroys the drill-in before its signedIn binding updates: that input stays true for good.
+    it('the drill-in destroyed with the prompt open (a sign-out): the prompt closes with it, its action refuses, nothing is posted', async () => {
+      await setup();
+      openPrompts();
+      must(button('Cancel request'), 'Cancel request').click();
+      await settle();
+      const [request] = requests();
+      const opts = must(request, 'prompt').options;
+      host.shown.set(false);
+      await settle();
+      expect(el.querySelector('doc-call-lab-request-detail')).toBeNull();
+      expect(request.dismiss).toHaveBeenCalledTimes(1);
+      expect(requests().length).toBe(0);
+      let caught: unknown = null;
+      try {
+        const run = must(opts.action, 'action')('Not needed');
+        await (isObservable(run) ? firstValueFrom(run) : run);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).not.toBeNull();
+      expect(must(opts.errorMessage, 'errorMessage')(caught)).toBe('Sign in again to cancel this request.');
+      expect(api.cancel).not.toHaveBeenCalled();
+    });
+
+    it('destroyed while its POST is on its way (sent while signed in): that prompt is left to finish', async () => {
+      await setup();
+      openPrompts(true);
+      must(button('Cancel request'), 'Cancel request').click();
+      await settle();
+      const [request] = requests();
+      host.shown.set(false);
+      await settle();
+      expect(must(request, 'prompt').dismiss).not.toHaveBeenCalled();
+      expect(requests().length).toBe(1);
+    });
   });
 
   it('Duplicate emits the request; hidden for another patient’s request', async () => {
@@ -280,6 +348,27 @@ describe('CallLabRequestDetail (a lab request inside the call)', { timeout: 20_0
     expect(button('Change review')).not.toBeNull();
   });
 
+  it('sharing starts with the Review dialog open: it closes, focus on the Results heading (its opener is hidden), the note announced', async () => {
+    const reviewed = labRequest({
+      status: 'result_ready',
+      results: [result({ review: { outcome: 'abnormal', comment: 'Low haemoglobin', reviewed_at: '2026-11-02T10:00:00Z' } })],
+      can: { cancel: false, review: true, duplicate: true },
+    });
+    await setup({ dto: reviewed });
+    const opener = must(button('Change review'), 'Change review');
+    opener.focus();
+    opener.click();
+    await settle();
+    const dialog = must(Array.from(document.querySelectorAll('dialog')).find((d) => d.open), 'review dialog');
+    (dialog.querySelector('input[type="radio"]') as HTMLInputElement).focus();
+    host.sharing.set(true);
+    await settle();
+    expect(Array.from(document.querySelectorAll('dialog')).some((d) => d.open)).toBe(false);
+    expect(button('Change review')).toBeNull();
+    expect(document.activeElement?.id).toBe('call-lab-detail-results');
+    expect(status()).toContain('Review outcomes are hidden while you share your screen.');
+  });
+
   it('a cancelled request with an abnormal result: the caption only when not sharing', async () => {
     await setup({ dto: labRequest({ status: 'cancelled', abnormal: true, can: { cancel: false, review: false, duplicate: true } }) });
     expect(text()).toContain('Abnormal result');
@@ -296,15 +385,24 @@ describe('CallLabRequestDetail (a lab request inside the call)', { timeout: 20_0
       expect(host.backs).toBe(1);
     });
 
-    it('an error: Try again reads again', async () => {
+    it('an error: Try again reads again; the pressed button goes with the card, so focus goes to the title', async () => {
       await setup({ get: () => throwError(() => ({ statusCode: 0 })) });
       expect(el.querySelector('sd-icon[name="wifi-off"]')).not.toBeNull();
       expect(el.querySelector('#call-lab-detail-number')).toBeNull();
-      api.get.mockImplementation(() => of({ data: dto }));
-      must(button('Try again'), 'Try again').click();
+      const pending = new Subject<unknown>();
+      api.get.mockImplementation(() => pending);
+      const retry = must(button('Try again'), 'Try again');
+      retry.focus();
+      retry.click();
       await settle();
       expect(api.get).toHaveBeenCalledTimes(2);
+      expect(button('Try again')).toBeNull();
+      expect(document.activeElement?.id).toBe('call-lab-detail-title');
+      pending.next({ data: dto });
+      pending.complete();
+      await settle();
       expect(text(el.querySelector('#call-lab-detail-number'))).toBe(dto.number);
+      expect(document.activeElement?.id).toBe('call-lab-detail-title');
     });
 
     it('shown again (active false → true): exactly one quiet read; a window focus: none; Refresh: one', async () => {
