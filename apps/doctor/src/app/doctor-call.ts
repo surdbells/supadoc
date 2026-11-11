@@ -492,7 +492,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         </p>
         <!-- Allergies: always in view (the full list for screen readers, truncated on screen). -->
         @if (allergyNames().length) {
-          <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)] min-w-0 max-w-[9rem] sm:max-w-[18rem]">
+          <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)] min-w-0 max-w-[9rem] shrink sm:max-w-[18rem]">
             <sd-icon name="triangle-alert" [size]="14" class="shrink-0 text-alert" />
             <span class="truncate" aria-hidden="true">Allergies: {{ allergyNames().join(', ') }}</span>
             <span class="sr-only">Allergies: {{ allergyNames().join(', ') }}</span>

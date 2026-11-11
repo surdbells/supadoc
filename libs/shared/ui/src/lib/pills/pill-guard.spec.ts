@@ -102,7 +102,10 @@ const ALLOW: ReadonlyArray<{
   {
     file: 'apps/backoffice/src/app/applications/tabs/documents-tab.ts',
     rule: 'owned-utility',
-    detail: /^focus(-visible)?:(outline-none|ring-\S+) in "sd-chip /,
+    // Exactly today's three focus utilities on exactly today's class list: any other offence there fails.
+    // (":" and "/" are written \x3a and \x2f so Tailwind, which scans this file, finds no class here.)
+    detail:
+      /^(focus\x3aoutline-none|focus-visible\x3aring-2|focus-visible\x3aring-cerulean\x2f40) in "sd-chip [^"]*\bbg-sage\x2f15 text-sage-ink transition-colors hover\x3abg-sage\x2f25 focus\x3aoutline-none focus-visible\x3aring-2 focus-visible\x3aring-cerulean\x2f40"$/,
     why: 'the "Verified credential" link chip keeps the back office focus ring; outside the call-page unit, reported for a follow-up (spec-pills §4.6)',
   },
 ];
@@ -229,6 +232,17 @@ function checkSource(
 ): void {
   const line = (index: number) => text.slice(0, index).split('\n').length;
   const local = constantsOf(text);
+  // Names that hold a tone outside a template (`cls: 'sd-tone-x'`, `const T = 'sd-tone-x'`): a
+  // binding that reads one of them puts a tone on its element, so that element must be a chip.
+  const toneNames = new Set<string>();
+  for (const m of text.matchAll(
+    /\b([A-Za-z_$][\w$]*)\s*[:=]\s*(['"`])\s*sd-tone-[a-z]+\s*\2/g,
+  ))
+    toneNames.add(m[1]);
+  const readsTone = (bound: string) =>
+    [...toneNames].some((n) =>
+      new RegExp(`(^|[^\\w$])${n.replace(/\$/g, '\\$')}(?![\\w$])`).test(bound),
+    );
   // 1. Template elements.
   for (const m of text.matchAll(
     /<([a-z][\w-]*)\b((?:[^<>"']|"[^"]*"|'[^']*')*)>/g,
@@ -237,7 +251,7 @@ function checkSource(
     const at = `${file}:${line(m.index ?? 0)}`;
     const raw = /(?:^|\s)class="([^"]*)"/.exec(attrs)?.[1] ?? '';
     const stat = expand(raw, local, shared);
-    const bound = [...attrs.matchAll(/\[class\]="([^"]*)"/g)]
+    const bound = [...attrs.matchAll(/\[(?:class|ngClass)\]="([^"]*)"/g)]
       .map((b) => b[1])
       .join(' ');
     if (stat) checkClassList(stat, at, out);
@@ -271,7 +285,7 @@ function checkSource(
         out.push({ at, rule: 'state-not-exposed', detail: stat });
     }
     if (
-      /(^|[\s'"])sd-tone-/.test(bound) &&
+      (/(^|[\s'"])sd-tone-/.test(bound) || readsTone(bound)) &&
       !tokens.some((t) => t === 'sd-chip' || t === 'sd-count')
     )
       out.push({ at, rule: 'tone-off-chip', detail: `[class]="${bound}"` });
@@ -290,7 +304,8 @@ function checkSource(
   }
   // 2. Class-string literals outside attributes (tokens, computed classes).
   // A literal that is one tone alone is a tone value (a map entry or a [class] branch); the
-  // template pass checks that the element it lands on is a chip.
+  // template pass checks that the element it lands on is a chip (a literal branch, or a binding
+  // that reads the map key or constant holding it: toneNames).
   for (const m of text.matchAll(/'([^'\n]*\bsd-[a-z][^'\n]*)'/g))
     if (!/^\s*sd-tone-[a-z]+\s*$/.test(m[1]))
       checkClassList(m[1], `${file}:${line(m.index ?? 0)}`, out);
@@ -479,6 +494,21 @@ describe('pill guard', () => {
     expect(
       check(`<span class="px-2" [class]="on ? '${TONE}' : ''">A</span>`),
     ).toEqual(['tone-off-chip']);
+    // A tone kept in a map or a constant, read by a binding: the element must be a chip.
+    const map = `const MAP = { a: { label: 'A', cls: '${TONE}' } };\nconst T = '${TONE}';\n`;
+    expect(
+      check(`${map}<span class="sd-chip" [class]="status(x).cls">A</span>`),
+    ).toEqual([]);
+    expect(
+      check(`${map}<span class="inline-flex px-2" [class]="status(x).cls">A</span>`),
+    ).toEqual(['tone-off-chip']);
+    expect(check(`${map}<span [ngClass]="T">A</span>`)).toEqual([
+      'tone-off-chip',
+    ]);
+    // Another key that holds no tone stays free.
+    expect(
+      check(`${map}<span class="px-2" [class]="status(x).clsx">A</span>`),
+    ).toEqual([]);
   });
 
   it("catches a tight track that clips its pills' bands and a nested scroller with no ring room (self-test)", () => {

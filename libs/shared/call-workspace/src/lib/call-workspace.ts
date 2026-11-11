@@ -240,7 +240,7 @@ export const WS_CSS = `
                 </div>
                 @if (allergies().length && !sharing()) {
                   <!-- The cockpit header's allergy pill, on the header's own surface (its tone switch applies); phones: icon + count. -->
-                  <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)] min-w-0 max-w-[9rem] sm:max-w-[18rem]">
+                  <span class="sd-chip sd-tone-danger [--sd-chip-ring:rgb(229_57_53/0.6)] min-w-0 max-w-[9rem] shrink sm:max-w-[18rem]">
                     <sd-icon name="triangle-alert" [size]="14" class="shrink-0 text-alert" />
                     @if (phone()) {
                       <span aria-hidden="true">{{ allergies().length }}</span>
