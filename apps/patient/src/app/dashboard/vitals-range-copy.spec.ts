@@ -7,6 +7,7 @@ import {
   bmiAboveRangeWarning,
   bpCeilingError,
   ceilingError,
+  CHECK_ONLY_READINGS,
 } from './vitals-range-copy';
 
 describe('vitals range copy (patient)', () => {
@@ -17,9 +18,20 @@ describe('vitals range copy (patient)', () => {
     expect(aboveRangeWarning('260/160', 'mmHg')).toContain(
       '(up to 260/160 mmHg)',
     );
-    expect(bmiAboveRangeWarning(90)).toContain(
-      'Please check your weight and height were entered correctly.',
+    expect(bmiAboveRangeWarning(90)).toBe(
+      'This BMI is higher than readings usually go (up to 90 kg/m²). Please check your weight and height were entered correctly.',
     );
+  });
+
+  it('asks only for a check on height and weight (no urgent care)', () => {
+    expect(aboveRangeWarning(250, 'cm', 'height')).toBe(
+      'This is higher than readings usually go (up to 250 cm). Please check it was measured and entered correctly.',
+    );
+    expect(aboveRangeWarning(400, 'kg', 'weight')).not.toContain('urgent');
+    expect(aboveRangeWarning(45, '°C', 'temperature')).toContain(
+      'If it is right, seek urgent medical attention.',
+    );
+    expect(CHECK_ONLY_READINGS).toEqual(['height', 'weight', 'bmi']);
   });
 
   it('counts readings for the Save reminder', () => {

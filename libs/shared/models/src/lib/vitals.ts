@@ -24,8 +24,7 @@ export type VitalFlagLevel = 'normal' | 'low' | 'elevated' | 'high' | 'critical'
  * thing. `label` is "Normal" | "Low" | "Elevated" | "High" | "Very high" |
  * "Very low" (pain: "None" | "Mild" | "Moderate" | "Severe"). `advice` is set
  * for high ("Seek medical attention") and critical ("Seek urgent medical
- * attention") readings — never for pain, nor for weight/BMI unless the
- * reading is above its usual range.
+ * attention") readings — never for pain, height, weight or BMI.
  */
 export interface VitalFlagDto {
   level: VitalFlagLevel;
@@ -33,7 +32,8 @@ export interface VitalFlagDto {
   advice: 'Seek medical attention' | 'Seek urgent medical attention' | null;
   /**
    * The reading is above its usual entry range (it was still saved): screens
-   * ask to check it. Always "Very high" + urgent advice. Absent on older APIs —
+   * ask to check it. "Very high" + urgent advice, except height, weight and
+   * BMI: those only ask for a check ("High", no advice). Absent on older APIs —
    * treat as false.
    */
   out_of_range?: boolean;

@@ -2,27 +2,39 @@
  * What the patient app says about a reading above its usual entry range — one
  * place, so the form, Medical Information and the call screen agree. Calm and
  * professional: it asks the patient to check the reading and, if it is right,
- * to seek urgent care. Never a diagnosis.
+ * to seek urgent care — except height, weight and BMI, which only ask for a
+ * check (most likely mistyped; not an emergency in themselves). Never a
+ * diagnosis.
  */
+
+/** Readings whose above-range warning asks for a check only, never urgent care (the API's `VitalsFlags::CHECK_ONLY`). */
+export const CHECK_ONLY_READINGS: readonly string[] = ['height', 'weight', 'bmi'];
 
 /** "45 °C", "260/160 mmHg", "90 kg/m²", "60 breaths/min". */
 function upTo(max: string | number, unit: string): string {
   return `${max}${unit ? ` ${unit}` : ''}`;
 }
 
-/** Under a box on the "Update vitals" form. */
-export function aboveRangeWarning(max: string | number, unit: string): string {
-  return (
-    `This is higher than readings usually go (up to ${upTo(max, unit)}). ` +
-    'Please check it was measured and entered correctly. If it is right, seek urgent medical attention.'
-  );
+/**
+ * Under a box on the "Update vitals" form. Height and weight (`key`) ask for a
+ * check only; every other reading adds the urgent-care advice.
+ */
+export function aboveRangeWarning(
+  max: string | number,
+  unit: string,
+  key?: string,
+): string {
+  const check = `This is higher than readings usually go (up to ${upTo(max, unit)}). Please check it was measured and entered correctly.`;
+  return key && CHECK_ONLY_READINGS.includes(key)
+    ? check
+    : `${check} If it is right, seek urgent medical attention.`;
 }
 
-/** Under the worked-out BMI. */
+/** Under the worked-out BMI (a check only, no urgent-care advice). */
 export function bmiAboveRangeWarning(max: string | number): string {
   return (
     `This BMI is higher than readings usually go (up to ${upTo(max, 'kg/m²')}). ` +
-    'Please check your weight and height were entered correctly. If they are right, seek urgent medical attention.'
+    'Please check your weight and height were entered correctly.'
   );
 }
 

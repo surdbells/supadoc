@@ -314,15 +314,31 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     expect(el.querySelector('#vt-warn-blood_pressure')).toBeNull();
   });
 
-  it('works out a BMI above 90 and warns about it', async () => {
+  it('works out a BMI above 90 and asks for a check, not urgent care', async () => {
     await mount();
     await openEditor();
     type('#vt-weight', '300');
     type('#vt-height', '150');
     expect(el.textContent).toContain('133.3');
-    expect(el.querySelector('#vt-warn-bmi')?.textContent).toContain(
+    const bmi = el.querySelector('#vt-warn-bmi')?.textContent ?? '';
+    expect(bmi).toContain(
       'This BMI is higher than readings usually go (up to 90 kg/m²)',
     );
+    expect(bmi.toLowerCase()).not.toContain('urgent');
+  });
+
+  it('asks to check a height or weight above the range, without urgent-care advice', async () => {
+    await mount();
+    await openEditor();
+    type('#vt-height', '260');
+    type('#vt-weight', '410');
+    expect(el.querySelector('#vt-warn-height')?.textContent?.trim()).toBe(
+      'This is higher than readings usually go (up to 250 cm). Please check it was measured and entered correctly.',
+    );
+    expect(el.querySelector('#vt-warn-weight')?.textContent?.trim()).toBe(
+      'This is higher than readings usually go (up to 400 kg). Please check it was measured and entered correctly.',
+    );
+    expect(summary()).toContain('readings are higher than readings usually go');
   });
 
   it('keeps the warning on a saved reading in Medical Information', async () => {
@@ -339,5 +355,35 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     );
     expect(text).toContain('(Seek urgent medical attention)');
     expect(text.toLowerCase()).not.toContain('abnormal');
+  });
+
+  it('asks to check a saved height above the range, with no urgent advice', async () => {
+    await mount([
+      {
+        ...aboveTemp,
+        key: 'height',
+        label: 'Height',
+        value: '260',
+        unit: 'cm',
+        flag: {
+          level: 'high',
+          label: 'High',
+          advice: null,
+          out_of_range: true,
+          usual_max: '250',
+        },
+      },
+    ]);
+    (fixture.componentInstance as unknown as Testable).view.set('medical');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const text = el.textContent ?? '';
+    expect(text).toContain('Check reading');
+    expect(text).toContain(
+      'Height is higher than readings usually go (up to 250 cm). Please check it was measured and entered correctly.',
+    );
+    expect(text).not.toContain('Seek urgent medical attention');
+    expect(text).not.toContain('Very high');
   });
 });

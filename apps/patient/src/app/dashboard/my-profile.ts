@@ -2297,8 +2297,9 @@ export class MyProfile implements HasUnsavedChanges {
           ];
         }
         if (f.out_of_range) {
-          // Above the usual range: ask to check it first, then the API's urgent advice.
-          return [{ key: v.key, text: aboveRangeAlert(name, f.usual_max, v.unit, v.key), advice: f.advice, critical: true }];
+          // Above the usual range: ask to check it first, then the API's advice (urgent care;
+          // none for height, weight and BMI, which only ask for a check).
+          return [{ key: v.key, text: aboveRangeAlert(name, f.usual_max, v.unit, v.key), advice: f.advice, critical: f.level === 'critical' }];
         }
         return [{ key: v.key, text: `${name} is ${f.label}`, advice: f.advice, critical: f.level === 'critical' }];
       })
@@ -3143,7 +3144,7 @@ export class MyProfile implements HasUnsavedChanges {
     const n = c.value;
     // Compared as the API stores it (one decimal), so 45.04 isn't warned about as above 45.
     if (c.errors || n === null || !Number.isFinite(n) || storedReadingValue(n) <= f.max) return '';
-    return aboveRangeWarning(f.max, f.unit);
+    return aboveRangeWarning(f.max, f.unit, f.key);
   }
 
   /** The same for blood pressure: either number above its usual maximum (and an otherwise valid pair). */

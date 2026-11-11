@@ -464,6 +464,35 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
     expect(panel?.querySelector('[title]')?.getAttribute('title')).toContain('above the expected range');
   });
 
+  it('the chart asks to confirm a height above its usual range, with no urgent alert', async () => {
+    await setup([doc('a')]);
+    const c = fixture.componentInstance as unknown as {
+      info: WritableSignal<{ patient?: Record<string, unknown> } | null>;
+      isChartOpen(k: string): boolean;
+      toggleChart(k: string): void;
+    };
+    const info = c.info();
+    c.info.set({
+      ...info,
+      patient: {
+        ...info?.patient,
+        vitals: [
+          {
+            key: 'height', label: 'Height', value: '260', unit: 'cm', taken_at: '2026-11-04T14:00:00Z',
+            source: 'self_reported', source_label: 'Self-reported', recorded_by: 'patient', stale: false,
+            flag: { level: 'high', label: 'High', advice: null, out_of_range: true, usual_max: '250' },
+          },
+        ],
+      },
+    });
+    if (!c.isChartOpen('vitals')) c.toggleChart('vitals');
+    await tick();
+    const panel = el.querySelector('#call-chart-vitals');
+    expect(panel?.querySelector('[data-above-range]')?.textContent).toContain('Above the expected range (max 250 cm) — confirm the reading.');
+    expect(panel?.textContent).not.toContain('Seek urgent medical attention');
+    expect(panel?.textContent).not.toContain('Very high');
+  });
+
   it('polls every 10 s from when each read STARTED, even when reads take 300 ms', async () => {
     await setup([doc('a')]);
     answer = () => timer(300).pipe(map(() => ({ data: access([doc('a')]) })));

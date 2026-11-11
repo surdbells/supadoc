@@ -270,6 +270,18 @@ describe('RxComposer — readings above the expected range', () => {
     );
   });
 
+  it('asks to confirm a height above the range, with no urgent-care advice', async () => {
+    const { fixture, el, type } = setup();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    type('height', '260');
+    const warn = el.querySelector('[data-rx-warning]') as HTMLElement;
+    expect(warn.textContent?.trim()).toContain(
+      'Above the expected range (max 250 cm). Confirm the reading before issuing.',
+    );
+    expect(el.textContent?.toLowerCase()).not.toContain('urgent');
+  });
+
   it('shows the readings in the Send dialog and still sends', async () => {
     const { fixture, c, el, type, send } = setup();
     await fixture.whenStable();

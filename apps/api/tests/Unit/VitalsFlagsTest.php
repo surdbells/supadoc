@@ -162,10 +162,6 @@ final class VitalsFlagsTest extends TestCase
         yield 'bp 300/170' => ['blood_pressure', '300/170', null, '260/160'];
         yield 'bp 261/80' => ['blood_pressure', '261/80', null, '260/160'];
         yield 'bp 200/161' => ['blood_pressure', '200/161', null, '260/160'];
-        yield 'height 251' => ['height', '251', null, '250'];
-        yield 'weight 401, no height' => ['weight', '401', null, '400'];
-        yield 'weight 401, with height' => ['weight', '401', '180', '400'];
-        yield 'bmi 95' => ['bmi', '95', null, '90'];
     }
 
     #[DataProvider('aboveRange')]
@@ -175,6 +171,27 @@ final class VitalsFlagsTest extends TestCase
             ['level' => 'critical', 'label' => 'Very high', 'advice' => self::URGENT, 'out_of_range' => true, 'usual_max' => $usualMax],
             VitalsFlags::flag($key, $value, $height),
         );
+    }
+
+    /** Height, weight and BMI above their usual range: check the reading, but no advice and never critical. */
+    public static function aboveRangeCheckOnly(): iterable
+    {
+        yield 'height 251' => ['height', '251', null, '250'];
+        yield 'height 9999' => ['height', '9999', '180', '250'];
+        yield 'weight 401, no height' => ['weight', '401', null, '400'];
+        yield 'weight 401, with height' => ['weight', '401', '180', '400'];
+        yield 'bmi 95' => ['bmi', '95', null, '90'];
+        yield 'bmi 90.1' => ['bmi', '90.1', null, '90'];
+    }
+
+    #[DataProvider('aboveRangeCheckOnly')]
+    public function testHeightWeightAndBmiAboveTheUsualRangeAskForACheckNotUrgentCare(string $key, string $value, ?string $height, string $usualMax): void
+    {
+        $this->assertSame(
+            ['level' => 'high', 'label' => 'High', 'advice' => null, 'out_of_range' => true, 'usual_max' => $usualMax],
+            VitalsFlags::flag($key, $value, $height),
+        );
+        $this->assertSame(['height', 'weight', 'bmi'], VitalsFlags::CHECK_ONLY);
     }
 
     public function testBoundedReadingsNeverCarryTheMarker(): void
@@ -191,15 +208,17 @@ final class VitalsFlagsTest extends TestCase
         // range, so it has no usual maximum of its own, but it is still marked
         // "check the reading" like the BMI card.
         $weight = VitalsFlags::flag('weight', '200', '140');
-        $this->assertSame(['level' => 'critical', 'label' => 'Very high', 'advice' => self::URGENT, 'out_of_range' => true, 'usual_max' => null], $weight);
+        $this->assertSame(['level' => 'high', 'label' => 'High', 'advice' => null, 'out_of_range' => true, 'usual_max' => null], $weight);
         // A BMI of 90 or below stays an ordinary flag.
         $this->assertFalse(VitalsFlags::flag('weight', '170', '140')['out_of_range']);
 
         $at   = '2026-10-13T08:00:00+00:00';
         $row  = static fn (string $value): array => ['value' => $value, 'unit' => '', 'taken_at' => $at, 'source' => 'video', 'recorded_by' => 'doctor'];
         $list = array_column(VitalsService::latestList(['weight' => $row('200'), 'height' => $row('140'), 'bmi' => $row('102')], $this->now()), null, 'key');
-        $this->assertSame('critical', $list['weight']['flag']['level']);
-        $this->assertSame('critical', $list['bmi']['flag']['level'], 'weight and BMI cards agree');
+        $this->assertSame('high', $list['weight']['flag']['level']);
+        $this->assertSame('high', $list['bmi']['flag']['level'], 'weight and BMI cards agree');
+        $this->assertNull($list['weight']['flag']['advice'], 'a check, not urgent care');
+        $this->assertNull($list['bmi']['flag']['advice']);
         $this->assertSame($list['weight']['flag']['label'], $list['bmi']['flag']['label']);
         $this->assertTrue($list['bmi']['flag']['out_of_range']);
         $this->assertTrue($list['weight']['flag']['out_of_range']);
@@ -222,7 +241,7 @@ final class VitalsFlagsTest extends TestCase
 
     public function testAdviceOnlyForHighAndCriticalReadings(): void
     {
-        // Within the usual range a BMI never advises; above it (> 90) every reading is urgent.
+        // A BMI never advises, not even above its usual range (> 90): that asks for a check only.
         foreach (self::boundaries() as $name => [$key, $value, $level, , $advice]) {
             $expected = match (true) {
                 in_array($key, ['bmi', 'pain_score'], true) => null,
