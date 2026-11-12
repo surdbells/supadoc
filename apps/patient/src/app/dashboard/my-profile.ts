@@ -7,6 +7,8 @@ import {
   DestroyRef,
   inject,
   Injector,
+  input,
+  type OnInit,
   signal,
   viewChild,
 } from '@angular/core';
@@ -669,21 +671,24 @@ interface SectionCard {
         }
 
         @case ('medical') {
-          <ng-container
-            [ngTemplateOutlet]="subHeader"
-            [ngTemplateOutletContext]="{
-              title: 'Medical Information',
-              subtitle:
-                'Update your medical history, allergies, medications, and existing conditions.',
-            }"
-          />
-          <ng-container [ngTemplateOutlet]="tipsBanner" />
-          <div class="mb-2 flex justify-end">
-            <sd-button class="w-[167px]" [full]="true" (click)="openEdit()">
-              <sd-icon name="square-pen" [size]="20" />
-              Edit
-            </sd-button>
-          </div>
+          <!-- Embedded (the call's workspace): the read view alone, with no header, tips or editing -->
+          @if (!embedded()) {
+            <ng-container
+              [ngTemplateOutlet]="subHeader"
+              [ngTemplateOutletContext]="{
+                title: 'Medical Information',
+                subtitle:
+                  'Update your medical history, allergies, medications, and existing conditions.',
+              }"
+            />
+            <ng-container [ngTemplateOutlet]="tipsBanner" />
+            <div class="mb-2 flex justify-end">
+              <sd-button class="w-[167px]" [full]="true" (click)="openEdit()">
+                <sd-icon name="square-pen" [size]="20" />
+                Edit
+              </sd-button>
+            </div>
+          }
 
           <!-- Vitals: the latest reading of each type, flagged by the API -->
           <section class="flex flex-col gap-4" aria-labelledby="vitals-heading">
@@ -943,14 +948,20 @@ interface SectionCard {
                   No Medical Information yet
                 </h2>
                 <p class="font-sans text-body-sm text-slate">
-                  Add your medical details to help your doctor understand your
-                  health better and provide personalised care.
+                  @if (embedded()) {
+                    You can add your medical details in My Profile › Medical Information after your visit.
+                  } @else {
+                    Add your medical details to help your doctor understand your
+                    health better and provide personalised care.
+                  }
                 </p>
               </div>
-              <sd-button (click)="openEdit('medical')">
-                <sd-icon name="plus" [size]="18" />
-                Add Medical details
-              </sd-button>
+              @if (!embedded()) {
+                <sd-button (click)="openEdit('medical')">
+                  <sd-icon name="plus" [size]="18" />
+                  Add Medical details
+                </sd-button>
+              }
             </div>
           }
         }
@@ -2067,7 +2078,7 @@ interface SectionCard {
     </sd-dialog>
   `,
 })
-export class MyProfile implements HasUnsavedChanges {
+export class MyProfile implements HasUnsavedChanges, OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   private readonly patient = inject(PatientApi);
@@ -2104,6 +2115,13 @@ export class MyProfile implements HasUnsavedChanges {
     if (!c.touched || c.valid) return '';
     return c.errors?.['required'] ? 'This field is required' : 'Enter a valid email address';
   }
+
+  /**
+   * Shown inside another page (the call's workspace): Medical Information's
+   * read view only (vitals, history, allergies, medicines, conditions), with
+   * no header, no editing and nothing that navigates.
+   */
+  readonly embedded = input(false);
 
   protected readonly view = signal<View>('home');
   protected readonly toast = signal('');
@@ -2319,7 +2337,8 @@ export class MyProfile implements HasUnsavedChanges {
   /** A nudge beside "Last updated" when the reminder is due ('' when it isn't). */
   protected readonly vitalsCue = computed<string>(() => {
     const r = this.vitalsReminder();
-    if (!r?.due) return '';
+    // Embedded in the call: no "update before your consultation" nudge during it.
+    if (!r?.due || this.embedded()) return '';
     if (r.reason === 'upcoming') {
       const at = r.appointment ? new Date(r.appointment.scheduled_at) : null;
       return at && !Number.isNaN(at.getTime())
@@ -2408,6 +2427,10 @@ export class MyProfile implements HasUnsavedChanges {
           replaceUrl: true,
         });
       });
+  }
+
+  ngOnInit(): void {
+    if (this.embedded()) this.view.set('medical');
   }
 
   /** GET the patient's vitals (latest readings + the form's catalogue). */

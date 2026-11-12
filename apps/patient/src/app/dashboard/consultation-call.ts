@@ -13,6 +13,7 @@ import {
   OnDestroy,
   signal,
   TemplateRef,
+  type Type,
   untracked,
   viewChild,
 } from '@angular/core';
@@ -101,6 +102,7 @@ import {
   PeerHandover,
   type WorkspaceFlag,
   WorkspacePanel,
+  type WorkspaceTabDef,
 } from '@supadoc/call-workspace';
 import { type DeviceProblem, deviceProblemText, doctorTitle } from '../call/call-helpers';
 import { openLocalMedia } from '../call/call-media';
@@ -121,6 +123,19 @@ import {
   notesShareBanner,
   type NotesTab,
 } from './call-notes-copy';
+import {
+  isRecordTab,
+  RECORD_BAND_CLOSE,
+  RECORD_CLOSE,
+  RECORD_KICKER,
+  RECORD_LOAD_FAILED,
+  RECORD_LOADING,
+  RECORD_TABS,
+  RECORD_TITLE_FALLBACK,
+  recordShareBanner,
+  type RecordTab,
+} from './call-record-copy';
+import { CallRecordOutlet } from './call-record-outlet';
 import { doctorTimeLabel } from './doctor-time';
 import { drLast, isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
 import { DocumentUploadDialog } from './document-upload-dialog';
@@ -282,6 +297,7 @@ interface RecordItem {
     CallControlsComponent,
     CallQualityComponent,
     CallSelfTileComponent,
+    CallRecordOutlet,
     CallTilesComponent,
     CallWorkspace,
     DocumentUploadDialog,
@@ -974,9 +990,10 @@ interface RecordItem {
             @if (docAccess(); as da) {
               <div class="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <p class="font-sans text-caption text-white/70">Shared with {{ docDoctor() }}: {{ sharedCount() }}</p>
-                <a href="/dashboard/documents/sharing" target="_blank" rel="noopener" class="inline-flex min-h-11 items-center gap-1 font-sans text-caption font-semibold text-sky transition-colors hover:text-white" aria-label="Manage sharing (opens in a new tab)">
-                  Manage<sd-icon name="external-link" [size]="14" />
-                </a>
+                <!-- Manage sharing opens in the workspace, over the call (a page or a tab would leave it). -->
+                <button type="button" class="inline-flex min-h-11 items-center gap-1 font-sans text-caption font-semibold text-sky transition-colors hover:text-white" aria-label="Manage sharing" (click)="openWorkspace('sharing', $event.currentTarget)">
+                  Manage<sd-icon name="chevron-right" [size]="14" />
+                </button>
               </div>
             } @else if (docAccessOff()) {
               <p class="mb-3 flex items-start gap-1.5 font-sans text-caption text-white/60">
@@ -1082,12 +1099,14 @@ interface RecordItem {
 
           <!-- Health summary -->
           <section class="rounded-card border border-white/10 bg-white/[0.03] p-4" aria-labelledby="call-health-title">
-            <div class="mb-3 flex items-center justify-between">
+            <!-- sd-share: the link's sky takes its ink tone in the light cockpit (styles.css). -->
+            <div class="sd-share mb-3 flex items-center justify-between">
               <h2 id="call-health-title" class="font-sans text-body font-semibold text-white">Health Summary</h2>
+              <!-- The full record opens in the workspace, over the call (never the profile page). -->
               <button
                 type="button"
                 class="flex min-h-11 items-center gap-1 font-sans text-caption text-sky transition-colors hover:text-frost"
-                (click)="goProfile()"
+                (click)="openWorkspace('record', $event.currentTarget)"
               >
                 View Full Record <sd-icon name="chevron-right" [size]="14" />
               </button>
@@ -1190,20 +1209,22 @@ interface RecordItem {
       <!-- The consultation notes, in one large modal over the cockpit (the call band on top, the
            doctor's live video as its picture-in-picture). The four panels are declared here and
            projected into it, read-only: nothing in them leaves the call, and documents open in
-           the shared viewer over it. Inside .sd-call, so the cockpit's light theme applies. -->
+           the shared viewer over it. Inside .sd-call, so the cockpit's light theme applies.
+           The same workspace holds the patient's own record (Health record, Document sharing),
+           opened from the Health Summary and Documents & Records: its own two tabs and words. -->
       <sd-call-workspace
         [open]="wsOpen()"
         [(tab)]="wsTab"
-        [tabs]="wsTabs"
+        [tabs]="wsTabSet()"
         [band]="viewerBar"
         [peer]="wsPeerShown() ? workspacePeer : null"
         [peerName]="viewerPeerName()"
-        [title]="wsTitle()"
-        [kicker]="notesKicker"
-        [closeLabel]="notesClose"
-        [meta]="doctorSpecialty()"
+        [title]="wsRecord() ? recordTitle() : wsTitle()"
+        [kicker]="wsRecord() ? recordKicker : notesKicker"
+        [closeLabel]="wsRecord() ? recordClose : notesClose"
+        [meta]="wsRecord() ? '' : doctorSpecialty()"
         [shareBanner]="screenOn()"
-        [shareText]="notesShareText()"
+        [shareText]="wsRecord() ? recordShareText() : notesShareText()"
         [tone]="theme()"
         [flags]="wsFlags()"
         (closed)="closeWorkspace()"
@@ -1518,6 +1539,23 @@ interface RecordItem {
             </div>
           }
         </div>
+
+        <!-- The patient's own record: the portal's Medical Information (read-only) and Manage
+             sharing, from a chunk loaded on first open (not @defer or NgComponentOutlet: they would
+             add to the initial bundle), each made the first time its tab shows; nothing in them navigates. -->
+        @for (z of recordZones; track z.kind) {
+          <div [sdWsPanel]="z.kind">
+            @if (recordZone(); as zone) {
+              @if (recordShown().includes(z.kind)) {
+                <ng-container [patRecordOutlet]="zone" [patRecordOutletKind]="z.kind" />
+              }
+            } @else if (recordZoneFailed()) {
+              <div class="sd-share"><p class="font-sans text-body-sm text-alert" role="alert">{{ recordLoadFailed }}</p></div>
+            } @else {
+              <div class="sd-shimmer h-40 rounded-card" role="status"><span class="sr-only">{{ recordLoading }}</span></div>
+            }
+          </div>
+        }
       </sd-call-workspace>
 
       <!-- In-call Upload & share: that doctor, no end date, only what they can open in VideoMed -->
@@ -2049,7 +2087,32 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   // ---- The consultation notes: four launchers, one workspace (a modal over the call) ----
   protected readonly wsTabs = NOTES_TABS;
   protected readonly wsOpen = signal(false);
-  protected readonly wsTab = signal<NotesTab>('notes');
+  protected readonly wsTab = signal<NotesTab | RecordTab>('notes');
+  /** The workspace holds the patient's own record (its two tabs), not the consultation notes. */
+  protected readonly wsRecord = computed(() => isRecordTab(this.wsTab()));
+  /** The tab strip: the notes' four, or the record's two (one set at a time, by the tab shown). */
+  protected readonly wsTabSet = computed<readonly WorkspaceTabDef<NotesTab | RecordTab>[]>(() =>
+    this.wsRecord() ? RECORD_TABS : NOTES_TABS,
+  );
+  protected readonly recordKicker = RECORD_KICKER;
+  protected readonly recordClose = RECORD_CLOSE;
+  protected readonly recordLoading = RECORD_LOADING;
+  protected readonly recordLoadFailed = RECORD_LOAD_FAILED;
+  protected readonly recordShareText = computed(() => recordShareBanner(this.recordingActive()));
+  /** The record's two panels. */
+  protected readonly recordZones: readonly { readonly kind: RecordTab }[] = [{ kind: 'record' }, { kind: 'sharing' }];
+  /** The record's zone component, loaded the first time the record opens (its own chunk). */
+  protected readonly recordZone = signal<Type<unknown> | null>(null);
+  protected readonly recordZoneFailed = signal(false);
+  private recordZoneLoading = false;
+  /** The record's tabs shown so far: each panel is made the first time, then kept (with its state). */
+  protected readonly recordShown = signal<readonly RecordTab[]>([]);
+  /** The record's title: the patient, "Grace Bell". */
+  protected readonly recordTitle = computed(() => {
+    const p = this.patient();
+    const n = p ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() : '';
+    return n || RECORD_TITLE_FALLBACK;
+  });
   /** The launcher (or other control) that opened the workspace: focus returns to it. */
   private wsOpener: HTMLElement | null = null;
   /** The shell's words (the shared shell holds none of the page's copy). */
@@ -2066,7 +2129,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   /** The card's hint follows the call: "stays in view" only while the doctor's video can. */
   protected readonly notesHint = computed(() => (this.wsPeerShown() ? notesHint(this.viewerPeerName()) : NOTES_HINT_AFTER));
   /** The tabs' marks: a "new" dot (and words) on a tab something arrived on while it wasn't showing. */
-  protected readonly wsFlags = computed<Partial<Record<NotesTab, WorkspaceFlag>>>(() => ({
+  protected readonly wsFlags = computed<Partial<Record<NotesTab | RecordTab, WorkspaceFlag>>>(() => ({
     prescriptions: this.newRx() ? NOTES_TAB_NEW : undefined,
     labs: this.newLab() ? NOTES_TAB_NEW : undefined,
     followup: this.newFollowUp() ? NOTES_TAB_NEW : undefined,
@@ -2104,7 +2167,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   protected readonly bandEnded = computed(() => (this.status() === 'ended' ? BAND_ENDED[this.endedReason()] : ''));
   /** The band's first button: "Back to call", or once the call has ended, what it closes (backToCall either way). */
   protected readonly bandBackLabel = computed(() =>
-    this.status() !== 'ended' ? BAND_BACK.live : this.wsOpen() ? BAND_BACK.notes : BAND_BACK.document,
+    this.status() !== 'ended'
+      ? BAND_BACK.live
+      : this.wsOpen()
+        ? this.wsRecord()
+          ? RECORD_BAND_CLOSE
+          : BAND_BACK.notes
+        : BAND_BACK.document,
   );
   protected readonly docRequestText = computed(() => DOC_REQUEST(this.viewerPeerName()));
   /** A lab request still waits for the patient's answer (given after the call, in Lab Tests). */
@@ -2680,6 +2749,14 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
       if (!this.wsOpen()) return;
       const t = this.wsTab();
       untracked(() => this.clearNew(t));
+    });
+    // A record tab's panel is made the first time it shows, then kept.
+    effect(() => {
+      const t = this.wsTab();
+      if (!this.wsOpen() || !isRecordTab(t)) return;
+      untracked(() => {
+        if (!this.recordShown().includes(t)) this.recordShown.update((list) => [...list, t]);
+      });
     });
 
     // Who joined, for the band's live region: the tiles' own region is inert under a modal, and
@@ -3390,7 +3467,7 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
   }
 
   /** A tab was seen: its "new" mark goes. */
-  private clearNew(tab: NotesTab): void {
+  private clearNew(tab: NotesTab | RecordTab): void {
     if (tab === 'prescriptions') this.newRx.set(false);
     else if (tab === 'labs') this.newLab.set(false);
     else if (tab === 'followup') this.newFollowUp.set(false);
@@ -3563,9 +3640,13 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
 
   // ---- The notes workspace ----
 
-  /** A launcher (or the toast): the workspace on that tab, focus on the tab (the shell's autofocus). */
-  protected openWorkspace(tab: NotesTab, opener?: EventTarget | null): void {
+  /**
+   * A launcher (or the toast): the workspace on that tab, focus on the tab (the shell's autofocus).
+   * "View Full Record" and "Manage" (sharing) open it on the patient's own record the same way.
+   */
+  protected openWorkspace(tab: NotesTab | RecordTab, opener?: EventTarget | null): void {
     if (this.left()) return;
+    if (isRecordTab(tab)) this.loadRecordZone();
     this.wsTab.set(tab);
     this.wsOpener = opener instanceof HTMLElement ? opener : null;
     if (this.wsOpen()) return;
@@ -3573,11 +3654,24 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     this.peer.workspaceOpened();
   }
 
+  /** The record's zone (Medical Information, Manage sharing): its chunk once; a failed load is tried again on the next open. */
+  private loadRecordZone(): void {
+    if (this.recordZone() || this.recordZoneLoading) return;
+    this.recordZoneLoading = true;
+    this.recordZoneFailed.set(false);
+    import('./call-record-zone')
+      .then((m) => this.recordZone.set(m.CallRecordZone))
+      .catch(() => this.recordZoneFailed.set(true))
+      .finally(() => (this.recordZoneLoading = false));
+  }
+
   /** Esc, ✕, the scrim, Back to call: nothing is lost (the panels are read-only), so nothing is asked. */
   protected closeWorkspace(): void {
     if (!this.wsOpen() || this.workspace()?.hasOpenNestedDialog()) return;
     this.wsOpen.set(false);
     this.peer.workspaceClosed();
+    // Sharing may have changed in the record: the Documents & Records card reads it again.
+    if (this.wsRecord()) void this.loadDocAccess(true);
   }
 
   /** After the workspace's exit: focus the opener, else this tab's launcher, else the card's heading (only when focus was lost). */
@@ -3979,10 +4073,6 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
     return isNaN(d.getTime())
       ? ''
       : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
-  }
-
-  protected goProfile(): void {
-    void this.router.navigate(['/dashboard/profile']);
   }
 
   /** In the live call right now — leaving drops the patient from it. */

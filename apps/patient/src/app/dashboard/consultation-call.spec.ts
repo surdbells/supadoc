@@ -1932,5 +1932,156 @@ describe('ConsultationCall (the dock)', () => {
       expect(el.querySelector('#call-notes')?.textContent).toContain(NOTES_HINT_AFTER);
       expect(el.querySelector('#call-notes')?.textContent).not.toContain('stays in view');
     });
+
+    describe("the patient's own record, in place (View Full Record, Manage sharing)", () => {
+      const forAppointment = vi.fn(() => ok(access));
+      beforeEach(() => {
+        forAppointment.mockClear();
+        TestBed.overrideProvider(PatientApi, {
+          useValue: apiStub({
+            me: () => ok({ id: 'p-1', first_name: 'Ada', last_name: 'Obi' }),
+            healthProfile: () =>
+              ok({
+                emergency_contact: { full_name: '', relationship: '', phone: '', email: '' },
+                insurance: { provider: '', plan: '', policy_number: '', coverage_status: '', expiry_date: '' },
+                medical: {
+                  history: [{ condition: 'Appendectomy', year: '2016', note: '' }],
+                  allergies: [{ allergen: 'Penicillin', severity: 'severe', reaction: 'Hives' }],
+                  medications: [{ name: 'Lisinopril', dosage: '10 mg', frequency: 'Daily' }],
+                  conditions: [{ condition: 'Hypertension', status: 'Managed', since: '2020' }],
+                },
+              }),
+            vitals: () => ok({ latest: [], fields: [], sources: {}, patient_sources: [], reminder: { due: false } }),
+          }),
+        });
+        TestBed.overrideProvider(DocumentSharingApi, {
+          useValue: apiStub({
+            forAppointment,
+            history: () => of({ status: 'success', message: 'OK', data: [], meta: { page: 1, per_page: 20, total: 0, total_pages: 1 } }),
+          }),
+        });
+        // The embedded portal components read the (call's) query string: it has none.
+        const empty = convertToParamMap({});
+        TestBed.overrideProvider(ActivatedRoute, {
+          useValue: { snapshot: { paramMap: convertToParamMap({ id: 'ap-1' }), queryParamMap: empty }, queryParamMap: of(empty) },
+        });
+      });
+      const control = (text: string) =>
+        Array.from(el.querySelectorAll<HTMLButtonElement>('pat-consultation-call button, button')).find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
+      const tabNames = () => Array.from(el.querySelectorAll('dialog.sd-dialog--viewer [role="tab"]')).map(nameOf);
+      /** Renders until the record's zone chunk (a dynamic import) is in, at most ~5 s; `render` never waits on the zone. */
+      const untilZone = async (render: () => Promise<void> = settle) => {
+        for (let i = 0; i < 100 && !el.querySelector('.pat-call-zone'); i++) {
+          await render();
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        await render();
+      };
+      const settleDeferred = () => untilZone();
+
+      it('16. View Full Record opens the read-only record in the workspace: its own two tabs and words, the video in the corner, focus back on close', async () => {
+        await create();
+        await enter();
+        const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+        const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl');
+        const view = control('View Full Record');
+        expect(view.tagName).toBe('BUTTON');
+        view.focus();
+        view.click();
+        await settleDeferred();
+        expect(isOpen()).toBe(true);
+        expect(sig<string>('wsTab')()).toBe('record');
+        expect(tabNames()).toEqual(['Health record', 'Document sharing']);
+        const dialog = el.querySelector('dialog.sd-dialog--viewer') as HTMLDialogElement;
+        const named = (dialog.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent?.trim());
+        expect(named).toEqual(['Your health record', 'Ada Obi']);
+        expect(dialog.querySelector('button[aria-label="Close your health record"]')).not.toBeNull();
+        expect(dialog.querySelector('.ws-pip')).not.toBeNull();
+        expect(document.activeElement?.id).toBe('ws-tab-record');
+        // The portal's Medical Information, embedded: the record, no editing, nothing that navigates.
+        const record = panel('record');
+        expect(record.querySelector('.pat-call-zone pat-my-profile')).not.toBeNull();
+        expect(record.textContent).toContain('Penicillin');
+        expect(record.textContent).toContain('Lisinopril');
+        expect(record.textContent).toContain('Hypertension');
+        expect(record.textContent).toContain('Appendectomy');
+        expect(Array.from(record.querySelectorAll('button')).some((b) => /Edit|Add Medical|Back/.test(b.textContent ?? ''))).toBe(false);
+        expect(record.querySelector('a')).toBeNull();
+        expect(record.textContent).not.toMatch(/abnormal/i);
+        // The notes' launchers keep their four tools.
+        expect(el.querySelectorAll('#call-notes sd-call-launchers [data-ws-launcher]').length).toBe(4);
+        await closeWs();
+        await new Promise((r) => setTimeout(r));
+        expect(isOpen()).toBe(false);
+        expect(navigate).not.toHaveBeenCalled();
+        expect(navigateByUrl).not.toHaveBeenCalled();
+        expect(window.open).not.toHaveBeenCalled();
+        // Then the notes again from a launcher: the notes' four tabs and words.
+        await openTab('notes');
+        expect(tabNames()).toEqual(['Consultation Notes', 'Prescriptions', 'Lab requests', 'Follow-up Plan']);
+        expect(el.querySelector('dialog.sd-dialog--viewer button[aria-label="Close consultation notes"]')).not.toBeNull();
+      }, 20000);
+
+      it('17. Manage opens sharing in the workspace (no link, no new tab); its sections switch in place; closing re-reads what this doctor can see', async () => {
+        await create();
+        await enter();
+        expect(el.querySelector('a[target="_blank"]')).toBeNull();
+        expect(el.querySelector('a[href*="/documents/sharing"]')).toBeNull();
+        const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+        const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl');
+        const manage = el.querySelector<HTMLButtonElement>('button[aria-label="Manage sharing"]') as HTMLButtonElement;
+        expect(manage.textContent?.trim()).toBe('Manage');
+        manage.focus();
+        manage.click();
+        // Manage sharing keeps a 15 s clock (its Undo window), so the app is never stable: render by hand.
+        const flush = async () => {
+          for (let i = 0; i < 8; i++) {
+            fixture.detectChanges();
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        };
+        await untilZone(flush);
+        expect(isOpen()).toBe(true);
+        expect(sig<string>('wsTab')()).toBe('sharing');
+        expect(tabNames()).toEqual(['Health record', 'Document sharing']);
+        const sharing = panel('sharing');
+        expect(sharing.querySelector('.pat-call-zone pat-manage-sharing')).not.toBeNull();
+        expect(sharing.querySelector('a')).toBeNull();
+        expect(sharing.querySelector('h1')).toBeNull();
+        const sections = Array.from(sharing.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Sharing sections"] button'));
+        expect(sections.map((b) => [b.textContent?.trim(), b.getAttribute('aria-pressed')])).toEqual([
+          ['Doctors', 'true'],
+          ['Activity', 'false'],
+        ]);
+        sections[1].click();
+        await flush();
+        expect(sharing.querySelector('pat-access-history')).not.toBeNull();
+        expect(sections[1].getAttribute('aria-pressed')).toBe('true');
+        const reads = forAppointment.mock.calls.length;
+        bandButton('Back to call').click();
+        await flush();
+        expect(isOpen()).toBe(false);
+        expect(forAppointment.mock.calls.length).toBe(reads + 1);
+        expect(isPassive({ args: forAppointment.mock.calls[reads] as unknown[] })).toBe(true);
+        expect(document.activeElement).toBe(manage);
+        expect(navigate).not.toHaveBeenCalled();
+        expect(navigateByUrl).not.toHaveBeenCalled();
+        expect(window.open).not.toHaveBeenCalled();
+      }, 20000);
+
+      it('18. once the call is over, the record opens with no video and its band says "Close record"', async () => {
+        await create();
+        await enter();
+        sig<string>('status').set('ended');
+        await settle();
+        cmp()['openWorkspace']('record', null);
+        await settleDeferred();
+        expect(isOpen()).toBe(true);
+        expect(el.querySelector('dialog.sd-dialog--viewer .ws-pip')).toBeNull();
+        bandButton('Close record').click();
+        await settle();
+        expect(isOpen()).toBe(false);
+      }, 20000);
+    });
   });
 });

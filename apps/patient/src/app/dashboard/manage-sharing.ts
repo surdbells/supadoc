@@ -5,6 +5,7 @@ import {
   DestroyRef,
   effect,
   inject,
+  input,
   signal,
   untracked,
   viewChild,
@@ -44,14 +45,19 @@ type Tab = 'doctors' | 'activity';
   ],
   host: { class: 'block' },
   template: `
-    <div class="flex flex-col gap-6 py-2">
-      <a routerLink="/dashboard/documents" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
-        <sd-icon name="chevron-left" [size]="18" />Medical Documents
-      </a>
+    <div class="flex flex-col gap-6" [class.py-2]="!embedded()">
+      <!-- Embedded (the call's workspace): no back link or page title, and nothing navigates. -->
+      @if (!embedded()) {
+        <a routerLink="/dashboard/documents" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body text-slate transition-colors hover:text-cerulean">
+          <sd-icon name="chevron-left" [size]="18" />Medical Documents
+        </a>
+      }
 
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="flex flex-col gap-1">
-          <h1 class="font-heading text-h3 text-ink">Manage sharing</h1>
+          @if (!embedded()) {
+            <h1 class="font-heading text-h3 text-ink">Manage sharing</h1>
+          }
           <p class="font-sans text-body text-slate">Choose which doctors can see your documents and for how long.</p>
         </div>
         @if (!unavailable()) {
@@ -92,6 +98,20 @@ type Tab = 'doctors' | 'activity';
       } @else {
         <pat-access-requests-banner (handled)="answered($event)" />
 
+        @if (embedded()) {
+          <!-- The same two sections as buttons: switching them never changes the address. -->
+          <div role="group" aria-label="Sharing sections" class="sd-track sd-track-tight w-full sm:w-fit">
+            <button type="button" class="sd-pill sd-pill-n sd-seg-solid flex-1 sm:flex-none" [attr.aria-pressed]="tab() === 'doctors'" (click)="localTab.set('doctors')">
+              <sd-icon name="users" [size]="16" />Doctors
+              @if (activeDoctors() > 0) {
+                <span class="sd-count" [attr.aria-label]="activeDoctors() + ' with access'">{{ activeDoctors() }}</span>
+              }
+            </button>
+            <button type="button" class="sd-pill sd-pill-n sd-seg-solid flex-1 sm:flex-none" [attr.aria-pressed]="tab() === 'activity'" (click)="localTab.set('activity')">
+              <sd-icon name="history" [size]="16" />Activity
+            </button>
+          </div>
+        } @else {
         <nav aria-label="Sharing sections" class="sd-track sd-track-tight w-full sm:w-fit">
           <a
             routerLink="."
@@ -115,9 +135,11 @@ type Tab = 'doctors' | 'activity';
             <sd-icon name="history" [size]="16" />Activity
           </a>
         </nav>
+        }
 
         @if (tab() === 'doctors') {
           <pat-sharing-doctors-panel
+            [embedded]="embedded()"
             [focusDoctorId]="focusDoctor()"
             [version]="version()"
             (stats)="onStats($event)"
@@ -144,9 +166,15 @@ export class ManageSharing {
 
   protected readonly unavailableText = SHARING_UNAVAILABLE;
 
+  /** Inside another page (the call's workspace): the sections switch in place and the address is never read or changed. */
+  readonly embedded = input(false);
+
   private readonly query = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
-  protected readonly tab = computed<Tab>(() => (this.query().get('tab') === 'activity' ? 'activity' : 'doctors'));
-  protected readonly focusDoctor = computed(() => this.query().get('doctor'));
+  protected readonly localTab = signal<Tab>('doctors');
+  protected readonly tab = computed<Tab>(() =>
+    this.embedded() ? this.localTab() : this.query().get('tab') === 'activity' ? 'activity' : 'doctors',
+  );
+  protected readonly focusDoctor = computed(() => (this.embedded() ? null : this.query().get('doctor')));
 
   protected readonly version = signal(0);
   protected readonly activeDoctors = signal(0);

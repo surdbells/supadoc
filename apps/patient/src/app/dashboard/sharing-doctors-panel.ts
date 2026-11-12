@@ -98,9 +98,11 @@ interface ShareRequest {
         </div>
       } @else if ((doctors() ?? []).length === 0) {
         <sd-empty-state icon="users" title="No doctors yet" message="You can share documents with doctors after you book a consultation.">
-          <a routerLink="/dashboard/specialists" class="inline-flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-6 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">
-            Find a specialist
-          </a>
+          @if (!embedded()) {
+            <a routerLink="/dashboard/specialists" class="inline-flex min-h-11 items-center gap-2 rounded-field bg-cerulean px-6 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean">
+              Find a specialist
+            </a>
+          }
         </sd-empty-state>
       } @else {
         <p class="font-sans text-body-sm text-slate">Doctors only see what you share. You can change or stop sharing at any time.</p>
@@ -302,6 +304,8 @@ export class SharingDoctorsPanel {
   readonly focusDoctorId = input<string | null>(null);
   /** Bump to reload (after a share or a revoke elsewhere on the page). */
   readonly version = input(0);
+  /** Inside another page (the call's workspace): nothing here navigates. */
+  readonly embedded = input(false);
 
   readonly stats = output<SharingStats>();
   readonly revoked = output<RevokeNotice>();
