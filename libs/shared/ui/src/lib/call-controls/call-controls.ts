@@ -85,10 +85,14 @@ export interface CallChoiceChange {
 
 /** How long a disabled control's reason stays on screen. */
 export const CALL_CONTROL_REASON_MS = 6_000;
-/** Rail packing (px): a control, one segment of a choice, and the gaps between them. */
+/**
+ * Rail packing (px): a control, one segment of a choice, and the gaps between them.
+ * A segment's touch band grows 4px past each edge (36 → 44 on a coarse pointer), so
+ * segments sit 8px apart: neighbouring bands meet and never overlap.
+ */
 const RAIL_CONTROL_PX = 44;
 const RAIL_SEGMENT_PX = 36;
-const RAIL_SEGMENT_GAP_PX = 2;
+const RAIL_SEGMENT_GAP_PX = 8;
 /** A rail choice's border and padding (p-[3px] and a 1px border, top and bottom). */
 const RAIL_TRACK_PX = 8;
 const RAIL_GAP_PX = 8;
@@ -456,7 +460,7 @@ export class CallControlsComponent {
   );
   protected readonly trackClass = computed(() =>
     this.layout() === 'rail'
-      ? 'flex min-w-11 flex-col items-stretch gap-0.5 rounded-[1.375rem] border border-white/15 p-[3px] [--sd-hit-y-max:1px]'
+      ? 'flex min-w-11 flex-col items-stretch gap-2 rounded-[1.375rem] border border-white/15 p-[3px]'
       : 'sd-track-dock',
   );
 

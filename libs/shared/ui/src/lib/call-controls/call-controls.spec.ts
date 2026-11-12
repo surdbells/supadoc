@@ -450,7 +450,7 @@ describe('CallControlsComponent', () => {
     expect(toolbar().getAttribute('aria-orientation')).toBe('vertical');
     // Unmeasured: one column each.
     expect(columns('controls')).toEqual([['mic', 'cam', 'share', 'captions', 'documents', 'end']]);
-    // 300px: five 44px controls and four 8px gaps (252); Video size (120) + Video fit (82) + Hide (44) = 270.
+    // 300px: five 44px controls and four 8px gaps (252); Video size (132) + Video fit (88) + Hide (44) = 280.
     await resize(150, 300);
     expect(columns('controls')).toEqual([['mic', 'cam', 'share', 'captions', 'documents'], ['end']]);
     expect(columns('settings')).toEqual([['Video size', 'Video fit', 'self'], ['privacy']]);

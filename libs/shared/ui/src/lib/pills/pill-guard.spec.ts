@@ -99,15 +99,6 @@ const ALLOW: ReadonlyArray<{
     detail: /\babsolute\b.*\bbg-abyss\/70\b.*\bbackdrop-blur\b/,
     why: "the lobby preview's capsule of 44px icon buttons over the video: not a pill (spec-pills §8, role f-icon)",
   },
-  {
-    file: 'apps/backoffice/src/app/applications/tabs/documents-tab.ts',
-    rule: 'owned-utility',
-    // Exactly today's three focus utilities on exactly today's class list: any other offence there fails.
-    // (":" and "/" are written \x3a and \x2f so Tailwind, which scans this file, finds no class here.)
-    detail:
-      /^(focus\x3aoutline-none|focus-visible\x3aring-2|focus-visible\x3aring-cerulean\x2f40) in "sd-chip [^"]*\bbg-sage\x2f15 text-sage-ink transition-colors hover\x3abg-sage\x2f25 focus\x3aoutline-none focus-visible\x3aring-2 focus-visible\x3aring-cerulean\x2f40"$/,
-    why: 'the "Verified credential" link chip keeps the back office focus ring; outside the call-page unit, reported for a follow-up (spec-pills §4.6)',
-  },
 ];
 const usedAllow = new Set<number>();
 function allowed(o: Offence): boolean {

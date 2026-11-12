@@ -12,11 +12,15 @@
  *  R  every corner radius ≥ height / 2 (tracks with sd-track-wrap excepted)
  *  T  the label's text box is centred (±0.5 px) and on one line
  *  P  left / right inner space symmetric (±0.5 px; skipped when the content overflows or is start-aligned);
- *     the content is the text, svgs, counts, the remove button and any painted leaf (a status dot)
+ *     the content is the text, svgs, counts, the remove button and any painted leaf (a status dot); text
+ *     cut by an inner box (an ellipsised `truncate` span) counts only where that box shows it
  *  F  fit: an interactive pill's label stays inside the pill; a track's pills overflow it only when the
  *     track scrolls by design (info), never when they are equal segments (flex-grow) or it does not scroll
  *  I  icons centred (±0.5 px); size = --sd-icon (warning)
  *  K  coarse pointer: a ::before band ≥ 44 px tall, not clipped, and hit-testable at both ends
+ *     (pillAudit({ scroll: true }) first scrolls a pill that a scroller hides, a sideways track or a
+ *     nested panel, into view, and moves one that a sticky overlay of its scroller covers to the scroller's
+ *     top or bottom; a band its scroller still clips, or that no position uncovers, fails)
  *  A  sd-seg / sd-seg-solid / sd-filter / sd-filter-solid expose a state
  *  V  an sd-icon hidden by its own classes at this width has display: none
  *  N  (info) a visible non-sd element with text whose radius ≥ height / 2 (an incidental pill)
@@ -128,7 +132,8 @@ function pillAudit(opts = {}) {
   };
 
   // ---- text geometry ----
-  const textRects = (el) => {
+  // clip: cut each rect to the boxes between the text and the pill that clip it (an ellipsised span).
+  const textRects = (el, clip = false) => {
     const rects = [];
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
       acceptNode: (t) => {
@@ -142,7 +147,20 @@ function pillAudit(opts = {}) {
     for (let t = walker.nextNode(); t; t = walker.nextNode()) {
       const range = document.createRange();
       range.selectNodeContents(t);
-      for (const r of range.getClientRects()) if (r.width > 0) rects.push(r);
+      for (const r of range.getClientRects()) {
+        let left = r.left;
+        let right = r.right;
+        for (let p = t.parentElement; clip && p && p !== el; p = p.parentElement) {
+          if (getComputedStyle(p).overflowX === 'visible') continue;
+          const pr = p.getBoundingClientRect();
+          left = Math.max(left, pr.left + p.clientLeft);
+          right = Math.min(right, pr.left + p.clientLeft + p.clientWidth);
+        }
+        if (right - left > 0)
+          rects.push(
+            clip ? new DOMRect(left, r.top, right - left, r.height) : r,
+          );
+      }
     }
     return rects;
   };
@@ -242,8 +260,8 @@ function pillAudit(opts = {}) {
             `cap-height centre ${row.capDy}px from the pill centre (font metrics)`,
           );
       }
-      // P (content union: text + svg + counts + the remove button)
-      const parts = [...tr];
+      // P (content union: text as shown + svg + counts + the remove button)
+      const parts = textRects(el, true);
       for (const s of el.querySelectorAll(
         ':scope svg, :scope .sd-count, :scope .sd-chip-x',
       )) {
@@ -335,9 +353,41 @@ function pillAudit(opts = {}) {
         if (b.content === 'none' || b.position !== 'absolute')
           fail(el, 'K', 'no touch band (::before)');
         else {
-          // pillAudit({ scroll: true }): bring an off-screen pill into view so it can be hit-tested.
+          // pillAudit({ scroll: true }): bring a pill that is off screen, or that a scroller hides
+          // (a sideways track, a nested panel; or its band), into view so it can be hit-tested.
           let rr = r;
-          if (opts.scroll && (rr.top < 0 || rr.bottom > innerHeight)) {
+          // The band's offsets from the box (negative: it grows past it), borders included.
+          const band = {
+            top: parseFloat(b.top) + parseFloat(cs.borderTopWidth),
+            bottom: parseFloat(b.bottom) + parseFloat(cs.borderBottomWidth),
+          };
+          const hidden = () => {
+            for (let p = el.parentElement; p; p = p.parentElement) {
+              const pcs = getComputedStyle(p);
+              if (pcs.overflowX === 'visible' && pcs.overflowY === 'visible')
+                continue;
+              if (
+                p.scrollWidth <= p.clientWidth &&
+                p.scrollHeight <= p.clientHeight
+              )
+                continue;
+              const pr = p.getBoundingClientRect();
+              const x0 = pr.left + p.clientLeft;
+              const y0 = pr.top + p.clientTop;
+              if (
+                rr.left < x0 - 0.5 ||
+                rr.right > x0 + p.clientWidth + 0.5 ||
+                rr.top + band.top < y0 - 0.5 ||
+                rr.bottom - band.bottom > y0 + p.clientHeight + 0.5
+              )
+                return true;
+            }
+            return false;
+          };
+          if (
+            opts.scroll &&
+            (rr.top < 0 || rr.bottom > innerHeight || hidden())
+          ) {
             el.scrollIntoView({
               block: 'center',
               inline: 'nearest',
@@ -366,17 +416,52 @@ function pillAudit(opts = {}) {
               break;
             }
           }
-          const x = rr.left + rr.width / 2;
-          for (const y of [hitTop + 1, hitBottom - 1]) {
-            if (y < 0 || y > innerHeight) continue;
-            const hit = document.elementFromPoint(x, y);
-            if (hit && hit !== el && !el.contains(hit))
-              fail(
-                el,
-                'K',
-                `point ${Math.round(y - rr.top)}px from the top hits ${label(hit)}`,
-              );
+          // Points 1px inside the band's ends that hit something else (here, as the page now sits).
+          const misses = () => {
+            const box = el.getBoundingClientRect();
+            const x = box.left + box.width / 2;
+            const out = [];
+            for (const y of [box.top + t + 1, box.bottom - btm - 1]) {
+              if (y < 0 || y > innerHeight) continue;
+              const hit = document.elementFromPoint(x, y);
+              if (hit && hit !== el && !el.contains(hit))
+                out.push({ dy: Math.round(y - box.top), hit });
+            }
+            return out;
+          };
+          let missed = misses();
+          // pillAudit({ scroll: true }): a sticky or fixed overlay in the pill's scroller (a composer's sticky
+          // footer) covers it only at this scroll position. Try the band at the top, then at the bottom, of
+          // the scroller's box; a pill no scroll position uncovers still fails.
+          const overlay = (h) => {
+            for (let n = h; n && n !== document.body; n = n.parentElement)
+              if (/sticky|fixed/.test(getComputedStyle(n).position))
+                return !n.contains(el);
+            return false;
+          };
+          if (opts.scroll && missed.length && missed.every((m) => overlay(m.hit))) {
+            let sc = el.parentElement;
+            while (
+              sc &&
+              !(
+                /auto|scroll/.test(getComputedStyle(sc).overflowY) &&
+                sc.scrollHeight > sc.clientHeight
+              )
+            )
+              sc = sc.parentElement;
+            for (const end of sc ? ['top', 'bottom'] : []) {
+              const box = el.getBoundingClientRect();
+              const top = sc.getBoundingClientRect().top + sc.clientTop;
+              sc.scrollTop +=
+                end === 'top'
+                  ? box.top + t - top
+                  : box.bottom - btm - (top + sc.clientHeight);
+              missed = misses();
+              if (!missed.length) break;
+            }
           }
+          for (const m of missed)
+            fail(el, 'K', `point ${m.dy}px from the top hits ${label(m.hit)}`);
         }
       }
       // A
@@ -421,12 +506,14 @@ function pillAudit(opts = {}) {
     if (pcs && !Number.isNaN(gap) && pcs.display.includes('flex') && !isTrack) {
       const next = el.nextElementSibling;
       if (next && next.matches(SEL) && visible(next)) {
+        // Both boxes now: K may have scrolled this pill's track since r was read.
+        const er = el.getBoundingClientRect();
         const nr = next.getBoundingClientRect();
         if (
-          near(nr.top + nr.height / 2, r.top + r.height / 2, 1) &&
-          !near(nr.left - r.right, gap)
+          near(nr.top + nr.height / 2, er.top + er.height / 2, 1) &&
+          !near(nr.left - er.right, gap)
         )
-          fail(el, 'G', `gap ${(nr.left - r.right).toFixed(2)} ≠ ${gap}`);
+          fail(el, 'G', `gap ${(nr.left - er.right).toFixed(2)} ≠ ${gap}`);
       }
     }
     rows.push(row);

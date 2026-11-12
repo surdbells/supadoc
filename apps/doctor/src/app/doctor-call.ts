@@ -452,9 +452,15 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       :host([data-theme='light']) .call-field::placeholder { color: #546e7a; }
       /* A read-only Care Plan item: no fill, full-contrast text and edge (never opacity). Not a select: it is always :read-only. */
       .call-field:read-only:not(select) { background-color: transparent; }
-      /* Error lines: 7.94 on abyss; alert-ink 5.92 on the light frame (text-alert is 4.29 / 3.81). */
+      /* Error lines and other alert text (the allergy and vitals captions): 7.94 on abyss; alert-ink 5.92 on
+         the light frame (text-alert is 4.29 / 3.81, 4.0 / 3.3 on the alert tint). */
       .call-error { color: #ff8a80; }
       :host([data-theme='light']) .call-error { color: var(--color-alert-ink); }
+      /* The light frame: the green and amber text (and the logo's "Med") take their ink shades (text-success 3.35,
+         text-sage 2.98 there); the dark cockpit keeps the brand colours (>= 5.5 on abyss). Nothing in the dock uses them. */
+      :host([data-theme='light']) .text-success { color: var(--color-success-ink); }
+      :host([data-theme='light']) .text-warning { color: var(--color-warning-ink); }
+      :host([data-theme='light']) .text-sage { color: var(--color-sage-ink); }
       /* "Create referral" / "Issue certificate": the field's height, so each lines up with the field beside it. */
       .call-row-btn { min-height: 38px; }
     `,
@@ -822,7 +828,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 </div>
               </div>
               <div class="mt-4 rounded-2xl bg-alert/10 p-3">
-                <span class="flex items-center gap-1.5 font-sans text-caption font-semibold text-alert">
+                <span class="call-error flex items-center gap-1.5 font-sans text-caption font-semibold">
                   <sd-icon name="triangle-alert" [size]="14" /> Allergies
                 </span>
                 <p class="mt-1 font-sans text-body-sm text-white/85">{{ allergiesLabel() }}</p>
@@ -878,7 +884,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                     @if (vitalAlerts().length) {
                       <ul class="mt-2 flex flex-col gap-1">
                         @for (v of vitalAlerts(); track v.key) {
-                          <li class="flex items-start gap-1.5 font-sans text-caption text-alert">
+                          <li class="call-error flex items-start gap-1.5 font-sans text-caption">
                             <sd-icon [name]="v.flag?.level === 'critical' ? 'triangle-alert' : 'circle-alert'" [size]="12" class="mt-0.5 shrink-0" />
                             <span>{{ v.label }} is {{ v.flag?.label }}@if (v.flag?.out_of_range) { — {{ aboveRange(v.flag.usual_max, v.unit) }}}<span class="text-white/70"> ({{ v.flag?.advice }})</span></span>
                           </li>
@@ -1218,7 +1224,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             </div>
             <div class="flex items-center gap-3">
               @if (noteSaved()) {
-                <span class="font-sans text-caption text-white/45">{{ noteSaved() }}</span>
+                <span class="font-sans text-caption text-white/60">{{ noteSaved() }}</span>
               }
               @if (!noteFinalized() && canDocument()) {
                 <button
@@ -1263,7 +1269,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           } @else if (noteLoad() === 'error') {
             <!-- Editing stays locked: a blank editor would auto-save over the real note. -->
             <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
-              <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
+              <span class="call-error flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption">
                 <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
                 <span>{{ noteError() }} Editing is paused so the saved note is not overwritten.</span>
               </span>
@@ -1276,7 +1282,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
             </div>
           } @else if (noteError()) {
-            <p class="mb-3 font-sans text-caption text-alert">{{ noteError() }}</p>
+            <p class="call-error mb-3 font-sans text-caption">{{ noteError() }}</p>
           }
 
           <div class="grid gap-4 lg:grid-cols-2">
@@ -1340,7 +1346,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               }
             </div>
             @if (toolNote()) {
-              <p class="mt-2 font-sans text-caption text-white/45">{{ toolNote() }}</p>
+              <p class="mt-2 font-sans text-caption text-white/60">{{ toolNote() }}</p>
             }
           </div>
         </div>
@@ -1372,7 +1378,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           } @else if (rxPatientError()) {
             <div class="flex flex-col items-center gap-3 px-2 py-8 text-center">
               <sd-icon name="circle-alert" [size]="26" class="text-alert" />
-              <p class="max-w-sm font-sans text-body-sm text-alert">{{ rxPatientError() }}</p>
+              <p class="call-error max-w-sm font-sans text-body-sm">{{ rxPatientError() }}</p>
               <button
                 type="button"
                 class="sd-pill sd-pill-c [--sd-fw:400] border border-white/15 text-white/80 hover:bg-white/10"
@@ -1552,7 +1558,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           <div class="mb-2 flex items-center justify-between">
             <h3 class="font-sans text-body-sm font-semibold text-white">Care Plan</h3>
             @if (carePlanSaved()) {
-              <span class="font-sans text-caption text-white/45">{{ carePlanSaved() }}</span>
+              <span class="font-sans text-caption text-white/60">{{ carePlanSaved() }}</span>
             }
           </div>
           @if (carePlanLoad() === 'loading') {
@@ -1563,7 +1569,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           } @else if (carePlanLoad() === 'error') {
             <!-- Publishing stays locked: an empty editor would replace the real plan. -->
             <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-alert/10 px-3 py-2" role="alert">
-              <span class="flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption text-alert">
+              <span class="call-error flex min-w-0 flex-1 items-start gap-1.5 font-sans text-caption">
                 <sd-icon name="circle-alert" [size]="14" class="mt-0.5 shrink-0" />
                 <span>{{ carePlanError() }} Editing is paused so the published plan is not overwritten.</span>
               </span>
@@ -1788,7 +1794,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             </button>
           </div>
           @if (consentsError()) {
-            <p class="mb-3 font-sans text-caption text-alert">{{ consentsError() }}</p>
+            <p class="call-error mb-3 font-sans text-caption">{{ consentsError() }}</p>
           } @else if (!aiConsent()) {
             <p class="mb-3 rounded-2xl bg-warning/10 px-3 py-2 font-sans text-caption text-warning">
               Live transcription needs the patient's AI‑transcription consent.
@@ -1806,7 +1812,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 <span class="text-white/80"> {{ seg.text }}</span>
               </p>
             } @empty {
-              <p class="py-4 text-center font-sans text-caption text-white/40">
+              <p class="py-4 text-center font-sans text-caption text-white/60">
                 Transcript appears here once transcription starts.
               </p>
             }
@@ -1835,7 +1841,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </p>
             }
             @if (copilotError()) {
-              <p class="mt-1 font-sans text-caption text-alert">{{ copilotError() }}</p>
+              <p class="call-error mt-1 font-sans text-caption">{{ copilotError() }}</p>
             }
             @if (copilotDraft(); as d) {
               <div class="mt-2 rounded-2xl border border-frost/30 bg-frost/5 p-3">

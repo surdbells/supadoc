@@ -46,17 +46,17 @@
   },
   {
     "name": "patient-notification",
-    "url": "http://localhost:4201/dashboard/notification",
+    "url": "http://localhost:4201/dashboard/notifications",
     "wait": 2500
   },
   {
     "name": "patient-manage-sharing",
-    "url": "http://localhost:4201/dashboard/manage-sharing",
+    "url": "http://localhost:4201/dashboard/documents/sharing",
     "wait": 2500
   },
   {
     "name": "patient-find-specialist",
-    "url": "http://localhost:4201/dashboard/find-specialist",
+    "url": "http://localhost:4201/dashboard/specialists",
     "wait": 2500
   },
   {
@@ -150,6 +150,11 @@
   {
     "name": "backoffice-applications",
     "url": "http://localhost:4202/applications",
+    "wait": 2500
+  },
+  {
+    "name": "backoffice-application-documents",
+    "url": "http://localhost:4202/applications/d263bf00-ac0a-422a-8502-047f6dd7965f?tab=documents",
     "wait": 2500
   },
   {

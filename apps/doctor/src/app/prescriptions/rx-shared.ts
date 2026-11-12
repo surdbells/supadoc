@@ -41,7 +41,7 @@ export const RX_BAD = 'border-alert ring-2 ring-alert/20 focus:border-alert focu
 export const RX_ACTION =
   'inline-flex items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none';
 export const RX_ACTION_DANGER =
-  'inline-flex items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-alert shadow-control transition hover:border-alert active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none';
+  'inline-flex items-center justify-center gap-1.5 rounded-field border border-haze bg-white px-3 py-2 font-sans text-caption font-semibold text-alert-ink shadow-control transition hover:border-alert active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none';
 
 export interface RxStatusMeta {
   readonly label: string;

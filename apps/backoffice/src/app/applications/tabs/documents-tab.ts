@@ -48,8 +48,8 @@ import { ApplicationDocumentDialog } from '../dialogs/application-document-dialo
                   <span class="flex flex-wrap items-center gap-1.5">
                     <span class="${PILL}" [class]="source(doc).cls"><sd-icon [name]="source(doc).icon" [size]="13" />{{ source(doc).label }}</span>
                     @if (doc.credential_id && specialistId()) {
-                      <a [routerLink]="['/specialists', specialistId()]" [queryParams]="{ tab: 'credentials' }" class="${PILL} bg-sage/15 text-sage-ink transition-colors hover:bg-sage/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40">
-                        <sd-icon name="badge-check" [size]="13" />Verified credential<span class="sr-only"> — open on the doctor's Credentials tab</span>
+                      <a [routerLink]="['/specialists', specialistId()]" [queryParams]="{ tab: 'credentials' }" class="sd-pill sd-pill-s w-fit bg-sage/15 text-sage-ink hover:bg-sage/25">
+                        <sd-icon name="badge-check" [size]="14" />Verified credential<span class="sr-only"> — open on the doctor's Credentials tab</span>
                       </a>
                     }
                   </span>
