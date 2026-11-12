@@ -10,9 +10,10 @@
 /** Readings whose above-range warning asks for a check only, never urgent care (the API's `VitalsFlags::CHECK_ONLY`). */
 export const CHECK_ONLY_READINGS: readonly string[] = ['height', 'weight', 'bmi'];
 
-/** "45 °C", "260/160 mmHg", "90 kg/m²", "60 breaths/min". */
+/** The warnings' "45 °C", "260/160 mmHg", "90 kg/m²", "60 breaths/min". */
 function upTo(max: string | number, unit: string): string {
-  return `${max}${unit ? ` ${unit}` : ''}`;
+  // A no-break space keeps the number and its unit on one line.
+  return `${max}${unit ? `\u00a0${unit}` : ''}`;
 }
 
 /**
@@ -103,5 +104,5 @@ export function belowMinError(
   min: number | null,
   unit: string,
 ): string {
-  return `${label} must be at least ${upTo(min ?? 0, unit)}`;
+  return `${label} must be at least ${min ?? 0}${unit ? ` ${unit}` : ''}`;
 }

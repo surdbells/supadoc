@@ -327,6 +327,15 @@ describe('CallWorkspace (the shell)', () => {
       expect(words('labs')).toEqual([', new']);
     });
 
+    it('the hidden words follow the label with no space, so the name reads "Lab requests, new" (not "Lab requests , new")', async () => {
+      setup();
+      host.flags.set({ labs: { mark: 'new', sr: ', new' } });
+      await openIt();
+      const text = (tabEl('labs')?.textContent ?? '').trim();
+      expect(text).toMatch(/\S, new$/);
+      expect(text).not.toMatch(/\s, new/);
+    });
+
     it('another app’s warn words need no shell change; an undefined entry renders nothing', async () => {
       setup();
       host.flags.set({ labs: { mark: 'warn', sr: ', not sent' }, notes: undefined });

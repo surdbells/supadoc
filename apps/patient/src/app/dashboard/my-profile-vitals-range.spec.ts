@@ -214,7 +214,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     type('#vt-temperature', '46');
     const warn = el.querySelector('#vt-warn-temperature') as HTMLElement;
     expect(warn.textContent).toContain(
-      'This is higher than readings usually go (up to 45 °C). Please check it was measured and entered correctly. If it is right, seek urgent medical attention.',
+      'This is higher than readings usually go (up to 45\u00a0°C). Please check it was measured and entered correctly. If it is right, seek urgent medical attention.',
     );
     expect(warn.getAttribute('role')).toBeNull();
     expect(warn.closest('[aria-live="polite"]')).toBeTruthy();
@@ -296,7 +296,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     type(sys, '300');
     type(dia, '170');
     expect(el.querySelector('#vt-warn-blood_pressure')?.textContent).toContain(
-      '(up to 260/160 mmHg)',
+      '(up to 260/160\u00a0mmHg)',
     );
     expect(el.querySelector(sys)?.getAttribute('aria-describedby')).toBe(
       'vt-hint-blood_pressure vt-warn-blood_pressure',
@@ -322,7 +322,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     expect(el.textContent).toContain('133.3');
     const bmi = el.querySelector('#vt-warn-bmi')?.textContent ?? '';
     expect(bmi).toContain(
-      'This BMI is higher than readings usually go (up to 90 kg/m²)',
+      'This BMI is higher than readings usually go (up to 90\u00a0kg/m²)',
     );
     expect(bmi.toLowerCase()).not.toContain('urgent');
     // The worked-out BMI is not focusable: weight and height point at its warning.
@@ -339,10 +339,10 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     type('#vt-height', '260');
     type('#vt-weight', '410');
     expect(el.querySelector('#vt-warn-height')?.textContent?.trim()).toBe(
-      'This is higher than readings usually go (up to 250 cm). Please check it was measured and entered correctly.',
+      'This is higher than readings usually go (up to 250\u00a0cm). Please check it was measured and entered correctly.',
     );
     expect(el.querySelector('#vt-warn-weight')?.textContent?.trim()).toBe(
-      'This is higher than readings usually go (up to 400 kg). Please check it was measured and entered correctly.',
+      'This is higher than readings usually go (up to 400\u00a0kg). Please check it was measured and entered correctly.',
     );
     expect(summary()).toContain('readings are higher than readings usually go');
   });
@@ -357,7 +357,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     expect(text).toContain('Very high');
     expect(text).toContain('Check reading');
     expect(text).toContain(
-      'Temperature is higher than readings usually go (up to 45 °C). Please check it was measured and entered correctly.',
+      'Temperature is higher than readings usually go (up to 45\u00a0°C). Please check it was measured and entered correctly.',
     );
     expect(text).toContain('(Seek urgent medical attention)');
     expect(text.toLowerCase()).not.toContain('abnormal');
@@ -387,7 +387,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     const text = el.textContent ?? '';
     expect(text).toContain('Check reading');
     expect(text).toContain(
-      'Height is higher than readings usually go (up to 250 cm). Please check it was measured and entered correctly.',
+      'Height is higher than readings usually go (up to 250\u00a0cm). Please check it was measured and entered correctly.',
     );
     expect(text).not.toContain('Seek urgent medical attention');
     expect(text).not.toContain('Very high');

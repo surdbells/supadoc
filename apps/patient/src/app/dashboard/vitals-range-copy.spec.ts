@@ -13,19 +13,19 @@ import {
 describe('vitals range copy (patient)', () => {
   it('asks to check the reading, then to seek urgent care', () => {
     expect(aboveRangeWarning(45, '°C')).toBe(
-      'This is higher than readings usually go (up to 45 °C). Please check it was measured and entered correctly. If it is right, seek urgent medical attention.',
+      'This is higher than readings usually go (up to 45\u00a0°C). Please check it was measured and entered correctly. If it is right, seek urgent medical attention.',
     );
     expect(aboveRangeWarning('260/160', 'mmHg')).toContain(
-      '(up to 260/160 mmHg)',
+      '(up to 260/160\u00a0mmHg)',
     );
     expect(bmiAboveRangeWarning(90)).toBe(
-      'This BMI is higher than readings usually go (up to 90 kg/m²). Please check your weight and height were entered correctly.',
+      'This BMI is higher than readings usually go (up to 90\u00a0kg/m²). Please check your weight and height were entered correctly.',
     );
   });
 
   it('asks only for a check on height and weight (no urgent care)', () => {
     expect(aboveRangeWarning(250, 'cm', 'height')).toBe(
-      'This is higher than readings usually go (up to 250 cm). Please check it was measured and entered correctly.',
+      'This is higher than readings usually go (up to 250\u00a0cm). Please check it was measured and entered correctly.',
     );
     expect(aboveRangeWarning(400, 'kg', 'weight')).not.toContain('urgent');
     expect(aboveRangeWarning(45, '°C', 'temperature')).toContain(
@@ -46,14 +46,14 @@ describe('vitals range copy (patient)', () => {
 
   it('says it on Medical Information, in the past tense when out of date', () => {
     expect(aboveRangeAlert('Temperature', '45', '°C')).toBe(
-      'Temperature is higher than readings usually go (up to 45 °C). Please check it was measured and entered correctly.',
+      'Temperature is higher than readings usually go (up to 45\u00a0°C). Please check it was measured and entered correctly.',
     );
     expect(aboveRangeAlert('Weight', null, 'kg', 'weight')).toBe(
       'Weight gives a BMI higher than readings usually go. Please check your weight and height were entered correctly.',
     );
     // A BMI is worked out, not measured.
     expect(aboveRangeAlert('BMI', '90', 'kg/m²', 'bmi')).toBe(
-      'BMI is higher than readings usually go (up to 90 kg/m²). Please check your weight and height were entered correctly.',
+      'BMI is higher than readings usually go (up to 90\u00a0kg/m²). Please check your weight and height were entered correctly.',
     );
     expect(aboveRangeAlert('Weight', null, 'kg')).toBe(
       'Weight is higher than readings usually go. Please check it was measured and entered correctly.',

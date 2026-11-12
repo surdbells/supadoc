@@ -278,7 +278,8 @@ export const WS_CSS = `
                     (click)="select(t.key)"
                     (keydown)="onTabKey($event)"
                   >
-                    <sd-icon [name]="t.icon" [size]="16" class="shrink-0" />{{ t.label }}
+                    <!-- The hidden status follows the label with no whitespace, so screen readers say "Prescriptions, new". -->
+                    <sd-icon [name]="t.icon" [size]="16" class="shrink-0" />{{ t.label }}@if (flags()[t.key]; as f) {<span class="sr-only">{{ f.sr }}</span>}
                     @if (flags()[t.key]; as f) {
                       <!-- The dot by mark (.ws-flag-unsaved is the warning dot); the app's own words after it. -->
                       @switch (f.mark) {
@@ -292,7 +293,6 @@ export const WS_CSS = `
                           <span class="size-1.5 rounded-full bg-cerulean" aria-hidden="true"></span>
                         }
                       }
-                      <span class="sr-only">{{ f.sr }}</span>
                     }
                     @if (tab() === t.key) {
                       <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-cerulean"></span>
