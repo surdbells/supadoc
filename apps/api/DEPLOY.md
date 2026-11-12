@@ -77,7 +77,7 @@ exposed publicly.
 cd /www/wwwroot/api.dosthq.com
 git clone https://github.com/surdbells/supadoc.git .
 cd apps/api
-composer install --no-dev --optimize-autoloader
+/www/server/php/84/bin/php "$(command -v composer)" install --no-dev --optimize-autoloader
 ```
 
 Set the site's **document root** (aaPanel → site → *Site directory*) to:
@@ -199,17 +199,17 @@ chmod -R 775 var public/uploads
 > non-destructive preview and read it before applying:
 >
 > ```bash
-> php bin/doctrine.php orm:schema-tool:update --dump-sql   # == composer schema:preview
+> /www/server/php/84/bin/php bin/doctrine.php orm:schema-tool:update --dump-sql   # == composer schema:preview
 > ```
 >
 > Proceed to `--force` only when the printed statements are the additive changes
 > you expect (no unexpected DROP TABLE / DROP COLUMN).
 
 ```bash
-php bin/doctrine.php orm:schema-tool:update --force   # == composer schema:apply (after reviewing schema:preview)
-php bin/doctrine.php orm:generate-proxies             # REQUIRED in prod — proxy auto-gen is off
+/www/server/php/84/bin/php bin/doctrine.php orm:schema-tool:update --force   # == composer schema:apply (after reviewing schema:preview)
+/www/server/php/84/bin/php bin/doctrine.php orm:generate-proxies             # REQUIRED in prod — proxy auto-gen is off
 chown -R www:www var                                  # www must read proxies + write var/cache
-php bin/seed.php                                       # demo specialists + patient (skip in real prod)
+/www/server/php/84/bin/php bin/seed.php                                       # demo specialists + patient (skip in real prod)
 ```
 
 > In production the EntityManager sets `autoGenerateProxyClasses(false)`, so the
@@ -316,10 +316,10 @@ parent), so `cd` into `supadoc` — that's where `.git` is.
 
 ```bash
 cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main
-cd apps/api && composer install --no-dev --optimize-autoloader
-php bin/doctrine.php orm:schema-tool:update --dump-sql   # review DDL first (composer schema:preview)
-php bin/doctrine.php orm:schema-tool:update --force
-php bin/doctrine.php orm:generate-proxies
+cd apps/api && /www/server/php/84/bin/php "$(command -v composer)" install --no-dev --optimize-autoloader
+/www/server/php/84/bin/php bin/doctrine.php orm:schema-tool:update --dump-sql   # review DDL first (composer schema:preview)
+/www/server/php/84/bin/php bin/doctrine.php orm:schema-tool:update --force
+/www/server/php/84/bin/php bin/doctrine.php orm:generate-proxies
 chown -R www:www var public/uploads   # incl. any new upload subdirs pulled this deploy
 /etc/init.d/php-fpm-84 reload   # clears OPcache — match your PHP version, e.g. php-fpm-84 on api.dosthq.com (or aaPanel → PHP → Reload)
 ```
@@ -332,8 +332,20 @@ something unexpected: back up the database and review it first. `prod-migrate`
 runs its one-time steps (0–2) only once per database; the rest are idempotent:
 
 ```bash
-cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && composer install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql | tee var/schema-pending.sql && if grep -qiE 'DROP TABLE|DROP SEQUENCE|ALTER [^ ]+ TYPE ' var/schema-pending.sql || grep -iE 'ALTER TABLE [^ ]+ DROP ' var/schema-pending.sql | grep -qviE 'DROP (CONSTRAINT|INDEX) '; then echo 'STOP: this schema change drops or retypes data (var/schema-pending.sql). Back up the database, review it, then apply by hand.'; false; fi && php bin/doctrine.php orm:schema-tool:update --force && php bin/doctrine.php orm:generate-proxies && php bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload && sleep 2 && echo "--- API check (expect 401):" && curl -s -w " [%{http_code}]\n" -X POST https://api.dosthq.com/api/public/call/check/presence && echo "--- Redis check (expect PONG):" && php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $r = new Predis\Client(["host" => $_ENV["REDIS_HOST"] ?? "127.0.0.1", "port" => (int) ($_ENV["REDIS_PORT"] ?? 6379), "password" => ($_ENV["REDIS_PASSWORD"] ?? "") ?: null]); echo $r->ping(), PHP_EOL;'
+( P=/www/server/php/84/bin/php && cd /www/wwwroot/api.dosthq.com/supadoc && git pull origin main && cd apps/api && $P "$(command -v composer)" install --no-dev --optimize-autoloader && rm -rf var/cache/doctrine* && $P bin/doctrine.php orm:schema-tool:update --dump-sql | tee var/schema-pending.sql && if grep -qiE 'DROP TABLE|DROP SEQUENCE|ALTER [^ ]+ TYPE ' var/schema-pending.sql || grep -iE 'ALTER TABLE [^ ]+ DROP ' var/schema-pending.sql | grep -qviE 'DROP (CONSTRAINT|INDEX) '; then echo 'STOP: this schema change drops or retypes data (var/schema-pending.sql). Back up the database, review it, then apply by hand.'; false; fi && $P bin/doctrine.php orm:schema-tool:update --force && $P bin/doctrine.php orm:generate-proxies && $P bin/prod-migrate.php --run && mkdir -p var/vault && chown -R www:www var public/uploads && /etc/init.d/php-fpm-84 reload && sleep 2 && echo "--- API check (expect 401):" && curl -s -w " [%{http_code}]\n" -X POST https://api.dosthq.com/api/public/call/check/presence && echo "--- Redis check (expect PONG):" && $P -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $r = new Predis\Client(["host" => $_ENV["REDIS_HOST"] ?? "127.0.0.1", "port" => (int) ($_ENV["REDIS_PORT"] ?? 6379), "password" => ($_ENV["REDIS_PASSWORD"] ?? "") ?: null]); echo $r->ping(), PHP_EOL;' )
 ```
+
+> **Which `php`.** Every command in this file names aaPanel's PHP 8.4
+> (`/www/server/php/84/bin/php`) explicitly, Composer included (`$P "$(command -v composer)"`
+> runs Composer on it): on this box a plain `php` is Debian's CLI (an `apt install` of
+> `php-cli`, `php-pear` or `composer` took over `/usr/bin/php`), which has no `gd` or
+> `pdo_pgsql` and runs on UTC, so `composer install` stops on `setasign/fpdf`'s `ext-gd`
+> and the schema and `prod-migrate` steps read the wrong clock. The one-liner sets `P`
+> inside `( … )`, so nothing leaks into your shell. **Optional one-time fix**, so a plain
+> `php` is aaPanel's again (the full paths keep working either way):
+> `update-alternatives --install /usr/bin/php php /www/server/php/84/bin/php 100 && update-alternatives --set php /www/server/php/84/bin/php`,
+> then `php -r 'echo date_default_timezone_get(), " ", (int) extension_loaded("pdo_pgsql"), PHP_EOL;'`
+> must print `PRC 1`. A later `apt` upgrade of `php8.4-cli` can switch it back.
 
 It ends with two checks: the API answers `401` ("This join link is invalid or
 has expired") — a `404` means the old code is still served, reload PHP again —
@@ -368,7 +380,7 @@ after the schema update:
 ```bash
 # Optional: set a shared password for all new doctor logins; otherwise each new
 # login gets a random password printed once in the output.
-cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && DOCTOR_DEFAULT_PASSWORD='ChooseAStrongOne!' php bin/prod-migrate.php --run
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && DOCTOR_DEFAULT_PASSWORD='ChooseAStrongOne!' /www/server/php/84/bin/php bin/prod-migrate.php --run
 ```
 
 It only converts a fee while it still looks USD-era (< 1000), only fills a
@@ -386,7 +398,7 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
 
 1. **PHP extensions**: `gd` (signature pictures are re-encoded) and `openssl`
    (encrypted file vault) must be enabled — aaPanel → PHP 8.x → Install
-   extensions. Check with `php -m | grep -E 'gd|openssl'`.
+   extensions. Check with `/www/server/php/84/bin/php -m | grep -E 'gd|openssl'`.
 2. **`.env`** — add / review:
 
    ```ini
@@ -423,16 +435,16 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
 
    ```bash
    rm -rf var/cache/doctrine*                                # stale mappings hide new columns
-   php bin/doctrine.php orm:schema-tool:update --dump-sql   # review
-   php bin/doctrine.php orm:schema-tool:update --force
-   php bin/doctrine.php orm:generate-proxies
+   /www/server/php/84/bin/php bin/doctrine.php orm:schema-tool:update --dump-sql   # review
+   /www/server/php/84/bin/php bin/doctrine.php orm:schema-tool:update --force
+   /www/server/php/84/bin/php bin/doctrine.php orm:generate-proxies
    ```
 4. **Load the drug catalogue** (21,514 prescribable RxNorm products, shipped in
    `resources/rxnorm/`; re-run after refreshing it from a newer release with
-   `php bin/build-rxnorm-dataset.php /path/to/RxNorm_full_prescribe_MMDDYYYY.zip`):
+   `/www/server/php/84/bin/php bin/build-rxnorm-dataset.php /path/to/RxNorm_full_prescribe_MMDDYYYY.zip`):
 
    ```bash
-   php bin/import-rxnorm.php
+   /www/server/php/84/bin/php bin/import-rxnorm.php
    ```
 
    If this step is skipped, the first medicine search loads the catalogue
@@ -441,7 +453,7 @@ and absolute timeouts, and revocable staff sessions. After `git pull` and
 5. **Backfill old prescriptions + canonical allergy severities** (numbers,
    `active` status, valid-until, prescriber; legacy Low/Medium/High allergy
    severities → mild/moderate/severe so the prescribing panel ranks them) — part
-   of the idempotent migration: `php bin/prod-migrate.php --run`.
+   of the idempotent migration: `/www/server/php/84/bin/php bin/prod-migrate.php --run`.
 6. **Permissions** — the vault lives in `var/vault`: `mkdir -p var/vault && chown -R www:www var`.
 7. **Cron** — no new job: `bin/send-reminders.php` (every 5 min) now also stores
    prescription expiries and sends the "expires in N days" reminders.
@@ -513,9 +525,9 @@ failed or held again, whatever its status says.
 5. **Right after deploying**, from `apps/api`, in this order:
 
    ```bash
-   php bin/wallet-reconcile.php                             # read-only report; exit 1 = findings (see below)
-   php bin/wallet-topup-sweep.php --max-age-days=0          # DRY RUN: asks Paystack about every never-credited top-up, changes nothing
-   php bin/wallet-topup-sweep.php --run --max-age-days=0    # credits the ones Paystack says were paid (once, exact amount only)
+   /www/server/php/84/bin/php bin/wallet-reconcile.php                             # read-only report; exit 1 = findings (see below)
+   /www/server/php/84/bin/php bin/wallet-topup-sweep.php --max-age-days=0          # DRY RUN: asks Paystack about every never-credited top-up, changes nothing
+   /www/server/php/84/bin/php bin/wallet-topup-sweep.php --run --max-age-days=0    # credits the ones Paystack says were paid (once, exact amount only)
    ```
 
    The sweep is the fix for top-ups that were **paid but never credited**
@@ -528,8 +540,8 @@ failed or held again, whatever its status says.
 6. **Cron** (both safe to repeat; only the sweep with `--run` writes, and only through `settleTopup()`):
 
    ```bash
-   # 20 3 * * *  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && php bin/wallet-topup-sweep.php --run >> var/log/wallet-topup-sweep.log 2>&1
-   # 40 3 * * *  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && php bin/wallet-reconcile.php >> var/log/wallet-reconcile.log 2>&1
+   # 20 3 * * *  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && /www/server/php/84/bin/php bin/wallet-topup-sweep.php --run >> var/log/wallet-topup-sweep.log 2>&1
+   # 40 3 * * *  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && /www/server/php/84/bin/php bin/wallet-reconcile.php >> var/log/wallet-reconcile.log 2>&1
    ```
 
    The nightly sweep makes one Paystack verify call per never-credited top-up
@@ -564,17 +576,17 @@ Work through them in this order:
    — a top-up credited, then marked `failed` by the old race). The money **is**
    in the wallet and the patient paid it once: restore its status — no balance
    change; refused (nothing changed) if the wallet doesn't hold the money:
-   `php -r "$W"' var_dump($w->restorePostedTopup("<ref>", "Credited <date>; old race left it failed", "Support: <name>")?->toArray());'`
+   `/www/server/php/84/bin/php -r "$W"' var_dump($w->restorePostedTopup("<ref>", "Credited <date>; old race left it failed", "Support: <name>")?->toArray());'`
    Never credit it again, never claw it back as a "duplicate", and don't ask
    the patient to verify it again. (`recordLedgerDiscrepancy()` refuses while
    such an entry is unrestored.)
 2. **Balance still differs from its ledger** (e.g. "vmw_… looks credited 2 times"):
    1. record the difference, so the ledger accounts for the whole balance (the
       balance itself does not change; a no-op once they agree):
-      `php -r "$W"' var_dump($w->recordLedgerDiscrepancy("<wallet_id>", "Top-up <ref> credited twice (old race)", "Support: <name>")?->toArray());'`
+      `/www/server/php/84/bin/php -r "$W"' var_dump($w->recordLedgerDiscrepancy("<wallet_id>", "Top-up <ref> credited twice (old race)", "Support: <name>")?->toArray());'`
    2. finance decides what happens to the money. To recover a duplicate the
       patient still holds (refused if the balance is short):
-      `php -r "$W"' var_dump($w->debit("<patient_id>", "NGN", "<amount>", "adjustment", "clawback_<ref>", "Duplicate top-up credit recovered")->toArray());'`
+      `/www/server/php/84/bin/php -r "$W"' var_dump($w->debit("<patient_id>", "NGN", "<amount>", "adjustment", "clawback_<ref>", "Duplicate top-up credit recovered")->toArray());'`
       If the balance was *below* the ledger (money lost), make it good with
       `credit(…, "adjustment", "makegood_<wallet_id>_<ref or YYYYMMDD>", "…")`.
    Every correction gets **its own** reference: re-running the same command is
@@ -584,8 +596,8 @@ Work through them in this order:
 3. **Top-up held for review**: find the reference in the Paystack dashboard. If
    it was refunded there, close it with no credit; otherwise credit what
    actually arrived (posted as a separate `adjustment`, with a receipt):
-   `php -r "$W"' var_dump($w->resolveHeldTopup("<ref>", null, "Refunded on Paystack <date>", "Support: <name>")?->toArray());'`
-   `php -r "$W"' var_dump($w->resolveHeldTopup("<ref>", "<amount received>", "Paystack shows <amount> received", "Support: <name>")?->toArray());'`
+   `/www/server/php/84/bin/php -r "$W"' var_dump($w->resolveHeldTopup("<ref>", null, "Refunded on Paystack <date>", "Support: <name>")?->toArray());'`
+   `/www/server/php/84/bin/php -r "$W"' var_dump($w->resolveHeldTopup("<ref>", "<amount received>", "Paystack shows <amount> received", "Support: <name>")?->toArray());'`
 4. **Anything else** (Paystack transaction credited twice, inconsistent ledger
    row, verified amount differs): should never happen — check the history first
    (`SELECT * FROM audit_events WHERE resource_id = '<ref>' ORDER BY created_at;`)
@@ -593,11 +605,11 @@ Work through them in this order:
 
 **Never `credit()` a top-up by hand** (it is refused for type `topup`). A
 top-up that was paid but never credited is credited by
-`php bin/wallet-topup-sweep.php --run` (it asks Paystack first; add
+`/www/server/php/84/bin/php bin/wallet-topup-sweep.php --run` (it asks Paystack first; add
 `--max-age-days=0` for one older than 30 days); if Paystack shows a different
 amount, the sweep holds it and step 3 applies.
 
-Re-run `php bin/wallet-reconcile.php` until it exits `0`. The `[INFO]` lines
+Re-run `/www/server/php/84/bin/php bin/wallet-reconcile.php` until it exits `0`. The `[INFO]` lines
 don't affect the exit code: top-ups never credited and still pending/failed
 after 48 h are mostly abandoned checkouts — the nightly sweep asks Paystack
 about the last 30 days' and credits any that were paid.
@@ -619,7 +631,7 @@ the patient's wallet. Every slot-taking write holds the doctor's slot lock.
    the appointment ids, nothing is changed, and the deploy carries on (the code
    is already protected; the indexes are a backstop). Resolve a blocked one by
    hand — e.g. cancel + refund one of a doubly-booked pair through the back
-   office — and re-run `php bin/prod-migrate.php --run`. Later schema updates
+   office — and re-run `/www/server/php/84/bin/php bin/prod-migrate.php --run`. Later schema updates
    keep these indexes (`RawIndexes` is the schema tool's listener). Each index
    is checked and created in its own short transaction that first locks
    `appointments` against writes (up to 10 s; reads go on) — if the table
@@ -666,7 +678,7 @@ the patient's wallet. Every slot-taking write holds the doctor's slot lock.
      returns nothing (if it returns a row, escalate — don't credit).
    Then credit the patient named in the metadata under that same key (so it
    can never be credited twice; `W` as in the wallet section above):
-   `php -r "$W"' var_dump($w->credit("<metadata.patient_id>", "NGN", "<amount>", "refund", "fu_card_credit_<ref>", "Unused card payment <ref> — added to your wallet")->toArray());'`
+   `/www/server/php/84/bin/php -r "$W"' var_dump($w->credit("<metadata.patient_id>", "NGN", "<amount>", "refund", "fu_card_credit_<ref>", "Unused card payment <ref> — added to your wallet")->toArray());'`
 
 #### Card payments to review
 
@@ -688,8 +700,8 @@ read-only; nothing is changed. Each entry needs a person:
   under `fu_card_credit_<ref>`, with a receipt and an in-app notice) or with no
   credit when it was settled another way:
   `P='require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $p = (new DI\ContainerBuilder())->addDefinitions("config/container.php")->build()->get(App\Infrastructure\Service\PaymentIntentService::class);'`
-  `php -r "$P"' var_dump($p->closeReview("<ref>", "<amount to credit>", "Checked: unused, paid <date>", "Support: <name>")?->toArray());'`
-  `php -r "$P"' var_dump($p->closeReview("<ref>", null, "Already refunded as appt_guest_refund_<gid>", "Support: <name>")?->toArray());'`
+  `/www/server/php/84/bin/php -r "$P"' var_dump($p->closeReview("<ref>", "<amount to credit>", "Checked: unused, paid <date>", "Support: <name>")?->toArray());'`
+  `/www/server/php/84/bin/php -r "$P"' var_dump($p->closeReview("<ref>", null, "Already refunded as appt_guest_refund_<gid>", "Support: <name>")?->toArray());'`
 
 ### One-time: reference data, specialist photos + the back-office dashboard
 
@@ -741,7 +753,7 @@ sharing screens). The API must be live before any front end that uses it.
 
 **Phase 1 — private cutover (API only, `DOC_SHARING_ENABLED` off).**
 
-1. On the API box, before deploying: `cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && php bin/doc-sharing-check.php`.
+1. On the API box, before deploying: `cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && /www/server/php/84/bin/php bin/doc-sharing-check.php`.
    Proceed only at **`live_calls=0`** — the cutover hides documents in a live
    call. (`tables=missing` is expected before the deploy.)
 2. Push **C1** and run the redeploy one-liner above. The schema update creates
@@ -754,7 +766,7 @@ sharing screens). The API must be live before any front end that uses it.
    (sharing not enabled)`. Leave `DOC_SHARING_ENABLED` unset (off).
 3. Verify:
    ```bash
-   php bin/doc-sharing-check.php --expect-tz="$(curl -s https://api.dosthq.com/health/ready | php -r 'echo json_decode(stream_get_contents(STDIN))->tz;')"
+   ( P=/www/server/php/84/bin/php && $P bin/doc-sharing-check.php --expect-tz="$(curl -s https://api.dosthq.com/health/ready | $P -r 'echo json_decode(stream_get_contents(STDIN))->tz;')" )
    ```
    (Use the host this box serves — e.g. `https://vmapi.betacrest.com/health/ready`
    for the betacrest deployment.) Expect `tz_check=ok` (it exits 1 when the CLI's time zone differs from
@@ -774,12 +786,12 @@ sharing screens). The API must be live before any front end that uses it.
 **Phase 2 — sharing on (same window, minutes later).**
 
 5. Set `DOC_SHARING_ENABLED=true` in `apps/api/.env`, reload PHP-FPM
-   (`/etc/init.d/php-fpm-84 reload`), and re-run `php bin/doc-sharing-check.php`
+   (`/etc/init.d/php-fpm-84 reload`), and re-run `/www/server/php/84/bin/php bin/doc-sharing-check.php`
    (`flag=on`).
 6. Push **C2**. Confirm the patient and doctor Cloudflare Pages builds ran for
    that commit and the **live bundles** contain the new code (a push can
    silently get no build — check the deployed JS, not just the check-run).
-7. Run `php bin/prod-migrate.php --run` again: step 12 sends the one-time
+7. Run `/www/server/php/84/bin/php bin/prod-migrate.php --run` again: step 12 sends the one-time
    notices (`documents_private_notice: sent`, `documents_private_doctor_notice:
    sent`; a re-run reports `already sent`). Patients with documents get "Your
    documents are now private" (those with files attached to an upcoming
@@ -796,7 +808,7 @@ sharing screens). The API must be live before any front end that uses it.
 shares and closes doctors' requests after 7 days (its log line `document
 access: …` ends with the `active_grants` / `pending_requests` totals). No new
 cron. Doctor requests email the patient (naming the doctor only) when their
-email notifications are on; preview it with `php bin/preview-email.php`.
+email notifications are on; preview it with `/www/server/php/84/bin/php bin/preview-email.php`.
 
 ### One-time: doctor applications (join.dosthq.com)
 
@@ -837,7 +849,7 @@ setup is done. No cron is needed (drafts expire lazily).
 3. **Upload limits** (5MB files): in aaPanel → PHP 8.4 → Configuration set
    `upload_max_filesize = 8M` and `post_max_size = 8M`; in the API site's nginx config
    add `client_max_body_size 8m;` inside `server { }`. Check:
-   `php -i | grep -E 'upload_max_filesize|post_max_size'` and `nginx -t && nginx -s reload`.
+   `/www/server/php/84/bin/php -i | grep -E 'upload_max_filesize|post_max_size'` and `nginx -t && nginx -s reload`.
 
 4. **Schema + migrate** — the normal redeploy one-liner. It adds the tables
    `doctor_applications`, `doctor_application_documents`, `doctor_application_events`,
@@ -860,7 +872,7 @@ setup is done. No cron is needed (drafts expire lazily).
    doctor appears in the patient directory. Then withdraw a second test application from
    its status page. Remove test doctors before go-live like the other seed data.
 
-Optional housekeeping (no cron): `php bin/application-drafts-purge.php --dry-run`
+Optional housekeeping (no cron): `/www/server/php/84/bin/php bin/application-drafts-purge.php --dry-run`
 (counts only), then `--run`, deletes drafts not saved for 30 days and their files.
 
 ### One-time: the clock fix (appointment times) — then switching on the cron
@@ -914,7 +926,7 @@ if you prepared your decisions in step 1.
 use its full path, e.g. `/www/server/pgsql/bin/psql`):
 
 ```bash
-cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && eval "$(php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); foreach (["PGHOST" => ["DB_HOST", "127.0.0.1"], "PGPORT" => ["DB_PORT", "5432"], "PGDATABASE" => ["DB_NAME", "videomed"], "PGUSER" => ["DB_USER", "videomed"], "PGPASSWORD" => ["DB_PASSWORD", ""]] as $pg => [$key, $default]) { echo "export ", $pg, "=", escapeshellarg(trim((string) ($_ENV[$key] ?? $default))), "\n"; }')"
+cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && eval "$(/www/server/php/84/bin/php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); foreach (["PGHOST" => ["DB_HOST", "127.0.0.1"], "PGPORT" => ["DB_PORT", "5432"], "PGDATABASE" => ["DB_NAME", "videomed"], "PGUSER" => ["DB_USER", "videomed"], "PGPASSWORD" => ["DB_PASSWORD", ""]] as $pg => [$key, $default]) { echo "export ", $pg, "=", escapeshellarg(trim((string) ($_ENV[$key] ?? $default))), "\n"; }')"
 ```
 
 (`unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD` when done.)
@@ -974,7 +986,7 @@ update read the old mappings) — clear the cache, check the schema and reload
 is false**):
 
 ```bash
-cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && rm -rf var/cache/doctrine* && php bin/doctrine.php orm:schema-tool:update --dump-sql && php bin/doctrine.php orm:generate-proxies && chown -R www:www var && /etc/init.d/php-fpm-84 reload && sleep 2 && curl -s https://api.dosthq.com/health/ready; echo
+( P=/www/server/php/84/bin/php && cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && rm -rf var/cache/doctrine* && $P bin/doctrine.php orm:schema-tool:update --dump-sql && $P bin/doctrine.php orm:generate-proxies && chown -R www:www var && /etc/init.d/php-fpm-84 reload && sleep 2 && curl -s https://api.dosthq.com/health/ready; echo )
 ```
 
 The schema line must report "Nothing to update". If it prints
@@ -988,7 +1000,7 @@ leave it empty if there are none), then:
 
 ```bash
 DECIDE='--clock-decide=<id>:<shift|keep|slot>,<id>:<shift|keep|slot>'
-cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && FPM_TZ="$(curl -s https://api.dosthq.com/health/ready | php -r '$h = json_decode(stream_get_contents(STDIN)); echo (($h->clock->marker ?? false) === true) ? (string) $h->tz : "";')" && if [ -z "$FPM_TZ" ]; then echo 'STOP: /health/ready does not show "marker":true (see step 2)'; else php bin/prod-migrate.php --dry-run --fix-clock="$FPM_TZ" $DECIDE > /tmp/clock-repair-dry.txt; echo "exit=$?"; less /tmp/clock-repair-dry.txt; fi
+( P=/www/server/php/84/bin/php && cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && FPM_TZ="$(curl -s https://api.dosthq.com/health/ready | $P -r '$h = json_decode(stream_get_contents(STDIN)); echo (($h->clock->marker ?? false) === true) ? (string) $h->tz : "";')" && if [ -z "$FPM_TZ" ]; then echo 'STOP: /health/ready does not show "marker":true (see step 2)'; else $P bin/prod-migrate.php --dry-run --fix-clock="$FPM_TZ" $DECIDE > /tmp/clock-repair-dry.txt; echo "exit=$?"; less /tmp/clock-repair-dry.txt; fi )
 ```
 
 (`DECIDE=''` when there is nothing to decide.) It makes every change inside a
@@ -1023,7 +1035,7 @@ share again), `money_review` and `follow_up_pricing_review`.
 **4. The repair.** The same command with `--run` instead of `--dry-run`:
 
 ```bash
-cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && FPM_TZ="$(curl -s https://api.dosthq.com/health/ready | php -r '$h = json_decode(stream_get_contents(STDIN)); echo (($h->clock->marker ?? false) === true) ? (string) $h->tz : "";')" && if [ -z "$FPM_TZ" ]; then echo 'STOP: /health/ready does not show "marker":true (see step 2)'; else php bin/prod-migrate.php --run --fix-clock="$FPM_TZ" $DECIDE > /tmp/clock-repair-run.txt; echo "exit=$?"; less /tmp/clock-repair-run.txt; fi
+( P=/www/server/php/84/bin/php && cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && FPM_TZ="$(curl -s https://api.dosthq.com/health/ready | $P -r '$h = json_decode(stream_get_contents(STDIN)); echo (($h->clock->marker ?? false) === true) ? (string) $h->tz : "";')" && if [ -z "$FPM_TZ" ]; then echo 'STOP: /health/ready does not show "marker":true (see step 2)'; else $P bin/prod-migrate.php --run --fix-clock="$FPM_TZ" $DECIDE > /tmp/clock-repair-run.txt; echo "exit=$?"; less /tmp/clock-repair-run.txt; fi )
 ```
 
 Expect `exit=0` and `"status": "repaired"` (`"recorded"` if nothing was on the
@@ -1097,13 +1109,13 @@ confirmed bookings, one doctor, same start). It listed upcoming bookings that
 fall inside the doctor's own block under `blocked_after` (the old check applied
 blocks 8 h off). Resolve each with the doctor: cancel and refund one booking in
 the back office, or let the doctor move it. Then run
-`php bin/prod-migrate.php --run`: once no two live bookings share a start, step
+`/www/server/php/84/bin/php bin/prod-migrate.php --run`: once no two live bookings share a start, step
 10 reports `uniq_appointments_live_slot: created`.
 
 **Rolling back.** Before step 4 nothing has changed: to back out, check out the
-previous commit and reload PHP-FPM (`git checkout 0ee2057`, `composer install
+previous commit and reload PHP-FPM (`git checkout 0ee2057`, `/www/server/php/84/bin/php "$(command -v composer)" install
 --no-dev --optimize-autoloader`, `rm -rf var/cache/doctrine*`,
-`php bin/doctrine.php orm:generate-proxies`, `chown -R www:www var`, reload) —
+`/www/server/php/84/bin/php bin/doctrine.php orm:generate-proxies`, `chown -R www:www var`, reload) —
 leave the two new columns (the old code ignores them; don't run
 `schema-tool:update` on the old commit). **After step 4, never roll back**: the
 old code would store new bookings 8 h wrong again — fix forward.
@@ -1176,13 +1188,13 @@ SQL
 - **Paystack** must be reachable with the right key (as the web user):
 
   ```bash
-  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && runuser -u www -- php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $base = rtrim(trim((string) ($_ENV["PAYSTACK_BASE_URL"] ?? "")) ?: "https://api.paystack.co", "/"); $ch = curl_init($base . "/transaction/verify/vma_reachability_check"); curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ["Authorization: Bearer " . trim((string) ($_ENV["PAYSTACK_SECRET_KEY"] ?? ""))], CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 8]); curl_exec($ch); echo "curl=", curl_errno($ch), " http=", curl_getinfo($ch, CURLINFO_HTTP_CODE), PHP_EOL;'
+  cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && runuser -u www -- /www/server/php/84/bin/php -r 'require "vendor/autoload.php"; Dotenv\Dotenv::createImmutable(".")->safeLoad(); $base = rtrim(trim((string) ($_ENV["PAYSTACK_BASE_URL"] ?? "")) ?: "https://api.paystack.co", "/"); $ch = curl_init($base . "/transaction/verify/vma_reachability_check"); curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ["Authorization: Bearer " . trim((string) ($_ENV["PAYSTACK_SECRET_KEY"] ?? ""))], CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 8]); curl_exec($ch); echo "curl=", curl_errno($ch), " http=", curl_getinfo($ch, CURLINFO_HTTP_CODE), PHP_EOL;'
   ```
 
   `curl=0 http=400` (or `404`) is right: Paystack answered, accepted the key and
   doesn't know that made-up reference. `http=401` = wrong key or the other mode
   (test/live); `curl` other than `0` = the box can't reach Paystack (see
-  `php bin/paystack-check.php`). Nothing is created at Paystack. (While Paystack
+  `/www/server/php/84/bin/php bin/paystack-check.php`). Nothing is created at Paystack. (While Paystack
   can't be reached the sweep now leaves checkouts open — nothing is expired —
   but nothing gets credited either.)
 
@@ -1191,15 +1203,15 @@ Then, in this order:
 1. The log folder, owned by the web user, and the CLI on PHP-FPM's zone:
 
    ```bash
-   cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && mkdir -p var/log && chown -R www:www var && runuser -u www -- sh -c 'command -v php' && runuser -u www -- php bin/doc-sharing-check.php --expect-tz="$(curl -s https://api.dosthq.com/health/ready | php -r 'echo json_decode(stream_get_contents(STDIN))->tz;')"
+   ( P=/www/server/php/84/bin/php && cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && mkdir -p var/log && chown -R www:www var && runuser -u www -- $P -r 'echo PHP_BINARY, " ", PHP_VERSION, " gd=", (int) extension_loaded("gd"), " pdo_pgsql=", (int) extension_loaded("pdo_pgsql"), PHP_EOL;' && runuser -u www -- $P bin/doc-sharing-check.php --expect-tz="$(curl -s https://api.dosthq.com/health/ready | $P -r 'echo json_decode(stream_get_contents(STDIN))->tz;')" )
    ```
 
-   Expect a php path (e.g. `/usr/bin/php`) and `tz_check=ok`.
+   Expect `/www/server/php/84/bin/php 8.4.… gd=1 pdo_pgsql=1` and `tz_check=ok`.
 2. **One manual run** as the web user, with the same lock the cron uses, into
    the same log:
 
    ```bash
-   cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && runuser -u www -- sh -c 'flock -n var/send-reminders.lock php bin/send-reminders.php 2>&1 | tee -a var/log/reminders.log'
+   cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && runuser -u www -- sh -c 'flock -n var/send-reminders.lock /www/server/php/84/bin/php bin/send-reminders.php 2>&1 | tee -a var/log/reminders.log'
    ```
 
    If it prints `clock repair pending (prod-migrate step 13): no jobs run`, step
@@ -1214,11 +1226,11 @@ Then, in this order:
    line gives cron a working directory www can enter:
 
    ```bash
-   crontab -u www -l 2>/dev/null && echo 'STOP: www already has a crontab - add the two lines by hand (crontab -u www -e)' || printf '%s\n' 'HOME=/www/wwwroot/api.dosthq.com/supadoc/apps/api' '*/5 * * * * cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && flock -n var/send-reminders.lock php bin/send-reminders.php >> var/log/reminders.log 2>&1' | crontab -u www - && crontab -u www -l
+   crontab -u www -l 2>/dev/null && echo 'STOP: www already has a crontab - add the two lines by hand (crontab -u www -e)' || printf '%s\n' 'HOME=/www/wwwroot/api.dosthq.com/supadoc/apps/api' '*/5 * * * * cd /www/wwwroot/api.dosthq.com/supadoc/apps/api && flock -n var/send-reminders.lock /www/server/php/84/bin/php bin/send-reminders.php >> var/log/reminders.log 2>&1' | crontab -u www - && crontab -u www -l
    ```
 
-   If step 1 printed a php path other than `/usr/bin/php` or `/bin/php`, use that
-   full path instead of `php` in the line. `flock -n` skips a run while the last
+   The line names aaPanel's PHP by its full path, so it runs the same PHP as
+   step 1 whatever `php` on the PATH is. `flock -n` skips a run while the last
    one is still going. Don't also add it in aaPanel's Cron page (that runs as
    root). Ten minutes later `tail -n 20 var/log/reminders.log` shows two more
    runs.
@@ -1378,13 +1390,13 @@ the new viewer asks for referrals and certificates as `?format=pdf`. After the f
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `could not find driver` / DB connection fails | `pdo_pgsql` not enabled for the PHP 8.2 build (see step 1). |
-| CLI errors but the site works: `schema-tool --dump-sql` prints nothing, Composer wants `ext-gd`, `php --ini` lists `/etc/php/8.4/cli` | `php` on the PATH is Debian's PHP (an `apt install` of `php-pear`, `php-cli` or `composer` pulled in `php8.4-cli` and took over `/usr/bin/php`), which has no `pdo_pgsql`/`gd` and runs on UTC instead of PRC. Point it back at aaPanel's: `update-alternatives --install /usr/bin/php php /www/server/php/84/bin/php 100 && update-alternatives --set php /www/server/php/84/bin/php`, then `php -r 'echo date_default_timezone_get(), " ", (int) extension_loaded("pdo_pgsql"), PHP_EOL;'` must print `PRC 1`. Until then run the one-liner with `/www/server/php/84/bin/php` in place of `php`. |
+| CLI errors but the site works: `schema-tool --dump-sql` prints nothing, Composer wants `ext-gd`, `php --ini` lists `/etc/php/8.4/cli` | `php` on the PATH is Debian's PHP (an `apt install` of `php-pear`, `php-cli` or `composer` pulled in `php8.4-cli` and took over `/usr/bin/php`), which has no `pdo_pgsql`/`gd` and runs on UTC instead of PRC. Point it back at aaPanel's: `update-alternatives --install /usr/bin/php php /www/server/php/84/bin/php 100 && update-alternatives --set php /www/server/php/84/bin/php`, then `php -r 'echo date_default_timezone_get(), " ", (int) extension_loaded("pdo_pgsql"), PHP_EOL;'` must print `PRC 1`. The commands in this file name `/www/server/php/84/bin/php` in full, so they work either way (see "Which `php`" under Redeploying). |
 | Browser: CORS error on API calls | Frontend origin missing from `CORS_ALLOWED_ORIGINS`; must be the exact scheme+host. |
 | `500` with a blank body | Check `apps/api/var/logs/app.log`; often a missing `.env` value or unwritable `var/`. |
 | Avatar upload succeeds but image 404s | `public/uploads/avatars` not writable by `www`, or the Nginx `try_files` rewrite is missing. |
 | JWT errors right after deploy | `JWT_SECRET` shorter than 32 bytes, or it changed (invalidates existing tokens — users just re-login). |
 | Health OK but data endpoints 401 | Expected without a token; sign in via the frontend or `POST /api/portal/auth/login`. |
-| Doctors see no patient documents | Expected unless the patient shared them (documents are private by default). With `DOC_SHARING_ENABLED` off nobody can share; `php bin/doc-sharing-check.php` shows the flag and totals. |
+| Doctors see no patient documents | Expected unless the patient shared them (documents are private by default). With `DOC_SHARING_ENABLED` off nobody can share; `/www/server/php/84/bin/php bin/doc-sharing-check.php` shows the flag and totals. |
 | Patients see "Sharing is unavailable right now" | `DOC_SHARING_ENABLED` is off (or not `true`/`1`) in `apps/api/.env` — set it and reload PHP-FPM. |
 | `doc-sharing-check` exits 1 (`tz_check=MISMATCH`) | The CLI and PHP-FPM run in different time zones; set the same `date.timezone` in both php.ini files before running cron / prod-migrate. |
 | Hard-deleting a patient or doctor fails on a foreign key | Their document-sharing records (`document_access_grants` / `_requests`) reference them (`RESTRICT`) and are medical-record retention data: export and purge them under the retention policy first, never by cascade. |

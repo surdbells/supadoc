@@ -141,11 +141,11 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
       } @else {
         <!-- When: the doctor's own calendar (their open times, in the viewer's zone), or a typed time on their availability. -->
         <fieldset class="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" [attr.aria-describedby]="fieldError('scheduled_at') ? uid + '-when-error' : null">
-          <legend class="mb-1 ${CLINICAL_LABEL}">Date &amp; time <span class="text-alert">*</span></legend>
+          <legend class="mb-1 ${CLINICAL_LABEL}">Date &amp; time <span class="text-alert-ink">*</span></legend>
           @if (!useManual()) {
             @if (cal.error(); as calError) {
               <!-- A day's times (or another month) didn't load: the calendar stays, with a retry. -->
-              <p class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-alert" role="alert">
+              <p class="flex flex-wrap items-center gap-x-2 font-sans text-caption text-alert-ink" role="alert">
                 <span class="flex items-start gap-1.5"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ calError }}</span>
                 <button type="button" class="inline-flex min-h-11 items-center font-semibold text-cerulean transition-colors hover:text-ocean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40" (click)="cal.refresh()">Try again</button>
               </p>
@@ -164,7 +164,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
               [min]="cal.min()"
               [max]="cal.max()"
               [nextAvailable]="cal.nextAvailable()"
-              [timeZone]="clock.zone()"
+              [timeZone]="cal.tz()"
               [timeZoneLabel]="cal.timeZoneLabel()"
               [weekStartsOn]="cal.weekStartsOn()"
               [disabled]="busy()"
@@ -176,7 +176,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
             </sd-booking-calendar>
           } @else {
             @if (calendarError()) {
-              <p class="flex items-start gap-1.5 font-sans text-caption text-alert"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ calendarError() }} Enter a time that is on your availability.</p>
+              <p class="flex items-start gap-1.5 font-sans text-caption text-alert-ink"><sd-icon name="triangle-alert" [size]="14" class="mt-0.5 shrink-0" />{{ calendarError() }} Enter a time that is on your availability.</p>
             } @else if (noOpenTimes()) {
               <p class="${CLINICAL_HINT}">You have no open times{{ cal.max() ? ' up to ' + day(cal.max()) : '' }}.</p>
             }
@@ -210,7 +210,10 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
             }
           }
           @if (fieldError('scheduled_at'); as m) {
-            <p class="font-sans text-caption text-alert" role="alert" [id]="uid + '-when-error'">{{ m }}</p>
+            <!-- Keyed by the attempt: the same error on another try is a new alert, so it is announced again. -->
+            @for (n of [attempt()]; track n) {
+              <p class="font-sans text-caption text-alert-ink" role="alert" [id]="uid + '-when-error'">{{ m }}</p>
+            }
           }
         </fieldset>
 
@@ -227,7 +230,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
             } @else if (quoteLoading()) {
               <span class="font-sans text-body-sm text-slate">Working out the price…</span>
             } @else if (quoteError()) {
-              <span class="font-sans text-caption text-alert">{{ quoteError() }}</span>
+              <span class="font-sans text-caption text-alert-ink">{{ quoteError() }}</span>
             }
           </div>
           <!-- A labelled native switch (sd-toggle's button can't take a label), drawn like sd-toggle. -->
@@ -267,7 +270,9 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
             <span>{{ note().length }}/{{ maxNote }}</span>
           </p>
           @if (fieldError('note'); as m) {
-            <p class="font-sans text-caption text-alert" role="alert">{{ m }}</p>
+            @for (n of [attempt()]; track n) {
+              <p class="font-sans text-caption text-alert-ink" role="alert">{{ m }}</p>
+            }
           }
         </div>
 
@@ -372,7 +377,7 @@ const byStart = (a: DoctorFollowUpDto, b: DoctorFollowUpDto): number =>
                     <button
                       type="button"
                       [id]="uid + '-withdraw-' + f.id"
-                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-3 py-2 font-sans text-[14px] font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert/50 px-3 py-2 font-sans text-[14px] font-semibold text-alert-ink shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40"
                       (click)="askWithdraw(f)"
                     >
                       <sd-icon name="undo-2" [size]="16" />Withdraw
@@ -507,6 +512,8 @@ export class FollowUpPlanner {
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   private readonly fieldErrors = signal<Record<string, string>>({});
+  /** Bumped by each Propose that ends in field errors: their lines are re-created, so a repeat is announced again. */
+  protected readonly attempt = signal(0);
 
   // ----- Price -----
   protected readonly quote = signal<FollowUpQuoteDto | null>(null);
@@ -584,6 +591,18 @@ export class FollowUpPlanner {
       const at = this.chosenIso();
       const waive = this.waive();
       untracked(() => this.quoteRequests.next({ at, waive }));
+    });
+
+    // The doctor's zone can settle after the calendar was first read (the profile loads with the call page):
+    // read it again in that zone, so "today", the past days and "Times in …" all follow the doctor's clock.
+    effect(() => {
+      const zone = this.clock.zone();
+      untracked(() => {
+        const id = this.cal.specialistId();
+        if (!id || !this.active() || this.cal.tz() === zone) return;
+        this.manualMin.set(earliestManualInput(zone));
+        this.showCalendar(id);
+      });
     });
 
     // Load when shown, and refresh each time it is shown again (slots and replies move on).
@@ -771,7 +790,10 @@ export class FollowUpPlanner {
     const note = this.note().trim();
     if (note.length > MAX_NOTE) errs['note'] = `Keep the note to ${MAX_NOTE} characters or fewer.`;
     this.fieldErrors.set(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      this.attempt.update((n) => n + 1);
+      return;
+    }
 
     this.busy.set(true);
     this.api
@@ -804,6 +826,7 @@ export class FollowUpPlanner {
           if (fields['scheduled_at']) mine['scheduled_at'] = fields['scheduled_at'];
           if (fields['note']) mine['note'] = fields['note'];
           this.fieldErrors.set(mine);
+          this.attempt.update((n) => n + 1);
           this.error.set(Object.keys(mine).length > 0 ? '' : apiErrorMessage(err, 'Could not propose the follow-up.'));
           this.busy.set(false);
           if (fields['follow_up']) this.loadFollowUps(); // another proposal is open — show it

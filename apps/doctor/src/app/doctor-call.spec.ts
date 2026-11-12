@@ -1871,6 +1871,22 @@ describe('DoctorCall — documents in the call', { timeout: 20_000 }, () => {
           expect(d.getAttribute('aria-describedby')).toBe('call-cert-error');
         }
         expect(panel().querySelector('#call-cert-diagnosis')?.hasAttribute('aria-invalid')).toBe(false);
+        // Pressed again with the same gap: the same words, but a NEW alert element (a screen reader
+        // announces an inserted alert; unchanged text in the old one would be silent). Only the form
+        // pressed again is re-created: the other section's alert stays as it was.
+        button('Create referral').click();
+        await tick();
+        const refAgain = panel().querySelector('#call-referral p[role="alert"].call-error');
+        expect(refAgain?.textContent?.trim()).toBe('Add who to refer to and the reason for referral.');
+        expect(refAgain).not.toBe(refAlert);
+        expect(refAgain?.id).toBe('call-ref-error');
+        expect(panel().querySelector('#call-certificate p[role="alert"].call-error')).toBe(certAlert);
+        button('Issue certificate').click();
+        await tick();
+        const certAgain = panel().querySelector('#call-certificate p[role="alert"].call-error');
+        expect(certAgain?.textContent?.trim()).toBe('Add a certifying statement.');
+        expect(certAgain).not.toBe(certAlert);
+        expect(panel().querySelectorAll('#call-cert-error')).toHaveLength(1);
         expect(portal.filter((r) => r.method === 'POST')).toEqual([]);
         expect(dialogConfirm).not.toHaveBeenCalled();
       });

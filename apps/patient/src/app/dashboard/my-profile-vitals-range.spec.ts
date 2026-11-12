@@ -133,7 +133,14 @@ describe('MyProfile › Vitals › Above the usual range', () => {
   let el: HTMLElement;
   let recordVitals: ReturnType<typeof vi.fn>;
 
-  async function mount(latest: unknown[] = []): Promise<void> {
+  /**
+   * Renders the page once, straight on the view under test (the vitals editor by
+   * default): the data stubs answer synchronously in the constructor, so the view
+   * is chosen before the first render. Rendering the read view and then the editor
+   * doubled the work, and the file's first test (which also pays the component's
+   * cold start) ran past 5 s under a parallel run-many load.
+   */
+  async function mount(latest: unknown[] = [], view: 'editor' | 'medical' = 'editor'): Promise<void> {
     // jsdom has no scrollIntoView (the editor scrolls to its heading).
     if (!Element.prototype.scrollIntoView)
       Element.prototype.scrollIntoView = vi.fn();
@@ -182,15 +189,11 @@ describe('MyProfile › Vitals › Above the usual range', () => {
     fixture = TestBed.createComponent(MyProfile);
     el = fixture.nativeElement;
     document.body.appendChild(el);
+    const page = fixture.componentInstance as unknown as Testable;
+    if (view === 'editor') page.openEdit('vitals');
+    else page.view.set('medical');
     fixture.detectChanges();
     await fixture.whenStable();
-  }
-
-  async function openEditor(): Promise<void> {
-    (fixture.componentInstance as unknown as Testable).openEdit('vitals');
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
   }
 
   function type(selector: string, value: string): void {
@@ -210,7 +213,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('accepts a temperature above the range with a calm, polite warning tied to the box', async () => {
     await mount();
-    await openEditor();
     type('#vt-temperature', '46');
     const warn = el.querySelector('#vt-warn-temperature') as HTMLElement;
     expect(warn.textContent).toContain(
@@ -242,7 +244,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('compares the value as it will be stored (one decimal), like the API', async () => {
     await mount();
-    await openEditor();
     type('#vt-temperature', '45.04');
     expect(el.querySelector('#vt-warn-temperature')).toBeNull();
     expect(summary()).toBe('');
@@ -252,7 +253,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('saves the above-range reading (the warning never blocks)', async () => {
     await mount();
-    await openEditor();
     type('#vt-temperature', '46');
     await (fixture.componentInstance as unknown as Testable).saveEdit();
     expect(recordVitals).toHaveBeenCalledTimes(1);
@@ -263,7 +263,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('still rejects below the minimum, beyond the ceiling, and oxygen above 100', async () => {
     await mount();
-    await openEditor();
     type('#vt-temperature', '10000');
     let err = el.querySelector('#vt-hint-temperature') as HTMLElement;
     expect(err.textContent).toContain(
@@ -290,7 +289,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('warns on blood pressure above 260/160 and keeps its other rules', async () => {
     await mount();
-    await openEditor();
     const sys = '[aria-label="Systolic (top number)"]';
     const dia = '[aria-label="Diastolic (bottom number)"]';
     type(sys, '300');
@@ -316,7 +314,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('works out a BMI above 90 and asks for a check, not urgent care', async () => {
     await mount();
-    await openEditor();
     type('#vt-weight', '300');
     type('#vt-height', '150');
     expect(el.textContent).toContain('133.3');
@@ -335,7 +332,6 @@ describe('MyProfile › Vitals › Above the usual range', () => {
 
   it('asks to check a height or weight above the range, without urgent-care advice', async () => {
     await mount();
-    await openEditor();
     type('#vt-height', '260');
     type('#vt-weight', '410');
     expect(el.querySelector('#vt-warn-height')?.textContent?.trim()).toBe(
@@ -348,11 +344,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
   });
 
   it('keeps the warning on a saved reading in Medical Information', async () => {
-    await mount([aboveTemp]);
-    (fixture.componentInstance as unknown as Testable).view.set('medical');
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await mount([aboveTemp], 'medical');
     const text = el.textContent ?? '';
     expect(text).toContain('Very high');
     expect(text).toContain('Check reading');
@@ -379,11 +371,7 @@ describe('MyProfile › Vitals › Above the usual range', () => {
           usual_max: '250',
         },
       },
-    ]);
-    (fixture.componentInstance as unknown as Testable).view.set('medical');
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    ], 'medical');
     const text = el.textContent ?? '';
     expect(text).toContain('Check reading');
     expect(text).toContain(

@@ -4,6 +4,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   Injector,
@@ -12,6 +13,7 @@ import {
   NgZone,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import type { AvailabilityDayDto, DaySlotDto } from '@supadoc/models';
@@ -680,19 +682,21 @@ export class BookingCalendarComponent {
     // Re-read the date at the zone's next midnight (checked at least hourly) and
     // whenever the tab comes back into view — outside Angular, so a pending
     // timer never holds the app unstable; the signal schedules the render.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let started = false;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = this.zone.runOutsideAngular(() => setTimeout(tick, msToNextDay(this.tz())));
+    };
+    const tick = () => {
+      this.clock.update((n) => n + 1);
+      schedule();
+    };
     afterNextRender(() => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const schedule = () => {
-        clearTimeout(timer);
-        timer = setTimeout(tick, msToNextDay(this.tz()));
-      };
-      const tick = () => {
-        this.clock.update((n) => n + 1);
-        schedule();
-      };
       const onVisibility = () => {
         if (document.visibilityState !== 'hidden') tick();
       };
+      started = true;
       this.zone.runOutsideAngular(() => {
         schedule();
         document.addEventListener('visibilitychange', onVisibility);
@@ -701,6 +705,12 @@ export class BookingCalendarComponent {
         clearTimeout(timer);
         document.removeEventListener('visibilitychange', onVisibility);
       });
+    });
+    // Another zone (e.g. the doctor's, once their profile has loaded) moves "today" at once (it is
+    // computed from the zone) and the next check to THAT zone's midnight, not the old one's.
+    effect(() => {
+      this.tz();
+      if (started) untracked(schedule);
     });
   }
 

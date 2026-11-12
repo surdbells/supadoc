@@ -149,8 +149,8 @@ describe('booking calendar rules', () => {
       [nextAvailable]="next()"
       [nextOnEmptyDay]="nextOnEmpty()"
       [disabled]="disabled()"
-      timeZone="Africa/Lagos"
-      timeZoneLabel="WAT"
+      [timeZone]="tz()"
+      [timeZoneLabel]="tzLabel()"
       [secondaryTimeZone]="otherTz()"
       [secondaryWho]="otherWho()"
       (jumpToNext)="jumps.push($event)"
@@ -174,6 +174,8 @@ class HostComponent {
   readonly disabled = signal(false);
   readonly otherTz = signal<string | null>(null);
   readonly otherWho = signal("Dr Smith's time");
+  readonly tz = signal('Africa/Lagos');
+  readonly tzLabel = signal('WAT');
   readonly jumps: string[] = [];
 }
 
@@ -490,6 +492,65 @@ describe('BookingCalendarComponent', () => {
     expect(cell('2026-10-15').getAttribute('aria-current')).toBeNull();
     // Yesterday is past now, though the range (and min) still say otherwise.
     expect(cell('2026-10-15').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  describe('today near midnight follows the zone the caption names', () => {
+    const caption = () => [...el.querySelectorAll('p')].find((p) => p.textContent?.includes('Times in'))?.textContent?.replace(/\s+/g, ' ').trim();
+    const today = () => el.querySelector('td[aria-current="date"]')?.getAttribute('data-date');
+    /**
+     * A calendar first shown at the pinned time (the clock is set before it exists), on November 2026
+     * with no range yet: only "today" decides the past days.
+     */
+    const november = async (zone: string) => {
+      fixture.destroy();
+      el.remove();
+      fixture = TestBed.createComponent(HostComponent);
+      host = fixture.componentInstance;
+      el = fixture.nativeElement;
+      document.body.appendChild(el);
+      host.days.set([]);
+      host.min.set(null);
+      host.month.set('2026-11');
+      host.tz.set(zone);
+      host.tzLabel.set('');
+      fixture.detectChanges();
+    };
+
+    it.each([
+      // 23:30 UTC on the 11th: 00:30 on the 12th in Lagos, still the 11th in London and Chicago.
+      ['Africa/Lagos', '2026-11-11T23:30:00Z', 'WAT', '2026-11-12'],
+      ['Europe/London', '2026-11-11T23:30:00Z', 'GMT', '2026-11-11'],
+      ['America/Chicago', '2026-11-11T23:30:00Z', 'CST', '2026-11-11'],
+      // 22:30 UTC on the 11th: 23:30 in Lagos, still the 11th.
+      ['Africa/Lagos', '2026-11-11T22:30:00Z', 'WAT', '2026-11-11'],
+      // 06:30 UTC on the 12th: 00:30 in Chicago (the 12th), 15:30 in Tokyo.
+      ['America/Chicago', '2026-11-12T06:30:00Z', 'CST', '2026-11-12'],
+      ['Asia/Tokyo', '2026-11-11T15:30:00Z', 'GMT+9', '2026-11-12'],
+    ])('%s at %s: "Times in %s", today %s, the days before it past', async (zone, now, abbr, day) => {
+      vi.setSystemTime(new Date(now));
+      await november(zone);
+      expect(caption()).toBe(`Times in ${abbr}`);
+      expect(today()).toBe(day);
+      const before = `2026-11-${String(Number(day.slice(8)) - 1).padStart(2, '0')}`;
+      expect(el.querySelector(`td[data-date="${before}"]`)?.getAttribute('aria-disabled')).toBe('true');
+      expect(el.querySelector(`td[data-date="${day}"]`)?.getAttribute('aria-disabled')).toBeNull();
+    });
+
+    it('a zone that arrives later moves "today" at once, and the next check to its own midnight', async () => {
+      // The device's zone first (Chicago, 16:30), then the doctor's (Lagos, 23:30): still the 11th there.
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: new Date('2026-11-11T22:30:00Z') });
+      await november('America/Chicago');
+      expect(today()).toBe('2026-11-11');
+      host.tz.set('Africa/Lagos');
+      fixture.detectChanges();
+      expect(caption()).toBe('Times in WAT');
+      expect(today()).toBe('2026-11-11');
+      // Lagos midnight (Chicago would be 7½ hours away): the 12th is today, the 11th past.
+      vi.advanceTimersByTime(30 * 60_000 + 1_000);
+      fixture.detectChanges();
+      expect(today()).toBe('2026-11-12');
+      expect(el.querySelector('td[data-date="2026-11-11"]')?.getAttribute('aria-disabled')).toBe('true');
+    });
   });
 
   describe("the doctor's time", () => {

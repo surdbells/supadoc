@@ -113,10 +113,10 @@ describe('AdminStaff — permissions', () => {
   let http: HttpTestingController;
 
   const ok = <T>(data: T) => ({ status: 'success', message: 'OK', data });
+  // One synchronous pass, then whatever the zoneless scheduler still has queued (the fixture auto-detects).
   const render = async () => {
     fixture.detectChanges();
     await fixture.whenStable();
-    fixture.detectChanges();
   };
   const user = (overrides: Partial<StaffUserDto> = {}): StaffUserDto => ({
     id: 'u1',
@@ -176,7 +176,8 @@ describe('AdminStaff — permissions', () => {
     el = fixture.nativeElement;
     document.body.appendChild(el);
     http = TestBed.inject(HttpTestingController);
-    await render();
+    // The first pass runs ngOnInit, which asks for both lists: answer them, then render once.
+    fixture.detectChanges();
     flushLists(users);
     await render();
   };

@@ -40,33 +40,55 @@ interface PdfState {
   reject?: unknown;
   /** Page sizes in points by page number (default 600 × 800, portrait). */
   sizes?: Record<number, readonly [number, number]>;
+  /** The loader answers only once this settles (pdf.js still importing / starting). */
+  hold?: Promise<void>;
+  /**
+   * The document never loads: like pdf.js, destroying the task rejects its promise
+   * ("Worker was destroyed" while the worker starts).
+   */
+  starting?: boolean;
 }
 
 function fakeLoader(state: PdfState): PdfLoader {
-  return async () => ({
-    promise: state.reject
-      ? Promise.reject(state.reject)
-      : Promise.resolve({
-          numPages: state.pages,
-          getPage: async (n: number) => ({
-            rotate: 0,
-            getViewport: ({ scale, rotation = 0 }: { scale: number; rotation?: number }) => {
-              const [w, h] = state.sizes?.[n] ?? [600, 800];
-              return { width: (rotation % 180 ? h : w) * scale, height: (rotation % 180 ? w : h) * scale, scale, rotation };
-            },
-            render: ({ canvas, viewport }: { canvas: HTMLCanvasElement | null; viewport: { scale?: number; rotation?: number } }) => {
-              state.renders.push({ n, scale: viewport.scale ?? 0, rotation: viewport.rotation ?? 0, canvas });
-              return { promise: Promise.resolve(), cancel: () => undefined };
-            },
-            cleanup: () => undefined,
-            streamTextContent: () => ({}),
+  return async () => {
+    if (state.hold) await state.hold;
+    if (state.starting) {
+      let fail: (reason: unknown) => void = () => undefined;
+      const promise = new Promise<never>((_, reject) => (fail = reject));
+      return {
+        promise,
+        destroy: () => {
+          state.destroyed++;
+          fail(new Error('Worker was destroyed'));
+          return Promise.resolve();
+        },
+      };
+    }
+    return {
+      promise: state.reject
+        ? Promise.reject(state.reject)
+        : Promise.resolve({
+            numPages: state.pages,
+            getPage: async (n: number) => ({
+              rotate: 0,
+              getViewport: ({ scale, rotation = 0 }: { scale: number; rotation?: number }) => {
+                const [w, h] = state.sizes?.[n] ?? [600, 800];
+                return { width: (rotation % 180 ? h : w) * scale, height: (rotation % 180 ? w : h) * scale, scale, rotation };
+              },
+              render: ({ canvas, viewport }: { canvas: HTMLCanvasElement | null; viewport: { scale?: number; rotation?: number } }) => {
+                state.renders.push({ n, scale: viewport.scale ?? 0, rotation: viewport.rotation ?? 0, canvas });
+                return { promise: Promise.resolve(), cancel: () => undefined };
+              },
+              cleanup: () => undefined,
+              streamTextContent: () => ({}),
+            }),
           }),
-        }),
-    destroy: () => {
-      state.destroyed++;
-      return Promise.resolve();
-    },
-  });
+      destroy: () => {
+        state.destroyed++;
+        return Promise.resolve();
+      },
+    };
+  };
 }
 
 const WM: ViewerWatermark = { viewerName: 'Dr Ada Obi', timeZone: 'America/Chicago' };
@@ -1194,6 +1216,64 @@ describe('DocumentViewerComponent (sd-document-viewer)', () => {
       await settle(2);
       expect(revoked).toContain('blob:http://localhost/1');
       expect(el.querySelector('video')).toBeNull();
+    });
+
+    describe('closed or switched while pdf.js is starting', () => {
+      // Node's own event: jsdom does not turn an unhandled rejection into a window event.
+      const proc = (globalThis as unknown as { process: { on(e: string, f: (r: unknown) => void): void; off(e: string, f: (r: unknown) => void): void } }).process;
+      let unhandled: unknown[];
+      const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+      /** Macrotasks, so Node has reported any rejection left unhandled. */
+      const drain = async () => {
+        for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r));
+      };
+      beforeEach(() => {
+        unhandled = [];
+        proc.on('unhandledRejection', onUnhandled);
+      });
+      afterEach(() => proc.off('unhandledRejection', onUnhandled));
+
+      it('closed before the loader answers: the late task is destroyed (no worker left) and its rejection handled', async () => {
+        let ready: () => void = () => undefined;
+        pdf.hold = new Promise<void>((r) => (ready = r));
+        pdf.starting = true;
+        await create((h) => h.source.set(owner()));
+        fixture.destroy();
+        ready();
+        await drain();
+        expect(pdf.destroyed).toBe(1);
+        expect(unhandled).toEqual([]);
+      });
+
+      it('closed while the document opens: the task is destroyed once, quietly', async () => {
+        pdf.starting = true;
+        await create((h) => h.source.set(owner()));
+        expect(pdf.destroyed).toBe(0);
+        fixture.destroy();
+        await drain();
+        expect(pdf.destroyed).toBe(1);
+        expect(unhandled).toEqual([]);
+      });
+
+      it('switching documents quickly: each started task is destroyed, nothing unhandled, the last one shows', async () => {
+        let ready: () => void = () => undefined;
+        pdf.hold = new Promise<void>((r) => (ready = r));
+        pdf.starting = true;
+        await create((h) => h.source.set(owner()));
+        host.source.set(owner({ key: 'doc:3', title: 'Second scan' }));
+        await settle(2);
+        host.source.set(owner({ key: 'doc:4', title: 'Third scan' }));
+        await settle(2);
+        ready();
+        await drain();
+        // The first two loads finished after the viewer had moved on.
+        expect(pdf.destroyed).toBe(2);
+        expect(el.querySelector('.sdv-stage')?.getAttribute('aria-label')).toBe('Third scan, document');
+        fixture.destroy();
+        await drain();
+        expect(pdf.destroyed).toBe(3);
+        expect(unhandled).toEqual([]);
+      });
     });
 
     it('emits page, zoom and rotation for resume', async () => {

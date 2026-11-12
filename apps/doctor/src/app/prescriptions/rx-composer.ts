@@ -159,7 +159,7 @@ function isDialogKey(key: string): boolean {
 
 const LABEL = 'font-sans text-caption font-semibold text-ink';
 const HINT = 'font-sans text-caption text-slate';
-const ERR = 'font-sans text-caption text-alert';
+const ERR = 'font-sans text-caption text-alert-ink';
 /** A reading above its usual range: a warning, never an error (it is saved and sent). */
 const WARN = 'flex items-start gap-1 font-sans text-caption text-warning-ink';
 const SECTION = 'flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card @lg:p-5';
@@ -410,7 +410,7 @@ function nullIfBlank(v: string): string | null {
 
               <div class="flex flex-col gap-1.5">
                 <label class="${LABEL}" [for]="id('reason')">
-                  Reason for the prescription <span class="text-alert">*</span>
+                  Reason for the prescription <span class="text-alert-ink">*</span>
                   <span class="ml-1 font-normal text-slate">(needed to send)</span>
                 </label>
                 <textarea
@@ -478,7 +478,7 @@ function nullIfBlank(v: string): string | null {
                 <label class="${LABEL}" [for]="id('preg')">
                   Pregnant or breastfeeding?
                   @if (askPregnancy()) {
-                    <span class="text-alert">*</span><span class="ml-1 font-normal text-slate">(needed for this patient)</span>
+                    <span class="text-alert-ink">*</span><span class="ml-1 font-normal text-slate">(needed for this patient)</span>
                   } @else {
                     <span class="font-normal text-slate">(optional)</span>
                   }
@@ -772,7 +772,7 @@ function nullIfBlank(v: string): string | null {
                 <fieldset class="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0" [attr.aria-invalid]="fe('follow_up_mode') ? 'true' : null">
                   <legend class="mb-1.5 ${LABEL}">
                     Follow-up by
-                    @if (followUpDate()) { <span class="text-alert">*</span> }
+                    @if (followUpDate()) { <span class="text-alert-ink">*</span> }
                   </legend>
                   <div class="flex flex-wrap gap-2">
                     @for (o of followUpModes(); track o.value) {
@@ -821,7 +821,7 @@ function nullIfBlank(v: string): string | null {
               <h3 class="${H3}" [id]="id('h-valid')"><sd-icon name="calendar-days" [size]="18" class="text-cerulean" /> Validity</h3>
               <div class="grid grid-cols-1 gap-3 @xl:grid-cols-2">
                 <div class="flex flex-col gap-1.5">
-                  <label class="${LABEL}" [for]="id('valid')">Valid until <span class="text-alert">*</span></label>
+                  <label class="${LABEL}" [for]="id('valid')">Valid until <span class="text-alert-ink">*</span></label>
                   <input
                     type="date"
                     class="${RX_FIELD}"
@@ -837,7 +837,7 @@ function nullIfBlank(v: string): string | null {
                   }
                 </div>
                 <fieldset class="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0" [attr.aria-invalid]="fe('allows_repeats') ? 'true' : null">
-                  <legend class="mb-1.5 ${LABEL}">Does this prescription allow repeats? <span class="text-alert">*</span></legend>
+                  <legend class="mb-1.5 ${LABEL}">Does this prescription allow repeats? <span class="text-alert-ink">*</span></legend>
                   <div class="flex flex-wrap gap-2">
                     <label class="${RADIO_CARD}">
                       <input type="radio" class="size-4 accent-cerulean" [name]="id('repeats')" [checked]="allowsRepeats() === true" (change)="setAllowsRepeats(true)" />
@@ -1456,7 +1456,7 @@ export class RxComposer {
   }
 
   protected counterClass(value: string, limit: number): string {
-    return value.length >= limit ? 'text-alert' : value.length >= limit * 0.9 ? 'text-ink' : 'text-slate';
+    return value.length >= limit ? 'text-alert-ink' : value.length >= limit * 0.9 ? 'text-ink' : 'text-slate';
   }
 
   protected reading(key: ReadingKey): string {

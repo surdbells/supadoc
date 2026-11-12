@@ -1681,7 +1681,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
             </div>
             @if (refError()) {
-              <p id="call-ref-error" role="alert" class="mt-1 ${CALL_ERROR}">{{ refError() }}</p>
+              <!-- Keyed by the attempt: the same error again is a new alert, so it is announced again. -->
+              @for (attempt of [refAttempt()]; track attempt) {
+                <p id="call-ref-error" role="alert" class="mt-1 ${CALL_ERROR}">{{ refError() }}</p>
+              }
             }
             @if (referrals().length) {
               <ul class="mt-3 flex flex-col gap-2">
@@ -1755,7 +1758,9 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
               </button>
             </div>
             @if (certError()) {
-              <p id="call-cert-error" role="alert" class="mt-1 ${CALL_ERROR}">{{ certError() }}</p>
+              @for (attempt of [certAttempt()]; track attempt) {
+                <p id="call-cert-error" role="alert" class="mt-1 ${CALL_ERROR}">{{ certError() }}</p>
+              }
             }
             @if (issuedCerts().length) {
               <ul class="mt-3 flex flex-col gap-2">
@@ -3546,6 +3551,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly refPriority = signal<'routine' | 'urgent'>('routine');
   protected readonly refBusy = signal(false);
   protected readonly refError = signal('');
+  /** Bumped on each failed "Create referral": the error line is re-created, so a repeat is announced again. */
+  protected readonly refAttempt = signal(0);
   protected readonly referrals = signal<ReferralDto[]>([]);
 
   // Medical certificate builder + issued list.
@@ -3556,6 +3563,8 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected readonly certTo = signal('');
   protected readonly certBusy = signal(false);
   protected readonly certError = signal('');
+  /** Bumped on each failed "Issue certificate" (see refAttempt). */
+  protected readonly certAttempt = signal(0);
   protected readonly issuedCerts = signal<MedicalCertificateDto[]>([]);
   /** The API's earliest leave start (clinic calendar), from the certificates list; '' until it loads. */
   protected readonly certEarliestFrom = signal('');
@@ -4618,6 +4627,18 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
     }
   }
 
+  /** A referral error, as a new alert even when it repeats the last one (refAttempt). */
+  private failRef(message: string): void {
+    this.refError.set(message);
+    this.refAttempt.update((n) => n + 1);
+  }
+
+  /** A certificate error, as a new alert even when it repeats the last one (certAttempt). */
+  private failCert(message: string): void {
+    this.certError.set(message);
+    this.certAttempt.update((n) => n + 1);
+  }
+
   private announceDocs(text: string): void {
     // Cleared first, so the same words twice are announced twice.
     this.docAnnounce.set('');
@@ -4652,19 +4673,19 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected async issueCertificate(): Promise<void> {
     if (!this.appointmentId || !this.portalSignedIn() || this.certBusy()) return;
     if (this.certStatement().trim() === '') {
-      this.certError.set('Add a certifying statement.');
+      this.failCert('Add a certifying statement.');
       return;
     }
     if (this.certType() === 'sick_leave' && (this.certFrom() === '' || this.certTo() === '')) {
-      this.certError.set('Set the leave period.');
+      this.failCert('Set the leave period.');
       return;
     }
     if (this.certType() === 'sick_leave' && this.certFrom() < this.certMinFrom()) {
-      this.certError.set(`Leave can start at most ${CERTIFICATE_BACKDATE_DAYS} days ago.`);
+      this.failCert(`Leave can start at most ${CERTIFICATE_BACKDATE_DAYS} days ago.`);
       return;
     }
     if (this.certType() === 'sick_leave' && this.certTo() < this.certFrom()) {
-      this.certError.set('The end date cannot be before the start date.');
+      this.failCert('The end date cannot be before the start date.');
       return;
     }
     this.certError.set('');
@@ -4694,7 +4715,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.certTo.set('');
       await this.loadCertificates();
     } catch (err: unknown) {
-      this.certError.set(apiErrorMessage(err, 'Could not issue certificate.'));
+      this.failCert(apiErrorMessage(err, 'Could not issue certificate.'));
       // A call left open past midnight picks up the new leave-start floor.
       void this.loadCertificates();
     } finally {
@@ -4953,7 +4974,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
   protected async createReferral(): Promise<void> {
     if (!this.appointmentId || !this.portalSignedIn() || this.refBusy()) return;
     if (this.refTarget().trim() === '' || this.refReason().trim() === '') {
-      this.refError.set('Add who to refer to and the reason for referral.');
+      this.failRef('Add who to refer to and the reason for referral.');
       return;
     }
     this.refError.set('');
@@ -4978,7 +4999,7 @@ export class DoctorCall implements AfterViewInit, OnDestroy, CanLeave {
       this.refPriority.set('routine');
       await this.loadReferrals();
     } catch (err: unknown) {
-      this.refError.set(apiErrorMessage(err, 'Could not create referral.'));
+      this.failRef(apiErrorMessage(err, 'Could not create referral.'));
     } finally {
       this.refBusy.set(false);
     }

@@ -1283,6 +1283,14 @@ export class DoctorAppointmentDetail implements OnInit {
       if (!this.auth.isAuthenticated()) untracked(() => this.keepUnsavedNote());
     });
     this.destroyRef.onDestroy(() => this.keepUnsavedNote());
+    // The doctor's zone can settle after the reschedule calendar was first read: read it again in
+    // that zone, so "today", the past days and "Times in …" follow the doctor's clock.
+    effect(() => {
+      const zone = this.clock.zone();
+      untracked(() => {
+        if (this.rescheduleOpen() && this.cal.specialistId() && this.cal.tz() !== zone) this.loadRescheduleCalendar();
+      });
+    });
   }
 
   ngOnInit(): void {

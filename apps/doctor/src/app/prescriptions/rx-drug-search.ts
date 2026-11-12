@@ -102,7 +102,7 @@ export interface RxChosenDrug {
             (mousedown)="$event.preventDefault()"
           >
             @if (error()) {
-              <p class="flex items-center gap-2 px-3 py-3 font-sans text-body-sm text-alert">
+              <p class="flex items-center gap-2 px-3 py-3 font-sans text-body-sm text-alert-ink">
                 <sd-icon name="circle-alert" [size]="16" class="shrink-0" /> {{ error() }}
               </p>
             } @else if (results().length === 0) {

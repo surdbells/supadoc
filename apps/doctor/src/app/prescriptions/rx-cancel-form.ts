@@ -48,7 +48,7 @@ const REASON_MAX = 300;
 
       <div class="flex flex-col gap-1.5">
         <label class="font-sans text-caption font-semibold text-ink" [for]="uid + '-reason'">
-          Why are you cancelling it? <span class="text-alert">*</span>
+          Why are you cancelling it? <span class="text-alert-ink">*</span>
         </label>
         <textarea
           rows="2"
@@ -63,7 +63,7 @@ const REASON_MAX = 300;
           (input)="setReason($any($event.target).value)"
         ></textarea>
         <div class="flex items-start justify-between gap-3" [id]="uid + '-reason-help'">
-          <span class="font-sans text-caption text-alert">{{ reasonError() }}</span>
+          <span class="font-sans text-caption text-alert-ink">{{ reasonError() }}</span>
           <span class="shrink-0 font-sans text-caption text-slate">{{ reason().length }}/{{ max }}</span>
         </div>
       </div>

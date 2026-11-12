@@ -1161,7 +1161,8 @@ export class DocumentViewerComponent {
       const bytes = new Uint8Array(await readBytes(blob));
       const task = await this.loadPdf(bytes);
       if (gen !== this.generation) {
-        void Promise.resolve(task.destroy()).catch(() => undefined);
+        // Closed or moved on while pdf.js was starting: nothing awaits this task.
+        destroyPdfTask(task);
         return;
       }
       this.task = task;
@@ -2310,7 +2311,7 @@ export class DocumentViewerComponent {
     const root = this.rootEl()?.nativeElement;
     root?.querySelectorAll('canvas').forEach((c) => (c.width = c.height = 0));
     root?.querySelectorAll('.sd-text-layer').forEach((t) => t.replaceChildren());
-    if (this.task) void Promise.resolve(this.task.destroy()).catch(() => undefined);
+    if (this.task) destroyPdfTask(this.task);
     this.task = null;
     this.pdf = null;
     this.pdfDoc.set(null);
@@ -2367,4 +2368,20 @@ function drawRotated(ctx: CanvasRenderingContext2D, bmp: CanvasImageSource & { w
   const dh = sideways ? w : h;
   ctx.drawImage(bmp, -dw / 2, -dh / 2, dw, dh);
   ctx.restore();
+}
+
+/**
+ * Ends a pdf.js loading task and its worker. Destroying it before the document
+ * has loaded rejects `task.promise` ("Worker was destroyed" / "Loading aborted"):
+ * that is the expected outcome here, so the rejection is handled even when
+ * nothing awaits the task any more (a viewer closed, or switched to another
+ * file, while pdf.js was still starting); an awaiting caller still sees it.
+ */
+function destroyPdfTask(task: PdfLoadingTaskLike): void {
+  task.promise.catch(() => undefined);
+  try {
+    void Promise.resolve(task.destroy()).catch(() => undefined);
+  } catch {
+    /* already destroyed */
+  }
 }
