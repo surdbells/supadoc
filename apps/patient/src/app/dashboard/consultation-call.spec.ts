@@ -2167,8 +2167,11 @@ describe('ConsultationCall (the dock)', () => {
         await flush();
         expect(dialog()?.textContent).toContain('closed without an answer');
         expect(dialog()?.querySelector('a, [href]')).toBeNull();
+        // Focus could reach the tab by itself (the opener is inside it), so prove showSharing selected and focused it.
+        const selectTab = vi.spyOn(fixture.componentInstance as unknown as { selectWorkspaceTab: (key: string) => void }, 'selectWorkspaceTab');
         manageInDialog().click();
         await flush();
+        expect(selectTab).toHaveBeenCalledWith('sharing');
         expect(dialog()).toBeNull();
         expect(isOpen()).toBe(true);
         expect(sig<string>('wsTab')()).toBe('sharing');
