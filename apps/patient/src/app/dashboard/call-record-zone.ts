@@ -4,8 +4,9 @@ import { MyProfile } from './my-profile';
 
 /*
  * The call workspace's own-record tabs, loaded only when the record is first
- * opened (a dynamic import on the call page, shown with NgComponentOutlet; not
- * `@defer`, whose runtime would join the initial bundle): the patient's Medical Information (read-only)
+ * opened (a dynamic import on the call page, shown with CallRecordOutlet in
+ * call-record-outlet.ts; not `@defer` or NgComponentOutlet, whose code would
+ * join the initial bundle): the patient's Medical Information (read-only)
  * and Manage sharing, the portal's own components, embedded so that nothing in
  * them navigates. They sit on a paper zone that follows the PORTAL's theme
  * (they are portal pages), not the cockpit's tone:

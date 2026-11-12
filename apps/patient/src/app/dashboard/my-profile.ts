@@ -2309,7 +2309,8 @@ export class MyProfile implements HasUnsavedChanges, OnInit {
             {
               key: v.key,
               text: f.out_of_range ? aboveRangeStaleAlert(name, on) : `${name} was ${f.label}${on ? ` on ${on}` : ''}`,
-              advice: 'update your readings',
+              // Embedded in the call the record is read-only: no advice it can't act on.
+              advice: this.embedded() ? null : 'update your readings',
               critical: false,
             },
           ];
@@ -2409,6 +2410,15 @@ export class MyProfile implements HasUnsavedChanges, OnInit {
         this.vitalsFormError.set('');
       });
 
+  }
+
+  ngOnInit(): void {
+    // Embedded in the call: the read view only, and the call's URL is not ours
+    // to read or rewrite (inputs are set by now, not in the constructor).
+    if (this.embedded()) {
+      this.view.set('medical');
+      return;
+    }
     // Deep links from the dashboard: ?section=medical (Medical Information) or
     // ?section=vitals (the editor, scrolled to and focused on its vitals).
     // Consumed once, then dropped from the URL so Back / a refresh doesn't keep
@@ -2427,10 +2437,6 @@ export class MyProfile implements HasUnsavedChanges, OnInit {
           replaceUrl: true,
         });
       });
-  }
-
-  ngOnInit(): void {
-    if (this.embedded()) this.view.set('medical');
   }
 
   /** GET the patient's vitals (latest readings + the form's catalogue). */

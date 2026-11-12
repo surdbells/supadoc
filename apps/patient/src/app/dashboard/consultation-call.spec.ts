@@ -1951,7 +1951,21 @@ describe('ConsultationCall (the dock)', () => {
                   conditions: [{ condition: 'Hypertension', status: 'Managed', since: '2020' }],
                 },
               }),
-            vitals: () => ok({ latest: [], fields: [], sources: {}, patient_sources: [], reminder: { due: false } }),
+            // An old high reading: the standalone page would add "(update your readings)".
+            vitals: () =>
+              ok({
+                latest: [
+                  {
+                    key: 'temperature', label: 'Temperature', value: '38.6', unit: '°C', taken_at: '2026-01-14T09:00:00Z',
+                    source: 'self_reported', source_label: 'Self-reported', recorded_by: 'patient', stale: true,
+                    flag: { level: 'high', label: 'High', advice: 'See a doctor', out_of_range: false, usual_max: null },
+                  },
+                ],
+                fields: [],
+                sources: {},
+                patient_sources: [],
+                reminder: { due: false },
+              }),
           }),
         });
         TestBed.overrideProvider(DocumentSharingApi, {
@@ -1960,10 +1974,11 @@ describe('ConsultationCall (the dock)', () => {
             history: () => of({ status: 'success', message: 'OK', data: [], meta: { page: 1, per_page: 20, total: 0, total_pages: 1 } }),
           }),
         });
-        // The embedded portal components read the (call's) query string: it has none.
-        const empty = convertToParamMap({});
+        // The embedded portal components see the call's route. A deep link My Profile
+        // would act on (open the vitals editor, rewrite the URL) must be ignored there.
+        const query = convertToParamMap({ section: 'vitals' });
         TestBed.overrideProvider(ActivatedRoute, {
-          useValue: { snapshot: { paramMap: convertToParamMap({ id: 'ap-1' }), queryParamMap: empty }, queryParamMap: of(empty) },
+          useValue: { snapshot: { paramMap: convertToParamMap({ id: 'ap-1' }), queryParamMap: query }, queryParamMap: of(query) },
         });
       });
       const control = (text: string) =>
@@ -2008,6 +2023,12 @@ describe('ConsultationCall (the dock)', () => {
         expect(Array.from(record.querySelectorAll('button')).some((b) => /Edit|Add Medical|Back/.test(b.textContent ?? ''))).toBe(false);
         expect(record.querySelector('a')).toBeNull();
         expect(record.textContent).not.toMatch(/abnormal/i);
+        // The old high reading is told, with no advice the read-only record can't act on;
+        // the call's ?section=vitals opened no editor and rewrote no URL.
+        expect(record.textContent).toContain('Temperature was High');
+        expect(record.textContent).not.toContain('update your readings');
+        expect(record.querySelector('form, input')).toBeNull();
+        expect(navigate).not.toHaveBeenCalled();
         // The notes' launchers keep their four tools.
         expect(el.querySelectorAll('#call-notes sd-call-launchers [data-ws-launcher]').length).toBe(4);
         await closeWs();
