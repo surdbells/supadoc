@@ -22,6 +22,7 @@ import {
   AvailabilityCalendarStore,
   DoctorApi,
   ymdInZone,
+  zonedLocalToIso,
 } from '@supadoc/data-access';
 import type {
   ApiAppointmentStatus,
@@ -595,13 +596,22 @@ export class FollowUpPlanner {
 
     // The doctor's zone can settle after the calendar was first read (the profile loads with the call page):
     // read it again in that zone, so "today", the past days and "Times in …" all follow the doctor's clock.
+    // A time already picked or typed is kept as the same moment, shown on the new clock.
+    let lastZone = this.clock.zone();
     effect(() => {
       const zone = this.clock.zone();
       untracked(() => {
+        const from = lastZone;
+        lastZone = zone;
         const id = this.cal.specialistId();
         if (!id || !this.active() || this.cal.tz() === zone) return;
+        const typedIso = this.manualAt().trim() ? zonedLocalToIso(this.manualAt(), from) : null;
+        if (typedIso) this.manualAt.set(isoToLocalInput(typedIso, zone));
         this.manualMin.set(earliestManualInput(zone));
+        const picked = this.slot();
         this.showCalendar(id);
+        // Reopen the picked time's day on the new clock; a time that has gone there is dropped below.
+        if (picked) this.cal.selectDate(ymdInZone(picked, zone));
       });
     });
 

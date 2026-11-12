@@ -63,6 +63,9 @@ function setup(inputs: { linkRecord?: boolean; proposal?: AppointmentDto; propos
             listFollowUps: () => of({ data: list }),
             getProfile: () => of({ data: { id: 'd', name: 'Dr', timezone: 'Africa/Lagos', timezone_source: 'manual' } }),
             calendar: calendarIn,
+            // The 20th's one open time (09:00 UTC is the 20th in every zone these tests use).
+            calendarSlots: (date: string, tz: string) =>
+              of({ data: { date, tz, slots: date === '2026-11-20' ? [{ iso: '2026-11-20T09:00:00Z', time: '09:00', label: '9:00 AM', period: 'morning' }] : [] } }),
           } as Record<string, unknown>,
           { get: (t, k: string) => t[k] ?? (() => of({ data: [] })) },
         ),
@@ -189,6 +192,37 @@ describe("FollowUpPlanner: the calendar's today is on the doctor's clock", () =>
     expect(caption()).toBe('Times in WAT');
     expect(today()).toBe('2026-11-12');
     expect(disabled('2026-11-11')).toBe('true');
+  });
+
+  it('a time picked before the zone settles is kept, its day reopened on the new clock', () => {
+    setup({ zone: 'America/Chicago', proposals: [] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const planner = fixture.componentInstance as any;
+    planner.cal.selectDate('2026-11-20');
+    render();
+    planner.pickSlot('2026-11-20T09:00:00Z');
+    render();
+    TestBed.inject(DoctorClock).apply({ timezone: 'Africa/Lagos' });
+    render();
+    expect(caption()).toBe('Times in WAT');
+    expect(planner.cal.selectedDate()).toBe('2026-11-20');
+    expect(planner.slot()).toBe('2026-11-20T09:00:00Z');
+    expect(planner.chosenIso()).toBe('2026-11-20T09:00:00Z');
+  });
+
+  it('a time typed before the zone settles keeps its moment, shown on the new clock', () => {
+    setup({ zone: 'America/Chicago', proposals: [] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const planner = fixture.componentInstance as any;
+    planner.toggleManual();
+    planner.typeTime('2026-11-25T14:00');
+    render();
+    expect(planner.chosenIso()).toBe('2026-11-25T20:00:00.000Z');
+    TestBed.inject(DoctorClock).apply({ timezone: 'Africa/Lagos' });
+    render();
+    // 14:00 CST is 21:00 WAT: the same moment.
+    expect(planner.manualAt()).toBe('2026-11-25T21:00');
+    expect(planner.chosenIso()).toBe('2026-11-25T20:00:00.000Z');
   });
 });
 

@@ -30,6 +30,7 @@ import {
   injectCallPresence,
   isoToZonedLocal,
   todayLocal,
+  ymdInZone,
   zonedLocalToIso,
 } from '@supadoc/data-access';
 import type {
@@ -1284,11 +1285,15 @@ export class DoctorAppointmentDetail implements OnInit {
     });
     this.destroyRef.onDestroy(() => this.keepUnsavedNote());
     // The doctor's zone can settle after the reschedule calendar was first read: read it again in
-    // that zone, so "today", the past days and "Times in …" follow the doctor's clock.
+    // that zone, so "today", the past days and "Times in …" follow the doctor's clock. A time
+    // already picked or typed is kept as the same moment, shown on the new clock.
+    let lastZone = this.clock.zone();
     effect(() => {
       const zone = this.clock.zone();
       untracked(() => {
-        if (this.rescheduleOpen() && this.cal.specialistId() && this.cal.tz() !== zone) this.loadRescheduleCalendar();
+        const from = lastZone;
+        lastZone = zone;
+        if (this.rescheduleOpen() && this.cal.specialistId() && this.cal.tz() !== zone) this.rezoneReschedule(from, zone);
       });
     });
   }
@@ -1940,6 +1945,18 @@ export class DoctorAppointmentDetail implements OnInit {
     const tz = this.clock.zone();
     if (this.cal.specialistId() === a.specialist.id && this.cal.tz() === tz) this.cal.refresh();
     else this.cal.load(a.specialist.id, tz, { scope: 'doctor' });
+  }
+  /** The calendar re-read on the doctor's new clock, keeping the picked time and the typed time's moment. */
+  private rezoneReschedule(from: string, to: string): void {
+    const a = this.appt();
+    if (!a) return;
+    const typedIso = this.rescheduleAt().trim() ? zonedLocalToIso(this.rescheduleAt(), from) : null;
+    if (typedIso) this.rescheduleAt.set(isoToZonedLocal(typedIso, to));
+    this.rescheduleMin.set(this.zonedNowInput(30));
+    const picked = this.rescheduleSlot();
+    this.cal.load(a.specialist.id, to, { scope: 'doctor' });
+    // Reopen the picked time's day on the new clock, so the pick stays in view.
+    if (picked) this.cal.selectDate(ymdInZone(picked, to));
   }
   protected setRescheduleManual(manual: boolean): void {
     this.rescheduleManual.set(manual);
