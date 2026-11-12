@@ -69,6 +69,7 @@ import {
   whatError,
   ymdOf,
 } from './document-sharing';
+import { CALL_IN_PLACE } from './call-in-place';
 
 type Step = 'who' | 'what' | 'how' | 'review';
 
@@ -292,9 +293,12 @@ export function documentViewWarning(
                   <p class="font-sans text-body-sm" [class]="c().muted">
                     You can share with doctors you've booked. Book a consultation first.
                   </p>
-                  <a routerLink="/dashboard/specialists" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm font-semibold" [class]="c().link" (click)="close()">
-                    Find a specialist<sd-icon name="chevron-right" [size]="16" />
-                  </a>
+                  <!-- Not in the call: the page would end it. -->
+                  @if (!inCall) {
+                    <a routerLink="/dashboard/specialists" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm font-semibold" [class]="c().link" (click)="close()">
+                      Find a specialist<sd-icon name="chevron-right" [size]="16" />
+                    </a>
+                  }
                 } @else {
                   <ul class="flex flex-col gap-2">
                     @for (d of doctors(); track d.specialist.id) {
@@ -521,6 +525,8 @@ export class ShareDialog implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
   private readonly doc = inject(DOCUMENT);
+  /** During the call (null elsewhere): nothing here links away. */
+  protected readonly inCall = inject(CALL_IN_PLACE, { optional: true });
   private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
   private readonly body = viewChild<ElementRef<HTMLElement>>('body');
 

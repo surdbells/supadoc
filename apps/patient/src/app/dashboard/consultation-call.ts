@@ -8,6 +8,7 @@ import {
   DestroyRef,
   effect,
   ElementRef,
+  forwardRef,
   inject,
   Injector,
   OnDestroy,
@@ -135,6 +136,7 @@ import {
   recordShareBanner,
   type RecordTab,
 } from './call-record-copy';
+import { CALL_IN_PLACE, type CallInPlace } from './call-in-place';
 import { CallRecordOutlet } from './call-record-outlet';
 import { doctorTimeLabel } from './doctor-time';
 import { drLast, isSharingUnavailable, shareResultLine, SHARING_UNAVAILABLE } from './document-sharing';
@@ -309,6 +311,8 @@ interface RecordItem {
     WorkspacePanel,
   ],
   host: { class: 'block' },
+  // The portal's sharing pieces shown here (request and share dialogs, the record's sharing tab) act in place.
+  providers: [{ provide: CALL_IN_PLACE, useExisting: forwardRef(() => ConsultationCall) }],
   styles: [
     `
       /* The workspace's panels fade in softly when their tab is shown (replays on un-hide). */
@@ -1622,7 +1626,7 @@ interface RecordItem {
     </div>
   `,
 })
-export class ConsultationCall implements AfterViewInit, OnDestroy {
+export class ConsultationCall implements AfterViewInit, OnDestroy, CallInPlace {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly appointments = inject(AppointmentsApi);
@@ -3692,10 +3696,27 @@ export class ConsultationCall implements AfterViewInit, OnDestroy {
    * `targetId`'s element (scrolled into view; its `[data-ws-focus]`, else
    * itself), else the selected tab. The shell does it after render.
    */
-  protected selectWorkspaceTab(key: NotesTab, targetId?: string): void {
+  protected selectWorkspaceTab(key: NotesTab | RecordTab, targetId?: string): void {
     const ws = this.workspace();
     if (ws) ws.showTab(key, targetId);
     else this.wsTab.set(key);
+  }
+
+  /**
+   * CALL_IN_PLACE: "Manage sharing" in a request dialog (the cockpit's, or one
+   * opened from the record's own sharing tab) shows the record's Document
+   * sharing tab, focused, instead of the page that would end the call. Called
+   * once the dialog has closed and handed focus back, which becomes the opener.
+   */
+  showSharing(): void {
+    if (this.left()) return;
+    if (!this.wsOpen()) {
+      const active = this.document.activeElement;
+      this.openWorkspace('sharing', active !== this.document.body ? active : null);
+      return;
+    }
+    this.loadRecordZone();
+    this.selectWorkspaceTab('sharing');
   }
 
   /** The workspace's share banner's Stop sharing (never starts a share). */

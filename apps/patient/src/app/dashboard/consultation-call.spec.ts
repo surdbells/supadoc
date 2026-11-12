@@ -2,7 +2,7 @@ import { Component, computed, type EmbeddedViewRef, signal } from '@angular/core
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { AuthService, SessionTimeoutService } from '@supadoc/auth';
 import {
   API_CONFIG,
@@ -34,7 +34,11 @@ import {
   provideSupadocIcons,
 } from '@supadoc/ui';
 import { CallPeerTileComponent, DocumentViewerService, type ViewerCallContext, type ViewerOpenOptions, type ViewerSource } from '@supadoc/viewer';
+import { CALL_IN_PLACE } from './call-in-place';
 import { BAND_BACK, BAND_ENDED, NOTES_HINT_AFTER, notesHint, notesShareBanner } from './call-notes-copy';
+// Loaded with the spec, not by the first test that opens the record: the page's dynamic
+// import of its chunk then resolves at once, and no test pays for loading it.
+import { CallRecordZone } from './call-record-zone';
 import { ConsultationCall } from './consultation-call';
 
 /** Agora, faked: a client that joins, publishes and records what it sends. */
@@ -1984,12 +1988,10 @@ describe('ConsultationCall (the dock)', () => {
       const control = (text: string) =>
         Array.from(el.querySelectorAll<HTMLButtonElement>('pat-consultation-call button, button')).find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
       const tabNames = () => Array.from(el.querySelectorAll('dialog.sd-dialog--viewer [role="tab"]')).map(nameOf);
-      /** Renders until the record's zone chunk (a dynamic import) is in, at most ~5 s; `render` never waits on the zone. */
+      /** Renders until the record's zone is on the page (its chunk is already loaded: the import above). */
       const untilZone = async (render: () => Promise<void> = settle) => {
-        for (let i = 0; i < 100 && !el.querySelector('.pat-call-zone'); i++) {
-          await render();
-          await new Promise((r) => setTimeout(r, 50));
-        }
+        for (let i = 0; i < 10 && !el.querySelector('.pat-call-zone'); i++) await render();
+        expect(sig<unknown>('recordZone')()).toBe(CallRecordZone);
         await render();
       };
       const settleDeferred = () => untilZone();
@@ -2041,7 +2043,7 @@ describe('ConsultationCall (the dock)', () => {
         await openTab('notes');
         expect(tabNames()).toEqual(['Consultation Notes', 'Prescriptions', 'Lab requests', 'Follow-up Plan']);
         expect(el.querySelector('dialog.sd-dialog--viewer button[aria-label="Close consultation notes"]')).not.toBeNull();
-      }, 20000);
+      });
 
       it('17. Manage opens sharing in the workspace (no link, no new tab); its sections switch in place; closing re-reads what this doctor can see', async () => {
         await create();
@@ -2088,7 +2090,7 @@ describe('ConsultationCall (the dock)', () => {
         expect(navigate).not.toHaveBeenCalled();
         expect(navigateByUrl).not.toHaveBeenCalled();
         expect(window.open).not.toHaveBeenCalled();
-      }, 20000);
+      });
 
       it('18. once the call is over, the record opens with no video and its band says "Close record"', async () => {
         await create();
@@ -2102,7 +2104,79 @@ describe('ConsultationCall (the dock)', () => {
         bandButton('Close record').click();
         await settle();
         expect(isOpen()).toBe(false);
-      }, 20000);
+      });
+
+      it('19. "Manage sharing" in a closed request’s dialog never leaves the call: the cockpit’s opens Document sharing, the sharing tab’s own focuses it', async () => {
+        // A request the doctor made that is no longer pending: its dialog is the short info view.
+        const expired = {
+          id: 'rq-1',
+          specialist: { id: 'sp-1', name: 'Bayo Ade', specialty: 'Cardiology', photo_url: null },
+          appointment: null,
+          kind: 'access',
+          status: 'expired',
+          message: null,
+          created_at: '2026-11-01T10:00:00Z',
+          expires_at: '2026-11-03T10:00:00Z',
+          decided_at: null,
+          grant_id: null,
+          suggestion: { scope: 'all', document_ids: [], duration: '7d', appointment_id: null },
+        } as unknown as DocumentAccessRequestDto;
+        // On the sharing tab the same request is still listed as waiting; answering it finds it closed.
+        const waiting = { ...expired, status: 'pending' } as DocumentAccessRequestDto;
+        TestBed.overrideProvider(DocumentSharingApi, {
+          useValue: apiStub({
+            forAppointment,
+            requests: () => ok([waiting]),
+            approveRequest: () =>
+              throwError(() => ({ statusCode: 409, message: 'Closed.', errors: { code: 'request_not_pending', status: 'expired' } })),
+          }),
+        });
+        await create();
+        await enter();
+        const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+        const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl');
+        const flush = async () => {
+          for (let i = 0; i < 4; i++) {
+            fixture.detectChanges();
+            await new Promise((r) => setTimeout(r));
+          }
+        };
+        const dialog = () => el.querySelector<HTMLElement>('pat-approve-request-dialog');
+        const manageInDialog = () =>
+          Array.from(dialog()?.querySelectorAll('button') ?? []).find((b) => b.textContent?.trim() === 'Manage sharing') as HTMLButtonElement;
+
+        // The cockpit's dialog (the band's / Documents card's Review): a button, not a link.
+        sig<DocumentAccessRequestDto | null>('reviewDocRequest').set(expired);
+        await settle();
+        expect(dialog()?.textContent).toContain('closed without an answer');
+        expect(dialog()?.querySelector('a, [href]')).toBeNull();
+        manageInDialog().click();
+        await untilZone(flush);
+        expect(dialog()).toBeNull();
+        expect(isOpen()).toBe(true);
+        expect(sig<string>('wsTab')()).toBe('sharing');
+        expect(document.activeElement?.id).toBe('ws-tab-sharing');
+        // The zone, and every dialog it opens, get the call page as their in-place host.
+        expect(fixture.debugElement.query(By.directive(CallRecordZone)).injector.get(CALL_IN_PLACE)).toBe(fixture.componentInstance);
+
+        // The same request on the sharing tab's banner: its dialog's Manage sharing keeps the tab and focuses it.
+        const review = Array.from(panel('sharing').querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Review request') as HTMLButtonElement;
+        review.click();
+        await flush();
+        (Array.from(dialog()?.querySelectorAll('button') ?? []).find((b) => b.textContent?.trim() === 'Approve and share') as HTMLButtonElement).click();
+        await flush();
+        expect(dialog()?.textContent).toContain('closed without an answer');
+        expect(dialog()?.querySelector('a, [href]')).toBeNull();
+        manageInDialog().click();
+        await flush();
+        expect(dialog()).toBeNull();
+        expect(isOpen()).toBe(true);
+        expect(sig<string>('wsTab')()).toBe('sharing');
+        expect(document.activeElement?.id).toBe('ws-tab-sharing');
+        expect(navigate).not.toHaveBeenCalled();
+        expect(navigateByUrl).not.toHaveBeenCalled();
+        expect(window.open).not.toHaveBeenCalled();
+      });
     });
   });
 });

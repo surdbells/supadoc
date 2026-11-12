@@ -2,7 +2,6 @@ import { afterDialogCloses, focusIfLost } from './after-dialog';
 
 describe('after-dialog', () => {
   let root: HTMLElement;
-  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   beforeEach(() => {
     root = document.createElement('div');
@@ -14,24 +13,46 @@ describe('after-dialog', () => {
     `;
     document.body.appendChild(root);
   });
-  afterEach(() => root.remove());
+  afterEach(() => {
+    root.remove();
+    vi.useRealTimers();
+  });
 
-  it('waits until the dialog the person is in has closed (one under it may stay open)', async () => {
+  // Fake timers (Date too): the 40 ms polls and the give-up time are counted, not raced against a
+  // busy machine's clock.
+  it('waits until the dialog the person is in has closed (one under it may stay open)', () => {
+    vi.useFakeTimers();
     const calls: string[] = [];
     afterDialogCloses(() => calls.push('done'));
-    await wait(100);
+    vi.advanceTimersByTime(2000);
     expect(calls).toEqual([]);
     root.querySelector('#top')?.removeAttribute('open');
-    await wait(100);
+    vi.advanceTimersByTime(39);
+    expect(calls).toEqual([]);
+    // The next poll sees it closed, and queues the callback behind the dialog's own focus return.
+    vi.advanceTimersByTime(2);
+    expect(calls).toEqual(['done']);
+    vi.advanceTimersByTime(5000);
     expect(calls).toEqual(['done']);
   });
 
-  it('runs straight away (after a tick) when no dialog is open', async () => {
+  it('gives up waiting after timeoutMs', () => {
+    vi.useFakeTimers();
+    const calls: string[] = [];
+    afterDialogCloses(() => calls.push('done'), document, 500);
+    vi.advanceTimersByTime(480);
+    expect(calls).toEqual([]);
+    vi.advanceTimersByTime(42);
+    expect(calls).toEqual(['done']);
+  });
+
+  it('runs straight away (after a tick) when no dialog is open', () => {
+    vi.useFakeTimers();
     root.querySelectorAll('dialog').forEach((d) => d.removeAttribute('open'));
     const calls: string[] = [];
     afterDialogCloses(() => calls.push('done'));
     expect(calls).toEqual([]);
-    await wait(0);
+    vi.advanceTimersByTime(0);
     expect(calls).toEqual(['done']);
   });
 

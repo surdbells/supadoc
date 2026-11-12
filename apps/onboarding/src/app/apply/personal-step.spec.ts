@@ -123,6 +123,11 @@ describe('OnbPersonalStep', () => {
         return { ...real.call(this), timeZone: tz };
       });
 
+    // The picker lists what the browser lists (~420 zones): a few here, so opening it renders a
+    // short list instead of hundreds of options (what made this suite slow under load).
+    beforeEach(() => {
+      vi.spyOn(Intl, 'supportedValuesOf').mockReturnValue(['Africa/Lagos', 'America/Chicago', 'America/New_York', 'Europe/London']);
+    });
     afterEach(() => vi.restoreAllMocks());
 
     it('is pre-filled from this device, labelled with its hint, and sent with the step', async () => {

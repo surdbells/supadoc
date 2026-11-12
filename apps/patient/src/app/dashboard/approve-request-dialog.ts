@@ -56,6 +56,7 @@ import {
   untilDateToExpiresAt,
   whatError,
 } from './document-sharing';
+import { CALL_IN_PLACE } from './call-in-place';
 import { DocumentPicker, loadPickerDocuments } from './share-dialog';
 
 /** What the host learns when the dialog is done. */
@@ -107,7 +108,7 @@ export function approveOutcomeLine(outcome: ApproveOutcome): string {
       labelledBy="approve-title"
       [busy]="busy()"
       (closed)="close()"
-      (afterClose)="closed.emit()"
+      (afterClose)="afterClose()"
     >
       <div class="flex min-h-full flex-col gap-5 p-5 sm:p-6" [class]="c().body" [attr.aria-busy]="busy() || null">
         <p class="sr-only" aria-live="polite" aria-atomic="true">{{ live() }}</p>
@@ -136,9 +137,16 @@ export function approveOutcomeLine(outcome: ApproveOutcome): string {
           <p class="flex items-start gap-2 rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note" role="status">
             <sd-icon name="info" [size]="18" class="mt-0.5 shrink-0" />{{ info() }}
           </p>
-          <a routerLink="/dashboard/documents/sharing" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm font-semibold" [class]="c().link" (click)="close()">
-            Manage sharing<sd-icon name="chevron-right" [size]="16" />
-          </a>
+          @if (inCall) {
+            <!-- In the call a link would end it: the call's own Document sharing tab, in place. -->
+            <button type="button" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm font-semibold" [class]="c().link" (click)="manageInPlace()">
+              Manage sharing<sd-icon name="chevron-right" [size]="16" />
+            </button>
+          } @else {
+            <a routerLink="/dashboard/documents/sharing" class="inline-flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm font-semibold" [class]="c().link" (click)="close()">
+              Manage sharing<sd-icon name="chevron-right" [size]="16" />
+            </a>
+          }
         } @else {
           @if (request().message) {
             <p class="rounded-field px-4 py-3 font-sans text-body-sm" [class]="c().note">Their note: “{{ request().message }}”</p>
@@ -283,6 +291,10 @@ export class ApproveRequestDialog implements OnInit {
   private readonly injector = inject(Injector);
   private readonly doc = inject(DOCUMENT);
   private readonly headingEl = viewChild<ElementRef<HTMLElement>>('heading');
+  /** During the call (null elsewhere): "Manage sharing" shows the call's sharing tab instead of the page. */
+  protected readonly inCall = inject(CALL_IN_PLACE, { optional: true });
+  /** "Manage sharing" was pressed in the call: the sharing tab comes forward once the dialog has closed. */
+  private toSharing = false;
 
   readonly request = input.required<DocumentAccessRequestDto>();
   readonly theme = input<SharingTheme>('light');
@@ -427,6 +439,18 @@ export class ApproveRequestDialog implements OnInit {
 
   protected close(): void {
     if (!this.busy()) this.open.set(false);
+  }
+
+  /** In the call: close; then the call's Document sharing tab takes focus (after the dialog has handed it back). */
+  protected manageInPlace(): void {
+    this.toSharing = true;
+    this.close();
+  }
+
+  protected afterClose(): void {
+    if (this.toSharing) this.inCall?.showSharing();
+    this.toSharing = false;
+    this.closed.emit();
   }
 
   protected approve(): void {

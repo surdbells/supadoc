@@ -25,6 +25,34 @@ class Host {
 }
 
 const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+const realZones = Intl.supportedValuesOf;
+
+/**
+ * The browser's zone list for these tests: a slice of it (in its order) with every zone they
+ * name. The real list is ~420 zones, and rendering all of them in every test that opens the
+ * menu made the suite slow enough to time out under load; that the menu lists whatever the
+ * browser lists is checked against this list, and the real list's size on its own.
+ */
+const BROWSER_ZONES = [
+  'Africa/Johannesburg',
+  'Africa/Lagos',
+  'Africa/Nairobi',
+  'America/Anchorage',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/New_York',
+  'America/Regina',
+  'America/Sao_Paulo',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+  'Europe/Berlin',
+  'Europe/London',
+  'Europe/Paris',
+  'Pacific/Honolulu',
+];
 
 /** Makes this device report `tz` as its zone. */
 function deviceZone(tz: string) {
@@ -76,6 +104,7 @@ describe('TimeZonePickerComponent', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2027-01-15T12:00:00Z')); // winter: CST, GMT in London
     deviceZone('Africa/Lagos'); // whatever this machine says (a test may override)
+    vi.spyOn(Intl, 'supportedValuesOf').mockReturnValue(BROWSER_ZONES);
   });
 
   afterEach(() => {
@@ -117,7 +146,8 @@ describe('TimeZonePickerComponent', () => {
       expect.stringMatching(/ — Europe\/London \(GMT\)$/),
     ]);
     expect(all.label).toBe('All time zones');
-    expect(all.options.length).toBeGreaterThan(300);
+    // Every zone the browser lists, in its order, then UTC.
+    expect(all.options.map((o) => o.match(/ — (\S+) \(/)?.[1])).toEqual([...BROWSER_ZONES, 'UTC']);
     expect(document.activeElement).toBe(search());
   });
 
@@ -210,6 +240,13 @@ describe('TimeZonePickerComponent', () => {
     // Still the same listbox, themed the same way.
     expect(menu().querySelector('[role="listbox"]')).not.toBeNull();
     expect(menu().classList).toContain('sd-menu');
+  });
+
+  it("takes the browser's own list (hundreds of zones) and adds UTC", () => {
+    vi.mocked(Intl.supportedValuesOf).mockImplementation(realZones);
+    const zones = availableTimeZones();
+    expect(zones.length).toBeGreaterThan(300);
+    expect(zones).toEqual(expect.arrayContaining(['Africa/Lagos', 'America/Chicago', 'Europe/London', 'UTC']));
   });
 
   it('falls back to a built-in list when the browser cannot list zones', () => {
