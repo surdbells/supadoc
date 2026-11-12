@@ -374,13 +374,19 @@ function pillAudit(opts = {}) {
               const pr = p.getBoundingClientRect();
               const x0 = pr.left + p.clientLeft;
               const y0 = pr.top + p.clientTop;
-              if (
-                rr.left < x0 - 0.5 ||
-                rr.right > x0 + p.clientWidth + 0.5 ||
+              const hx =
+                rr.left < x0 - 0.5 || rr.right > x0 + p.clientWidth + 0.5;
+              const hy =
                 rr.top + band.top < y0 - 0.5 ||
-                rr.bottom - band.bottom > y0 + p.clientHeight + 0.5
+                rr.bottom - band.bottom > y0 + p.clientHeight + 0.5;
+              // Only a box a user can scroll (auto / scroll on that axis) is scrolled for them: a pill that
+              // overflow: hidden or clip cuts off stays where it is, so K or the clip check fails it.
+              if (
+                (hx && !/auto|scroll/.test(pcs.overflowX)) ||
+                (hy && !/auto|scroll/.test(pcs.overflowY))
               )
-                return true;
+                return false;
+              if (hx || hy) return true;
             }
             return false;
           };
@@ -388,11 +394,22 @@ function pillAudit(opts = {}) {
             opts.scroll &&
             (rr.top < 0 || rr.bottom > innerHeight || hidden())
           ) {
+            // scrollIntoView also scrolls overflow: hidden boxes, which no user can do: put them back.
+            const pinned = [];
+            for (let p = el.parentElement; p; p = p.parentElement) {
+              const pcs = getComputedStyle(p);
+              if (pcs.overflowX === 'hidden' || pcs.overflowY === 'hidden')
+                pinned.push([p, p.scrollLeft, p.scrollTop]);
+            }
             el.scrollIntoView({
               block: 'center',
               inline: 'nearest',
               behavior: 'instant',
             });
+            for (const [p, x, y] of pinned) {
+              p.scrollLeft = x;
+              p.scrollTop = y;
+            }
             rr = el.getBoundingClientRect();
           }
           // ::before offsets are from the padding box (inside a look-alike's 1px border).

@@ -155,6 +155,7 @@
   {
     "name": "backoffice-application-documents",
     "url": "http://localhost:4202/applications/d263bf00-ac0a-422a-8502-047f6dd7965f?tab=documents",
+    "note": "A local application id: the seed creates no doctor applications. Replace it with one in your database (one with a verified credential) and confirm the run reports more than 0 checked; on not-found it checks 0 and still passes.",
     "wait": 2500
   },
   {

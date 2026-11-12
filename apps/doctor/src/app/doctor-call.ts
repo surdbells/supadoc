@@ -457,10 +457,12 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       .call-error { color: #ff8a80; }
       :host([data-theme='light']) .call-error { color: var(--color-alert-ink); }
       /* The light frame: the green and amber text (and the logo's "Med") take their ink shades (text-success 3.35,
-         text-sage 2.98 there); the dark cockpit keeps the brand colours (>= 5.5 on abyss). Nothing in the dock uses them. */
+         text-sage 2.98 there); the dark cockpit keeps the brand colours (>= 5.5 on abyss). The workspace call band
+         (#viewerBar) is ink in both tones, so its alerts keep the brand amber: 7.18 on ink (warning-ink 2.43). */
       :host([data-theme='light']) .text-success { color: var(--color-success-ink); }
       :host([data-theme='light']) .text-warning { color: var(--color-warning-ink); }
       :host([data-theme='light']) .text-sage { color: var(--color-sage-ink); }
+      :host([data-theme='light']) .text-warning.call-band-warn { color: var(--color-warning); }
       /* "Create referral" / "Issue certificate": the field's height, so each lines up with the field beside it. */
       .call-row-btn { min-height: 38px; }
     `,
@@ -1993,7 +1995,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </p>
         } @else if (status() === 'error') {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
-            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning call-band-warn">
               <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ errorMessage() }}
             </span>
             @if (joinStanding(); as code) {
@@ -2019,7 +2021,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
         }
         @if (callClosed()) {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
-            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning call-band-warn">
               <sd-icon name="circle-alert" [size]="14" class="shrink-0" />{{ callClosed() }}
             </span>
             @if (joinStanding(); as code) {
@@ -2041,7 +2043,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
           </div>
         } @else if (rejoining() || connectionLost()) {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
-            <span class="flex items-center gap-1.5 font-sans text-caption text-warning">
+            <span class="flex items-center gap-1.5 font-sans text-caption text-warning call-band-warn">
               <sd-icon
                 [name]="rejoining() ? 'loader-circle' : 'circle-alert'"
                 [size]="14"

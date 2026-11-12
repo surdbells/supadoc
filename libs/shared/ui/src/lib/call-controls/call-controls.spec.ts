@@ -454,6 +454,14 @@ describe('CallControlsComponent', () => {
     await resize(150, 300);
     expect(columns('controls')).toEqual([['mic', 'cam', 'share', 'captions', 'documents'], ['end']]);
     expect(columns('settings')).toEqual([['Video size', 'Video fit', 'self'], ['privacy']]);
+    // Segments sit 8px apart, so each one's 44px touch band (4px past each edge) meets its neighbour's
+    // without overlapping, and no band is capped. 270px: Video size + Video fit = 228, + Hide = 280: Hide
+    // starts the next column (with 2px segment gaps it was 262 and fitted).
+    for (const track of el.querySelectorAll('[role="radiogroup"]')) expect(classes(track)).toContain('gap-2');
+    expect(el.querySelectorAll('[class*="sd-hit-y-max"]')).toHaveLength(0);
+    await resize(150, 270);
+    expect(columns('settings')).toEqual([['Video size', 'Video fit'], ['self', 'privacy']]);
+    await resize(150, 300);
     // Labels are screen-reader only in a rail (the tooltip names the control).
     expect(control('mic').querySelector(':scope > span:last-child')?.className).toBe('sr-only');
     // 200px: four controls a column (200); a choice that doesn't fit starts the next column.
