@@ -51,7 +51,7 @@ interface Tile {
           </div>
           <p class="flex min-w-0 flex-wrap items-baseline gap-x-2">
             <!-- kpiValue keeps money short; wrap-anywhere is the last resort so nothing leaves the tile. -->
-            <span class="${STAT_VALUE} min-w-0 wrap-anywhere" [attr.title]="t.exact">
+            <span class="${STAT_VALUE}" [attr.title]="t.exact">
               <span aria-hidden="true">{{ t.value }}</span><span class="sr-only">{{ t.exact }}</span>
             </span>
             @if (t.inlineSub) {

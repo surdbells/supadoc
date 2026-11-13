@@ -118,7 +118,7 @@ const CHIP = 'sd-chip sd-tag';
         }
         @if (record(); as r) {
           <!-- Profile -->
-          <section class="grid gap-5 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5 lg:grid-cols-[1fr_auto]" aria-labelledby="ws-emr-patient-name">
+          <section class="grid grid-cols-1 gap-5 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto]" aria-labelledby="ws-emr-patient-name">
             <div class="flex min-w-0 flex-col gap-4">
               <div class="flex items-start gap-3">
                 <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h5 text-cerulean-dark ring-4 ring-white shadow-control" aria-hidden="true">{{ initials() }}</span>

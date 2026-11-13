@@ -1287,7 +1287,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
             <p class="call-error mb-3 font-sans text-caption">{{ noteError() }}</p>
           }
 
-          <div class="grid gap-4 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <label class="flex flex-col gap-1.5">
               <span class="font-sans text-caption font-semibold text-white/60">Subjective</span>
               <textarea
@@ -1858,7 +1858,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 @if (d.summary) {
                   <p class="mb-2 font-sans text-body-sm text-white/80">{{ d.summary }}</p>
                 }
-                <div class="grid gap-2 sm:grid-cols-2">
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   @if (d.assessment) {
                     <div>
                       <p class="font-sans text-caption font-semibold text-white/60">Assessment</p>
@@ -1962,7 +1962,7 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
       >
         <sd-icon name="arrow-left" [size]="18" /><span class="hidden sm:inline" data-band-label>Back to call</span>
       </button>
-      <span class="min-w-0 flex-1 truncate font-sans text-caption text-white/70">{{ patientName() }} · <span class="font-label tabular-nums">{{ elapsedLabel() }}</span></span>
+      <span class="flex min-w-0 flex-1 font-sans text-caption text-white/70"><span class="min-w-0 truncate">{{ patientName() }}</span><span class="shrink-0 whitespace-pre"> · <span class="font-label tabular-nums">{{ elapsedLabel() }}</span></span></span>
       <span role="status" class="shrink-0">
         @if (recordingActive()) {
           <span class="sd-chip bg-alert/20 text-white">

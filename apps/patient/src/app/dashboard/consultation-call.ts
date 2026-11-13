@@ -511,7 +511,7 @@ interface RecordItem {
 
           <!-- Device check -->
           <div class="w-full rounded-card border border-white/10 bg-white/[0.03] p-4">
-            <div class="grid gap-4 sm:grid-cols-[200px_minmax(0,1fr)] sm:items-center">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-[200px_minmax(0,1fr)] sm:items-center">
               <div class="relative aspect-video overflow-hidden rounded-2xl bg-ink">
                 <video #previewVideo class="h-full w-full object-cover" playsinline muted></video>
                 @if (!camReady()) {
@@ -611,8 +611,8 @@ interface RecordItem {
         <div class="flex min-w-0 flex-1 flex-col">
           <h1 class="truncate font-sans text-body-sm font-semibold text-white">{{ doctorName() }}</h1>
           @if (doctorSpecialty() || doctorNow()) {
-            <p class="truncate font-sans text-caption text-white/70">
-              {{ doctorSpecialty() }}@if (doctorNow(); as dn) {<span class="hidden md:inline">{{ doctorSpecialty() ? ' · ' : '' }}{{ dn }} now</span>}
+            <p class="flex min-w-0 font-sans text-caption text-white/70">
+              <span class="truncate">{{ doctorSpecialty() }}</span>@if (doctorNow(); as dn) {<span class="hidden shrink-0 whitespace-pre md:inline">{{ doctorSpecialty() ? ' · ' : '' }}{{ dn }} now</span>}
             </p>
           }
         </div>
@@ -1237,7 +1237,7 @@ interface RecordItem {
       >
         <!-- sd-share: the bright accents take their ink tones in the light cockpit (styles.css). -->
         <div sdWsPanel="notes" class="sd-share">
-          <div class="grid gap-5 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div class="flex flex-col gap-4">
               <div>
                 <h3 class="font-sans text-body-sm font-semibold text-white">

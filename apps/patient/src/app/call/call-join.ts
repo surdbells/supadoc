@@ -202,7 +202,7 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
 
         @case ('lobby') {
           @if (meeting(); as m) {
-            <div class="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start">
+            <div class="grid grid-cols-1 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start">
               <!-- Camera + microphone check -->
               <section
                 class="flex flex-col gap-3 rounded-card border border-white/10 bg-white/[0.03] p-3 sm:p-4"
@@ -285,7 +285,7 @@ const ROLE_LABEL: Record<CallParticipantRole, string> = {
                   </div>
 
                   <!-- Device pickers -->
-                  <div class="grid gap-3 sm:grid-cols-2">
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label class="flex min-w-0 flex-col gap-1">
                       <span class="font-sans text-caption font-semibold text-white/70">Camera</span>
                       <select

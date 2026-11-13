@@ -65,7 +65,7 @@ export function isConflict(err: unknown): boolean {
         @if (detail().status === 'interview_scheduled') {
           <sd-alert tone="warning">This cancels the scheduled interview. The applicant is told in the email.</sd-alert>
         }
-        <div class="grid gap-5 sm:grid-cols-2">
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <fieldset class="flex min-w-0 flex-col" [attr.aria-describedby]="err('items') ? 'bo-ri-items-err' : null">
             <legend class="${LABEL} mb-1">Sections</legend>
             @for (s of sections; track s.key; let first = $first) {

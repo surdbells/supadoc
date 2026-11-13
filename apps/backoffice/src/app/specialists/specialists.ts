@@ -438,7 +438,7 @@ const EMPTY_DRAFT: Draft = {
         </div>
       } @else {
         <form id="bo-create-specialist" class="flex flex-col gap-4" novalidate (submit)="$event.preventDefault(); submitCreate()">
-          <div class="grid items-start gap-4 sm:grid-cols-2">
+          <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
             <label class="flex flex-col gap-1.5">
               <span class="${LABEL}">Full name (required)</span>
               <input type="text" class="${FIELD}" [class]="createErrors()['name'] ? '${FIELD_INVALID}' : ''" autocomplete="off" [value]="draft().name" (input)="setDraft('name', $any($event.target).value)" placeholder="Dr Jane Doe" [attr.aria-invalid]="createErrors()['name'] ? 'true' : null" [attr.aria-describedby]="createErrors()['name'] ? 'bo-new-name-err' : null" />

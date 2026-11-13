@@ -47,7 +47,7 @@ type Modal = 'none' | 'setup' | 'codes' | 'disable';
               <sd-icon name="lock" [size]="22" />
             </span>
             <div class="flex min-w-0 flex-1 flex-col">
-              <p class="font-sans text-body font-semibold text-ink">Two-Factor Authentication</p>
+              <p class="hyphens-auto font-sans text-body font-semibold text-ink">Two-Factor Authentication</p>
               <p class="font-sans text-caption text-slate">
                 @if (twoFaEnabled()) { On — you'll enter a code from your authenticator when signing in. }
                 @else { Add an extra layer of security to sign-ins. }

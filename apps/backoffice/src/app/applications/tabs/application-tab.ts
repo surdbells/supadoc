@@ -83,7 +83,7 @@ export function applicantInterviewTime(
       @if (d.interview; as iv) {
         <section class="${SECTION} !gap-4" aria-labelledby="bo-app-interview-title">
           <h2 id="bo-app-interview-title" class="${SECTION_TITLE}"><sd-icon name="video" [size]="20" class="text-cerulean" />Interview</h2>
-          <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
             <div class="flex flex-col gap-0.5">
               <dt class="${LABEL}">When (Lagos time)</dt>
               <dd class="${DD}">{{ iv.starts_at_label }}</dd>
@@ -114,7 +114,7 @@ export function applicantInterviewTime(
       <div class="${SECTION_GRID}">
         <section class="${SECTION}" aria-labelledby="bo-app-personal-title">
           <h2 id="bo-app-personal-title" class="${SECTION_TITLE}"><sd-icon name="user-round" [size]="20" class="text-cerulean" />Personal</h2>
-          <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">First name</dt><dd class="${DD}">{{ personal()?.first_name || '—' }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Last name</dt><dd class="${DD}">{{ personal()?.last_name || '—' }}</dd></div>
             <div class="flex flex-col gap-0.5">
@@ -140,7 +140,7 @@ export function applicantInterviewTime(
 
         <section class="${SECTION}" aria-labelledby="bo-app-professional-title">
           <h2 id="bo-app-professional-title" class="${SECTION_TITLE}"><sd-icon name="stethoscope" [size]="20" class="text-cerulean" />Professional</h2>
-          <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Primary speciality</dt><dd class="${DD}">{{ professional()?.specialty || '—' }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Years of experience</dt><dd class="${DD}">{{ professional()?.years_experience ?? '—' }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Current workplace</dt><dd class="${DD}">{{ professional()?.workplace || '—' }}</dd></div>
@@ -151,7 +151,7 @@ export function applicantInterviewTime(
 
         <section class="${SECTION}" aria-labelledby="bo-app-licence-title">
           <h2 id="bo-app-licence-title" class="${SECTION_TITLE}"><sd-icon [name]="abroad() ? 'globe' : 'id-card'" [size]="20" class="text-cerulean" />Licence · {{ abroad() ? 'Abroad' : 'Nigeria' }}</h2>
-          <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
             @if (abroad()) {
               <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Country of the regulator</dt><dd class="${DD}">{{ country(licence()?.regulator_country) }}</dd></div>
               <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Regulator</dt><dd class="${DD}">{{ licence()?.regulator_name || '—' }}</dd></div>
@@ -184,7 +184,7 @@ export function applicantInterviewTime(
 
         <section class="${SECTION}" aria-labelledby="bo-app-indemnity-title">
           <h2 id="bo-app-indemnity-title" class="${SECTION_TITLE}"><sd-icon name="shield-check" [size]="20" class="text-cerulean" />Indemnity</h2>
-          <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Indemnity provider</dt><dd class="${DD}">{{ indemnity()?.provider || '—' }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Policy number</dt><dd class="break-all text-ink">{{ indemnity()?.policy_number || '—' }}</dd></div>
             <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Cover expiry date</dt><dd class="${DD}">{{ day(indemnity()?.cover_expires_on) }}</dd></div>
@@ -202,7 +202,7 @@ export function applicantInterviewTime(
                 </li>
               }
             </ul>
-            <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+            <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
               <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Signature</dt><dd class="${DD}">{{ c.signature_name || '—' }}</dd></div>
               <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Signed</dt><dd class="${DD}">{{ when(c.consented_at) }}</dd></div>
               <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Consent version</dt><dd class="${DD}">{{ c.consent_version || '—' }}</dd></div>

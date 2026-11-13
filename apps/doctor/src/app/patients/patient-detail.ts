@@ -87,7 +87,7 @@ const CHIP = 'sd-chip sd-tag';
         </div>
       } @else if (record(); as r) {
         <!-- Profile header + quick actions -->
-        <section class="grid gap-6 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6 lg:grid-cols-[1fr_auto]" aria-labelledby="pd-patient-name">
+        <section class="grid grid-cols-1 gap-6 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto]" aria-labelledby="pd-patient-name">
           <div class="flex min-w-0 flex-col gap-5">
             <div class="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
               <span class="flex size-20 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean-dark ring-4 ring-white shadow-control sm:size-24 sm:text-h3" aria-hidden="true">{{ initials() }}</span>
@@ -192,7 +192,7 @@ const CHIP = 'sd-chip sd-tag';
           <div class="sd-shimmer h-72 rounded-card sm:h-56"></div>
           <div class="sd-shimmer h-11 w-full max-w-md rounded-pill"></div>
           <div class="sd-shimmer h-28 rounded-card"></div>
-          <div class="grid gap-6 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div class="sd-shimmer h-56 rounded-card"></div>
             <div class="sd-shimmer h-56 rounded-card"></div>
           </div>

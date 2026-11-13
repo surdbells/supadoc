@@ -947,7 +947,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                         </span>
                         <span class="flex min-w-0 flex-col gap-1">
                           <span class="flex flex-wrap items-center gap-2">
-                            <span class="font-sans text-body-sm font-semibold text-ink">Prescription {{ rx.number }}</span>
+                            <span class="min-w-0 wrap-anywhere font-sans text-body-sm font-semibold text-ink">Prescription {{ rx.number }}</span>
                             <span
                               class="sd-chip"
                               [class]="rxStatus(rx.status).cls"

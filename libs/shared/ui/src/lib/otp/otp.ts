@@ -25,6 +25,9 @@ export type OtpVariant = 'default' | 'compact';
 @Component({
   selector: 'sd-otp',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Never wider than its container (a centred column would size it to six full boxes):
+  // the boxes then shrink to share the row.
+  host: { class: 'block max-w-full' },
   providers: [
     {
       provide: NG_VALUE_ACCESSOR,
@@ -95,13 +98,13 @@ export class OtpComponent implements ControlValueAccessor {
       // 48×48, 6px corners (Figma), Slate border, Cerulean focus.
       const border = this.invalid() ? 'border-alert focus:border-alert focus:ring-alert/20' : 'border-slate focus:border-cerulean focus:ring-cerulean/20';
       return (
-        'size-12 rounded-md border bg-white text-center font-sans text-body font-semibold text-ink ' +
+        'aspect-square w-12 min-w-0 rounded-md border bg-white text-center font-sans text-body font-semibold text-ink ' +
         `transition-colors focus:outline-none focus:ring-2 disabled:cursor-not-allowed ${border}`
       );
     }
     const border = this.invalid() ? 'border-alert' : filled ? 'border-teal' : 'border-[#b8c6d4]';
     return (
-      'size-14 rounded-field border bg-white text-center font-heading text-h4 text-ink transition-colors ' +
+      'aspect-square w-14 min-w-0 rounded-field border bg-white text-center font-heading text-h4 text-ink transition-colors ' +
       `focus:outline-none focus:ring-2 focus:ring-teal/20 ${border}`
     );
   }

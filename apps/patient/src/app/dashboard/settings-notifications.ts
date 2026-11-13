@@ -116,7 +116,7 @@ interface PrefRow {
               <div
                 class="flex items-center justify-between gap-4 rounded-2xl border border-haze bg-white px-5 py-4 shadow-card"
               >
-                <div class="flex flex-col">
+                <div class="flex min-w-0 flex-col">
                   <span class="font-sans text-body text-ink">{{
                     row.title
                   }}</span>
@@ -144,7 +144,7 @@ interface PrefRow {
               <div
                 class="flex items-center justify-between gap-4 rounded-2xl border border-haze bg-white px-5 py-4 shadow-card"
               >
-                <div class="flex flex-col">
+                <div class="flex min-w-0 flex-col">
                   <span class="font-sans text-body text-ink">{{
                     row.title
                   }}</span>

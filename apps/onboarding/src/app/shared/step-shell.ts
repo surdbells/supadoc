@@ -36,7 +36,7 @@ export type StepHeaderAction = 'back' | 'check-status' | 'none';
     <div [class]="cardClass()" [attr.role]="bare() ? null : 'main'">
       @if (!bare()) {
       <header
-        class="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 min-[900px]:flex min-[900px]:h-12 min-[900px]:justify-between"
+        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 min-[900px]:flex min-[900px]:h-12 min-[900px]:justify-between"
       >
         <a
           routerLink="/"

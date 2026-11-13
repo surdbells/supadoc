@@ -110,7 +110,7 @@ function humanKey(key: string): string {
         <button type="button" class="${BTN_SECONDARY}" (click)="load()"><sd-icon name="refresh-cw" [size]="16" />Try again</button>
       </div>
     } @else if (data(); as d) {
-      <div class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <section class="${SECTION} !gap-4" aria-labelledby="bo-hist-status-title">
           <h2 id="bo-hist-status-title" class="${SECTION_TITLE}"><sd-icon name="activity" [size]="20" class="text-cerulean" />Status changes</h2>
           <ol class="flex flex-col gap-4">

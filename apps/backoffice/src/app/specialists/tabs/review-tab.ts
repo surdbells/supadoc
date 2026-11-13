@@ -114,7 +114,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
         }
       </section>
 
-      <div class="grid gap-6 lg:grid-cols-2">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- Checklist -->
         <section class="${SECTION} !gap-4" aria-labelledby="bo-rv-check-title">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -263,7 +263,7 @@ function certificationLines(list: readonly CertificationEntry[] | null | undefin
       <!-- What the doctor submitted -->
       <section class="${SECTION}" aria-labelledby="bo-rv-profile-title">
         <h2 id="bo-rv-profile-title" class="${SECTION_TITLE}"><sd-icon name="user-round" [size]="20" class="text-cerulean" />Profile</h2>
-        <dl class="grid gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-3 font-sans text-body-sm sm:grid-cols-2">
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Name</dt><dd class="break-words text-ink">{{ detail().profile.name }}</dd></div>
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Specialty</dt><dd class="break-words text-ink">{{ detail().profile.specialty }}</dd></div>
           <div class="flex flex-col gap-0.5"><dt class="${LABEL}">{{ wording().numberLabel }}</dt><dd class="break-all text-ink">{{ registration() || '—' }}</dd></div>

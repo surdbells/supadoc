@@ -66,12 +66,12 @@ export function fileProblem(file: File): string | null {
     <div class="mt-3">
       @if (document(); as doc) {
         <div
-          class="flex min-h-[72px] items-center gap-4 rounded-field border border-sage bg-sage/10 px-4 py-3 sm:px-6"
+          class="flex min-h-[72px] flex-wrap items-center gap-4 rounded-field border border-sage bg-sage/10 px-4 py-3 sm:px-6"
         >
           <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-white text-slate" aria-hidden="true">
             <sd-icon name="file" [size]="24" [strokeWidth]="1.5" />
           </span>
-          <span class="flex min-w-0 flex-1 flex-col">
+          <span class="flex min-w-0 flex-[1_1_8rem] flex-col">
             <button
               #name
               type="button"

@@ -56,7 +56,7 @@ const COUNT = new Intl.NumberFormat();
               <sd-icon [name]="t.icon" [size]="16" />
             </span>
           </div>
-          <p class="${STAT_VALUE} min-w-0 wrap-anywhere">{{ format(t.value) }}</p>
+          <p class="${STAT_VALUE}">{{ format(t.value) }}</p>
           @if (t.sub) {
             <p class="${STAT_SUB}">{{ t.sub }}</p>
           }

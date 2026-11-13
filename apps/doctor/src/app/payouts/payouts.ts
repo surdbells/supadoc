@@ -59,9 +59,9 @@ function accountLabel(a: Pick<PayoutAccountDto, 'bank_name' | 'account_number' |
         <!-- Balance + request -->
         <section class="flex flex-col gap-4 rounded-card border border-cerulean/30 bg-frost/20 p-6 shadow-card">
           <div class="flex flex-wrap items-center justify-between gap-4">
-            <div class="flex flex-col gap-1">
+            <div class="flex min-w-0 flex-col gap-1">
               <span class="font-sans text-caption text-slate">Available to withdraw</span>
-              <span class="font-heading text-h2 text-cerulean">{{ money(available()) }}</span>
+              <span class="wrap-anywhere font-heading text-h2 text-cerulean">{{ money(available()) }}</span>
             </div>
             @if (!requestOpen()) {
               <button type="button" class="rounded-field bg-cerulean px-5 py-2.5 font-sans text-body-sm font-semibold text-white shadow-btn inset-shadow-rim transition hover:bg-ocean hover:shadow-btn-hover disabled:opacity-60 disabled:shadow-none" [disabled]="!canRequest()" (click)="openRequest()">Request payout</button>

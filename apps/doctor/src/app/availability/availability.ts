@@ -244,7 +244,7 @@ function zoneChanged(err: unknown): string | null {
       }
 
       @if (mode() === 'calendar') {
-        <div class="grid gap-6 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <!-- Month calendar -->
           <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
             <div class="flex items-center justify-between">
@@ -280,7 +280,7 @@ function zoneChanged(err: unknown): string | null {
         </div>
       } @else {
         <!-- List view: week days (left) + selected day detail (right) -->
-        <div class="grid gap-6 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <section class="flex flex-col gap-4 rounded-card border border-haze bg-white p-6 shadow-card">
             <h2 class="font-heading text-h5 text-ink">{{ weekLabel() }}</h2>
             @if (loading()) {
@@ -363,14 +363,14 @@ function zoneChanged(err: unknown): string | null {
           } @else {
             <ul class="flex flex-col divide-y divide-cloud">
               @for (s of selectedSlots(); track s.id) {
-                <li class="flex items-center justify-between gap-3 py-3">
-                  <div class="flex flex-col">
+                <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div class="flex min-w-0 flex-col wrap-anywhere">
                     <span class="font-sans text-body-sm font-medium text-ink">{{ slotRange(s) }}</span>
                     @if (s.status === 'booked' && s.patient_name) {
                       <span class="flex items-center gap-1 font-sans text-caption text-sage"><sd-icon name="user" [size]="13" />{{ s.patient_name }}</span>
                     }
                   </div>
-                  <div class="flex items-center gap-2">
+                  <div class="flex flex-wrap items-center gap-2">
                     @if (s.series_id) {
                       <span class="sd-chip bg-glacier text-slate"><sd-icon name="repeat" [size]="14" />Repeats</span>
                     }

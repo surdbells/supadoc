@@ -77,7 +77,7 @@ interface Row {
         <ul class="flex flex-wrap gap-2 px-5 pb-5 pt-2">
           @for (r of clear(); track r.item.key) {
             <li class="sd-chip bg-glacier text-slate">
-              <sd-icon name="check" [size]="13" class="text-sage" />{{ r.item.label }}
+              <sd-icon name="check" [size]="13" class="text-sage" /><span class="truncate">{{ r.item.label }}</span>
             </li>
           }
         </ul>

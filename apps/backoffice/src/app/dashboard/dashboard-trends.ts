@@ -16,7 +16,7 @@ import { formatCount, formatMoney } from './dashboard-ui';
   imports: [IconComponent, DashboardTrendChart],
   host: { class: 'block' },
   template: `
-    <div [class]="activity() && revenue() ? 'grid gap-6 xl:grid-cols-2' : 'grid gap-6'">
+    <div [class]="activity() && revenue() ? 'grid grid-cols-1 gap-6 xl:grid-cols-2' : 'grid gap-6'">
       @if (activity(); as series) {
         <section class="${LIST_CARD}" aria-labelledby="dash-trend-activity">
           <div class="${LIST_CARD_HEAD}">

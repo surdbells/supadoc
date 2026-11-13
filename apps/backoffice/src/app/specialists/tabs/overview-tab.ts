@@ -174,7 +174,7 @@ function toForm(d: SpecialistDetailDto): Form {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent, AlertComponent, SearchSelectComponent, SearchSelectA11y, PhotoPicker],
   template: `
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div class="flex min-w-0 flex-col gap-6">
       <!-- Photo: saved on its own, straight away (not part of "Save changes"). -->
       <section #photoSection class="${SECTION}" aria-labelledby="bo-ov-photo-title">
@@ -249,7 +249,7 @@ function toForm(d: SpecialistDetailDto): Form {
           </div>
         }
 
-        <div class="grid items-start gap-4 sm:grid-cols-2">
+        <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
           <label class="flex min-w-0 flex-col gap-1.5">
             <span class="${LABEL}">Contact email</span>
             <input type="email" class="${FIELD}" [class]="err('email') ? '${FIELD_INVALID}' : ''" [value]="form().email" (input)="set('email', $any($event.target).value)" placeholder="doctor@example.com" [attr.aria-invalid]="err('email') ? 'true' : null" [attr.aria-describedby]="err('email') ? 'bo-ov-email-err' : 'bo-ov-email-hint'" />
@@ -278,7 +278,7 @@ function toForm(d: SpecialistDetailDto): Form {
           </label>
         </fieldset>
 
-        <div class="grid items-start gap-4 sm:grid-cols-2">
+        <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
           <label class="flex min-w-0 flex-col gap-1.5">
             <span class="${LABEL}">Location</span>
             <input type="text" class="${FIELD}" [class]="err('location') ? '${FIELD_INVALID}' : ''" [value]="form().location" (input)="set('location', $any($event.target).value)" placeholder="Lagos" [attr.aria-invalid]="err('location') ? 'true' : null" />

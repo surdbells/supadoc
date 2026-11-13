@@ -203,10 +203,10 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
               (input)="onSearch($any($event.target).value)"
             />
           </div>
-          <div class="relative">
+          <div class="relative min-w-0 max-w-full">
             <select
               aria-label="Filter by type"
-              class="appearance-none rounded-field border border-haze bg-white py-2.5 pl-9 pr-9 font-sans text-body-sm text-ink shadow-control outline-none transition focus:border-cerulean active:shadow-none disabled:shadow-none"
+              class="max-w-full appearance-none rounded-field border border-haze bg-white py-2.5 pl-9 pr-9 font-sans text-body-sm text-ink shadow-control outline-none transition focus:border-cerulean active:shadow-none disabled:shadow-none"
               [value]="typeFilter()"
               (change)="onFilter($any($event.target).value)"
             >

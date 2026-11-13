@@ -453,6 +453,13 @@
     overflow-x: clip;
   }
 
+  /* A word wider than its line (a URL, a reference, a long name) breaks instead of
+   * spilling out of its card. It does not change any box's min-content width;
+   * flex/grid items still need min-w-0 (or wrap-anywhere) to shrink. */
+  body {
+    overflow-wrap: break-word;
+  }
+
   /* A fieldset is at least as wide as its widest unbreakable line by default
    * (min-inline-size: min-content), so one long truncated title inside it
    * widens it past its dialog and the right side is cut off. Let it shrink

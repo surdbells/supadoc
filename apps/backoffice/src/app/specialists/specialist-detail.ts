@@ -124,7 +124,7 @@ const TABS: readonly { key: DoctorTab; label: string }[] = [
         </div>
       } @else if (detail(); as d) {
         <section class="${CARD_RAISED} flex flex-col p-5 sm:p-6" aria-labelledby="bo-doctor-name">
-          <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
             <div class="flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
               <bo-specialist-avatar [src]="photoSrc()" [name]="d.profile.name" size="xl" />
               <div class="flex min-w-0 flex-1 flex-col gap-2.5">

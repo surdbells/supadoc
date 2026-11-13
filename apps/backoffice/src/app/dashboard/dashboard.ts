@@ -163,7 +163,7 @@ type LoadResult =
               <div class="sd-shimmer h-80 rounded-card"></div>
               <div class="sd-shimmer h-80 rounded-card"></div>
             </div>
-            <div class="grid gap-6 xl:grid-cols-2" aria-hidden="true">
+            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2" aria-hidden="true">
               <div class="sd-shimmer h-72 rounded-card"></div>
               <div class="sd-shimmer h-72 rounded-card"></div>
             </div>

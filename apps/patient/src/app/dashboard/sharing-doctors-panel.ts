@@ -167,8 +167,8 @@ interface ShareRequest {
       <li [id]="'doctor-' + d.specialist.id" tabindex="-1" class="flex flex-col gap-4 rounded-card border border-haze bg-white p-4 shadow-card outline-none sm:p-5">
         <div class="flex flex-wrap items-start gap-3">
           <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-frost font-sans text-body-sm font-semibold text-cerulean-dark" aria-hidden="true">{{ initialsOf(d.specialist.name) }}</span>
-          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span class="font-sans text-body font-semibold text-ink">{{ dr(d.specialist.name) }}</span>
+          <span class="flex min-w-0 flex-[1_1_10rem] flex-col gap-0.5">
+            <span class="wrap-anywhere font-sans text-body font-semibold text-ink">{{ dr(d.specialist.name) }}</span>
             @if (d.specialist.specialty) { <span class="font-sans text-caption text-slate">{{ d.specialist.specialty }}</span> }
           </span>
           <span class="sd-chip" [class]="status(d).cls">

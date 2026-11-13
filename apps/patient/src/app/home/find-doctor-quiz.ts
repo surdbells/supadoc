@@ -282,7 +282,7 @@ const PER_SPECIALTY = 6;
 
               <!-- Step 3: duration (single) -->
               @if (step() === 3) {
-                <div class="mx-auto grid max-w-xl gap-3 sm:grid-cols-2">
+                <div class="mx-auto grid grid-cols-1 max-w-xl gap-3 sm:grid-cols-2">
                   @for (d of durations; track d) {
                     <button
                       type="button"

@@ -65,7 +65,7 @@ const ORDER: Record<CredentialType, number> = {
   imports: [IconComponent, AlertComponent, CredentialDialog],
   template: `
     <div class="flex flex-col gap-6">
-      <section class="grid gap-3 sm:grid-cols-2" aria-label="Licensing summary">
+      <section class="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="Licensing summary">
         <div class="${STAT_TILE}">
           <span class="font-sans text-caption font-semibold text-slate">{{ wording().registrationDoc }}</span>
           <span class="${PILL} w-fit" [class]="mdcnBadge().cls"><sd-icon [name]="mdcnBadge().icon" [size]="13" />{{ mdcnBadge().label }}</span>

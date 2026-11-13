@@ -287,14 +287,14 @@ function timeLeft(ms: number): TimeLeft | null {
         </div>
       } @else if (appt(); as a) {
         <!-- Summary + Quick actions -->
-        <section class="grid gap-6 rounded-card border border-haze bg-white p-6 shadow-card lg:grid-cols-[1fr_auto]">
-          <div class="flex flex-col gap-4">
+        <section class="grid grid-cols-1 gap-6 rounded-card border border-haze bg-white p-6 shadow-card lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div class="flex min-w-0 flex-col gap-4">
             <div class="flex items-start gap-4">
               <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-lg font-semibold text-cerulean-dark">{{ initialsFor(a.patient_name) }}</span>
-              <div class="flex flex-col gap-1">
+              <div class="flex min-w-0 flex-col gap-1">
                 @let label = statusLabel(a);
                 <div class="flex flex-wrap items-center gap-2.5">
-                  <span class="font-heading text-h4 text-cerulean">{{ a.patient_name }}</span>
+                  <span class="min-w-0 wrap-anywhere font-heading text-h4 text-cerulean">{{ a.patient_name }}</span>
                   <doc-visit-status-badge [status]="statusKey(a)" [label]="label" />
                   <sd-call-presence [presence]="presence()[a.id]" viewer="doctor" size="md" />
                 </div>

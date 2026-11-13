@@ -141,7 +141,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
         </div>
       } @else if (data(); as d) {
         <!-- The two required documents, at a glance -->
-        <section class="grid gap-3 sm:grid-cols-2" aria-label="Required documents">
+        <section class="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="Required documents">
           @for (r of required(); track r.type) {
             @let doc = latest(r.type);
             <div class="flex flex-col gap-3 rounded-card border border-haze bg-white p-4 shadow-card sm:p-5">
@@ -201,7 +201,7 @@ function rejectionText(r: FileDropRejection, maxBytes: number): string {
             </div>
 
             @if (type()) {
-              <div class="grid gap-4 sm:grid-cols-3">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div class="flex flex-col gap-1.5">
                   <label class="${LABEL}" for="cred-number">
                     {{ isLicence() ? 'Licence number' : isIndemnity() ? 'Policy number' : 'Certificate number' }}

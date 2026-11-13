@@ -67,7 +67,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
 
       <!-- Balance card -->
       <section
-        class="relative flex items-center justify-between gap-4 rounded-card border-[0.5px] border-[#d1e9fd] bg-[#d1e9fd] p-6 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
+        class="relative flex flex-wrap items-center justify-between gap-4 rounded-card border-[0.5px] border-[#d1e9fd] bg-[#d1e9fd] p-6 shadow-[0_4px_4px_rgba(21,101,192,0.1)]"
       >
         <!-- Decorative stacked-wallet motif (Figma 1633:31710): two overlapping
              wallets in the card's right-of-centre gap, behind the Add funds
@@ -92,7 +92,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
         </span>
 
         <!-- Balance + currency -->
-        <div class="relative flex flex-col gap-6">
+        <div class="relative flex min-w-0 flex-col gap-6">
           <div class="flex flex-col gap-1">
             <span class="flex items-center gap-1.5 font-sans text-body text-ink/80">
               Current Balance <sd-icon name="info" [size]="16" class="text-slate/70" />
@@ -100,7 +100,7 @@ const PRESETS = ['5000', '10000', '25000', '50000', '100000'];
             @if (loading()) {
               <div class="sd-shimmer h-10 w-48 rounded-lg"></div>
             } @else {
-              <p class="font-heading text-h2 tracking-tight text-ink">{{ loadError() ? '—' : balanceLabel() }}</p>
+              <p class="wrap-anywhere font-heading text-h2 tracking-tight text-ink">{{ loadError() ? '—' : balanceLabel() }}</p>
             }
           </div>
           <div class="relative">

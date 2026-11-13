@@ -161,7 +161,7 @@ export function feeValue(raw: string): string | null {
           <!-- 2. Profile -->
           <section class="flex flex-col gap-4 border-t border-cloud pt-5" aria-labelledby="bo-ap-profile-title">
             <h3 id="bo-ap-profile-title" class="${SUBSECTION_TITLE}"><sd-icon name="user-round" [size]="18" class="text-cerulean" />Profile</h3>
-            <div class="grid items-start gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div class="flex min-w-0 flex-col gap-1.5">
                 <span id="bo-ap-spec-label" class="${LABEL}">Specialty <span aria-hidden="true">*</span></span>
                 @switch (choices.state()) {
@@ -240,7 +240,7 @@ export function feeValue(raw: string): string | null {
                       </button>
                     </div>
                     @if (p.needs_number || p.needs_issue_date || p.needs_expiry) {
-                      <div class="grid items-start gap-4 sm:grid-cols-3">
+                      <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-3">
                         @if (p.needs_number) {
                           <label class="flex min-w-0 flex-col gap-1.5">
                             <span class="${LABEL}">Number <span aria-hidden="true">*</span></span>

@@ -49,7 +49,7 @@ import { BookingSettingsSection } from './booking-settings';
           {{ initials() || 'AD' }}
         </span>
         <div class="flex min-w-0 flex-col gap-1">
-          <p class="font-heading text-h4 text-ink">{{ name() || 'Staff' }}</p>
+          <p class="wrap-anywhere font-heading text-h4 text-ink">{{ name() || 'Staff' }}</p>
           <p class="truncate font-sans text-body-sm text-slate">{{ email() }}</p>
           <p class="font-sans text-caption text-slate capitalize">{{ roles() || '—' }}</p>
         </div>

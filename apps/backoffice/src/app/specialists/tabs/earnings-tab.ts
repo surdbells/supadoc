@@ -49,7 +49,7 @@ const PAYOUT_STATUS: Record<PayoutStatus, { label: string; icon: string; cls: st
     @if (loading()) {
       <div class="flex flex-col gap-4" aria-busy="true">
         <span class="sr-only" role="status">Loading earnings…</span>
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div class="sd-shimmer h-28 rounded-card"></div><div class="sd-shimmer h-28 rounded-card"></div><div class="sd-shimmer h-28 rounded-card"></div><div class="sd-shimmer h-28 rounded-card"></div></div>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"><div class="sd-shimmer h-28 rounded-card"></div><div class="sd-shimmer h-28 rounded-card"></div><div class="sd-shimmer h-28 rounded-card"></div><div class="sd-shimmer h-28 rounded-card"></div></div>
         <div class="sd-shimmer h-48 rounded-card"></div>
       </div>
     } @else if (error()) {
@@ -64,7 +64,7 @@ const PAYOUT_STATUS: Record<PayoutStatus, { label: string; icon: string; cls: st
           <sd-alert tone="warning">While suspended the doctor can see their earnings but can't request new payouts. Requests already made can still be settled.</sd-alert>
         }
 
-        <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Earnings summary">
+        <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Earnings summary">
           @for (t of tiles(); track t.label) {
             <div class="${STAT_TILE}">
               <div class="flex items-start justify-between gap-2">

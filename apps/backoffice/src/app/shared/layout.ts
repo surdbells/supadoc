@@ -60,7 +60,7 @@ export const SECTION_HEAD = 'flex flex-wrap items-start justify-between gap-3';
 export const SUBSECTION_TITLE = 'flex items-center gap-2 font-heading text-body font-semibold text-ink';
 /** A count next to a heading. */
 export const COUNT_PILL = 'sd-chip bg-cloud text-slate';
-export const SECTION_GRID = 'grid gap-6 lg:grid-cols-2';
+export const SECTION_GRID = 'grid grid-cols-1 gap-6 lg:grid-cols-2';
 /** A card with a header bar, divided rows and a footer link (doctor "Today's Schedule"). */
 export const LIST_CARD = 'flex min-w-0 flex-col rounded-card border border-haze bg-white shadow-card';
 export const LIST_CARD_HEAD = 'flex flex-wrap items-center justify-between gap-2 border-b border-cloud px-5 py-4';
@@ -72,7 +72,7 @@ export const LIST_CARD_FOOT =
 export const LIST_CARD_EMPTY = 'flex flex-1 flex-col items-center justify-center gap-2 px-5 py-12 text-center';
 /** The record header card on detail pages. */
 export const DETAIL_HEADER =
-  'grid gap-6 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto]';
+  'grid grid-cols-1 gap-6 rounded-card border border-haze bg-white p-5 shadow-card sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto]';
 export const DETAIL_AVATAR =
   'flex size-20 shrink-0 items-center justify-center rounded-full bg-cerulean/15 font-heading text-h4 text-cerulean-dark ring-4 ring-white shadow-control sm:size-24 sm:text-h3';
 export const DETAIL_NAME = 'break-words font-heading text-h4 text-ink';
@@ -114,10 +114,10 @@ export const STAT_GRID = 'grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5';
 export const STAT_GRID_4 = 'grid grid-cols-2 gap-3 lg:grid-cols-4';
 export const STAT_TILE =
   'flex min-w-0 flex-col gap-2 rounded-card border border-haze bg-white p-4 shadow-card';
-export const STAT_LABEL = 'font-sans text-caption text-slate';
+export const STAT_LABEL = 'min-w-0 wrap-anywhere font-sans text-caption text-slate';
 /** The tile's tinted icon chip (+ a TINT and a 16px icon). */
 export const ICON_CHIP = 'flex size-8 shrink-0 items-center justify-center rounded-lg inset-ring inset-ring-current/10';
-export const STAT_VALUE = 'font-heading text-h4 text-ink';
+export const STAT_VALUE = 'min-w-0 wrap-anywhere font-heading text-h4 text-ink';
 export const STAT_SUB = 'font-sans text-caption font-medium text-slate';
 export const TINT = {
   brand: 'bg-frost text-cerulean-dark',
@@ -270,7 +270,7 @@ export const LABEL_LG = 'font-sans text-body font-semibold text-ink';
 export const FIELD_STACK = 'flex min-w-0 flex-col gap-1.5';
 export const HINT = 'font-sans text-caption text-slate';
 export const FIELD_ERROR = 'flex items-start gap-1.5 font-sans text-caption text-alert';
-export const FORM_GRID = 'grid gap-4 sm:grid-cols-2';
+export const FORM_GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2';
 export const FORM_ACTIONS = 'flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end';
 /** A checkbox / radio row (control `size-5 accent-cerulean`). */
 export const CHECK_ROW = 'flex min-h-11 cursor-pointer items-center gap-2';

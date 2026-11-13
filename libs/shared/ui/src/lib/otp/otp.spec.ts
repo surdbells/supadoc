@@ -41,16 +41,20 @@ describe('OtpComponent', () => {
     ]);
   });
 
-  it('keeps the default boxes (56px, field radius)', () => {
-    expect(boxes()[0].className).toContain('size-14');
+  it('keeps the default boxes (square, at most 56px, shrinking on narrow rows; field radius)', () => {
+    expect(boxes()[0].className.split(' ')).toEqual(
+      expect.arrayContaining(['aspect-square', 'w-14', 'min-w-0']),
+    );
     expect(boxes()[0].className).toContain('rounded-field');
   });
 
-  it('compact boxes are 48px with 6px corners and a Slate border', () => {
+  it('compact boxes are square, at most 48px, with 6px corners and a Slate border', () => {
     host.variant.set('compact');
     fixture.detectChanges();
     const cls = boxes()[0].className;
-    expect(cls).toContain('size-12');
+    expect(cls.split(' ')).toEqual(
+      expect.arrayContaining(['aspect-square', 'w-12', 'min-w-0']),
+    );
     expect(cls).toContain('rounded-md');
     expect(cls).toContain('border-slate');
     expect(cls).not.toContain('rounded-field');

@@ -121,7 +121,7 @@ const NOTE_ICON: Record<string, string> = {
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           @for (i of [1,2,3,4,5]; track i) { <div class="sd-shimmer h-28 rounded-card"></div> }
         </div>
-        <div class="grid gap-6 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div class="sd-shimmer h-80 rounded-card"></div>
           <div class="sd-shimmer h-80 rounded-card"></div>
         </div>
@@ -144,13 +144,13 @@ const NOTE_ICON: Record<string, string> = {
           @for (s of stats(); track s.label) {
             <div class="flex flex-col gap-2 rounded-card border border-haze bg-white p-4 shadow-card">
               <div class="flex items-start justify-between gap-2">
-                <span class="font-sans text-caption text-slate">{{ s.label }}</span>
+                <span class="min-w-0 wrap-anywhere font-sans text-caption text-slate">{{ s.label }}</span>
                 <span class="flex size-8 shrink-0 items-center justify-center rounded-lg inset-ring inset-ring-current/10" [class]="s.tint">
                   <sd-icon [name]="s.icon" [size]="16" />
                 </span>
               </div>
-              <p class="flex items-baseline gap-2">
-                <span class="font-heading text-h4 text-ink">{{ s.value }}</span>
+              <p class="flex flex-wrap items-baseline gap-x-2">
+                <span class="min-w-0 wrap-anywhere font-heading text-h4 text-ink">{{ s.value }}</span>
                 @if (s.inlineSub) {
                   <span class="font-sans text-caption font-medium text-slate">{{ s.inlineSub }}</span>
                 }
@@ -169,7 +169,7 @@ const NOTE_ICON: Record<string, string> = {
 
         <!-- Today's Schedule + Notifications -->
         @if (scheduleOpen() || notificationsOpen()) {
-        <div class="grid gap-6 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           @if (scheduleOpen()) {
           <section class="flex flex-col rounded-card border border-haze bg-white shadow-card">
             <div class="flex items-center justify-between gap-2 border-b border-cloud px-5 py-4">
@@ -191,11 +191,11 @@ const NOTE_ICON: Record<string, string> = {
                     <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-frost font-heading text-body-sm font-semibold text-cerulean-dark">
                       {{ initialsFor(a.patient_name) }}
                     </span>
-                    <div class="flex min-w-0 flex-1 flex-col">
+                    <div class="flex min-w-0 flex-[1_1_8rem] flex-col">
                       <span class="truncate font-sans text-body-sm font-semibold text-ink">{{ a.patient_name }}</span>
                       <span class="truncate font-sans text-caption text-slate">{{ a.type_label }}</span>
                     </div>
-                    <div class="flex flex-col items-end gap-0.5">
+                    <div class="ml-auto flex flex-col items-end gap-0.5">
                       <span class="font-sans text-caption font-semibold" [class]="statusText(a)">{{ statusLabel(a) }}</span>
                       <span class="font-sans text-caption text-slate">{{ time(a.scheduled_at) }}</span>
                       @if (clock.patientTime(a.scheduled_at, a.patient_timezone); as pt) {

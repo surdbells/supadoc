@@ -44,7 +44,7 @@ export interface PublicDoctorProfileData {
           }
           <div class="flex min-w-0 flex-col gap-1.5 pt-1">
             <div class="flex flex-wrap items-center gap-2.5">
-              <h2 class="font-heading text-h3 text-ink">{{ d.name }}</h2>
+              <h2 class="min-w-0 wrap-anywhere font-heading text-h3 text-ink">{{ d.name }}</h2>
               @if (d.verified) {
                 <span class="sd-chip bg-white text-cerulean [--sd-chip-icon:16px]">
                   <sd-icon name="badge-check" [size]="16" />Verified

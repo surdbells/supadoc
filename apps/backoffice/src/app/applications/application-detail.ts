@@ -173,7 +173,7 @@ export function actionButtons(d: Pick<DoctorApplicationDetailDto, 'status' | 'ac
           <div class="flex min-w-0 flex-col gap-4">
             <div class="flex min-w-0 flex-col items-center gap-4 text-center sm:flex-row sm:items-start sm:text-left">
               <span class="${DETAIL_AVATAR}" aria-hidden="true">{{ initials(d.full_name) }}</span>
-              <div class="flex min-w-0 flex-1 flex-col gap-2.5">
+              <div class="flex w-full min-w-0 flex-1 flex-col gap-2.5">
                 <h1 #heading id="bo-app-name" tabindex="-1" class="${DETAIL_NAME} focus:outline-none">{{ d.full_name }}</h1>
                 <div class="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
                   <span class="select-all break-all font-mono text-body-sm text-ink">{{ d.reference }}</span>
@@ -186,7 +186,7 @@ export function actionButtons(d: Pick<DoctorApplicationDetailDto, 'status' | 'ac
                   @for (b of badges(); track b.label) {
                     <span class="${PILL}" [class]="b.cls"><sd-icon [name]="b.icon" [size]="13" />{{ b.label }}</span>
                   }
-                  <span class="${CHIP}" [class]="route().cls"><sd-icon [name]="route().icon" [size]="14" />{{ route().label }}</span>
+                  <span class="${CHIP}" [class]="route().cls"><sd-icon [name]="route().icon" [size]="14" /><span class="truncate">{{ route().label }}</span></span>
                 </div>
                 <p class="flex flex-wrap justify-center gap-x-3 gap-y-1 font-sans text-caption text-slate sm:justify-start">
                   <span>Submitted {{ day(d.submitted_at) }}</span>

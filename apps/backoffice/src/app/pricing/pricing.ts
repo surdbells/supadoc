@@ -84,7 +84,7 @@ const MAX_WINDOW_DAYS = 365;
       } @else {
         <section class="${SECTION}" aria-labelledby="bo-pricing-fees-title">
           <h2 id="bo-pricing-fees-title" class="${SECTION_TITLE}"><sd-icon name="banknote" [size]="20" class="text-cerulean" />Fees</h2>
-          <div class="grid gap-4 sm:grid-cols-3">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <label class="${FIELD_STACK}">
               <span class="${LABEL}">Currency</span>
               <input [value]="currency()" (input)="currency.set($any($event.target).value.toUpperCase())" maxlength="3" placeholder="NGN" class="${FIELD} uppercase" />
@@ -111,7 +111,7 @@ const MAX_WINDOW_DAYS = 365;
               </p>
             </div>
 
-            <div class="grid items-start gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <label class="${FIELD_STACK} sm:col-span-2">
                 <span class="${LABEL}">Follow-up fee</span>
                 <select

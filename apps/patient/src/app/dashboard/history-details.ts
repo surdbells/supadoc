@@ -354,7 +354,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink"><sd-icon name="pill" [size]="18" /></span>
                           <span class="flex min-w-0 flex-col gap-1">
                             <span class="flex flex-wrap items-center gap-2">
-                              <span class="font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
+                              <span class="min-w-0 wrap-anywhere font-sans text-body-sm font-semibold text-ink">{{ rx.number }}</span>
                               <span class="sd-chip" [class]="rxStatus(rx.status).cls">
                                 <sd-icon [name]="rxStatus(rx.status).icon" [size]="12" />{{ rxStatus(rx.status).label }}
                               </span>
@@ -402,7 +402,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
                           class="flex flex-wrap items-center gap-3 rounded-field border border-cloud p-3 transition-colors hover:border-cerulean/50"
                         >
                           <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal-ink" aria-hidden="true"><sd-icon name="flask-conical" [size]="18" /></span>
-                          <span class="min-w-0 flex-1 break-all font-sans text-body-sm font-semibold text-ink">Lab request {{ lr.number }}</span>
+                          <span class="min-w-0 flex-[1_1_10rem] break-all font-sans text-body-sm font-semibold text-ink">Lab request {{ lr.number }}</span>
                           <span class="sd-chip shrink-0" [class]="labChip(lr).cls">
                             <sd-icon [name]="labChip(lr).icon" [size]="12" />{{ labChip(lr).label }}
                           </span>

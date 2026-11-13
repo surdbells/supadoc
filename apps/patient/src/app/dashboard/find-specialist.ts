@@ -170,7 +170,7 @@ const PER_PAGE = 24;
               >Consultation type</span
             >
             <div
-              class="sd-track sd-track-tight w-fit"
+              class="sd-track sd-track-tight w-fit max-w-full"
             >
               @for (t of consultTypes; track t.value) {
                 <button

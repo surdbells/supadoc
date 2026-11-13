@@ -157,7 +157,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
     <div class="flex flex-col gap-6 py-2">
       @if (loading()) {
         <div class="sd-shimmer h-40 rounded-card"></div>
-        <div class="grid gap-6 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div class="sd-shimmer h-72 rounded-card"></div>
           <div class="sd-shimmer h-72 rounded-card"></div>
         </div>
@@ -214,7 +214,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
               }
             </div>
 
-            <div class="grid gap-6 lg:grid-cols-2">
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div class="flex flex-col gap-6">
                 <!-- Profile summary -->
                 <section class="flex flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">
@@ -269,13 +269,13 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                         Full name
                         @if (isPending('name')) { <span class="${PENDING_BADGE}"><sd-icon name="hourglass" [size]="12" />Change pending</span> }
                       </dt>
-                      <dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.name }}</dd>
+                      <dd class="min-w-0 wrap-anywhere text-right font-sans text-body-sm text-ink">{{ profile()?.name }}</dd>
                     </div>
-                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Email address</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.email || '—' }}</dd></div>
-                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Phone number</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.phone || '—' }}</dd></div>
-                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Date of birth</dt><dd class="text-right font-sans text-body-sm text-ink">{{ profile()?.date_of_birth || '—' }}</dd></div>
-                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Gender</dt><dd class="text-right font-sans text-body-sm capitalize text-ink">{{ profile()?.gender || '—' }}</dd></div>
-                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Country / Location</dt><dd class="text-right font-sans text-body-sm text-ink">{{ locationText() || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Email address</dt><dd class="min-w-0 wrap-anywhere text-right font-sans text-body-sm text-ink">{{ profile()?.email || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Phone number</dt><dd class="min-w-0 wrap-anywhere text-right font-sans text-body-sm text-ink">{{ profile()?.phone || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Date of birth</dt><dd class="min-w-0 wrap-anywhere text-right font-sans text-body-sm text-ink">{{ profile()?.date_of_birth || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Gender</dt><dd class="min-w-0 wrap-anywhere text-right font-sans text-body-sm capitalize text-ink">{{ profile()?.gender || '—' }}</dd></div>
+                    <div class="flex items-center justify-between gap-4 py-3"><dt class="font-sans text-caption text-slate">Country / Location</dt><dd class="min-w-0 wrap-anywhere text-right font-sans text-body-sm text-ink">{{ locationText() || '—' }}</dd></div>
                     @if (clock.supported()) {
                       <!-- The doctor's own time zone: weekly hours, availability, emails and reminders use it. -->
                       <!-- One dt + dd pair per row (valid <dl>); the hint belongs to the value. -->
@@ -573,7 +573,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
             </section>
             }
 
-            <form [class]="changing ? 'grid max-w-3xl gap-6' : 'grid gap-6 lg:grid-cols-2'" [formGroup]="form" (ngSubmit)="save()">
+            <form [class]="changing ? 'grid max-w-3xl gap-6' : 'grid grid-cols-1 gap-6 lg:grid-cols-2'" [formGroup]="form" (ngSubmit)="save()">
               @if (!changing) {
               <!-- Personal -->
               <section class="flex h-fit flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">

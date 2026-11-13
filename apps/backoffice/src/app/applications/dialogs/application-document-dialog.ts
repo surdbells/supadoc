@@ -22,7 +22,7 @@ import { documentSourceBadge, documentTitle } from '../application-ui';
   template: `
     <sd-dialog [open]="open()" [title]="title()" [subtitle]="subtitle()" size="xl" (closed)="closed.emit()">
       @if (document(); as doc) {
-        <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
           @if (open()) {
             <bo-embedded-viewer [source]="viewerSource()" />
           } @else {

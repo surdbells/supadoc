@@ -161,7 +161,7 @@ function greetingFor(now: Date): string {
       <section
         class="relative flex items-center justify-between overflow-hidden rounded-card bg-sky/10 px-6 pt-4 pb-11 sm:pb-4"
       >
-        <div class="flex flex-col gap-2.5">
+        <div class="flex min-w-0 flex-col gap-2.5">
           <!-- tabindex -1: where focus returns when the vitals pop-up closes by itself -->
           <h1 #welcomeHeading tabindex="-1" class="font-heading text-h2 text-ocean outline-none">
             {{ greeting }}, {{ firstName() }} 👋

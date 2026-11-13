@@ -58,7 +58,7 @@ export type CredentialDialogMode = 'view' | 'verify' | 'reject';
       (closed)="closed.emit()"
     >
       @if (credential(); as c) {
-        <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
           <!-- The document (only while open: closing releases the file) -->
           @if (open()) {
             <bo-embedded-viewer [source]="viewerSource()" />
