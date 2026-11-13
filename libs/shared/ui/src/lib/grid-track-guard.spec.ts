@@ -33,20 +33,25 @@ function files(dir: string): string[] {
   });
 }
 
-/** Class lists (one-line quoted strings) that are a grid with breakpoint columns but no base column template. */
+/**
+ * Class lists that are a grid with breakpoint columns but no base column
+ * template: one-line quoted strings anywhere, plus `class="…"` attributes that
+ * wrap over several lines.
+ */
 const hits = (text: string) =>
-  [...text.matchAll(/(["'`])([^"'`\n]*)\1/g)]
-    .map((m) => m[2])
-    .filter((value) => {
-      const tokens = value.split(/\s+/);
-      return (
-        tokens.includes('grid') &&
-        tokens.some((t) =>
-          /^(sm|md|lg|xl|2xl|min-\[[^\]]+\]):grid-cols-/.test(t),
-        ) &&
-        !tokens.some((t) => /^grid-cols-/.test(t))
-      );
-    });
+  [
+    ...[...text.matchAll(/(["'`])([^"'`\n]*)\1/g)].map((m) => m[2]),
+    ...[...text.matchAll(/\bclass\s*=\s*"([^"]*\n[^"]*)"/g)].map((m) => m[1]),
+  ].filter((value) => {
+    const tokens = value.trim().split(/\s+/);
+    return (
+      tokens.includes('grid') &&
+      tokens.some((t) =>
+        /^(sm|md|lg|xl|2xl|min-\[[^\]]+\]):grid-cols-/.test(t),
+      ) &&
+      !tokens.some((t) => /^grid-cols-/.test(t))
+    );
+  });
 
 describe('grid track guard (no implicit auto column below a breakpoint)', () => {
   it('every responsive grid in this library sets a base column template', () => {
@@ -77,6 +82,12 @@ describe('grid track guard (no implicit auto column below a breakpoint)', () => 
     ).toHaveLength(0);
     expect(
       hits('<div class="flex gap-2 lg:grid lg:grid-cols-2">'),
+    ).toHaveLength(0);
+    expect(
+      hits('<div\n  class="\n    grid gap-6\n    lg:grid-cols-2\n  "\n>'),
+    ).toHaveLength(1);
+    expect(
+      hits('<div\n  class="grid grid-cols-1 gap-6\n    lg:grid-cols-2"\n>'),
     ).toHaveLength(0);
     expect(hits('<div class="grid gap-2">')).toHaveLength(0);
   });

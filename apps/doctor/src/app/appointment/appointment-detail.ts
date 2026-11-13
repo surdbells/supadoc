@@ -661,7 +661,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="pill" [size]="18" class="text-cerulean" />Chronic Conditions</h3>
                   @if (conditions().length) {
                     <div class="flex flex-wrap gap-2">
-                      @for (c of conditions(); track $index) { <span class="sd-chip sd-tag bg-frost text-cerulean-dark">{{ c.condition }}</span> }
+                      @for (c of conditions(); track $index) { <span class="sd-chip sd-tag bg-frost text-cerulean-dark"><span class="min-w-0 truncate" [attr.title]="c.condition">{{ c.condition }}</span></span> }
                     </div>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
                 </section>
@@ -669,7 +669,7 @@ function timeLeft(ms: number): TimeLeft | null {
                   <h3 class="flex items-center gap-2 font-heading text-body-lg text-ink"><sd-icon name="triangle-alert" [size]="18" class="text-alert" />Allergies</h3>
                   @if (allergies().length) {
                     <div class="flex flex-wrap gap-2">
-                      @for (al of allergies(); track $index) { <span class="sd-chip bg-alert/10 text-alert-ink">{{ al.allergen }}</span> }
+                      @for (al of allergies(); track $index) { <span class="sd-chip bg-alert/10 text-alert-ink"><span class="min-w-0 truncate" [attr.title]="al.allergen">{{ al.allergen }}</span></span> }
                     </div>
                   } @else { <p class="font-sans text-body-sm text-slate">None recorded.</p> }
                 </section>

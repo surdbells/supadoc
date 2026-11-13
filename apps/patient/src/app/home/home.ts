@@ -232,7 +232,7 @@ interface Doctor {
            the doctor photo sits to the right with the design's soft corners. -->
       <section class="bg-gradient-to-b from-white via-white to-glacier">
         <div
-          class="mx-auto grid grid-cols-1 w-[90%] max-w-[1800px] items-center gap-x-12 gap-y-8 py-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:py-12"
+          class="mx-auto grid w-[90%] max-w-[1800px] grid-cols-1 items-center gap-x-12 gap-y-8 py-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:py-12"
         >
           <div class="flex min-w-0 flex-col gap-5">
             <span
@@ -460,7 +460,7 @@ interface Doctor {
       <!-- ===== Counter (measurable impact) ===== -->
       <section class="bg-abyss">
         <div
-          class="mx-auto grid grid-cols-1 w-[90%] max-w-[1800px] items-center gap-10 py-16 lg:grid-cols-2"
+          class="mx-auto grid w-[90%] max-w-[1800px] grid-cols-1 items-center gap-10 py-16 lg:grid-cols-2"
         >
           <img
             src="/home/counter-photo.png"
@@ -628,7 +628,7 @@ interface Doctor {
       <!-- ===== Ready / Stay connected ===== -->
       <section class="overflow-hidden bg-frost/40">
         <div
-          class="mx-auto grid grid-cols-1 w-[90%] max-w-[1800px] items-center gap-10 py-16 lg:grid-cols-[1fr_360px_1fr]"
+          class="mx-auto grid w-[90%] max-w-[1800px] grid-cols-1 items-center gap-10 py-16 lg:grid-cols-[1fr_360px_1fr]"
         >
           <!-- Left CTA -->
           <div class="flex flex-col gap-5">
@@ -715,7 +715,7 @@ interface Doctor {
       <!-- ===== Footer ===== -->
       <footer id="contact" class="scroll-mt-20 bg-abyss text-frost">
         <div
-          class="mx-auto grid grid-cols-1 w-[90%] max-w-[1800px] gap-10 py-14 md:grid-cols-4"
+          class="mx-auto grid w-[90%] max-w-[1800px] grid-cols-1 gap-10 py-14 md:grid-cols-4"
         >
           <div class="flex flex-col gap-4">
             <sd-logo [size]="32" [wordmark]="false" />

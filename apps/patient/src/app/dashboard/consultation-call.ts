@@ -1337,7 +1337,7 @@ interface RecordItem {
                       </span>
                     </div>
                   </div>
-                  <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                  <div class="flex shrink-0 flex-wrap items-center gap-2 pl-12 sm:pl-0">
                     <!-- The document viewer, a modal over the workspace (the call keeps running behind both). -->
                     <button
                       type="button"

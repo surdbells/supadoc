@@ -189,7 +189,7 @@ const SEVERITY: Record<AllergySeverity, SeverityMeta> = {
             </h3>
             <ul class="flex flex-wrap gap-1.5">
               @for (c of s.conditions; track $index) {
-                <li class="sd-chip bg-glacier text-ink">{{ c }}</li>
+                <li class="sd-chip bg-glacier text-ink"><span class="min-w-0 truncate" [attr.title]="c">{{ c }}</span></li>
               }
             </ul>
           </div>

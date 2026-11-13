@@ -93,7 +93,7 @@ export interface PublicDoctorProfileData {
             <h3 class="flex items-center gap-2 font-heading text-h5 text-ink"><sd-icon name="sparkles" [size]="20" class="text-cerulean" />Area of expertise</h3>
             <div class="flex flex-wrap gap-2.5">
               @for (x of d.expertise ?? []; track x) {
-                <span class="sd-chip sd-chip-lg sd-tag bg-frost text-cerulean-dark">{{ x }}</span>
+                <span class="sd-chip sd-chip-lg sd-tag bg-frost text-cerulean-dark"><span class="min-w-0 truncate" [attr.title]="x">{{ x }}</span></span>
               }
             </div>
           </div>

@@ -196,7 +196,7 @@ type LoadResult =
           }
 
           @if (d.live || d.attention?.length) {
-            <div [class]="d.live && d.attention?.length ? '${SECTION_GRID}' : 'grid gap-6'">
+            <div [class]="d.live && d.attention?.length ? '${SECTION_GRID}' : 'grid grid-cols-1 gap-6'">
               @if (d.attention?.length) {
                 <bo-dash-attention [items]="d.attention!" [currency]="d.currency" />
               }
@@ -212,7 +212,7 @@ type LoadResult =
 
           @if (d.breakdowns; as b) {
             @if (b.by_status || b.top_specialties) {
-              <div [class]="b.by_status && b.top_specialties ? '${SECTION_GRID}' : 'grid gap-6'">
+              <div [class]="b.by_status && b.top_specialties ? '${SECTION_GRID}' : 'grid grid-cols-1 gap-6'">
                 @if (b.by_status) {
                   <bo-dash-status [statuses]="b.by_status" [period]="d.period" [canOpenAppointments]="canOpenAppointments" />
                 }
@@ -222,7 +222,7 @@ type LoadResult =
               </div>
             }
             @if (b.top_doctors || b.recent_activity) {
-              <div class="grid gap-6">
+              <div class="grid grid-cols-1 gap-6">
                 @if (b.top_doctors) {
                   <bo-dash-doctors [doctors]="b.top_doctors" [period]="d.period" [currency]="d.currency" />
                 }

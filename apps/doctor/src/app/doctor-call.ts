@@ -1875,10 +1875,10 @@ async function rawFetch(url: string, init?: RequestInit): Promise<Response> {
                 @if (d.diagnoses.length || d.medications.length) {
                   <div class="mt-2 flex flex-wrap gap-1.5">
                     @for (x of d.diagnoses; track x) {
-                      <span class="sd-chip sd-chip-xs sd-tag sd-tone-neutral">{{ x }}</span>
+                      <span class="sd-chip sd-chip-xs sd-tag sd-tone-neutral"><span class="min-w-0 truncate" [attr.title]="x">{{ x }}</span></span>
                     }
                     @for (x of d.medications; track x) {
-                      <span class="sd-chip sd-chip-xs sd-tag sd-tone-info">{{ x }}</span>
+                      <span class="sd-chip sd-chip-xs sd-tag sd-tone-info"><span class="min-w-0 truncate" [attr.title]="x">{{ x }}</span></span>
                     }
                   </div>
                 }

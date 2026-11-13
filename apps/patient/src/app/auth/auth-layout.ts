@@ -31,7 +31,7 @@ const SLIDE_INTERVAL_MS = 6000;
       class="flex min-h-screen items-center justify-center bg-cloud p-4 sm:p-6"
     >
       <div
-        class="grid grid-cols-1 w-full max-w-[1240px] overflow-hidden rounded-[32px] bg-glacier shadow-[0_12px_40px_rgba(10,22,40,0.1)] ring-1 ring-white/60 lg:min-h-[766px] lg:grid-cols-[minmax(0,540px)_minmax(0,700px)]"
+        class="grid w-full max-w-[1240px] grid-cols-1 overflow-hidden rounded-[32px] bg-glacier shadow-[0_12px_40px_rgba(10,22,40,0.1)] ring-1 ring-white/60 lg:min-h-[766px] lg:grid-cols-[minmax(0,540px)_minmax(0,700px)]"
       >
         <aside class="hidden p-5 lg:block">
           <div

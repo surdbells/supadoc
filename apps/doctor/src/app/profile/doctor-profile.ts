@@ -365,7 +365,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-col gap-2 border-b border-cloud pb-4">
                       <span class="font-sans text-caption text-slate">Area of Expertise</span>
                       <div class="flex flex-wrap gap-2">
-                        @for (x of expertise(); track x) { <span class="sd-chip sd-tag bg-frost text-cerulean-dark">{{ x }}</span> }
+                        @for (x of expertise(); track x) { <span class="sd-chip sd-tag bg-frost text-cerulean-dark"><span class="min-w-0 truncate" [attr.title]="x">{{ x }}</span></span> }
                       </div>
                     </div>
                   }
@@ -401,7 +401,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-col gap-2">
                       <span class="font-sans text-caption text-slate">Languages</span>
                       <div class="flex flex-wrap gap-2">
-                        @for (l of languages(); track l) { <span class="sd-chip sd-tag bg-glacier text-ink">{{ l }}</span> }
+                        @for (l of languages(); track l) { <span class="sd-chip sd-tag bg-glacier text-ink"><span class="min-w-0 truncate" [attr.title]="l">{{ l }}</span></span> }
                       </div>
                     </div>
                   }
@@ -573,7 +573,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
             </section>
             }
 
-            <form [class]="changing ? 'grid max-w-3xl gap-6' : 'grid grid-cols-1 gap-6 lg:grid-cols-2'" [formGroup]="form" (ngSubmit)="save()">
+            <form [class]="changing ? 'grid max-w-3xl grid-cols-1 gap-6' : 'grid grid-cols-1 gap-6 lg:grid-cols-2'" [formGroup]="form" (ngSubmit)="save()">
               @if (!changing) {
               <!-- Personal -->
               <section class="flex h-fit flex-col gap-5 rounded-card border border-haze bg-white p-6 shadow-card">
@@ -692,7 +692,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-wrap gap-2">
                       @for (x of expertise(); track x; let i = $index) {
                         <span class="sd-chip sd-tag bg-frost text-cerulean-dark">
-                          {{ x }}
+                          <span class="min-w-0 truncate" [attr.title]="x">{{ x }}</span>
                           <button type="button" class="sd-chip-x" [attr.aria-label]="'Remove ' + x" (click)="removeExpertise(i)"><sd-icon name="x" [size]="12" /></button>
                         </span>
                       }
@@ -713,7 +713,7 @@ const entriesText = (rows: readonly (QualificationEntry | CertificationEntry)[] 
                     <div class="flex flex-wrap gap-2">
                       @for (l of languages(); track l; let i = $index) {
                         <span class="sd-chip sd-tag bg-glacier text-ink">
-                          {{ l }}
+                          <span class="min-w-0 truncate" [attr.title]="l">{{ l }}</span>
                           <button type="button" class="sd-chip-x" [attr.aria-label]="'Remove ' + l" (click)="removeLanguage(i)"><sd-icon name="x" [size]="12" /></button>
                         </span>
                       }

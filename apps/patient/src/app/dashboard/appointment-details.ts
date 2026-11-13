@@ -960,7 +960,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                           </span>
                         </span>
                       </div>
-                      <div class="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+                      <div class="flex shrink-0 flex-wrap items-center gap-2 pl-12 sm:pl-0">
                         <button
                           type="button"
                           class="sd-pill sd-pill-c border border-haze bg-white text-cerulean shadow-control hover:border-cerulean active:shadow-none disabled:shadow-none"
