@@ -231,3 +231,133 @@ describe('AppointmentDetails › the document viewer', () => {
     expect(presence.mock.calls.every((c) => JSON.stringify(c[0]) === '{"passive":true}')).toBe(true);
   });
 });
+
+describe('AppointmentDetails › header and card CTAs', () => {
+  let fixture: ComponentFixture<AppointmentDetails>;
+  let el: HTMLElement;
+  /** Who is in the call (the page polls it). */
+  let inCall: Record<string, unknown> = {};
+
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) {
+      fixture.detectChanges();
+      await new Promise((r) => setTimeout(r));
+    }
+    fixture.detectChanges();
+  };
+  const text = (n: Element | null | undefined) => (n?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  /** The actions card's CTA row (the one holding Join / Reschedule / Cancel). */
+  const actionsRow = () =>
+    [...el.querySelectorAll('.sd-cta-row')].find((r) => /Reschedule Appointment|Join/.test(r.textContent ?? '')) as HTMLElement;
+
+  async function render(a: Partial<AppointmentDto>) {
+    await TestBed.configureTestingModule({
+      imports: [AppointmentDetails],
+      providers: [
+        provideRouter([]),
+        provideSupadocIcons(),
+        { provide: API_CONFIG, useValue: { baseUrl: 'http://api.test' } },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: new BehaviorSubject(convertToParamMap({ id: 'ap-1' })),
+            snapshot: { paramMap: convertToParamMap({ id: 'ap-1' }), queryParamMap: convertToParamMap({}) },
+            queryParamMap: of(convertToParamMap({})),
+          },
+        },
+        {
+          provide: AppointmentsApi,
+          useValue: apiStub({
+            getMine: () => ok({ ...appointment, ...a }),
+            presence: () => ok(inCall),
+            followUpQuote: () => of({ status: 'success', message: 'OK', data: null }),
+            guests: () => ok({ guests: [], can_manage: false, can_add: false, max_guests: 0, manage_problem: null, currency: 'NGN', guest_fee: '0' }),
+          }),
+        },
+        { provide: PrescriptionsApi, useValue: apiStub({}) },
+        { provide: DocumentsApi, useValue: apiStub({}) },
+        { provide: DocumentSharingApi, useValue: apiStub({ forAppointment: () => ok(access) }) },
+        { provide: WalletApi, useValue: apiStub({}) },
+        { provide: SpecialistsApi, useValue: apiStub({}) },
+        { provide: DocumentViewerService, useValue: { open: vi.fn() } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppointmentDetails);
+    el = fixture.nativeElement;
+    document.body.append(el);
+    await settle();
+  }
+
+  const soon = () => new Date(Date.now() + 2 * 24 * 3600_000).toISOString();
+
+  afterEach(() => {
+    fixture?.destroy();
+    el?.remove();
+    inCall = {};
+    vi.restoreAllMocks();
+  });
+
+  it('the header Book CTA keeps one line and is always named "Book Consultation"', async () => {
+    await render({});
+    const host = [...el.querySelectorAll('sd-button')].find((b) => /^Book/.test(text(b))) as HTMLElement;
+    expect(host.classList).toContain('shrink-0');
+    expect(host.classList).toContain('whitespace-nowrap');
+    expect(text(host.querySelector('button'))).toBe('Book Consultation');
+    // Only " Consultation" hides, and only in a narrow header row (a size container).
+    expect(host.querySelector('[class~="@max-xl:sr-only"]')?.textContent).toBe(' Consultation');
+    expect(host.closest('[class~="@container"]')).toBeTruthy();
+  });
+
+  it('an upcoming appointment: Join, Reschedule and Cancel share one CTA row; the cancel hint sits outside it', async () => {
+    await render({ status: 'confirmed', scheduled_at: soon(), phase: 'upcoming', display_status: 'upcoming' } as Partial<AppointmentDto>);
+    const row = actionsRow();
+    expect(row).toBeTruthy();
+    const labels = [...row.children].map((c) => text(c));
+    expect(labels).toEqual(['Join Consultation', 'Reschedule Appointment', 'Cancel Appointment']);
+    expect([...row.children].every((c) => c.matches('sd-button, button'))).toBe(true);
+    expect(row.querySelector('p')).toBeNull();
+    // Nothing is urgent yet: no caption, nothing described.
+    expect(el.querySelector('#pat-join-reason')).toBeNull();
+    expect(row.querySelector('button')?.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('live: the Join label stays short ("Join now") and the reason is a caption read with it', async () => {
+    await render({
+      status: 'confirmed',
+      scheduled_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+      phase: 'upcoming',
+      display_status: 'live',
+      can_cancel: false,
+      can_reschedule: false,
+    } as Partial<AppointmentDto>);
+    const join = actionsRow().querySelector('button') as HTMLButtonElement;
+    expect(text(join)).toBe('Join now');
+    const reason = el.querySelector('#pat-join-reason') as HTMLElement;
+    expect(text(reason)).toBe('Your consultation has started');
+    expect(join.getAttribute('aria-describedby')).toBe('pat-join-reason');
+    // The caption comes before the buttons, so it is read and seen first.
+    expect(reason.compareDocumentPosition(join) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the doctor is in the call: the caption says so', async () => {
+    inCall = { 'ap-1': { doctor: true, guests: [] } };
+    await render({
+      status: 'confirmed',
+      scheduled_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+      phase: 'upcoming',
+      display_status: 'live',
+      can_cancel: false,
+      can_reschedule: false,
+    } as Partial<AppointmentDto>);
+    expect(text(actionsRow().querySelector('button'))).toBe('Join now');
+    expect(text(el.querySelector('#pat-join-reason'))).toBe('Your doctor is in the call');
+  });
+
+  it('Shared-with card: Share documents is in the CTA row; Manage sharing is a link below it', async () => {
+    await render({});
+    const share = [...el.querySelectorAll('button')].find((b) => text(b) === 'Share documents') as HTMLButtonElement;
+    expect(share.parentElement?.classList).toContain('sd-cta-row');
+    const manage = [...el.querySelectorAll('a')].find((a) => text(a) === 'Manage sharing') as HTMLAnchorElement;
+    expect(manage.closest('.sd-cta-row')).toBeNull();
+  });
+});

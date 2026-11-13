@@ -217,8 +217,8 @@ interface WhenVm {
         </span>
       </div>
 
-      <!-- Actions -->
-      <div class="mt-auto flex gap-3">
+      <!-- Actions: two equal columns when both labels fit, stacked (full width) otherwise. -->
+      <div class="sd-cta-row mt-auto [--sd-cta-min:11rem]">
         <sd-button
           variant="outline"
           size="sm"

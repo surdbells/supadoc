@@ -9,6 +9,7 @@ const NAIRA = new Intl.NumberFormat('en-NG', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+const NAIRA_WHOLE = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 });
 
 const WHEN = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
@@ -55,6 +56,12 @@ export function dayLabel(iso: string | null | undefined): string {
 export function priceLabel(amount: string | number | null | undefined): string {
   const n = Number(amount);
   return n > 0 ? `₦${NAIRA.format(n)}` : 'Free';
+}
+
+/** Money for a one-line button: whole naira drop the kobo ("₦12,500"), else as {@link priceLabel}. */
+export function priceShort(amount: string | number | null | undefined): string {
+  const n = Number(amount);
+  return n > 0 && Number.isInteger(n) ? `₦${NAIRA_WHOLE.format(n)}` : priceLabel(amount);
 }
 
 /** Why a follow-up costs what it does, in one short line ('' when unknown). */

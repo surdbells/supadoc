@@ -317,9 +317,10 @@ export const LAB_STAT_ALERT_IN_LAB =
                     Read what's requested below, then accept to get your request
                     PDF. You choose the lab and pay it directly.
                   </p>
-                  <div class="flex flex-wrap gap-3">
+                  <!-- Card CTAs: equal columns where both fit, stacked full width otherwise. -->
+                  <div class="sd-cta-row empty:hidden [--sd-cta-min:11rem]">
                     @if (r.can.accept) {
-                      <sd-button (click)="openAccept()">
+                      <sd-button [full]="true" (click)="openAccept()">
                         <sd-icon
                           name="circle-check"
                           [size]="18"
@@ -329,7 +330,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                       </sd-button>
                     }
                     @if (r.can.decline) {
-                      <sd-button variant="outline" (click)="decline()"
+                      <sd-button variant="outline" [full]="true" (click)="decline()"
                         >Decline</sd-button
                       >
                     }
@@ -487,7 +488,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                       Already gave your sample? You can still add the result.
                     </p>
                     @if (r.can.upload) {
-                      <sd-button class="w-fit" (click)="openUpload()">
+                      <sd-button class="w-full whitespace-nowrap" [full]="true" (click)="openUpload()">
                         <sd-icon
                           name="upload"
                           [size]="18"
@@ -511,7 +512,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                       Got your result anyway? You can still add it.
                     </p>
                     @if (r.can.upload) {
-                      <sd-button class="w-fit" (click)="openUpload()">
+                      <sd-button class="w-full whitespace-nowrap" [full]="true" (click)="openUpload()">
                         <sd-icon
                           name="upload"
                           [size]="18"
@@ -767,7 +768,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                 @if (r.doctor_available) {
                   <a
                     [routerLink]="['/dashboard/appointments/book', r.doctor.id]"
-                    class="inline-flex min-h-11 w-fit shrink-0 items-center gap-2 rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                    class="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark sm:w-fit"
                   >
                     <sd-icon name="calendar-plus" [size]="16" />
                     Book a follow-up
@@ -775,7 +776,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                 } @else {
                   <a
                     routerLink="/dashboard/specialists"
-                    class="inline-flex min-h-11 w-fit shrink-0 items-center gap-2 rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                    class="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark sm:w-fit"
                   >
                     <sd-icon name="calendar-plus" [size]="16" />
                     Book a consultation
@@ -877,7 +878,8 @@ export const LAB_STAT_ALERT_IN_LAB =
               @if (r.status === 'result_ready' && r.can.upload) {
                 <sd-button
                   variant="outline"
-                  class="w-fit"
+                  class="w-full whitespace-nowrap"
+                  [full]="true"
                   (click)="openUpload()"
                 >
                   <sd-icon name="upload" [size]="18" class="inline-flex" />

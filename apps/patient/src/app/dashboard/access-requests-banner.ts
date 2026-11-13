@@ -92,7 +92,8 @@ type BannerError = Extract<BannerProblem, { kind: 'error' }>;
                   }
                 </span>
               </div>
-              <div class="flex flex-wrap gap-2 pl-14 sm:pl-0">
+              <!-- Card CTAs: equal columns where both fit, stacked full width otherwise. -->
+              <div class="sd-cta-row pl-14 [--sd-cta-gap:0.5rem] [--sd-cta-min:8.5rem] sm:shrink-0 sm:pl-0">
                 <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="review(r)">
                   Review request
                 </button>

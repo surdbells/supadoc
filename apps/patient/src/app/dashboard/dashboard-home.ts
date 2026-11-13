@@ -372,7 +372,8 @@ function greetingFor(now: Date): string {
                   <span class="font-sans text-caption text-slate">{{ u.detail }}</span>
                 }
               </div>
-              <div class="flex gap-3">
+              <!-- Card CTAs: two equal columns when both fit, stacked (full width) otherwise. -->
+              <div class="sd-cta-row [--sd-cta-min:6.75rem]">
                 <sd-button
                   variant="outline"
                   size="sm"
@@ -401,6 +402,8 @@ function greetingFor(now: Date): string {
                 <sd-button
                   variant="outline"
                   size="sm"
+                  [full]="true"
+                  class="self-stretch"
                   (click)="viewAppointments()"
                   >View All</sd-button
                 >

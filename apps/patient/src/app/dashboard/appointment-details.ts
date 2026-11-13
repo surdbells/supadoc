@@ -85,7 +85,7 @@ import {
 } from './document-sharing';
 import { doctorTimeLabel, doctorTimeWho } from './doctor-time';
 import { DocumentUploadDialog } from './document-upload-dialog';
-import { dayLabel, isOpenProposal, priceLabel, priceNote, whenLabel } from './follow-up';
+import { dayLabel, isOpenProposal, priceLabel, priceNote, priceShort, whenLabel } from './follow-up';
 import { GuestsPanel } from './guests-panel';
 import { loadPaystack } from './paystack';
 import { ShareDialog } from './share-dialog';
@@ -273,9 +273,10 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
-      <!-- Header -->
-      <div class="flex items-start justify-between gap-4">
-        <div class="flex flex-col gap-1">
+      <!-- Header (a size container: the CTA keeps one line and shortens to "Book" when the row is narrow;
+           on the narrowest phones it drops below the title rather than squeezing it) -->
+      <div class="@container flex flex-wrap items-start justify-between gap-4">
+        <div class="flex flex-1 flex-col gap-1">
           <a
             [routerLink]="vm()?.past ? '/dashboard/history' : '/dashboard/appointments'"
             class="mb-1 flex min-h-11 w-fit items-center gap-1 font-sans text-body-sm text-slate transition-colors hover:text-cerulean sm:min-h-0"
@@ -288,9 +289,10 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
             View and manage your scheduled consultations
           </p>
         </div>
-        <sd-button size="sm" (click)="book()">
+        <sd-button size="sm" class="shrink-0 whitespace-nowrap" (click)="book()">
           <sd-icon name="plus" [size]="18" />
-          Book Consultation
+          <!-- Screen readers always hear "Book Consultation"; narrow rows show "Book". -->
+          <span>Book<span class="@max-xl:sr-only"> Consultation</span></span>
         </sd-button>
       </div>
 
@@ -641,23 +643,29 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                     <sd-alert tone="error">{{ acceptError() }}</sd-alert>
                   }
 
-                  <div class="flex flex-col gap-3 border-t border-cloud pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <!-- Card CTAs: Decline | Accept in equal columns where both fit, stacked full width otherwise. -->
+                  <div class="sd-cta-row border-t border-cloud pt-4 [--sd-cta-min:13.75rem]">
                     <button
                       type="button"
-                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60 sm:order-first"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60"
                       [disabled]="accepting()"
                       (click)="openDecline()"
                     >
                       <sd-icon name="circle-x" [size]="18" />
                       Decline
                     </button>
-                    <sd-button [disabled]="!canAccept()" (click)="accept()">
+                    <sd-button [full]="true" [disabled]="!canAccept()" (click)="accept()">
                       @if (accepting()) {
                         <sd-icon name="loader-circle" [size]="18" class="animate-spin" />
                       } @else {
                         <sd-icon name="circle-check" [size]="18" />
                       }
-                      {{ acceptLabel() }}
+                      <!-- Shows "Pay ₦X & accept"; screen readers also hear how ("from wallet" / "by card"). -->
+                      @if (acceptVia(); as via) {
+                        <span>Pay {{ payText() }}<span class="sr-only">{{ via }}</span> &amp; accept</span>
+                      } @else {
+                        {{ acceptLabel() }}
+                      }
                     </sd-button>
                   </div>
                 }
@@ -691,53 +699,58 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                 </div>
               </div>
               <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
-                <!-- A soft green halo + clearer label once the doctor is waiting -->
-                @if (v.canJoin) {
-                  <sd-button
-                    [full]="true"
-                    [class]="doctorInCall() || v.live ? 'rounded-field ring-4 ring-success/25' : ''"
-                    (click)="joinCall(v.id)"
-                  >
-                    <sd-icon name="video" [size]="18" />
-                    {{
-                      doctorInCall()
-                        ? 'Join now — your doctor is in the call'
-                        : v.live
-                          ? 'Join now — it has started'
-                          : 'Join Consultation'
-                    }}
-                  </sd-button>
+                <!-- Why to join now sits above the buttons (the label stays one short line) and is read with Join. -->
+                @if (v.canJoin && joinReason(v); as reason) {
+                  <p id="pat-join-reason" class="flex items-center gap-1.5 font-sans text-caption font-semibold text-sage-ink">
+                    <sd-icon name="video" [size]="14" class="shrink-0" />
+                    {{ reason }}
+                  </p>
                 }
-                @if (v.canReschedule) {
-                  <sd-button variant="outline" [full]="true" (click)="openReschedule(v)"
-                    >Reschedule Appointment</sd-button
-                  >
-                }
-                @if (v.canCancel) {
-                  <button
-                    type="button"
-                    class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 aria-busy:opacity-70"
-                    [attr.aria-busy]="cancelChecking() || null"
-                    (click)="cancel()"
-                  >
-                    <!-- Not [disabled] while checking: that would drop focus, and the prompt returns focus here. -->
-                    <sd-icon [name]="cancelChecking() ? 'loader-circle' : 'calendar-x'" [size]="18" [class.animate-spin]="cancelChecking()" />
-                    Cancel Appointment
-                  </button>
-                  @if (cancelHint(); as hint) {
-                    <p class="font-sans text-caption text-slate">{{ hint }}</p>
+                <!-- Card CTAs: equal columns where they fit, stacked full width otherwise (hints stay outside the row). -->
+                <div class="sd-cta-row empty:hidden [--sd-cta-min:14.25rem]">
+                  <!-- A soft green halo once the doctor is waiting or it has started -->
+                  @if (v.canJoin) {
+                    <sd-button
+                      [full]="true"
+                      [describedBy]="joinReason(v) ? 'pat-join-reason' : null"
+                      [class]="doctorInCall() || v.live ? 'rounded-field ring-4 ring-success/25' : ''"
+                      (click)="joinCall(v.id)"
+                    >
+                      <sd-icon name="video" [size]="18" />
+                      {{ doctorInCall() || v.live ? 'Join now' : 'Join Consultation' }}
+                    </sd-button>
                   }
+                  @if (v.canReschedule) {
+                    <sd-button variant="outline" [full]="true" (click)="openReschedule(v)"
+                      >Reschedule Appointment</sd-button
+                    >
+                  }
+                  @if (v.canCancel) {
+                    <button
+                      type="button"
+                      class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 aria-busy:opacity-70"
+                      [attr.aria-busy]="cancelChecking() || null"
+                      (click)="cancel()"
+                    >
+                      <!-- Not [disabled] while checking: that would drop focus, and the prompt returns focus here. -->
+                      <sd-icon [name]="cancelChecking() ? 'loader-circle' : 'calendar-x'" [size]="18" [class.animate-spin]="cancelChecking()" />
+                      Cancel Appointment
+                    </button>
+                  }
+                  @if (v.canReview && !reviewed()) {
+                    <sd-button variant="outline" [full]="true" (click)="openReview()">
+                      <sd-icon name="star" [size]="18" />Leave a review
+                    </sd-button>
+                  }
+                </div>
+                @if (v.canCancel && cancelHint(); as hint) {
+                  <p class="font-sans text-caption text-slate">{{ hint }}</p>
                 }
                 @if (v.started) {
                   <p class="flex items-start gap-1.5 font-sans text-caption text-slate">
                     <sd-icon name="info" [size]="14" class="mt-0.5 shrink-0" />
                     This consultation has started, so it can no longer be cancelled or moved.
                   </p>
-                }
-                @if (v.canReview && !reviewed()) {
-                  <sd-button variant="outline" [full]="true" (click)="openReview()">
-                    <sd-icon name="star" [size]="18" />Leave a review
-                  </sd-button>
                 }
                 @if (reviewed()) {
                   <p class="flex items-center justify-center gap-1.5 font-sans text-body-sm font-semibold text-sage">
@@ -799,7 +812,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   @if (s.pending_request; as r) {
                     <div class="flex flex-col gap-2 rounded-field bg-warning/15 px-3 py-3 font-sans text-body-sm text-warning-ink">
                       <p class="flex items-start gap-2"><sd-icon name="key-round" [size]="18" class="mt-0.5 shrink-0" />{{ doctorDisplayName() }} asked to see your documents.</p>
-                      <div class="flex flex-wrap gap-2 pl-6">
+                      <div class="sd-cta-row pl-6 [--sd-cta-gap:0.5rem] [--sd-cta-min:5.25rem]">
                         <button type="button" class="inline-flex min-h-11 items-center rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="reviewRequest(r)">Review</button>
                         <button type="button" class="inline-flex min-h-11 items-center rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-slate shadow-control transition hover:border-cerulean" (click)="reviewRequest(r, true)">Decline</button>
                       </div>
@@ -874,7 +887,8 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                       <sd-icon name="hourglass" [size]="16" class="mt-0.5 shrink-0" />{{ doctorDisplayName() }} isn't practising on VideoMed right now.
                     </p>
                   }
-                  <div class="flex flex-wrap gap-2">
+                  <!-- Card CTAs: equal columns where both fit, stacked full width otherwise; the text link follows. -->
+                  <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:11rem]">
                     <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!s.can_share" (click)="shareWithDoctor(s.specialist.id)">
                       <sd-icon name="share-2" [size]="16" />Share documents
                     </button>
@@ -883,10 +897,10 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                         <sd-icon name="upload" [size]="16" />Upload and share
                       </button>
                     }
-                    <a [routerLink]="'/dashboard/documents/sharing'" [queryParams]="{ doctor: s.specialist.id }" class="inline-flex min-h-11 items-center gap-1 px-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean">
-                      Manage sharing<sd-icon name="chevron-right" [size]="16" />
-                    </a>
                   </div>
+                  <a [routerLink]="'/dashboard/documents/sharing'" [queryParams]="{ doctor: s.specialist.id }" class="inline-flex min-h-11 items-center gap-1 self-start px-2 font-sans text-body-sm font-semibold text-cerulean transition-colors hover:text-ocean">
+                    Manage sharing<sd-icon name="chevron-right" [size]="16" />
+                  </a>
                 }
               </section>
 
@@ -1204,6 +1218,12 @@ export class AppointmentDetails {
     return !!id && !!this.presence()[id]?.doctor;
   });
 
+  /** Why Join is urgent, as a caption above it (the button itself only says "Join now"); '' when it isn't. */
+  protected joinReason(v: Pick<DetailsVm, 'live'>): string {
+    if (this.doctorInCall()) return 'Your doctor is in the call';
+    return v.live ? 'Your consultation has started' : '';
+  }
+
   protected readonly notice = signal<{ ok: boolean; text: string } | null>(null);
 
   // Secure messaging
@@ -1316,6 +1336,8 @@ export class AppointmentDetails {
     return { amount: fp?.amount ?? '0', pricing: fp?.pricing ?? null };
   });
   protected readonly priceText = computed(() => priceLabel(this.price().amount));
+  /** The price on the one-line Pay button ("₦15,000": whole naira drop the kobo). */
+  protected readonly payText = computed(() => priceShort(this.price().amount));
   protected readonly priceWhy = computed(() => priceNote(this.price().pricing));
   protected readonly proposalFree = computed(() => !(Number(this.price().amount) > 0));
 
@@ -1390,8 +1412,14 @@ export class AppointmentDetails {
   protected readonly acceptLabel = computed(() => {
     if (this.accepting()) return 'Processing…';
     if (!this.priceReady() || this.proposalFree()) return 'Accept follow-up';
-    if (this.payMethod() === 'wallet') return `Pay ${this.priceText()} from wallet & accept`;
-    return this.paidReference() ? 'Complete acceptance' : `Pay ${this.priceText()} by card & accept`;
+    if (this.payMethod() !== 'wallet' && this.paidReference()) return 'Complete acceptance';
+    return `Pay ${this.payText()} & accept`;
+  });
+  /** How it is paid (the method is picked just above): read with the short Pay label, not shown. */
+  protected readonly acceptVia = computed(() => {
+    if (this.accepting() || !this.priceReady() || this.proposalFree()) return '';
+    if (this.payMethod() === 'wallet') return ' from wallet';
+    return this.paidReference() ? '' : ' by card';
   });
 
   constructor() {

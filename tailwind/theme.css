@@ -472,3 +472,26 @@
     color: GrayText;
   }
 }
+
+/* Card CTA row: the card's buttons share its content width in equal columns, each
+ * label on one line. Set --sd-cta-min to the widest label: a line breaks when its
+ * columns would be narrower than that or than a label itself (labels never wrap,
+ * so a wider font stacks them instead of squeezing), and every line's buttons
+ * fill it, so a lone button (or a stack on a phone) spans the card.
+ * Per site: class="sd-cta-row [--sd-cta-min:12rem]" (+ [--sd-cta-gap:0.5rem] for a
+ * tighter gap). Keep hint text outside the row (every child is a column).
+ * DOM order = visual order = focus order. */
+@utility sd-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sd-cta-gap, 0.75rem);
+  & > * {
+    flex: 1 1 var(--sd-cta-min, 8rem);
+  }
+  & > :is(a, button),
+  & > sd-button > button {
+    width: 100%;
+    justify-content: center;
+    white-space: nowrap;
+  }
+}

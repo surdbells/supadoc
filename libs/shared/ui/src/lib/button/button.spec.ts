@@ -18,4 +18,18 @@ describe('ButtonComponent', () => {
     expect(button.className).toContain('bg-cerulean');
     expect(button.className).toContain('px-5');
   });
+
+  it('describedBy lands on the real button (and is absent by default)', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ButtonComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ButtonComponent);
+    fixture.detectChanges();
+    const button: HTMLButtonElement =
+      fixture.nativeElement.querySelector('button');
+    expect(button.hasAttribute('aria-describedby')).toBe(false);
+    fixture.componentRef.setInput('describedBy', 'why-now');
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-describedby')).toBe('why-now');
+  });
 });

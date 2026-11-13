@@ -161,18 +161,20 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
   host: { class: 'block' },
   template: `
     <div class="flex flex-col gap-6 py-2">
-      <!-- Header -->
-      <div class="flex items-start justify-between gap-4">
-        <div class="flex flex-col gap-1">
+      <!-- Header (a size container: the CTA keeps one line and shortens to "Book" when the row is narrow;
+           on the narrowest phones it drops below the title rather than squeezing it) -->
+      <div class="@container flex flex-wrap items-start justify-between gap-4">
+        <div class="flex flex-1 flex-col gap-1">
           <h1 class="font-heading text-h3 text-ink">My Appointments</h1>
           <p class="font-sans text-body text-slate">
             Your upcoming consultations.
             <a routerLink="/dashboard/history" class="font-semibold text-cerulean hover:underline">Past ones are in your history.</a>
           </p>
         </div>
-        <sd-button size="sm" (click)="book()">
+        <sd-button size="sm" class="shrink-0 whitespace-nowrap" (click)="book()">
           <sd-icon name="plus" [size]="18" />
-          Book Consultation
+          <!-- Screen readers always hear "Book Consultation"; narrow rows show "Book". -->
+          <span>Book<span class="@max-xl:sr-only"> Consultation</span></span>
         </sd-button>
       </div>
 
@@ -240,12 +242,13 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                   <dd>{{ p.respondBy }}</dd>
                 </div>
               </dl>
-              <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <sd-button (click)="respond(p, 'accept')">
+              <!-- Card CTAs: equal columns where they fit (2 + 1 on tablets), stacked full width on phones. -->
+              <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:13.75rem]">
+                <sd-button [full]="true" (click)="respond(p, 'accept')">
                   <sd-icon name="circle-check" [size]="18" />
                   {{ p.free ? 'Accept' : 'Accept & pay' }}
                 </sd-button>
-                <sd-button variant="outline" (click)="respond(p, 'time')">
+                <sd-button variant="outline" [full]="true" (click)="respond(p, 'time')">
                   <sd-icon name="calendar-days" [size]="18" />
                   Choose another time
                 </sd-button>

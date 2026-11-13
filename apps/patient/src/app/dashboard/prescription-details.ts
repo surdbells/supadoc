@@ -413,7 +413,7 @@ function httpStatus(err: unknown): number | undefined {
                       <!-- The doctor already proposed one: answer it rather than book another. -->
                       <a
                         [routerLink]="['/dashboard/appointments', proposal]"
-                        class="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-field bg-teal px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-teal/90"
+                        class="mt-1 inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-field bg-teal px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-teal/90"
                       >
                         <sd-icon name="calendar-clock" [size]="16" />
                         Review proposed follow-up
@@ -423,7 +423,7 @@ function httpStatus(err: unknown): number | undefined {
                       <a
                         [routerLink]="['/dashboard/appointments/book', p.specialist_id]"
                         [queryParams]="followUpParams()"
-                        class="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
+                        class="mt-1 inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-field bg-cerulean px-4 py-2.5 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-cerulean-dark"
                       >
                         <sd-icon name="video" [size]="16" />
                         Book video follow-up

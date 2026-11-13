@@ -213,14 +213,12 @@ interface ShareRequest {
           </div>
         }
 
-        <div class="flex flex-wrap gap-2">
+        <!-- Card CTAs: equal columns where they fit, the rest wrap and fill (the hint goes below the row). -->
+        <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:10.75rem]">
           @if (d.access.state === 'none') {
             <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!d.can_share" (click)="shareWith(d)">
               <sd-icon name="share-2" [size]="16" />Share documents
             </button>
-            @if (!d.can_share) {
-              <p class="w-full font-sans text-caption text-slate">{{ dr(d.specialist.name) }} isn't practising on VideoMed right now.</p>
-            }
           } @else {
             <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean disabled:opacity-60" [disabled]="!mainOf(d)" (click)="change(d)">
               <sd-icon name="pen-line" [size]="16" />Change
@@ -233,6 +231,9 @@ interface ShareRequest {
             </button>
           }
         </div>
+        @if (d.access.state === 'none' && !d.can_share) {
+          <p class="-mt-2 font-sans text-caption text-slate">{{ dr(d.specialist.name) }} isn't practising on VideoMed right now.</p>
+        }
 
         @if (grantsOf(d).length > 0) {
           <div class="flex flex-col gap-2 border-t border-cloud pt-3">

@@ -53,7 +53,12 @@ const SIZES: Record<ButtonSize, string> = {
     '[class.inline-block]': '!full()',
   },
   template: `
-    <button [type]="type()" [class]="classes()" [disabled]="disabled()">
+    <button
+      [type]="type()"
+      [class]="classes()"
+      [disabled]="disabled()"
+      [attr.aria-describedby]="describedBy()"
+    >
       <ng-content />
     </button>
   `,
@@ -65,6 +70,8 @@ export class ButtonComponent {
   readonly disabled = input<boolean>(false);
   /** Stretch to the full width of the container (as forms do in the design). */
   readonly full = input<boolean>(false);
+  /** Id(s) of text that explains the action (e.g. a caption beside a short label), read with it. */
+  readonly describedBy = input<string | null>(null);
 
   protected readonly classes = computed(() =>
     [

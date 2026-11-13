@@ -78,7 +78,7 @@ const RX_STATUS: Record<PrescriptionStatus, { label: string; icon: string; cls: 
           </p>
         </div>
         @if (hasAny()) {
-          <button #headerUpload type="button" class="flex items-center gap-2 rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="startUpload()">
+          <button #headerUpload type="button" class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-field bg-cerulean px-5 py-3 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="startUpload()">
             <sd-icon name="upload" [size]="18" />Upload Document
           </button>
         }
