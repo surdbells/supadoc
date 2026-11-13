@@ -218,7 +218,7 @@ interface WhenVm {
       </div>
 
       <!-- Actions: two equal columns when both labels fit, stacked (full width) otherwise. -->
-      <div class="sd-cta-row mt-auto [--sd-cta-min:11rem]">
+      <div class="sd-cta-row mt-auto [--sd-cta-min:12.5rem]">
         <sd-button
           variant="outline"
           size="sm"

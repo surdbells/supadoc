@@ -318,7 +318,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                     PDF. You choose the lab and pay it directly.
                   </p>
                   <!-- Card CTAs: equal columns where both fit, stacked full width otherwise. -->
-                  <div class="sd-cta-row empty:hidden [--sd-cta-min:11rem]">
+                  <div class="sd-cta-row empty:hidden [--sd-cta-min:12.25rem]">
                     @if (r.can.accept) {
                       <sd-button [full]="true" (click)="openAccept()">
                         <sd-icon
@@ -359,9 +359,8 @@ export const LAB_STAT_ALERT_IN_LAB =
                       />You said: {{ p }}
                     </p>
                   }
-                  <div
-                    class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-2xl"
-                  >
+                  <!-- Card CTAs: equal columns where the labels fit, stacked full width otherwise. -->
+                  <div class="sd-cta-row lg:max-w-2xl [--sd-cta-min:15.5rem]">
                     @if (r.can.pdf) {
                       <ng-container [ngTemplateOutlet]="pdfButtons" />
                     }
@@ -407,9 +406,7 @@ export const LAB_STAT_ALERT_IN_LAB =
                     When the lab gives you your result, add it here so
                     {{ doctor() }} can review it.
                   </p>
-                  <div
-                    class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-2xl"
-                  >
+                  <div class="sd-cta-row lg:max-w-2xl [--sd-cta-min:12.25rem]">
                     @if (r.can.upload) {
                       <sd-button [full]="true" (click)="openUpload()">
                         <sd-icon

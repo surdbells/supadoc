@@ -244,7 +244,8 @@ function httpStatus(err: unknown): number | undefined {
               >
                 <sd-icon name="file-text" [size]="20" />Prescription file
               </h2>
-              <div class="grid grid-cols-1 gap-3 md:grid-cols-3 lg:max-w-2xl">
+              <!-- Card CTAs: equal columns where the labels fit, stacked full width otherwise. -->
+              <div class="sd-cta-row lg:max-w-2xl [--sd-cta-min:10rem]">
                 <sd-button [full]="true" (click)="view($event)">
                   <sd-icon name="eye" [size]="18" class="inline-flex" />
                   View

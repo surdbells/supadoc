@@ -373,7 +373,7 @@ function greetingFor(now: Date): string {
                 }
               </div>
               <!-- Card CTAs: two equal columns when both fit, stacked (full width) otherwise. -->
-              <div class="sd-cta-row [--sd-cta-min:6.75rem]">
+              <div class="sd-cta-row [--sd-cta-min:7.75rem]">
                 <sd-button
                   variant="outline"
                   size="sm"

@@ -214,7 +214,7 @@ interface ShareRequest {
         }
 
         <!-- Card CTAs: equal columns where they fit, the rest wrap and fill (the hint goes below the row). -->
-        <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:10.75rem]">
+        <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:12rem]">
           @if (d.access.state === 'none') {
             <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!d.can_share" (click)="shareWith(d)">
               <sd-icon name="share-2" [size]="16" />Share documents
@@ -251,7 +251,7 @@ interface ShareRequest {
                         @for (t of titlesOf(g); track $index) { <li class="truncate">{{ t }}</li> }
                       </ul>
                     }
-                    <div class="flex flex-wrap gap-2">
+                    <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:10rem]">
                       <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean" (click)="extend(d, g)">
                         <sd-icon name="calendar-clock" [size]="14" />Change end date
                       </button>

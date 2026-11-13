@@ -101,7 +101,7 @@ const COPIED_MS = 3000;
         @if (list()?.can_add && !formOpen()) {
           <button
             type="button"
-            class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
+            class="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none sm:w-auto"
             [attr.aria-expanded]="formOpen()"
             aria-controls="add-guest-form"
             (click)="openForm()"
@@ -208,7 +208,7 @@ const COPIED_MS = 3000;
                     @if (g.join_url) {
                       <button
                         type="button"
-                        class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
+                        class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:shadow-none"
                         [attr.aria-label]="
                           (copied() === g.id
                             ? 'Copied link for '
@@ -225,7 +225,7 @@ const COPIED_MS = 3000;
                     }
                     <button
                       type="button"
-                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+                      class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-field border border-haze bg-white px-3 font-sans text-caption font-semibold text-cerulean shadow-control transition hover:border-cerulean active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
                       [attr.aria-label]="
                         resendWaitOf(g)
                           ? 'Resend in ' + resendWaitOf(g) + ' to ' + g.name
@@ -247,7 +247,7 @@ const COPIED_MS = 3000;
                     </button>
                     <button
                       type="button"
-                      class="inline-flex min-h-11 items-center gap-1.5 rounded-field border border-alert/40 px-3 font-sans text-caption font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none"
+                      class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-field border border-alert/40 px-3 font-sans text-caption font-semibold text-alert shadow-control transition hover:bg-alert/5 active:shadow-none disabled:shadow-none"
                       [attr.aria-label]="'Remove ' + g.name"
                       (click)="askRemove(g)"
                     >

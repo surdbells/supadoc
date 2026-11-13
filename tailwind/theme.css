@@ -474,10 +474,13 @@
 }
 
 /* Card CTA row: the card's buttons share its content width in equal columns, each
- * label on one line. Set --sd-cta-min to the widest label: a line breaks when its
- * columns would be narrower than that or than a label itself (labels never wrap,
- * so a wider font stacks them instead of squeezing), and every line's buttons
+ * label on one line. A line breaks when its columns would be narrower than
+ * --sd-cta-min or than a label itself (labels never wrap), and every line's buttons
  * fill it, so a lone button (or a stack on a phone) spans the card.
+ * Set --sd-cta-min ~8% above the widest label as rendered in a wide system font
+ * (Arial/Roboto/SF run ~4-6% wider than Segoe UI): columns are only guaranteed
+ * equal while every label fits within it; a label wider than it gets its own
+ * width and the other button the rest.
  * Per site: class="sd-cta-row [--sd-cta-min:12rem]" (+ [--sd-cta-gap:0.5rem] for a
  * tighter gap). Keep hint text outside the row (every child is a column).
  * DOM order = visual order = focus order. */

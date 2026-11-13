@@ -243,7 +243,7 @@ function toProposalCard(a: AppointmentDto): ProposalCard {
                 </div>
               </dl>
               <!-- Card CTAs: equal columns where they fit (2 + 1 on tablets), stacked full width on phones. -->
-              <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:13.75rem]">
+              <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:15.5rem]">
                 <sd-button [full]="true" (click)="respond(p, 'accept')">
                   <sd-icon name="circle-check" [size]="18" />
                   {{ p.free ? 'Accept' : 'Accept & pay' }}

@@ -353,6 +353,53 @@ describe('AppointmentDetails › header and card CTAs', () => {
     expect(text(el.querySelector('#pat-join-reason'))).toBe('Your doctor is in the call');
   });
 
+  describe('follow-up proposal: the one-line Pay label (LD-B)', () => {
+    const proposal = () =>
+      ({
+        status: 'proposed',
+        amount: '15000',
+        scheduled_at: soon(),
+        expires_at: new Date(Date.now() + 864e5).toISOString(),
+        follow_up_note: '',
+        can_cancel: false,
+        can_reschedule: false,
+      }) as unknown as Partial<AppointmentDto>;
+    /** The Accept button in the proposal footer's CTA row (Decline is the raw button before it). */
+    const pay = () => [...el.querySelectorAll('.sd-cta-row sd-button > button')].find((b) => /accept|acceptance/i.test(b.textContent ?? '')) as HTMLButtonElement;
+    /** What a sighted user reads (the sr-only method left out). */
+    const shown = (b: Element) => {
+      const k = b.cloneNode(true) as Element;
+      k.querySelectorAll('.sr-only').forEach((n) => n.remove());
+      return text(k);
+    };
+
+    it('by card: shows "Pay ₦15,000 & accept"; the name starts with it and then says how', async () => {
+      await render(proposal());
+      const b = pay();
+      expect(b.closest('.sd-cta-row')?.children.length).toBe(2);
+      expect(shown(b)).toBe('Pay ₦15,000 & accept');
+      // Label in Name (WCAG 2.5.3): the visible label first, the method after it.
+      expect(text(b)).toBe('Pay ₦15,000 & accept, by card');
+    });
+
+    it('from the wallet: the method read after the label changes, the visible label does not', async () => {
+      await render(proposal());
+      const wallet = [...el.querySelectorAll('button[aria-pressed]')].find((b) => /Wallet/.test(b.textContent ?? '')) as HTMLButtonElement;
+      wallet.click();
+      await settle();
+      expect(shown(pay())).toBe('Pay ₦15,000 & accept');
+      expect(text(pay())).toBe('Pay ₦15,000 & accept, from wallet');
+    });
+
+    it('a card payment already made reads "Complete acceptance" (no method)', async () => {
+      await render(proposal());
+      (fixture.componentInstance as unknown as { paid: { set(v: unknown): void } }).paid.set({ reference: 'ref-1', amount: 15000 });
+      await settle();
+      expect(text(pay())).toBe('Complete acceptance');
+      expect(pay().querySelector('.sr-only')).toBeNull();
+    });
+  });
+
   it('Shared-with card: Share documents is in the CTA row; Manage sharing is a link below it', async () => {
     await render({});
     const share = [...el.querySelectorAll('button')].find((b) => text(b) === 'Share documents') as HTMLButtonElement;

@@ -54,9 +54,11 @@ const SITES: Record<string, number> = {
   'specialist-card.ts': 1, // View Profile | Book Consultation (Find a specialist + public list)
   'appointment-details.ts': 4, // proposal footer, actions card, document request, Shared-with footer
   'appointments.ts': 1, // follow-up proposal cards (3 CTAs)
-  'lab-request-details.ts': 1, // Accept request | Decline
+  'lab-request-details.ts': 3, // Accept request | Decline; booked (PDF, sample, upload); in the lab (upload, PDF)
   'access-requests-banner.ts': 1, // Review request | Decline
-  'sharing-doctors-panel.ts': 1, // per-doctor actions
+  'sharing-doctors-panel.ts': 2, // per-doctor actions; per-share Change end date | Stop
+  'book-consultation.ts': 1, // "You've already paid" card: Not now | Complete your paid booking
+  'prescription-details.ts': 1, // Prescription file: View | Download | Print
 };
 
 describe('card CTAs guard', () => {
@@ -99,11 +101,13 @@ describe('card CTAs guard', () => {
     for (const file of Object.keys(SITES)) {
       for (const m of dash(file).matchAll(hug)) {
         const cls = m[1].split(/\s+/);
-        // A centred row is an error / empty state's retry, not a card's CTAs.
+        // A centred row is an error / empty state's retry, and a row spread to both ends is a
+        // wizard's Back … Continue footer (booking steps): neither is a card's CTAs.
         if (
           cls.includes('flex') &&
           !cls.includes('flex-col') &&
-          !cls.includes('justify-center')
+          !cls.includes('justify-center') &&
+          !cls.includes('justify-between')
         ) {
           expect(cls, `${file}: ${m[1]}`).toContain('sd-cta-row');
         }
@@ -117,6 +121,8 @@ describe('card CTAs guard', () => {
       'specialist-card.ts',
       'appointments.ts',
       'lab-request-details.ts',
+      'book-consultation.ts',
+      'prescription-details.ts',
     ]) {
       for (const { body } of rows(dash(file))) {
         for (const tag of body.match(/<sd-button\b[^>]*>/g) ?? [])

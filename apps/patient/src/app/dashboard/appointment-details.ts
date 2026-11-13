@@ -644,10 +644,10 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   }
 
                   <!-- Card CTAs: Decline | Accept in equal columns where both fit, stacked full width otherwise. -->
-                  <div class="sd-cta-row border-t border-cloud pt-4 [--sd-cta-min:13.75rem]">
+                  <div class="sd-cta-row border-t border-cloud pt-4 [--sd-cta-min:15.75rem]">
                     <button
                       type="button"
-                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-field border border-alert px-4 py-[11px] font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 disabled:opacity-60"
                       [disabled]="accepting()"
                       (click)="openDecline()"
                     >
@@ -660,9 +660,10 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                       } @else {
                         <sd-icon name="circle-check" [size]="18" />
                       }
-                      <!-- Shows "Pay ₦X & accept"; screen readers also hear how ("from wallet" / "by card"). -->
+                      <!-- Shows "Pay ₦X & accept"; screen readers then hear how (", from wallet" / ", by card"),
+                           so the name starts with the visible label (WCAG 2.5.3). -->
                       @if (acceptVia(); as via) {
-                        <span>Pay {{ payText() }}<span class="sr-only">{{ via }}</span> &amp; accept</span>
+                        <span>Pay {{ payText() }} &amp; accept<span class="sr-only">{{ via }}</span></span>
                       } @else {
                         {{ acceptLabel() }}
                       }
@@ -698,7 +699,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   </p>
                 </div>
               </div>
-              <div class="flex shrink-0 flex-col gap-3 lg:w-[240px]">
+              <div class="flex shrink-0 flex-col gap-3 lg:w-min lg:min-w-60">
                 <!-- Why to join now sits above the buttons (the label stays one short line) and is read with Join. -->
                 @if (v.canJoin && joinReason(v); as reason) {
                   <p id="pat-join-reason" class="flex items-center gap-1.5 font-sans text-caption font-semibold text-sage-ink">
@@ -707,7 +708,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   </p>
                 }
                 <!-- Card CTAs: equal columns where they fit, stacked full width otherwise (hints stay outside the row). -->
-                <div class="sd-cta-row empty:hidden [--sd-cta-min:14.25rem]">
+                <div class="sd-cta-row empty:hidden [--sd-cta-min:16rem]">
                   <!-- A soft green halo once the doctor is waiting or it has started -->
                   @if (v.canJoin) {
                     <sd-button
@@ -728,7 +729,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   @if (v.canCancel) {
                     <button
                       type="button"
-                      class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-3 font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 aria-busy:opacity-70"
+                      class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-field border border-alert px-4 py-[11px] font-sans text-body font-semibold text-alert transition-colors hover:bg-alert/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 aria-busy:opacity-70"
                       [attr.aria-busy]="cancelChecking() || null"
                       (click)="cancel()"
                     >
@@ -812,7 +813,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                   @if (s.pending_request; as r) {
                     <div class="flex flex-col gap-2 rounded-field bg-warning/15 px-3 py-3 font-sans text-body-sm text-warning-ink">
                       <p class="flex items-start gap-2"><sd-icon name="key-round" [size]="18" class="mt-0.5 shrink-0" />{{ doctorDisplayName() }} asked to see your documents.</p>
-                      <div class="sd-cta-row pl-6 [--sd-cta-gap:0.5rem] [--sd-cta-min:5.25rem]">
+                      <div class="sd-cta-row pl-6 [--sd-cta-gap:0.5rem] [--sd-cta-min:6rem]">
                         <button type="button" class="inline-flex min-h-11 items-center rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean" (click)="reviewRequest(r)">Review</button>
                         <button type="button" class="inline-flex min-h-11 items-center rounded-field border border-haze bg-white px-4 font-sans text-body-sm font-semibold text-slate shadow-control transition hover:border-cerulean" (click)="reviewRequest(r, true)">Decline</button>
                       </div>
@@ -888,7 +889,7 @@ function toDetails(a: AppointmentDto, now: number): DetailsVm {
                     </p>
                   }
                   <!-- Card CTAs: equal columns where both fit, stacked full width otherwise; the text link follows. -->
-                  <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:11rem]">
+                  <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:12.25rem]">
                     <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-field bg-cerulean px-4 font-sans text-body-sm font-semibold text-white transition-colors hover:bg-ocean disabled:opacity-60" [disabled]="!s.can_share" (click)="shareWithDoctor(s.specialist.id)">
                       <sd-icon name="share-2" [size]="16" />Share documents
                     </button>
@@ -1415,11 +1416,11 @@ export class AppointmentDetails {
     if (this.payMethod() !== 'wallet' && this.paidReference()) return 'Complete acceptance';
     return `Pay ${this.payText()} & accept`;
   });
-  /** How it is paid (the method is picked just above): read with the short Pay label, not shown. */
+  /** How it is paid (the method is picked just above): read after the short Pay label, not shown. */
   protected readonly acceptVia = computed(() => {
     if (this.accepting() || !this.priceReady() || this.proposalFree()) return '';
-    if (this.payMethod() === 'wallet') return ' from wallet';
-    return this.paidReference() ? '' : ' by card';
+    if (this.payMethod() === 'wallet') return ', from wallet';
+    return this.paidReference() ? '' : ', by card';
   });
 
   constructor() {

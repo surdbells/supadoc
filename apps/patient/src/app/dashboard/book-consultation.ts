@@ -318,7 +318,7 @@ function daysApart(a: string, b: string): number {
       <!-- A card payment from before a reload / dropped connection that no booking used yet -->
       @if (resumable(); as p) {
         <div
-          class="flex flex-col gap-3 rounded-card border border-cerulean/30 bg-frost/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          class="flex flex-col gap-3 rounded-card border border-cerulean/30 bg-frost/30 px-4 py-3"
           role="status"
         >
           <p class="flex min-w-0 items-start gap-2 font-sans text-body-sm text-ink">
@@ -330,9 +330,10 @@ function daysApart(a: string, b: string): number {
               wallet automatically {{ creditDueLabel(p.creditDueAt) }}.
             </span>
           </p>
-          <div class="flex shrink-0 flex-wrap gap-2">
-            <sd-button variant="outline" size="sm" (click)="dismissResume()">Not now</sd-button>
-            <sd-button size="sm" [disabled]="doctorGone()" (click)="resumePaidBooking()">Complete your paid booking</sd-button>
+          <!-- Card CTAs: equal columns under the text where both fit, stacked full width otherwise. -->
+          <div class="sd-cta-row [--sd-cta-gap:0.5rem] [--sd-cta-min:15.5rem]">
+            <sd-button variant="outline" size="sm" [full]="true" (click)="dismissResume()">Not now</sd-button>
+            <sd-button size="sm" [full]="true" [disabled]="doctorGone()" (click)="resumePaidBooking()">Complete your paid booking</sd-button>
           </div>
         </div>
       }
