@@ -11,6 +11,7 @@ export * from './lib/provide-staff-auth';
 export * from './lib/session/session-auth';
 export * from './lib/session/session-http';
 export * from './lib/session/session-notice';
+export * from './lib/session/portal-hint';
 export * from './lib/session/session-timeout.service';
 export * from './lib/session/session-timeout-dialog';
 export {

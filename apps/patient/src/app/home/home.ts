@@ -2,15 +2,29 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
-import { ButtonComponent, IconComponent, LogoComponent } from '@supadoc/ui';
+import { isPlainClick, readPortalHints } from '@supadoc/auth/portal';
+import {
+  ButtonComponent,
+  buttonClass,
+  IconComponent,
+  LogoComponent,
+} from '@supadoc/ui';
 import { HomeDiscovery } from './home-discovery';
 import { ThemeService } from '../theme.service';
 
+interface DashboardLink {
+  readonly href: string;
+  /** Accessible name (says which portal for staff). */
+  readonly label: string;
+  /** The patient dashboard (this app) rather than a staff portal (another site). */
+  readonly inApp: boolean;
+}
 interface Feature {
   readonly icon: string;
   readonly title: string;
@@ -78,11 +92,16 @@ interface Doctor {
             >
               <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="20" />
             </button>
-            @if (loggedIn()) {
-              <sd-button size="sm" (click)="go('/dashboard')">
+            @if (dashboard(); as d) {
+              <a
+                [href]="d.href"
+                [class]="dashboardClass"
+                [attr.aria-label]="d.label"
+                (click)="openDashboard($event, d)"
+              >
                 <sd-icon name="layout-dashboard" [size]="16" />
                 Go to Dashboard
-              </sd-button>
+              </a>
             } @else {
               <sd-button variant="outline" size="sm" (click)="go('/auth/login')"
                 >Sign in</sd-button
@@ -102,6 +121,17 @@ interface Doctor {
             >
               <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="22" />
             </button>
+            @if (dashboard(); as d) {
+              <a
+                [href]="d.href"
+                class="flex size-9 items-center justify-center rounded-full text-ink transition-colors hover:bg-glacier hover:text-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+                [attr.aria-label]="d.label"
+                title="Go to Dashboard"
+                (click)="openDashboard($event, d)"
+              >
+                <sd-icon name="layout-dashboard" [size]="22" />
+              </a>
+            }
             <button
               type="button"
               class="text-ink"
@@ -127,11 +157,16 @@ interface Doctor {
               >
             }
             <div class="mt-2 flex gap-3">
-              @if (loggedIn()) {
-                <sd-button size="sm" [full]="true" (click)="go('/dashboard')">
+              @if (dashboard(); as d) {
+                <a
+                  [href]="d.href"
+                  [class]="dashboardFullClass"
+                  [attr.aria-label]="d.label"
+                  (click)="openDashboard($event, d)"
+                >
                   <sd-icon name="layout-dashboard" [size]="16" />
                   Go to Dashboard
-                </sd-button>
+                </a>
               } @else {
                 <sd-button
                   variant="outline"
@@ -692,6 +727,43 @@ export class Home {
   private readonly themeSvc = inject(ThemeService);
   /** Reflects the header/CTAs to the signed-in state (no logout needed to browse home). */
   protected readonly loggedIn = computed(() => this.auth.isAuthenticated());
+  /** Staff portals signed in on this browser (non-secret hint cookies, re-read on return to the tab). */
+  private readonly portalHints = signal(readPortalHints());
+  /**
+   * The header's "Go to Dashboard" (null: signed out → Sign in / Register): a
+   * signed-in patient's own dashboard first, else a doctor or admin portal.
+   * Known synchronously at first render (token + cookie), so nothing flashes.
+   */
+  protected readonly dashboard = computed<DashboardLink | null>(() => {
+    if (this.loggedIn())
+      return { href: '/dashboard', label: 'Go to Dashboard', inApp: true };
+    const hints = this.portalHints();
+    if (hints.doctor) {
+      const label = 'Go to Dashboard (doctor portal)';
+      return { href: hints.doctor, label, inApp: false };
+    }
+    if (hints.admin) {
+      const label = 'Go to Dashboard (admin console)';
+      return { href: hints.admin, label, inApp: false };
+    }
+    return null;
+  });
+  protected readonly dashboardClass = buttonClass('primary', 'sm');
+  protected readonly dashboardFullClass = buttonClass('primary', 'sm', true);
+
+  constructor() {
+    // Signed in or out of a portal in another tab (or this one, then Back): follow it.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible')
+        this.portalHints.set(readPortalHints());
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pageshow', onVisible);
+    inject(DestroyRef).onDestroy(() => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onVisible);
+    });
+  }
   protected readonly isDark = computed(() => this.themeSvc.theme() === 'dark');
   protected readonly menuOpen = signal(false);
 
@@ -840,6 +912,13 @@ export class Home {
   protected go(url: string): void {
     this.menuOpen.set(false);
     void this.router.navigateByUrl(url);
+  }
+
+  /** The patient dashboard opens in-app; a staff portal is another site (the link itself). */
+  protected openDashboard(e: MouseEvent, d: DashboardLink): void {
+    if (!d.inApp || !isPlainClick(e)) return;
+    e.preventDefault();
+    this.go(d.href);
   }
 
   /** Book CTA: signed-in users go straight to the specialist directory. */

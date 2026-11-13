@@ -34,7 +34,11 @@ export const appConfig: ApplicationConfig = {
     ),
     provideSupadocDataAccess({ baseUrl: environment.apiBaseUrl }),
     // Back-office silo: its own token key; nav/routes gate on RBAC permissions.
-    provideStaffAuth({ storageKey: 'videomed.admin.token' }),
+    // portalHint: the public homepage may offer "Go to Dashboard" (non-secret cookie).
+    provideStaffAuth({
+      storageKey: 'videomed.admin.token',
+      portalHint: 'admin',
+    }),
     // Idle timeout + session-expiry sign-out (warning dialog: <sd-session-timeout />).
     provideSessionTimeout(StaffAuthService, environment.session),
     provideSupadocIcons(),

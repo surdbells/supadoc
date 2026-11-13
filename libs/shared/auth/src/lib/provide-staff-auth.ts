@@ -3,6 +3,7 @@ import {
   InjectionToken,
   makeEnvironmentProviders,
 } from '@angular/core';
+import type { PortalKind } from './session/portal-hint';
 
 /** Per-app configuration for the staff/doctor/admin auth silo. */
 export interface StaffAuthConfig {
@@ -17,6 +18,11 @@ export interface StaffAuthConfig {
    * and blocked by `staffAuthGuard` (e.g. the doctor app requires `doctor`).
    */
   requiredRole?: string;
+  /**
+   * Set a non-secret parent-domain cookie while signed in, so the public
+   * homepage can offer this portal's dashboard (see `session/portal-hint.ts`).
+   */
+  portalHint?: PortalKind;
 }
 
 export const STAFF_AUTH_CONFIG = new InjectionToken<StaffAuthConfig>(

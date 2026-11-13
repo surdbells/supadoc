@@ -44,6 +44,8 @@ export const appConfig: ApplicationConfig = {
     provideStaffAuth({
       storageKey: 'videomed.doctor.token',
       requiredRole: 'doctor',
+      // The public homepage may then offer "Go to Dashboard" (a non-secret hint cookie).
+      portalHint: 'doctor',
     }),
     // Idle timeout + session-expiry sign-out (warning dialog: <sd-session-timeout />).
     provideSessionTimeout(StaffAuthService, environment.session),

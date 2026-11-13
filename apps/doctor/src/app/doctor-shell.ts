@@ -16,6 +16,12 @@ import {
 } from '@angular/router';
 import { filter, map, tap } from 'rxjs';
 import { StaffAuthService } from '@supadoc/auth';
+import {
+  isPlainClick,
+  leaveForHome,
+  PAGE_LOCATION,
+  publicHomeUrl,
+} from '@supadoc/auth/portal';
 import { DoctorApi, StaffNotificationsApi, syncDetectedTimeZone } from '@supadoc/data-access';
 import { IconComponent } from '@supadoc/ui';
 import { DoctorClock } from './doctor-clock';
@@ -90,9 +96,15 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
             >
               <sd-icon name="menu" [size]="24" />
             </button>
-            <span class="font-heading text-h5 tracking-tight">
+            <a
+              [href]="homeUrl"
+              class="rounded-lg font-heading text-h5 tracking-tight focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              aria-label="VideoMed home"
+              title="VideoMed home"
+              (click)="goHome($event)"
+            >
               <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
-            </span>
+            </a>
           </div>
 
           <div class="flex items-center gap-3">
@@ -152,7 +164,13 @@ const EXPLAINS_STANDING = ['/dashboard', '/account-status', '/onboarding'];
 
     <ng-template #nav>
       <div class="flex flex-col gap-10">
-        <a routerLink="/dashboard" class="flex items-center gap-2" (click)="menuOpen.set(false)">
+        <a
+          [href]="homeUrl"
+          class="flex items-center gap-2 self-start rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+          aria-label="VideoMed home"
+          title="VideoMed home"
+          (click)="goHome($event)"
+        >
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
@@ -308,6 +326,18 @@ export class DoctorShell {
   }
 
   private readonly signOut = inject(DoctorSignOut);
+
+  /** The logo's target: the public homepage (another site), still signed in. */
+  private readonly location = inject(PAGE_LOCATION);
+  protected readonly homeUrl = publicHomeUrl(this.location);
+
+  /** The logo: a plain click goes through `go/home` (asks about unsaved edits first). */
+  protected goHome(e: MouseEvent): void {
+    this.menuOpen.set(false);
+    if (!isPlainClick(e)) return;
+    e.preventDefault();
+    void leaveForHome(this.router, this.location);
+  }
 
   /** "Sign out?" (the app's dialog), then out to the sign-in page. */
   protected askLogout(): void {

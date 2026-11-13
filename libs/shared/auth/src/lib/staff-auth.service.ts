@@ -9,6 +9,7 @@ import {
   SESSION_END_MESSAGES,
   setSessionNotice,
 } from './session/session-notice';
+import { writePortalHint } from './session/portal-hint';
 import { clearReturnTarget, readReturnTarget, returnUrlFor, writeReturnTarget } from './session/return-url';
 import { REFRESH_TIMEOUT_MS, RefreshBackoff, withRefreshLock } from './session/session-refresh';
 import {
@@ -61,6 +62,7 @@ export class StaffAuthService implements SessionAuth {
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (e) => this.onStorage(e));
     }
+    this.syncPortalHint();
   }
 
   /** Shared (cross-tab) last-activity timestamp for the idle timeout. */
@@ -242,6 +244,7 @@ export class StaffAuthService implements SessionAuth {
         this._token.set(access);
         this.write(this.tokenKey, access);
         this.write(this.clockKey, String(clockOffsetFrom(access)));
+        this.syncPortalHint();
         return true;
       } catch (err) {
         if (this.read(this.refreshKey) !== refresh) return this._token() !== null;
@@ -360,6 +363,7 @@ export class StaffAuthService implements SessionAuth {
       this.backoff.reset();
     }
     this._token.set(next);
+    this.syncPortalHint();
     // Someone else signed in in another tab: start this one over under them,
     // rather than showing the previous user's page (and data) with their token.
     if (next !== null && prev !== null && jwtSubject(next) !== jwtSubject(prev)) this.reloadPage();
@@ -414,6 +418,7 @@ export class StaffAuthService implements SessionAuth {
     this.write(this.clockKey, String(clockOffsetFrom(access)));
     this.write(this.userKey, JSON.stringify(user));
     if (refresh !== null) this.write(this.refreshKey, refresh);
+    this.syncPortalHint();
   }
 
   private clear(): void {
@@ -426,6 +431,18 @@ export class StaffAuthService implements SessionAuth {
         /* no-op */
       }
     }
+    this.syncPortalHint();
+  }
+
+  /**
+   * Keep the homepage's "signed in to this portal" hint (session/portal-hint.ts)
+   * in step with the session: set while signed in, lasting no longer than the
+   * session can; removed on sign-out. Only for apps that opt in.
+   */
+  private syncPortalHint(): void {
+    const kind = this.config.portalHint;
+    if (!kind) return;
+    writePortalHint(kind, this._token() === null ? 0 : this.sessionDeadline());
   }
 
   private readUser(): StaffUserDto | null {

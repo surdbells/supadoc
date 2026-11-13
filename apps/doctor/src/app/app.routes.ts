@@ -22,6 +22,8 @@ export const appRoutes: Route[] = [
     data: { mode: 'reset' },
     loadComponent: () => import('./auth/choose-password').then((m) => m.DoctorChoosePassword),
   },
+  // The logo leaves for the public homepage through here, still signed in (see leaveForHome).
+  { path: 'go/home', children: [] },
   {
     // In-call cockpit — reached via a preauthenticated join token, outside the shell.
     // (No standing guard: the link works without a portal session, and the API's

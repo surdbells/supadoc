@@ -44,6 +44,17 @@ const SIZES: Record<ButtonSize, string> = {
   lg: 'px-5 py-3.5 text-[18px] leading-7',
 };
 
+/** The button's classes, for a link that must look like one (`<a [class]="buttonClass('primary', 'sm')">`). */
+export function buttonClass(
+  variant: ButtonVariant,
+  size: ButtonSize,
+  full = false,
+): string {
+  return [BASE, VARIANTS[variant], SIZES[size], full ? 'w-full' : '']
+    .join(' ')
+    .trim();
+}
+
 /** Shared design-system button. Usage: `<sd-button variant="primary">Save</sd-button>`. */
 @Component({
   selector: 'sd-button',
@@ -74,13 +85,6 @@ export class ButtonComponent {
   readonly describedBy = input<string | null>(null);
 
   protected readonly classes = computed(() =>
-    [
-      BASE,
-      VARIANTS[this.variant()],
-      SIZES[this.size()],
-      this.full() ? 'w-full' : '',
-    ]
-      .join(' ')
-      .trim(),
+    buttonClass(this.variant(), this.size(), this.full()),
   );
 }

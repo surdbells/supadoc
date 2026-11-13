@@ -119,7 +119,14 @@ const zoneSynced = new Set<string>();
             >
               <sd-icon name="menu" [size]="24" />
             </button>
-            <sd-logo [size]="28" />
+            <a
+              routerLink="/"
+              class="inline-flex rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              aria-label="VideoMed home"
+              title="VideoMed home"
+            >
+              <sd-logo [size]="28" />
+            </a>
           </div>
 
           <div class="flex items-center gap-4 lg:gap-6">
@@ -194,8 +201,10 @@ const zoneSynced = new Set<string>();
         >
           @if (!collapsed) {
             <a
-              routerLink="/dashboard"
-              class="flex items-center gap-2"
+              routerLink="/"
+              class="flex items-center gap-2 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              aria-label="VideoMed home"
+              title="VideoMed home"
               (click)="menuOpen.set(false)"
             >
               <sd-logo [size]="32" />

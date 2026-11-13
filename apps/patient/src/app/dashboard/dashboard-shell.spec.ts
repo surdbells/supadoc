@@ -105,6 +105,28 @@ describe('DashboardShell', () => {
     expect(shell.querySelector('pat-dashboard-shell aside')).toBeTruthy();
   });
 
+  it('the logo (sidebar and mobile header) goes to the homepage, still signed in; none on the call', async () => {
+    await harness.navigateByUrl('/dashboard');
+    flushStart(me('p-1', 'manual'));
+    harness.detectChanges();
+    const shell = harness.fixture.nativeElement as HTMLElement;
+    const logos = Array.from(
+      shell.querySelectorAll('pat-dashboard-shell a[aria-label="VideoMed home"]'),
+    );
+    // The desktop sidebar's and the mobile header's (the drawer is closed).
+    expect(logos).toHaveLength(2);
+    for (const a of logos) {
+      expect(a.getAttribute('href')).toBe('/');
+      expect(a.querySelector('sd-logo')).toBeTruthy();
+    }
+
+    await harness.navigateByUrl('/dashboard/call/ap-1');
+    harness.detectChanges();
+    expect(
+      shell.querySelector('pat-dashboard-shell a[aria-label="VideoMed home"]'),
+    ).toBeNull();
+  });
+
   it('lists Lab Tests after Prescriptions; the desktop sidebar scrolls rather than clipping Settings and Log Out', async () => {
     await harness.navigateByUrl('/dashboard');
     flushStart(me('p-1', 'manual'));

@@ -15,6 +15,12 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { StaffAuthService } from '@supadoc/auth';
+import {
+  isPlainClick,
+  leaveForHome,
+  PAGE_LOCATION,
+  publicHomeUrl,
+} from '@supadoc/auth/portal';
 import { DialogService, IconComponent } from '@supadoc/ui';
 import { filter } from 'rxjs';
 import { ApplicationsQueue } from './applications/applications-queue';
@@ -22,7 +28,6 @@ import {
   badgeCount,
   badgeLabel,
   canOpen,
-  landingLink,
   NAV,
   type NavBadge,
   type NavBadgeCounts,
@@ -63,9 +68,15 @@ import { ReviewQueue } from './specialists/review-queue';
                 <span class="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-warning ring-2 ring-glacier"></span>
               }
             </button>
-            <span class="font-heading text-h5 tracking-tight">
+            <a
+              [href]="homeUrl"
+              class="rounded-lg font-heading text-h5 tracking-tight focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+              aria-label="VideoMed home"
+              title="VideoMed home"
+              (click)="goHome($event)"
+            >
               <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
-            </span>
+            </a>
           </div>
           <div class="flex items-center gap-3">
             <bo-notification-bell />
@@ -89,7 +100,13 @@ import { ReviewQueue } from './specialists/review-queue';
 
     <ng-template #nav>
       <div class="flex flex-col gap-10">
-        <a [routerLink]="homeLink()" class="flex items-center gap-2" (click)="menuOpen.set(false)">
+        <a
+          [href]="homeUrl"
+          class="flex items-center gap-2 self-start rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
+          aria-label="VideoMed home"
+          title="VideoMed home"
+          (click)="goHome($event)"
+        >
           <span class="font-heading text-h4 tracking-tight">
             <span class="text-cerulean">Video</span><span class="text-sage">Med</span>
           </span>
@@ -155,8 +172,9 @@ export class AdminShell {
   protected readonly menuOpen = signal(false);
   protected readonly displayName = computed(() => this.auth.displayName());
   protected readonly roleLabel = computed(() => this.auth.roles()[0] ?? 'staff');
-  /** The logo's target: this user's landing page (not `/`, whose redirect would re-ask about unsaved edits). */
-  protected readonly homeLink = computed(() => landingLink(this.auth));
+  /** The logo's target: the public homepage (another site), still signed in. */
+  private readonly location = inject(PAGE_LOCATION);
+  protected readonly homeUrl = publicHomeUrl(this.location);
   protected readonly visibleNav = computed(() =>
     NAV.filter((item) => canOpen(this.auth, item)),
   );
@@ -193,6 +211,14 @@ export class AdminShell {
 
   protected label(badge: NavBadge, n: number): string {
     return badgeLabel(badge, n);
+  }
+
+  /** The logo: a plain click goes through `go/home` (asks about unsaved edits first). */
+  protected goHome(e: MouseEvent): void {
+    this.menuOpen.set(false);
+    if (!isPlainClick(e)) return;
+    e.preventDefault();
+    void leaveForHome(this.router, this.location);
   }
 
   protected async askLogout(): Promise<void> {
