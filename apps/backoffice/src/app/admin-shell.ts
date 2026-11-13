@@ -174,7 +174,7 @@ export class AdminShell {
   protected readonly roleLabel = computed(() => this.auth.roles()[0] ?? 'staff');
   /** The logo's target: the public homepage (another site), still signed in. */
   private readonly location = inject(PAGE_LOCATION);
-  protected readonly homeUrl = publicHomeUrl(this.location);
+  protected readonly homeUrl = publicHomeUrl(this.location, 'admin');
   protected readonly visibleNav = computed(() =>
     NAV.filter((item) => canOpen(this.auth, item)),
   );
@@ -218,7 +218,7 @@ export class AdminShell {
     this.menuOpen.set(false);
     if (!isPlainClick(e)) return;
     e.preventDefault();
-    void leaveForHome(this.router, this.location);
+    void leaveForHome(this.router, this.location, 'admin');
   }
 
   protected async askLogout(): Promise<void> {

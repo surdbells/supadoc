@@ -329,14 +329,14 @@ export class DoctorShell {
 
   /** The logo's target: the public homepage (another site), still signed in. */
   private readonly location = inject(PAGE_LOCATION);
-  protected readonly homeUrl = publicHomeUrl(this.location);
+  protected readonly homeUrl = publicHomeUrl(this.location, 'doctor');
 
   /** The logo: a plain click goes through `go/home` (asks about unsaved edits first). */
   protected goHome(e: MouseEvent): void {
     this.menuOpen.set(false);
     if (!isPlainClick(e)) return;
     e.preventDefault();
-    void leaveForHome(this.router, this.location);
+    void leaveForHome(this.router, this.location, 'doctor');
   }
 
   /** "Sign out?" (the app's dialog), then out to the sign-in page. */

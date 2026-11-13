@@ -8,7 +8,10 @@ export const appRoutes: Route[] = [
     loadComponent: () => import('./auth/admin-login').then((m) => m.AdminLogin),
   },
   // The logo leaves for the public homepage through here, still signed in (see leaveForHome).
-  { path: 'go/home', children: [] },
+  {
+    path: 'go/home',
+    loadComponent: () => import('./go-home').then((m) => m.LeavingHome),
+  },
   {
     path: '',
     // Every page, not just the shell: a token about to expire is refreshed

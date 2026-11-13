@@ -7,3 +7,4 @@
  */
 export * from './lib/portal/portal-links';
 export * from './lib/portal/leave-for-home';
+export type { PortalKind } from './lib/session/portal-hint';

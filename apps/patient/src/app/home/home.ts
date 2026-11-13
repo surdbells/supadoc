@@ -6,9 +6,16 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { AuthService } from '@supadoc/auth';
-import { isPlainClick, readPortalHints } from '@supadoc/auth/portal';
+import {
+  isPlainClick,
+  portalFrom,
+  type PortalKind,
+  readPortalHints,
+  withoutPortalFrom,
+} from '@supadoc/auth/portal';
 import {
   ButtonComponent,
   buttonClass,
@@ -24,7 +31,14 @@ interface DashboardLink {
   readonly label: string;
   /** The patient dashboard (this app) rather than a staff portal (another site). */
   readonly inApp: boolean;
+  /** Visible name when the menu lists more than one portal. */
+  readonly name?: string;
 }
+
+const STAFF_PORTALS: Record<PortalKind, { label: string; name: string }> = {
+  doctor: { label: 'Go to Dashboard (doctor portal)', name: 'Doctor portal' },
+  admin: { label: 'Go to Dashboard (admin console)', name: 'Admin console' },
+};
 interface Feature {
   readonly icon: string;
   readonly title: string;
@@ -92,17 +106,29 @@ interface Doctor {
             >
               <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="20" />
             </button>
-            @if (dashboard(); as d) {
+            @if (loggedIn()) {
               <a
-                [href]="d.href"
+                href="/dashboard"
                 [class]="dashboardClass"
-                [attr.aria-label]="d.label"
-                (click)="openDashboard($event, d)"
+                aria-label="Go to Dashboard"
+                (click)="openDashboard($event, patientDashboard)"
               >
                 <sd-icon name="layout-dashboard" [size]="16" />
                 Go to Dashboard
               </a>
             } @else {
+              <!-- A staff portal signed in on this browser: offered beside, never
+                   instead of, the patient's own Sign in / Register. -->
+              @if (staffDashboards()[0]; as d) {
+                <a
+                  [href]="d.href"
+                  [class]="staffDashboardClass"
+                  [attr.aria-label]="d.label"
+                >
+                  <sd-icon name="layout-dashboard" [size]="16" />
+                  Go to Dashboard
+                </a>
+              }
               <sd-button variant="outline" size="sm" (click)="go('/auth/login')"
                 >Sign in</sd-button
               >
@@ -121,7 +147,7 @@ interface Doctor {
             >
               <sd-icon [name]="isDark() ? 'sun' : 'moon'" [size]="22" />
             </button>
-            @if (dashboard(); as d) {
+            @if (!menuOpen() && dashboard(); as d) {
               <a
                 [href]="d.href"
                 class="flex size-9 items-center justify-center rounded-full text-ink transition-colors hover:bg-glacier hover:text-cerulean focus:outline-none focus-visible:ring-2 focus-visible:ring-cerulean/40"
@@ -156,13 +182,29 @@ interface Doctor {
                 >{{ link.label }}</a
               >
             }
+            @if (!loggedIn() && staffDashboards().length) {
+              <div class="mt-2 flex flex-col gap-2">
+                @for (d of staffDashboards(); track d.href) {
+                  <a
+                    [href]="d.href"
+                    [class]="staffDashboardFullClass"
+                    [attr.aria-label]="d.label"
+                  >
+                    <sd-icon name="layout-dashboard" [size]="16" />
+                    {{
+                      staffDashboards().length > 1 ? d.name : 'Go to Dashboard'
+                    }}
+                  </a>
+                }
+              </div>
+            }
             <div class="mt-2 flex gap-3">
-              @if (dashboard(); as d) {
+              @if (loggedIn()) {
                 <a
-                  [href]="d.href"
+                  href="/dashboard"
                   [class]="dashboardFullClass"
-                  [attr.aria-label]="d.label"
-                  (click)="openDashboard($event, d)"
+                  aria-label="Go to Dashboard"
+                  (click)="openDashboard($event, patientDashboard)"
                 >
                   <sd-icon name="layout-dashboard" [size]="16" />
                   Go to Dashboard
@@ -729,29 +771,52 @@ export class Home {
   protected readonly loggedIn = computed(() => this.auth.isAuthenticated());
   /** Staff portals signed in on this browser (non-secret hint cookies, re-read on return to the tab). */
   private readonly portalHints = signal(readPortalHints());
+  /** The portal this tab came from (the staff logo's `?from=`): its dashboard is offered first. */
+  private readonly cameFrom = portalFrom(location.search);
+  protected readonly patientDashboard: DashboardLink = {
+    href: '/dashboard',
+    label: 'Go to Dashboard',
+    inApp: true,
+  };
   /**
-   * The header's "Go to Dashboard" (null: signed out → Sign in / Register): a
-   * signed-in patient's own dashboard first, else a doctor or admin portal.
-   * Known synchronously at first render (token + cookie), so nothing flashes.
+   * The staff portals to offer (the one just left first, else the doctor
+   * portal). Shown beside Sign in / Register, which a patient on the same
+   * browser still needs; a patient session replaces them all.
    */
-  protected readonly dashboard = computed<DashboardLink | null>(() => {
-    if (this.loggedIn())
-      return { href: '/dashboard', label: 'Go to Dashboard', inApp: true };
+  protected readonly staffDashboards = computed<DashboardLink[]>(() => {
     const hints = this.portalHints();
-    if (hints.doctor) {
-      const label = 'Go to Dashboard (doctor portal)';
-      return { href: hints.doctor, label, inApp: false };
-    }
-    if (hints.admin) {
-      const label = 'Go to Dashboard (admin console)';
-      return { href: hints.admin, label, inApp: false };
-    }
-    return null;
+    const order: PortalKind[] =
+      this.cameFrom === 'admin' ? ['admin', 'doctor'] : ['doctor', 'admin'];
+    return order.flatMap((kind) => {
+      const href = hints[kind];
+      return href ? [{ href, inApp: false, ...STAFF_PORTALS[kind] }] : [];
+    });
   });
+  /**
+   * The mobile bar's dashboard icon: the patient's own dashboard, else the
+   * first staff portal; null when neither. Known synchronously at first render
+   * (token + cookie), so nothing flashes.
+   */
+  protected readonly dashboard = computed<DashboardLink | null>(() =>
+    this.loggedIn()
+      ? this.patientDashboard
+      : (this.staffDashboards()[0] ?? null),
+  );
   protected readonly dashboardClass = buttonClass('primary', 'sm');
   protected readonly dashboardFullClass = buttonClass('primary', 'sm', true);
+  protected readonly staffDashboardClass = buttonClass('ghost', 'sm');
+  protected readonly staffDashboardFullClass = buttonClass(
+    'outline',
+    'sm',
+    true,
+  );
 
   constructor() {
+    // The staff logo's `?from=` has done its job (kept for the tab): tidy the address.
+    const rest = withoutPortalFrom(location.search);
+    if (rest !== location.search)
+      inject(Location).replaceState(location.pathname, rest.slice(1));
+
     // Signed in or out of a portal in another tab (or this one, then Back): follow it.
     const onVisible = () => {
       if (document.visibilityState === 'visible')

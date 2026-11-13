@@ -27,32 +27,56 @@ const DEFAULT_HOME = 'https://patient.dosthq.com/';
 /** Dev: every app runs on localhost, the patient app on this port. */
 const DEV_PATIENT_PORT = 4201;
 
-/** The labels a staff portal's host starts with (`doctor.dosthq.com`). */
-const STAFF_LABELS = ['doctor', 'backoffice'];
+/** The label each staff portal's host starts with (`doctor.dosthq.com`, `backoffice.dosthq.com`). */
+const PORTAL_LABEL: Record<PortalKind, string> = {
+  doctor: 'doctor',
+  admin: 'backoffice',
+};
+const STAFF_LABELS = Object.values(PORTAL_LABEL);
+
+/** The homepage's query parameter naming the portal the visitor just left (`?from=admin`). */
+const FROM_PARAM = 'from';
+/** Where the homepage keeps it for the tab (sessionStorage): the portal "Go to Dashboard" prefers. */
+const FROM_KEY = 'vm_portal_from';
+
+const isPortalKind = (v: unknown): v is PortalKind =>
+  typeof v === 'string' && Object.hasOwn(HINT_COOKIE, v);
 
 /**
  * The public homepage for a staff portal at `loc`: the patient site of the same
  * group (`doctor.betacrest.com` → `https://patient.betacrest.com/`; the groups
  * run the same builds, so this follows the location, not the build), the dev
  * patient app on localhost, else the main site — never a guessed host on a
- * shared domain such as a preview's `pages.dev`.
+ * shared domain such as a preview's `pages.dev`. With `from`, it names the
+ * portal being left (`?from=admin`, non-secret) so the homepage's "Go to
+ * Dashboard" leads back there even when the browser holds both portals' hints.
  */
-export function publicHomeUrl(loc: SiteLocation): string {
+export function publicHomeUrl(loc: SiteLocation, from?: PortalKind): string {
+  const query = from ? `?${FROM_PARAM}=${from}` : '';
   if (isLocalHost(loc.hostname))
-    return `${loc.protocol}//${loc.hostname}:${DEV_PATIENT_PORT}/`;
+    return `${loc.protocol}//${loc.hostname}:${DEV_PATIENT_PORT}/${query}`;
   const labels = loc.hostname.split('.');
   if (
     loc.protocol === 'https:' &&
     labels.length >= 3 &&
     STAFF_LABELS.includes(labels[0])
   ) {
-    return `https://patient.${labels.slice(1).join('.')}/`;
+    return `https://patient.${labels.slice(1).join('.')}/${query}`;
   }
-  return DEFAULT_HOME;
+  return `${DEFAULT_HOME}${query}`;
 }
 
-/** A hint's portal homepage, if it is a site of this group; else null. */
-function validHint(raw: string, loc: SiteLocation): string | null {
+/**
+ * A hint's portal homepage, if it is this group's `kind` portal; else null. On
+ * a live site: https, under this site's parent domain, and on the portal's own
+ * label (`doctor.` / `backoffice.`), so no other sibling (the API host, say)
+ * can steer "Go to Dashboard" elsewhere.
+ */
+function validHint(
+  raw: string,
+  loc: SiteLocation,
+  kind: PortalKind,
+): string | null {
   let url: URL;
   try {
     url = new URL(decodeURIComponent(raw));
@@ -70,7 +94,8 @@ function validHint(raw: string, loc: SiteLocation): string | null {
     if (
       url.protocol !== 'https:' ||
       !parent ||
-      !url.hostname.endsWith(`.${parent}`)
+      !url.hostname.endsWith(`.${parent}`) ||
+      url.hostname.split('.')[0] !== PORTAL_LABEL[kind]
     )
       return null;
   }
@@ -90,7 +115,7 @@ export function parsePortalHints(
     const name = part.slice(0, eq).trim();
     const kind = kinds.find((k) => HINT_COOKIE[k] === name);
     if (!kind) continue;
-    const url = validHint(part.slice(eq + 1).trim(), loc);
+    const url = validHint(part.slice(eq + 1).trim(), loc, kind);
     if (url) hints[kind] = url;
   }
   return hints;
@@ -103,6 +128,45 @@ export function readPortalHints(): PortalHints {
   } catch {
     return {};
   }
+}
+
+/**
+ * The portal the visitor came to the homepage from (the staff logo's
+ * `?from=doctor|admin`), kept for the tab so the homepage keeps preferring it
+ * after in-app browsing; else the one kept earlier, or null. Never throws.
+ */
+export function portalFrom(
+  search: string,
+  store: Pick<Storage, 'getItem' | 'setItem'> | null = sessionStore(),
+): PortalKind | null {
+  const fresh = new URLSearchParams(search).get(FROM_PARAM);
+  try {
+    if (isPortalKind(fresh)) {
+      store?.setItem(FROM_KEY, fresh);
+      return fresh;
+    }
+    const kept = store?.getItem(FROM_KEY);
+    return isPortalKind(kept) ? kept : null;
+  } catch {
+    return isPortalKind(fresh) ? fresh : null;
+  }
+}
+
+function sessionStore(): Storage | null {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** `search` without the homepage's `from` parameter (`''` when nothing else is left). */
+export function withoutPortalFrom(search: string): string {
+  const params = new URLSearchParams(search);
+  if (!params.has(FROM_PARAM)) return search;
+  params.delete(FROM_PARAM);
+  const rest = params.toString();
+  return rest ? `?${rest}` : '';
 }
 
 /**

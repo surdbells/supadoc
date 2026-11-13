@@ -111,7 +111,9 @@ describe('DoctorShell', () => {
     expect(logos).toHaveLength(2);
     expect(logos[0].textContent).toContain('Doctor');
     for (const a of logos)
-      expect(a.getAttribute('href')).toBe('https://patient.dosthq.com/');
+      expect(a.getAttribute('href')).toBe(
+        'https://patient.dosthq.com/?from=doctor',
+      );
 
     const plain = new MouseEvent('click', {
       bubbles: true,
@@ -120,9 +122,14 @@ describe('DoctorShell', () => {
     });
     logos[1].dispatchEvent(plain);
     expect(plain.defaultPrevented).toBe(true);
-    expect(nav).toHaveBeenCalledWith('/go/home', { skipLocationChange: true });
+    expect(nav).toHaveBeenCalledWith('/go/home', {
+      skipLocationChange: true,
+      state: { leftFrom: expect.any(String) },
+    });
     await Promise.resolve();
-    expect(page.assign).toHaveBeenCalledWith('https://patient.dosthq.com/');
+    expect(page.assign).toHaveBeenCalledWith(
+      'https://patient.dosthq.com/?from=doctor',
+    );
 
     // Ctrl/⌘-click: the browser opens the link in a new tab, the app stays put.
     nav.mockClear();

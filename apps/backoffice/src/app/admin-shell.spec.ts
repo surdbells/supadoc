@@ -73,7 +73,9 @@ describe('AdminShell — logo', () => {
       ),
     ).toBe(true);
     for (const a of logos)
-      expect(a.getAttribute('href')).toBe('https://patient.dosthq.com/');
+      expect(a.getAttribute('href')).toBe(
+        'https://patient.dosthq.com/?from=admin',
+      );
   });
 
   it('a plain click leaves through go/home, without a history entry for it, then for the homepage', async () => {
@@ -89,8 +91,13 @@ describe('AdminShell — logo', () => {
       'a[aria-label="VideoMed home"]',
     )?.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(true);
-    expect(nav).toHaveBeenCalledWith('/go/home', { skipLocationChange: true });
+    expect(nav).toHaveBeenCalledWith('/go/home', {
+      skipLocationChange: true,
+      state: { leftFrom: expect.any(String) },
+    });
     await Promise.resolve();
-    expect(page.assign).toHaveBeenCalledWith('https://patient.dosthq.com/');
+    expect(page.assign).toHaveBeenCalledWith(
+      'https://patient.dosthq.com/?from=admin',
+    );
   });
 });

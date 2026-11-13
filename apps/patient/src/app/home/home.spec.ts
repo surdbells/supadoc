@@ -1,3 +1,4 @@
+import { Location } from '@angular/common';
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
@@ -64,6 +65,8 @@ describe('Home — session-aware header', () => {
   afterEach(() => {
     for (const name of ['vm_portal_doctor', 'vm_portal_admin'])
       document.cookie = `${name}=; Path=/; Max-Age=0`;
+    sessionStorage.clear();
+    history.replaceState(null, '', '/');
   });
 
   it('signed out: Sign in and Register, no dashboard anywhere (closed or open menu)', () => {
@@ -86,7 +89,9 @@ describe('Home — session-aware header', () => {
     ]);
     expect(dashboards()[1].getAttribute('title')).toBe('Go to Dashboard');
     openMenu();
-    expect(dashboards()).toHaveLength(3);
+    // The menu's button replaces the bar's icon while it is open (never twice on screen).
+    expect(dashboards()).toHaveLength(2);
+    expect(dashboards()[1].getAttribute('title')).toBeNull();
 
     const nav = vi
       .spyOn(TestBed.inject(Router), 'navigateByUrl')
@@ -96,15 +101,17 @@ describe('Home — session-aware header', () => {
       cancelable: true,
       button: 0,
     });
-    dashboards()[2].dispatchEvent(click);
+    dashboards()[1].dispatchEvent(click);
     expect(click.defaultPrevented).toBe(true);
     expect(nav).toHaveBeenCalledWith('/dashboard');
   });
 
-  it('a doctor signed in on this browser: Go to Dashboard links to the doctor portal (named for it)', () => {
+  it('a doctor signed in on this browser: Go to Dashboard links to the doctor portal (named for it), beside Sign in / Register', () => {
     setCookie('vm_portal_doctor', DOCTOR);
-    const { text, dashboards } = render(false);
-    expect(text()).not.toContain('Sign in');
+    const { text, dashboards, openMenu } = render(false);
+    // A patient on the same browser can still sign in or register.
+    expect(text().match(/Sign in/g)).toHaveLength(1);
+    expect(text()).toContain('Register');
     expect(dashboards().map((a) => a.getAttribute('href'))).toEqual([
       `${DOCTOR}/`,
       `${DOCTOR}/`,
@@ -112,6 +119,43 @@ describe('Home — session-aware header', () => {
     expect(dashboards()[0].getAttribute('aria-label')).toBe(
       'Go to Dashboard (doctor portal)',
     );
+    openMenu();
+    expect(text().match(/Sign in/g)).toHaveLength(2);
+    expect(dashboards().map((a) => a.getAttribute('href'))).toEqual([
+      `${DOCTOR}/`,
+      `${DOCTOR}/`,
+    ]);
+  });
+
+  it('both portals on this browser: the one just left comes first (?from=admin, kept for the tab, tidied from the address)', () => {
+    setCookie('vm_portal_doctor', DOCTOR);
+    setCookie('vm_portal_admin', ADMIN);
+    history.replaceState(null, '', '/?from=admin');
+    const tidy = vi.spyOn(Location.prototype, 'replaceState');
+    const first = render(false);
+    expect(first.dashboards()[0].getAttribute('href')).toBe(`${ADMIN}/`);
+    expect(tidy).toHaveBeenCalledWith('/', '');
+    tidy.mockRestore();
+    first.openMenu();
+    // The menu names both portals, the one just left first.
+    const menu = first.dashboards().slice(1);
+    expect(menu.map((a) => a.textContent?.trim())).toEqual([
+      'Admin console',
+      'Doctor portal',
+    ]);
+    // Back on the homepage later in this tab (no ?from): still the admin console.
+    TestBed.resetTestingModule();
+    history.replaceState(null, '', '/');
+    expect(render(false).dashboards()[0].getAttribute('href')).toBe(
+      `${ADMIN}/`,
+    );
+  });
+
+  it('both portals, nothing saying which was left: the doctor portal first, both in the menu', () => {
+    setCookie('vm_portal_doctor', DOCTOR);
+    setCookie('vm_portal_admin', ADMIN);
+    const { dashboards } = render(false);
+    expect(dashboards()[0].getAttribute('href')).toBe(`${DOCTOR}/`);
   });
 
   it('an admin: the back office', () => {

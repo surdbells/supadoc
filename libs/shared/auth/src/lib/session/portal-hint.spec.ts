@@ -5,9 +5,19 @@ import {
 } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideSupadocDataAccess } from '@supadoc/data-access';
-import type { Router } from '@angular/router';
-import { leaveForHome, PAGE_LOCATION } from '../portal/leave-for-home';
-import { parsePortalHints, publicHomeUrl } from '../portal/portal-links';
+import { provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
+import {
+  LeavingHome,
+  leaveForHome,
+  PAGE_LOCATION,
+} from '../portal/leave-for-home';
+import {
+  parsePortalHints,
+  portalFrom,
+  publicHomeUrl,
+  withoutPortalFrom,
+} from '../portal/portal-links';
 import { provideStaffAuth, type StaffAuthConfig } from '../provide-staff-auth';
 import { StaffAuthService } from '../staff-auth.service';
 import { portalHintCookie, type SiteLocation } from './portal-hint';
@@ -96,6 +106,9 @@ describe('portal hint — reading (the homepage)', () => {
   it.each([
     ['another domain', 'https://doctor.evil.com'],
     ['a look-alike domain', 'https://doctor.notdosthq.com'],
+    // Only the doctor portal's own host: no other sibling (the API, say) can steer it.
+    ['another sibling of this site', 'https://api.dosthq.com'],
+    ['the other portal', 'https://backoffice.dosthq.com'],
     ['plain http on a live site', 'http://doctor.dosthq.com'],
     ['a script URL', 'javascript:alert(1)'],
     ['a malformed value', '%E0%A4%A'],
@@ -139,6 +152,54 @@ describe('publicHomeUrl (the staff logo)', () => {
   ])('%s → %s', (from, to) => {
     expect(publicHomeUrl(site(from))).toBe(to);
   });
+
+  it('names the portal being left, so the homepage leads back there', () => {
+    expect(publicHomeUrl(site('https://backoffice.dosthq.com'), 'admin')).toBe(
+      'https://patient.dosthq.com/?from=admin',
+    );
+    expect(publicHomeUrl(site('http://localhost:4364'), 'doctor')).toBe(
+      'http://localhost:4201/?from=doctor',
+    );
+  });
+});
+
+describe('portalFrom (the homepage: which portal the visitor came from)', () => {
+  const store = () => {
+    const m = new Map<string, string>();
+    return {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+    };
+  };
+
+  it('takes ?from=, and keeps it for the tab', () => {
+    const st = store();
+    expect(portalFrom('?from=admin', st)).toBe('admin');
+    expect(portalFrom('', st)).toBe('admin');
+    expect(portalFrom('?from=doctor', st)).toBe('doctor');
+    expect(portalFrom('?q=1', st)).toBe('doctor');
+  });
+
+  it('ignores anything but a portal kind, and survives storage that throws', () => {
+    expect(portalFrom('?from=patient', store())).toBeNull();
+    expect(portalFrom('?from=__proto__', store())).toBeNull();
+    const broken = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(portalFrom('?from=admin', broken)).toBe('admin');
+    expect(portalFrom('', broken)).toBeNull();
+  });
+
+  it('withoutPortalFrom drops only that parameter', () => {
+    expect(withoutPortalFrom('?from=admin')).toBe('');
+    expect(withoutPortalFrom('?from=admin&q=heart')).toBe('?q=heart');
+    expect(withoutPortalFrom('?q=heart')).toBe('?q=heart');
+  });
 });
 
 describe('leaveForHome (the staff logo)', () => {
@@ -155,22 +216,80 @@ describe('leaveForHome (the staff logo)', () => {
   it('leaves the page in-app first, then for the homepage as a new history entry (Back returns)', async () => {
     const l = loc();
     const router = {
+      url: '/patients/7?tab=notes',
       navigateByUrl: vi.fn().mockResolvedValue(true),
     } as unknown as Router;
-    await leaveForHome(router, l);
+    await leaveForHome(router, l, 'doctor', new EventTarget());
     expect(router.navigateByUrl).toHaveBeenCalledWith('/go/home', {
       skipLocationChange: true,
+      state: { leftFrom: '/patients/7?tab=notes' },
     });
-    expect(l.assign).toHaveBeenCalledWith('https://patient.betacrest.com/');
+    expect(l.assign).toHaveBeenCalledWith(
+      'https://patient.betacrest.com/?from=doctor',
+    );
     expect(l.replace).not.toHaveBeenCalled();
+  });
+
+  it('Back restoring this page from the back/forward cache puts the page left back (never a blank portal)', async () => {
+    const win = new EventTarget();
+    const state = { url: '/patients/7' };
+    const nav = vi.fn(async (to: string) => {
+      state.url = to;
+      return true;
+    });
+    const router = {
+      get url() {
+        return state.url;
+      },
+      navigateByUrl: nav,
+    } as unknown as Router;
+    await leaveForHome(router, loc(), 'doctor', win);
+    expect(router.url).toBe('/go/home');
+    nav.mockClear();
+
+    const show = (persisted: boolean) => {
+      const e = new Event('pageshow');
+      Object.defineProperty(e, 'persisted', { value: persisted });
+      win.dispatchEvent(e);
+    };
+    show(true);
+    expect(nav).toHaveBeenCalledWith('/patients/7', { replaceUrl: true });
+    // Once only.
+    nav.mockClear();
+    state.url = '/go/home';
+    show(true);
+    expect(nav).not.toHaveBeenCalled();
+  });
+
+  it('a restore after the user already stayed (no longer on go/home) changes nothing', async () => {
+    const win = new EventTarget();
+    const nav = vi.fn().mockResolvedValue(true);
+    // The navigation to go/home was made, then the user chose "Stay in the portal".
+    const router = {
+      url: '/dashboard',
+      navigateByUrl: nav,
+    } as unknown as Router;
+    await leaveForHome(router, loc(), 'admin', win);
+    nav.mockClear();
+    const e = new Event('pageshow');
+    Object.defineProperty(e, 'persisted', { value: true });
+    win.dispatchEvent(e);
+    expect(nav).not.toHaveBeenCalled();
   });
 
   it('stays when the page is kept (unsaved edits, the user chose to stay)', async () => {
     const l = loc();
+    const win = { addEventListener: vi.fn() };
     await leaveForHome(
-      { navigateByUrl: vi.fn().mockResolvedValue(false) } as unknown as Router,
+      {
+        url: '/x',
+        navigateByUrl: vi.fn().mockResolvedValue(false),
+      } as unknown as Router,
       l,
+      'doctor',
+      win,
     );
+    expect(win.addEventListener).not.toHaveBeenCalled();
     expect(l.assign).not.toHaveBeenCalled();
   });
 
@@ -255,5 +374,42 @@ describe('StaffAuthService — portal hint', () => {
   it('an app that does not opt in never sets one', () => {
     setup(tokenFor('d1', 900), {});
     expect(hint()).toBeNull();
+  });
+});
+
+describe('LeavingHome (the go/home page)', () => {
+  it('says the homepage is opening, and offers to stay (back to the page left)', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          { path: 'go/home', component: LeavingHome },
+          { path: '**', children: [] },
+        ]),
+      ],
+    });
+    const harness = await RouterTestingHarness.create();
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/go/home', {
+      skipLocationChange: true,
+      state: { leftFrom: '/patients/7?tab=notes' },
+    });
+    harness.detectChanges();
+    const el = harness.routeNativeElement as HTMLElement;
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+      'Opening the VideoMed home page',
+    );
+    const stay = el.querySelector('a') as HTMLAnchorElement;
+    expect(stay.getAttribute('href')).toBe('/patients/7?tab=notes');
+    const nav = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const click = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    });
+    stay.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(nav).toHaveBeenCalledWith('/patients/7?tab=notes', {
+      replaceUrl: true,
+    });
   });
 });
